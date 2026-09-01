@@ -121,6 +121,8 @@ export type SessionAction =
   | { type: "applyAppointment"; procedure: ProcedureTypeDto }
   | { type: "detachProcedure" }
   | { type: "applyPlanItem"; item: PlanItemPrefill }
+  | { type: "repriceAct"; key: string; unitCost: string }
+  | { type: "resetUnitCostToTariff"; defaultCost: number | null }
   | { type: "commitDraft" }
   | { type: "beginEditAct"; key: string }
   | { type: "cancelEdit" }
@@ -217,10 +219,12 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         // the « Ce n'est pas cet acte » bug: the field still held the PREVIOUS act's tariff, so the new act
         // was billed at the old act's price. An act with no tariff clears the field rather than inheriting
         // one that belongs to the act just replaced ("Sans tarif — à compléter plus tard").
+        // `formatAmount`, not `String`: this figure is now the card's own field, so it must read « 90,000 »
+        // like every other amount the product prints. `parseAmountInput` accepts both forms back.
         unitCost: state.draft.unitCostLocked
           ? state.draft.unitCost
           : pt.defaultCost != null
-            ? String(pt.defaultCost)
+            ? formatAmount(pt.defaultCost)
             : "",
         // A fresh pick re-opens the pricing question, so the switch un-locks.
         perToothLocked: false,
@@ -261,6 +265,28 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         unitCost: item.plannedCost != null && item.plannedCost > 0 ? formatAmount(item.plannedCost) : state.draft.unitCost,
       }
       return { ...state, selection: teeth, draft: { ...draft, perTooth: derivePerTooth(draft, teeth.length) } }
+    }
+
+    case "repriceAct": {
+      // Repricing a committed act from its own row. `unitCostLocked` is set for the same reason typing in the
+      // composer sets it: the figure is now the dentist's, not the catalogue's.
+      return {
+        ...state,
+        acts: state.acts.map((a) =>
+          a.key === action.key ? { ...a, unitCost: action.unitCost, unitCostLocked: true } : a,
+        ),
+      }
+    }
+
+    case "resetUnitCostToTariff": {
+      // Deliberately NOT a `patchDraft`: that path locks `unitCost` (see above), and a tariff put back must be
+      // free to follow the next act the dentist picks — which is the whole point of putting it back.
+      const draft = {
+        ...state.draft,
+        unitCost: action.defaultCost != null ? formatAmount(action.defaultCost) : "",
+        unitCostLocked: false,
+      }
+      return { ...state, draft }
     }
 
     case "commitDraft": {

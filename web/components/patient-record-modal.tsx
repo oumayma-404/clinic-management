@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
-import { Trash2, Plus, Stethoscope, ChevronDown, ChevronRight } from "lucide-react"
+import { Trash2, Plus, Check, Stethoscope, ChevronDown, ChevronRight } from "lucide-react"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
@@ -850,6 +850,7 @@ export function PatientRecordModal({
             draft={draft}
             hasDraft={hasDraft}
             draftTotal={draftTotal}
+            toothCount={selection.length}
             procedureTypes={procedureTypes}
             proposedFromAppointment={proposedFromAppointment}
             editingAct={editingAct}
@@ -1118,20 +1119,12 @@ export function PatientRecordModal({
               setOpenSections((prev) => ({ ...prev, details: true }))
             }}
             onRemove={(key) => dispatch({ type: "removeAct", key })}
+            onReprice={(key, unitCost) => dispatch({ type: "repriceAct", key, unitCost })}
             disabled={loading}
           />
-          {editingAct && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 justify-self-start text-xs"
-              onClick={() => dispatch({ type: "cancelEdit" })}
-              disabled={loading}
-            >
-              Annuler la modification
-            </Button>
-          )}
+          {/* No « Annuler la modification » here any more: it lived inside a section that is collapsed by
+              default, so the way out of an edit was usually invisible. It is now beside the button that
+              commits the edit, in the footer, where the pair belongs. */}
         </RecordSection>
 
         <RecordSection
@@ -1356,19 +1349,40 @@ export function PatientRecordModal({
           */}
           <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
             {/* Confirms the act in hand and clears both the draft and the chart, so the next act starts from an
-                empty mouth. Saving does NOT require this — the draft is persisted either way. */}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                dispatch({ type: "commitDraft" })
-                setOpenSections((prev) => ({ ...prev, acts: true }))
-              }}
-              disabled={loading || !hasDraft}
-              className="w-full sm:w-auto"
-            >
-              <Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte
-            </Button>
+                empty mouth. Saving does NOT require this — the draft is persisted either way.
+
+                ⚠️ The label follows `editingAct`. It read « Ajouter un autre acte » in both states, so the only
+                control that committed an EDIT invited the dentist to add a second act — which is what « il faut
+                réinsérer l'acte » was: they were re-entering an act the composer already held. */}
+            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+              {editingAct && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => dispatch({ type: "cancelEdit" })}
+                  disabled={loading}
+                  className="w-full sm:w-auto"
+                >
+                  Abandonner la modification
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  dispatch({ type: "commitDraft" })
+                  setOpenSections((prev) => ({ ...prev, acts: true }))
+                }}
+                disabled={loading || !hasDraft}
+                className="w-full sm:w-auto"
+              >
+                {editingAct ? (
+                  <><Check className="mr-1 h-4 w-4" /> Enregistrer la modification</>
+                ) : (
+                  <><Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte</>
+                )}
+              </Button>
+            </div>
             <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
               <Button
                 variant="outline"
