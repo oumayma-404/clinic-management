@@ -274,6 +274,7 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
           acts: state.acts.map((a) => (a.key === key ? { ...committed, key } : a)),
           editingKey: null,
           draft: emptyDraft(),
+          selection: [],
         }
       }
 
@@ -282,8 +283,9 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         acts: [...state.acts, { ...committed, key: makeKey(state.nextKey) }],
         nextKey: state.nextKey + 1,
         draft: emptyDraft(),
-        // The selection is deliberately KEPT: recording a second procedure on the same tooth is the most
-        // common next action, and re-clicking the tooth each time is exactly the friction being removed.
+        // The selection is CLEARED with the draft: a live selection paints in the draft act's colour, so teeth
+        // carried over into the next act read as already charted to it — the next act must start from nothing.
+        selection: [],
       }
     }
 

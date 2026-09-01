@@ -1355,8 +1355,8 @@ export function PatientRecordModal({
             180,000 DT » is ~230px of unwrappable French and `buttonVariants` is `whitespace-nowrap`.
           */}
           <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-            {/* Confirms the act in hand and clears the draft, keeping the selection so a second procedure on the
-                same tooth is one pick away. Saving does NOT require this — the draft is persisted either way. */}
+            {/* Confirms the act in hand and clears both the draft and the chart, so the next act starts from an
+                empty mouth. Saving does NOT require this — the draft is persisted either way. */}
             <Button
               type="button"
               variant="outline"
