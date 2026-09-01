@@ -121,6 +121,18 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
    */
   const [multiSelect, setMultiSelect] = useState(false)
   const [selectedTeeth, setSelectedTeeth] = useState<Set<number>>(new Set())
+  /**
+   * The condition chosen in « Plusieurs dents », held HERE rather than in the panel that owns the form — because
+   * what it paints is the arch, and the panel cannot reach it.
+   *
+   * <p>The tooth used to keep its old colour until the write came back, so the dentist chose « Carie », looked up
+   * at the chart and saw nothing had happened. It now answers the choice immediately.</p>
+   *
+   * <p>⚠️ `null` until a condition is actually picked, and that is the whole reason this is not simply seeded with
+   * `DIAGNOSIS_CONDITIONS[0]`. The Select opens *showing* « Carie », so previewing its initial value would paint
+   * every tooth red the moment it was ticked — the chart would be asserting a diagnosis nobody made.</p>
+   */
+  const [pendingCondition, setPendingCondition] = useState<string | null>(null)
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
   // The patient's fiches, joined to the treatment-sourced states for the act names.
   const [records, setRecords] = useState<DentalRecordDto[]>([])
@@ -315,6 +327,8 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
   const setMultiSelectMode = useCallback((on: boolean) => {
     setMultiSelect(on)
     setSelectedTeeth(new Set())
+    // Leaving the choice behind would repaint the next selection with the previous session's condition.
+    setPendingCondition(null)
   }, [])
 
   return (
@@ -465,6 +479,7 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
               selectionMode={multiSelect}
               isSelected={selectedTeeth.has(t)}
               onToggleSelect={toggleSelectedTooth}
+              previewCondition={multiSelect && selectedTeeth.has(t) ? pendingCondition : null}
             />
           )}
         />
@@ -476,6 +491,8 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
                 onClearSelection={() => setSelectedTeeth(new Set())}
                 onKeepOnlyFailed={(failed) => setSelectedTeeth(new Set(failed))}
                 onChanged={load}
+                condition={pendingCondition}
+                onConditionChange={setPendingCondition}
               />
             )}
 
@@ -514,6 +531,11 @@ interface ToothCellProps {
   selectionMode: boolean
   isSelected: boolean
   onToggleSelect: (toothNumber: number) => void
+  /**
+   * A condition chosen in « Plusieurs dents » but not yet written — paint the box with it now. `null` when this
+   * tooth is not part of a pending multi-tooth diagnosis, which is every tooth outside that mode.
+   */
+  previewCondition?: string | null
 }
 
 function ToothCell({
@@ -524,9 +546,15 @@ function ToothCell({
   selectionMode,
   isSelected,
   onToggleSelect,
+  previewCondition = null,
 }: ToothCellProps) {
   const [open, setOpen] = useState(false)
-  const [condition, setCondition] = useState(DIAGNOSIS_CONDITIONS[0])
+  /**
+   * This popover's own chosen condition — `null` until the dentist picks one, so that merely *opening* a tooth
+   * does not paint it with the Select's initial « Carie ». Falls back to that same first entry when saved
+   * untouched, which is what the Select has been displaying all along.
+   */
+  const [condition, setCondition] = useState<string | null>(null)
   const [note, setNote] = useState("")
   const [surfaces, setSurfaces] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -541,21 +569,32 @@ function ToothCell({
   }
 
   const latest = entries[0]
-  const style = conditionStyle(latest?.condition ?? "Sain")
-  const latestIsDiagnosis = latest ? isDiagnosis(latest) : false
+
+  /**
+   * The condition the box is painted with: a **pending** choice wins over the stored state.
+   *
+   * <p>Both halves of the chart write through this. `previewCondition` is « Plusieurs dents »' shared choice,
+   * `condition` is this popover's own — and the popover's only counts while it is open, so an abandoned form
+   * leaves nothing painted behind it.</p>
+   */
+  const preview = previewCondition ?? (open ? condition : null)
+  const style = conditionStyle(preview ?? latest?.condition ?? "Sain")
+  // A pending choice is a diagnosis, so it takes the dashed border the legend already explains as « à traiter ».
+  const latestIsDiagnosis = preview !== null || (latest ? isDiagnosis(latest) : false)
 
   const handleDiagnose = async () => {
     try {
       setSaving(true)
       await odontogramApi.diagnose(patientId, {
         toothNumber: toothNum,
-        condition,
+        condition: condition ?? DIAGNOSIS_CONDITIONS[0],
         surfaces: serializeSurfaces(surfaces) || null,
         note: note.trim() || null,
       })
       toast.success(`Diagnostic ajouté (dent ${toothNum})`)
       setNote("")
       setSurfaces(new Set())
+      setCondition(null)
       setOpen(false)
       onChanged()
     } catch (err) {
@@ -743,8 +782,16 @@ function ToothCell({
     </PopoverTrigger>
   )
 
+  /* Closing drops the pending choice: a form the dentist walked away from must not leave the tooth painted with
+     a diagnosis that was never saved. */
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setCondition(null)
+      }}
+    >
       {withTooltip(trigger)}
       {/*
         ⚠️ `max-h-[70dvh] overflow-y-auto` — Radix does not bound a popover's height, and this one grows without
@@ -820,7 +867,7 @@ function ToothCell({
           <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <Stethoscope className="h-3.5 w-3.5" /> Noter un diagnostic
           </p>
-          <Select value={condition} onValueChange={setCondition}>
+          <Select value={condition ?? DIAGNOSIS_CONDITIONS[0]} onValueChange={setCondition}>
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
@@ -912,6 +959,12 @@ interface MultiToothDiagnosisPanelProps {
   /** After a partial failure, leave ticked exactly the teeth that did not land — see `handleSave`. */
   onKeepOnlyFailed: (failed: number[]) => void
   onChanged: () => void
+  /**
+   * The chosen condition, owned by the chart rather than by this panel — the ticked teeth are painted with it
+   * before it is saved, and they are not this component's to paint. `null` until one is actually picked.
+   */
+  condition: string | null
+  onConditionChange: (condition: string) => void
 }
 
 /**
@@ -931,8 +984,12 @@ function MultiToothDiagnosisPanel({
   onClearSelection,
   onKeepOnlyFailed,
   onChanged,
+  condition,
+  onConditionChange,
 }: MultiToothDiagnosisPanelProps) {
-  const [condition, setCondition] = useState(DIAGNOSIS_CONDITIONS[0])
+  /* The Select has been *showing* the first condition all along, so that is what an untouched form saves — only
+     the preview waits for a deliberate choice. */
+  const effectiveCondition = condition ?? DIAGNOSIS_CONDITIONS[0]
   const [note, setNote] = useState("")
   const [surfaces, setSurfaces] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -963,7 +1020,7 @@ function MultiToothDiagnosisPanel({
       try {
         await odontogramApi.diagnose(patientId, {
           toothNumber: tooth,
-          condition,
+          condition: effectiveCondition,
           surfaces: serializeSurfaces(surfaces) || null,
           note: note.trim() || null,
         })
@@ -974,7 +1031,7 @@ function MultiToothDiagnosisPanel({
     setSaving(false)
     onChanged()
 
-    const label = conditionStyle(condition).label
+    const label = conditionStyle(effectiveCondition).label
     if (failed.length === 0) {
       toast.success(`${label} — ${teeth.length} dent${teeth.length > 1 ? "s" : ""} chartée${teeth.length > 1 ? "s" : ""}`)
       setNote("")
@@ -1032,7 +1089,7 @@ function MultiToothDiagnosisPanel({
         <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
           <Stethoscope className="h-3.5 w-3.5" aria-hidden="true" /> Diagnostic commun
         </p>
-        <Select value={condition} onValueChange={setCondition}>
+        <Select value={effectiveCondition} onValueChange={onConditionChange}>
           <SelectTrigger className="h-9 text-xs">
             <SelectValue />
           </SelectTrigger>
