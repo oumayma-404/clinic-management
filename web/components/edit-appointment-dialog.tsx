@@ -623,17 +623,38 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               Mettez à jour les détails du rendez-vous ou changez son statut
             </DialogDescription>
             {source?.patientId ? (
+              /*
+                The patient's name IS the link to their fiche. It replaced a separate « Ouvrir la fiche » button
+                that sat at the end of this row: with the name itself clickable the two were a second door to the
+                same place, adjacent, which is what this dialog's own « Annuler le rendez-vous » note argues
+                against — the name is where a reader looks for the person, so that is where the door belongs.
+
+                ⚠️ `coarse:min-h-11` on the link, not `.touch-target`: it now carries the *only* path to the fiche
+                and it sits directly above the date line, where an overlay would overhang and steal taps.
+
+                ⚠️ Navigating away abandons any unsaved edit, exactly as the button it replaces did — the dirty
+                guard covers closing the dialog, not following a link out of it. Unchanged behaviour, stated here
+                because the affordance is now more inviting than a small link at the row's end.
+              */
               <div className="flex items-center gap-3">
                 <InitialsAvatar name={patientName} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold leading-tight">{patientName}</p>
+                  {/* ⚠️ Underlined AT REST, not only on hover: this is the sole path to the fiche now, and a name
+                      that reveals itself as a link only when a mouse is already on it is not discoverable at all
+                      — least of all on a touch screen, which has no hover. The accessible name keeps the wording
+                      the button carried, so what a screen reader announces did not get quieter either. */}
+                  <Link
+                    href={`/patients/${source.patientId}`}
+                    aria-label={`Ouvrir la fiche de ${patientName}`}
+                    title={`Ouvrir la fiche de ${patientName}`}
+                    className="inline-flex max-w-full items-center rounded-sm text-sm font-semibold leading-tight underline decoration-muted-foreground/50 underline-offset-2 transition-colors hover:text-primary hover:decoration-primary coarse:min-h-11"
+                  >
+                    <span className="truncate">{patientName}</span>
+                  </Link>
                   <p className="truncate text-xs text-muted-foreground">
                     {date ? format(date, "EEEE d MMMM yyyy", { locale: fr }) : "Date à définir"}
                   </p>
                 </div>
-                <Button asChild type="button" variant="link" size="sm" className="h-auto shrink-0 p-0 text-xs">
-                  <Link href={`/patients/${source.patientId}`}>Ouvrir la fiche</Link>
-                </Button>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Créneau occupé — aucun patient</p>
