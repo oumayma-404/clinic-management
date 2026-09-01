@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from './client';
+import { apiGet, apiPost } from './client';
 import type { PagedResponse } from './paging';
 
 export interface GoogleCalendarStatus {
@@ -9,11 +9,6 @@ export interface GoogleCalendarStatus {
   tokenValid?: boolean;
   calendarId: string;
   message: string;
-  /**
-   * The practice has declared the connected calendar holds nothing but appointments, so the import treats any
-   * event titled « Prénom Nom » as one instead of demanding a keyword in the title.
-   */
-  holdsOnlyAppointments: boolean;
 }
 
 export interface GoogleCalendarAuthResponse {
@@ -50,21 +45,14 @@ export const googleCalendarApi = {
   },
 
   /**
-   * Sync from Google Calendar to clinic appointments.
-   * Routed through the shared client.ts wrapper so a mid-request connectivity loss surfaces as
-   * ApiError(status === 0) — unifying calendar failure handling with the AI path (AC-6.5, R-7).
-   */
-  syncFromGoogle: async (): Promise<CalendarImportOutcome> => {
-    return apiPost<CalendarImportOutcome>('/googlecalendar/sync-from-google', {});
-  },
-
-  /**
    * The import passes this cabinet has had, newest first — or, with `latestUndoable`, just the one worth
    * offering « Annuler cet import » for.
    *
-   * `latestUndoable` is not « the most recent »: the recurring importer writes a run every few hours and most of
-   * them create nothing, so taking the latest would put a destructive-looking button in front of a practice for
-   * no reason and hide the import that actually filled its worklist behind a dozen that did not.
+   * ⚠️ Nothing creates a run any more: « Importer depuis Google » and its recurring job were retired. These
+   * three reads are what remains, and they are a live recovery path — a cabinet whose worklist is still full of
+   * an import it made has no other way back. `latestUndoable` still matters for exactly that reason: the old
+   * recurring importer wrote a run every few hours and most created nothing, so taking « the most recent » would
+   * hide the pass that actually filled the worklist behind a dozen that did not.
    */
   listImports: async (
     params?: { latestUndoable?: boolean; page?: number; pageSize?: number },
@@ -91,17 +79,12 @@ export const googleCalendarApi = {
   syncAppointment: async (appointmentId: string): Promise<{ message: string }> => {
     return apiPost<{ message: string }>(`/googlecalendar/sync-appointment/${appointmentId}`, {});
   },
-
-  /**
-   * Admin-only: declare whether the connected calendar holds only appointments. Refused with a French message when
-   * the clinic has no Google connection — the setting describes a specific calendar.
-   */
-  setImportSettings: async (holdsOnlyAppointments: boolean): Promise<{ holdsOnlyAppointments: boolean }> => {
-    return apiPut<{ holdsOnlyAppointments: boolean }>('/googlecalendar/import-settings', { holdsOnlyAppointments });
-  },
 };
 
-/** What one « Importer depuis Google » press did. `runId` is null when the clinic has no Google connection. */
+/**
+ * What one « Importer depuis Google » press did — kept because the runs it recorded are still read by the undo,
+ * not because anything still produces one. `runId` is null when the clinic had no Google connection.
+ */
 export interface CalendarImportOutcome {
   runId: string | null;
   appointmentsCreated: number;

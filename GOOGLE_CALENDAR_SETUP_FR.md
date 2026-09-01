@@ -1,5 +1,21 @@
 # Guide de Configuration Google Calendar (Français)
 
+
+> ## ⚠️ Google → App est RETIRÉ — ce guide ne couvre plus qu'UN SEUL sens
+>
+> « Importer depuis Google », `POST /api/googlecalendar/sync-from-google`, le job `GoogleCalendarImportJob` (toutes
+> les 15 minutes) et le réglage `import-settings` **n'existent plus**. Un seul clic était une écriture en masse, sans
+> bornes et sans retour : 97 jours d'agenda Google devenaient des rendez-vous, et les évènements passés arrivaient
+> sur « À clôturer » comme des séances que personne ne pouvait clôturer honnêtement — le cabinet les annulait, ce qui
+> gonflait son propre « taux d'absence ».
+>
+> **Toujours valable :** toute la configuration OAuth ci-dessous. App → Google fonctionne à l'enregistrement de
+> chaque rendez-vous et en a besoin. **Plus valable :** tout ce qui décrit une importation, un job périodique ou une
+> synchronisation bidirectionnelle.
+>
+> L'**annulation** des imports déjà effectués subsiste (`GET /api/googlecalendar/imports`, `…/revert-preview`,
+> `…/revert`). Voir [`features/calendar-import-revert/notes.md`](features/calendar-import-revert/notes.md).
+
 Ce guide vous aidera à configurer la synchronisation bidirectionnelle entre le système de gestion de clinique et Google Calendar.
 
 ## Étape 1: Créer un projet Google Cloud et activer l'API Calendar

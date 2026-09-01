@@ -29,10 +29,13 @@ namespace ClinicManagement.Domain.Entities;
 public class CalendarImportRun : AggregateRoot<Guid>
 {
     /// <summary>
-    /// The actor recorded for a pass nobody clicked. <c>GoogleCalendarImportJob</c> runs on a schedule with no
+    /// The actor recorded for a pass nobody clicked. <c>GoogleCalendarImportJob</c> ran on a schedule with no
     /// token, and <see cref="AuditEntry.UserId"/>'s own convention for that is <c>job|&lt;name&gt;</c> — reused
     /// verbatim so the two ledgers name the same actor the same way. ⚠️ A job-triggered run is revertable like
     /// any other: a pass nobody asked for is precisely the one a practice needs to be able to undo.
+    ///
+    /// ⚠️ <b>Nothing writes this any more</b> — the job was retired with the import — but historical runs hold it
+    /// and the undo still reads them, so the prefix and the label that renders it must stay.
     /// </summary>
     public const string JobActorPrefix = "job|";
 

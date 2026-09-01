@@ -95,17 +95,17 @@ export const appointmentsApi = {
    * false, and a cancellation counts in the « taux d'absence ». This asserts nothing, and the server honours it
    * in the dashboard's figures as well as on the list.
    *
-   * `reason` is mandatory when retiring and ignored when restoring; one motif covers the whole selection.
+   * No motif: unlike `setNothingToBill` below, this mark asserts nothing, so there is nothing to justify —
+   * and charging a sentence for it made the honest exit cost more than cancelling, which is what inflated the
+   * « taux d'absence » in the first place. Who and when are recorded server-side either way.
    */
   disregardVisits: async (
     appointmentIds: string[],
     disregard: boolean,
-    reason?: string,
   ): Promise<DisregardVisitsResult> =>
     apiPost<DisregardVisitsResult>('/appointments/disregard', {
       appointmentIds,
       disregard,
-      reason: reason ?? null,
     }),
 
   /**

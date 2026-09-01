@@ -30,6 +30,14 @@ namespace ClinicManagement.Application.Features.Appointments.Commands;
 /// in the <b>URL</b> so no truncated body can turn « remettre » into « retirer ». The single-id routes send a
 /// one-element list, so the bulk path is the only path and cannot drift from a single-row one.</para>
 ///
+/// <para>⚠️ <b>No motif, and that is a deliberate reversal of how this first shipped.</b> It asked for one, on
+/// <see cref="MarkNothingToBillCommand"/>'s reasoning — and the parallel was wrong. « Rien à facturer » is a claim
+/// about money the cabinet may be asked to justify; this asserts nothing whatsoever, so there is nothing to
+/// justify. Demanding a sentence to say « cette ligne ne me concerne pas », across the hundred-odd rows this
+/// exists for, priced the honest exit above the dishonest one — and the dishonest one is <c>Cancel()</c>, which is
+/// what inflated the « taux d'absence » in the first place. Who and when are still recorded, by
+/// <c>AuditSaveChangesInterceptor</c>.</para>
+///
 /// <para><b><c>AnyClinicRole</c></b>, like the rest of the worklist: reception is who knows that the séance was a
 /// duplicate or a slot nobody ever sat in. Nothing clinical is destroyed either way — the appointment, its status
 /// and every record attached to it are untouched — and <c>AuditSaveChangesInterceptor</c> answers « qui a retiré
@@ -41,16 +49,6 @@ public class DisregardVisitsCommand : IRequest<Result<DisregardVisitsResultDto>>
 
     /// <summary>True to take the séances off the list, false to put them back.</summary>
     public bool Disregard { get; set; }
-
-    /// <summary>
-    /// Why. <b>Mandatory when retiring</b>, ignored when restoring — <see cref="MarkNothingToBillCommand"/>'s rule
-    /// and its reason: « pourquoi cette séance a-t-elle été retirée ? » must stay answerable months later.
-    ///
-    /// <para><b>One motif for the whole selection</b>, deliberately. A mandatory motif per row is unusable across
-    /// the hundred-odd rows this exists for, and the alternative — no motif on the bulk path — would make the
-    /// bulk door the one everybody uses precisely because it asks nothing.</para>
-    /// </summary>
-    public string? Reason { get; set; }
 }
 
 /// <summary>What the call did, in the terms the screen reports back.</summary>
@@ -114,11 +112,6 @@ public class DisregardVisitsCommandHandler
                     $"Vous ne pouvez retirer que {MaxIds} séances à la fois.");
             }
 
-            if (request.Disregard && string.IsNullOrWhiteSpace(request.Reason))
-            {
-                return Result<DisregardVisitsResultDto>.Failure("Le motif est obligatoire.");
-            }
-
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
@@ -145,7 +138,7 @@ public class DisregardVisitsCommandHandler
 
                 if (request.Disregard)
                 {
-                    appointment.Disregard(request.Reason!, userId, nowUtc);
+                    appointment.Disregard(userId, nowUtc);
                 }
                 else
                 {

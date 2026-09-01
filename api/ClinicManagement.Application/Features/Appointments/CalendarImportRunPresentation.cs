@@ -17,7 +17,8 @@ public static class CalendarImportRunPresentation
     /// <summary>
     /// What the screen calls a pass nobody clicked. The stored actor is <c>job|GoogleCalendarImportJob</c> — an
     /// audit-ledger convention, not a sentence — and printing it raw would be the first time a dentist saw the
-    /// inside of the audit format.
+    /// inside of the audit format. ⚠️ The job itself was retired with the import; only historical runs carry this,
+    /// and the undo still lists them, so the label stays.
     /// </summary>
     public const string AutomaticLabel = "Import automatique";
 

@@ -76,13 +76,13 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.HasIndex(a => a.NothingToBillAtUtc)
             .HasFilter("\"NothingToBillAtUtc\" IS NOT NULL");
 
-        // « Retirer de la liste » — the worklist's third exit. Same three-column shape and same reasoning as the
-        // block above: no default and no backfill, because a visit nobody has set aside genuinely has no such
-        // note.
+        // « Retirer de la liste » — the worklist's third exit. Same reasoning as the block above: no default and
+        // no backfill, because a visit nobody has set aside genuinely has no such note.
+        //
+        // ⚠️ Two columns, not three: unlike « rien à facturer » this mark carries **no motif** — see the entity's
+        // own note for why the parallel does not hold. `DisregardedReason` was dropped in
+        // `RetireGoogleCalendarImport`.
         builder.Property(a => a.DisregardedAtUtc);
-
-        builder.Property(a => a.DisregardedReason)
-            .HasMaxLength(500);
 
         builder.Property(a => a.DisregardedByUserId)
             .HasMaxLength(200);

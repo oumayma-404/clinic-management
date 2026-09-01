@@ -340,7 +340,7 @@ public class PatientsController : ApiControllerBase
         [FromQuery] bool pendingCalendarReviewOnly = false,
         // Only meaningful alongside the filter above: a dismissal narrows « Patients à compléter » and never the
         // practice's directory, or « ne plus afficher » would read as a delete.
-        [FromQuery] bool includeDismissedReview = false,
+        [FromQuery] bool dismissedReviewOnly = false,
         [FromQuery] bool includeArchived = false,
         // An unrecognised value falls back to the alphabetical default rather than refusing: the same tolerance
         // the lab-order stage filter and the audit action filter apply, so a stale link still opens a list.
@@ -357,7 +357,7 @@ public class PatientsController : ApiControllerBase
             PageSize = pageSize,
             FlaggedOnly = flaggedOnly,
             PendingCalendarReviewOnly = pendingCalendarReviewOnly,
-            IncludeDismissedReview = includeDismissedReview,
+            DismissedReviewOnly = dismissedReviewOnly,
             Sort = string.Equals(sort, nameof(PatientListSort.RecentlyAdded), StringComparison.OrdinalIgnoreCase)
                 ? PatientListSort.RecentlyAdded
                 : PatientListSort.Name,

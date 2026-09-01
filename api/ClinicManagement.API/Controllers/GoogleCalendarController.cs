@@ -155,51 +155,11 @@ public class GoogleCalendarController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(new { disconnected = true });
     }
 
-    /// <summary>
-    /// Manually trigger sync from Google Calendar to Clinic appointments (admin only). The sync service
-    /// resolves the caller's clinic internally and scopes everything to it.
-    /// </summary>
-    [HttpPost("sync-from-google")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<IActionResult> SyncFromGoogleCalendar()
-    {
-        try
-        {
-            _logger.LogInformation("Manual sync from Google Calendar triggered");
-
-            var clinicResult = await _clinicResolver.GetClinicIdAsync();
-            if (clinicResult.IsFailure)
-            {
-                return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre le cabinet." });
-            }
-
-            // The caller is named on the run, so « Imports Google » can tell a pass somebody pressed from one the
-            // schedule ran — and so the undo's journal row says who.
-            var outcome = await _syncService.SyncGoogleCalendarToAppointmentsAsync(
-                clinicResult.Value, _clinicContext.GetUserId());
-
-            // ⚠️ It used to answer `{ message, timestamp }`: a practice pressed a button that wrote a hundred
-            // rows and was told the time. The counts and the run id are what let the screen say what happened
-            // and offer « Annuler cet import » on the spot.
-            return Ok(new
-            {
-                runId = outcome.RunId,
-                appointmentsCreated = outcome.AppointmentsCreated,
-                patientsCreated = outcome.PatientsCreated,
-                appointmentsUpdated = outcome.AppointmentsUpdated,
-                appointmentsLinked = outcome.AppointmentsLinked
-            });
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
-        {
-            return BadRequest(new { error = "Google Calendar n'est pas connecté pour ce cabinet. Connectez-le depuis les paramètres." });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during manual sync from Google Calendar");
-            return StatusCode(500, new { error = "Erreur lors de la synchronisation depuis Google Calendar." });
-        }
-    }
+    // ⚠️ There is no « sync-from-google » endpoint any more, and no import settings to go with it. Google→App was
+    // retired: one press was a mass, unbounded, irreversible write, and the past week of it landed on
+    // « À clôturer » as visits nobody could honestly close. The three `imports/…` routes above are what remains —
+    // they read the runs already on record so a cabinet can still undo the pass it made. Before adding a pull
+    // back, read features/calendar-import-revert/notes.md.
 
     /// <summary>
     /// Get the redirect URI that should be configured in Google Cloud Console.
@@ -289,7 +249,6 @@ public class GoogleCalendarController : ApiControllerBase
             hasRefreshToken,
             tokenValid,
             calendarId,
-            holdsOnlyAppointments = clinic?.GoogleCalendarHoldsOnlyAppointments ?? false,
             message = !hasClientId || !hasClientSecret
                 ? "Le ClientId et le ClientSecret Google doivent être configurés côté serveur."
                 : !hasRefreshToken
@@ -298,21 +257,6 @@ public class GoogleCalendarController : ApiControllerBase
                         ? "Le jeton Google Calendar est invalide ou expiré. Reconnectez-vous."
                         : "Google Calendar est connecté et prêt."
         });
-    }
-
-    /// <summary>
-    /// Admin-only: record whether the connected calendar holds nothing but appointments, which opens the import
-    /// gate to events titled « Prénom Nom » (<c>calendar-import-review</c>).
-    /// </summary>
-    [HttpPut("import-settings")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<IActionResult> SetImportSettings(
-        [FromBody] SetGoogleCalendarImportSettingsCommand command, CancellationToken cancellationToken)
-    {
-        var result = await _mediator.Send(command, cancellationToken);
-        return result.IsFailure
-            ? HandleFailure(result)
-            : Ok(new { holdsOnlyAppointments = result.Value });
     }
 
     /// <summary>

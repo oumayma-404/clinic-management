@@ -7,8 +7,6 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { getErrorMessage } from "@/lib/errors"
@@ -28,9 +26,12 @@ import type { VisitToCloseDto } from "@/lib/api/types"
  * document — and leaves the first two standing. This one says the row does not belong here at all. A visit can
  * legitimately carry either.</p>
  *
- * <p><b>One motif for the whole selection.</b> A mandatory motif per row is unusable across the hundred-odd rows
- * this exists for; no motif at all would make the bulk door the one everybody reaches for precisely because it
- * asks nothing. The server refuses a blank one too, so the disabled button is a courtesy rather than the guard.</p>
+ * <p>⚠️ <b>It asks for nothing, and that is a reversal of how it first shipped.</b> It demanded a motif, on
+ * « Rien à facturer »'s reasoning — and the parallel does not hold: that one is a claim about money the cabinet
+ * may be asked to justify later, whereas this asserts nothing, so there is nothing to justify. Over the
+ * hundred-odd rows this exists for, a mandatory sentence priced the honest exit above the dishonest one — and the
+ * dishonest one is the annulation that started the whole problem. So the dialog <b>confirms</b> rather than
+ * collects: it is still worth showing, because « rien n'est supprimé » is the part staff do not assume.</p>
  */
 
 interface DisregardVisitsDialogProps {
@@ -41,15 +42,12 @@ interface DisregardVisitsDialogProps {
 }
 
 export function DisregardVisitsDialog({ visits, onOpenChange, onDone }: DisregardVisitsDialogProps) {
-  const [reason, setReason] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // A fresh selection is a fresh question: carrying the previous motif over is how a colleague's reasoning ends
-  // up attached to séances it was never about.
+  // A fresh selection is a fresh question: a previous attempt's error must not greet the next one.
   useEffect(() => {
     if (visits) {
-      setReason("")
       setError(null)
     }
   }, [visits])
@@ -58,7 +56,7 @@ export function DisregardVisitsDialog({ visits, onOpenChange, onDone }: Disregar
   const single = count === 1 ? visits?.[0] : undefined
 
   const submit = async () => {
-    if (!visits || visits.length === 0 || reason.trim().length === 0) return
+    if (!visits || visits.length === 0) return
 
     setSubmitting(true)
     setError(null)
@@ -67,7 +65,6 @@ export function DisregardVisitsDialog({ visits, onOpenChange, onDone }: Disregar
       const result = await appointmentsApi.disregardVisits(
         visits.map((v) => v.appointmentId),
         true,
-        reason.trim(),
       )
 
       toast.success(
@@ -77,7 +74,7 @@ export function DisregardVisitsDialog({ visits, onOpenChange, onDone }: Disregar
       )
       onDone()
     } catch (err) {
-      // § 13 — the dialog stays open with the motif still typed in it.
+      // § 13 — the dialog stays open so the action can be retried without rebuilding the selection.
       setError(getErrorMessage(err))
     } finally {
       setSubmitting(false)
@@ -112,28 +109,11 @@ export function DisregardVisitsDialog({ visits, onOpenChange, onDone }: Disregar
           réafficher à tout moment.
         </p>
 
-        <div className="space-y-2">
-          <Label htmlFor="disregard-reason">Motif</Label>
-          <Textarea
-            id="disregard-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Ex. importées par erreur depuis Google Agenda, créneau jamais occupé…"
-            rows={3}
-            maxLength={500}
-          />
-          <p className="text-xs text-muted-foreground">
-            {count > 1
-              ? "Le même motif est enregistré sur chaque séance retirée."
-              : "Le motif reste visible sur la séance : il explique plus tard pourquoi elle a été retirée."}
-          </p>
-        </div>
-
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Annuler
           </Button>
-          <Button onClick={submit} disabled={submitting || reason.trim().length === 0}>
+          <Button onClick={submit} disabled={submitting}>
             {submitting && <Loader2 aria-hidden="true" className="me-1.5 size-4 animate-spin" />}
             Retirer de la liste
           </Button>

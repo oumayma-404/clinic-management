@@ -1,6 +1,10 @@
 # Feature Specification: An import is a run, and a run can be undone
 
-**Status:** DRAFT — awaiting approval
+**Status:** SHIPPED — see [`notes.md`](notes.md) for what actually shipped, including three divergences from this
+document: **AC-28/32/35's mandatory motif was removed** (« Retirer de la liste » asks for nothing), **AC-23's
+« Imports Google » settings list was not built**, and the « Out of scope » line below about retiring the import
+**no longer holds — the import has since been retired**, in a second commit. The « Adjacent defect » is still
+open and still the owner's call.
 **Type:** Small
 **Created:** 2026-09-01
 **Scope:** Full
@@ -267,6 +271,8 @@ implementer's.**
 
 ## Out of scope
 
-- Retiring the Google→App import. Decided: this ships first, retirement is a later feature.
+- ~~Retiring the Google→App import. Decided: this ships first, retirement is a later feature.~~
+  **Done.** The later feature arrived immediately after: the button, the 15-minute job, the endpoint, the
+  `import-settings` gate and the import half of `GoogleCalendarSyncService` are gone. The undo above stayed.
 - The push deleting the Google event when a visit is **`Completed`** (`GoogleCalendarSyncService.cs:119`), which
   makes a practice's calendar erase itself as each day is worked. A real question, a separate one.

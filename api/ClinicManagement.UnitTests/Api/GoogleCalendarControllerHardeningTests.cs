@@ -60,7 +60,6 @@ public class GoogleCalendarControllerHardeningTests
     }
 
     [Theory]
-    [InlineData(nameof(GoogleCalendarController.SyncFromGoogleCalendar))]
     [InlineData(nameof(GoogleCalendarController.GetSyncStatus))]
     [InlineData(nameof(GoogleCalendarController.SyncAppointmentToGoogle))]
     [InlineData(nameof(GoogleCalendarController.Connect))]
@@ -73,7 +72,6 @@ public class GoogleCalendarControllerHardeningTests
     }
 
     [Theory]
-    [InlineData(nameof(GoogleCalendarController.SyncFromGoogleCalendar))]
     [InlineData(nameof(GoogleCalendarController.SyncAppointmentToGoogle))]
     [InlineData(nameof(GoogleCalendarController.Connect))]
     // AC-P2.34: the disconnect joins the same class — it revokes the clinic's whole Google connection.

@@ -62,7 +62,7 @@ export function PendingReviewBlock({
       setError(null)
       const page = await patientsApi.listPaged({
         pendingCalendarReviewOnly: true,
-        includeDismissedReview: showDismissed || undefined,
+        dismissedReviewOnly: showDismissed || undefined,
         page: 1,
         pageSize: SHOWN,
       })

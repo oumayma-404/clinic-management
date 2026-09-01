@@ -137,6 +137,7 @@ how it was built, `notes.md` is what shipped.
 **The clinical loop**
 
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
+- [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 

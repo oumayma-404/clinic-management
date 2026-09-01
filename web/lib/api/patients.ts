@@ -47,7 +47,7 @@ export const patientsApi = {
        * With the filter above, also return the fiches somebody hid with « Ne plus afficher » — the way back.
        * Ignored on its own: a dismissal narrows that one list and never the practice's directory.
        */
-      includeDismissedReview?: boolean;
+      dismissedReviewOnly?: boolean;
       /**
        * `"RecentlyAdded"` orders the newest registration first. **Only `/patients` asks for it** — the header
        * lookup, the booking dialog's picker and every other reader leave it unset and keep the alphabetical

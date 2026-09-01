@@ -207,13 +207,15 @@ public class Appointment : AggregateRoot<Guid>
     /// status counts behind the dashboard. Excluded from one but not the other, the list goes quiet while the
     /// absence rate stays exactly as wrong as it was — which is the complaint this exists to answer.</para>
     ///
-    /// <para>Recorded, never inferred, and the motif is mandatory for <see cref="NothingToBillAtUtc"/>'s reason:
-    /// « pourquoi cette séance a-t-elle été retirée ? » must stay answerable months later.</para>
+    /// <para>⚠️ <b>No motif, deliberately — and this is a reversal.</b> The mark first shipped demanding one, on
+    /// <see cref="NothingToBillAtUtc"/>'s reasoning that « pourquoi ? » should stay answerable. It does not carry
+    /// over: « rien à facturer » is a claim about money that the cabinet will be asked to justify later, whereas
+    /// this one asserts nothing at all, so there is nothing to justify. Charging a mandatory sentence for saying
+    /// « cette ligne ne me concerne pas » — across the hundred-odd rows this exists for — made the honest exit the
+    /// expensive one, which is how a cabinet ends up back on <c>Cancel()</c> and back to a false absence rate.
+    /// <c>AuditSaveChangesInterceptor</c> still answers « qui, et quand ».</para>
     /// </summary>
     public DateTime? DisregardedAtUtc { get; private set; }
-
-    /// <inheritdoc cref="DisregardedAtUtc"/>
-    public string? DisregardedReason { get; private set; }
 
     /// <inheritdoc cref="DisregardedAtUtc"/>
     public string? DisregardedByUserId { get; private set; }
@@ -224,23 +226,16 @@ public class Appointment : AggregateRoot<Guid>
     /// <summary>
     /// Take this visit off « À clôturer ». <b>Idempotent</b>, for <see cref="MarkNothingToBill"/>'s reason: the
     /// second caller is a double-click or a bulk selection overlapping a previous one far more often than a
-    /// considered change of mind, and overwriting would erase a colleague's motif with no trace.
+    /// considered change of mind, so the first removal's stamp is the one that stands.
     /// </summary>
-    /// <exception cref="ArgumentException">The motif is blank.</exception>
-    public void Disregard(string reason, string userId, DateTime whenUtc)
+    public void Disregard(string userId, DateTime whenUtc)
     {
-        if (string.IsNullOrWhiteSpace(reason))
-        {
-            throw new ArgumentException("Le motif est obligatoire.", nameof(reason));
-        }
-
         if (DisregardedAtUtc.HasValue)
         {
             return;
         }
 
         DisregardedAtUtc = whenUtc;
-        DisregardedReason = reason.Trim();
         DisregardedByUserId = userId;
         UpdatedAt = DateTime.UtcNow;
     }
@@ -259,7 +254,6 @@ public class Appointment : AggregateRoot<Guid>
         }
 
         DisregardedAtUtc = null;
-        DisregardedReason = null;
         DisregardedByUserId = null;
         UpdatedAt = DateTime.UtcNow;
     }

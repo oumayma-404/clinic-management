@@ -66,15 +66,17 @@ public class AppointmentsController : ApiControllerBase
     /// <para>A <b>POST and not a DELETE</b>, and its withdrawal is a DELETE on the same path: unlike
     /// « rien à facturer » — one toggle on one row — this also exists in bulk, and a body carrying the direction
     /// would let a truncated request turn « remettre » into « retirer » across a selection.</para>
+    ///
+    /// <para><b>No body at all</b>: the mark carries no motif — see <see cref="DisregardVisitsCommand"/> for why
+    /// « rien à facturer »'s mandatory one does not carry over to a mark that asserts nothing.</para>
     /// </summary>
     [HttpPost("{id:guid}/disregard")]
-    public async Task<ActionResult> Disregard(Guid id, [FromBody] DisregardVisitRequest request)
+    public async Task<ActionResult> Disregard(Guid id)
     {
         var result = await _mediator.Send(new DisregardVisitsCommand
         {
             AppointmentIds = new List<Guid> { id },
             Disregard = true,
-            Reason = request.Reason,
         });
 
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
@@ -96,8 +98,9 @@ public class AppointmentsController : ApiControllerBase
     /// <summary>
     /// The same, over a selection — what a cabinet with a hundred phantom séances actually needs.
     ///
-    /// <para>One motif for the whole batch: a mandatory motif per row is unusable at that size, and no motif at
-    /// all would make the bulk door the one everybody reaches for precisely because it asks nothing.</para>
+    /// <para>Nothing to fill in, for the reason on <see cref="DisregardVisitsCommand"/>: a mandatory motif over a
+    /// selection that size made the exit that asserts nothing cost more than the one that asserts something
+    /// false.</para>
     /// </summary>
     [HttpPost("disregard")]
     public async Task<ActionResult> DisregardMany([FromBody] DisregardVisitsRequest request)
@@ -106,17 +109,9 @@ public class AppointmentsController : ApiControllerBase
         {
             AppointmentIds = request.AppointmentIds,
             Disregard = request.Disregard,
-            Reason = request.Reason,
         });
 
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
-    }
-
-    /// <summary>Body of <see cref="Disregard"/>.</summary>
-    public class DisregardVisitRequest
-    {
-        /// <summary>Mandatory; the handler refuses a blank one.</summary>
-        public string? Reason { get; set; }
     }
 
     /// <summary>Body of <see cref="DisregardMany"/>.</summary>
@@ -126,9 +121,6 @@ public class AppointmentsController : ApiControllerBase
 
         /// <summary>True to retire the selection, false to put it back.</summary>
         public bool Disregard { get; set; } = true;
-
-        /// <summary>Mandatory when retiring, ignored when restoring.</summary>
-        public string? Reason { get; set; }
     }
 
     /// <summary>

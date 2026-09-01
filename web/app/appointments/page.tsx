@@ -24,7 +24,6 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { ApiError } from "@/lib/api/client"
 import { toast } from "sonner"
-import { showErrorToast } from "@/lib/errors"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -134,19 +133,7 @@ export default function AppointmentsPage() {
   // Patient preselected when arriving from a patient's "Planifier un rendez-vous" (?patientId=…).
   const [bookingPatientId, setBookingPatientId] = useState<string | undefined>(undefined)
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
-  // calendar-import-review — the practice's declaration about the connected calendar, read with the status.
-  const [holdsOnlyAppointments, setHoldsOnlyAppointments] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
-  /**
-   * « Importer depuis Google » asks first.
-   *
-   * <p>It used to write immediately: one click pulled a 97-day window and could create a hundred appointments
-   * and as many patient fiches, and the practice learned what had happened by looking at the damage. The undo
-   * exists now, but a confirmation is the cheaper half — it is the difference between a mistake to repair and a
-   * mistake not made.</p>
-   */
-  const [importOpen, setImportOpen] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [showCancelled, setShowCancelled] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
@@ -238,35 +225,11 @@ export default function AppointmentsPage() {
   // the hub is down, manual refresh still works (AC-5).
   useClinicRealtime(RealtimeResource.Appointments, handleAppointmentUpdated)
 
-  /**
-   * Records the « ce calendrier ne contient que des rendez-vous » declaration.
-   *
-   * <p>Optimistic, then reconciled from the server's own answer: the checkbox is inside a popover the admin is
-   * looking at, so a control that does not move until a round-trip completes reads as broken. A refusal — the
-   * clinic has no Google connection — puts it back and says why.</p>
-   */
-  const handleHoldsOnlyAppointmentsChange = useCallback(async (value: boolean) => {
-    setHoldsOnlyAppointments(value)
-    try {
-      const saved = await googleCalendarApi.setImportSettings(value)
-      setHoldsOnlyAppointments(saved.holdsOnlyAppointments)
-      toast.success(
-        saved.holdsOnlyAppointments
-          ? "L'import acceptera les évènements intitulés « Prénom Nom »"
-          : "L'import n'acceptera que les évènements marqués comme rendez-vous",
-      )
-    } catch (error) {
-      setHoldsOnlyAppointments(!value)
-      showErrorToast(error)
-    }
-  }, [])
-
   // Check Google Calendar status on mount and after authorization
   const checkGoogleCalendarStatus = useCallback(async () => {
     try {
       const status = await googleCalendarApi.getStatus()
       setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
-      setHoldsOnlyAppointments(status.holdsOnlyAppointments)
 
       // Show message if token is invalid
       if (status.hasRefreshToken && !status.tokenValid) {
@@ -476,49 +439,6 @@ export default function AppointmentsPage() {
     }
   }, [])
 
-  const handleSyncFromGoogle = useCallback(async () => {
-    setIsSyncing(true)
-    try {
-      const outcome = await googleCalendarApi.syncFromGoogle()
-
-      // ⚠️ It used to say « Synchronisation terminée » and nothing else — a press that could write a hundred
-      // rows reported only that it had finished. The counts are what let somebody notice at once that the
-      // import did something they did not intend, and « À clôturer » carries the undo for it.
-      const created = outcome.appointmentsCreated
-      const fiches = outcome.patientsCreated
-
-      if (created === 0 && fiches === 0) {
-        toast.success("Import terminé — aucun nouveau rendez-vous.")
-      } else {
-        toast.success(
-          `Import terminé — ${created.toLocaleString("fr-TN")} rendez-vous`
-          + (fiches > 0 ? ` et ${fiches.toLocaleString("fr-TN")} fiche${fiches === 1 ? "" : "s"} patient` : "")
-          + (created === 1 && fiches === 0 ? " importé." : " importés."),
-          {
-            description: "Vous pouvez annuler cet import depuis « À clôturer ».",
-            action: {
-              label: "Ouvrir",
-              onClick: () => { window.location.href = "/a-cloturer" },
-            },
-          },
-        )
-      }
-
-      setRefreshKey(prev => prev + 1) // Refresh appointments
-    } catch (error) {
-      // A mid-request connection drop surfaces as ApiError(status:0) — the shared offline signal (LEARNINGS).
-      if (error instanceof ApiError && error.status === 0) {
-        toast.error("Connexion perdue. Veuillez réessayer.")
-      } else {
-        toast.error("Échec de la synchronisation", {
-          description: error instanceof Error ? error.message : "Erreur inconnue.",
-        })
-      }
-    } finally {
-      setIsSyncing(false)
-    }
-  }, [])
-
   /**
    * AC-P2.33–2.35: disconnect the clinic's Google account. `Clinic.ClearGoogleCalendarConnection()` had existed
    * with no caller, so a clinic that authorised the wrong Google account could only overwrite it by re-running
@@ -669,16 +589,11 @@ export default function AppointmentsPage() {
                 isAdmin
                   ? {
                       authorized: isGoogleCalendarAuthorized,
-                      syncing: isSyncing,
                       onConnect: handleAuthorizeGoogleCalendar,
-                      // Behind an AlertDialog, like « Déconnecter » below: this one WRITES, and a great deal.
-                      onImport: () => setImportOpen(true),
                       // AC-P2.34 — behind an AlertDialog, and deliberately NOT gated on internetReachable:
                       // clearing our own stored token is a local DB write, and it is exactly what an admin needs
                       // when the connected account is wrong or unreachable.
                       onDisconnect: () => setDisconnectOpen(true),
-                      holdsOnlyAppointments,
-                      onHoldsOnlyAppointmentsChange: handleHoldsOnlyAppointmentsChange,
                     }
                   : undefined
               }
@@ -705,41 +620,6 @@ export default function AppointmentsPage() {
 
       {/* AC-P2.34/2.35 — disconnect confirmation. The copy is explicit that nothing is deleted in Google: an
           admin hesitating over this button is usually worried exactly about that. */}
-      <AlertDialog open={importOpen} onOpenChange={setImportOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Importer les rendez-vous depuis Google Agenda ?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm">
-                <p>
-                  Les événements de votre agenda Google, d’aujourd’hui jusqu’à trois mois, seront ajoutés comme
-                  rendez-vous. Une fiche patient est créée pour chaque nom qui ne correspond à aucun patient
-                  existant.
-                </p>
-                {/* The way back, said BEFORE the write rather than discovered after it. */}
-                <p className="text-muted-foreground">
-                  Vous pourrez annuler cet import depuis « À clôturer » tant qu’aucune fiche de soins ni note
-                  d’honoraires n’y a été enregistrée.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="min-h-11">Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="min-h-11"
-              onClick={(event) => {
-                event.preventDefault()
-                setImportOpen(false)
-                void handleSyncFromGoogle()
-              }}
-            >
-              Importer
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

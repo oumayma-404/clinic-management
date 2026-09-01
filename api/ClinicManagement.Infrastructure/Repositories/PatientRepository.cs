@@ -93,7 +93,7 @@ public class PatientRepository : IPatientRepository
         string? searchTerm = null,
         bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
-        bool includeDismissedReview = false,
+        bool dismissedReviewOnly = false,
         PatientListSort sort = PatientListSort.Name,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default)
@@ -103,16 +103,7 @@ public class PatientRepository : IPatientRepository
         // In SQL, like flaggedOnly below and for its reason.
         if (pendingCalendarReviewOnly)
         {
-            query = query.Where(p => p.CalendarImportPendingReviewSince != null);
-
-            // ⚠️ The dismissal narrows THIS list and nothing else. It is deliberately applied inside the
-            // pending-review branch rather than beside it: a record somebody stopped wanting to review is still a
-            // patient of the practice, and a filter that removed them from the directory would turn « ne plus
-            // afficher » into a delete nobody asked for.
-            if (!includeDismissedReview)
-            {
-                query = query.Where(p => p.CalendarReviewDismissedAtUtc == null);
-            }
+            query = PendingReviewQuery(query, dismissedReviewOnly);
         }
 
         // « Patients signalés » used to be a client-side .filter() over the full list. That was equivalent only
@@ -332,6 +323,31 @@ public class PatientRepository : IPatientRepository
     {
         return await RecallCandidateQuery(_context, clinicId, anchorOnOrBeforeUtc, nowUtc, alwaysIncludePatientIds)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// « Patients à compléter » and « fiches masquées », as one predicate with a side. Split out of
+    /// <see cref="GetByClinicIdAsync"/> for <see cref="RecallCandidateQuery"/>'s reason: so
+    /// <c>PendingReviewComplementTests</c> compiles <b>this</b> expression tree rather than a copy that would
+    /// keep passing after this one changed.
+    ///
+    /// <para>⚠️ <b>The two sides are complements, and this used to widen.</b> As <c>includeDismissedReview</c> the
+    /// flag added the dismissed rows to the pending ones instead of replacing them, so « voir les fiches
+    /// masquées » listed every patient à compléter and offered « Réafficher » on rows nobody had masked — a
+    /// control that undoes nothing, on the one screen whose claim is that a dismissal is reversible. « À
+    /// clôturer » and « séances retirées » have this property by construction; these two now do too.</para>
+    ///
+    /// <para>⚠️ Both sides keep the review stamp: a dismissal narrows <b>this</b> list and nothing else. Applied
+    /// outside the pending-review branch it would hide records from the practice's own directory, turning a
+    /// tidying action into a delete nobody asked for.</para>
+    /// </summary>
+    public static IQueryable<Patient> PendingReviewQuery(IQueryable<Patient> query, bool dismissedReviewOnly)
+    {
+        query = query.Where(p => p.CalendarImportPendingReviewSince != null);
+
+        return dismissedReviewOnly
+            ? query.Where(p => p.CalendarReviewDismissedAtUtc != null)
+            : query.Where(p => p.CalendarReviewDismissedAtUtc == null);
     }
 
     /// <summary>
