@@ -24,6 +24,7 @@ import {
   type CreateTreatmentPlanRequest,
   type UpdateTreatmentPlanRequest,
 } from "@/lib/api/treatment-plans"
+import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
@@ -56,6 +57,8 @@ interface LineRow {
   diagnosisLabel?: string
   /** The condition behind that label, so the hint can use its own colour from the odontogram palette. */
   diagnosisCondition?: string
+  /** The other acts that treat this line's diagnosis, best first. Empty on a hand-added row. */
+  candidates?: SeedCandidate[]
   plannedCost: string
   /**
    * Has the dentist typed this fee themselves? Until they do, it **follows** whichever act the row is set to,
@@ -93,24 +96,14 @@ const emptyLine = (): LineRow => ({
   toothNumbers: [],
 })
 
-/** A draft act line pre-filled from the odontogram ("Créer un plan depuis l'odontogramme"). */
-export interface TreatmentPlanSeedLine {
-  toothNumbers: number[]
-  /** The act to perform. Blank when the charted condition names no single procedure — the dentist picks. */
-  designationFr: string
-  /** The charted diagnosis, shown as context under the field. Display only, never persisted. */
-  diagnosisLabel?: string
-  /** The condition behind that label, for the hint's colour. */
-  diagnosisCondition?: string
-  /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
-  plannedCost?: number
-  /**
-   * The procedure that treats the charted condition, when exactly one was matched. Carried so a devis built
-   * from the odontogram can also book its acts with the procedure preselected — the seeded designation
-   * (« Couronne — dent 16 ») is a condition label, so it would never match a procedure by name.
-   */
-  procedureTypeId?: string
-}
+/**
+ * A draft act line pre-filled from the odontogram (« Créer un plan depuis l'odontogramme »).
+ *
+ * ⚠️ An **alias**, not a second declaration. The two were kept in step by hand and had already drifted on
+ * whether the diagnosis fields were optional; every field here is produced by exactly one writer, so the seed's
+ * own shape is the contract.
+ */
+export type TreatmentPlanSeedLine = OdontogramPlanSeed
 
 interface TreatmentPlanFormModalProps {
   open: boolean
@@ -284,6 +277,7 @@ export function TreatmentPlanFormModal({
               designationFr: s.designationFr,
               diagnosisLabel: s.diagnosisLabel,
               diagnosisCondition: s.diagnosisCondition,
+              candidates: s.candidates,
               // Prefill the fee from the matching procedure-type default (odontogram match); blank otherwise.
               plannedCost: s.plannedCost != null && s.plannedCost > 0 ? formatAmount(s.plannedCost) : "",
               // Untouched on purpose: this fee came from a catalogue default the app chose, not from the
@@ -345,6 +339,51 @@ export function TreatmentPlanFormModal({
 
   // "Detach from the catalogue" makes the line pure free text, so it drops the procedure link too.
   const detachAct = (index: number) => updateLine(index, { procedureTypeId: null })
+
+  /** Take one of the diagnosis' other treatments. Reprices unless the dentist has typed a fee themselves. */
+  const applyCandidate = (index: number, candidate: SeedCandidate) => {
+    const line = lines[index]
+    const cost = seedCost(candidate, line.toothNumbers.length)
+    updateLine(index, {
+      procedureTypeId: candidate.procedureTypeId,
+      designationFr: candidate.name,
+      ...(line.costTouched || cost == null ? {} : { plannedCost: formatAmount(cost) }),
+    })
+  }
+
+  /**
+   * One line per tooth, from a line carrying several.
+   *
+   * ⚠️ A grouped line is planned, booked and marked réalisé as a unit, and two teeth in opposite quadrants are
+   * very often two sessions — so this is the escape hatch grouping needs, not a nicety. The fee is **divided**
+   * for an act priced per tooth (the grouped line's cost was `unit × teeth`) and **kept whole** otherwise, which
+   * is the same rule that built the line: a session fee does not shrink because the work was split in two.
+   */
+  const splitLine = (index: number) => {
+    setLines((prev) => {
+      const line = prev[index]
+      if (line.toothNumbers.length < 2) return prev
+      const procedure = procedureTypes.find((pt) => pt.id === line.procedureTypeId)
+      const perTooth = procedure?.resultingCondition != null
+      const total = parseAmountInput(line.plannedCost)
+      const each =
+        perTooth && Number.isFinite(total)
+          ? formatAmount(Math.round((total / line.toothNumbers.length) * 1000) / 1000)
+          : line.plannedCost
+      const split = line.toothNumbers.map((tooth) => ({
+        ...line,
+        // A split line is a NEW act, never the one being edited — echoing one id on several rows would have the
+        // server rewrite the same act N times and keep only the last.
+        id: null,
+        toothNumbers: [tooth],
+        plannedCost: each,
+        diagnosisLabel: line.diagnosisCondition
+          ? `${conditionStyle(line.diagnosisCondition).label} — dent ${tooth}`
+          : line.diagnosisLabel,
+      }))
+      return [...prev.slice(0, index), ...split, ...prev.slice(index + 1)]
+    })
+  }
 
   const updateInstallment = (index: number, patch: Partial<InstallmentRow>) => {
     setInstallments((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
@@ -745,6 +784,40 @@ export function TreatmentPlanFormModal({
                           </span>
                         </div>
                       )}
+
+                      {/* The acts that treat it, least invasive first — the answer to « et on fait quoi ? »,
+                          which the odontogram could not give at all for a pathology. One tap fills the line.
+                          Nothing is auto-applied when several share the first rank: choosing between a simple
+                          and a surgical extraction is a judgement about access, not a tie to break. */}
+                      {(line.candidates?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="shrink-0 text-xs text-muted-foreground">Traitements proposés :</span>
+                          {line.candidates!.map((candidate) => {
+                            const chosen = candidate.procedureTypeId === line.procedureTypeId
+                            const cost = seedCost(candidate, line.toothNumbers.length)
+                            return (
+                              <Button
+                                key={candidate.procedureTypeId}
+                                type="button"
+                                variant={chosen ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 gap-1.5 text-xs coarse:min-h-11"
+                                aria-pressed={chosen}
+                                disabled={loading}
+                                onClick={() => applyCandidate(index, candidate)}
+                              >
+                                {candidate.name}
+                                {cost != null && (
+                                  <span className={cn("tabular-nums", chosen ? "opacity-80" : "text-muted-foreground")}>
+                                    {formatDT(cost)}
+                                  </span>
+                                )}
+                              </Button>
+                            )
+                          })}
+                        </div>
+                      )}
+
 {/* Was the DCH code. A line now names the procedure it is performed as, and this is the only
                           place that says so — without it, « détacher » would have no control and a line chosen
                           from the catalog would be indistinguishable from a typed one. */}
@@ -763,6 +836,21 @@ export function TreatmentPlanFormModal({
                       )}
                       {removalBlocked && (
                         <p className="text-xs text-muted-foreground">{removalBlocked}</p>
+                      )}
+
+                      {/* Grouping is the default because two caries are one decision; splitting is one tap
+                          because two caries in opposite quadrants are two appointments — a grouped line is
+                          booked and marked réalisé as a unit. `basis-full` so it takes its own row rather than
+                          sitting beside the catalogue badge, where the two read as one control. */}
+                      {line.toothNumbers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => splitLine(index)}
+                          disabled={loading}
+                          className="touch-target basis-full text-left text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+                        >
+                          Séparer par dent — {line.toothNumbers.length} actes distincts
+                        </button>
                       )}
                     </div>
                     <Button

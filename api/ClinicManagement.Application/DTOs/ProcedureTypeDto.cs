@@ -1,3 +1,5 @@
+using ClinicManagement.Domain.Services;
+
 namespace ClinicManagement.Application.DTOs;
 
 public class ProcedureTypeDto
@@ -15,6 +17,18 @@ public class ProcedureTypeDto
     public string? Category { get; set; }
     /// <summary>Resulting odontogram state (ToothCondition name) a dental act of this procedure produces; null = none.</summary>
     public string? ResultingCondition { get; set; }
+
+    /// <summary>
+    /// The charted diagnoses this act treats, each with its rank among that diagnosis' options (0 = first
+    /// choice, least invasive). The inverse of <see cref="ResultingCondition"/>, and NOT derivable from it: no
+    /// act ends in « Carie », so inverting that field leaves every pathology with nothing to offer.
+    ///
+    /// <para>Carried on the act rather than served as its own read, so the odontogram builds the
+    /// diagnosis→acts index from the catalogue it already holds — and so <c>ConditionTreatments</c> stays the
+    /// only copy of the clinical claim. Moving it to a per-act editable column later changes the source of this
+    /// field and nothing else.</para>
+    /// </summary>
+    public List<ProcedureTreatsDto> Treats { get; set; } = new();
     public bool IsActive { get; set; }
 
     /// <summary>
@@ -28,6 +42,17 @@ public class ProcedureTypeDto
 
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// One diagnosis an act treats. <c>Rank</c> orders the options for that diagnosis, least invasive first — and a
+/// client pre-fills a plan line from rank 0 <b>only when exactly one act holds it</b>, because two acts at the
+/// same rung (a simple and a surgical extraction) is a clinical judgement, not a tie to break.
+/// </summary>
+public class ProcedureTreatsDto
+{
+    public string Condition { get; set; } = string.Empty;
+    public int Rank { get; set; }
 }
 
 /// <summary>One line of an act's material list: performing the act consumes N of this stock item.</summary>
@@ -101,6 +126,10 @@ public static class ProcedureTypeMappingExtensions
             Description = procedureType.Description,
             Category = procedureType.Category,
             ResultingCondition = procedureType.ResultingCondition?.ToString(),
+            Treats = ConditionTreatments
+                .RanksFor(procedureType.ResultingCondition, procedureType.Category)
+                .Select(t => new ProcedureTreatsDto { Condition = t.Condition.ToString(), Rank = t.Rank })
+                .ToList(),
             IsActive = procedureType.IsActive,
             Materials = procedureType.Materials
                 .Select(m => new ProcedureTypeMaterialDto

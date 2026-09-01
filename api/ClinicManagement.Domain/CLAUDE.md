@@ -10,7 +10,7 @@
 | `Entities/` | All domain entities & aggregates |
 | `ValueObjects/` | Immutable value objects |
 | `Enums/` | Domain enums |
-| `Services/` | Pure domain services (currently `InvoiceCalculator`) |
+| `Services/` | Pure domain services (`InvoiceCalculator`, `SubscriptionLedger`, `ProcedureTypeCategories`, `ConditionTreatments`, …) |
 | `Repositories/` | Repository interfaces (implemented in Infrastructure) |
 
 ## Base classes & patterns (`Common/`)
@@ -142,6 +142,18 @@
 
 ## Domain services (`Services/`)
 
+- **`ConditionTreatments`** (`Services/ConditionTreatments.cs`) — **what treats what**: the one place the product
+  states that a carie is answered by an obturation before a dévitalisation, and a racine résiduelle by an extraction.
+  ⚠️ It is the **inverse** of `ProcedureType.ResultingCondition` and could not be derived from it — that field names
+  an *end* state, so inverting it works for a diagnosis that is itself an end state (« Couronne » → the crown act)
+  and answers **nothing** for a pathology, because no act ends in « Carie ». Reading the odontogram's plan seeds off
+  that inversion is why charting a carie produced a blank, costless devis line, why a *Bridge* diagnosis produced one
+  too (no act leaves `Bridge` behind), and why a **missing** tooth was answered with an extraction.
+  **Order is clinical and load-bearing — least invasive first** — because the first entry is what a plan pre-fills.
+  Selectors (`Produces` and/or `Category`) resolve against the clinic's **live catalogue**, so nothing here names an
+  act, a practice that does no endodontics never sees it offered, and renaming an act cannot break the mapping.
+  `NeedsTreatment` is the set that seeds a plan and feeds « N dents à traiter »; `DentIncluse` and `ExtraitAbsent`
+  carry treatments but are **excluded** from it, since both are findings rather than outstanding work.
 - **`InvoiceCalculator`** (`Services/InvoiceCalculator.cs`) — pure, testable Tunisian money arithmetic (no persistence). `RoundMoney` (millime, away-from-zero), `LineTotal`, and `Compute(totalHt, vatApplicable, vatRate, stampDutyAmount) → InvoiceTotals(HT, VAT, TTC)`. The single rounding authority reused by `Invoice`, `TreatmentPlan`, `Installment`, `DentalRecord`, and their lines.
 - **`SubscriptionLedger`** (`Services/SubscriptionLedger.cs`) — folds a cabinet's append-only ledger into the one
   date the product enforces on. Pure, total, and **clock-free**. `FoldWithSpans` is the implementation and `Fold` a

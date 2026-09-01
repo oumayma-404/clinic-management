@@ -235,6 +235,22 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   job's capability gate, and separately drives `ClinicsController` over the **real** `DeploymentProfile.For(kind)`
   asserting `Assert.Empty(mediator.Invocations)` — the 404 is not the assertion; « the handler was never resolved »
   is.
+- **`Domain/ConditionTreatmentsTests.cs`** + **`Domain/OdontogramConditionMirrorTests.cs`**
+  (`odontogram-plan-suggestions`). The first runs the **seeded catalogue** through the real selectors rather than
+  asserting the table's contents back at itself, so each case reads as a clinical claim: a carie offers the
+  conservative act first, **no extraction ever outranks a restoration** on a restorable tooth, a *missing* tooth is
+  replaced and never extracted again (the defect the old `ResultingCondition` inversion shipped), and a Bridge
+  diagnosis resolves at all. ⚠️ `A_Retained_Root_Offers_Both_Extractions_At_The_Same_Rank` pins the decision **not**
+  to resolve ambiguity: two acts on one rung is a judgement about access, and the alphabetical accident that used to
+  settle it quoted 200 DT where 60 DT was meant. `Every_Condition_Has_A_Deliberate_Entry` is the derived guard — a
+  new `ToothCondition` cannot ship as a diagnosis that silently suggests nothing.
+  The mirror class is `RealtimeResourceResolverTests`' shape applied to `web/components/odontogram-conditions.ts`
+  (`[CallerFilePath]`, throws rather than skips): every enum member has a French label and a hex, the frontend
+  invents none the server would refuse, `CONDITION_ORDER` covers each exactly once, and `NEEDS_TREATMENT_CONDITIONS`
+  **equals** `ConditionTreatments.NeedsTreatment`. Drift there is silent on both sides — the server seeds a line the
+  chart does not flag, or the chart flags one the server will not seed. ⚠️ Its `Section` helper takes the closing
+  token as a parameter: cutting the `CONDITION_ORDER` array at the next `}` ran on into `CONDITION_FAMILY`, whose
+  values then read as condition names.
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.

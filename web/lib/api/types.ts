@@ -870,6 +870,17 @@ export interface PatientFamilyHistoryDto {
   createdAt: string;
 }
 
+/**
+ * One diagnosis an act treats. `rank` orders the options for that diagnosis, least invasive first — and a plan
+ * line is pre-filled from rank 0 **only when exactly one act holds it**, because two acts on the same rung (a
+ * simple and a surgical extraction) is a clinical judgement, not a tie to break.
+ */
+export interface ProcedureTreatsDto {
+  /** A `ToothCondition` name — « Carie », « Fracture »… */
+  condition: string;
+  rank: number;
+}
+
 export interface ProcedureTypeDto {
   id: string;
   name: string;
@@ -888,6 +899,15 @@ export interface ProcedureTypeDto {
   category?: string | null;
   /** ToothCondition name this procedure produces on the odontogram, or null. */
   resultingCondition?: string | null;
+  /**
+   * The charted diagnoses this act treats, each with its rank among that diagnosis' options (0 = first choice,
+   * least invasive). The **inverse** of `resultingCondition` and not derivable from it: no act ends in « Carie »,
+   * so inverting that field leaves every pathology with nothing to offer — which is why the odontogram used to
+   * seed a blank, costless plan line for the most common diagnosis there is.
+   *
+   * ⚠️ Absent on an older response. Treat that as « this act treats nothing », never as « treats everything ».
+   */
+  treats?: ProcedureTreatsDto[];
   isActive: boolean;
   /**
    * AC-P4.9/4.14 — the stock this act consumes each time it is performed. Empty means the act has opted out
