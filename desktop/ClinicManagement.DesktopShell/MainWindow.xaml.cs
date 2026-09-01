@@ -64,20 +64,20 @@ public partial class MainWindow : Window
     /// </summary>
     private void FitToWorkArea()
     {
-        var area = SystemParameters.WorkArea;
-        // No work area reported (a session switch, no attached display) — the XAML defaults are a better guess
-        // than a zero-sized window.
-        if (area.Width <= 0 || area.Height <= 0)
+        // The arithmetic lives in `WindowPlacement` so it can be asserted without a window — see that type's note.
+        // Reading `SystemParameters.WorkArea` is all this method keeps, and all six values come from one answer so
+        // the tested result and the assigned one cannot drift apart.
+        if (WindowPlacement.Fit(Width, Height, MinWidth, MinHeight, SystemParameters.WorkArea) is not { } placement)
         {
             return;
         }
 
-        MinWidth = Math.Min(MinWidth, area.Width);
-        MinHeight = Math.Min(MinHeight, area.Height);
-        Width = Math.Min(Width, area.Width);
-        Height = Math.Min(Height, area.Height);
-        Left = area.Left + Math.Max(0, (area.Width - Width) / 2);
-        Top = area.Top + Math.Max(0, (area.Height - Height) / 2);
+        MinWidth = placement.MinWidth;
+        MinHeight = placement.MinHeight;
+        Width = placement.Width;
+        Height = placement.Height;
+        Left = placement.Left;
+        Top = placement.Top;
     }
 
     /// <summary>
