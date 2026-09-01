@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
 import { toast } from "sonner"
-import { Plus, Trash2, Stethoscope, ClipboardList } from "lucide-react"
+import { Plus, Trash2, Stethoscope, ClipboardList, CheckSquare, Check, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -111,6 +111,16 @@ interface OdontogramProps {
 
 export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: OdontogramProps) {
   const [chosenView, setChosenView] = useState<DentitionView | null>(null)
+  /**
+   * « Plusieurs dents » — charting ONE diagnosis onto several teeth at once.
+   *
+   * <p>A carie on 16, 26 and 36 is one observation the dentist makes once, and the chart used to make them open a
+   * popover, pick the condition, pick the faces, type the note and press save three times over. The mode lives
+   * here rather than in `ToothCell` because it is a property of the whole chart: while it is on, a tap
+   * *selects* instead of opening that tooth's editor, so exactly one component may own the answer.</p>
+   */
+  const [multiSelect, setMultiSelect] = useState(false)
+  const [selectedTeeth, setSelectedTeeth] = useState<Set<number>>(new Set())
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
   // The patient's fiches, joined to the treatment-sourced states for the act names.
   const [records, setRecords] = useState<DentalRecordDto[]>([])
@@ -291,6 +301,22 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
     return quadrant === 1 || quadrant === 2 || quadrant === 5 || quadrant === 6 ? "upper" : "lower"
   }, [byTooth])
 
+  const toggleSelectedTooth = useCallback((tooth: number) => {
+    setSelectedTeeth((prev) => {
+      const next = new Set(prev)
+      if (next.has(tooth)) next.delete(tooth)
+      else next.add(tooth)
+      return next
+    })
+  }, [])
+
+  /* Leaving the mode drops the selection: a set of ticked teeth that survives invisibly would come back the next
+     time the mode is switched on and apply a diagnosis to teeth nobody has looked at since. */
+  const setMultiSelectMode = useCallback((on: boolean) => {
+    setMultiSelect(on)
+    setSelectedTeeth(new Set())
+  }, [])
+
   return (
     <div className="w-full space-y-3">
       {error && (
@@ -397,6 +423,32 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
           {/* The instruction line that stood here is gone: it repeated the card's own description almost word for
               word, so the same sentence was on screen twice and cost a third row. The card header keeps it. */}
           <TabsContent value="diagnostics" className="mt-3 space-y-2">
+            {/* ⚠️ The toggle is a **permanent, labelled control directly above the teeth**, not an option behind a
+                menu or a modifier key. The whole point of the feature is that a dentist who has just charted the
+                same carie on three molars one at a time discovers there was a faster way without being told — a
+                ctrl-click or a long-press would have been cheaper to build and invisible to everyone who did not
+                already know it was there. It sits inside the Diagnostics tab because « Actes réalisés » is
+                read-only and has nothing to select teeth for. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={multiSelect ? "default" : "outline"}
+                aria-pressed={multiSelect}
+                onClick={() => setMultiSelectMode(!multiSelect)}
+                title="Noter le même diagnostic sur plusieurs dents en une fois"
+                className="h-8 gap-1.5 text-xs coarse:h-11"
+              >
+                <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                Plusieurs dents
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {multiSelect
+                  ? "Touchez les dents concernées, puis notez le diagnostic commun sous l'arcade."
+                  : "Même diagnostic sur plusieurs dents ? Activez « Plusieurs dents »."}
+              </p>
+            </div>
+
         {/* Geometry from `ToothArchLayout`. `ToothCell` keeps its own editor Popover and its per-cell state —
             the layout takes no open/hover state, which is what stops one arch's worth of editors from being
             addressable at once. */}
@@ -404,9 +456,28 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
           teeth={teeth}
           defaultArch={defaultArch}
           renderTooth={(t) => (
-            <ToothCell key={t} toothNum={t} entries={byTooth.get(t) ?? []} patientId={patientId} onChanged={load} />
+            <ToothCell
+              key={t}
+              toothNum={t}
+              entries={byTooth.get(t) ?? []}
+              patientId={patientId}
+              onChanged={load}
+              selectionMode={multiSelect}
+              isSelected={selectedTeeth.has(t)}
+              onToggleSelect={toggleSelectedTooth}
+            />
           )}
         />
+
+            {multiSelect && (
+              <MultiToothDiagnosisPanel
+                patientId={patientId}
+                selectedTeeth={selectedTeeth}
+                onClearSelection={() => setSelectedTeeth(new Set())}
+                onKeepOnlyFailed={(failed) => setSelectedTeeth(new Set(failed))}
+                onChanged={load}
+              />
+            )}
 
             {/* The condition palette belongs to THIS chart. It used to sit outside the tabs, so all nine
                 conditions were also listed under « Actes réalisés » — a palette that view does not use. */}
@@ -439,9 +510,21 @@ interface ToothCellProps {
   entries: ToothStateDto[]
   patientId: string
   onChanged: () => void
+  /** « Plusieurs dents » is on: a tap ticks this tooth instead of opening its editor. */
+  selectionMode: boolean
+  isSelected: boolean
+  onToggleSelect: (toothNumber: number) => void
 }
 
-function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) {
+function ToothCell({
+  toothNum,
+  entries,
+  patientId,
+  onChanged,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
+}: ToothCellProps) {
   const [open, setOpen] = useState(false)
   const [condition, setCondition] = useState(DIAGNOSIS_CONDITIONS[0])
   const [note, setNote] = useState("")
@@ -512,15 +595,35 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
   const box = (
     <span className="flex flex-col items-center">
       <span
+        /* The selection ring is painted on the tooth BOX, not on the wrapping button: on a coarse pointer the
+           button grows to `min-w-11` while the box stays 28px, so a ring on the button would float a centimetre
+           away from the tooth it is meant to be marking. `ring-offset` keeps it clear of the condition fill,
+           which is already a saturated colour on a charted tooth. */
         className={cn(
-          "flex h-9 w-7 items-center justify-center rounded-md border text-2xs font-semibold",
+          "relative flex h-9 w-7 items-center justify-center rounded-md border text-2xs font-semibold",
           style.box,
           latestIsDiagnosis && "border-2 border-dashed",
+          selectionMode && isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
         )}
       >
         {latest?.surfaces ?? ""}
+        {selectionMode && isSelected && (
+          <span
+            aria-hidden="true"
+            className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm"
+          >
+            <Check className="size-2.5" strokeWidth={3} />
+          </span>
+        )}
       </span>
-      <span className="mt-0.5 text-2xs font-medium text-muted-foreground">{toothNum}</span>
+      <span
+        className={cn(
+          "mt-0.5 text-2xs font-medium",
+          selectionMode && isSelected ? "font-semibold text-primary" : "text-muted-foreground",
+        )}
+      >
+        {toothNum}
+      </span>
       {entries.length > 0 && (
         <span className="mt-0.5 flex items-center gap-0.5">
           {entries.slice(0, MAX_DOTS).map((e) => (
@@ -545,6 +648,72 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
       )}
     </span>
   )
+
+  /*
+    Hover reveals what is charted on the tooth — the acts chart does the same, but it can put that in its
+    Popover because a click there has nothing else to do. Here the Popover IS the editor (condition, faces,
+    note, save, retirer), so opening it on hover would pop a form open for every tooth the pointer crosses.
+    A read-only Tooltip gives the same information without taking the click.
+
+    It replaced `title={`Dent ${toothNum}`}`, a native tooltip whose entire content was the tooth number —
+    which is already printed under the box. Radix dismisses a tooltip on pointer-down, so it gets out of the
+    way by itself when the editor opens; no coordinating state needed.
+
+    An untouched tooth gets no tooltip: it has nothing to report, and a hover affordance promising otherwise
+    is worse than none (same rule as odontogram-acts-chart). It is a function rather than inline JSX because
+    « Plusieurs dents » swaps the trigger underneath it — the reading of a tooth does not change with the mode.
+  */
+  const withTooltip = (node: ReactNode) =>
+    entries.length === 0 ? (
+      node
+    ) : (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>{node}</TooltipTrigger>
+          <TooltipContent side="top" align="center" className="max-w-xs">
+            <p className="mb-1 font-semibold">Dent {toothNum}</p>
+            <ul className="space-y-0.5">
+              {entries.map((e) => (
+                <li key={e.id} className="flex items-center gap-1.5">
+                  <span
+                    className={cn("h-2 w-2 shrink-0 rounded-full", isDiagnosis(e) && "ring-1 ring-foreground/40")}
+                    style={{ backgroundColor: conditionStyle(e.condition).color }}
+                  />
+                  <span>{conditionStyle(e.condition).label}</span>
+                  <span className="text-muted-foreground">
+                    — {isDiagnosis(e) ? "Diagnostic" : "Réalisé"} · {formatDateFr(e.treatmentDate)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+
+  /*
+    « Plusieurs dents » is on, so this tooth is a checkbox and NOT an editor.
+    
+    ⚠️ The Popover is not rendered at all in this branch rather than merely left closed. A tooth that both ticks
+    and opens its own form would let the dentist chart 16 in the popover while 16, 26 and 36 sit ticked below —
+    two half-finished diagnoses on screen at once, and no way to tell which one « Ajouter » meant.
+  */
+  if (selectionMode) {
+    return withTooltip(
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={isSelected}
+        aria-label={`Dent ${toothNum}`}
+        onClick={() => onToggleSelect(toothNum)}
+        // Same `coarse:min-w-11` reasoning as the editor trigger below: grow the paint, never overlay a 44px
+        // target onto a 28px cell that a neighbour then wins.
+        className="group rounded-md transition-all focus:outline-none focus:ring-1 focus:ring-ring coarse:min-w-11 hover-hover:hover:scale-105"
+      >
+        {box}
+      </button>,
+    )
+  }
 
   const trigger = (
     <PopoverTrigger asChild>
@@ -576,45 +745,7 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      {/*
-        Hover reveals what is charted on the tooth — the acts chart does the same, but it can put that in its
-        Popover because a click there has nothing else to do. Here the Popover IS the editor (condition, faces,
-        note, save, retirer), so opening it on hover would pop a form open for every tooth the pointer crosses.
-        A read-only Tooltip gives the same information without taking the click.
-
-        It replaced `title={`Dent ${toothNum}`}`, a native tooltip whose entire content was the tooth number —
-        which is already printed under the box. Radix dismisses a tooltip on pointer-down, so it gets out of the
-        way by itself when the editor opens; no coordinating state needed.
-
-        An untouched tooth gets no tooltip: it has nothing to report, and a hover affordance promising otherwise
-        is worse than none (same rule as odontogram-acts-chart).
-      */}
-      {entries.length === 0 ? (
-        trigger
-      ) : (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent side="top" align="center" className="max-w-xs">
-              <p className="mb-1 font-semibold">Dent {toothNum}</p>
-              <ul className="space-y-0.5">
-                {entries.map((e) => (
-                  <li key={e.id} className="flex items-center gap-1.5">
-                    <span
-                      className={cn("h-2 w-2 shrink-0 rounded-full", isDiagnosis(e) && "ring-1 ring-foreground/40")}
-                      style={{ backgroundColor: conditionStyle(e.condition).color }}
-                    />
-                    <span>{conditionStyle(e.condition).label}</span>
-                    <span className="text-muted-foreground">
-                      — {isDiagnosis(e) ? "Diagnostic" : "Réalisé"} · {formatDateFr(e.treatmentDate)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
+      {withTooltip(trigger)}
       {/*
         ⚠️ `max-h-[70dvh] overflow-y-auto` — Radix does not bound a popover's height, and this one grows without
         limit: it lists EVERY recorded state for the tooth and then carries the whole add-diagnosis form
@@ -771,5 +902,186 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
         </AlertDialogContent>
       </AlertDialog>
     </Popover>
+  )
+}
+
+interface MultiToothDiagnosisPanelProps {
+  patientId: string
+  selectedTeeth: Set<number>
+  onClearSelection: () => void
+  /** After a partial failure, leave ticked exactly the teeth that did not land — see `handleSave`. */
+  onKeepOnlyFailed: (failed: number[]) => void
+  onChanged: () => void
+}
+
+/**
+ * One diagnosis, written onto every ticked tooth.
+ *
+ * <p>It is the tooth popover's own « Noter un diagnostic » form — same condition list, same MODVL faces, same
+ * note — lifted out to where it can speak for several teeth. Deliberately a panel under the arch and not a
+ * dialog: the selection it acts on is *on the chart*, and a modal would cover the very thing the dentist is
+ * checking before they press save.</p>
+ *
+ * <p>It renders as soon as the mode is on, with nothing selected yet, so it can say what to do rather than
+ * appearing out of nowhere after the first tap.</p>
+ */
+function MultiToothDiagnosisPanel({
+  patientId,
+  selectedTeeth,
+  onClearSelection,
+  onKeepOnlyFailed,
+  onChanged,
+}: MultiToothDiagnosisPanelProps) {
+  const [condition, setCondition] = useState(DIAGNOSIS_CONDITIONS[0])
+  const [note, setNote] = useState("")
+  const [surfaces, setSurfaces] = useState<Set<string>>(new Set())
+  const [saving, setSaving] = useState(false)
+
+  const teeth = useMemo(() => Array.from(selectedTeeth).sort((a, b) => a - b), [selectedTeeth])
+
+  const toggleSurface = (code: string) => {
+    setSurfaces((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+  }
+
+  /**
+   * Sequential, one POST per tooth — there is no bulk endpoint, and inventing one client-side by firing them all
+   * at once would hand the same patient aggregate to N concurrent writers.
+   *
+   * <p>⚠️ A partial failure is reported as a partial failure and the teeth that DID land are untucked, leaving
+   * only the ones that did not. Pressing « Ajouter » again then retries exactly what is missing instead of
+   * charting a second copy on the teeth that already have it — which is what a plain "réessayer" would do.</p>
+   */
+  const handleSave = async () => {
+    setSaving(true)
+    const failed: number[] = []
+    for (const tooth of teeth) {
+      try {
+        await odontogramApi.diagnose(patientId, {
+          toothNumber: tooth,
+          condition,
+          surfaces: serializeSurfaces(surfaces) || null,
+          note: note.trim() || null,
+        })
+      } catch {
+        failed.push(tooth)
+      }
+    }
+    setSaving(false)
+    onChanged()
+
+    const label = conditionStyle(condition).label
+    if (failed.length === 0) {
+      toast.success(`${label} — ${teeth.length} dent${teeth.length > 1 ? "s" : ""} chartée${teeth.length > 1 ? "s" : ""}`)
+      setNote("")
+      setSurfaces(new Set())
+      onClearSelection()
+      return
+    }
+    if (failed.length === teeth.length) {
+      toast.error("Échec de l'enregistrement du diagnostic.", {
+        description: `Aucune des ${teeth.length} dents n'a été chartée. Les dents restent sélectionnées.`,
+      })
+    } else {
+      toast.error(`${teeth.length - failed.length} dent(s) chartée(s), ${failed.length} en échec`, {
+        description: `Non enregistré sur : ${failed.join(", ")}. Ces dents restent sélectionnées — appuyez à nouveau pour réessayer.`,
+      })
+    }
+    onKeepOnlyFailed(failed)
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-foreground">
+          {teeth.length === 0
+            ? "Aucune dent sélectionnée"
+            : `${teeth.length} dent${teeth.length > 1 ? "s" : ""} sélectionnée${teeth.length > 1 ? "s" : ""}`}
+        </p>
+        {teeth.length > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClearSelection}
+            disabled={saving}
+            className="h-7 gap-1.5 px-2 text-xs coarse:h-11"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" /> Tout effacer
+          </Button>
+        )}
+      </div>
+
+      {teeth.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Touchez les dents concernées sur l&apos;arcade ci-dessus. Le diagnostic que vous saisirez ici sera noté
+          sur chacune d&apos;elles.
+        </p>
+      ) : (
+        /* The numbers written out, not just counted: « 3 dents » does not let anyone check they ticked 16 and not
+           15, and this form writes to the record. `break-words` because a full-quadrant selection is a long line
+           at 320px. */
+        <p className="break-words text-xs text-muted-foreground">Dents : {teeth.join(", ")}</p>
+      )}
+
+      <div className="space-y-2 border-t border-primary/20 pt-3">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+          <Stethoscope className="h-3.5 w-3.5" aria-hidden="true" /> Diagnostic commun
+        </p>
+        <Select value={condition} onValueChange={setCondition}>
+          <SelectTrigger className="h-9 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DIAGNOSIS_CONDITIONS.map((c) => (
+              <SelectItem key={c} value={c} className="text-xs">
+                {conditionStyle(c).label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* Same `gap-2` + `coarse:h-11` as the single-tooth form: five 28px buttons at `gap-1` overlap their own
+            44px touch overlays and the later sibling wins the tap. */}
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(SURFACE_LABELS).map(([code, label]) => (
+            <Button
+              key={code}
+              type="button"
+              variant={surfaces.has(code) ? "default" : "outline"}
+              size="sm"
+              className="h-8 px-2 text-xs coarse:h-11 coarse:min-w-11"
+              title={label}
+              aria-pressed={surfaces.has(code)}
+              onClick={() => toggleSurface(code)}
+            >
+              {code}
+            </Button>
+          ))}
+        </div>
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (facultative) — appliquée à toutes les dents sélectionnées"
+          className="min-h-[52px] text-xs"
+        />
+        <Button
+          size="sm"
+          className="h-9 w-full gap-1.5 text-xs coarse:h-11"
+          onClick={handleSave}
+          disabled={saving || teeth.length === 0}
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          {saving
+            ? "Enregistrement…"
+            : teeth.length === 0
+              ? "Ajouter le diagnostic"
+              : `Ajouter le diagnostic à ${teeth.length} dent${teeth.length > 1 ? "s" : ""}`}
+        </Button>
+      </div>
+    </div>
   )
 }
