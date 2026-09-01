@@ -58,6 +58,13 @@ public class PatientNameEquivalenceTests
         { "trailing e", "Nourhene Gharbi", "Nourhen Gharbi" },
         { "silent h", "Nourhene Gharbi", "Nourene Gharbi" },
         { "silent h", "Ahmed Zouari", "Amed Zouari" },
+        // ⚠️ Reported from real use: the cabinet held « Khaireddine Hamdane » and Google Agenda said
+        // « Khaireddine Hemdene », and nothing was proposed. The given name matched exactly; the surname
+        // differed only by a↔e, which is a transliteration convention in a family name and a different person
+        // in a given one — hence `surname: true`. These four are why that asymmetry exists.
+        { "a = e in the surname", "Khaireddine Hamdane", "Khaireddine Hemdene" },
+        { "a = e in the surname", "Ali Ben Salah", "Ali Ben Saleh" },
+        { "optional final a/e in the surname", "Ali Ben Salah", "Ali Bensala" },
     };
 
     /// <summary>Different people. Every row must be refused — a wrong « Oui » books a séance onto the wrong file.</summary>
@@ -85,6 +92,19 @@ public class PatientNameEquivalenceTests
         { "ch is not s", "Chokri Belhaj", "Sokri Belhaj" },
         { "nickname is not a spelling", "Mohamed Gharbi", "Hamma Gharbi" },
         { "nickname is not a spelling", "Abdelaziz Mrad", "Aziz Mrad" },
+        // ⚠️ The surname's a≡e must not become « any vowel »: these two really are different families, and
+        // they are the price that would be paid for widening it further.
+        { "another vowel in the surname is another family", "Karim Hamdane", "Karim Hamdani" },
+        { "another vowel in the surname is another family", "Karim Hamdi", "Karim Hamda" },
+        // ⚠️ a ≡ e is the SURNAME's rule alone. In a given name it is two people, which is what the whole
+        // asymmetry protects — this row fails the moment somebody passes `surname: true` for a given name.
+        { "a = e is NOT a given name's rule", "Imen Nasri", "Iman Nasri" },
+        // ⚠️ The surname's rule is a≡e and a trailing a/e — NOT « any vowel ». Both rows below were written into
+        // the must-match list first and measured false, so they live here instead: « Khelifi »/« Khelefi » is i↔e,
+        // and « Bouaziz » and « Bouazizi » are two family names rather than one spelt twice. Widening to cover
+        // them is a decision to be measured, not assumed.
+        { "i = e is not the surname's rule either", "Sonia Khelifi", "Sonia Khelefi" },
+        { "a trailing i is not optional", "Nadia Bouazizi", "Nadia Bouaziz" },
     };
 
     /// <summary>
@@ -104,6 +124,7 @@ public class PatientNameEquivalenceTests
         "Hamza Dridi", "Hamdi Dridi", "Ines Ghanmi", "Anes Ghanmi",
         "Slim Ferchichi", "Selim Ferchichi", "Kais Hammami", "Kaies Hammami",
         "Ali Trabelsi", "Alia Trabelsi", "Sabri Ounalli", "Sabrine Ounalli",
+        "Khaireddine Hamdane", "Karim Hamdane", "Karim Hamdani",
     };
 
     /// <summary>

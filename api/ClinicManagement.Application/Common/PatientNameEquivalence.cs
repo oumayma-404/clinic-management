@@ -20,6 +20,14 @@ namespace ClinicManagement.Application.Common;
 /// <para>⚠️ A name is compared as <b>two strings, a given name and a surname</b>, never as one blob. A blob lets
 /// a difference in the surname be paid for by the given name; and both halves being required is what keeps
 /// siblings apart (« Ali » and « Sami Ben Salah » share a surname exactly and are still not a match).</para>
+///
+/// <para>⚠️ <b>The two halves are canonicalised by DIFFERENT rules, and that asymmetry is the whole of what makes
+/// « Hamdane » = « Hemdene » safe.</b> A Tunisian surname is a transliteration of an Arabic family name whose
+/// short vowel is written <c>a</c> or <c>e</c> by convention and whose final vowel is optional — Hamdane/Hemdene,
+/// Ben Salah/Ben Saleh are one family spelt two ways. A <i>given</i> name is drawn from a set where that same
+/// substitution is a <b>different person</b>: « Imen » and « Iman » are two names, and the owner classified that
+/// pair as a refusal. So <c>a ≡ e</c> applies to the surname only. Every one of the refusals the rule is measured
+/// against differs in the <b>given</b> name, which is why this relaxation costs none of them.</para>
 /// </summary>
 public static class PatientNameEquivalence
 {
@@ -44,17 +52,26 @@ public static class PatientNameEquivalence
     /// </summary>
     public static bool AreWritingVariants(string? firstA, string? lastA, string? firstB, string? lastB)
     {
+        // Each comparison canonicalises BOTH sides in the same role, so the reversed reading stays symmetric.
         var fa = Canonicalize(firstA);
-        var la = Canonicalize(lastA);
+        var la = Canonicalize(lastA, surname: true);
         var fb = Canonicalize(firstB);
-        var lb = Canonicalize(lastB);
+        var lb = Canonicalize(lastB, surname: true);
 
         if (fa.Length == 0 || la.Length == 0 || fb.Length == 0 || lb.Length == 0)
         {
             return false;
         }
 
-        return (fa == fb && la == lb) || (fa == lb && la == fb);
+        if (fa == fb && la == lb)
+        {
+            return true;
+        }
+
+        // « Zouari Fatma » against « Fatma Zouari »: the halves swap roles, so each is re-canonicalised in the
+        // role it lands in rather than compared across two different rules.
+        return Canonicalize(firstA) == Canonicalize(lastB)
+            && Canonicalize(lastA, surname: true) == Canonicalize(firstB, surname: true);
     }
 
     /// <summary>
@@ -77,9 +94,15 @@ public static class PatientNameEquivalence
     /// <summary>
     /// One half of a name reduced to the form every accepted spelling of it shares. Steps, in order: fold accents
     /// and case, drop everything that is not a letter (so <c>Benkhalifa</c> = <c>Ben Khalifa</c>), apply
-    /// <see cref="Table"/>, collapse repeated letters, drop <c>h</c>, drop a trailing <c>e</c>.
+    /// <see cref="Table"/>, collapse repeated letters, drop <c>h</c>, then the last step differs by role —
+    /// see <paramref name="surname"/>.
     /// </summary>
-    public static string Canonicalize(string? part)
+    /// <param name="surname">
+    /// True for a family name: <c>e</c> becomes <c>a</c> and one trailing vowel is dropped, so « Hamdane » and
+    /// « Hemdene » — and « Ben Salah » and « Ben Saleh » — reduce alike. <b>Never pass true for a given name</b>:
+    /// it would make « Imen » and « Iman » one person. See the type's own note.
+    /// </param>
+    public static string Canonicalize(string? part, bool surname = false)
     {
         var folded = SearchTerm.Normalize(part);
         if (folded.Length == 0)
@@ -95,6 +118,15 @@ public static class PatientNameEquivalence
 
         letters = CollapseRuns(letters);
         letters = letters.Replace("h", string.Empty);   // whatever h survives kh/gh/ph is silent
+
+        if (surname)
+        {
+            // ⚠️ The trailing vowel goes AFTER e→a, not before: « Salah » loses its h to leave « sala » while
+            // « Saleh » leaves « sale », so dropping a final `e` alone would keep the two apart on that vowel.
+            letters = letters.Replace("e", "a");
+            return letters.EndsWith('a') ? letters[..^1] : letters;
+        }
+
         return letters.EndsWith('e') ? letters[..^1] : letters;
     }
 
