@@ -801,7 +801,15 @@ export function TreatmentPlanFormModal({
                                 type="button"
                                 variant={chosen ? "default" : "outline"}
                                 size="sm"
-                                className="h-7 gap-1.5 text-xs coarse:min-h-11"
+                                /* ⚠️ All four of these, and `max-w-full` is the one that actually does it.
+                                   `buttonVariants` is `whitespace-nowrap shrink-0`, so « Extraction chirurgicale
+                                   (sagesse / dent incluse) 400,000 DT » measured ~400 px and became the act
+                                   block's min-content width: at 320 px the line could not shrink below it and the
+                                   dialog's own scroller took 160 px of sideways travel, clipping every chip.
+                                   `whitespace-normal` alone still left the chip at its max-content width (348 px)
+                                   because nothing bounded it — the cap is what makes the label break. An act's
+                                   name is the control's name, so it wraps rather than truncates (§ 10.1). */
+                                className="h-auto min-h-7 max-w-full flex-wrap gap-x-1.5 gap-y-0 whitespace-normal py-1 text-left text-xs coarse:min-h-11"
                                 aria-pressed={chosen}
                                 disabled={loading}
                                 onClick={() => applyCandidate(index, candidate)}
@@ -843,14 +851,18 @@ export function TreatmentPlanFormModal({
                           booked and marked réalisé as a unit. `basis-full` so it takes its own row rather than
                           sitting beside the catalogue badge, where the two read as one control. */}
                       {line.toothNumbers.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => splitLine(index)}
-                          disabled={loading}
-                          className="touch-target basis-full text-left text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
-                        >
-                          Séparer par dent — {line.toothNumbers.length} actes distincts
-                        </button>
+                        // A wrapper, not `basis-full`: the parent is a `space-y-*` block, so the flex basis did
+                        // nothing and the link sat beside the catalogue badge where the two read as one control.
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => splitLine(index)}
+                            disabled={loading}
+                            className="touch-target text-left text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+                          >
+                            Séparer par dent — {line.toothNumbers.length} actes distincts
+                          </button>
+                        </div>
                       )}
                     </div>
                     <Button
