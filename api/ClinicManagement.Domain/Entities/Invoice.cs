@@ -72,6 +72,25 @@ public class Invoice : AggregateRoot<Guid>
 
     public string? CancellationReason { get; private set; }
 
+    /// <summary>
+    /// The note that replaced this one after a correction — set on the <b>old</b> note when it is superseded.
+    ///
+    /// <para>A cancelled note is otherwise a dead end: the reader sees « annulée » and has no way to reach what
+    /// replaced it, which is precisely the question anyone asks. Both directions are stored because both are
+    /// asked: from the old note « what took its place », from the new one « what was this correcting ».</para>
+    /// </summary>
+    public Guid? SupersededByInvoiceId { get; private set; }
+
+    /// <summary>The note this one corrects — set on the <b>replacement</b>. Null on an ordinary note.</summary>
+    public Guid? SupersedesInvoiceId { get; private set; }
+
+    /// <summary>
+    /// Why the note being replaced was wrong. Captured when the correction starts and spent when the
+    /// replacement is issued — that is the moment the predecessor's payments are voided and the note cancelled,
+    /// and both of those refuse to happen without a reason.
+    /// </summary>
+    public string? SupersedesReason { get; private set; }
+
     // Totals (TND millimes) — recomputed from lines. `TotalVat` is 0 on every invoice issued since TVA was
     // dropped, and `TotalTtc == TotalHt`; on a historical row both keep the values frozen at its own issue.
     public decimal TotalHt { get; private set; }
@@ -117,6 +136,49 @@ public class Invoice : AggregateRoot<Guid>
 
     /// <summary>Only a draft can be deleted; an issued invoice is cancelled instead.</summary>
     public bool CanBeDeleted => Status == InvoiceStatus.Draft;
+
+    /// <summary>
+    /// Whether this note can be corrected — replaced by a new one carrying the same money.
+    ///
+    /// <para>Distinct from <c>CanCreateCreditNote</c>, and the distinction is the whole point: an <b>avoir</b>
+    /// records that money went <i>back to the patient</i>. A mis-keyed amount gave nothing back, so an avoir
+    /// there states a refund that never happened. Correcting cancels the wrong note and raises the right one,
+    /// which is what actually occurred.</para>
+    ///
+    /// <para>Already superseded is excluded: a note is corrected once, and the correction is corrected next.</para>
+    /// </summary>
+    public bool CanBeCorrected =>
+        Status != InvoiceStatus.Draft && Status != InvoiceStatus.Cancelled && SupersededByInvoiceId is null;
+
+    /// <summary>
+    /// Point this note at the one replacing it, and vice versa. Called on both sides of a correction so neither
+    /// end is a dead end.
+    /// </summary>
+    public void MarkSupersededBy(Guid replacementId)
+    {
+        if (replacementId == Guid.Empty)
+            throw new ArgumentException("La note de remplacement est requise.", nameof(replacementId));
+        if (replacementId == Id)
+            throw new ArgumentException("Une note ne peut pas se remplacer elle-même.", nameof(replacementId));
+
+        SupersededByInvoiceId = replacementId;
+        Touch();
+    }
+
+    /// <inheritdoc cref="SupersedesInvoiceId"/>
+    public void MarkSupersedes(Guid correctedId, string reason)
+    {
+        if (correctedId == Guid.Empty)
+            throw new ArgumentException("La note corrigée est requise.", nameof(correctedId));
+        if (correctedId == Id)
+            throw new ArgumentException("Une note ne peut pas se remplacer elle-même.", nameof(correctedId));
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("Le motif de la correction est requis.", nameof(reason));
+
+        SupersedesInvoiceId = correctedId;
+        SupersedesReason = reason.Trim();
+        Touch();
+    }
 
     private Invoice() { } // For EF Core
 
@@ -336,6 +398,34 @@ public class Invoice : AggregateRoot<Guid>
                     : "Ce chèque n'est pas marqué comme encaissé en banque.");
 
         payment.SetBanked(banked, actorUserId, actorName);
+        Touch();
+    }
+
+    /// <summary>
+    /// Move one live payment's <c>PaidOn</c> — the correction a backdated fiche de soins needs (L4).
+    ///
+    /// <para>Refused on a banked cheque: that row is reconciled against a bank statement, and moving its date
+    /// would make the two disagree with nothing on screen to say so. Refused on a voided payment too — it is
+    /// already out of every total, so there is nothing to move. Neither refusal touches the note itself, which
+    /// legitimately keeps the day it was written.</para>
+    /// </summary>
+    public void AmendPaymentDate(Guid paymentId, DateTime paidOn)
+    {
+        if (Status == InvoiceStatus.Cancelled)
+            throw new InvalidOperationException("La facture est annulée : ses paiements ne peuvent plus être modifiés.");
+
+        var payment = _payments.FirstOrDefault(p => p.Id == paymentId)
+            ?? throw new InvalidOperationException("Paiement introuvable sur cette facture.");
+
+        if (payment.IsVoided)
+            throw new InvalidOperationException("Ce paiement est annulé : sa date n'a plus d'effet.");
+
+        if (payment.ChequeBankedOn is not null)
+            throw new InvalidOperationException(
+                "Ce chèque est déjà déposé : sa date d'encaissement est rapprochée avec la banque et ne peut plus "
+                + "être déplacée. Retirez la marque de dépôt d'abord.");
+
+        payment.AmendPaidOn(paidOn);
         Touch();
     }
 

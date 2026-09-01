@@ -24,6 +24,15 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid Id { get; set; }
     public Guid PatientId { get; set; }
     public DateTime InterventionDate { get; set; }
+
+    /// <summary>
+    /// Set to go ahead with an edit the note d'honoraires would otherwise refuse: the note is voided, cancelled
+    /// and replaced by one describing the corrected séance. Null means the ordinary save, which is still refused.
+    ///
+    /// <para>Opt-in on purpose — retiring a numbered document is never something a routine re-save should do by
+    /// itself. The text ends up on the cancellation and on every voided payment, so it has to say something.</para>
+    /// </summary>
+    public string? CorrectionReason { get; set; }
     public decimal AmountPaid { get; set; }
 
     /// <summary>
@@ -137,6 +146,10 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 return Result<DentalRecordDto>.Failure("Mode de paiement invalide.");
             }
 
+            // Read BEFORE the update overwrites it: moving a séance's date has to carry its money along, and
+            // afterwards there is nothing left to compare against.
+            var previousDate = dentalRecord.InterventionDate;
+
             dentalRecord.Update(request.InterventionDate, request.AmountPaid, request.Notes, request.ImportantNotes);
             dentalRecord.SetActs(parsed.Value!);
             // Null stays null — « non renseigné », which every read takes as cash. Storing an explicit `Cash` for a
@@ -166,12 +179,55 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // passes through here), and both call the same guard so the two cannot drift.
             var billedBy = await DentalRecordBillingGuard.LoadAsync(
                 _invoiceRepository, _creditNoteRepository, clinicResult.Value, dentalRecord.Id, cancellationToken);
+
+            // The note this save retires, if the dentist asked to correct. Handed to the billing below so the
+            // replacement can point back at it.
+            Guid? supersedes = null;
+
             if (billedBy is { } note)
             {
                 var allowed = DentalRecordBillingGuard.Check(note, dentalRecord.Cost, request.AmountPaid);
                 if (allowed.IsFailure)
                 {
-                    return Result<DentalRecordDto>.FailureFrom(allowed);
+                    if (string.IsNullOrWhiteSpace(request.CorrectionReason))
+                    {
+                        return Result<DentalRecordDto>.FailureFrom(allowed);
+                    }
+
+                    // ── The correction ──────────────────────────────────────────────────────────────────────
+                    //
+                    // Correcting is NOT an avoir, and that distinction is the whole of this branch. An avoir
+                    // records money going back to the patient; a mis-keyed amount gave nothing back, so an avoir
+                    // there states a refund that never happened. What actually occurred is that the wrong note
+                    // should never have existed — so its payments are marked never-received, it is cancelled, and
+                    // the corrected séance raises a fresh one. The number is spent and marked cancelled, so the
+                    // sequence stays gapless and the trail stays readable.
+                    //
+                    // Pre-commit, like the refusal it replaces: the fiche and its note must move together or not
+                    // at all.
+                    var retired = await RetireForCorrectionAsync(
+                        note.InvoiceId, clinicResult.Value, request.CorrectionReason!, cancellationToken);
+                    if (retired.IsFailure)
+                    {
+                        return Result<DentalRecordDto>.FailureFrom(retired);
+                    }
+                    supersedes = note.InvoiceId;
+                }
+                else if (previousDate.Date != request.InterventionDate.Date)
+                {
+                    // ── L4: the séance's date carries its money ─────────────────────────────────────────────
+                    //
+                    // Every money read attributes a payment by `PaidOn` — la caisse and the revenue query alike.
+                    // Backdating a fiche used to move the séance and leave its payment behind, so a visit
+                    // corrected to the 31st still counted in the new month and « encaissé ce mois » reported a
+                    // figure nobody could explain. No avoir is needed and no document is touched: the note keeps
+                    // the day it was written, and only the record of when cash changed hands is corrected.
+                    var moved = await MovePaymentsAsync(
+                        note.InvoiceId, clinicResult.Value, request.InterventionDate, cancellationToken);
+                    if (moved.IsFailure)
+                    {
+                        return Result<DentalRecordDto>.FailureFrom(moved);
+                    }
                 }
             }
 
@@ -231,8 +287,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // raise a second note d'honoraires. The guard lives in
             // BillDentalRecordCommand, which is why this delegates rather than re-deciding.
             var dto = dentalRecord!.ToDto();
+            // ⚠️ `isAutomatic: false` when correcting. The automatic path deliberately refuses to raise a note for
+            // a fiche whose note is spent (A-1) — that refusal is what stops a routine re-save from quietly
+            // producing a second document — but here the cancellation was asked for, so raising the replacement
+            // is the point.
             dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
-                _sender, dentalRecord, request.AmountPaid, _logger, cancellationToken);
+                _sender, dentalRecord, request.AmountPaid, _logger, cancellationToken,
+                supersedesInvoiceId: supersedes);
 
             return Result<DentalRecordDto>.Success(dto);
         }
@@ -251,6 +312,94 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     }
 
     /// <summary>Occurrences of each catalogued procedure among a record's acts (free-text acts have no id).</summary>
+    /// <summary>
+    /// Void every live payment on the note billing this séance, then cancel it — the correction's destructive
+    /// half, run pre-commit so it lands with the fiche or not at all.
+    ///
+    /// <para>The order is imposed by the aggregate: <c>Invoice.VoidPayment</c> refuses to touch the payments of a
+    /// cancelled note, and <c>Invoice.Cancel</c> refuses while any live payment remains. Voiding first satisfies
+    /// both — and it is what makes the cancellation legitimate rather than a way to erase cash from la caisse,
+    /// which is exactly the distinction <c>Cancel</c>'s own guard draws.</para>
+    /// </summary>
+    private async Task<Result> RetireForCorrectionAsync(
+        Guid invoiceId,
+        Guid clinicId,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
+        if (invoice == null || invoice.ClinicId != clinicId)
+        {
+            return Result.Failure("La note d'honoraires de cette fiche est introuvable.");
+        }
+
+        if (!invoice.CanBeCorrected)
+        {
+            return Result.Failure(
+                invoice.SupersededByInvoiceId is not null
+                    ? "Cette note a déjà été corrigée : repartez de la note qui l'a remplacée."
+                    : "Cette note est annulée : elle ne peut plus être corrigée.");
+        }
+
+        foreach (var payment in invoice.Payments.Where(p => !p.IsVoided).ToList())
+        {
+            invoice.VoidPayment(payment.Id, reason, creditedTotal: 0m);
+        }
+
+        invoice.Cancel(reason);
+        await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
+
+        _logger.LogInformation(
+            "Invoice {Number} retired for correction of dental record (reason: {Reason})", invoice.Number, reason);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Move the live payments of a séance's note onto its new date (L4). Refused, not skipped, when a cheque has
+    /// been banked: that row is reconciled against a bank statement, and silently leaving it behind is the very
+    /// shape of failure this fixes.
+    /// </summary>
+    private async Task<Result> MovePaymentsAsync(
+        Guid invoiceId,
+        Guid clinicId,
+        DateTime interventionDate,
+        CancellationToken cancellationToken)
+    {
+        var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
+        if (invoice == null || invoice.ClinicId != clinicId)
+        {
+            return Result.Success();
+        }
+
+        var live = invoice.Payments.Where(p => !p.IsVoided).ToList();
+        if (live.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        if (live.Any(p => p.ChequeBankedOn is not null))
+        {
+            return Result.Failure(
+                $"Un chèque de la note {invoice.Number} est déjà déposé : sa date est rapprochée avec la banque et "
+                + "la séance ne peut plus être redatée. Retirez la marque de dépôt d'abord.",
+                DentalRecordBillingRefusals.PaymentBankedCode);
+        }
+
+        foreach (var payment in live)
+        {
+            invoice.AmendPaymentDate(payment.Id, interventionDate);
+        }
+
+        await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
+
+        _logger.LogInformation(
+            "Moved {Count} payment(s) on invoice {Number} to {Date:yyyy-MM-dd} with its fiche",
+            live.Count, invoice.Number, interventionDate);
+
+        return Result.Success();
+    }
+
     private static Dictionary<Guid, int> CountByProcedure(IEnumerable<Guid?> procedureTypeIds)
     {
         var counts = new Dictionary<Guid, int>();

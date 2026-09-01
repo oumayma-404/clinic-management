@@ -46,6 +46,8 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { InvoiceFormModal } from "./invoice-form-modal"
 import { PaymentModal } from "./payment-modal"
+import { PatientNameLink } from "@/components/patient-name-link"
+import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON } from "@/components/factures/correct-invoice-dialog"
 import { InvoiceDetailModal } from "./invoice-detail-modal"
 import {
   invoiceStatusLabel, invoiceStatusBadgeClass,
@@ -96,6 +98,8 @@ export function InvoicesTable({
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InvoiceDto | null>(null)
+  /** The issued note « Corriger cette note » was chosen on. */
+  const [correctTarget, setCorrectTarget] = useState<InvoiceDto | null>(null)
   const [paymentTarget, setPaymentTarget] = useState<InvoiceDto | null>(null)
   // The invoice detail modal — the app's first invoice detail surface, and the only place a specific
   // payment can be voided.
@@ -346,6 +350,12 @@ export function InvoicesTable({
           {isPayable && (
             <DropdownMenuItem onSelect={() => setPaymentTarget(inv)}>Enregistrer un paiement</DropdownMenuItem>
           )}
+          {/* Two doors, and they are not the same door. « Corriger » says the note was WRONG: it is cancelled
+              and replaced. « Établir un avoir » says money went BACK to the patient. Offering only the second —
+              which is what every refusal used to name — made the product record refunds that never happened. */}
+          {inv.canBeCorrected && (
+            <DropdownMenuItem onSelect={() => setCorrectTarget(inv)}>Corriger cette note</DropdownMenuItem>
+          )}
           {inv.canCreateAvoir && (
             <DropdownMenuItem onSelect={() => openAvoir(inv)}>Établir un avoir</DropdownMenuItem>
           )}
@@ -578,7 +588,15 @@ export function InvoicesTable({
                         )}
                       </div>
                     </TableCell>
-                    {showPatientColumn && <TableCell>{invoice.patientName ?? "—"}</TableCell>}
+                    {showPatientColumn && (
+                      <TableCell>
+                        {invoice.patientName ? (
+                          <PatientNameLink patientId={invoice.patientId} name={invoice.patientName} />
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell className="whitespace-nowrap">{invoice.issueDate ? formatDateFr(invoice.issueDate) : formatDateFr(invoice.createdAt)}</TableCell>
                     <TableCell>
                       <Badge variant="secondary" className={invoiceStatusBadgeClass(invoice.status)}>
@@ -661,6 +679,29 @@ export function InvoicesTable({
         presetPatientName={patientName}
         onSuccess={afterMutation}
       />
+      {correctTarget && (
+        <CorrectInvoiceDialog
+          open
+          onOpenChange={(next) => { if (!next) setCorrectTarget(null) }}
+          preview={{
+            invoiceNumber: correctTarget.number,
+            previousTotal: correctTarget.totalTtc,
+            nextTotal: correctTarget.totalTtc,
+          }}
+          onConfirm={async () => {
+            const draft = await invoicesApi.correct(correctTarget.id, DEFAULT_CORRECTION_REASON)
+            setCorrectTarget(null)
+            // Straight into the draft editor: the correction exists to be edited, and a toast telling the user
+            // to go and find it in the list is how a two-step flow loses its second step.
+            setEditing(draft)
+            setFormOpen(true)
+            toast.success(
+              `Correction ouverte en brouillon${correctTarget.number ? ` pour la note n° ${correctTarget.number}` : ""}.`,
+              { description: "Modifiez-la puis émettez-la : la note d'origine sera annulée à ce moment-là, et son paiement repris." },
+            )
+          }}
+        />
+      )}
 
       <PaymentModal
         open={!!paymentTarget}

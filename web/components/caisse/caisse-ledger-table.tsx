@@ -11,6 +11,8 @@ import { formatDT, formatDate } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { CaisseMovementDto, CaisseMovementKind } from "@/lib/api/types"
 import { paymentMethodLabel } from "@/components/factures/invoice-labels"
+import { PatientNameLink } from "@/components/patient-name-link"
+import { CaisseRowActions } from "@/components/caisse/caisse-row-actions"
 
 /**
  * The « extrait de caisse » — every movement behind the caisse's totals, oldest first, like a bank statement.
@@ -92,6 +94,12 @@ interface CaisseLedgerTableProps {
   /** True when a search term is narrowing the statement — the empty state then has a different way out. */
   isFiltered?: boolean
   onClearSearch?: () => void
+  /**
+   * Re-read the statement after a line is corrected. Optional, and the actions column only exists when it is
+   * given: the same table renders read-only surfaces (the export preview, an embedded summary) where offering
+   * « Corriger » would be a control that cannot refresh what it changed.
+   */
+  onChanged?: () => void
 }
 
 export function CaisseLedgerTable({
@@ -100,6 +108,7 @@ export function CaisseLedgerTable({
   loading = false,
   isFiltered = false,
   onClearSearch,
+  onChanged,
 }: CaisseLedgerTableProps) {
   if (loading) {
     return (
@@ -231,6 +240,11 @@ export function CaisseLedgerTable({
                 is not an account balance. Naming it after the period is the difference between a useful column and
                 a figure a reader will take for the money in the drawer. */}
             <TableHead className="text-right">Solde de la période</TableHead>
+            {onChanged && (
+              <TableHead className="w-10 text-right">
+                <span className="sr-only">Corriger</span>
+              </TableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -271,7 +285,13 @@ export function CaisseLedgerTable({
                     </span>
                   )}
                 </TableCell>
-                <TableCell className="text-muted-foreground">{movement.patientName ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {movement.patientId && movement.patientName ? (
+                    <PatientNameLink patientId={movement.patientId} name={movement.patientName} />
+                  ) : (
+                    movement.patientName ?? "—"
+                  )}
+                </TableCell>
                 <TableCell className="text-muted-foreground">
                   {movement.method ? paymentMethodLabel(movement.method) : "—"}
                   {/* L8 — the same string the card list shows, from the one formatter, so the two trees cannot
@@ -307,6 +327,11 @@ export function CaisseLedgerTable({
                   )}
                 </TableCell>
                 <TableCell numeric>{formatDT(movement.runningBalance)}</TableCell>
+                {onChanged && (
+                  <TableCell numeric className="w-10">
+                    <CaisseRowActions movement={movement} onChanged={onChanged} />
+                  </TableCell>
+                )}
               </TableRow>
             )
           })}

@@ -57,6 +57,9 @@ public static class InvoiceMappingExtensions
             })
             .ToList(),
         CanCancel = invoice.CanCancel,
+        CanBeCorrected = invoice.CanBeCorrected,
+        SupersededByInvoiceId = invoice.SupersededByInvoiceId,
+        SupersedesInvoiceId = invoice.SupersedesInvoiceId,
         CanCreateAvoir = invoice.CanCreateCreditNote,
         CreditedTotal = creditNotes?.Sum(c => c.Amount) ?? 0m,
         CreditNotes = creditNotes?.Select(c => c.ToDto(invoice)).ToList() ?? new List<CreditNoteDto>(),

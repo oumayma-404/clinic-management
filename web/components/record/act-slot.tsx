@@ -24,6 +24,8 @@ interface ActSlotProps {
   proposedFromAppointment?: boolean
   /** The committed act being edited, or null while composing a new one. */
   editingAct: SessionAct | null
+  /** How many acts the séance already holds. Decides whether an empty composer means « choose one » or « done ». */
+  committedCount: number
   dispatch: (action: SessionAction) => void
   disabled?: boolean
 }
@@ -45,14 +47,22 @@ export function ActSlot({
   procedureTypes,
   proposedFromAppointment,
   editingAct,
+  committedCount,
   dispatch,
   disabled,
 }: ActSlotProps) {
   const [picking, setPicking] = useState(false)
 
-  // Derived, not an effect: with no act there is nothing to show a card for, so the list is simply what the
-  // slot renders. Confirming an act empties the draft and the list comes back on its own.
-  const showPicker = picking || !hasDraft
+  /*
+   * Derived, not an effect: with nothing in hand and nothing recorded, the catalogue simply IS what this slot
+   * renders — a first act has to be chosen from somewhere.
+   *
+   * ⚠️ `committedCount` is what keeps it from doing that on an EXISTING fiche. Reopening a saved séance leaves
+   * the composer empty (its acts are committed, not drafted), so the slot used to greet « Modifier la fiche »
+   * with an open act catalogue — which reads as « re-enter the act », and is exactly what was reported. A
+   * séance that already holds acts gets a quiet resting state instead, and the catalogue on request.
+   */
+  const showPicker = picking || (!hasDraft && committedCount === 0)
 
   const procedure = draft.procedureTypeId ? procedureTypes.find((p) => p.id === draft.procedureTypeId) : undefined
   const stripe = procedure?.colorHex || "var(--border)"
@@ -89,6 +99,28 @@ export function ActSlot({
           disabled={disabled}
           autoFocus
         />
+      </div>
+    )
+  }
+
+  // Nothing in hand, but the séance is not empty: say so, and offer the catalogue rather than opening it.
+  if (!hasDraft) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed p-3">
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+          {committedCount === 1 ? "1 acte enregistré" : `${committedCount} actes enregistrés`} pour cette séance.
+          Modifiez-les dans « Actes de la séance », ou ajoutez-en un autre.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0 text-xs"
+          onClick={() => setPicking(true)}
+          disabled={disabled}
+        >
+          Ajouter un acte
+        </Button>
       </div>
     )
   }

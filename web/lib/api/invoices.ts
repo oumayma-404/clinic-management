@@ -127,6 +127,24 @@ export const invoicesApi = {
   cancel: async (id: string, reason: string): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/${id}/cancel`, { reason }),
 
+  /**
+   * Open a correction on an issued note: returns a DRAFT copy to edit, then issue.
+   *
+   * Not an avoir, and the two are not interchangeable — an avoir records money handed back to the patient,
+   * a correction records that the note was wrong. The original keeps its number, status and payments until
+   * the replacement is issued, so nothing leaves la caisse while the correction is being typed.
+   */
+  correct: async (id: string, reason: string): Promise<InvoiceDto> =>
+    apiPost<InvoiceDto>(`/invoices/${id}/correct`, { reason }),
+
+  /**
+   * Move the day a payment was received. Touches no document — money reads attribute a payment by its own date
+   * while the note keeps the day it was written — so this needs neither an avoir nor a correction.
+   * Refused once a cheque is banked.
+   */
+  amendPaymentDate: async (id: string, paymentId: string, paidOn: string): Promise<InvoiceDto> =>
+    apiPost<InvoiceDto>(`/invoices/${id}/payments/${paymentId}/date`, { paidOn }),
+
   // Establish an avoir (credit note) against an issued invoice with collected money — the lawful correction
   // path for cash already received (a void says "never received"; an avoir says "given back").
   createAvoir: async (

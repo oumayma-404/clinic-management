@@ -163,6 +163,27 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
 
 function initialState(record?: DentalRecordDto | null): SessionState {
   const acts = (record?.acts ?? []).map((a, i) => actFromDto(a, makeKey(i)))
+
+  /*
+   * Reopening a saved fiche opens on its FIRST act, already loaded into the composer.
+   *
+   * ⚠️ Without this the composer is empty on an edit — the acts are committed, not drafted — so « Modifier la
+   * fiche » greeted the dentist with an empty act slot and, before the resting state existed, with the whole
+   * catalogue. Both read as « re-enter the act », which is exactly what was reported. The séance's own act is
+   * what an edit is about, so that is what the composer holds: its price, its teeth and its detail are all
+   * editable on arrival, and « Ajouter un autre acte » still adds more.
+   */
+  if (acts.length > 0) {
+    const { key, toothNumbers, ...draft } = acts[0]
+    return {
+      acts,
+      selection: [...toothNumbers],
+      editingKey: key,
+      draft: { ...draft, surfaces: new Set(draft.surfaces) },
+      nextKey: acts.length,
+    }
+  }
+
   return { acts, selection: [], editingKey: null, draft: emptyDraft(), nextKey: acts.length }
 }
 

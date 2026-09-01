@@ -37,6 +37,8 @@ import { ARCH_QUADRANTS_BY_VIEW, FDI_BY_VIEW, isAdultTooth } from "@/components/
 import { dentitionViewFor, dentitionViewForTeeth, type DentitionView } from "@/lib/dentition"
 import { DentitionViewSwitch } from "@/components/dentition-view-switch"
 import { RecordToothChart, type ToothPaint } from "@/components/record-tooth-chart"
+import { ApiError } from "@/lib/api/client"
+import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON, type CorrectionPreview } from "@/components/factures/correct-invoice-dialog"
 import { ActSlot } from "@/components/record/act-slot"
 import { ActDetailFields } from "@/components/record/act-detail-fields"
 import { RecordSection } from "@/components/record/record-section"
@@ -111,6 +113,12 @@ interface PatientRecordModalProps {
  * acts per session, mixed dentition) is still here, folded into sections whose headers state their own
  * contents so nothing is hidden by being collapsed.
  */
+/**
+ * The refusals a correction can get past. Mirrors `DentalRecordBillingRefusals.IsCorrectable` on the server —
+ * the two are codes, not sentences, precisely so rewording a French refusal cannot change what this offers.
+ */
+const CORRECTABLE_CODES = new Set(["dental_record_acts_changed_after_billing", "dental_record_payment_lowered"])
+
 export function PatientRecordModal({
   open,
   onOpenChange,
@@ -164,6 +172,8 @@ export function PatientRecordModal({
   )
   const dentitionView = chosenView ?? seededView
   const [amountPaid, setAmountPaid] = useState("")
+  /** Set when a save was refused for a reason a correction can get past — drives the confirm dialog. */
+  const [correction, setCorrection] = useState<CorrectionPreview | null>(null)
   const [paidDirty, setPaidDirty] = useState(false)
   /**
    * How the séance was settled, and — for a cheque — which cheque.
@@ -492,6 +502,17 @@ export function PatientRecordModal({
   const lowersBilledAmount = isInvoiced && roundMillimes(paidAmount) < alreadyCollected
 
   /**
+   * The edit contradicts the note d'honoraires already carrying this séance — the state in which « Enregistrer »
+   * becomes « Corriger la note » rather than going grey.
+   *
+   * <p>Both halves used to simply disable the button, which is how the correction became unreachable: lowering a
+   * price greyed the save out with a sentence beside it, so the refusal that opens the correction could never
+   * fire. Deliberately gated on `isInvoiced`: with no note there is nothing to correct against, and `overpaid` is
+   * then a plain typo that should still block.</p>
+   */
+  const contradictsNote = isInvoiced && (overpaid || lowersBilledAmount)
+
+  /**
    * Refuse the save: mark the region, scroll it into view, and *also* toast.
    *
    * <p>Order matters — the state is set before the scroll so the message exists by the time the region is on
@@ -522,7 +543,7 @@ export function PatientRecordModal({
     return editingKey ? acts.map((a) => (a.key === editingKey ? materialised : a)) : [...acts, materialised]
   }, [acts, draft, hasDraft, editingKey, selection])
 
-  const handleSave = async () => {
+  const handleSave = async (correctionReason?: string) => {
     if (!patientId) {
       toast.error("Identifiant du patient requis")
       return
@@ -598,6 +619,8 @@ export function PatientRecordModal({
       const saved = record
         ? await dentalRecordsApi.update(patientId, record.id, {
             ...recordData,
+            // Only ever set by « Corriger la note » below — an ordinary save never retires a numbered document.
+            ...(correctionReason ? { correctionReason } : {}),
             version: freshRecord?.version ?? record.version,
           })
         : await dentalRecordsApi.create(patientId, recordData)
@@ -660,6 +683,18 @@ export function PatientRecordModal({
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
+      // ── A refusal the fiche can be corrected out of ─────────────────────────────────────────────────────
+      //
+      // « Les actes … ne peuvent plus être modifiés. Établissez un avoir » used to be the end of the road: the
+      // action it named lives in another page's row menu, and an avoir is the wrong document anyway — it records
+      // money handed back, and a mis-keyed amount handed nothing back. So the refusal now opens the way out it
+      // was describing. Branched on the CODE, never the sentence: rewording a refusal must not change behaviour.
+      if (!correctionReason && err instanceof ApiError && CORRECTABLE_CODES.has(err.code ?? "")) {
+        setCorrection({ previousTotal: record?.cost ?? 0, nextTotal: grandTotal })
+        setLoading(false)
+        return
+      }
+
       // A conflict is not a transient blip — a colleague saved this fiche while it was open — so it stays
       // in the form rather than flashing past in a toast.
       if (!conflict.capture(err, "L'enregistrement de la fiche a échoué.")) {
@@ -679,7 +714,7 @@ export function PatientRecordModal({
     const faces = Array.from(draft.surfaces)
     const bits = [
       draft.resultingCondition ? conditionStyle(draft.resultingCondition).label : "aucun état",
-      `${formatDT(Number.parseFloat(draft.unitCost) || 0)}${draft.perTooth ? " / dent" : " forfait"}`,
+      `${formatDT(parseAmountInput(draft.unitCost) || 0)}${draft.perTooth ? " / dent" : " forfait"}`,
       faces.length > 0 ? `faces ${faces.join(", ")}` : "aucune face",
     ]
     if (draft.note.trim()) bits.push("note")
@@ -854,6 +889,7 @@ export function PatientRecordModal({
             procedureTypes={procedureTypes}
             proposedFromAppointment={proposedFromAppointment}
             editingAct={editingAct}
+            committedCount={acts.length}
             dispatch={dispatch}
             disabled={loading}
           />
@@ -1398,24 +1434,53 @@ export function PatientRecordModal({
                 will book. `formatDT`, never a hand-rolled `toFixed`: the millime and the decimal comma are the
                 product's, not this dialog's.
               */}
-              {/* `lowersBilledAmount` too: the server refuses it (`dental_record_payment_lowered`) and the refusal
-                  arrives post-commit, so letting the save through would stick the edit and show a refusal. */}
+              {/* ⚠️ On a BILLED fiche these two no longer disable the button — they change what it does.
+                  Disabling was how the correction became unreachable: the dentist lowered a price, the button
+                  went grey with a sentence beside it, and the refusal that opens « Corriger la note » could
+                  never fire because the save never ran. A rule with no way to act on it is a wall, not a guard.
+                  On an unbilled fiche `overpaid` still blocks: there it is a plain typo, with no note to
+                  correct against. */}
               <Button
-                onClick={handleSave}
-                disabled={loading || overpaid || lowersBilledAmount}
+                // Wrapped, never `onClick={handleSave}`: the handler's first parameter is now the correction
+                // reason, and React would hand it the MouseEvent — truthy, so every ordinary save would retire
+                // the note. `tsc` catches it; the wrapper is what makes it unsayable.
+                onClick={() => {
+                  if (contradictsNote) {
+                    setCorrection({ previousTotal: alreadyCollected, nextTotal: grandTotal })
+                    return
+                  }
+                  void handleSave()
+                }}
+                disabled={loading || (!contradictsNote && (overpaid || lowersBilledAmount))}
                 className="w-full sm:w-auto sm:min-w-[150px]"
               >
                 {loading
                   ? "Enregistrement…"
-                  : `${
-                      record ? "Enregistrer" : appointmentId ? "Confirmer la séance" : "Créer la fiche"
-                    }${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`}
+                  : contradictsNote
+                    ? `Corriger la note${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`
+                    : `${
+                        record ? "Enregistrer" : appointmentId ? "Confirmer la séance" : "Créer la fiche"
+                      }${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`}
               </Button>
             </div>
           </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {correction && (
+      <CorrectInvoiceDialog
+        open
+        onOpenChange={(next) => { if (!next) setCorrection(null) }}
+        preview={correction}
+        onConfirm={async () => {
+          // Re-runs the SAME save with the reason attached, rather than a second endpoint: the payload the
+          // dentist just tried is exactly what the correction must persist, and rebuilding it here is how the
+          // two would drift.
+          await handleSave(DEFAULT_CORRECTION_REASON)
+          setCorrection(null)
+        }}
+      />
+    )}
     <DiscardChangesDialog guard={guard} />
     </>
   )

@@ -52,7 +52,8 @@ public static class DentalRecordAutoBilling
         DentalRecord record,
         decimal amountPaid,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? supersedesInvoiceId = null)
     {
         if (amountPaid <= 0m)
         {
@@ -67,7 +68,11 @@ public static class DentalRecordAutoBilling
                     DentalRecordId = record.Id,
                     // Saving the fiche is the *silent* path, and A-1 turns on exactly that: a séance whose note was
                     // cancelled must not quietly acquire a second one behind a routine re-save.
-                    IsAutomatic = true,
+                    // ⚠️ A correction is NOT the silent path. A-1 exists to stop a routine re-save from quietly
+                    // raising a second note on a séance whose note was cancelled — but when the cancellation was
+                    // just asked for, raising the replacement is the entire point.
+                    IsAutomatic = supersedesInvoiceId is null,
+                    SupersedesInvoiceId = supersedesInvoiceId,
                     PaidNow = new DentalRecordPaymentRequest
                     {
                         Amount = amountPaid,

@@ -123,6 +123,38 @@ public class Payment : Entity<Guid>, IAuditable
     }
 
     /// <summary>
+    /// The cheque's identity as a value object again, so a payment moved from one note to another is rebuilt
+    /// through <see cref="ChequeDetails.For"/> rather than having its three columns copied by hand — the
+    /// method/details invariant is re-checked on the way across instead of trusted. Same pair, and the same
+    /// reasoning, as <c>InstallmentPayment</c>'s.
+    /// </summary>
+    public ChequeDetails? ToChequeDetails() =>
+        ChequeDetails.For(Method, ChequeNumber, ChequeBankName, ChequeDueDate);
+
+    /// <summary>
+    /// The banked mark, likewise. Dropping it when a correction moves the payment would put a cheque that is
+    /// physically at the bank back under « à encaisser », and re-marking it would record today rather than the
+    /// day it was really deposited.
+    /// </summary>
+    public ChequeBankedStamp? ToBankedStamp() =>
+        ChequeBankedStamp.For(Method, ChequeBankedOn, ChequeBankedByUserId, ChequeBankedByName);
+
+    /// <summary>
+    /// Move when this payment was received. <c>Internal</c> so it is reachable only through
+    /// <see cref="Invoice.AmendPaymentDate"/>, which owns the guards.
+    ///
+    /// <para><b>Why the date is amendable at all.</b> Every money read in the product attributes a payment by
+    /// <see cref="PaidOn"/> — la caisse and the revenue query alike. Backdating a fiche de soins therefore has to
+    /// carry its payment along, or the séance moves to the 31st while its money stays in the new month and
+    /// « encaissé ce mois » reports a figure nobody can explain. This is not a fiscal edit: the note keeps the day
+    /// it was written, and only the record of when cash changed hands is corrected.</para>
+    /// </summary>
+    internal void AmendPaidOn(DateTime paidOn)
+    {
+        PaidOn = paidOn;
+    }
+
+    /// <summary>
     /// Mark this payment as never received. Idempotent by contract — the caller (<see cref="Invoice.VoidPayment"/>)
     /// refuses a second void, so a double-click cannot rewrite the original reason or actor.
     /// </summary>
