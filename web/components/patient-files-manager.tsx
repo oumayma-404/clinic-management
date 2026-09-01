@@ -58,7 +58,7 @@ import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import { useVault } from "@/lib/hooks/use-vault"
-import { findVerifiedInVault } from "@/lib/vault/path"
+import { findVerifiedInVault, vaultDisplayPath } from "@/lib/vault/path"
 import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
@@ -318,6 +318,24 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     }
   }
 
+  /**
+   * « Copier le chemin » — the honest form of « open the folder ».
+   *
+   * ⚠️ A page served over `https:` cannot link to `file:`: every modern browser ignores such a click and reports
+   * nothing, so a hyperlink here would be a control that looks like it works and does not. Copying the path is
+   * what a person can actually use — paste it into the Explorer address bar. A real « ouvrir le dossier » needs
+   * a reveal method on the desktop shell's bridge, which does not exist yet.
+   */
+  const copyPathAction = (path: string) => ({
+    label: "Copier le chemin",
+    onClick: () => {
+      void navigator.clipboard
+        ?.writeText(path)
+        .then(() => toast.success("Chemin copié"))
+        .catch(() => toast.error("Le chemin n'a pas pu être copié", { description: path }))
+    },
+  })
+
   const handleDownloadFile = async (file: PatientFileDto) => {
     try {
       // AC-9 — a coffre original is opened from the disk it never left. No request, no transfer: at Tunisia's
@@ -327,17 +345,23 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           ? await findVerifiedInVault(vault, patientId, file.id, file.fileName, file.fileSize)
           : null
 
+        // Where the original sits inside the coffre. Shown in every branch below that cannot simply hand the
+        // file over, because « il est au cabinet » without a path leaves somebody hunting through folders named
+        // after ids they have never seen.
+        const where = vaultDisplayPath(vault?.name, patientId, file.id, file.fileName)
+
         if (!local) {
           // ⚠️ Not an error. The study is on the machine that recorded it, and a colleague's laptop legitimately
           // has no copy — so this names where it is rather than reporting a failure.
           toast.info("Original conservé au cabinet", {
             description:
-              "Ce fichier n'est pas disponible sur ce poste. Ouvrez-le depuis le poste du cabinet qui accède au coffre.",
+              `Ce fichier n'est pas disponible sur ce poste. Sur le poste du cabinet il se trouve dans ${where}.`,
+            action: copyPathAction(where),
           })
           return
         }
 
-        await downloadBlob(local, file.fileName)
+        await downloadBlob(local, file.fileName, { savedAt: where })
         return
       }
 

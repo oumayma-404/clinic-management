@@ -759,7 +759,8 @@ check(
     return hits;
   },
 );
-/** The one place a value gets wrapped in French guillemets. */
+
+/** The one place a value gets wrapped in French guillemets. */
 const QUOTE_HELPER = "lib/format.ts";
 
 check(
@@ -865,6 +866,39 @@ check(
     };
 
     return scanLines(holders.filter((f) => !callsHook(f)), rendersIt);
+  },
+);
+
+check(
+  "shell-save-route-is-a-method",
+  "N12",
+  "A native-shell save path is taken on `saveFile`, never on the bridge merely existing",
+  "`window.__clinicShell` means « a shell is hosting this page », NOT « the shell can receive a file ». " +
+    "`bridge.md`'s own table says the desktop needs no `saveFile` — « a WebView2 download works » — and " +
+    "therefore no `maxFileBytes` to bound it, so its bridge carries `version` and `platform` alone. " +
+    "`download.ts` branched on the bridge existing, and `clinic-file-vault` gave the desktop a bridge for the " +
+    "first time: on Windows EVERY download then took the mobile path — above 25 Mo refused with a sentence " +
+    "naming « l’application mobile », below it calling an undefined `saveFile` and reporting « Échec du " +
+    "téléchargement ». Neither size worked, on the one platform that downloads natively, and nothing could see " +
+    "it: the types make every bridge member optional, so `shell.saveFile(…)` type-checks. Branch on " +
+    "`typeof shell.saveFile === \"function\"` and let a shell without it fall through to the browser routes.",
+  () => {
+    // Keyed on the ROLE — a file that calls `saveFile` across the bridge — rather than on `download.ts` by
+    // name, so a second delivery path written later is covered on the day it is written.
+    const callers = tsx().filter((f) => /\.saveFile\s*\(/.test(read(f)));
+
+    // ⚠️ Comment-masked: this check's own prose names both `saveFile` and the guard, and a plain `includes`
+    // would pass on a file whose guard was deleted and whose explanation stayed — the failure mode the
+    // `clinic-code-gated` check documents right above.
+    const guards = (file) => {
+      const lines = read(file).split(/\r?\n/);
+      const masked = commentMask(lines);
+      return lines.some(
+        (l, i) => !masked[i] && /typeof\s+\w+(?:\?)?\.saveFile\s*===\s*["']function["']/.test(l),
+      );
+    };
+
+    return scanLines(callers.filter((f) => !guards(f)), /\.saveFile\s*\(/);
   },
 );
 

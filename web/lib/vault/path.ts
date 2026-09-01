@@ -14,6 +14,28 @@ export function extensionOf(fileName: string): string {
   return fileName.slice(dot).toLowerCase()
 }
 
+/**
+ * Where the original sits, written the way the operating system writes it, for showing to a person.
+ *
+ * ⚠️ **Text, deliberately — not an `href`.** A page served over `https:` cannot link to `file:`; every modern
+ * browser ignores the click and says nothing, which would be a control that looks like it works and does not.
+ * So this is a path to read, copy and paste into the file manager. A real « ouvrir le dossier » needs the
+ * desktop shell to expose a reveal method over the bridge — see `mobile/shared/bridge.md`.
+ *
+ * The coffre root is whatever folder the practice chose, and the browser is never told its absolute path (the
+ * File System Access API hands out a handle and a name, never a location), so the root is named by its handle
+ * and the rest is exact.
+ */
+export function vaultDisplayPath(
+  vaultName: string | undefined,
+  patientId: string,
+  fileId: string,
+  fileName: string,
+): string {
+  const [folder, leaf] = vaultSegments(patientId, fileId, fileName)
+  return [vaultName || 'coffre', folder, leaf].join('\\')
+}
+
 /** The segments under the coffre root: the patient's folder, then the file. */
 export function vaultSegments(patientId: string, fileId: string, fileName: string): [string, string] {
   return [patientId, `${fileId}${extensionOf(fileName)}`]
