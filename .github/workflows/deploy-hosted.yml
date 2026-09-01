@@ -189,6 +189,37 @@ jobs:
           $COMPOSE ps
           REMOTE
 
+      # ⚠️ **`up -d` above does NOT pick up an edited config file.** Compose recreates a container when its
+      # *service definition* changes; « the file behind an unchanged single-file bind mount now holds different
+      # bytes » is not part of that definition, and a single-file mount pins an inode, so the shipped `deploy/`
+      # replaced the file on disk and the long-running container kept reading the old one. `caddy validate` and
+      # `caddy reload` both read the path the container sees, so both confirm the stale content is fine.
+      #
+      # That shipped once: a CSP fix reached the server's Caddyfile and never reached Caddy, and the browser kept
+      # blocking the coffre's hasher for a day with nothing anywhere reporting a failed deploy. So this step both
+      # repairs it and then re-asks — the second run is the gate, and it fails the deploy rather than let a
+      # config change be silently ignored again. `config-freshness.sh` derives the mount list from
+      # `docker inspect`, so a config file bind-mounted next month is covered without editing this workflow.
+      - name: Recreate anything still reading a stale config file
+        run: |
+          ssh vps "DEPLOY_DIR='${{ vars.VPS_DEPLOY_DIR }}' CLINIC_IMAGE_PREFIX='$CLINIC_IMAGE_PREFIX' CLINIC_IMAGE_TAG='$CLINIC_IMAGE_TAG' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          COMPOSE="docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml"
+
+          stale=$(bash config-freshness.sh --services)
+
+          if [ -n "$stale" ]; then
+            echo "Recreating: $stale"
+            # --no-deps so repairing caddy never restarts the API underneath it; unquoted on purpose, the
+            # listing is one service name per line and each is a separate argument.
+            $COMPOSE up -d --no-build --force-recreate --no-deps $stale
+          fi
+
+          # The verdict, in both branches: after any repair every container must read what is on disk.
+          bash config-freshness.sh
+          REMOTE
+
       - name: Log the server out of GHCR
         if: always()
         run: ssh vps "docker logout ghcr.io" || true

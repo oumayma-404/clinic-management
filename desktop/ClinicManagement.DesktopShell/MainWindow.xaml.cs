@@ -46,6 +46,38 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        FitToWorkArea();
+    }
+
+    /// <summary>
+    /// Size and place the window inside the primary monitor's work area, before it is ever shown.
+    ///
+    /// <para>⚠️ The XAML asks for 1280×820 and used to ask for <c>CenterScreen</c>, which centres that size on the
+    /// screen <b>whether or not it fits</b>. On a 1366×768 laptop at 150% scaling the work area is ~910×470 DIP, so
+    /// centring gave <c>Top = -175</c>: the title bar — and with it the close, agrandir and réduire buttons — sat
+    /// above the top of the screen. The window could not be closed, moved or resized by mouse, and a clinic that
+    /// had just installed the client was locked into that one view. Clamping the size first and the position
+    /// second is what guarantees the caption lands on screen.</para>
+    ///
+    /// <para>The minimums are clamped too: a <c>MinHeight</c> larger than the work area would re-impose the very
+    /// size the clamp above just removed, and WPF applies it silently.</para>
+    /// </summary>
+    private void FitToWorkArea()
+    {
+        // The arithmetic lives in `WindowPlacement` so it can be asserted without a window — see that type's note.
+        // Reading `SystemParameters.WorkArea` is all this method keeps, and all six values come from one answer so
+        // the tested result and the assigned one cannot drift apart.
+        if (WindowPlacement.Fit(Width, Height, MinWidth, MinHeight, SystemParameters.WorkArea) is not { } placement)
+        {
+            return;
+        }
+
+        MinWidth = placement.MinWidth;
+        MinHeight = placement.MinHeight;
+        Width = placement.Width;
+        Height = placement.Height;
+        Left = placement.Left;
+        Top = placement.Top;
     }
 
     /// <summary>

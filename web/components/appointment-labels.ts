@@ -108,8 +108,15 @@ export const GENDER_LABELS: Record<string, string> = {
   Unknown: "Non précisé",
 };
 
-/** The three values the patient form offers. `Unknown` is readable but never selectable. */
-export const SELECTABLE_GENDERS = ["Male", "Female", "Other"] as const;
+/**
+ * The values the patient form offers.
+ *
+ * `Unknown` is one of them now. It was readable but not selectable while the field was required — and that pairing
+ * is what made a walk-in whose sexe nobody asked for get an invented M or F, because the form refused to move on
+ * and « Non précisé » was not on the list. With the field optional, « je ne sais pas » needs somewhere to land
+ * that is not a guess.
+ */
+export const SELECTABLE_GENDERS = ["Male", "Female", "Other", "Unknown"] as const;
 
 /**
  * AC-P1.45/1.46: « Homme / Femme / Autre » everywhere a gender is shown. A patient reading « Male » — or

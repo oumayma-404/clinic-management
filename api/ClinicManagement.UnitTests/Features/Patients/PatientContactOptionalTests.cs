@@ -1,4 +1,4 @@
-using ClinicManagement.UnitTests.Common;
+﻿using ClinicManagement.UnitTests.Common;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -165,6 +165,40 @@ public class PatientContactOptionalTests
         Assert.Equal("sonia@example.tn", patient.Email?.Value);
         Assert.Equal("20123456", patient.PhoneNumber?.Value);
         Assert.Equal("Sonya", patient.FirstName);
+    }
+
+    // The date of birth carries the SAME tri-state, and it did not until the patient form made it optional.
+    // `request.DateOfBirth ?? patient.DateOfBirth` made « effacer » and « laisser tel quel » one request, so a
+    // birthday somebody had guessed at could never be removed and the form reported success having changed nothing.
+    [Fact]
+    public async Task Update_With_An_Explicit_Null_Clears_The_Date_Of_Birth()
+    {
+        var patient = PatientWith(new Email("sonia@example.tn"), new PhoneNumber("20123456"));
+        _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+
+        var command = new UpdatePatientCommand { Id = patient.Id, DateOfBirth = null };
+        Assert.True(command.DateOfBirthSpecified);    // the setter ran ⇒ the key was present
+
+        var result = await UpdateAsync(command);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(patient.DateOfBirth);
+        Assert.Equal("Sonia", patient.FirstName);     // untouched
+    }
+
+    [Fact]
+    public async Task Update_Without_The_Key_Keeps_The_Stored_Date_Of_Birth()
+    {
+        var patient = PatientWith(new Email("sonia@example.tn"), new PhoneNumber("20123456"));
+        _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+
+        var command = new UpdatePatientCommand { Id = patient.Id, FirstName = "Sonya" };
+        Assert.False(command.DateOfBirthSpecified);
+
+        var result = await UpdateAsync(command);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new DateTime(1990, 5, 2, 0, 0, 0, DateTimeKind.Utc), patient.DateOfBirth);
     }
 
     // ---------------------------------------------------------------- reads

@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
 using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
@@ -24,7 +24,28 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     public Guid Id { get; set; }
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
-    public DateTime? DateOfBirth { get; set; }
+    /// <summary>
+    /// Tri-state, same mechanism as <see cref="Address"/>: omit the key to leave the stored date alone, send an
+    /// explicit <c>null</c> to clear it, send a date to set it.
+    ///
+    /// <para>
+    /// ⚠️ It was a plain <c>DateTime?</c> read as <c>request.DateOfBirth ?? patient.DateOfBirth</c>, i.e. « clear »
+    /// and « leave alone » were the same request — the exact defect <see cref="Address"/>'s own note describes. It
+    /// did not bite while the form made the date of birth mandatory. It does the moment it is optional: a patient
+    /// recorded with a birthday somebody guessed at can no longer have it removed, and the form would report
+    /// success having changed nothing.
+    /// </para>
+    /// </summary>
+    public DateTime? DateOfBirth
+    {
+        get => _dateOfBirth;
+        set { _dateOfBirth = value; DateOfBirthSpecified = true; }
+    }
+    private DateTime? _dateOfBirth;
+
+    [JsonIgnore]
+    public bool DateOfBirthSpecified { get; private set; }
+
     public string? Gender { get; set; }
 
     /// <summary>
@@ -187,14 +208,13 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             // Update personal info if any fields are provided. Contact is deliberately NOT in this condition
             // any more — it has its own tri-state block below, and routing it through UpdatePersonalInfo (six
             // positional parameters) would rewrite name, birth date, gender and address on every contact edit.
-            if (request.FirstName != null || request.LastName != null || request.DateOfBirth.HasValue ||
+            if (request.FirstName != null || request.LastName != null || request.DateOfBirthSpecified ||
                 request.Gender != null || request.AddressSpecified)
             {
                 var firstName = request.FirstName ?? patient.FirstName;
                 var lastName = request.LastName ?? patient.LastName;
-                // Null-means-unchanged, as before — this field has no « effacer » on the wire, so an undated patient
-                // stays undated and a stored date is never cleared by an omitted key.
-                var dateOfBirth = request.DateOfBirth ?? patient.DateOfBirth;
+                // Tri-state, per the property's note: an omitted key keeps the stored date, an explicit null clears it.
+                var dateOfBirth = request.DateOfBirthSpecified ? request.DateOfBirth : patient.DateOfBirth;
 
                 if (dateOfBirth is { } born)
                 {

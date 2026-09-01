@@ -98,6 +98,14 @@ stay deletable — it is assigned, not defined as non-configurable.
 any anchor. Inside a WebView a `blob:` download has nowhere to go and `navigator.share` does not exist, so every
 later path delivers *nothing* there.
 
+⚠️ **A shell that declares no `saveFile` is not a save route, and `download.ts` must branch on the METHOD, not
+on the bridge.** The desktop shell has carried a `window.__clinicShell` since 1.2 (for the coffre seam) with
+`version` and `platform` alone — exactly as the table above says it should. `download.ts` branched on the bridge
+merely existing, so on Windows every download took this path: above 25 Mo it was refused with a sentence naming
+« l'application mobile », and below it, it called an undefined `saveFile` and reported « Échec du
+téléchargement ». Both sizes, every file, on the one platform that downloads natively. Reported from the desktop
+app on 2026-09-01 and fixed by asking `typeof shell.saveFile === 'function'`.
+
 The size refusal happens on the **web** side, against `blob.size`, **before** the bytes are read: the base64
 encode is where the memory is actually spent, so a refusal after it is a refusal the device has already crashed
 past. `maxFileBytes` exists because that ceiling is a property of the platform's own JS bridge, not of the web app

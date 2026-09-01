@@ -9,6 +9,10 @@ import { formatDT } from "@/lib/format"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { resolveActCost, type SessionAct } from "@/components/record/use-session-acts"
 
+// Swatch + name as one item, on its own line below `sm:`: a row's other parts are 261 px of `shrink-0` in a
+// 327 px body, so at 390 px the name truncated to two letters and the row still scrolled the body sideways.
+const ROW_NAME_LINE = "flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1"
+
 interface SessionActsListProps {
   acts: SessionAct[]
   editingKey: string | null
@@ -95,16 +99,18 @@ export function SessionActsList({
       <li
         key={`${tooth ?? "general"}-${act.key}`}
         className={cn(
-          "flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors",
+          "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-2 py-1.5 text-xs transition-colors",
           isEditing ? "border-amber-400 bg-amber-50/60 dark:bg-amber-950/20" : "hover:border-muted-foreground/40",
         )}
       >
-        <span
-          className={cn("h-2.5 w-2.5 shrink-0 rounded-full border", act.resultingCondition ? style.swatch : "bg-background")}
-          title={act.resultingCondition ? style.label : "Aucun état résultant"}
-        />
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground" title={act.procedureName}>
-          {act.procedureName}
+        <span className={ROW_NAME_LINE}>
+          <span
+            className={cn("h-2.5 w-2.5 shrink-0 rounded-full border", act.resultingCondition ? style.swatch : "bg-background")}
+            title={act.resultingCondition ? style.label : "Aucun état résultant"}
+          />
+          <span className="min-w-0 flex-1 truncate font-medium text-foreground" title={act.procedureName}>
+            {act.procedureName}
+          </span>
         </span>
 
         {isShared && (
@@ -122,7 +128,7 @@ export function SessionActsList({
           </Badge>
         )}
 
-        <span className="shrink-0 tabular-nums">
+        <span className="ms-auto shrink-0 tabular-nums">
           {showCost ? (
             <>
               {formatDT(cost)}
@@ -204,22 +210,24 @@ export function SessionActsList({
             <span className="h-px flex-1 bg-border" />
             <span className="text-2xs text-muted-foreground">sera enregistré</span>
           </div>
-          <div className="flex items-center gap-2 rounded-md border border-amber-400 bg-amber-50/60 px-2 py-1.5 text-xs dark:bg-amber-950/20">
-            <span
-              className={cn(
-                "h-2.5 w-2.5 shrink-0 rounded-full border",
-                pendingAct.resultingCondition
-                  ? conditionStyle(pendingAct.resultingCondition).swatch
-                  : "bg-background",
-              )}
-              title={
-                pendingAct.resultingCondition
-                  ? conditionStyle(pendingAct.resultingCondition).label
-                  : "Aucun état résultant"
-              }
-            />
-            <span className="min-w-0 flex-1 truncate font-medium text-foreground" title={pendingAct.procedureName}>
-              {pendingAct.procedureName}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-400 bg-amber-50/60 px-2 py-1.5 text-xs dark:bg-amber-950/20">
+            <span className={ROW_NAME_LINE}>
+              <span
+                className={cn(
+                  "h-2.5 w-2.5 shrink-0 rounded-full border",
+                  pendingAct.resultingCondition
+                    ? conditionStyle(pendingAct.resultingCondition).swatch
+                    : "bg-background",
+                )}
+                title={
+                  pendingAct.resultingCondition
+                    ? conditionStyle(pendingAct.resultingCondition).label
+                    : "Aucun état résultant"
+                }
+              />
+              <span className="min-w-0 flex-1 truncate font-medium text-foreground" title={pendingAct.procedureName}>
+                {pendingAct.procedureName}
+              </span>
             </span>
             {pendingAct.toothNumbers.length > 0 ? (
               <span
@@ -232,7 +240,7 @@ export function SessionActsList({
             ) : (
               <span className="shrink-0 text-2xs italic text-muted-foreground">acte général</span>
             )}
-            <span className="shrink-0 tabular-nums">
+            <span className="ms-auto shrink-0 tabular-nums">
               {formatDT(
                 resolveActCost(pendingAct.unitCost, pendingAct.perTooth, pendingAct.toothNumbers.length),
               )}

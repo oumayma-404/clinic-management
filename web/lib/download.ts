@@ -48,6 +48,25 @@ function shellBridge(): ClinicShell | undefined {
   return typeof window !== "undefined" ? window.__clinicShell : undefined;
 }
 
+/**
+ * The bridge, but only when it can actually receive a file.
+ *
+ * ⚠️ **A shell is not automatically a save route, and assuming it was broke every download in the Windows
+ * app.** `clinic-file-vault` gave the desktop shell a `window.__clinicShell` for the first time — carrying
+ * `version` and `platform` and nothing else, because `bridge.md` states plainly that the desktop needs no
+ * `saveFile` (« a WebView2 download works ») and therefore no `maxFileBytes` to bound it. This function used to
+ * branch on the bridge merely EXISTING, so on Windows every download took the mobile path: over 25 Mo it was
+ * refused with a sentence about « l'application mobile », and under 25 Mo it called an undefined `saveFile`
+ * and reported « Échec du téléchargement ». Both sizes, every file, on a platform that downloads natively.
+ *
+ * So the question is « can this bridge save? », never « is there a bridge? ». A shell without `saveFile` falls
+ * through to the ordinary browser routes below, which is exactly what the contract says it should do.
+ */
+function shellThatCanSave(): ClinicShell | undefined {
+  const shell = shellBridge();
+  return typeof shell?.saveFile === "function" ? shell : undefined;
+}
+
 /** Base64 for the bridge — no `data:` prefix, which is what `bridge.md` specifies. */
 async function toBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
@@ -86,8 +105,17 @@ async function toBase64(blob: Blob): Promise<string> {
  * Returns a promise so a caller *may* await the share sheet, but nothing has to: every path is safe to
  * fire-and-forget, which is how all existing call sites use it.
  */
-export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
-  const shell = shellBridge();
+export async function downloadBlob(
+  blob: Blob,
+  filename: string,
+  /**
+   * Where the original already sits on this machine, when the caller knows — a coffre file does. Named in the
+   * size refusal so « trop volumineux » ends with somewhere to go instead of a dead end: the bytes are on the
+   * disk in front of the person reading it.
+   */
+  options: { savedAt?: string } = {},
+): Promise<void> {
+  const shell = shellThatCanSave();
   if (shell) {
     const limit = shell.maxFileBytes ?? SHELL_MAX_FILE_BYTES;
     // `blob.size` BEFORE the bytes are read (AC-20): `arrayBuffer()` + the base64 encode are where the memory is
@@ -95,9 +123,16 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
     if (blob.size > limit) {
       showErrorToast(null, {
         title: "Fichier trop volumineux",
+        // ⚠️ « cette application » rather than « l'application mobile ». The sentence is reached from whatever
+        // shell declared a `saveFile`, and naming the wrong device sends somebody looking for a phone they are
+        // not holding — which is precisely how this was reported: « why application mobile ? I'm on the
+        // desktop app ». What follows is advice the reader can act on from where they are.
         fallback:
-          `Ce fichier fait ${formatFileSize(blob.size)} et l'application mobile est limitée à ` +
-          `${formatFileSize(limit)}. Ouvrez-le depuis un ordinateur ou un navigateur pour le télécharger.`,
+          `Ce fichier fait ${formatFileSize(blob.size)} et cette application est limitée à ` +
+          `${formatFileSize(limit)}. ` +
+          (options.savedAt
+            ? `L'original est déjà sur ce poste, dans ${options.savedAt}.`
+            : "Ouvrez-le depuis un navigateur pour le télécharger."),
       });
       return;
     }
