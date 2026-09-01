@@ -105,6 +105,27 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
                     return Result<LoginResultDto>.Failure(InvalidSessionError);
                 }
 
+                // ⚠️ **An ended family matches NOTHING, so `None` below cannot tell a replay from a session
+                // that has simply finished.** `Match` returns `None` whenever `!IsLive` — and while its own
+                // summary only anticipates « once a replay has been detected », an ordinary sign-out ends a
+                // family too. So every logout was followed, seconds later, by the last in-flight refresh of a
+                // lingering tab landing here, being read as a stolen credential, and telling the account holder
+                // « un identifiant déjà remplacé a été présenté … changez votre mot de passe ».
+                //
+                // The database is the proof it was never true: on 2026-09-01 all six ended families read
+                // « Déconnexion demandée par l'utilisateur » and not one read a replay — because `End` is
+                // idempotent and keeps the FIRST reason, so the branch below re-ended an already-ended family,
+                // recorded nothing, and notified anyway. Two false alarms reached a real user that day.
+                //
+                // Refusing here is the same refusal, minus the accusation: the credential is dead either way,
+                // and this is the only place that can still tell WHY. Below this line, `None` means what the
+                // replay check was written to mean — a credential presented against a session that is still
+                // live, and is therefore genuinely stale.
+                if (!family.IsLive)
+                {
+                    return Result<LoginResultDto>.Failure(InvalidSessionError);
+                }
+
                 var match = family.Match(SessionCredential.Hash(request.RefreshToken));
 
                 if (match == SessionCredentialMatch.None)
