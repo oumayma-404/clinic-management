@@ -41,7 +41,7 @@ public class LoginCommandHandlerTests
         // Every successful login now also issues the durable refresh token stored in the BFF cookie
         // (security-hardening US-5). Set up once here so the per-test arrangements stay focused on what they
         // are actually asserting; individual tests override it where the refresh token itself is the subject.
-        _auth.Setup(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>()))
+        _auth.Setup(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
             .Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
     }
 
@@ -68,8 +68,8 @@ public class LoginCommandHandlerTests
         var user = LocalUser();
         _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
-        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("access-jwt", DateTime.UtcNow.AddMinutes(30)));
-        _auth.Setup(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
+        _auth.Setup(a => a.GenerateToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("access-jwt", DateTime.UtcNow.AddMinutes(30)));
+        _auth.Setup(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>(), It.IsAny<bool>())).Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
         SaveSucceeds();
 
         var result = await Handler().Handle(Command(), CancellationToken.None);
@@ -122,7 +122,7 @@ public class LoginCommandHandlerTests
         var user = LocalUser();
         _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
-        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("jwt", DateTime.UtcNow.AddHours(12)));
+        _auth.Setup(a => a.GenerateToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("jwt", DateTime.UtcNow.AddHours(12)));
         SaveSucceeds();
 
         var result = await Handler().Handle(Command(), CancellationToken.None);
@@ -164,7 +164,7 @@ public class LoginCommandHandlerTests
         var user = LocalUser(mustChangePassword: true);
         _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.Success);
-        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("jwt-token", DateTime.UtcNow.AddHours(12)));
+        _auth.Setup(a => a.GenerateToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("jwt-token", DateTime.UtcNow.AddHours(12)));
         SaveSucceeds();
 
         var result = await Handler().Handle(Command(), CancellationToken.None);
@@ -191,7 +191,7 @@ public class LoginCommandHandlerTests
 
         Assert.True(result.IsFailure);
         Assert.Equal(1, user.FailedLoginAttempts);
-        _auth.Verify(a => a.GenerateToken(It.IsAny<User>()), Times.Never);
+        _auth.Verify(a => a.GenerateToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
         _users.Verify(r => r.Update(user), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -210,7 +210,7 @@ public class LoginCommandHandlerTests
 
         Assert.True(result.IsFailure);
         _auth.Verify(a => a.VerifyPassword("STORED-HASH", "s3cret!!"), Times.Once);
-        _auth.Verify(a => a.GenerateToken(It.IsAny<User>()), Times.Never);
+        _auth.Verify(a => a.GenerateToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
     }
 
     // The stored hash used an outdated format: on a correct password it is upgraded in place and a
@@ -222,7 +222,7 @@ public class LoginCommandHandlerTests
         _users.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _auth.Setup(a => a.VerifyPassword("STORED-HASH", "s3cret!!")).Returns(PasswordVerificationOutcome.SuccessNeedsRehash);
         _auth.Setup(a => a.HashPassword("s3cret!!")).Returns("UPGRADED-HASH");
-        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("jwt-token", DateTime.UtcNow.AddHours(12)));
+        _auth.Setup(a => a.GenerateToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("jwt-token", DateTime.UtcNow.AddHours(12)));
         SaveSucceeds();
 
         var result = await Handler().Handle(Command(), CancellationToken.None);
@@ -293,7 +293,7 @@ public class LoginCommandHandlerTests
         Assert.Contains("activé", result.Error, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("désactivé", result.Error, StringComparison.OrdinalIgnoreCase);
         // No token is issued either way — the refusal is real, not cosmetic.
-        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
+        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
     }
 
     // [I5] …and an account switched off after use keeps the original wording. Two messages, two situations; if

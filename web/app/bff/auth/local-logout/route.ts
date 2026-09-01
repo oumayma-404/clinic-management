@@ -28,6 +28,22 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   const sessionCredential = readSessionCookie((name) => request.cookies.get(name)?.value);
 
+  /*
+   * Why the reason travels: only the client knows whether a person pressed « Se déconnecter » or whether the
+   * inactivity limit ran out, and both end the same session through this same route. Both used to be stamped
+   * « Déconnexion demandée par l'utilisateur », so the session table could not tell them apart and « how often
+   * is the timeout actually signing people out? » had to be answered by reading this file instead of the
+   * practice's own records.
+   *
+   * ⚠️ A missing or unparseable body is not an error. Sign-out fires while the session is already being torn
+   * down — `session.tsx` sends no body on some paths and `navigator.sendBeacon` may send none at all — and a 400
+   * here would put a French failure toast on a successful sign-out.
+   */
+  const reason = await request
+    .json()
+    .then((body: { reason?: unknown }) => (typeof body?.reason === 'string' ? body.reason : undefined))
+    .catch(() => undefined);
+
   if (sessionCredential) {
     try {
       await fetch(`${API_INTERNAL_URL}/auth/logout`, {
@@ -36,7 +52,9 @@ export async function POST(request: NextRequest) {
           'Content-Type': 'application/json',
           ...forwardedForHeader(request),
         },
-        body: JSON.stringify({ refreshToken: sessionCredential }),
+        // The API maps this onto a closed set and refuses nothing — an unrecognised value is recorded as a
+        // deliberate sign-out rather than rejected.
+        body: JSON.stringify({ refreshToken: sessionCredential, ...(reason ? { reason } : {}) }),
       });
     } catch {
       // Deliberately swallowed — see the note above on why the cookies go regardless.

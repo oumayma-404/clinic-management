@@ -3,7 +3,7 @@
 Infrastructure layer (Clean Architecture). Implements the outbound interfaces declared in Domain
 (`Domain/Repositories`) and Application (`Application/Common/Interfaces`): EF Core/PostgreSQL data access +
 multi-tenant query filters, repository implementations, mode-branched file storage (MinIO vs local disk),
-per-clinic Google Calendar two-way sync, SMS/WhatsApp reminders
+per-clinic Google Calendar push (App→Google only — the pull was retired), SMS/WhatsApp reminders
 (+ per-clinic settings, encrypted secrets), CNAM BS1 bulletin + French PDF
 rendering, local JWT auth (every deployment — Auth0 management is retired with the `CloudBrowser` profile), and — for offline installs — `pg_dump` backup,
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
@@ -394,7 +394,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 
 ## External Services (`Services/`, `Storage/`, `Security/`, `Auth/`)
 
-### Google Calendar (per-clinic two-way sync)
+### Google Calendar (per-clinic, App→Google ONLY)
 - **`GoogleCalendarService`** (`IGoogleCalendarService`, scoped) — low-level Google Calendar v3 client. Every
   method takes a `GoogleCalendarConnection` (refresh token + calendar id). Client id/secret come from
   `GoogleCalendar:ClientId`/`ClientSecret` config; the access token is refreshed per connection
@@ -406,11 +406,19 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   (returns null → skip; **no shared cross-clinic account**).
   - **App → Google** (`SyncAppointmentToGoogleCalendarAsync`) — create/update/delete a Google event using the
     appointment's own clinic connection; persists/clears `Appointment.GoogleCalendarEventId`; skips busy slots;
-    failures logged not thrown. This is the actively-used direction (inline on appointment create/update).
-  - **Google → App** (`SyncGoogleCalendarToAppointmentsAsync`) — resolves the **caller's** clinic via
-    `ICurrentClinicResolver` and scopes all reads/writes to it; pulls a -7..+90-day window; updates/links/creates
-    appointments (may auto-create a placeholder patient). **No scheduled job** — reachable only via the manual
-    `GoogleCalendarController` endpoint (runs with a clinic in scope).
+    failures logged not thrown. **This is now the only direction** (inline on appointment create/update).
+  - ⚠️ **Google → App is RETIRED** (`calendar-import-revert`). `SyncGoogleCalendarToAppointmentsAsync`, the
+    `CalendarImportOutcome` it returned, the 15-minute `GoogleCalendarImportJob`, the `sync-from-google` endpoint,
+    the `import-settings` gate (`Clinic.GoogleCalendarHoldsOnlyAppointments`) and ~750 lines of event-to-patient
+    guesswork in this file are all gone. One press was a mass, unbounded, irreversible write — 97 days of a
+    practice's calendar became appointment rows, the past week of them landing on « À clôturer » as visits nobody
+    could honestly close, so the cabinet cancelled them and inflated its own « taux d'absence ». The file keeps
+    `ResolveConnectionAsync`, the push, and `BuildAppointmentDescription`; `NotesLabel`/`StatusLabel` are
+    **write-only** now, since the reader that parsed a description back went with the import.
+  - ⚠️ **The undo outlived it and is a LIVE recovery path**, not history: `CalendarImportRun`, its repository and
+    the three `imports/…` routes read the runs already on record so a cabinet can still take back the pass it
+    made. `CalendarImportRetirementTests` guards both directions. Read
+    `features/calendar-import-revert/notes.md` before removing « the calendar import stuff ».
 
 ### AI — removed
 There is **no AI in this product any more.** `HuggingFaceAIService`, `AIActionService` and their two interfaces

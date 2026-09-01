@@ -24,7 +24,6 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { ApiError } from "@/lib/api/client"
 import { toast } from "sonner"
-import { showErrorToast } from "@/lib/errors"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -134,9 +133,6 @@ export default function AppointmentsPage() {
   // Patient preselected when arriving from a patient's "Planifier un rendez-vous" (?patientId=…).
   const [bookingPatientId, setBookingPatientId] = useState<string | undefined>(undefined)
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
-  // calendar-import-review — the practice's declaration about the connected calendar, read with the status.
-  const [holdsOnlyAppointments, setHoldsOnlyAppointments] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [showCancelled, setShowCancelled] = useState(false)
@@ -229,35 +225,11 @@ export default function AppointmentsPage() {
   // the hub is down, manual refresh still works (AC-5).
   useClinicRealtime(RealtimeResource.Appointments, handleAppointmentUpdated)
 
-  /**
-   * Records the « ce calendrier ne contient que des rendez-vous » declaration.
-   *
-   * <p>Optimistic, then reconciled from the server's own answer: the checkbox is inside a popover the admin is
-   * looking at, so a control that does not move until a round-trip completes reads as broken. A refusal — the
-   * clinic has no Google connection — puts it back and says why.</p>
-   */
-  const handleHoldsOnlyAppointmentsChange = useCallback(async (value: boolean) => {
-    setHoldsOnlyAppointments(value)
-    try {
-      const saved = await googleCalendarApi.setImportSettings(value)
-      setHoldsOnlyAppointments(saved.holdsOnlyAppointments)
-      toast.success(
-        saved.holdsOnlyAppointments
-          ? "L'import acceptera les évènements intitulés « Prénom Nom »"
-          : "L'import n'acceptera que les évènements marqués comme rendez-vous",
-      )
-    } catch (error) {
-      setHoldsOnlyAppointments(!value)
-      showErrorToast(error)
-    }
-  }, [])
-
   // Check Google Calendar status on mount and after authorization
   const checkGoogleCalendarStatus = useCallback(async () => {
     try {
       const status = await googleCalendarApi.getStatus()
       setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
-      setHoldsOnlyAppointments(status.holdsOnlyAppointments)
 
       // Show message if token is invalid
       if (status.hasRefreshToken && !status.tokenValid) {
@@ -467,26 +439,6 @@ export default function AppointmentsPage() {
     }
   }, [])
 
-  const handleSyncFromGoogle = useCallback(async () => {
-    setIsSyncing(true)
-    try {
-      await googleCalendarApi.syncFromGoogle()
-      toast.success("Synchronisation depuis Google Calendar terminée.")
-      setRefreshKey(prev => prev + 1) // Refresh appointments
-    } catch (error) {
-      // A mid-request connection drop surfaces as ApiError(status:0) — the shared offline signal (LEARNINGS).
-      if (error instanceof ApiError && error.status === 0) {
-        toast.error("Connexion perdue. Veuillez réessayer.")
-      } else {
-        toast.error("Échec de la synchronisation", {
-          description: error instanceof Error ? error.message : "Erreur inconnue.",
-        })
-      }
-    } finally {
-      setIsSyncing(false)
-    }
-  }, [])
-
   /**
    * AC-P2.33–2.35: disconnect the clinic's Google account. `Clinic.ClearGoogleCalendarConnection()` had existed
    * with no caller, so a clinic that authorised the wrong Google account could only overwrite it by re-running
@@ -637,15 +589,11 @@ export default function AppointmentsPage() {
                 isAdmin
                   ? {
                       authorized: isGoogleCalendarAuthorized,
-                      syncing: isSyncing,
                       onConnect: handleAuthorizeGoogleCalendar,
-                      onImport: handleSyncFromGoogle,
                       // AC-P2.34 — behind an AlertDialog, and deliberately NOT gated on internetReachable:
                       // clearing our own stored token is a local DB write, and it is exactly what an admin needs
                       // when the connected account is wrong or unreachable.
                       onDisconnect: () => setDisconnectOpen(true),
-                      holdsOnlyAppointments,
-                      onHoldsOnlyAppointmentsChange: handleHoldsOnlyAppointmentsChange,
                     }
                   : undefined
               }

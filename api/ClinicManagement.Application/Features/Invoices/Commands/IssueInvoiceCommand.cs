@@ -96,6 +96,12 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
                     {
                         return Result<InvoiceDto>.Failure(carryOver.Error!);
                     }
+
+                    var supersede = await SupersedePredecessorAsync(invoice, cancellationToken);
+                    if (supersede.IsFailure)
+                    {
+                        return Result<InvoiceDto>.Failure(supersede.Error!);
+                    }
                 }
                 else
                 {
@@ -139,6 +145,91 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
     {
         var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
         return invoice.ToDto(patient?.GetFullName());
+    }
+
+    /// <summary>
+    /// Retire the note this one corrects, and bring its money across — the second half of
+    /// <c>CorrectInvoiceCommand</c>, deliberately deferred to this moment.
+    ///
+    /// <para><b>Why here and not when the correction was opened.</b> Voiding the predecessor's payments takes real
+    /// money out of la caisse. Doing it while the dentist edits would empty the till for the duration, and
+    /// permanently if they walked away. So the original stays live and paid until its replacement actually exists,
+    /// and the swap happens inside this one transaction: void, cancel, re-record. Either the whole correction
+    /// lands or none of it does.</para>
+    ///
+    /// <para><b>Each payment keeps its original <c>PaidOn</c></b>, exactly as the devis carry-over does. Correcting
+    /// a mistake today must not move yesterday's takings — the money changed hands when it changed hands, and
+    /// every money read in the product attributes it by that date.</para>
+    /// </summary>
+    private async Task<Result> SupersedePredecessorAsync(
+        Domain.Entities.Invoice replacement,
+        CancellationToken cancellationToken)
+    {
+        if (replacement.SupersedesInvoiceId is not { } originalId)
+        {
+            return Result.Success();
+        }
+
+        var reason = replacement.SupersedesReason ?? "Correction de la note d'honoraires.";
+
+        var original = await _invoiceRepository.GetByIdAsync(originalId, cancellationToken);
+        if (original == null || original.ClinicId != replacement.ClinicId)
+        {
+            // Refused, not skipped. Issuing the replacement while the note it replaces stays live would leave the
+            // patient holding two numbered documents for one séance — the exact duplicate this whole area guards
+            // against — and nothing on screen would say so.
+            return Result.Failure(
+                "La note que cette correction remplace est introuvable. La correction ne peut pas être émise.");
+        }
+
+        if (original.Status == Domain.Enums.InvoiceStatus.Cancelled)
+        {
+            return Result.Failure(
+                $"La note {original.Number} a déjà été annulée entre-temps. Supprimez ce brouillon et repartez "
+                + "de la note en vigueur.");
+        }
+
+        var live = original.Payments.Where(p => !p.IsVoided).OrderBy(p => p.PaidOn).ThenBy(p => p.CreatedAt).ToList();
+        var collected = InvoiceCalculator.RoundMoney(live.Sum(p => p.Amount));
+
+        if (collected > replacement.TotalTtc)
+        {
+            // Bounded BEFORE anything is voided, for the same reason the devis carry-over is: letting
+            // `RecordPayment` throw mid-loop would strand a numbered invoice whose predecessor is already
+            // cancelled and whose money is nowhere.
+            //
+            // This is the case where the patient really is owed money back, and that is an avoir's job — the
+            // message says so rather than silently clamping.
+            return Result.Failure(
+                $"La note {original.Number} a encaissé {collected:0.000} DT, soit plus que cette correction "
+                + $"({replacement.TotalTtc:0.000} DT). Le patient récupère la différence : établissez un avoir sur "
+                + $"la note {original.Number} plutôt qu'une correction.");
+        }
+
+        foreach (var payment in live)
+        {
+            original.VoidPayment(payment.Id, reason, creditedTotal: 0m);
+        }
+
+        original.Cancel(reason);
+        original.MarkSupersededBy(replacement.Id);
+
+        foreach (var payment in live)
+        {
+            // Cheque identity and the banked stamp travel with the money, for the reason the devis bridge spells
+            // out one method down: a cheque left behind would vanish from « chèques à encaisser » entirely.
+            replacement.RecordPayment(
+                payment.Amount, payment.Method, payment.PaidOn, payment.SourceInstallmentPaymentId,
+                payment.ToChequeDetails(), payment.ToBankedStamp());
+        }
+
+        await _invoiceRepository.UpdateAsync(original, cancellationToken);
+
+        _logger.LogInformation(
+            "Invoice {Number} cancelled and superseded by {ReplacementId}; carried {Amount} DT across {Count} payments",
+            original.Number, replacement.Id, collected, live.Count);
+
+        return Result.Success();
     }
 
     /// <summary>

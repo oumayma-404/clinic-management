@@ -495,6 +495,13 @@ export interface InvoiceDto {
    */
   canCancel: boolean;
   canCreateAvoir: boolean;
+  /** Server-computed. The route for a MISTAKE — replace the note — as opposed to `canCreateAvoir`, which is
+   *  the route for money actually handed back. */
+  canBeCorrected: boolean;
+  /** The note that replaced this one, so a cancelled note is never a dead end. */
+  supersededByInvoiceId?: string | null;
+  /** The note this one corrects. Set on a correction draft and on the note it becomes. */
+  supersedesInvoiceId?: string | null;
   /**
    * Sum of the avoirs established against this invoice — always present, 0 when there are none. Present on
    * the list too, so a row can show that money was credited back without fetching the avoirs themselves.
@@ -1622,4 +1629,3 @@ export interface TreatmentPlanDto {
   items: TreatmentPlanItemDto[];
   installments: InstallmentDto[];
 }
-

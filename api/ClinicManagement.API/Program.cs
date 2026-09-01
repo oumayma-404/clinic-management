@@ -1180,18 +1180,6 @@ try
         job => job.StartRunningAppointments(),
         Cron.Minutely);
 
-    // Google Calendar import (Google→App) — every 15 minutes.
-    //
-    // ⚠️ This direction had NO job at all: the only caller was the « Importer depuis Google » button, so an
-    // appointment typed straight into Google never arrived until somebody pressed it. The reverse direction runs
-    // inline post-commit, which is what made the gap easy to miss — the app's own bookings did appear in Google.
-    // Fifteen minutes rather than minutely: each pass is a network hop per connected clinic over a 97-day window,
-    // and a quarter of an hour is well inside how fast a calendar edit needs to land on an agenda.
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.GoogleCalendarImportJob>(
-        "import-from-google-calendar",
-        job => job.ImportFromGoogleCalendar(),
-        "*/15 * * * *");
-
     // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is
     // in-app, so it has to work on an offline LAN install. An expiry is crossed by the passage of time rather
     // than by a write, so without this scan the notification would never fire for the case it exists for (a
@@ -1201,6 +1189,16 @@ try
         "flag-expiring-stock",
         job => job.FlagExpiringStock(),
         Cron.Daily(6));
+
+    // Housekeeping for the session table (« Rester connecté sur cet appareil »). `PurgeExpiredAsync` had shipped
+    // with no caller at all, which was harmless while every row expired within 12 h of its last use; a trusted
+    // device's row now lives 30 days past its last rotation, and the read behind « Mes appareils » walks that
+    // table. Runs at 04:00 UTC — nothing is open, and it deletes only rows whose credential is already dead, so
+    // no working session can be affected whatever the hour.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.SessionFamilyPurgeJob>(
+        "purge-expired-sessions",
+        job => job.PurgeExpiredSessions(),
+        Cron.Daily(4));
 
     // Unattended backup (L4a) — HOURLY, not daily, and deliberately not connectivity-gated (the output is a
     // local file, so it must work on an offline LAN install — the same reasoning as the expiry scan above).
@@ -1320,11 +1318,19 @@ try
         RecurringJob.RemoveIfExists("review-messaging-allowances");
     }
 
-    // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob
-    // class were removed as dead scaffolding. App→Google sync runs inline on appointment create/update, and
-    // Google→App stays manual-only (GoogleCalendarController). Defensively drop any stale recurring
+    // Google→App calendar sync does not exist any more, on a schedule or otherwise. App→Google runs inline on
+    // appointment create/update; the pull direction was retired wholesale. Defensively drop any stale recurring
     // registration a previous deploy may have left in Hangfire storage so it can't fire a deleted job type.
     RecurringJob.RemoveIfExists("sync-google-calendar");
+
+    // « Importer depuis Google » and its 15-minute GoogleCalendarImportJob were retired: one press was a mass,
+    // unbounded, irreversible write — 97 days of a practice's calendar became appointment rows, the past week of
+    // them landing on « À clôturer » as visits nobody could honestly close.
+    //
+    // ⚠️ The literal below is the id that AddOrUpdate stored, and deleting the registration is NOT enough on its
+    // own: every already-deployed install still holds this entry in Hangfire storage and would go on firing it
+    // every 15 minutes at a job type that no longer exists. Same reasoning as the two lines around it.
+    RecurringJob.RemoveIfExists("import-from-google-calendar");
 
     // The electronic-invoicing subsystem was removed wholesale (adoption-gaps-remediation Part 1). Drop the
     // registration an upgrading install still has in Hangfire storage, or it fires every minute at a job type

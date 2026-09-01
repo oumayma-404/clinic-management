@@ -565,6 +565,30 @@ public sealed record DataMigrationCounts(
     /// </summary>
     int? LabOrdersResolvableToASupplierStillUnlinked = null,
     /// <summary>
+    /// Rows that look like the Google Calendar import created them and carry no <c>CalendarImportRunId</c>
+    /// (<c>calendar-import-revert</c> AC-19).
+    /// <para>
+    /// The clearest case for why this verb exists. The table, the two columns and their indexes are diffed
+    /// against the catalog for free; whether the <c>AddCalendarImportRunsAndWorklistDismissal</c> backfill
+    /// actually <b>covered</b> anything is invisible to every other layer — an unattributed row simply means
+    /// « Annuler cet import » is never offered, which on screen is indistinguishable from a cabinet that never
+    /// imported anything. A cabinet in that state keeps a worklist full of phantom séances with no way back,
+    /// which is the whole failure this feature was built to end.
+    /// </para>
+    /// <para>
+    /// ⚠️ It counts <b>recoverable</b> misses only, the <see cref="FichesResolvableToOneVisitStillUnlinked"/>
+    /// shape: a placeholder patient still unstamped, and the appointments of one. An appointment that merely has
+    /// a Google event id and no practitioner is <i>not</i> counted — that is also what an ordinary booking made
+    /// without a doctor looks like, and reporting those would make this permanently red on a healthy cabinet.
+    /// </para>
+    /// </summary>
+    int? CalendarImportRowsWithoutARun = null,
+    /// <summary>
+    /// How many import passes are on record. Rides along so a clean run still states what the backfill produced,
+    /// rather than only that nothing is wrong — <c>SuppliersTotal</c>'s reason.
+    /// </summary>
+    int? CalendarImportRunsTotal = null,
+    /// <summary>
     /// How many fournisseurs exist, reported beside the count above so a run that finds no drift still states what
     /// the backfill produced (AC-8). Informational, never asserted — a cabinet legitimately has none.
     /// </summary>

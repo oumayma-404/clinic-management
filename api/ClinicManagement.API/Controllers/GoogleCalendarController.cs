@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Appointments.Commands;
+using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Features.Clinics.Commands;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -38,6 +41,7 @@ public class GoogleCalendarController : ApiControllerBase
     private readonly IMemoryCache _cache;
     private readonly IMediator _mediator;
     private readonly IGoogleTokenProtector _googleTokenProtector;
+    private readonly IClinicContext _clinicContext;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
@@ -49,9 +53,11 @@ public class GoogleCalendarController : ApiControllerBase
         IMemoryCache cache,
         IMediator mediator,
         IGoogleTokenProtector googleTokenProtector,
+        IClinicContext clinicContext,
         ILogger<GoogleCalendarController> logger)
     {
         _googleTokenProtector = googleTokenProtector;
+        _clinicContext = clinicContext;
         _syncService = syncService;
         _configuration = configuration;
         _clinicRepository = clinicRepository;
@@ -60,6 +66,75 @@ public class GoogleCalendarController : ApiControllerBase
         _cache = cache;
         _mediator = mediator;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// « Imports Google » — what the calendar import has done to this cabinet, and which pass can still be undone.
+    ///
+    /// <para>⚠️ <b><c>AnyClinicRole</c>, loosening the class policy</b>, and that is deliberate: the « Annuler cet
+    /// import » banner lives on « À clôturer », which reception reads and which is exactly where an unwanted
+    /// import is felt. A banner nobody at the desk can see would be a banner nobody sees. The <b>undo itself</b>
+    /// stays <c>AdminOnly</c> below — reading what happened and deleting patient records are different
+    /// permissions.</para>
+    /// </summary>
+    [HttpGet("imports")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> GetImports(
+        [FromQuery] bool latestUndoable, [FromQuery] int? page, [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new GetCalendarImportRunsQuery
+            {
+                LatestUndoableOnly = latestUndoable,
+                Paging = PageRequest.From(page, pageSize)
+            },
+            cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// What « Annuler cet import » would delete and what it would keep — the dry run, asked before anything is
+    /// written.
+    ///
+    /// <para><b>It is the safety of this whole feature.</b> The person pressing the button is the cabinet rather
+    /// than the vendor: nobody is holding a backup and nobody is watching row counts, so the confirmation shows
+    /// the list itself and every row that will survive names its own reason.</para>
+    /// </summary>
+    [HttpGet("imports/{runId:guid}/revert-preview")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> PreviewRevert(Guid runId, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new GetCalendarImportRevertPreviewQuery { RunId = runId }, cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Annuler cet import » — delete exactly what the pass created and nothing has touched since.
+    ///
+    /// <para>⚠️ <b><c>AdminOnly</c></b>: it deletes patient records. And it never speaks to Google — see the
+    /// command's own note on why routing a deletion through a cancellation would finish destroying the calendar
+    /// this exists to protect.</para>
+    /// </summary>
+    [HttpPost("imports/{runId:guid}/revert")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> RevertImport(Guid runId, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new RevertCalendarImportRunCommand { RunId = runId }, cancellationToken);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        // Branch on the code, never on the sentence — rewording « déjà annulé » must not change a status.
+        return result.Code == RevertCalendarImportRunCommandHandler.AlreadyRevertedCode
+            ? HandleFailure(result)
+            : HandleFailure(result, StatusCodes.Status404NotFound);
     }
 
     /// <summary>
@@ -80,41 +155,11 @@ public class GoogleCalendarController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(new { disconnected = true });
     }
 
-    /// <summary>
-    /// Manually trigger sync from Google Calendar to Clinic appointments (admin only). The sync service
-    /// resolves the caller's clinic internally and scopes everything to it.
-    /// </summary>
-    [HttpPost("sync-from-google")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<IActionResult> SyncFromGoogleCalendar()
-    {
-        try
-        {
-            _logger.LogInformation("Manual sync from Google Calendar triggered");
-
-            var clinicResult = await _clinicResolver.GetClinicIdAsync();
-            if (clinicResult.IsFailure)
-            {
-                return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre le cabinet." });
-            }
-
-            await _syncService.SyncGoogleCalendarToAppointmentsAsync(clinicResult.Value);
-            return Ok(new
-            {
-                message = "Sync from Google Calendar completed successfully",
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
-        {
-            return BadRequest(new { error = "Google Calendar n'est pas connecté pour ce cabinet. Connectez-le depuis les paramètres." });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during manual sync from Google Calendar");
-            return StatusCode(500, new { error = "Erreur lors de la synchronisation depuis Google Calendar." });
-        }
-    }
+    // ⚠️ There is no « sync-from-google » endpoint any more, and no import settings to go with it. Google→App was
+    // retired: one press was a mass, unbounded, irreversible write, and the past week of it landed on
+    // « À clôturer » as visits nobody could honestly close. The three `imports/…` routes above are what remains —
+    // they read the runs already on record so a cabinet can still undo the pass it made. Before adding a pull
+    // back, read features/calendar-import-revert/notes.md.
 
     /// <summary>
     /// Get the redirect URI that should be configured in Google Cloud Console.
@@ -204,7 +249,6 @@ public class GoogleCalendarController : ApiControllerBase
             hasRefreshToken,
             tokenValid,
             calendarId,
-            holdsOnlyAppointments = clinic?.GoogleCalendarHoldsOnlyAppointments ?? false,
             message = !hasClientId || !hasClientSecret
                 ? "Le ClientId et le ClientSecret Google doivent être configurés côté serveur."
                 : !hasRefreshToken
@@ -213,21 +257,6 @@ public class GoogleCalendarController : ApiControllerBase
                         ? "Le jeton Google Calendar est invalide ou expiré. Reconnectez-vous."
                         : "Google Calendar est connecté et prêt."
         });
-    }
-
-    /// <summary>
-    /// Admin-only: record whether the connected calendar holds nothing but appointments, which opens the import
-    /// gate to events titled « Prénom Nom » (<c>calendar-import-review</c>).
-    /// </summary>
-    [HttpPut("import-settings")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<IActionResult> SetImportSettings(
-        [FromBody] SetGoogleCalendarImportSettingsCommand command, CancellationToken cancellationToken)
-    {
-        var result = await _mediator.Send(command, cancellationToken);
-        return result.IsFailure
-            ? HandleFailure(result)
-            : Ok(new { holdsOnlyAppointments = result.Value });
     }
 
     /// <summary>

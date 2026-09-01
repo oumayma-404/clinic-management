@@ -32,6 +32,21 @@ public static class DentalRecordBillingRefusals
     /// <summary>« Montant payé » exceeds the séance's own total, on a fiche nothing has billed yet.</summary>
     public const string PaymentExceedsCostCode = "dental_record_payment_exceeds_cost";
 
+    /// <summary>The séance was redated but one of its cheques is already banked (L4).</summary>
+    public const string PaymentBankedCode = "dental_record_payment_banked";
+
+    /// <summary>
+    /// The refusals a correction can get past — the fiche disagrees with its note, and replacing the note is the
+    /// honest way out. Read by the API so the client can offer « Corriger » on exactly these and nothing else.
+    ///
+    /// <para><see cref="InvoiceNotLiveCode"/> is absent on purpose: there is no live note left to replace, so the
+    /// séance is simply re-billed from « Facturer cette intervention ». <see cref="PaymentExceedsCostCode"/> and
+    /// <see cref="PaymentBankedCode"/> are absent because neither is a disagreement with a document — the first is
+    /// the séance's own arithmetic, the second is a fact about a bank.</para>
+    /// </summary>
+    public static bool IsCorrectable(string? code) =>
+        code is ActsChangedCode or PaymentLoweredCode;
+
     /// <summary>
     /// Lowering the collected amount. Money already recorded on a numbered document cannot be un-received by
     /// retyping a field.

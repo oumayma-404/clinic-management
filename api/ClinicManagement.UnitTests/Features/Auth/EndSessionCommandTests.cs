@@ -72,7 +72,8 @@ public class EndSessionCommandTests
 
         // The only read is the one credential's own family — nothing enumerates the account's sessions.
         _families.Verify(
-            r => r.GetLiveForUserAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            r => r.GetLiveForUserAsync(It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

@@ -71,6 +71,13 @@ public class BillDentalRecordCommand : IRequest<Result<DentalRecordBillingResult
     /// door that asks nothing of it.</para>
     /// </summary>
     public bool IsAutomatic { get; set; }
+
+    /// <summary>
+    /// The note this billing replaces, when the séance is being corrected. Passed explicitly rather than inferred
+    /// from « the record has a cancelled note »: an old, unrelated cancellation would match that guess, and the
+    /// two notes would be wired together as a correction that never happened.
+    /// </summary>
+    public Guid? SupersedesInvoiceId { get; set; }
 }
 
 /// <summary>What the patient handed over at the end of the session.</summary>
@@ -317,6 +324,21 @@ public class BillDentalRecordCommandHandler
         invoice.SetDoctor(record.DoctorId);
         invoice.SetLines(lines.Select(l =>
             (l.Designation, l.Quantity, l.UnitPriceHt, (Guid?)record.Id, (Guid?)null, (string?)null)));
+
+        // A correction: the note being replaced was already voided and cancelled pre-commit by the update
+        // command, so the link is all that is left to record. It is written on both sides — a cancelled note
+        // whose reader cannot reach its replacement is a dead end, and « qu'est-ce qui a remplacé celle-ci » is
+        // the first question anyone asks of one.
+        if (request.SupersedesInvoiceId is { } supersededId)
+        {
+            invoice.MarkSupersedes(supersededId, "Correction de la séance.");
+            var superseded = await _invoiceRepository.GetByIdAsync(supersededId, cancellationToken);
+            if (superseded is not null && superseded.ClinicId == clinicId && superseded.SupersededByInvoiceId is null)
+            {
+                superseded.MarkSupersededBy(invoice.Id);
+                await _invoiceRepository.UpdateAsync(superseded, cancellationToken);
+            }
+        }
 
         // One transaction around the whole create → issue → pay chain (see the type remarks).
         await _unitOfWork.BeginTransactionAsync(cancellationToken);

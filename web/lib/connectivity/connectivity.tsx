@@ -117,6 +117,19 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
           applyDebounced({ serverReachable: true, internetReachable: true, egressSignalAvailable: false })
           return
         }
+        // ⚠️ A GATEWAY error is the server being DOWN, and it does not throw. Everything below used to fall
+        // through to `serverReachable: true` on the reasoning that « the server answered » — but behind the
+        // hosted front door a 502/503/504 is Caddy answering *for* an API it could not reach, not the API
+        // answering. So during a redeploy this indicator stayed green while every read on the screen failed:
+        // the one component whose job is to say « le serveur est injoignable » was the one that did not.
+        // Measured 2026-09-01 at 10:34 Tunis — five 502s on this exact route, banner never shown.
+        //
+        // 502/503/504 only. A 500 stays « reachable »: the server was reached and its own handler broke, which
+        // is a different sentence to put in front of a dentist and a different thing to go and look at.
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          applyDebounced({ serverReachable: false, internetReachable: false, egressSignalAvailable: false })
+          return
+        }
         if (res.ok && !egressEndpointAbsent) {
           const data = await res.json().catch(() => null)
           // A 200 whose body we cannot read tells us nothing about egress — treat it as absent, not as false.

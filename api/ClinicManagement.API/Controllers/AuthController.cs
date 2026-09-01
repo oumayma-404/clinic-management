@@ -280,7 +280,9 @@ public class AuthController : ApiControllerBase
         {
             Email = request.Email,
             Password = request.Password,
-            TotpCode = request.TotpCode
+            TotpCode = request.TotpCode,
+            TrustDevice = request.TrustDevice,
+            DeviceLabel = request.DeviceLabel
         };
 
         var result = await _mediator.Send(command);
@@ -361,6 +363,39 @@ public class AuthController : ApiControllerBase
     {
         var result = await _mediator.Send(new GetTotpStateQuery());
         return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// « Mes appareils » — every session of the calling account that is still live.
+    ///
+    /// <para>Reachable by every role, and scoped to the caller's own account inside the handler: it takes no
+    /// user parameter, so there is no shape of this request that reads a colleague's devices.</para>
+    ///
+    /// <para><b>Exempt from the subscription gate</b> for the same reason signing out is: reviewing and ending
+    /// your own sessions is not recording clinic work, and a practice whose cover has lapsed must still be able
+    /// to remove a laptop it has lost.</para>
+    /// </summary>
+    [AllowsWithoutSubscription(
+        "Reviewing and ending your own sessions is a security control, not clinic work — a cabinet whose "
+        + "entitlement has lapsed must still be able to remove a device it no longer controls.")]
+    [HttpGet("sessions")]
+    public async Task<IActionResult> GetMySessions()
+    {
+        var result = await _mediator.Send(new GetMySessionsQuery());
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// « Déconnecter » one of the caller's own devices. 204 whether it was live or already ended — the caller's
+    /// intent is satisfied either way, and a double-press from two tabs is ordinary.
+    /// </summary>
+    [AllowsWithoutSubscription(
+        "The counterpart of the read above: a device must be revocable whatever the cabinet's entitlement says.")]
+    [HttpDelete("sessions/{sessionId:guid}")]
+    public async Task<IActionResult> EndMySession(Guid sessionId)
+    {
+        var result = await _mediator.Send(new EndOtherSessionCommand { SessionId = sessionId });
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
     }
 
     /// <summary>Replaces every recovery code with a fresh set. Requires a current code, not just the session.</summary>
@@ -479,14 +514,25 @@ public class AuthController : ApiControllerBase
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [AllowsWithoutSubscription("Signing out is not recording clinic work, and a cabinet must always be able to.")]
     [HttpPost("logout")]
-    public async Task<IActionResult> Logout([FromBody] RefreshRequest request)
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
     {
         if (!Deployment.UsesLocalAccounts)
         {
             return NotFound();
         }
 
-        await _mediator.Send(new EndSessionCommand { RefreshToken = request.RefreshToken });
+        // ⚠️ Mapped here, at the edge, so no free text from an anonymous caller reaches the column. An
+        // unrecognised value is a deliberate sign-out rather than a refusal — see `LogoutRequest`.
+        var ending = string.Equals(
+            request.Reason, LogoutRequest.InactivityReason, StringComparison.OrdinalIgnoreCase)
+            ? SessionEnding.Inactivity
+            : SessionEnding.UserRequested;
+
+        await _mediator.Send(new EndSessionCommand
+        {
+            RefreshToken = request.RefreshToken,
+            Ending = ending
+        });
 
         return NoContent();
     }

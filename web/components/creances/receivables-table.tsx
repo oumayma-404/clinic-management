@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import type { ReceivablesPageDto } from "@/lib/api/types"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 /** « Créances » is the Finances zone — the empty state's chip wears the hue the rail and the eyebrow already do. */
 const MONEY_CHIP = zoneChipClass(ZONES.money)
@@ -225,7 +226,9 @@ export function ReceivablesTable() {
                   className="cursor-pointer"
                   onClick={() => router.push(`/patients/${r.patientId}`)}
                 >
-                  <TableCell className="font-medium">{r.patientName}</TableCell>
+                  <TableCell className="font-medium">
+                    <PatientNameLink patientId={r.patientId} name={r.patientName} />
+                  </TableCell>
                   <TableCell className="text-right font-semibold">{formatDT(r.totalOutstanding)}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.oldestOverdueDate ? formatDateFr(r.oldestOverdueDate) : "—"}</TableCell>
                   <TableCell className="text-right">

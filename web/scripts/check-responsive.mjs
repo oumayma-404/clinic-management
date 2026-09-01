@@ -902,6 +902,53 @@ check(
   },
 );
 
+check(
+  "patient-name-is-a-link",
+  "N13",
+  "A patient's name rendered beside their id is the link to their fiche",
+  "The pattern existed on six screens and was missing from eight — la caisse, les chèques, les factures, les " +
+    "plans, les rappels, le détail d'une facture. A name that is a door on one screen and inert on the next " +
+    "teaches nobody anything, and nothing catches it: the markup is valid, the name is correct, it simply does " +
+    "not go anywhere. Render it through `PatientNameLink`, which also carries the two details a hand-written " +
+    "`<Link>` drops — underlined AT REST (a touch screen has no hover to reveal it) and `coarse:min-h-11` for " +
+    "the 44px target. A row whose name has no id beside it is exempt: there is nowhere to point.",
+  () => {
+    /*
+     * Keyed on the ROLE — a file that renders `{x.patientName}` as JSX content while the same object also
+     * carries `patientId` — never on a list of files, which is what let the eight accumulate.
+     *
+     * Two deliberate exemptions, both because the name is NOT a navigation affordance there:
+     *  - `patient-name-link.tsx` itself, which is the implementation.
+     *  - the agenda's calendar blocks, where the name sits inside a drag handle: a link inside a drag target
+     *    fights the gesture, and the appointment dialog it opens already carries the link (commit df201ded).
+     */
+    const EXEMPT = /patient-name-link\.tsx$|appointment-calendar\.tsx$/;
+    /*
+     * The name must be the WHOLE of its element. That is the discriminator between an identity and prose:
+     * `<TableCell>{r.patientName}</TableCell>` names the row's person, whereas
+     * `<span>{x.patientName}</span> sera supprimée` is a sentence — and a link inside a deletion confirmation
+     * invites navigating away mid-decision, which is worse than no link at all.
+     */
+    const rendersName = /(?:^|>)\s*\{\s*\w+(?:\?)?\.patientName[^}]*\}\s*(?:<\/[\w.]+>)?\s*$/;
+
+    const offenders = [];
+    for (const f of tsx()) {
+      if (EXEMPT.test(f)) continue;
+      const src = read(f);
+      if (!src.includes(".patientId")) continue;
+      if (src.includes("PatientNameLink")) continue;
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      lines.forEach((l, i) => {
+        if (!masked[i] && rendersName.test(l)) {
+          offenders.push({ file: f, line: i + 1, text: "patientName rendered without a link to the fiche" });
+        }
+      });
+    }
+    return offenders;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

@@ -96,7 +96,9 @@ public class DashboardAlertsReader : IDashboardAlertsReader
         return new DashboardAlertsDto
         {
             WaitingList = waitingList,
-            VisitsToClose = visitsToClose.Count,
+            // `.Open`, never the whole worklist: a séance the practice has set aside is off the list, so a chip
+            // counting it would send the owner to a page that does not show it.
+            VisitsToClose = visitsToClose.Open.Count,
             DraftPlans = draftPlans,
             PatientsToRecall = patientsToRecall,
             OverdueLabOrders = overdueLabOrders,

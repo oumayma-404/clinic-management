@@ -83,6 +83,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import { showErrorToast } from "@/lib/errors"
 import type { WaitingListEntryDto, PatientDto } from "@/lib/api/types"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 // ── Priority helpers (backend values Low|Normal|High ↔ French labels + Badge styling) ──────────────
 type Priority = "Low" | "Normal" | "High"
@@ -579,7 +580,11 @@ export default function WaitingListPage() {
                       entries.map((entry) => (
                         <TableRow key={entry.id}>
                           <TableCell className="font-medium text-foreground">
-                            {entry.patientName ?? "—"}
+                            {entry.patientId && entry.patientName ? (
+                              <PatientNameLink patientId={entry.patientId} name={entry.patientName} />
+                            ) : (
+                              (entry.patientName ?? "—")
+                            )}
                           </TableCell>
                           <TableCell>
                             <Badge variant={priorityBadgeVariant(entry.priority)}>

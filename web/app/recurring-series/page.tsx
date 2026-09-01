@@ -51,6 +51,7 @@ import { useDoctors } from "@/lib/hooks/use-doctors"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import type { PatientDto, ProcedureTypeDto, RecurringAppointmentDto } from "@/lib/api/types"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 // ---- Helpers ---------------------------------------------------------------------------------------
 
@@ -798,7 +799,11 @@ function RecurringSeriesScreen() {
                     series.map((s) => (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium text-foreground">
-                          {s.patientName ?? "—"}
+                          {s.patientId && s.patientName ? (
+                            <PatientNameLink patientId={s.patientId} name={s.patientName} />
+                          ) : (
+                            (s.patientName ?? "—")
+                          )}
                         </TableCell>
                         <TableCell>{frequencyLabel(s.recurrencePattern)}</TableCell>
                         <TableCell className="text-muted-foreground">{s.interval}</TableCell>

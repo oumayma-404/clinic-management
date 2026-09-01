@@ -140,7 +140,6 @@ public class RedeemRecoveryCodeCommandHandler
             user.GrantTotpReplacement(ReplacementWindow);
 
             user.RecordSuccessfulLogin();
-            var token = _localAuthService.GenerateToken(user);
 
             // A sign-in, so it opens a chain exactly as the ordinary ladder does (FR-1.6) — staged before the
             // single save, for the reason `LoginCommand` states.
@@ -148,8 +147,16 @@ public class RedeemRecoveryCodeCommandHandler
                 user.Id, SessionCredential.Hash(Guid.NewGuid().ToString()), DateTime.UtcNow);
             await _sessionFamilies.AddAsync(family, cancellationToken);
 
-            var refreshToken = _localAuthService.GenerateRefreshToken(user, family.Id);
+            // ⚠️ **Never trusted, and no option to make it so.** A recovery code is what somebody uses when their
+            // authenticator is lost or stolen — which is the least appropriate moment in the whole product to
+            // hand a device a month-long session. They can tick « rester connecté » on their next ordinary
+            // sign-in, once the factor they just lost has been replaced.
+            var refreshToken = _localAuthService.GenerateRefreshToken(user, family.Id, trusted: false);
             family.Rotate(SessionCredential.Hash(refreshToken.AccessToken), refreshToken.ExpiresAtUtc);
+
+            // After the family, so the access token names its own chain — `LoginCommand` states why the order
+            // matters, and this path must not be the one that quietly omits it.
+            var token = _localAuthService.GenerateToken(user, family.Id);
 
             _userRepository.Update(user);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

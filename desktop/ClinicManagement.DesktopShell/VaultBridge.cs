@@ -9,9 +9,19 @@ namespace ClinicManagement.DesktopShell;
 /// plain browser: it exposed no <c>window.__clinicShell</c> at all, which is why its version floor had to be read
 /// over native HTTP before navigation instead of from the object every other client carries.
 ///
-/// <para>It exposes exactly two facts and one seam: <c>version</c>, <c>platform: "windows"</c>, and the coffre
-/// folder. None of the mobile members are here — this shell has no <c>saveFile</c> (a WebView2 download works),
-/// no <c>print</c> (the page's own works) and no biometric prompt.</para>
+/// <para>It exposes two facts, one method and one seam: <c>version</c>, <c>platform: "windows"</c>,
+/// <c>confirmIdentity</c>, and the coffre folder. <c>saveFile</c> and <c>print</c> are still absent — a WebView2
+/// download works and the page's own <c>window.print()</c> works, so each would solve a problem this shell does
+/// not have.</para>
+///
+/// <para>⚠️ <b><c>confirmIdentity</c> was absent for the opposite reason, and its absence was a defect rather
+/// than a decision.</b> The note here used to say this shell had « no biometric prompt » alongside the two
+/// members it genuinely does not need. But the problem that method solves — the inactivity limit ending a
+/// session outright instead of pausing it — is one this shell has in full, and worse than the phones do: a phone
+/// is already behind its own lock screen, while a dentist's PC sits unlocked in a treatment room with the app
+/// open through a forty-minute appointment. So the phone locked and resumed to the same open fiche while the
+/// desktop demanded a password and a six-digit code from an authenticator across the room. Windows Hello is the
+/// same question the phones ask, and the web bundle's contract is unchanged.</para>
 ///
 /// <para>⚠️ <b>The handle arrives with its permission already granted.</b>
 /// <c>CreateWebFileSystemDirectoryHandle</c> hands web content a real <c>FileSystemDirectoryHandle</c> whose
@@ -41,8 +51,62 @@ public static class VaultBridge
           try {
             if (window.top !== window) { return; }
 
+            /*
+             * The identity resolvers, and the reason they live in this closure rather than on `__clinicShell`.
+             *
+             * AC-26 verifies the bridge by DELETING `window.__clinicShell` at runtime. A resolver map living on
+             * that object would either die with it — stranding a promise the lock gate is awaiting, leaving an
+             * opaque overlay over the app for ever — or outlive it holding a live reference. Same shape, and the
+             * same reason, as `__clinicShellDeliverVault` above.
+             */
+            var identityPending = {};
+            var identityCounter = 0;
+
+            /*
+             * ⚠️ **Never rejects and never throws** (bridge.md). The single call site is written not to fail
+             * open, so every failure is a VALUE: a shell that cannot ask answers 'unavailable' and the web
+             * bundle falls straight through to the password screen.
+             *
+             * ⚠️ The timeout is not a nicety. If the native side never answers — a crash mid-prompt, a window
+             * that went away — the promise would never settle and `<SessionLockGate>` would sit over a mounted
+             * app with no control that does anything. Two minutes is longer than any real Hello interaction
+             * (the OS gives the user its own generous window) and short enough that a wedged shell resolves to
+             * the password screen rather than to nothing at all.
+             */
+            function confirmIdentity() {
+              return new Promise(function (resolve) {
+                try {
+                  var id = 'i' + (++identityCounter);
+                  var settled = false;
+
+                  var settle = function (outcome) {
+                    if (settled) { return; }
+                    settled = true;
+                    delete identityPending[id];
+                    resolve(outcome);
+                  };
+
+                  identityPending[id] = settle;
+                  setTimeout(function () { settle('unavailable'); }, 120000);
+
+                  window.chrome.webview.postMessage('identity:' + id);
+                } catch (e) {
+                  resolve('unavailable');
+                }
+              });
+            }
+
+            window.__clinicShellDeliverIdentityResult = function (id, outcome) {
+              try {
+                var settle = identityPending[id];
+                if (typeof settle === 'function') { settle(outcome); }
+              } catch (e) { /* the lock gate only — never the page's problem */ }
+            };
+
             Object.defineProperty(window, '__clinicShell', {
-              value: Object.freeze({ version: '{{version}}', platform: 'windows' }),
+              // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` arriving
+              // here is what took this shell from 1.2 to 1.3.
+              value: Object.freeze({ version: '{{version}}', platform: 'windows', confirmIdentity: confirmIdentity }),
               configurable: true,
               writable: false,
               enumerable: true,

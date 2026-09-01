@@ -112,8 +112,16 @@ public class AppointmentRepository : IAppointmentRepository
         // taux d'absence denominator); four CountByClinicIdAsync calls would be four round trips whose bounds
         // could drift apart, which is exactly the failure the single-authority period exists to prevent.
         // Bounds are inclusive on both ends, matching CountByClinicIdAsync.
+        //
+        // ⚠️ Séances the practice has RETIRED are excluded here, and this is the call site that makes the mark
+        // mean anything. « Retirer de la liste » is honoured by `VisitClosureRules.IsOnWorklist`, which governs
+        // the worklist and the dashboard chip — but the taux d'absence and « Rendez-vous par statut » are this
+        // GROUP BY, and nothing about the worklist reaches them. Excluded from one but not the other, a cabinet
+        // retires a hundred phantom visits, watches the list go quiet, and reads exactly the same wrong absence
+        // rate it complained about.
         var rows = await _context.Appointments
             .Where(a => a.ClinicId == clinicId
+                        && a.DisregardedAtUtc == null
                         && a.AppointmentDateTime >= from
                         && a.AppointmentDateTime <= toInclusive)
             .GroupBy(a => a.Status)
@@ -137,9 +145,12 @@ public class AppointmentRepository : IAppointmentRepository
         //
         // Projected to two value-type columns — no navigations, no tracking — so the row count the window allows
         // (up to 366 days) stays a cheap transfer rather than a few thousand hydrated aggregates.
+        // Retired séances are excluded for `CountByStatusBetweenAsync`'s reason: this feeds the same card, and a
+        // chart still painting a column the figure above it no longer counts is worse than either alone.
         var query = _context.Appointments
             .AsNoTracking()
             .Where(a => a.ClinicId == clinicId
+                        && a.DisregardedAtUtc == null
                         && a.AppointmentDateTime >= from
                         && a.AppointmentDateTime <= toInclusive);
 

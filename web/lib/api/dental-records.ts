@@ -41,7 +41,12 @@ export const dentalRecordsApi = {
   update: async (
     patientId: string,
     id: string,
-    data: CreateDentalRecordRequest & { version?: number },
+    /**
+     * `correctionReason` opts into replacing the note d'honoraires this fiche is on: it is voided, cancelled and
+     * a corrected one is raised. Omitted, an edit the note disagrees with is refused as before — retiring a
+     * numbered document is never something a routine re-save should do by itself.
+     */
+    data: CreateDentalRecordRequest & { version?: number; correctionReason?: string },
   ): Promise<DentalRecordDto> => {
     return apiPut<DentalRecordDto>(`/patients/${patientId}/dental-records/${id}`, data);
   },

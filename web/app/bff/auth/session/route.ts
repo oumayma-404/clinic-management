@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveAuthMode } from '@/lib/auth/local-auth';
 import { readSessionCookie } from '@/lib/auth/session-cookie';
+import { trustedFromClaims } from '@/lib/auth/idle-limit';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -22,10 +23,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
   }
 
-  return NextResponse.json({ user: { name: claims.name, email: claims.email, role: claims.role } });
+  // `trusted` travels with the identity so a cold page load can size its idle timer from the cookie alone, with
+  // no extra round trip — the provider needs it before the first API call it would otherwise piggyback on.
+  return NextResponse.json({
+    user: { name: claims.name, email: claims.email, role: claims.role },
+    trusted: trustedFromClaims(claims),
+  });
 }
 
-function decodeJwtPayload(token: string): { name?: string; email?: string; role?: string } | null {
+function decodeJwtPayload(
+  token: string
+): { name?: string; email?: string; role?: string; session_trusted?: unknown } | null {
   try {
     const payload = token.split('.')[1];
     if (!payload) return null;

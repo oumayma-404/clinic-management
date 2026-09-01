@@ -45,6 +45,7 @@ public class GoogleCalendarControllerHardeningTests
             cache,
             new Mock<IMediator>().Object,
             new Mock<IGoogleTokenProtector>().Object,
+            new Mock<IClinicContext>().Object,
             NullLogger<GoogleCalendarController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
         return controller;
@@ -59,7 +60,6 @@ public class GoogleCalendarControllerHardeningTests
     }
 
     [Theory]
-    [InlineData(nameof(GoogleCalendarController.SyncFromGoogleCalendar))]
     [InlineData(nameof(GoogleCalendarController.GetSyncStatus))]
     [InlineData(nameof(GoogleCalendarController.SyncAppointmentToGoogle))]
     [InlineData(nameof(GoogleCalendarController.Connect))]
@@ -72,7 +72,6 @@ public class GoogleCalendarControllerHardeningTests
     }
 
     [Theory]
-    [InlineData(nameof(GoogleCalendarController.SyncFromGoogleCalendar))]
     [InlineData(nameof(GoogleCalendarController.SyncAppointmentToGoogle))]
     [InlineData(nameof(GoogleCalendarController.Connect))]
     // AC-P2.34: the disconnect joins the same class — it revokes the clinic's whole Google connection.

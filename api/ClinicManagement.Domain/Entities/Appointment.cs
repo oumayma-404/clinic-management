@@ -20,6 +20,20 @@ public class Appointment : AggregateRoot<Guid>
     public string? CancellationReason { get; private set; }
     public DateTime? CancelledAt { get; private set; }
     public string? GoogleCalendarEventId { get; private set; }
+
+    /// <summary>
+    /// The <see cref="CalendarImportRun"/> that <b>created</b> this appointment, or null.
+    ///
+    /// <para>Set only on a row the Google→App pass conjured — never on one it merely updated or linked, which
+    /// existed before it and must survive the run being undone. It is what makes « Annuler cet import »
+    /// answerable at all: <see cref="GoogleCalendarEventId"/> cannot serve, because the app writes it on its own
+    /// bookings too, and it is <i>nulled</i> when a visit is cancelled or completed.</para>
+    ///
+    /// <para>⚠️ A plain indexed column, no navigation and no foreign key — <c>StaffNotification.AppointmentId</c>'s
+    /// shape. A run is never deleted, so there is no cascade to reason about, and an FK would put a delete-order
+    /// obligation on the one operation whose whole job is deleting rows.</para>
+    /// </summary>
+    public Guid? CalendarImportRunId { get; private set; }
     /// <summary>
     /// The visit's <b>lead</b> act. Since multi-act séances exist this is a **derived snapshot of the first
     /// <see cref="Procedures"/> row**, not an independent field — see <see cref="SetProcedures"/>.
@@ -177,6 +191,78 @@ public class Appointment : AggregateRoot<Guid>
         NothingToBillByUserId = null;
         UpdatedAt = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// When somebody took this visit off « À clôturer » without claiming anything clinical about it.
+    ///
+    /// <para><b>Why this is not <see cref="NothingToBillAtUtc"/>, and not a status.</b> The worklist's only exits
+    /// were <c>Completed</c>, <c>Cancelled</c> and <c>NoShow</c> — three statements about what happened to a
+    /// patient. A row that should never have been on the list answers none of them, so clearing it meant forging
+    /// one: the practice that cancelled a hundred phantom imported visits watched its « taux d'absence » climb,
+    /// because <c>DashboardActivityReader</c> counts <c>Cancelled</c> as a missed visit. « Rien à facturer »
+    /// cannot serve either — it answers the <i>third</i> question (money) and leaves the first two open.</para>
+    ///
+    /// <para>⚠️ This mark means « ne comptez pas cette ligne », so it must be honoured by the <b>figures</b> as
+    /// well as the worklist. A disregarded visit leaves <c>VisitClosureRules.IsClosable</c> AND the appointment
+    /// status counts behind the dashboard. Excluded from one but not the other, the list goes quiet while the
+    /// absence rate stays exactly as wrong as it was — which is the complaint this exists to answer.</para>
+    ///
+    /// <para>⚠️ <b>No motif, deliberately — and this is a reversal.</b> The mark first shipped demanding one, on
+    /// <see cref="NothingToBillAtUtc"/>'s reasoning that « pourquoi ? » should stay answerable. It does not carry
+    /// over: « rien à facturer » is a claim about money that the cabinet will be asked to justify later, whereas
+    /// this one asserts nothing at all, so there is nothing to justify. Charging a mandatory sentence for saying
+    /// « cette ligne ne me concerne pas » — across the hundred-odd rows this exists for — made the honest exit the
+    /// expensive one, which is how a cabinet ends up back on <c>Cancel()</c> and back to a false absence rate.
+    /// <c>AuditSaveChangesInterceptor</c> still answers « qui, et quand ».</para>
+    /// </summary>
+    public DateTime? DisregardedAtUtc { get; private set; }
+
+    /// <inheritdoc cref="DisregardedAtUtc"/>
+    public string? DisregardedByUserId { get; private set; }
+
+    /// <summary>True when this visit has been taken off the worklist and out of the figures.</summary>
+    public bool IsDisregarded => DisregardedAtUtc.HasValue;
+
+    /// <summary>
+    /// Take this visit off « À clôturer ». <b>Idempotent</b>, for <see cref="MarkNothingToBill"/>'s reason: the
+    /// second caller is a double-click or a bulk selection overlapping a previous one far more often than a
+    /// considered change of mind, so the first removal's stamp is the one that stands.
+    /// </summary>
+    public void Disregard(string userId, DateTime whenUtc)
+    {
+        if (DisregardedAtUtc.HasValue)
+        {
+            return;
+        }
+
+        DisregardedAtUtc = whenUtc;
+        DisregardedByUserId = userId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Put the visit back on the worklist and back into the figures. Idempotent.
+    ///
+    /// <para>Load-bearing, not a courtesy: a removal nobody can undo is a black hole, and a worklist with a
+    /// black hole in it is one people stop trusting. It is also what makes the mark safe to offer in bulk.</para>
+    /// </summary>
+    public void RestoreToWorklist()
+    {
+        if (!DisregardedAtUtc.HasValue)
+        {
+            return;
+        }
+
+        DisregardedAtUtc = null;
+        DisregardedByUserId = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Record that <paramref name="runId"/>'s Google→App pass created this appointment. Called only on creation,
+    /// so a row is stamped once and never re-attributed to a later run.
+    /// </summary>
+    public void StampImportRun(Guid runId) => CalendarImportRunId = runId;
 
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;

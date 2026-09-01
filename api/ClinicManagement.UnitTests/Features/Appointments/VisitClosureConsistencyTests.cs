@@ -150,10 +150,12 @@ public class VisitClosureConsistencyTests
             .ReturnsAsync(0);
     }
 
-    private Task<IReadOnlyList<OpenVisit>> ReadWorklist() =>
-        VisitClosureReader.ReadAsync(
+    // `.Open` — the half « À clôturer » and the dashboard chip both render. The reader also returns the séances
+    // somebody has set aside, and these tests are about the two surfaces agreeing on the open ones.
+    private async Task<IReadOnlyList<OpenVisit>> ReadWorklist() =>
+        (await VisitClosureReader.ReadAsync(
             ClinicId, days: null, doctorId: null, Now,
-            _appointments.Object, _dentalRecords.Object, _invoices.Object, _plans.Object);
+            _appointments.Object, _dentalRecords.Object, _invoices.Object, _plans.Object)).Open;
 
     private Task<ClinicManagement.Application.DTOs.DashboardAlertsDto> ReadDashboard() =>
         new DashboardAlertsReader(

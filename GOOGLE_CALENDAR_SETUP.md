@@ -1,5 +1,20 @@
 # Google Calendar Integration Setup Guide
 
+
+> ## ⚠️ Google → App is RETIRED — this guide now covers ONE direction
+>
+> « Importer depuis Google », `POST /api/googlecalendar/sync-from-google`, the 15-minute
+> `GoogleCalendarImportJob` and the `import-settings` gate **no longer exist**. One press was a mass, unbounded,
+> irreversible write: 97 days of a practice's calendar became appointment rows, and the past week of them landed on
+> « À clôturer » as visits nobody could honestly close — so the cabinet cancelled them and inflated its own
+> « taux d'absence ».
+>
+> **Still true and still needed:** every OAuth step below. App → Google runs inline on appointment create/update and
+> needs exactly this setup. **No longer true:** anything describing a pull, a periodic import job, or two-way sync.
+>
+> The **undo** for imports already made survives (`GET /api/googlecalendar/imports`, `…/revert-preview`,
+> `…/revert`). See [`features/calendar-import-revert/notes.md`](features/calendar-import-revert/notes.md).
+
 This guide will help you set up two-way synchronization between the Clinic Management System and Google Calendar.
 
 ## Prerequisites

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { TotpCodeField } from '@/components/security/totp-code-field'
 import { RecoveryCodesPanel } from '@/components/security/recovery-codes-panel'
+import { MyDevicesCard } from '@/components/security/my-devices-card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LOW_RECOVERY_CODES, securityApi, type TotpState } from '@/lib/api/security'
 import { showErrorToast } from '@/lib/errors'
@@ -278,6 +279,13 @@ function SecurityContent() {
           )}
         </>
       )}
+
+      {/*
+        ⚠️ Outside the `!loading && !failed` block above, and that is deliberate. This card owns its own read,
+        its own failure and its own retry, so gating it on the second factor's read would black out the one
+        screen that can revoke a lost device whenever an unrelated call fails.
+      */}
+      <MyDevicesCard />
     </div>
   )
 }

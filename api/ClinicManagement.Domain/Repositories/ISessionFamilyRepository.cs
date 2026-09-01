@@ -25,8 +25,24 @@ public interface ISessionFamilyRepository
     /// </summary>
     Task<SessionFamily?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
-    /// <summary>Every live family of one account, for « vos autres appareils restent connectés ».</summary>
-    Task<IReadOnlyList<SessionFamily>> GetLiveForUserAsync(string userId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The sessions of one account that a person would call open: not ended, <b>and not expired</b>.
+    ///
+    /// <para>⚠️ <b>The expiry half is what makes this usable on « Mes appareils », and leaving it out was a real
+    /// defect.</b> This method predates that screen — it was written for a « vos autres appareils restent
+    /// connectés » sentence and had no caller at all — so « live » meant only <c>EndedAtUtc is null</c>. A family
+    /// whose credential lapsed weeks ago is neither ended nor usable, and on a security screen listing it is not
+    /// a cosmetic imprecision: it tells somebody checking after a theft that devices are signed in when they are
+    /// not. Measured on a development database: <b>277 of 284</b> rows were dead.</para>
+    ///
+    /// <para>⚠️ <b><c>nowUtc</c> is a parameter</b>, like every other bound in this solution, so the caller and
+    /// any test decide the instant rather than the repository reading a clock nothing can control.</para>
+    ///
+    /// <para>Rows are ordered most-recently-active first, with the id as the tie-break — two families rotating in
+    /// the same tick must not be able to swap places between two reads of the same list.</para>
+    /// </summary>
+    Task<IReadOnlyList<SessionFamily>> GetLiveForUserAsync(
+        string userId, DateTime nowUtc, CancellationToken cancellationToken = default);
 
     Task AddAsync(SessionFamily family, CancellationToken cancellationToken = default);
 

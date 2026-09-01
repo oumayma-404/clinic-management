@@ -483,6 +483,20 @@ public class SchemaVerificationService
                   + "the AddSuppliers backfill did not reach them",
             n => n == 0);
 
+        // calendar-import-revert AC-19 — the same illustration one feature over, and the stakes are higher: an
+        // unattributed row means « Annuler cet import » is never offered for it, which on screen looks exactly
+        // like a cabinet that never imported anything. The practice is then left with a worklist full of phantom
+        // séances and no way back, which is the failure this whole feature exists to end. The run total rides
+        // along so a clean run states what the backfill produced rather than only that nothing is wrong.
+        Add("calendar-import-run-backfill", counts.CalendarImportRowsWithoutARun,
+            n => n == 0
+                ? $"0 imported row is missing its import run "
+                  + $"({counts.CalendarImportRunsTotal?.ToString() ?? "?"} run(s) on record)"
+                : $"{n} row(s) created by the Google Calendar import carry no run — the "
+                  + "AddCalendarImportRunsAndWorklistDismissal backfill did not reach them, so the cabinet "
+                  + "cannot undo the import that created them",
+            n => n == 0);
+
         // Part 6's push tables. Their shape is diffed against the catalog for free, so the only line here is the
         // one relationship no constraint can state: a queued push and the device it is addressed to must belong to
         // the same clinic. A mismatch is a cross-clinic notification, and a lock screen has no request-time check

@@ -41,7 +41,32 @@
 
 	# API — same-origin front door for the frontend's relative `/api` calls (AC-3).
 	handle /api/* {
-		reverse_proxy api:5000
+		reverse_proxy api:5000 {
+			# ⚠️ **This is what makes a redeploy invisible, and it is the whole reason it is here.** A deploy
+			# STOPS the single `clinic-api-prod` container before starting the new one — `container_name:` pins
+			# one instance, so old and new never overlap — and for those seconds Caddy cannot dial the upstream
+			# at all. Without a try duration that is an INSTANT 502 for every request in the gap, which is
+			# exactly what shipped: 25 s of them on 2026-09-01 at 10:34 Tunis, hitting a real clinic mid-session
+			# on /dental-acts — `/api/connectivity`, `/api/notifications/pending-reviews` and eighteen
+			# `/hub/clinic/negotiate` attempts, all 502, all while the desk was trying to work.
+			#
+			# With it, Caddy HOLDS the request and re-dials every 250 ms until the new container answers. The
+			# client sees one slow request instead of an error, the session survives, and SignalR renegotiates
+			# on its own. 45 s is chosen to cover the worst measured swap (25 s, when the deploy also recreated
+			# postgres) with room to spare, and to stay under the SignalR client's ~42 s reconnect budget being
+			# spent on failures rather than on waiting.
+			#
+			# ⚠️ Retrying is SAFE FOR POST here, and that is not an accident of configuration. Caddy re-dials
+			# only when it never got a connection — no byte of the request was written — so a `POST /api/visits`
+			# cannot be applied twice by this. Do not add `retry_match`: broadening it to responses ALREADY sent
+			# upstream is what would make a money write replay.
+			#
+			# ⚠️ The cost, stated: a genuinely broken deploy now makes requests hang for 45 s instead of failing
+			# fast. That is the right trade for a clinic — a held request that succeeds beats an error toast —
+			# but it means the deploy's own `/health` gate, not a user's browser, is what must catch a bad ship.
+			lb_try_duration 45s
+			lb_try_interval 250ms
+		}
 	}
 
 	# SignalR — the hub is mapped at the host root (`/hub/clinic`), NOT under /api, so without this
@@ -50,7 +75,11 @@
 	# broadcast is swallowed by design, so every clinic simply sees stale screens. Caddy forwards the
 	# WebSocket upgrade automatically — this needs no extra directive.
 	handle /hub/* {
-		reverse_proxy api:5000
+		reverse_proxy api:5000 {
+			# Same reason as the /api/* block above: ride out the container swap instead of 502ing into it.
+			lb_try_duration 45s
+			lb_try_interval 250ms
+		}
 	}
 
 	# Liveness. Mapped on the API (never under /api, so it is outside the rate limiter and the client-version
@@ -58,6 +87,11 @@
 	# 404s: an endpoint nothing in this topology could reach. Deliberately public: an uptime monitor cannot hold
 	# an admin token, and the body carries check names and statuses only, never a reason.
 	handle /health {
+		# ⚠️ **Deliberately WITHOUT the `lb_try_duration` the two blocks above carry.** Everything else on this
+		# site is a clinic's request and is better held than refused; this one is the opposite. /health exists
+		# to answer « is the API up, right now », and a route that waits 45 s before admitting the API is down
+		# is a route that lies to the deploy's own gate and to any uptime monitor pointed at it. Nobody at a
+		# desk ever loads it, so there is nothing here for holding to protect.
 		reverse_proxy api:5000
 	}
 
@@ -84,7 +118,13 @@
 			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; report-uri /api/csp-report; report-to csp-endpoint"
 		}
 
-		reverse_proxy web:3000
+		reverse_proxy web:3000 {
+			# `web` is recreated by the same deploy as `api`, so a page load lands in the identical gap — and a
+			# 502 here is worse than one on /api/*, because it replaces the whole application with Caddy's bare
+			# error page rather than a French message inside a screen that is still there.
+			lb_try_duration 45s
+			lb_try_interval 250ms
+		}
 	}
 }
 
@@ -133,7 +173,10 @@ https://console.localhost:9443, https://127.0.0.1:9443 {
 	encode zstd gzip
 
 	handle /api/platform/* {
-		reverse_proxy api:5443
+		reverse_proxy api:5443 {
+			lb_try_duration 45s
+			lb_try_interval 250ms
+		}
 	}
 
 	handle {
@@ -162,6 +205,9 @@ https://console.localhost:9443, https://127.0.0.1:9443 {
 			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; report-uri /api/csp-report; report-to csp-endpoint"
 		}
 
-		reverse_proxy console:3000
+		reverse_proxy console:3000 {
+			lb_try_duration 45s
+			lb_try_interval 250ms
+		}
 	}
 }

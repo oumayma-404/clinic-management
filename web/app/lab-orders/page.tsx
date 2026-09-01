@@ -81,6 +81,7 @@ import { ApiError } from "@/lib/api/client"
 import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
 import { isFdiTooth } from "@/components/tooth-multiselect"
 import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
@@ -1075,7 +1076,11 @@ export default function LabOrdersPage() {
                               href={`/patients/${order.patientId}`}
                               className="block truncate text-foreground underline-offset-4 hover:underline"
                             >
-                              {order.patientName ?? "Patient inconnu"}
+                              {order.patientId && order.patientName ? (
+                                <PatientNameLink patientId={order.patientId} name={order.patientName} />
+                              ) : (
+                                (order.patientName ?? "Patient inconnu")
+                              )}
                             </Link>
                             {order.appointmentId && (
                               <Link

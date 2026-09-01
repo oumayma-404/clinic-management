@@ -11,6 +11,7 @@ import {
   onSessionExpired,
 } from "@/lib/api/client"
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
+import { idleLimitMinutes } from "@/lib/auth/idle-limit"
 
 /**
  * ⚠️ One member, and that is the point.
@@ -33,6 +34,13 @@ export interface SessionState {
   user: SessionUser | null
   isLoading: boolean
   mode: AuthMode
+  /**
+   * Whether this session was opened with « Rester connecté sur cet appareil ».
+   *
+   * <p>Exposed so « Mes appareils » and the header can say so. It is a **description of the session**, never a
+   * permission: nothing in the app should branch on it to decide what a user may do.</p>
+   */
+  trusted: boolean
   /** Logs the user out — clears the local session cookie and returns to the login screen. */
   logout: () => void
 }
@@ -43,6 +51,10 @@ const DEFAULT_SESSION: SessionState = {
   user: null,
   isLoading: true,
   mode: "local",
+  // ⚠️ The loading default is the SHORT session, not the long one. This value is read before the cookie has been
+  // decoded, and being wrong in this direction costs a user one extra sign-in; being wrong in the other leaves an
+  // unattended browser open for eight hours because a fetch had not resolved yet.
+  trusted: false,
   logout: () => {},
 }
 
@@ -58,13 +70,21 @@ export function useSession(): SessionState {
 // ---------------------------------------------------------------------------
 // Local (offline) — cookie-backed session + inactivity auto-logout.
 // ---------------------------------------------------------------------------
-const INACTIVITY_LIMIT_MS = 30 * 60 * 1000 // AC-3.5: default 30 minutes
+
+/*
+ * ⚠️ **The limit is no longer a constant, and the reason is in `lib/auth/idle-limit.ts`.** It used to be a flat
+ * 30 minutes on every surface, which meant a dentist treating one patient with the app open on the operatory PC
+ * was signed out mid-appointment — cookie cleared, session revoked, back to a password and a six-digit code from
+ * a phone that is across the room. The wait now depends on what expiry actually *costs*: seconds where the shell
+ * can lock, a full sign-in where it cannot.
+ */
 
 export function LocalSessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [trusted, setTrusted] = useState(false)
 
-  const logout = useCallback((options?: { returnTo?: string }) => {
+  const logout = useCallback((options?: { returnTo?: string; reason?: "inactivity" }) => {
     // AC-3.6: logout returns to the login screen; the configured server address
     // (NEXT_PUBLIC_API_URL / shell config) is untouched.
     // Drop the in-memory access token too: the full navigation below would discard it anyway, but the
@@ -80,7 +100,17 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
     const target = options?.returnTo
       ? `/login?returnTo=${encodeURIComponent(options.returnTo)}`
       : "/login"
-    fetch("/bff/auth/local-logout", { method: "POST" })
+    /*
+     * The reason is sent so the session table can tell a chosen sign-out from a timeout — until now both were
+     * stamped identically, and the practice's own records could not answer how often the limit was firing.
+     * `Content-Type` is set explicitly: without it the route's `request.json()` still parses, but a proxy that
+     * strips an unlabelled body would silently turn every timeout back into « demandée par l'utilisateur ».
+     */
+    fetch("/bff/auth/local-logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: options?.reason ?? "user" }),
+    })
       .catch(() => {})
       .finally(() => {
         window.location.href = target
@@ -100,10 +130,16 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
         return res.ok ? res.json() : null
       })
       .then((data) => {
-        if (active) setUser(data?.user ?? null)
+        if (!active) return
+        setUser(data?.user ?? null)
+        // Absent ⇒ false. A BFF that predates this field, or any answer we could not read, must give the
+        // SHORT session rather than the long one.
+        setTrusted(data?.trusted === true)
       })
       .catch(() => {
-        if (active) setUser(null)
+        if (!active) return
+        setUser(null)
+        setTrusted(false)
       })
       .finally(() => {
         if (active) setIsLoading(false)
@@ -226,24 +262,35 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   // Deliberately does **not** clear `locked`: `logout` clears the cookie and then navigates, and uncovering the
   // app for those few frames would put the record back on screen at the one moment nobody has confirmed anything.
   const abandonLock = useCallback(() => {
-    logout({ returnTo: window.location.pathname + window.location.search })
+    logout({ returnTo: window.location.pathname + window.location.search, reason: "inactivity" })
   }, [logout])
 
   useEffect(() => {
     if (!user || locked) return
 
+    /*
+     * ⚠️ Recomputed inside the effect, not hoisted to a constant: `canConfirmIdentityInShell()` reads
+     * `window.__clinicShell`, which does not exist during the server render and is installed by the shell at
+     * document start. Read once at module scope it would be `false` for the life of the page even in a shell
+     * that can lock — the limit would be right by luck on the web and wrong on the device the lock exists for.
+     *
+     * The effect re-runs on `user` and on `locked`, which covers every point at which either input can change.
+     */
+    const canLock = canConfirmIdentityInShell()
+    const limitMs = idleLimitMinutes(trusted, canLock) * 60 * 1000
+
     const expireNow = () => {
-      if (canConfirmIdentityInShell()) {
+      if (canLock) {
         setLocked(true)
         return
       }
       // The screen the user was on, so the timeout does not also cost them their place (AC-42).
-      logout({ returnTo: window.location.pathname + window.location.search })
+      logout({ returnTo: window.location.pathname + window.location.search, reason: "inactivity" })
     }
 
     const arm = () => {
       if (timerRef.current) clearTimeout(timerRef.current)
-      const remaining = INACTIVITY_LIMIT_MS - (Date.now() - lastActivityAtMs.current)
+      const remaining = limitMs - (Date.now() - lastActivityAtMs.current)
       if (remaining <= 0) {
         expireNow()
         return
@@ -278,9 +325,9 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
       document.removeEventListener("visibilitychange", onVisibility)
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [user, locked, logout])
+  }, [user, locked, logout, trusted])
 
-  const value: SessionState = { user, isLoading, mode: "local", logout }
+  const value: SessionState = { user, isLoading, mode: "local", trusted, logout }
   return (
     <SessionContext.Provider value={value}>
       {children}

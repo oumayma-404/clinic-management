@@ -353,6 +353,57 @@ public class InvoicesController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Open a correction on an issued note (admin/doctor only): returns a <b>draft copy</b> to edit and issue.
+    ///
+    /// <para>Nothing about the original changes here — it keeps its number, its status and its payments until the
+    /// replacement is issued. That is deliberate: voiding up front would take real money out of la caisse for as
+    /// long as the correction is being typed, and for good if it is abandoned.</para>
+    ///
+    /// <para>Distinct from <c>{id}/avoir</c>, and the two are not interchangeable: an avoir records money handed
+    /// back to the patient, a correction records that the note was wrong.</para>
+    /// </summary>
+    [HttpPost("{id}/correct")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<InvoiceDto>> CorrectInvoice(Guid id, [FromBody] CorrectInvoiceCommand command, CancellationToken cancellationToken = default)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Correct the day a payment was received (admin/doctor only) — la caisse's own « ce n'était pas ce jour-là ».
+    ///
+    /// <para>Touches no document: money reads attribute a payment by its own date, while the note keeps the day
+    /// it was written. Refused once a cheque is banked.</para>
+    /// </summary>
+    [HttpPost("{id}/payments/{paymentId}/date")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<InvoiceDto>> AmendPaymentDate(
+        Guid id,
+        Guid paymentId,
+        [FromBody] AmendPaymentDateCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        command.Id = id;
+        command.PaymentId = paymentId;
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
     /// <summary>Establish an avoir (credit note) against a (partially) paid invoice (admin/doctor only).</summary>
     [HttpPost("{id}/avoir")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]

@@ -100,11 +100,20 @@ services:
     # No `ports:` — not published to the host (AC-1).
     # `pg_isready` with no host goes over the unix socket, which pg_hba's `local … trust` line covers — so
     # the hostssl-only rule above does not turn the healthcheck red.
+    #
+    # ⚠️ `start_period` is load-bearing for DEPLOY DOWNTIME, which is not what a healthcheck usually
+    # decides. Without it Docker's first probe fires one whole `interval` AFTER the container starts, so a
+    # postgres that was accepting connections in under a second still reported `starting` for 10 s — and `api`,
+    # which waits on `condition: service_healthy`, sat out every one of them. Measured on 2026-09-01: postgres
+    # started 13:44:05, the API was allowed to start 13:44:15.7, and it was serving by 13:44:19. Ten of those
+    # twenty-five seconds of 502s were this line. During `start_period` a failing probe does not count towards
+    # `retries`, so probing early costs nothing and only shortens the wait.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   minio:
     image: minio/minio:latest

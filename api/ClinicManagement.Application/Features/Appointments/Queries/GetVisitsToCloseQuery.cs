@@ -26,8 +26,18 @@ namespace ClinicManagement.Application.Features.Appointments.Queries;
 /// folder would emit a <c>visitclosure</c> realtime key that <c>web/lib/realtime/clinic-hub.ts</c> does not
 /// declare, and <c>RealtimeResourceResolverTests</c> compares the two sets in <b>both</b> directions.</para>
 /// </summary>
-public class GetVisitsToCloseQuery : IRequest<Result<PagedResult<VisitToCloseDto>>>
+public class GetVisitsToCloseQuery : IRequest<Result<VisitsToCloseDto>>
 {
+    /// <summary>
+    /// Read the séances somebody has <b>set aside</b> instead of the ones still asking a question.
+    ///
+    /// <para>The same read, the same window, the same rules — only the half of
+    /// <see cref="VisitClosureWorklist"/> that is returned changes. A separate endpoint would be a second
+    /// predicate over the same rows, and the first term either side gained would make « retirées » and
+    /// « à clôturer » stop being complements of each other.</para>
+    /// </summary>
+    public bool Disregarded { get; set; }
+
     /// <summary>
     /// How many clinic-local days back to look, including today. Clamped by <see cref="VisitClosureReader"/>.
     ///
@@ -45,7 +55,7 @@ public class GetVisitsToCloseQuery : IRequest<Result<PagedResult<VisitToCloseDto
 }
 
 public class GetVisitsToCloseQueryHandler
-    : IRequestHandler<GetVisitsToCloseQuery, Result<PagedResult<VisitToCloseDto>>>
+    : IRequestHandler<GetVisitsToCloseQuery, Result<VisitsToCloseDto>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IDentalRecordRepository _dentalRecordRepository;
@@ -76,7 +86,7 @@ public class GetVisitsToCloseQueryHandler
         _logger = logger;
     }
 
-    public async Task<Result<PagedResult<VisitToCloseDto>>> Handle(
+    public async Task<Result<VisitsToCloseDto>> Handle(
         GetVisitsToCloseQuery request, CancellationToken cancellationToken)
     {
         try
@@ -84,13 +94,13 @@ public class GetVisitsToCloseQueryHandler
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<PagedResult<VisitToCloseDto>>.Failure(
+                return Result<VisitsToCloseDto>.Failure(
                     clinicResult.Error ?? ErrorMessages.Generic);
             }
 
             var clinicId = clinicResult.Value;
 
-            var open = await VisitClosureReader.ReadAsync(
+            var worklist = await VisitClosureReader.ReadAsync(
                 clinicId,
                 request.Days,
                 request.DoctorId,
@@ -100,6 +110,10 @@ public class GetVisitsToCloseQueryHandler
                 _invoiceRepository,
                 _treatmentPlanRepository,
                 cancellationToken);
+
+            // Which half the caller asked for. Both come back from the one read above, so « à clôturer » and
+            // « retirées » are complements of each other by construction rather than by two queries agreeing.
+            var open = request.Disregarded ? worklist.Disregarded : worklist.Open;
 
             var patientIds = open
                 .Select(o => o.Appointment.PatientId!.Value)
@@ -121,12 +135,18 @@ public class GetVisitsToCloseQueryHandler
 
             var page = PagedResult<OpenVisit>.FromSource(open, request.Paging);
 
-            return Result<PagedResult<VisitToCloseDto>>.Success(page.Map(o => Map(o, patients, roster)));
+            return Result<VisitsToCloseDto>.Success(new VisitsToCloseDto
+            {
+                Visits = page.Map(o => Map(o, patients, roster)),
+                // Always the set-aside count, whichever half was asked for: the worklist needs it to offer the
+                // way back, and the set-aside screen needs it to say what it is showing.
+                DisregardedCount = worklist.Disregarded.Count
+            });
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Failed to read the visits awaiting closure");
-            return Result<PagedResult<VisitToCloseDto>>.Failure(ErrorMessages.Generic);
+            return Result<VisitsToCloseDto>.Failure(ErrorMessages.Generic);
         }
     }
 

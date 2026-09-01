@@ -156,6 +156,21 @@ public interface IPatientRepository
     /// <paramref name="flaggedOnly"/>'s reason: over a page it would mean « those of these 25 », which is a
     /// different question from the one the filter chip asks.
     /// </param>
+    /// <param name="dismissedReviewOnly">
+    /// Which side of <paramref name="pendingCalendarReviewOnly"/>'s list to return: false (the default) the
+    /// records still to review, true the ones somebody has taken off it with « Ne plus afficher » — the
+    /// « voir les fiches masquées » view, and the only way back from a dismissal.
+    ///
+    /// <para>⚠️ <b>The two are complements, and this flag used to widen instead.</b> As
+    /// <c>includeDismissedReview</c> it returned the pending records **plus** the dismissed ones, so the hidden
+    /// view listed every patient à compléter and offered « Réafficher » on rows nobody had masked — a control
+    /// that undoes nothing, on the one screen whose claim is that a dismissal is reversible. « À clôturer » and
+    /// « séances retirées » are complements by construction; these two now are too.</para>
+    ///
+    /// <para>⚠️ Ignored unless <paramref name="pendingCalendarReviewOnly"/> is set: a dismissal is a statement
+    /// about one list, not about the patient. Letting it hide records from the ordinary patient list would make
+    /// a tidying action delete people from the practice's own directory.</para>
+    /// </param>
     Task<PagedResult<Patient>> GetByClinicIdAsync(
         Guid clinicId,
         bool includeArchived = false,
@@ -164,6 +179,7 @@ public interface IPatientRepository
         string? searchTerm = null,
         bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
+        bool dismissedReviewOnly = false,
         PatientListSort sort = PatientListSort.Name,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default);

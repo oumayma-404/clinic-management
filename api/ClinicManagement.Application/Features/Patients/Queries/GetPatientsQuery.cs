@@ -41,6 +41,17 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     public bool PendingCalendarReviewOnly { get; set; }
 
     /// <summary>
+    /// With <see cref="PendingCalendarReviewOnly"/>, return <b>only</b> the records somebody took off the list with
+    /// « Ne plus afficher » — the « voir les fiches masquées » view, and the only way back from a dismissal.
+    /// Ignored on its own: a dismissal narrows that one list and never the practice's directory.
+    ///
+    /// <para>⚠️ <b>Only, not «also».</b> It was <c>IncludeDismissedReview</c> and returned pending **plus**
+    /// dismissed, so the hidden view listed every patient à compléter and offered « Réafficher » on rows nobody
+    /// had masked. The two views are complements, exactly as « à clôturer » and « séances retirées » are.</para>
+    /// </summary>
+    public bool DismissedReviewOnly { get; set; }
+
+    /// <summary>
     /// Include patients that have been archived. <b>False everywhere except the patients page's own « Afficher les
     /// patients archivés »</b>, which is the one screen that exists to find them again.
     /// <para>⚠️ <b>This parameter existed on <see cref="IPatientRepository"/> from the start and had no caller at
@@ -125,6 +136,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 searchTerm: request.SearchTerm,
                 flaggedOnly: request.FlaggedOnly,
                 pendingCalendarReviewOnly: request.PendingCalendarReviewOnly,
+                dismissedReviewOnly: request.DismissedReviewOnly,
                 includeArchived: request.IncludeArchived,
                 sort: request.Sort,
                 paging: paging,

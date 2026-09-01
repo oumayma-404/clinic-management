@@ -71,11 +71,14 @@ public class LocalAuthService : ILocalAuthService
         };
     }
 
-    public LocalAuthToken GenerateToken(User user) => GenerateToken(user, scope: null);
+    public LocalAuthToken GenerateToken(User user, Guid? sessionFamilyId) =>
+        GenerateToken(user, scope: null, sessionFamilyId);
 
-    public LocalAuthToken GenerateScopedToken(User user, string scope) => GenerateToken(user, scope);
+    // A scoped archive token belongs to a device grant, not to a sign-in, so it has no chain to name.
+    public LocalAuthToken GenerateScopedToken(User user, string scope) =>
+        GenerateToken(user, scope, sessionFamilyId: null);
 
-    private LocalAuthToken GenerateToken(User user, string? scope)
+    private LocalAuthToken GenerateToken(User user, string? scope, Guid? sessionFamilyId)
     {
         // The browser-held credential: short-lived on purpose, renewed silently from the cookie (AC-5.3).
         var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.AccessTokenLifetimeMinutes(_configuration));
@@ -99,6 +102,15 @@ public class LocalAuthService : ILocalAuthService
         if (!string.IsNullOrWhiteSpace(scope))
         {
             claims.Add(new Claim(LocalAuthClaims.Scope, scope));
+        }
+
+        // Which device's chain this sign-in belongs to, so « Mes appareils » can mark one row « cet appareil »
+        // and a user ending a stale session cannot end their own by mistake. It confers nothing: the family is
+        // already named on the refresh credential, and every authorisation decision is made from `role` and
+        // `clinic_id` as before.
+        if (sessionFamilyId is { } familyId)
+        {
+            claims.Add(new Claim(LocalAuthClaims.SessionFamily, familyId.ToString()));
         }
 
         if (!string.IsNullOrWhiteSpace(user.Email))
@@ -127,9 +139,16 @@ public class LocalAuthService : ILocalAuthService
         return new LocalAuthToken(accessToken, expiresAt);
     }
 
-    public LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId)
+    public LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted)
     {
-        var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.TokenLifetimeMinutes(_configuration));
+        // ⚠️ The lifetime is decided HERE, from the caller's assertion about the device, and never from a claim
+        // on the credential being replaced. A rotation reads `SessionFamily.IsTrusted` — a row only this server
+        // writes — so a tampered token cannot promote its own session to the long window.
+        var lifetimeMinutes = trusted
+            ? LocalAuthConfig.TrustedTokenLifetimeMinutes(_configuration)
+            : LocalAuthConfig.TokenLifetimeMinutes(_configuration);
+
+        var expiresAt = DateTime.UtcNow.AddMinutes(lifetimeMinutes);
 
         // The identity claims are included because the BFF decodes this token to render the header user
         // without a server round trip (AC-5.12). clinic_id is deliberately omitted: this token must never be
@@ -148,6 +167,13 @@ public class LocalAuthService : ILocalAuthService
         if (sessionFamilyId is { } familyId)
         {
             claims.Add(new Claim(LocalAuthClaims.SessionFamily, familyId.ToString()));
+        }
+
+        // Only when true — an absent claim is « ordinary session », which is what every credential minted before
+        // this shipped says, and the right default for anything that cannot answer.
+        if (trusted)
+        {
+            claims.Add(new Claim(LocalAuthClaims.SessionTrusted, "1"));
         }
 
         if (!string.IsNullOrWhiteSpace(user.Email))

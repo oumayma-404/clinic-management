@@ -58,6 +58,18 @@ public class InvoiceDto
     public bool CanCreateAvoir { get; set; }
 
     /// <summary>
+    /// Server-computed. Whether this note can be replaced by a corrected one — the route for a mistake, as
+    /// opposed to <see cref="CanCreateAvoir"/>, which is the route for money actually handed back.
+    /// </summary>
+    public bool CanBeCorrected { get; set; }
+
+    /// <summary>The note that replaced this one after a correction, so a cancelled note is not a dead end.</summary>
+    public Guid? SupersededByInvoiceId { get; set; }
+
+    /// <summary>The note this one corrects. Set on a correction draft and on the note it becomes.</summary>
+    public Guid? SupersedesInvoiceId { get; set; }
+
+    /// <summary>
     /// Sum of the avoirs established against this invoice. Always populated (0 when there are none) so the
     /// list can badge a credited invoice; until now an avoir was invisible everywhere after creation.
     /// </summary>

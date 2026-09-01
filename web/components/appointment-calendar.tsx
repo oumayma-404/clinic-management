@@ -18,7 +18,6 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ExportButton } from "@/components/ui/export-button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   ChevronLeft,
@@ -33,7 +32,6 @@ import {
   Plus,
   UserX,
   MoreHorizontal,
-  RefreshCw,
   Unlink,
 } from "lucide-react"
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, isToday, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth, isSameDay } from "date-fns"
@@ -588,21 +586,16 @@ interface AppointmentCalendarProps {
   }
   /**
    * The clinic's Google Agenda connection, as the « ⋯ » menu needs it. **Only pass it for an admin** — the
-   * connect/import/disconnect endpoints are `AdminOnly`, and rendering the actions for anyone else buys a 403 and
-   * a generic « Échec » toast (finding #9). Omitted entirely, the menu holds Exporter alone.
+   * connect/disconnect endpoints are `AdminOnly`, and rendering the actions for anyone else buys a 403 and a
+   * generic « Échec » toast (finding #9). Omitted entirely, the menu holds Exporter alone.
+   *
+   * ⚠️ There is no import action: « Importer depuis Google » was retired, so this pushes only. The sync is
+   * one-way by design now — see `features/calendar-import-revert/notes.md`.
    */
   googleControls?: {
     authorized: boolean
-    syncing: boolean
     onConnect: () => void
-    onImport: () => void
     onDisconnect: () => void
-    /**
-     * The practice's declaration that the connected calendar holds only appointments — the import then accepts any
-     * event titled « Prénom Nom » (`calendar-import-review`). Undefined while the status read is in flight.
-     */
-    holdsOnlyAppointments?: boolean
-    onHoldsOnlyAppointmentsChange?: (value: boolean) => void
   }
   /**
    * Bump to refetch the current window **in place**. Replaces the old `key={refreshKey}` remount, which threw
@@ -2827,7 +2820,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   variant="outline"
                   size="sm"
                   className="h-9 shrink-0 gap-2 bg-transparent px-2.5 xl:px-3"
-                  aria-label="Google Agenda — connecté. Importer ou déconnecter."
+                  aria-label="Google Agenda — connecté. Déconnecter."
                 >
                   <CalendarCheck className="h-4 w-4 text-success" />
                   <span className="hidden xl:inline">Google Agenda</span>
@@ -2838,17 +2831,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   <p className="px-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Google Agenda · connecté
                   </p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start gap-2"
-                    onClick={googleControls.onImport}
-                    disabled={googleControls.syncing || !internetReachable}
-                    title={!internetReachable ? "Connexion internet requise" : undefined}
-                  >
-                    <RefreshCw className={cn("h-4 w-4", googleControls.syncing && "animate-spin")} />
-                    {googleControls.syncing ? "Synchronisation…" : "Importer depuis Google"}
-                  </Button>
+                  {/* Nothing pulls: the events this clinic books here are pushed to Google as they are saved,
+                      and « Importer depuis Google » was retired. So the only action left is disconnecting. */}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -2858,36 +2842,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     <Unlink className="h-4 w-4" />
                     Déconnecter Google
                   </Button>
-                  {googleControls.onHoldsOnlyAppointmentsChange && (
-                    <>
-                      <div className="my-1 border-t" />
-                      {/* calendar-import-review — a statement about the connected calendar, so it lives beside the
-                          import it governs rather than in Paramètres, which has no Google section at all. */}
-                      <label className="flex cursor-pointer items-start gap-2 rounded-sm px-2 py-2 hover:bg-muted coarse:py-3">
-                        <Checkbox
-                          checked={googleControls.holdsOnlyAppointments ?? false}
-                          onCheckedChange={(checked) =>
-                            googleControls.onHoldsOnlyAppointmentsChange?.(checked === true)
-                          }
-                          className="mt-0.5"
-                          aria-describedby="google-holds-only-appointments-hint"
-                        />
-                        <span className="min-w-0 space-y-1">
-                          <span className="block text-sm leading-tight">
-                            Ce calendrier ne contient que des rendez-vous
-                          </span>
-                          <span
-                            id="google-holds-only-appointments-hint"
-                            className="block text-2xs leading-snug text-muted-foreground"
-                          >
-                            Tout évènement intitulé « Prénom Nom » devient un rendez-vous, et la fiche patient est
-                            créée si elle n&apos;existe pas. Ne cochez pas si l&apos;agenda contient aussi vos
-                            évènements personnels.
-                          </span>
-                        </span>
-                      </label>
-                    </>
-                  )}
                   {!internetReachable && (
                     <p className="px-2 pt-1 text-2xs text-warning-ink">Connexion internet requise</p>
                   )}

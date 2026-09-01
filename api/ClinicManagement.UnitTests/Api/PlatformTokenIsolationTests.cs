@@ -100,7 +100,7 @@ public class PlatformTokenIsolationTests
     {
         var configuration = Configuration();
         var user = User.CreateLocalUser(Guid.NewGuid(), User.RoleAdmin, "a@b.tn", "hash", "A B");
-        var token = new LocalAuthService(configuration).GenerateToken(user).AccessToken;
+        var token = new LocalAuthService(configuration).GenerateToken(user, sessionFamilyId: null).AccessToken;
 
         Assert.True(Validates(token, ClinicParameters(configuration)));
         Assert.False(Validates(token, ConsoleParameters(configuration)));

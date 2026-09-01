@@ -177,6 +177,19 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         // index above has already found.
         builder.Property(p => p.CalendarImportSuggestedDuplicateId);
 
+        // « Ne plus afficher » — read only inside the pending-review branch of the patient list, so partial is
+        // right here where it is wrong on the appointment side: the rows that matter are the ones that carry it.
+        builder.Property(p => p.CalendarReviewDismissedAtUtc);
+
+        builder.HasIndex(p => new { p.ClinicId, p.CalendarReviewDismissedAtUtc })
+            .HasFilter("\"CalendarReviewDismissedAtUtc\" IS NOT NULL");
+
+        // The import run that CREATED this record — see Appointment's own column for why there is no FK.
+        builder.Property(p => p.CalendarImportRunId);
+
+        builder.HasIndex(p => p.CalendarImportRunId)
+            .HasFilter("\"CalendarImportRunId\" IS NOT NULL");
+
         builder.Property(p => p.CreatedAt)
             .IsRequired();
 

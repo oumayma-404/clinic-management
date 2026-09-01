@@ -126,6 +126,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // which leaves the filter inactive — the same arrangement the reminder dispatcher and the per-clinic seeder
     // already rely on.
     public DbSet<BackupRun> BackupRuns { get; set; }
+    public DbSet<CalendarImportRun> CalendarImportRuns { get; set; }
     public DbSet<ClinicRecoveryPoint> ClinicRecoveryPoints { get; set; }
     public DbSet<ClinicArchiveGrant> ClinicArchiveGrants { get; set; }
 
@@ -266,6 +267,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<PatientMedicalHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
         modelBuilder.Entity<PatientFamilyHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
         modelBuilder.Entity<Appointment>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
+
+        // The Google→App import ledger. Filtered like every other clinic-owned root: a run names what a pass
+        // created inside one practice, and « Annuler cet import » deletes rows off the back of it — so a caller
+        // with no clinic in scope must read nothing rather than read across cabinets. The recurring importer
+        // declares `UseSystemWide` and is unaffected.
+        modelBuilder.Entity<CalendarImportRun>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => IsSystemWide || pt.ClinicId == ScopedClinicId);
         // StaffNotification is directly clinic-owned → filtered like the others. NotificationRead has no
         // ClinicId; it is always queried scoped by UserId and joined to its clinic-filtered notification

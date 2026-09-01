@@ -50,6 +50,11 @@ public class SubscriptionExemptionCoverageTests
         // Signing out is not recording clinic work, and it must keep working on an expired cabinet — a practice
         // that cannot sign out of a shared reception PC is a worse outcome than one that cannot bill.
         "Auth.Logout",
+        // The same argument one step further out. « Mes appareils » is where a lost laptop's 30-day session is
+        // revoked, and a security control has to work on the day the cabinet's cover lapses — that is precisely
+        // when a practice is distracted and least likely to notice it cannot. It records no clinical work and is
+        // scoped to the caller's own account, so an expired cabinet gains nothing by reaching it.
+        "Auth.EndMySession",
         "Auth.Refresh",
         "Auth.Setup",
         "Auth.Register",

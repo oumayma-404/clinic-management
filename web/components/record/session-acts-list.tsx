@@ -5,6 +5,7 @@ import { Link2, Pencil, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { Input } from "@/components/ui/input"
 import { formatDT } from "@/lib/format"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { resolveActCost, type SessionAct } from "@/components/record/use-session-acts"
@@ -18,6 +19,8 @@ interface SessionActsListProps {
   editingKey: string | null
   onEdit: (key: string) => void
   onRemove: (key: string) => void
+  /** Retype a committed act's price without reopening it in the composer. */
+  onReprice: (key: string, unitCost: string) => void
   disabled?: boolean
   /**
    * The act currently being composed, materialised with its selected teeth — **not yet confirmed**, but it *will*
@@ -40,6 +43,7 @@ export function SessionActsList({
   editingKey,
   onEdit,
   onRemove,
+  onReprice,
   disabled,
   pendingAct,
 }: SessionActsListProps) {
@@ -128,14 +132,43 @@ export function SessionActsList({
           </Badge>
         )}
 
-        <span className="ms-auto shrink-0 tabular-nums">
+        {/* `parseAmountInput`, never `parseFloat`: this field prints « 90,500 », and `parseFloat` reads that
+            as 90 — the per-tooth hint would under-state the price by half a dinar the moment one is typed. */}
+        <span className="ms-auto flex shrink-0 items-center gap-1.5 tabular-nums">
           {showCost ? (
             <>
-              {formatDT(cost)}
-              {act.perTooth && act.toothNumbers.length > 1 && (
-                <span className="ml-1 text-2xs text-muted-foreground">
-                  ({formatDT(Number.parseFloat(act.unitCost) || 0)} / dent)
+              {/*
+                ⚠️ NOT an input while this act is the one in the composer. The card above already edits that
+                value, and the draft is what `commitDraft` writes back — so a price typed here would be
+                accepted, displayed, and then silently overwritten on save. Two controls over one value is how
+                « j'ai retapé le tarif et il ne s'est rien passé » happens, and the séance total would disagree
+                with the row the whole time (measured: the row said 75,000 while the footer stayed at 180,000).
+              */}
+              {isEditing ? (
+                <span
+                  className="w-24 text-right text-xs font-medium tabular-nums text-muted-foreground"
+                  title="Modifiable dans l'acte en cours, au-dessus"
+                >
+                  {formatDT(resolveActCost(act.unitCost, false, 1))}
                 </span>
+              ) : (
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={act.unitCost}
+                  onChange={(e) => onReprice(act.key, e.target.value)}
+                  className="h-7 w-24 text-right text-xs font-medium tabular-nums"
+                  placeholder="0,000"
+                  disabled={disabled}
+                  aria-label={`Prix de ${act.procedureName}${act.perTooth ? " par dent" : ""} (DT)`}
+                />
+              )}
+              {act.perTooth && act.toothNumbers.length > 1 ? (
+                <span className="text-2xs text-muted-foreground">
+                  / dent = {formatDT(cost)}
+                </span>
+              ) : (
+                <span className="text-2xs text-muted-foreground">DT</span>
               )}
             </>
           ) : (

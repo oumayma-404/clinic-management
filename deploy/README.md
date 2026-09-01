@@ -141,6 +141,36 @@ holding patient records.
 The `deploy` job targets a GitHub **environment** called `production` — add required reviewers or a wait timer to
 it in repo settings and every deploy needs an approval, with no change to this file.
 
+### Ce qu'un cabinet voit pendant un déploiement
+
+**Rien.** C'est un objectif, pas une évidence : jusqu'au 2026-09-01 un déploiement était une panne de 25
+secondes, et elle a été mesurée en atteignant un cabinet en pleine séance à 10h34.
+
+Ce qui se passe réellement : `docker compose up -d` **arrête** l'unique conteneur `clinic-api-prod` avant de
+démarrer le nouveau — `container_name:` en épingle une seule instance, donc l'ancienne et la nouvelle ne se
+recouvrent jamais. `web` et `console` suivent. Pendant ces secondes-là le conteneur n'existe plus, et il
+disparaît même du DNS interne de Docker (`lookup api on 127.0.0.11:53: server misbehaving` dans le journal de
+Caddy). Trois réglages font que personne ne le remarque :
+
+| Où | Réglage | Ce qu'il empêche |
+|---|---|---|
+| `Caddyfile` | `lb_try_duration 45s` sur `/api/*`, `/hub/*`, les pages et les deux routes de la console | Caddy **retient** la requête et re-compose toutes les 250 ms au lieu de renvoyer un 502 immédiat. Le poste voit une requête lente, jamais une erreur |
+| `docker-compose.hosted.yml` | `healthcheck:` + `stop_grace_period: 30s` sur `api`, `web`, `console` | Le déploiement sait distinguer « démarré » de « prêt », et une écriture en cours se termine au lieu d'être tuée à 10 s |
+| `deploy-hosted.yml` | `up -d --wait --wait-timeout 180` | L'étape suivante ne s'exécute plus par-dessus une API encore en train de démarrer — c'est ainsi que la réparation de Caddy venait empiler une deuxième coupure sur la première |
+
+⚠️ **`/health` est volontairement la seule route SANS `lb_try_duration`.** Tout le reste est la requête d'un
+cabinet et vaut mieux être retenu que refusé ; celle-ci fait l'inverse. Elle existe pour dire « l'API répond,
+maintenant », et une route qui attend 45 s avant d'admettre le contraire ment à la sonde du déploiement comme à
+n'importe quelle supervision. Personne à un bureau ne la charge.
+
+⚠️ **La base de données, elle, n'est pas couverte.** `postgres` n'est recréé que lorsque **sa propre définition
+change** dans les fichiers compose expédiés — un déploiement qui ne change que le tag d'image la laisse
+tranquille (vérifiable sans rien casser : `docker compose … up -d --dry-run` liste ce qui serait recréé). Quand
+elle l'est, l'API attend qu'elle soit `service_healthy`, et c'était la moitié des 25 secondes : la sonde de
+`postgres` n'avait pas de `start_period`, donc le premier test n'arrivait que 10 s après le démarrage d'une base
+prête en moins d'une seconde. Elle en a un maintenant. **Un changement compose reste le déploiement le plus
+coûteux — regardez le `--dry-run` avant, et préférez une heure creuse.**
+
 ### Deploying, and rolling back
 
 **Deploy:** Actions → *Deploy — hosted VPS* → pick the branch or tag → Run. Leave `image_tag` empty.

@@ -35,6 +35,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
 import { isPlanBilled } from "./plan-next-action"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 interface TreatmentPlansTableProps {
   patientId?: string
@@ -426,7 +427,15 @@ export function TreatmentPlansTable({
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </span>
                     </TableCell>
-                    {showPatientColumn && <TableCell>{plan.patientName ?? "—"}</TableCell>}
+                    {showPatientColumn && (
+                      <TableCell>
+                        {plan.patientId && plan.patientName ? (
+                          <PatientNameLink patientId={plan.patientId} name={plan.patientName} />
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1">
                         <Badge variant="secondary" className={planStatusBadgeClass(plan.status)}>

@@ -33,6 +33,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<bool>("BookedWithOverlap")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("CalendarImportRunId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("CancellationReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -45,6 +48,13 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DisregardedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisregardedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<Guid?>("DoctorId")
                         .HasColumnType("uuid");
@@ -107,7 +117,8 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ClinicId");
+                    b.HasIndex("CalendarImportRunId")
+                        .HasFilter("\"CalendarImportRunId\" IS NOT NULL");
 
                     b.HasIndex("DoctorId");
 
@@ -119,6 +130,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("ProcedureTypeId");
 
                     b.HasIndex("TreatmentPlanItemId");
+
+                    b.HasIndex("ClinicId", "DisregardedAtUtc");
 
                     b.HasIndex("Status", "AppointmentDateTime");
 
@@ -290,6 +303,72 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("BackupRuns", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.CalendarImportRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AppointmentsCreated")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("AppointmentsDeleted")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("AppointmentsLinked")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("AppointmentsUpdated")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PatientsCreated")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PatientsDeleted")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RevertedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevertedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("RowsKept")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TriggeredByUserId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTime>("WindowFromUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("WindowToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "StartedAtUtc");
+
+                    b.ToTable("CalendarImportRuns", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Clinic", b =>
                 {
                     b.Property<Guid>("Id")
@@ -325,11 +404,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("Email")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
-
-                    b.Property<bool>("GoogleCalendarHoldsOnlyAppointments")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
 
                     b.Property<string>("GoogleCalendarId")
                         .HasMaxLength(256)
@@ -1650,6 +1724,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("SupersededByInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SupersedesInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SupersedesReason")
+                        .HasColumnType("text");
+
                     b.Property<decimal>("TotalHt")
                         .HasPrecision(18, 3)
                         .HasColumnType("numeric(18,3)");
@@ -2229,8 +2312,14 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("CalendarImportPendingReviewSince")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("CalendarImportRunId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("CalendarImportSuggestedDuplicateId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CalendarReviewDismissedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
@@ -2314,8 +2403,14 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CalendarImportRunId")
+                        .HasFilter("\"CalendarImportRunId\" IS NOT NULL");
+
                     b.HasIndex("ClinicId", "CalendarImportPendingReviewSince")
                         .HasFilter("\"CalendarImportPendingReviewSince\" IS NOT NULL");
+
+                    b.HasIndex("ClinicId", "CalendarReviewDismissedAtUtc")
+                        .HasFilter("\"CalendarReviewDismissedAtUtc\" IS NOT NULL");
 
                     b.HasIndex("ClinicId", "IsArchived");
 
@@ -3083,6 +3178,11 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime>("ExpiresAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsTrusted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime>("LastRotatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -3916,6 +4016,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.BackupRun", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.CalendarImportRun", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()

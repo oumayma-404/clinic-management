@@ -22,6 +22,10 @@ namespace ClinicManagement.Application.Features.Appointments;
 /// not bill it: it would read « facturé » with no money behind it and hide the action to raise a replacement.</param>
 /// <param name="CoveredByPlan">The visit carries a devis step, so its money lives on the échéancier.</param>
 /// <param name="NothingToBill">Somebody recorded that this visit raises no document.</param>
+/// <param name="Disregarded">Somebody took this visit off the worklist without answering any of the three
+/// questions — see <c>Appointment.DisregardedAtUtc</c>. Carried in the input rather than tested at the call site
+/// so <see cref="VisitClosureRules.IsOnWorklist"/> is the one place that decides, and the truth table can be
+/// unit-tested over it like every other term.</param>
 public readonly record struct VisitClosureInput(
     Guid AppointmentId,
     Guid? PatientId,
@@ -32,7 +36,8 @@ public readonly record struct VisitClosureInput(
     decimal? FicheCost,
     bool HasLiveInvoice,
     bool CoveredByPlan,
-    bool NothingToBill)
+    bool NothingToBill,
+    bool Disregarded = false)
 {
     /// <summary>The first instant the slot no longer covers.</summary>
     public DateTime EndUtc => StartUtc + Duration;
@@ -111,6 +116,25 @@ public static class VisitClosureRules
         && visit.Status != AppointmentStatus.Cancelled
         && visit.Status != AppointmentStatus.NoShow
         && visit.EndUtc <= nowUtc;
+
+    /// <summary>
+    /// Whether this visit belongs on « À clôturer » <b>right now</b> — closable, and not one somebody has taken
+    /// off the list.
+    ///
+    /// <para><b>Why the disregard test is a separate rule and not folded into <see cref="IsClosable"/>.</b>
+    /// « Retirée de la liste » is a statement about the <i>worklist</i>, not about the visit: the séance is still
+    /// perfectly closable, and the screen that shows what has been set aside needs to evaluate exactly those rows
+    /// — it asks <see cref="IsClosable"/> and then reads <c>Disregarded</c> itself. Collapsing the two would make
+    /// « voir les séances retirées » unable to describe its own rows.</para>
+    ///
+    /// <para>⚠️ This governs the worklist and the dashboard chip, both of which reach it through
+    /// <c>VisitClosureReader</c>. It does <b>not</b> govern the appointment status counts behind the taux
+    /// d'absence — those are a SQL <c>GROUP BY</c> in <c>CountByStatusBetweenAsync</c>, which excludes
+    /// disregarded rows on its own. A mark honoured by the list but not by the figures would take a hundred
+    /// phantom visits off the screen and leave the absence rate exactly as wrong as it was.</para>
+    /// </summary>
+    public static bool IsOnWorklist(in VisitClosureInput visit, DateTime nowUtc) =>
+        IsClosable(visit, nowUtc) && !visit.Disregarded;
 
     /// <summary>
     /// The three answers for one visit. Callers are expected to have filtered on <see cref="IsClosable"/> first;

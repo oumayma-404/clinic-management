@@ -4,9 +4,8 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { formatDT } from "@/lib/format"
 import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, SURFACE_ORDER } from "@/components/odontogram-conditions"
-import { hasInvalidPrice, resolveActCost, type ActDraft, type SessionAction } from "@/components/record/use-session-acts"
+import type { ActDraft, SessionAction } from "@/components/record/use-session-acts"
 
 // Sentinel for "no resulting condition" (Radix Select forbids an empty-string item value).
 const NO_CONDITION = "__none__"
@@ -20,13 +19,15 @@ interface ActDetailFieldsProps {
 }
 
 /**
- * Everything about the act beyond "which act, which teeth": tarif and the `/dent ↔ forfait` switch, the état
- * résultant that feeds the odontogram, the MODVL faces, and a free note. Folded behind « Détails de l'acte »
- * because the catalogue already answers all of it — but never removed, and always summarised in the header.
+ * Everything about the act beyond "which act, which teeth, what price": the état résultant that feeds the
+ * odontogram, the MODVL faces, and a free note. Folded behind « Détails de l'acte » because the catalogue
+ * already answers all of it — but never removed, and always summarised in the header.
+ *
+ * <p>⚠️ The tarif and the `/dent ↔ forfait` switch used to live here and now sit on the act card itself
+ * (`act-slot.tsx`). Folding the price away was the reported defect: the dentist saw the figure they wanted to
+ * change and could not reach it, so they lowered « Payé » — the field that means the patient still owes.</p>
  */
 export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDetailFieldsProps) {
-  const total = resolveActCost(draft.unitCost, draft.perTooth, toothCount)
-  const priceInvalid = hasInvalidPrice(draft.unitCost)
   const conditionChip = conditionStyle(draft.resultingCondition ?? "Sain")
 
   const toggleSurface = (code: string) => {
@@ -58,66 +59,6 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
           />
         </div>
       )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 text-2xs text-muted-foreground">Tarif</span>
-        {/* `text` + `inputMode="decimal"`, never `type="number"` (J8). This is the field that seeds every
-            invoice line, so it is the worst place for a comma to be refused and for `step="0.001"` to make the
-            millime awkward — see `hasInvalidPrice` for the parsing half. The keypad still appears on a phone. */}
-        <Input
-          type="text"
-          inputMode="decimal"
-          value={draft.unitCost}
-          onChange={(e) => dispatch({ type: "patchDraft", patch: { unitCost: e.target.value } })}
-          className={cn("h-8 w-28 text-right tabular-nums", priceInvalid && "border-destructive")}
-          placeholder="0,000"
-          disabled={disabled}
-          aria-label={draft.perTooth ? "Prix par dent (DT)" : "Montant forfaitaire (DT)"}
-          // The red border said it to a sighted reader only; `aria-invalid` is what makes the refusal reach a
-          // screen reader, and what pairs the field with the « Montant invalide » save refusal.
-          aria-invalid={priceInvalid}
-        />
-        <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
-          <Button
-            type="button"
-            variant={draft.perTooth ? "default" : "ghost"}
-            size="sm"
-            className="h-7 px-2 text-2xs"
-            onClick={() => dispatch({ type: "patchDraft", patch: { perTooth: true } })}
-            disabled={disabled || toothCount === 0}
-            title={toothCount === 0 ? "Sélectionnez au moins une dent" : "Prix par dent"}
-          >
-            / dent
-          </Button>
-          <Button
-            type="button"
-            variant={!draft.perTooth ? "default" : "ghost"}
-            size="sm"
-            className="h-7 px-2 text-2xs"
-            onClick={() => dispatch({ type: "patchDraft", patch: { perTooth: false } })}
-            disabled={disabled}
-            title="Montant forfaitaire pour l'acte entier"
-          >
-            forfait
-          </Button>
-        </div>
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {draft.perTooth && toothCount > 0 ? (
-            <>
-              × {toothCount} dent{toothCount > 1 ? "s" : ""} ={" "}
-              <span className="font-semibold text-foreground">{formatDT(total)}</span>
-            </>
-          ) : (
-            <span className="font-semibold text-foreground">{formatDT(total)}</span>
-          )}
-        </span>
-        {priceInvalid && <span className="text-xs text-destructive">Montant invalide</span>}
-        {!priceInvalid && draft.unitCost.trim() === "" && (
-          // `--warning-ink`, not `text-amber-600`: the palette literal had no `dark:` pair worth the name and
-          // measured ~3.2:1 on the card. Same token as the fiche's « Reste à payer ».
-          <span className="text-xs text-warning-ink">Sans tarif — à compléter plus tard</span>
-        )}
-      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="shrink-0 text-2xs text-muted-foreground">État résultant</span>

@@ -338,6 +338,9 @@ public class PatientsController : ApiControllerBase
         [FromQuery] int? pageSize = null,
         [FromQuery] bool flaggedOnly = false,
         [FromQuery] bool pendingCalendarReviewOnly = false,
+        // Only meaningful alongside the filter above: a dismissal narrows « Patients à compléter » and never the
+        // practice's directory, or « ne plus afficher » would read as a delete.
+        [FromQuery] bool dismissedReviewOnly = false,
         [FromQuery] bool includeArchived = false,
         // An unrecognised value falls back to the alphabetical default rather than refusing: the same tolerance
         // the lab-order stage filter and the audit action filter apply, so a stale link still opens a list.
@@ -354,6 +357,7 @@ public class PatientsController : ApiControllerBase
             PageSize = pageSize,
             FlaggedOnly = flaggedOnly,
             PendingCalendarReviewOnly = pendingCalendarReviewOnly,
+            DismissedReviewOnly = dismissedReviewOnly,
             Sort = string.Equals(sort, nameof(PatientListSort.RecentlyAdded), StringComparison.OrdinalIgnoreCase)
                 ? PatientListSort.RecentlyAdded
                 : PatientListSort.Name,
@@ -562,6 +566,58 @@ public class PatientsController : ApiControllerBase
         }
 
         return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Ne plus afficher » — take a selection off « Patients à compléter » without saying the fiches are correct.
+    ///
+    /// <para>⚠️ <b>Emphatically not <c>confirm-calendar-import</c>.</b> That clears
+    /// <c>CalendarImportPendingReviewSince</c>, which is the signal « Annuler cet import » uses to find what a
+    /// pass created — so a bulk dismiss implemented that way would look identical to a human confirmation and
+    /// would silently destroy the evidence the undo depends on. This writes its own column.</para>
+    ///
+    /// <para><c>AnyClinicRole</c> like the rejection below: nothing is destroyed either way, and the person
+    /// deciding a row does not need reviewing is whoever is reading the list.</para>
+    /// </summary>
+    [HttpPost("dismiss-calendar-review")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> DismissCalendarReview(
+        [FromBody] DismissCalendarReviewRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new DismissCalendarReviewCommand
+            {
+                PatientIds = request.PatientIds,
+                Dismiss = request.Dismiss,
+            },
+            cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Put one fiche back on « Patients à compléter » — the way back from a dismissal.</summary>
+    [HttpDelete("{id:guid}/dismiss-calendar-review")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> RestoreCalendarReview(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new DismissCalendarReviewCommand
+            {
+                PatientIds = new List<Guid> { id },
+                Dismiss = false,
+            },
+            cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Body of <see cref="DismissCalendarReview"/>.</summary>
+    public class DismissCalendarReviewRequest
+    {
+        public List<Guid> PatientIds { get; set; } = new();
+
+        /// <summary>True to hide the selection, false to bring it back.</summary>
+        public bool Dismiss { get; set; } = true;
     }
 
     /// <summary>

@@ -15,6 +15,24 @@ public sealed record OpenVisit(
     AppointmentInvoiceLinks.Link? Invoice);
 
 /// <summary>
+/// What « à clôturer » holds over a window: the séances still asking a question, and the ones somebody has taken
+/// off the list.
+///
+/// <para><b>Both halves come back from one read, deliberately.</b> The screen needs the second only as a count
+/// (« 143 séances retirées ») until the user asks to see them, and deriving that count from a separate query
+/// would be a second predicate over the same window — the exact drift <see cref="VisitClosureReader"/> exists to
+/// prevent between the page and the dashboard chip. One pass, one truth, and the rows are already in hand when
+/// the user does ask.</para>
+/// </summary>
+public sealed record VisitClosureWorklist(
+    IReadOnlyList<OpenVisit> Open,
+    IReadOnlyList<OpenVisit> Disregarded)
+{
+    public static readonly VisitClosureWorklist Empty =
+        new(Array.Empty<OpenVisit>(), Array.Empty<OpenVisit>());
+}
+
+/// <summary>
 /// Assembles « à clôturer » — the four batched reads, the exact end-of-slot test the database cannot do, and
 /// <see cref="VisitClosureRules"/> applied to the result.
 ///
@@ -53,7 +71,7 @@ public static class VisitClosureReader
     /// <param name="doctorId">Optional practitioner filter.</param>
     /// <param name="nowUtc">Taken from the caller so the boundary is testable — the pattern
     /// <c>SubscriptionWarningJob</c> and <c>AppointmentProgressJob</c> both follow.</param>
-    public static async Task<IReadOnlyList<OpenVisit>> ReadAsync(
+    public static async Task<VisitClosureWorklist> ReadAsync(
         Guid clinicId,
         int? days,
         Guid? doctorId,
@@ -79,7 +97,7 @@ public static class VisitClosureReader
 
         if (candidates.Count == 0)
         {
-            return Array.Empty<OpenVisit>();
+            return VisitClosureWorklist.Empty;
         }
 
         var appointmentIds = candidates.Select(a => a.Id).ToList();
@@ -115,6 +133,7 @@ public static class VisitClosureReader
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var open = new List<OpenVisit>();
+        var disregarded = new List<OpenVisit>();
 
         foreach (var appointment in candidates)
         {
@@ -139,7 +158,19 @@ public static class VisitClosureReader
             fichesByAppointment.TryGetValue(appointment.Id, out var fiches);
             invoiceLinks.TryGetValue(appointment.Id, out var invoice);
 
-            open.Add(new OpenVisit(appointment, state, fiches?.FirstOrDefault().DentalRecordId, invoice));
+            var visit = new OpenVisit(appointment, state, fiches?.FirstOrDefault().DentalRecordId, invoice);
+
+            // The partition, not a filter: a séance somebody set aside is still an open séance, and the screen
+            // that shows what has been set aside needs it evaluated exactly like the rest. `IsOnWorklist` is the
+            // rule this expresses — asked here as the field it reads, because both halves are wanted.
+            if (input.Disregarded)
+            {
+                disregarded.Add(visit);
+            }
+            else
+            {
+                open.Add(visit);
+            }
         }
 
         // Most recent first: the client cuts this into « Aujourd'hui / Hier / mercredi 12 août », and a list
@@ -148,11 +179,15 @@ public static class VisitClosureReader
         // browser: the read is paged, so reversing a page reverses only within it. The descending tie-break is
         // the unique one every paged read needs — OFFSET over a non-unique sort can show a row on two pages and
         // skip another, which on this screen reads as « une séance a disparu ».
-        return open
+        return new VisitClosureWorklist(Sort(open), Sort(disregarded));
+    }
+
+    /// <inheritdoc cref="ReadAsync"/>
+    private static IReadOnlyList<OpenVisit> Sort(List<OpenVisit> visits) =>
+        visits
             .OrderByDescending(o => o.Appointment.AppointmentDateTime)
             .ThenByDescending(o => o.Appointment.Id)
             .ToList();
-    }
 
     private static VisitClosureInput BuildInput(
         Appointment appointment,
@@ -179,6 +214,7 @@ public static class VisitClosureReader
             HasLiveInvoice: invoiceLinks.ContainsKey(appointment.Id)
                 || (hasFiche && rows!.Any(r => billedFicheIds.Contains(r.DentalRecordId))),
             CoveredByPlan: appointment.LinkedTreatmentPlanItemIds.Any(debtBearingItemIds.Contains),
-            NothingToBill: appointment.IsNothingToBill);
+            NothingToBill: appointment.IsNothingToBill,
+            Disregarded: appointment.IsDisregarded);
     }
 }

@@ -155,6 +155,46 @@ jobs:
             -C deploy . \
           | ssh vps "mkdir -p '${{ vars.VPS_DEPLOY_DIR }}' && tar -xzf - -C '${{ vars.VPS_DEPLOY_DIR }}'"
 
+      # ⚠️ **The proxy's configuration is refreshed BEFORE the containers swap, and the order is the point.**
+      #
+      # `Caddyfile` is a single-file bind mount, so shipping `deploy/` above replaced the file's inode and the
+      # running Caddy kept reading the old one — the trap `config-freshness.sh` exists for. That repair used to
+      # live entirely *after* `up -d`, which meant a Caddyfile change reached Caddy only once the API had already
+      # been stopped and restarted underneath it. For an ordinary config edit that was merely late. For the
+      # `lb_try_duration` that now makes a swap invisible it would have been useless: the very deploy that ships
+      # it would still 502 its way through, because the proxy was not yet running the rule that prevents it.
+      #
+      # So the repair happens here, and the step after `up -d` keeps the VERDICT. Recreating Caddy costs about a
+      # second of refused connections; doing it first buys the whole API swap the retry. When the Caddyfile has
+      # not changed this step finds nothing and recreates nothing, so it is free on most deploys.
+      #
+      # ⚠️ `caddy validate` runs first, in a throwaway container against the SHIPPED file, and this is the only
+      # place the deployment ever type-checks its proxy config. Bringing the recreate forward is what makes that
+      # necessary: a Caddyfile that cannot parse would now take the front door down *before* the new images are
+      # even pulled, so the deploy must refuse while the old config is still serving.
+      - name: Put the new proxy config in place before the swap
+        run: |
+          ssh vps "DEPLOY_DIR='${{ vars.VPS_DEPLOY_DIR }}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          COMPOSE="docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml"
+
+          # DOMAIN/ACME_EMAIL are only interpolated by Caddy at load; any non-empty value parses the same.
+          docker run --rm -v "$DEPLOY_DIR/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e DOMAIN=validate.invalid -e ACME_EMAIL=validate@invalid \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
+
+          stale=$(bash config-freshness.sh --services)
+          if [ -n "$stale" ]; then
+            echo "Refreshing before the swap: $stale"
+            # --no-deps so recreating caddy never restarts the API underneath it; unquoted on purpose, the
+            # listing is one service name per line and each is a separate argument.
+            $COMPOSE up -d --no-build --force-recreate --no-deps $stale
+          else
+            echo "Every container already reads the configuration on disk."
+          fi
+          REMOTE
+
       # ⚠️ A separate step because stdin is the only thing `--password-stdin` reads, and the next step's remote
       # script arrives on stdin too — piping the token into an `ssh … <<HEREDOC` call hands `docker login` the
       # heredoc and the token to nothing. It fails as "no password supplied", two steps from the cause.
@@ -183,12 +223,31 @@ jobs:
           # --no-build: the base file still carries a `build:` section (Compose merge cannot remove a key), so
           # without this a tag missing from the registry would silently start a 20-minute rebuild of a commit
           # nobody chose, on the production box. Refusing is the correct outcome.
-          $COMPOSE up -d --no-build --remove-orphans
+          #
+          # --wait: hold here until every service reports HEALTHY, not merely started. Without it this command
+          # returned the moment the containers were launched and the next step ran against an API that was still
+          # binding Kestrel — which is how the config-freshness step below came to force-recreate Caddy on top of
+          # an already-down API, stacking two outages into one. It needs the `healthcheck:` blocks that
+          # `docker-compose.hosted.yml` now carries on api, web and console; with none, --wait waits for nothing.
+          #
+          # ⚠️ --wait-timeout is set, and not left to default to forever. A deploy that cannot become healthy
+          # must FAIL the workflow while the summary still says which commit it was, rather than hang until the
+          # job's own limit kills it with no verdict. `restart: unless-stopped` means Docker keeps retrying the
+          # container regardless, so a timeout here is a report, not an abandonment.
+          #
+          # ⚠️ `certs` is a one-shot (`restart: "no"`, exits 0) and --wait handles it: Compose treats a
+          # service that has run to completion as satisfied rather than waiting for it to be "running".
+          $COMPOSE up -d --no-build --remove-orphans --wait --wait-timeout 180
 
           echo "--- containers ---"
           $COMPOSE ps
           REMOTE
 
+      # The VERDICT. The repair now happens before the swap (see « Put the new proxy config in place » above),
+      # so on a normal deploy this finds nothing and only re-asserts it — but it keeps the recreate as well,
+      # because a container that `up -d` itself brought up against a config file replaced mid-run would be stale
+      # in exactly the same way, and this is the gate that refuses to call such a deploy successful.
+      #
       # ⚠️ **`up -d` above does NOT pick up an edited config file.** Compose recreates a container when its
       # *service definition* changes; « the file behind an unchanged single-file bind mount now holds different
       # bytes » is not part of that definition, and a single-file mount pins an inode, so the shipped `deploy/`

@@ -37,9 +37,10 @@ public class AppointmentsController : ApiControllerBase
     /// <para>No <c>[AllowsWithoutSubscription]</c>: it is a GET, and the subscription gate never inspects one.</para>
     /// </summary>
     [HttpGet("to-close")]
-    public async Task<ActionResult<PagedResult<VisitToCloseDto>>> GetVisitsToClose(
+    public async Task<ActionResult<VisitsToCloseDto>> GetVisitsToClose(
         [FromQuery] int? days = null,
         [FromQuery] Guid? doctorId = null,
+        [FromQuery] bool disregarded = false,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
@@ -47,10 +48,79 @@ public class AppointmentsController : ApiControllerBase
         {
             Days = days,
             DoctorId = doctorId,
+            Disregarded = disregarded,
             Paging = PageRequest.From(page, pageSize),
         });
 
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Retirer de la liste » — take one séance off « À clôturer » without claiming anything clinical about it.
+    ///
+    /// <para><b>Why the worklist needed a third exit.</b> Its only ones were <c>Completed</c>, <c>Cancelled</c>
+    /// and <c>NoShow</c> — three statements about what happened to a patient — so clearing a row that should
+    /// never have been there meant asserting one that was false, which is how a cabinet's « taux d'absence »
+    /// climbed to a figure it knew was wrong.</para>
+    ///
+    /// <para>A <b>POST and not a DELETE</b>, and its withdrawal is a DELETE on the same path: unlike
+    /// « rien à facturer » — one toggle on one row — this also exists in bulk, and a body carrying the direction
+    /// would let a truncated request turn « remettre » into « retirer » across a selection.</para>
+    ///
+    /// <para><b>No body at all</b>: the mark carries no motif — see <see cref="DisregardVisitsCommand"/> for why
+    /// « rien à facturer »'s mandatory one does not carry over to a mark that asserts nothing.</para>
+    /// </summary>
+    [HttpPost("{id:guid}/disregard")]
+    public async Task<ActionResult> Disregard(Guid id)
+    {
+        var result = await _mediator.Send(new DisregardVisitsCommand
+        {
+            AppointmentIds = new List<Guid> { id },
+            Disregard = true,
+        });
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Put one séance back on « À clôturer » — and back into the dashboard's figures.</summary>
+    [HttpDelete("{id:guid}/disregard")]
+    public async Task<ActionResult> RestoreToWorklist(Guid id)
+    {
+        var result = await _mediator.Send(new DisregardVisitsCommand
+        {
+            AppointmentIds = new List<Guid> { id },
+            Disregard = false,
+        });
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The same, over a selection — what a cabinet with a hundred phantom séances actually needs.
+    ///
+    /// <para>Nothing to fill in, for the reason on <see cref="DisregardVisitsCommand"/>: a mandatory motif over a
+    /// selection that size made the exit that asserts nothing cost more than the one that asserts something
+    /// false.</para>
+    /// </summary>
+    [HttpPost("disregard")]
+    public async Task<ActionResult> DisregardMany([FromBody] DisregardVisitsRequest request)
+    {
+        var result = await _mediator.Send(new DisregardVisitsCommand
+        {
+            AppointmentIds = request.AppointmentIds,
+            Disregard = request.Disregard,
+        });
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Body of <see cref="DisregardMany"/>.</summary>
+    public class DisregardVisitsRequest
+    {
+        public List<Guid> AppointmentIds { get; set; } = new();
+
+        /// <summary>True to retire the selection, false to put it back.</summary>
+        public bool Disregard { get; set; } = true;
     }
 
     /// <summary>

@@ -41,7 +41,11 @@ public interface ILocalAuthService
     /// Issues a signed JWT carrying the <c>sub</c>, <c>email</c>, <c>role</c> and
     /// <c>clinic_id</c> claims that <see cref="IClinicContext"/> and the role handlers expect.
     /// </summary>
-    LocalAuthToken GenerateToken(User user);
+    /// <param name="sessionFamilyId">
+    /// The device chain this sign-in belongs to, or <c>null</c> where there is none. Carried so « Mes appareils »
+    /// can tell the caller's own session apart from the others it lists.
+    /// </param>
+    LocalAuthToken GenerateToken(User user, Guid? sessionFamilyId);
 
     /// <summary>
     /// Issues a token <b>narrowed to one purpose</b>: identical to <see cref="GenerateToken"/> except that it
@@ -72,7 +76,16 @@ public interface ILocalAuthService
     /// The chain this credential belongs to (FR-1.6). Stamped into the token so a replayed credential can be
     /// traced back to its device even when it is too old to match either stored hash.
     /// </param>
-    LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId);
+    /// <param name="trusted">
+    /// Whether the person signing in asked to stay signed in on this device — « Rester connecté sur cet
+    /// appareil ». It selects the credential's lifetime (30 days rather than 12 hours) and nothing else.
+    ///
+    /// <para>⚠️ <b>Deliberately not optional.</b> A default would let a session-issuing path written later fall
+    /// into one of the two lifetimes without its author choosing — and it is the *shorter* one that would be
+    /// picked silently on the paths where the user did ask, i.e. the feature quietly not working, which is this
+    /// repository's `fixes-dont-propagate` shape. Three call sites exist and each states its answer.</para>
+    /// </param>
+    LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted);
 
     /// <summary>
     /// Validates a refresh token's signature, issuer, refresh audience and lifetime, returning the subject and

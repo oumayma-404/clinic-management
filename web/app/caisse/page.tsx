@@ -620,6 +620,9 @@ function CaisseContent() {
                     setSearch("")
                     setMethodFilter(null)
                   }}
+                  // Correcting a line moves the running balance and every total above it, so the whole page is
+                  // re-read rather than the row patched in place.
+                  onChanged={() => void loadData()}
                 />
                 {ledger && (
                   <DataTablePagination

@@ -3,7 +3,7 @@
 import { Fragment, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Check, ClipboardCheck, FileText, Receipt, UserCheck, UserX } from "lucide-react"
+import { Check, ClipboardCheck, EyeOff, FileText, Receipt, Undo2, UserCheck, UserX } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,9 @@ import { formatDateTime } from "@/lib/format"
 import { ZONES, zoneChipClass, zoneForPath, type ZoneKey } from "@/lib/zones"
 import { cn } from "@/lib/utils"
 import { NothingToBillDialog } from "./nothing-to-bill-dialog"
+import { DisregardVisitsDialog } from "./disregard-visits-dialog"
 import { visitClosureDayGroups, type VisitClosureDayGroup } from "./visit-closure-days"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 /**
  * « À clôturer » — the séances still owing a presence, a fiche or a money document.
@@ -46,6 +48,14 @@ interface VisitClosureListProps {
   loading?: boolean
   /** Refetch after any action — a closed visit leaves the list, and the count above it moves. */
   onChanged: () => void
+  /**
+   * Showing the séances somebody has taken off the list rather than the ones still asking a question.
+   *
+   * <p>The rows are the same rows and the layout is identical, so the only honest difference is what they can
+   * be asked: a set-aside séance offers « Remettre dans la liste » and nothing else. Offering « Venu » on one
+   * would be asking a question about a row the practice has said is not a question.</p>
+   */
+  disregardedView?: boolean
   /** Rendered when there is genuinely nothing left. A *failed* read must not reach this — see the page. */
   emptyTitle?: string
   emptyDescription?: string
@@ -63,6 +73,7 @@ export function VisitClosureList({
   visits,
   loading = false,
   onChanged,
+  disregardedView = false,
   emptyTitle = "Rien à clôturer 🎉",
   // ⚠️ Two sentences, and the second is the point. « Toutes les séances passées ont… » states a fact about the
   // data; on the one screen whose whole job is to list what is *unfinished*, an empty list is an achievement,
@@ -75,6 +86,8 @@ export function VisitClosureList({
   const router = useRouter()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [nothingToBillFor, setNothingToBillFor] = useState<VisitToCloseDto | null>(null)
+  /** The séance(s) « Retirer de la liste » is being asked about — one row, or every row on screen. */
+  const [disregarding, setDisregarding] = useState<VisitToCloseDto[] | null>(null)
   const [billing, setBilling] = useState<{ record: DentalRecordDto; patientName: string } | null>(null)
 
   /** « Venu » / « Absent ». The two legal answers to the presence question, and an ordinary status update. */
@@ -86,6 +99,25 @@ export function VisitClosureList({
       onChanged()
     } catch (err) {
       // The dialog-stays-open rule, one surface over: the row stays exactly as it was and the message says why.
+      showErrorToast(err)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /**
+   * Put a set-aside séance back — on the list, and back into the dashboard's figures.
+   *
+   * <p>Load-bearing rather than a courtesy: a removal nobody can undo is a black hole, and it is what makes the
+   * mark safe to offer over a whole screen at once.</p>
+   */
+  const restoreToWorklist = async (visit: VisitToCloseDto) => {
+    setBusyId(visit.appointmentId)
+    try {
+      await appointmentsApi.disregardVisits([visit.appointmentId], false)
+      toast.success("Séance remise dans la liste.")
+      onChanged()
+    } catch (err) {
       showErrorToast(err)
     } finally {
       setBusyId(null)
@@ -216,12 +248,7 @@ export function VisitClosureList({
                             className="absolute inset-y-0 start-0 w-[3px]"
                             style={{ backgroundColor: stripeFor(visit) }}
                           />
-                          <Link
-                            href={`/patients/${encodeURIComponent(visit.patientId)}`}
-                            className="underline-offset-4 hover-hover:hover:underline"
-                          >
-                            {visit.patientName}
-                          </Link>
+                          <PatientNameLink patientId={visit.patientId} name={visit.patientName} />
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           <div>{formatDateTime(visit.appointmentDateTime)}</div>
@@ -262,6 +289,9 @@ export function VisitClosureList({
                               onFiche={openFiche}
                               onBilling={openBilling}
                               onNothingToBill={setNothingToBillFor}
+                              onDisregard={(v) => setDisregarding([v])}
+                              onRestore={restoreToWorklist}
+                              disregardedView={disregardedView}
                             />
                           </div>
                         </TableCell>
@@ -307,6 +337,9 @@ export function VisitClosureList({
                           onFiche={openFiche}
                           onBilling={openBilling}
                           onNothingToBill={setNothingToBillFor}
+                          onDisregard={(v) => setDisregarding([v])}
+                          onRestore={restoreToWorklist}
+                          disregardedView={disregardedView}
                         />
                       </div>
                     )}
@@ -317,8 +350,43 @@ export function VisitClosureList({
           </>
         )}
 
+        {/*
+          « Tout retirer » — the bulk case, and the reason it is a screenful rather than a checkbox selection.
+          The practice reaching for this has a hundred-odd séances that should never have existed, and the
+          honest unit is « ce que je vois »: the confirmation names the exact count, so there is no ambiguity
+          about what a press covers. ⚠️ Not rendered in the set-aside view — « tout remettre » would undo a
+          deliberate action in one click, which is the opposite of the care this control is built with.
+        */}
+        {!disregardedView && !loading && visits.length > 0 ? (
+          <div className="flex justify-end border-t px-4 py-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="min-h-11 text-muted-foreground coarse:min-h-11"
+              onClick={() => setDisregarding(visits)}
+            >
+              <EyeOff aria-hidden="true" className="me-1.5 size-4" />
+              {/* ⚠️ The article moves with the count, not just the noun: « Retirer les 1 séance affichée » is
+                  what pluralising the noun alone gives, and it reads as broken French. */}
+              {visits.length === 1
+                ? "Retirer la séance affichée"
+                : `Retirer les ${visits.length.toLocaleString("fr-TN")} séances affichées`}
+            </Button>
+          </div>
+        ) : null}
+
         {footer}
       </div>
+
+      <DisregardVisitsDialog
+        visits={disregarding}
+        onOpenChange={(open) => !open && setDisregarding(null)}
+        onDone={() => {
+          setDisregarding(null)
+          onChanged()
+        }}
+      />
 
       <NothingToBillDialog
         visit={nothingToBillFor}
@@ -495,6 +563,9 @@ function RowActions({
   onFiche,
   onBilling,
   onNothingToBill,
+  onDisregard,
+  onRestore,
+  disregardedView,
 }: {
   visit: VisitToCloseDto
   busy: boolean
@@ -502,7 +573,44 @@ function RowActions({
   onFiche: (visit: VisitToCloseDto) => void
   onBilling: (visit: VisitToCloseDto) => void | Promise<void>
   onNothingToBill: (visit: VisitToCloseDto) => void
+  onDisregard: (visit: VisitToCloseDto) => void
+  onRestore: (visit: VisitToCloseDto) => void | Promise<void>
+  disregardedView: boolean
 }) {
+  // A set-aside séance is not asking anything, so it is offered nothing but the way back. Showing « Venu »
+  // here would be putting a question to a row the practice has already said is not one.
+  if (disregardedView) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => void onRestore(visit)}
+        aria-label={`Remettre la séance de ${visit.patientName} dans la liste`}
+      >
+        <Undo2 aria-hidden="true" className="me-1.5 size-4" />
+        Remettre dans la liste
+      </Button>
+    )
+  }
+
+  // ⚠️ Offered on EVERY row, whatever the next question is — and deliberately last, after the answers. A row
+  // that should not be on the list at all is not a stage of the cascade, so gating it behind « Presence » would
+  // hide it from exactly the séances a bad import leaves in « Fiche » and « Billing ».
+  const setAside = (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={busy}
+      onClick={() => onDisregard(visit)}
+      aria-label={`Retirer la séance de ${visit.patientName} de la liste`}
+      title="Retirer de la liste sans rien affirmer sur cette séance"
+    >
+      <EyeOff aria-hidden="true" className="me-1.5 size-4" />
+      Retirer
+    </Button>
+  )
+
   if (visit.nextStep === "Presence") {
     // Each row's pair carries the patient's name: this list is many rows of identical actions, so « Venu » alone
     // announces the same thing a dozen times with no way to tell which séance is being answered.
@@ -527,16 +635,20 @@ function RowActions({
           <UserX aria-hidden="true" className="me-1.5 size-4" />
           Absent
         </Button>
+        {setAside}
       </>
     )
   }
 
   if (visit.nextStep === "Fiche") {
     return (
-      <Button size="sm" disabled={busy} onClick={() => onFiche(visit)}>
-        <FileText aria-hidden="true" className="me-1.5 size-4" />
-        Ajouter la fiche
-      </Button>
+      <>
+        <Button size="sm" disabled={busy} onClick={() => onFiche(visit)}>
+          <FileText aria-hidden="true" className="me-1.5 size-4" />
+          Ajouter la fiche
+        </Button>
+        {setAside}
+      </>
     )
   }
 
@@ -549,6 +661,7 @@ function RowActions({
       <Button size="sm" variant="outline" disabled={busy} onClick={() => onNothingToBill(visit)}>
         Rien à facturer
       </Button>
+      {setAside}
     </>
   )
 }
