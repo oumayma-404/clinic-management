@@ -137,16 +137,32 @@ export function SessionActsList({
         <span className="ms-auto flex shrink-0 items-center gap-1.5 tabular-nums">
           {showCost ? (
             <>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={act.unitCost}
-                onChange={(e) => onReprice(act.key, e.target.value)}
-                className="h-7 w-24 text-right text-xs font-medium tabular-nums"
-                placeholder="0,000"
-                disabled={disabled}
-                aria-label={`Prix de ${act.procedureName}${act.perTooth ? " par dent" : ""} (DT)`}
-              />
+              {/*
+                ⚠️ NOT an input while this act is the one in the composer. The card above already edits that
+                value, and the draft is what `commitDraft` writes back — so a price typed here would be
+                accepted, displayed, and then silently overwritten on save. Two controls over one value is how
+                « j'ai retapé le tarif et il ne s'est rien passé » happens, and the séance total would disagree
+                with the row the whole time (measured: the row said 75,000 while the footer stayed at 180,000).
+              */}
+              {isEditing ? (
+                <span
+                  className="w-24 text-right text-xs font-medium tabular-nums text-muted-foreground"
+                  title="Modifiable dans l'acte en cours, au-dessus"
+                >
+                  {formatDT(resolveActCost(act.unitCost, false, 1))}
+                </span>
+              ) : (
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={act.unitCost}
+                  onChange={(e) => onReprice(act.key, e.target.value)}
+                  className="h-7 w-24 text-right text-xs font-medium tabular-nums"
+                  placeholder="0,000"
+                  disabled={disabled}
+                  aria-label={`Prix de ${act.procedureName}${act.perTooth ? " par dent" : ""} (DT)`}
+                />
+              )}
               {act.perTooth && act.toothNumbers.length > 1 ? (
                 <span className="text-2xs text-muted-foreground">
                   / dent = {formatDT(cost)}
