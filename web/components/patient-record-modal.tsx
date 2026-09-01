@@ -1172,8 +1172,9 @@ export function PatientRecordModal({
                 </span>
               </>
             ) : (
+              /* The instruction is the chart's own label now; saying it here too put it twice on one screen. */
               <span role="status" className="italic text-muted-foreground">
-                Aucun acte en saisie — cliquez un acte ci-dessus pour modifier ses dents.
+                Aucun acte en saisie.
               </span>
             )}
           </div>
