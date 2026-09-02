@@ -24,8 +24,21 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 // How often to poll for due reviews (deferred-visibility means one can become due while the app is open).
 const POLL_INTERVAL_MS = 60_000
 // "Remind me later" is a client-side, per-browser snooze — the notification stays unread in the panel.
-const SNOOZE_MS = 60 * 60 * 1000
+//
+// ⚠️ **Until the end of the local day, not for an hour, and it covers the WHOLE QUEUE.** Both halves of that
+// were wrong in a way that only shows up on a real practice's data. An hour meant a full round of prompts came
+// back the same afternoon; snoozing one id meant « Plus tard » answered a question nobody asked — the dentist
+// is saying « not now », never « not this patient » — so the next poll simply promoted the next pending visit.
+// On a cabinet with 23 séances awaiting closure that is one interruption a minute until the queue is exhausted,
+// then the whole queue again an hour later. Measured on the dev database, 2026-09-02.
 const SNOOZE_STORAGE_KEY = "clinic:pvr-snooze"
+
+/** Midnight tonight, local. The reminder is never urgent, so tomorrow is soon enough to ask again. */
+function endOfLocalDayMs(): number {
+  const d = new Date()
+  d.setHours(23, 59, 59, 999)
+  return d.getTime()
+}
 
 type SnoozeMap = Record<string, number>
 
@@ -106,6 +119,33 @@ export function PostVisitReviewPopup() {
    */
   const isPhone = useMediaQuery("(max-width: 767px)")
 
+  /*
+   * ⚠️ **The guard below already existed for the toast and not for the dialog, and that is the whole defect.**
+   * The toast's own note states it as a hard constraint — « It must not appear over an open dialog or sheet »
+   * — and reads `data-sheet-open` / `data-scroll-locked` off the body to honour it. The `Dialog` path, which is
+   * what a mouse gets, honoured nothing: it opened *on top of* whatever was already open. Measured on
+   * 2026-09-02 by opening « Nouveau rendez-vous » and being interrupted three times, the prompt covering the
+   * two required fields of the form underneath.
+   *
+   * ⚠️ **It LATCHES, and getting that wrong wedges the whole app.** `data-scroll-locked` is set by Radix for
+   * *any* modal dialog — including this one. So a guard written as `open={… && !bodyBusy}` is self-referential:
+   * the prompt opens, sets the lock, sees the lock, closes, and the overlay is left in the DOM at
+   * `data-state="closed"` intercepting every pointer event on the page. The app looks alive and answers no
+   * clicks. That was measured too, on the first attempt at this fix.
+   *
+   * So the body is consulted **only to decide whether to open**, never to stay open. `busyTick` exists to make
+   * that decision re-run when somebody else's dialog closes, which a render-time read could not do.
+   */
+  const [mayPrompt, setMayPrompt] = useState(false)
+  const [busyTick, setBusyTick] = useState(0)
+
+  useEffect(() => {
+    const bump = () => setBusyTick((n) => n + 1)
+    const observer = new MutationObserver(bump)
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-sheet-open", "data-scroll-locked"] })
+    return () => observer.disconnect()
+  }, [])
+
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -133,9 +173,17 @@ export function PostVisitReviewPopup() {
       if (mountedRef.current) {
         setReviews(list)
         setNow(Date.now())
-        // New data — lift the dismissal so a *different* pending visit can prompt. The one just dismissed is
-        // held back by its snooze, so this cannot resurrect it.
-        setDismissed(false)
+        /*
+         * ⚠️ **A poll must NOT re-arm a prompt the user has dismissed, and this used to `setDismissed(false)`
+         * on every one.** The reasoning — « new data, so let a *different* pending visit prompt » — holds only
+         * when there is usually nothing pending. With a queue there is ALWAYS a different one, so the
+         * dismissal was lifted every 60 seconds and the prompt returned every 60 seconds, for as many séances
+         * as were waiting. The snooze could not hold it back either: it was written for one id.
+         *
+         * « Plus tard » now means not until tomorrow, for all of them, and it is the snooze that decides when
+         * to ask again — not the poll clock. The poll's job is to keep `reviews` fresh for the moment the
+         * snooze lapses, which it still does.
+         */
       }
     } catch {
       // Best-effort — a failed poll must never surface an error over the app.
@@ -160,26 +208,33 @@ export function PostVisitReviewPopup() {
     [reviews, snoozed, now],
   )
 
-  const snooze = useCallback((id: string) => {
+  /**
+   * Snoozes every review currently known to be pending, until the end of the local day.
+   *
+   * ⚠️ Takes the list rather than one id, because « not now » is a statement about the moment and not about a
+   * patient. Snoozing the single active row is what let the next poll promote the next séance a minute later.
+   */
+  const snoozeAll = useCallback(() => {
     setSnoozed((prev) => {
       const nowMs = Date.now()
+      const until = endOfLocalDayMs()
+      const next: SnoozeMap = {}
       // Prune expired entries while writing so the persisted map can't grow unbounded on a long-lived
       // browser (expired entries are ignored on read anyway).
-      const next: SnoozeMap = { [id]: nowMs + SNOOZE_MS }
-      for (const [key, until] of Object.entries(prev)) {
-        if (until > nowMs) next[key] = until
+      for (const [key, prevUntil] of Object.entries(prev)) {
+        if (prevUntil > nowMs) next[key] = prevUntil
       }
+      for (const r of reviews) next[r.id] = until
       saveSnooze(next)
       return next
     })
-  }, [])
+  }, [reviews])
 
   const handleAddRecord = useCallback(() => {
     // A review with no appointment can't be fulfilled here (saving a record marks *that* appointment
     // Completed) — don't snooze-and-navigate one that would just return forever. In practice a
     // PostVisitReview is always generated with an appointmentId, so this guard is defensive.
     if (!active?.appointmentId || resolving) return
-    const reviewId = active.id
     const appointmentId = active.appointmentId
 
     // Go to the patient's add-record modal, the same destination as the notification-panel row. This used to
@@ -198,7 +253,7 @@ export function PostVisitReviewPopup() {
         // Close before navigating, for the same reason as handleLater: the dialog must not depend on the snooze
         // to disappear, or it lingers over the page transition.
         setDismissed(true)
-        snooze(reviewId)
+        snoozeAll()
         router.push(`/patients/${patientId}?addRecord=1&appointmentId=${encodeURIComponent(appointmentId)}`)
       } catch {
         // Keep it pending rather than navigate to a dead page; the poll will offer it again.
@@ -206,7 +261,22 @@ export function PostVisitReviewPopup() {
         setResolving(false)
       }
     })()
-  }, [active, resolving, snooze, router])
+  }, [active, resolving, snoozeAll, router])
+
+  /*
+   * The latch. Closed → consult the body and open only if nothing else is on screen. Open → leave it alone.
+   * Reset whenever there is nothing to prompt about, so the next due review gets a fresh decision.
+   */
+  useEffect(() => {
+    if (active === null || dismissed) {
+      setMayPrompt(false)
+      return
+    }
+    if (mayPrompt) return
+    const somethingElseIsOpen =
+      document.body.hasAttribute("data-sheet-open") || document.body.hasAttribute("data-scroll-locked")
+    if (!somethingElseIsOpen) setMayPrompt(true)
+  }, [active, dismissed, mayPrompt, busyTick])
 
   /**
    * The one dismissal path — « Plus tard », the ✕, Escape and a click outside all land here, so every way of
@@ -217,8 +287,8 @@ export function PostVisitReviewPopup() {
    */
   const handleLater = useCallback(() => {
     setDismissed(true)
-    if (active) snooze(active.id)
-  }, [active, snooze])
+    snoozeAll()
+  }, [snoozeAll])
 
   /*
    * AC-27 — on a coarse pointer **that has the room for it** (a tablet) this is a **toast with an action, not a
@@ -242,8 +312,10 @@ export function PostVisitReviewPopup() {
   useEffect(() => {
     // `isPhone` is redundant while `refetch` keeps `reviews` empty there — and stated anyway, because a guard
     // that depends on another guard's side effect is the kind of thing a later change quietly removes.
-    if (isPhone || !isCoarse || active === null || dismissed) return
-    if (document.body.hasAttribute("data-sheet-open") || document.body.hasAttribute("data-scroll-locked")) return
+    // `mayPrompt` is the same latch the dialog uses — one source for « nothing else was on screen when we
+    // decided to speak », so the two paths cannot drift apart again. A toast sets no scroll lock, so it was
+    // never at risk of the self-reference the dialog was; sharing the latch is for the drift, not the race.
+    if (isPhone || !isCoarse || active === null || dismissed || !mayPrompt) return
 
     toast(active.title ?? "Compte rendu de visite", {
       id: `pvr-${active.id}`,
@@ -254,7 +326,7 @@ export function PostVisitReviewPopup() {
       onDismiss: handleLater,
       onAutoClose: handleLater,
     })
-  }, [isPhone, isCoarse, active, dismissed, handleAddRecord, handleLater])
+  }, [isPhone, isCoarse, active, dismissed, mayPrompt, handleAddRecord, handleLater])
 
   // On a phone the header bell *is* the prompt; on a tablet the toast above is. Either way the dialog would be
   // a second copy of a reminder the user has already been given.
@@ -262,7 +334,7 @@ export function PostVisitReviewPopup() {
 
   return (
     <Dialog
-      open={active !== null && !dismissed}
+      open={active !== null && !dismissed && mayPrompt}
       onOpenChange={(next) => {
         if (!next) handleLater()
       }}
