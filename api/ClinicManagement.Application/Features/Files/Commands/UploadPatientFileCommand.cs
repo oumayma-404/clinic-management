@@ -23,6 +23,17 @@ public class UploadPatientFileCommand : IRequest<Result<PatientFileDto>>
     public Stream FileStream { get; set; } = null!;
     public string? Description { get; set; }
     public string? UploadedBy { get; set; }
+
+    /// <summary>
+    /// The small stand-in image the client built from the same file, or null. ⚠️ <b>Never load-bearing</b> —
+    /// an absent, oversized or unreadable one is dropped and the upload succeeds regardless
+    /// (<see cref="PatientFilePreviewStore"/>). It is what the file list paints instead of a grey icon.
+    /// </summary>
+    public Stream? PreviewStream { get; set; }
+
+    public string? PreviewFileName { get; set; }
+
+    public long PreviewSize { get; set; }
 }
 
 public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFileCommand, Result<PatientFileDto>>
@@ -124,12 +135,26 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
             var storageKey = await _fileStorage.UploadAsync(
                 upload.Content, upload.ContentType, patient.ClinicId, cancellationToken);
 
+            // ⚠️ The id is minted BEFORE the preview is stored, because the preview's object key is composed
+            // from it. Nothing else here needs it early.
+            var fileId = Guid.NewGuid();
+
+            var previewKey = await PatientFilePreviewStore.StoreAsync(
+                _fileStorage,
+                _logger,
+                fileId,
+                patient.ClinicId,
+                request.PreviewStream,
+                request.PreviewFileName,
+                request.PreviewSize,
+                cancellationToken);
+
             try
             {
                 // Persist the VALIDATED type, name and byte count, never the client's claims — the stored type
                 // is what the download endpoint serves back (AC-11.6).
                 var file = new PatientFile(
-                    Guid.NewGuid(),
+                    fileId,
                     request.PatientId,
                     patient.ClinicId,
                     upload.FileName,
@@ -139,7 +164,8 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                     upload.Entry.Category,
                     request.FolderId,
                     request.Description,
-                    request.UploadedBy);
+                    request.UploadedBy,
+                    previewKey);
 
                 await _fileRepository.AddAsync(file, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -150,8 +176,17 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
             }
             catch
             {
+                // ⚠️ BOTH blobs, not just the original. The preview is written before the row exists too, so
+                // cleaning up one of the two leaves an orphan behind exactly as surely as cleaning up neither.
                 try { await _fileStorage.DeleteAsync(storageKey, cancellationToken); }
                 catch { /* best-effort orphan cleanup: don't mask the original failure */ }
+
+                if (previewKey != null)
+                {
+                    try { await _fileStorage.DeleteAsync(previewKey, cancellationToken); }
+                    catch { /* idem */ }
+                }
+
                 throw;
             }
         }

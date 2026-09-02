@@ -37,7 +37,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 | `dental-records.ts` | `dentalRecordsApi` | `/patients/{id}/dental-records` CRUD (multi-act; exports `CreateDentalRecordRequest`); can mark a plan step réalisé. |
 | `odontogram.ts` | `odontogramApi` | `/patients/{id}/odontogram` get; `diagnose` / `removeCondition` (charted diagnoses only). |
 | `patient-medical-history.ts` / `patient-family-history.ts` | `patientMedicalHistoryApi` / `patientFamilyHistoryApi` | `/patients/{id}/medical-history` \| `/family-history` CRUD. |
-| `patient-files.ts` | `patientFilesApi` | `/patients/{id}/files` folders/files: list (`getFiles` unwrapped / **`getFilesPaged`**), init defaults, create folder, upload, download (Blob), **`updateFile`** (rename / describe / move, tri-state — only the keys you send are touched, and `fileName` is the *base* name), **`renameFolder`**, delete. **`getPatientSummaries`** backs `/fichiers` and is the odd one out — it is a read over `/patients/file-summaries`, not under a patient, because it answers « how big is each patient's drawer? » across the clinic; every narrowing it takes (`search`, `withFilesOnly`, `sort`) is applied server-side before the page is cut and must never be re-applied to the rows it returns. ⚠️ **No raw `fetch` here any more**: all four write/download calls used to hand-roll their own error block reading `errorData.message` while the backend sends `{ error }`, so a refused upload surfaced « HTTP 400: Bad Request » instead of the French reason (`patient-file-uploads` P1). |
+| `patient-files.ts` | `patientFilesApi` | `/patients/{id}/files` folders/files: list (`getFiles` unwrapped / **`getFilesPaged`**), init defaults, create folder, **upload (which now carries an optional stand-in image built by `lib/files/preview.ts` — before it did not, so no hosted file had a thumbnail at all)**, download (Blob), **`updateFile`** (rename / describe / move, tri-state — only the keys you send are touched, and `fileName` is the *base* name), **`renameFolder`**, delete. **`getPatientSummaries`** backs `/fichiers` and is the odd one out — it is a read over `/patients/file-summaries`, not under a patient, because it answers « how big is each patient's drawer? » across the clinic; every narrowing it takes (`search`, `withFilesOnly`, `sort`) is applied server-side before the page is cut and must never be re-applied to the rows it returns. ⚠️ **No raw `fetch` here any more**: all four write/download calls used to hand-roll their own error block reading `errorData.message` while the backend sends `{ error }`, so a refused upload surfaced « HTTP 400: Bad Request » instead of the French reason (`patient-file-uploads` P1). |
 | `upload-policy.ts` | `uploadPolicyApi` | **`GET /api/meta/upload-policy[?profile=]`** — what an upload door accepts, **served rather than mirrored** (P3). Exports `refusalFor(policy, file)`, `destinationFor`, `acceptHint` and `extensionOf`/`formatFor`. ⚠️ **Four doors now, not one** (`patient-file` · `profile-image` · `medical-document-pdf` · `csv`): the cachet, the two clinic-logo pickers and the CSV import each carried a hand-written `accept` — `image/*` against a PNG-and-JPEG server profile, `.csv` against a door that also takes `.txt`, and a « 2 Mo maximum » the server did not enforce (it accepted 25) — so serving one policy for every door would have moved the drift up a level rather than removing it. An **unknown** profile is refused, never defaulted to the patient drawer. Consumed through `lib/hooks/use-upload-policy.ts`, which caches one in-flight promise **per door** per page load and **fails open** — a metadata read that fails must not close a working picker. |
 | `medical-documents.ts` | `medicalDocumentsApi` | `/medical-documents` CRUD; `generatePdf` (job) + `generatePdfForDownload` (Blob). FormData when a PDF is attached. |
 | `dashboard.ts` | `dashboardApi` | **`get(period)`** → `/dashboard?period=Today\|Week\|Month`. One call, four sections. The period key is the only input — the server derives both windows. *(`getStats` and its six boundary params are gone.)* |
@@ -106,6 +106,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   here. It exists because the strings used to live only as `<SelectItem value>` literals in
   `edit-patient-dialog.tsx`, so the bulletin editor's « which mandatory field is missing? » check would have been a
   second hand-typed copy of an accented literal whose mismatch fails silently. Both call sites now read this file.
+- **`documents.ts`** — `DOCUMENT_TEMPLATES` (the six medical-document templates: type key, French title, description, lucide icon, tile classes) and `documentTypeLabel(type)`, derived from that same array. **One registry, because there were three and they disagreed**: the gallery in `app/documents/page.tsx` had all six, the patient file's Documents panel offered only « Nouvelle ordonnance », and the patient file *also* kept a private four-entry label map — missing `honoraires` and `arret-travail`, so a saved arrêt de travail was labelled with its raw key **`arret-travail`** in the patient's own tab. Two of six uncreatable from the panel, two of six unnameable by it, from the same missing list. A seventh template added here reaches the gallery, the panel and every saved-document label at once. ⚠️ `tile` must stay a **complete literal class string** per entry (`bg-chart-1/12 text-chart-1`): Tailwind scans source for literal names, so a composed `bg-chart-${n}/12` is never generated and the tile renders colourless — the quiet failure mode of every themed system.
 - `specialties.ts` — `DOCTOR_SPECIALTIES` (the seven **English** storage keys, shared by clinic-settings / setup-wizard / join-wizard — previously three byte-identical copies), `SPECIALTY_LABELS_FR`, and `specialtyLabel(value)`. **Display-time map, not a migration**: the keys are what `Doctor.Specialty` already holds and what every `MedicalDocument.DoctorSpecialty` snapshot was taken from, so renaming them would orphan every existing row. Unknown values pass through verbatim (a clinic's custom specialty, and older snapshots already stored in French). Same shape as `tunisia.ts`.
 - **`dashboard-links.ts`** — the single authority mapping a dashboard KPI to the **filtered** view of the records it counted (the `refunds` KPI added with the caisse statement points at `/caisse`, whose « extrait » is the only screen listing refunds as movements in their own right) (`dashboardLink(key, period)`). An exhaustive `Record<DashboardKpiKey, (period) => string>`, deliberately: a KPI added without a destination is a `tsc` error rather than a card that goes nowhere. Same reasoning as `appointment-labels.ts` — the mapping is a contract with nine other screens, and a link that drifts from what the card counted quietly asserts a number the destination contradicts. Two links carry a subtlety worth knowing: « Devis acceptés » uses `acceptedFrom`/`acceptedTo` (**not** `from`/`to`, which bound creation), and « Taux d'absence » sends `status=NoShow,Cancelled` because that pair *is* the rate's numerator.
 - `brand.ts` — `PRODUCT_NAME = "APEXA"` (fallback name when a clinic's own name is unknown). The product was
@@ -130,10 +131,11 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   **size**, the rule `FileMirrorService` already uses; **`ingest.ts`** hashes and copies in **one pass** over the
   file (`writeToVault`'s `onChunk` is what keeps it to one, since reading 25 Go twice is not an option) and removes
   the bytes if the registration fails; **`preview.ts`** builds the stand-in image.
-  ⚠️ **`preview.ts` returns `null` for every format the coffre actually takes**, and that is not a stub: DICOM,
-  STL, PLY, OBJ, 3MF and ZIP are all `isBrowserPreviewable: false`, i.e. undecodable without a format-specific
-  parser. v1 registers those with no preview and the list shows a typed placeholder; the server already stores,
-  caps (4 Mo) and serves one, so adding a decoder later changes that file alone.
+  ⚠️ **`preview.ts` has moved to `lib/files/preview.ts` and is no longer the coffre's alone** — the hosted
+  upload builds a stand-in through it too (`clinic-file-decoders`). Its old `decodable()` was
+  `png|jpeg|webp|gif|bmp`, which is *exactly* the set of formats the coffre never takes, so it returned null
+  every single time it was called; with the decoders it produces a real picture for TIFF and HEIC. DICOM, STL,
+  PLY, OBJ and 3MF still have none, and the list shows a typed placeholder for those.
   ⚠️ **A missing coffre is a first-class state, never an error** — most machines have none (a phone, Safari, a
   laptop at home) and on those every hosted file still opens. `hooks/use-vault.ts` keeps **five** states apart:
   `checking` / `ready` / **`lapsed`** (a folder is remembered, its permission is not — offer `reconnect`, ONE
@@ -148,6 +150,24 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   the same length read as genuine. It is an explicit action (« Vérifier l'intégrité »), not a check on open —
   hashing 25 Go is about a minute. Its `dottedExtensionOf` is named for the dot because
   `lib/api/upload-policy.ts` exports a **dot-less** `extensionOf` into the same feature.
+- **`files/`** — what the app can show of a file, and the small stand-in image it stores beside one
+  (`clinic-file-decoders`). **`decoders/`** is a registry keyed on extension, every decoder behind a dynamic
+  `import()` (libheif alone is ~3 Mo, so loading it for everybody would tax every page): `heic-to/csp` for
+  HEIC/HEIF, `utif2` for TIFF, and a **hand-written** central-directory reader for ZIP. **`preview.ts`** builds
+  the downscaled JPEG both upload doors carry.
+  ⚠️ **This is NOT a mirror of `FileTypeCatalog`, and the distinction is load-bearing.** The catalog's
+  `isBrowserPreviewable` answers « does a *browser* paint this unaided? » — a fact about the format, still the
+  server's to state, and no value of it moved. What a *build* ships a decoder for is a fact about the module
+  graph that no server can know. `file-kind.ts`'s `previewMode` **unions** the two and never compares them;
+  `check:responsive`'s `decoder-extensions-are-in-the-catalog` holds the one thing that can go wrong, a key
+  naming an extension the catalog never accepts.
+  ⚠️ **The ZIP reader decompresses nothing** — it reads the archive's own index from its last few kilobytes, so
+  a 2 Go lab archive is listed by touching ~64 Ko and no archive can expand into memory. Every npm ZIP package
+  is built to *extract*: the async paths spin a `blob:` worker and the sync paths inflate.
+  ⚠️ **A canvas has a maximum area (~268 Mpx in Chrome) and exceeding it paints a blank one with no error**, so
+  `raster.ts` goes through an `ImageBitmap` and only ever creates a canvas at the size `fitWithin` allows.
+  ⚠️ **libheif runs in a `blob:` Worker**, which `default-src 'self'` refuses — hence `worker-src 'self' blob:`
+  in all four CSP copies. A dev server sends no CSP, so without it the failure appears **only in production**.
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.
 
 ## Conventions

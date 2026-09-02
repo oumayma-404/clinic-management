@@ -66,9 +66,38 @@ public class DownloadPatientFilePreviewQueryHandler
                 return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
-            if (string.IsNullOrEmpty(file.PreviewStorageKey))
+            var servedKey = file.PreviewStorageKey;
+
+            // ⚠️ The stand-in's type is derived from its key's extension; the original's is the **validated**
+            // one on the row. A storage key carries no extension (`clinics/{id}/{guid}-{timestamp}`), so
+            // deriving the fallback's type the same way would answer `image/jpeg` for every PNG.
+            var servedContentType = string.IsNullOrEmpty(servedKey) ? file.ContentType : PreviewContentType(servedKey);
+
+            if (string.IsNullOrEmpty(servedKey))
             {
-                return Result<FileDownloadDto>.Failure("Aucun aperçu n'est disponible pour ce fichier.");
+                // ⚠️ **The stand-in is missing, which for most rows in a real clinic is simply their age**:
+                // previews are built by the browser on the way up, so every file stored before that existed has
+                // none. Rather than leave those drawers a column of grey icons for ever — or grow a server-side
+                // image pipeline to backfill them — a *small* hosted original is served in the stand-in's place.
+                //
+                // Three conditions, and each one is doing work: it must be a browser-paintable raster (the tile
+                // is an `<img>`), it must be **hosted** (a coffre original never reached this deployment), and
+                // it must be under `PreviewFallbackBytes`, because this route is called once per tile.
+                //
+                // ⚠️ Serving it *here* rather than falling back to the download route on the client is the whole
+                // point: that route records an access in the cabinet's journal, so a fallback there wrote one
+                // « fichier téléchargé » row per tile scrolled past — which is what made the frontend abandon
+                // its own fallback. This route is exempt by the decision recorded below, so the same fallback
+                // is free of it.
+                //
+                // ⚠️ The conditions live in `PatientFilePreviewPolicy` because `PatientFileDto.HasPreview` asks
+                // the same question: a browser that is told « no preview » never calls this route at all.
+                if (!PatientFilePreviewPolicy.CanStandInForItsOwnPreview(file))
+                {
+                    return Result<FileDownloadDto>.Failure("Aucun aperçu n'est disponible pour ce fichier.");
+                }
+
+                servedKey = file.StorageKey;
             }
 
             // ⚠️ **Deliberately NOT recorded in the access ledger, unlike the download beside it**, and the
@@ -82,13 +111,13 @@ public class DownloadPatientFilePreviewQueryHandler
             // preview is a downscaled stand-in served inside the application to somebody who already has the
             // patient's file open. `PatientFileAccessCoverageTests` carries this as a named exemption, so the
             // decision is stated rather than inferred from an absence.
-            var stream = await _fileStorage.DownloadAsync(file.PreviewStorageKey, cancellationToken);
+            var stream = await _fileStorage.DownloadAsync(servedKey!, cancellationToken);
 
             var dto = new FileDownloadDto
             {
                 FileStream = stream,
                 FileName = file.FileName,
-                ContentType = PreviewContentType(file.PreviewStorageKey)
+                ContentType = servedContentType
             };
 
             return Result<FileDownloadDto>.Success(dto);

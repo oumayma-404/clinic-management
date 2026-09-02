@@ -1057,6 +1057,173 @@ check(
   },
 );
 
+/**
+ * The text of the JSX opening tag beginning at `i`, plus the index just past its `>`.
+ *
+ * <p>Brace-depth aware, so `className={cn(a, b)}` and `onClick={() => f(x > 1)}` are included whole instead of
+ * being cut at the first `>` that happens to sit inside an expression.</p>
+ */
+function openingTag(src, i) {
+  let depth = 0;
+  let j = i;
+  while (j < src.length) {
+    const c = src[j];
+    if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) return [src.slice(i, j + 1), j + 1];
+    j++;
+  }
+  return [src.slice(i), src.length];
+}
+
+/** 1-based line number of a character offset. */
+const lineAt = (src, index) => src.slice(0, index).split("\n").length;
+
+check(
+  "table-hinge-fits-its-box",
+  "P6",
+  "A `TABLE_ONLY` table of five or more columns uses the `_LG` hinge",
+  "§ 1 of .claude/rules/frontend-web.md puts the table/cards threshold at « roughly eight or more columns », " +
+    "and that figure is sized for a table at PAGE level: an 820 px tablet leaves ~532 px once the 256 px rail " +
+    "is subtracted. A table nested one level further — a Card inside a TabsContent — gets ~451 px, so the " +
+    "threshold falls to five. Measured on the patient file at 820x1024: Rendez-vous (7 cols) rendered 764 px " +
+    "into 451 px and hid 313 of them, Fichiers (5) hid 180, Dossiers medicaux (6) hid 71, and the column that " +
+    "pays is always the last one — Actions. A dentist on an iPad literally could not see « Modifier » or " +
+    "« Supprimer », which is what a trialling dentist reported as « editing the medical record does not work ». " +
+    "Cells wrap, so a text column shrinks; a Button does not, because Button is `whitespace-nowrap shrink-0`, " +
+    "and Actions is the cell that holds buttons. Five columns is therefore the honest ceiling for `md:` here. " +
+    "Fix by switching that table to TABLE_ONLY_LG / CARDS_ONLY_LG — and check the card form carries the same " +
+    "actions before you do, because § 0 says no capability is removed by a layout decision.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const inComment = commentMask(src.split(/\r?\n/));
+      const re = /<Table\b/g;
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        const line = lineAt(src, m.index);
+        if (inComment[line - 1]) continue;
+        const [tag, end] = openingTag(src, m.index);
+        // The `_LG` hinge is the fix, so only the plain one is judged. `\b` after TABLE_ONLY is what keeps
+        // `{TABLE_ONLY_LG}` out of this check rather than a negative lookahead that would also skip it.
+        if (!/containerClassName=\{TABLE_ONLY\}/.test(tag)) continue;
+        const close = src.indexOf("</Table>", end);
+        const body = close === -1 ? src.slice(end) : src.slice(end, close);
+        // `<TableHead\b` cannot match `<TableHeader`: between "d" and "e" there is no word boundary.
+        const cols = (body.match(/<TableHead\b/g) || []).length;
+        if (cols >= 5) {
+          hits.push({ file: rel(file), line, text: `${cols} columns on the md: hinge — use TABLE_ONLY_LG` });
+        }
+      }
+    }
+    return hits;
+  }
+);
+
+check(
+  "icon-button-is-named",
+  "P2",
+  "An icon-only `<Button>` carries an `aria-label`",
+  "§ 13: aria-label on every icon-only control. A `title` is not a substitute — it needs a hover, and this " +
+    "app's primary device is a tablet, so on the machine it is actually used on the label does not exist at " +
+    "all (§ 9.2). Unlabelled, a screen reader announces « bouton » and nothing more; in a table of ten fiches " +
+    "that is ten identical announcements over a destructive action on a clinical record. Five shipped: the " +
+    "patient file's Facturer / Modifier / Supprimer trio, stock-table's history button — sitting between two " +
+    "siblings that were already labelled — and the ordonnance editor's medication remove, which had no title " +
+    "either, so it was unlabelled on every channel. Name what the control acts on, not just the verb: " +
+    "`Supprimer la fiche de soins du 12/03/2026`, the way the delete confirmation already does. " +
+    "Deliberately conservative — a Button whose children include any {expression} is skipped, because its " +
+    "label may well be that expression, so this check reports only what is certainly unnamed.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const inComment = commentMask(src.split(/\r?\n/));
+      const re = /<Button\b/g;
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        const line = lineAt(src, m.index);
+        if (inComment[line - 1]) continue;
+        const [tag, end] = openingTag(src, m.index);
+        if (/\baria-label\b/.test(tag)) continue;
+        if (tag.trimEnd().endsWith("/>")) continue;
+        const close = src.indexOf("</Button>", end);
+        if (close === -1) continue;
+        const body = src.slice(end, close);
+        if (/<Button\b/.test(body)) continue;
+        let text = body.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+        text = text.replace(/<[^>]*>/g, "");
+        if (text.includes("{")) continue;
+        if (text.trim()) continue;
+        hits.push({ file: rel(file), line, text: "icon-only <Button> with no aria-label" });
+      }
+    }
+    return hits;
+  }
+);
+
+check(
+  "decoder-extensions-are-in-the-catalog",
+  "P1",
+  "Every extension `lib/files/decoders` claims is one the server's catalog actually accepts",
+  "The decoder registry is deliberately NOT a mirror of `FileTypeCatalog` — whether a browser paints a format " +
+    "unaided is the server's answer, while whether THIS build ships a decoder for it is a fact about the " +
+    "bundle, and the two are unioned at the point of use rather than compared. But that union only works if " +
+    "both halves are talking about the same file: a registry entry for an extension the catalog never accepts " +
+    "is a decoder that can never run, and a typo (`tif` for `tiff`, `jpg` for `jpeg`) produces exactly that — " +
+    "silently, because the format simply keeps showing its icon and nothing anywhere errors. This checks the " +
+    "one direction that can be wrong; the other (a catalog format with no decoder) is the ordinary case, and " +
+    "is what the typed placeholder is for.",
+  () => {
+    const registryPath = join(WEB_ROOT, "lib", "files", "decoders", "index.ts");
+    const catalogPath = join(
+      WEB_ROOT, "..", "api", "ClinicManagement.Application", "Common", "Files", "FileTypeCatalog.cs"
+    );
+
+    let registrySrc;
+    let catalogSrc;
+    try {
+      registrySrc = readFileSync(registryPath, "utf8");
+      catalogSrc = readFileSync(catalogPath, "utf8");
+    } catch (error) {
+      // A guard that quietly finds nothing to check is indistinguishable from one that passes.
+      return [{ file: rel(registryPath), text: `could not read both sides: ${error.message}` }];
+    }
+
+    /*
+     * Both sides are read from source rather than imported: this script is plain node with no TypeScript
+     * loader and no way to run C#, and a hand-kept list here would be a third copy — i.e. the very drift
+     * being checked for.
+     */
+    const table = registrySrc.match(/const DECODERS[^=]*=\s*\{([\s\S]*?)\n\}/);
+    const declared = table ? [...table[1].matchAll(/^\s*([a-z0-9]+)\s*:/gm)].map((m) => m[1]) : [];
+
+    // Every quoted extension the catalog names — the standalone entries and the `Entries` array alike.
+    const accepted = new Set([...catalogSrc.matchAll(/new\[?\]?\s*\{([^}]*)\}/g)]
+      .flatMap((m) => [...m[1].matchAll(/"([a-z0-9]+)"/g)].map((e) => e[1])));
+
+    const hits = [];
+    if (declared.length === 0) {
+      hits.push({ file: rel(registryPath), text: "no DECODERS entries parsed — the table's shape changed" });
+    }
+    if (accepted.size === 0) {
+      hits.push({ file: "api/…/FileTypeCatalog.cs", text: "no extensions parsed — the catalog's shape changed" });
+    }
+
+    for (const extension of declared) {
+      if (accepted.has(extension)) continue;
+      hits.push({
+        file: rel(registryPath),
+        line: lineAt(registrySrc, registrySrc.indexOf(`${extension}:`)),
+        text: `"${extension}" has a decoder but is not an extension FileTypeCatalog accepts`,
+      });
+    }
+
+    return hits;
+  }
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

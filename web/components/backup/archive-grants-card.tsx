@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
@@ -178,7 +178,7 @@ export function ArchiveGrantsCard() {
       ) : (
         <div className="rounded-md border bg-card">
           <CardList
-            className={CARDS_ONLY}
+            className={CARDS_ONLY_LG}
             ariaLabel="Postes autorisés"
             items={grants}
             getKey={(g) => g.id}
@@ -202,7 +202,10 @@ export function ArchiveGrantsCard() {
             }
           />
 
-          <Table containerClassName={TABLE_ONLY}>
+                    {/* Five columns inside a `Card`, so the usable box on an 820 px tablet is ~451 px, not the ~532 px
+              § 1's « ~8+ » figure assumes — see `table-hinge-fits-its-box`. The card form carries the same
+              `actions`, so nothing is lost by rendering it there. */}
+<Table containerClassName={TABLE_ONLY_LG}>
             <TableHeader>
               <TableRow>
                 <TableHead>Poste</TableHead>

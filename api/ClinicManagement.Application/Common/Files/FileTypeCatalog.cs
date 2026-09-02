@@ -63,6 +63,22 @@ public static class FileTypeCatalog
     public const long PreviewBytes = 4L * 1024 * 1024;
 
     /// <summary>
+    /// How small a hosted original has to be for the preview route to serve <b>it</b> when no stand-in was ever
+    /// stored.
+    ///
+    /// <para>⚠️ It exists for the files already in every clinic's drawer. Previews are built by the browser on
+    /// the way up, so nothing uploaded before that existed has one — and on a real database that is most of
+    /// them, which would leave the thumbnail work visible only on files uploaded from today. Backfilling means a
+    /// server-side image pipeline; serving a small original costs a few hundred kilobytes and no new
+    /// dependency.</para>
+    ///
+    /// <para>⚠️ Deliberately far below <see cref="DocumentBytes"/>: this route is called once per tile in a
+    /// list, so the ceiling is « what is cheap forty times over on a clinic's uplink », not « what is a
+    /// reasonable file ». A larger original keeps showing its icon, exactly as it did before.</para>
+    /// </summary>
+    public const long PreviewFallbackBytes = 2L * 1024 * 1024;
+
+    /// <summary>
     /// Above this, imaging and lab archives are filed in the cabinet's coffre instead of hosted. It is
     /// <see cref="DocumentBytes"/> and not a number of its own: the line already drawn between « a document » and
     /// « a study » is the same line, and a second constant beside it would be the one to drift.

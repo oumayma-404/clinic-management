@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY, CARDS_ONLY_LG, TABLE_ONLY, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import type { PagedResponse } from "@/lib/api/paging"
 import {
@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { formatDT, formatDate, formatDateFr, formatDateTime, formatFileSize, quoteFr } from "@/lib/format"
+import { DOCUMENT_TEMPLATES, documentTypeLabel } from "@/lib/documents"
 import {
   ArrowLeft,
   Flag,
@@ -107,6 +108,8 @@ import { downloadBlob } from "@/lib/download"
 import { FilePreviewDialog } from "@/components/patients/files/file-preview-dialog"
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
 import { isImageFile, isPdfFile, isPreviewableFile } from "@/components/patients/files/file-kind"
+import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useVault } from "@/lib/hooks/use-vault"
 
 const calculateAge = (dob: string | null | undefined) => {
   if (!dob) return null
@@ -138,14 +141,12 @@ const hasActiveFlags = (patient: PatientDto) => {
   return patient.flags && patient.flags.some(flag => flag.isActive)
 }
 
-// French labels for saved medical-document types (the document-editor route uses the raw type key).
-const DOCUMENT_TYPE_LABELS: Record<string, string> = {
-  prescription: "Ordonnance",
-  liaison: "Lettre de liaison",
-  certificat: "Certificat médical",
-  "bulletin-cnam": "Bulletin de soins CNAM",
-}
-const documentTypeLabel = (type: string) => DOCUMENT_TYPE_LABELS[type] ?? type
+/*
+ * Every template but the one that gets its own button. « Ordonnance » stays a single tap because it is far and
+ * away the most frequent, and burying it in a menu to make the six symmetrical would cost a click on the
+ * common path to save one on the rare path.
+ */
+const OTHER_DOCUMENT_TEMPLATES = DOCUMENT_TEMPLATES.filter((template) => template.type !== "prescription")
 
 /**
  * The placeholder for a section whose request has not answered yet.
@@ -155,6 +156,31 @@ const documentTypeLabel = (type: string) => DOCUMENT_TYPE_LABELS[type] ?? type
  * *before* the request answers — and a page that tells a dentist their patient has no records, no
  * appointments and no files, a beat before listing all three, is worse than one that took longer to appear.
  */
+/**
+ * The « Montant payé » of a fiche whose money has moved onto an invoice.
+ *
+ * ⚠️ **This used to be a strikethrough, and that is the defect it exists to fix.** `line-through` means
+ * « annulé, ne compte pas » everywhere else money is shown in this app — nine sites, every one of them keyed
+ * on `isVoided` or `isCancelled`, and la caisse documents it in those words: « annulé … barré, ne compte pas
+ * dans le solde ». Striking a *successfully billed* amount with the same mark makes a user who has learned
+ * either one actively misread the other, on money. The card form carried no explanation at all; the table's
+ * lived in a `title`, which a finger cannot reach (§ 9.2).
+ *
+ * <p>So the amount is muted — it is no longer the authority — and the reason is stated in words, with the
+ * invoice's own number when the map has it. « en cours » is deliberately not printed here: the badge is a
+ * statement about where the money lives, and a number that has not arrived yet is simply not part of it.</p>
+ */
+function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber?: string }) {
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-1.5">
+      <span className="text-muted-foreground">{formatDT(amount)}</span>
+      <Badge variant="outline" className="text-2xs font-normal">
+        {invoiceNumber ? `facturé n° ${invoiceNumber}` : "facturé"}
+      </Badge>
+    </span>
+  )
+}
+
 function SectionSkeleton() {
   return (
     <div className="space-y-2 py-6" role="status" aria-label="Chargement…">
@@ -489,6 +515,47 @@ export default function PatientDetailsPage() {
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   // Pending destructive confirmations (AC-P2.16 / AC-P2.20). null = dialog closed.
   const [recordToDelete, setRecordToDelete] = useState<DentalRecordDto | null>(null)
+
+  /*
+   * ⚠️ **All six templates, not one.** This panel offered « Nouvelle ordonnance » alone, so « Arrêt de
+   * travail » and « Bulletin de soins CNAM » — the two most frequent documents in a Tunisian practice — meant
+   * leaving the patient, crossing to the sidebar, picking the template and then finding the patient again. The
+   * deep link was never the missing piece: `?patientId=` already worked for the one button that used it.
+   *
+   * Declared once and rendered in both the header and the empty state, because those two were already a pair
+   * of copies of the same button and are exactly where a seventh template would be forgotten.
+   */
+  const openDocumentTemplate = (type: string) =>
+    router.push(`/documents/${type}?patientId=${patientId}`)
+
+  const documentTemplateActions = (
+    /* Unprefixed `flex` so it really replaces the display below the hinge, and `w-full sm:w-auto` on each
+       child rather than `flex-1` — a `0%` basis would beat `w-full` and collapse both buttons. */
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+      <Button size="sm" className="w-full gap-1 sm:w-auto" onClick={() => openDocumentTemplate("prescription")}>
+        <FileText aria-hidden="true" className="h-4 w-4" />
+        Nouvelle ordonnance
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline" className="w-full gap-1 sm:w-auto">
+            Autre document
+            <ChevronDown aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        {/* Clamped to the viewport: a fixed `w-72` is wider than a 320 px screen and would have no gutter. */}
+        <DropdownMenuContent align="end" className="w-[min(18rem,calc(100vw-2rem))]">
+          {OTHER_DOCUMENT_TEMPLATES.map((template) => (
+            <DropdownMenuItem key={template.type} onClick={() => openDocumentTemplate(template.type)}>
+              <template.icon aria-hidden="true" className="size-4" />
+              {template.title}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+
   const [documentToDelete, setDocumentToDelete] = useState<MedicalDocumentDto | null>(null)
   const [deleting, setDeleting] = useState(false)
   // When in a folder, every loaded file belongs to it; at root, only the files in no folder.
@@ -505,7 +572,13 @@ export default function PatientDetailsPage() {
   // AC-5.3 — the preview lives in one place now; this page held a byte-identical second copy of the hook and
   // the dialog, only the PDF frame having ever been extracted. The sequence is what the viewer's arrows walk:
   // this tab loads every file at once, so there is no page to turn.
-  const preview = useFilePreview(patientId, undefined, { files: filesNewestFirst })
+  // ⚠️ The policy and the coffre are passed here for the same reason they are in the files manager: without the
+  // first, a HEIC's « aperçu » is decided by a MIME-type guess rather than by the served catalog, and without
+  // the second a coffre original reads as « pas sur ce poste » on the very machine holding it. This tab used to
+  // pass neither, so the two surfaces onto the same drawer disagreed about what could be opened.
+  const filesPolicy = useUploadPolicy("patient-file")
+  const { vault } = useVault()
+  const preview = useFilePreview(patientId, filesPolicy, { files: filesNewestFirst }, vault)
   const [refreshKey, setRefreshKey] = useState(0)
   /** Band C — the identity read answered 404 (the patient really is gone), as opposed to failing. */
   const [identityMissing, setIdentityMissing] = useState(false)
@@ -1443,7 +1516,7 @@ export default function PatientDetailsPage() {
                         the word again in place of the Reste figure, and a third badge in the desktop table's
                         Actions column — which is what pushed the figure staff actually read off the row. */}
                     <CardList
-                      className={CARDS_ONLY}
+                      className={CARDS_ONLY_LG}
                       ariaLabel="Actes dentaires"
                       items={recordsPage.items}
                       getKey={(record) => record.id}
@@ -1470,9 +1543,10 @@ export default function PatientDetailsPage() {
                           {
                             label: "Montant payé",
                             value: invoiced ? (
-                              <span className="text-muted-foreground line-through">
-                                {formatDT(record.amountPaid)}
-                              </span>
+                              <BilledAmount
+                                amount={record.amountPaid}
+                                invoiceNumber={invoicingNumberByRecordId.get(record.id)}
+                              />
                             ) : (
                               formatDT(record.amountPaid)
                             ),
@@ -1533,7 +1607,7 @@ export default function PatientDetailsPage() {
                         </DropdownMenu>
                       )}
                     />
-                    <Table containerClassName={TABLE_ONLY}>
+                    <Table containerClassName={TABLE_ONLY_LG}>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date</TableHead>
@@ -1559,9 +1633,10 @@ export default function PatientDetailsPage() {
                             </TableCell>
                             <TableCell>
                               {invoicedDentalRecordIds.has(record.id) ? (
-                                <span className="text-muted-foreground line-through" title="Facturé — le montant est géré par la facture">
-                                  {formatDT(record.amountPaid)}
-                                </span>
+                                <BilledAmount
+                                  amount={record.amountPaid}
+                                  invoiceNumber={invoicingNumberByRecordId.get(record.id)}
+                                />
                               ) : (
                                 formatDT(record.amountPaid)
                               )}
@@ -1602,8 +1677,9 @@ export default function PatientDetailsPage() {
                               */}
                               <div className="flex items-center justify-end gap-1">
                                 {/* Billed → the action is simply absent, not replaced by a « Facturé » badge in
-                                    the Actions column. A status has no business there, and the struck-through
-                                    « Montant payé » on the same row already carries it. */}
+                                    the Actions column. A status has no business there, and « Montant payé » on
+                                    the same row already carries it — see `BilledAmount`, which says so in words
+                                    now rather than by striking the figure through. */}
                                 {!invoicedDentalRecordIds.has(record.id) && (
                                   <Button
                                     variant="ghost"
@@ -1611,6 +1687,7 @@ export default function PatientDetailsPage() {
                                     className="h-8 w-8 p-0 coarse:size-11"
                                     onClick={() => setBillingRecord(record)}
                                     title="Facturer cette intervention"
+                                    aria-label={`Facturer la fiche du ${formatDate(record.interventionDate)}`}
                                   >
                                     <Receipt className="h-4 w-4" />
                                   </Button>
@@ -1624,6 +1701,7 @@ export default function PatientDetailsPage() {
                                     setRecordModalOpen(true)
                                   }}
                                   title="Modifier le dossier"
+                                  aria-label={`Modifier la fiche du ${formatDate(record.interventionDate)}`}
                                 >
                                   <Pencil className="h-4 w-4" />
                                 </Button>
@@ -1634,6 +1712,7 @@ export default function PatientDetailsPage() {
                                     className="h-8 w-8 p-0 coarse:size-11 text-destructive hover:text-destructive"
                                     onClick={() => setRecordToDelete(record)}
                                     title="Supprimer la fiche de soins"
+                                    aria-label={`Supprimer la fiche de soins du ${formatDate(record.interventionDate)}`}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -1645,9 +1724,29 @@ export default function PatientDetailsPage() {
                       </TableBody>
                     </Table>
                     {/*
-                      One pager for both renderings — only one of them is ever visible (`CARDS_ONLY` is
-                      `md:hidden`, `TABLE_ONLY` is `hidden md:block`), which is the shape `stock-table.tsx`
-                      already uses.
+                      One pager for both renderings — only one of them is ever visible, which is the shape
+                      `stock-table.tsx` already uses.
+
+                      ⚠️ **`_LG`, and the column threshold is LOWER here than the rule's « ~8+ ».** § 1 of
+                      `.claude/rules/frontend-web.md` sizes that guidance for a table at page level, where an
+                      820 px tablet leaves ~532 px after the 256 px rail. This table is nested one level
+                      further — a `Card` inside a `TabsContent` — and its box measures **451 px**, so the
+                      budget is ~80 px smaller and the threshold falls to five columns. Measured at 820×1024
+                      on 2026-09-02, and it is the `Actions` column that pays: `Button` is
+                      `whitespace-nowrap shrink-0`, so the cell cannot give width back and the table's
+                      minimum simply exceeds its box.
+
+                      | tab | cols | table | box | hidden |
+                      |---|---|---|---|---|
+                      | Rendez-vous | 7 | 764 | 451 | **313** |
+                      | Fichiers | 5 | 631 | 451 | **180** |
+                      | Dossiers médicaux | 6 | 522 | 451 | **71** |
+                      | Documents | 4 | 451 | 451 | 0 — **stays on `md:`** |
+
+                      A dentist on an iPad therefore could not see « Modifier » or « Supprimer » at all, which
+                      is what a trialling dentist reported as « editing the medical record does not work ». The
+                      card form carries the same actions (`actions` here and on Fichiers, `primaryAction` on
+                      Rendez-vous), so nothing is lost by rendering it — § 0.
 
                       No `onPageSizeChange` on purpose: `PAGE_SIZE_OPTIONS` starts at 10, so offering the
                       selector here would render a `<Select>` whose value (5) matches none of its items — and a
@@ -1776,18 +1875,11 @@ export default function PatientDetailsPage() {
                       Documents médicaux
                     </CardTitle>
                     <CardDescription>
-                      Ordonnances, certificats, lettres de liaison et bulletins CNAM enregistrés. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
+                      Tous les documents enregistrés pour ce patient. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
                     </CardDescription>
                   </div>
                   {/* P2-A: prescribe for the open patient without leaving the page / re-searching them. */}
-                  <Button
-                    size="sm"
-                    className="w-full gap-1 sm:w-auto"
-                    onClick={() => router.push(`/documents/prescription?patientId=${patientId}`)}
-                  >
-                    <FileText className="h-4 w-4" />
-                    Nouvelle ordonnance
-                  </Button>
+                  {documentTemplateActions}
                 </div>
               </CardHeader>
               <CardContent>
@@ -1800,11 +1892,7 @@ export default function PatientDetailsPage() {
                       chipClassName={zoneChipClass(ZONES.daily)}
                       title="Aucun document enregistré"
                       description="Ordonnances, certificats et bulletins CNAM apparaîtront ici."
-                      action={
-                        <Button onClick={() => router.push(`/documents/prescription?patientId=${patientId}`)}>
-                          Nouvelle ordonnance
-                        </Button>
-                      }
+                      action={documentTemplateActions}
                     />,
                   )
                 ) : (
@@ -1954,7 +2042,7 @@ export default function PatientDetailsPage() {
                     {/* The row's per-procedure left border becomes the card's accent — it is the same 4 px stripe
                         in the same place, and it is decoration, not a field whose value is a colour. */}
                     <CardList
-                      className={CARDS_ONLY}
+                      className={CARDS_ONLY_LG}
                       ariaLabel="Historique des rendez-vous"
                       items={appointmentsNewestFirst}
                       getKey={(appointment) => appointment.id}
@@ -2007,7 +2095,7 @@ export default function PatientDetailsPage() {
                         ) : null
                       }
                     />
-                    <Table containerClassName={TABLE_ONLY}>
+                    <Table containerClassName={TABLE_ONLY_LG}>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date et heure</TableHead>
@@ -2237,7 +2325,7 @@ export default function PatientDetailsPage() {
                             whole value is reachable by tapping the card — which opens the preview. The table's
                             `title=` tooltip did the same job on a desktop and nothing at all on a phone. */}
                         <CardList
-                            className={CARDS_ONLY}
+                            className={CARDS_ONLY_LG}
                             ariaLabel={currentFolderId ? "Fichiers du dossier" : "Fichiers du patient"}
                             items={filesNewestFirst}
                             getKey={(file) => file.id}
@@ -2267,7 +2355,7 @@ export default function PatientDetailsPage() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  {isPreviewableFile(file) && (
+                                  {isPreviewableFile(file, filesPolicy) && (
                                     <DropdownMenuItem onSelect={() => preview.open(file)}>
                                       Aperçu du fichier
                                     </DropdownMenuItem>
@@ -2279,7 +2367,7 @@ export default function PatientDetailsPage() {
                               </DropdownMenu>
                             )}
                           />
-                          <Table containerClassName={TABLE_ONLY}>
+                          <Table containerClassName={TABLE_ONLY_LG}>
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Nom du fichier</TableHead>
@@ -2294,7 +2382,7 @@ export default function PatientDetailsPage() {
                                 .map((file) => {
                                   const isImage = isImageFile(file)
                                   const isPdf = isPdfFile(file)
-                                  const isPreviewable = isPreviewableFile(file)
+                                  const isPreviewable = isPreviewableFile(file, filesPolicy)
 
                                   return (
                                     <TableRow 

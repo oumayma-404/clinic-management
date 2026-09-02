@@ -1,5 +1,6 @@
 import { apiGet, apiGetBlob, apiPost, apiPut, apiPostFormData, apiDelete } from './client';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
+import { PREVIEW_FILE_NAME } from '@/lib/files/preview';
 import type { PatientFileDto, PatientFileSummaryDto, PatientFolderDto } from './types';
 
 /**
@@ -74,11 +75,21 @@ export const patientFilesApi = {
   },
 
   // Upload a file
+  /**
+   * Upload a file the deployment stores.
+   *
+   * ⚠️ **`preview` is optional and is never worth failing the upload for.** It is the small stand-in the file
+   * list paints; the handler drops an unusable one and stores the file regardless, exactly as the coffre door
+   * below does. Before it was sent, no hosted file had one at all — `PreviewStorageKey` was written by the
+   * coffre registration alone — so a patient's drawer was a column of grey icons however ordinary the files in
+   * it were.
+   */
   uploadFile: async (
     patientId: string,
     file: File,
     folderId?: string,
-    description?: string
+    description?: string,
+    preview?: Blob | null
   ): Promise<PatientFileDto> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -87,6 +98,9 @@ export const patientFilesApi = {
     }
     if (description) {
       formData.append('description', description);
+    }
+    if (preview) {
+      formData.append('preview', preview, PREVIEW_FILE_NAME);
     }
 
     return apiPostFormData<PatientFileDto>(`/patients/${patientId}/files/upload`, formData);

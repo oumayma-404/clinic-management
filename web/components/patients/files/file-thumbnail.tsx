@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { cn } from "@/lib/utils"
-import type { UploadPolicy } from "@/lib/api/upload-policy"
 import type { PatientFileDto } from "@/lib/api/types"
 
 import { fileIcon, isThumbnailable } from "./file-kind"
@@ -12,19 +11,21 @@ import { fileIcon, isThumbnailable } from "./file-kind"
 /**
  * A file row's thumbnail (AC-5.2) — an image where one can be painted, the format's icon everywhere else.
  *
- * <p>Three gates before a byte is fetched: the row is **on screen** (`IntersectionObserver`), the entry is
- * **browser-previewable** per the served policy (so a HEIC shows an icon and says why rather than a broken
- * image), and the file is **small enough** to be worth downloading whole for a 40 px square — a panoramique is
- * 25 MB and forty of them is a clinic's morning.</p>
+ * <p>Two gates before a byte is fetched: the row is **on screen** (`IntersectionObserver`), and the row has a
+ * **stand-in image** to fetch. What is painted is that stand-in — a JPEG the server validated on the way in and
+ * caps at 4 Mo — never the original, so neither the original's format nor its size has any bearing here.</p>
+ *
+ * <p>⚠️ **Both of the gates that used to sit here asked about the original, and both were wrong.** One required
+ * the *original* to be browser-previewable, which hid the thumbnail of every HEIC and every TIFF whose stand-in
+ * was sitting in the object store ready to serve; the other refused any file over 8 Mo, a rule left behind from
+ * when this component downloaded the original — so a 40 Mo panoramique showed an icon to save a download nobody
+ * was making.</p>
  *
  * <p>Live object URLs are held in a bounded module pool: the oldest is revoked when the pool is full, and its
  * owner drops back to the icon rather than showing a dead `blob:` URL. Without the bound, scrolling a long
  * drawer retains every blob for the life of the tab.</p>
  */
 const MAX_LIVE_THUMBNAILS = 24
-
-/** Above this, the icon. A thumbnail is not worth a multi-megabyte download on a clinic's uplink. */
-const MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024
 
 interface PooledThumbnail {
   url: string
@@ -55,14 +56,12 @@ function release(url: string): void {
 export function FileThumbnail({
   patientId,
   file,
-  policy,
   className,
   iconClassName,
   imgClassName,
 }: {
   patientId: string
   file: PatientFileDto
-  policy?: UploadPolicy | null
   className?: string
   /** The fallback icon's size — a `h-4` glyph is right in a 40 px row and lost in a 160 px grid tile. */
   iconClassName?: string
@@ -90,11 +89,7 @@ export function FileThumbnail({
    * every non-image. **Backfilling previews for existing files restores those thumbnails** — see
    * `follow-up/security-remediation-outstanding.md`.
    */
-  const eligible =
-    isThumbnailable(file, policy) &&
-    file.hasPreview &&
-    file.fileSize > 0 &&
-    file.fileSize <= MAX_THUMBNAIL_BYTES
+  const eligible = isThumbnailable(file)
 
   const drop = useCallback(() => {
     liveUrl.current = null

@@ -2,7 +2,7 @@ import { createSHA256 } from 'hash-wasm'
 
 import { patientFilesApi } from '@/lib/api/patient-files'
 import type { PatientFileDto } from '@/lib/api/types'
-import { buildPreview } from './preview'
+import { buildPreview } from '@/lib/files/preview'
 import { removeFromVault, writeToVault } from './path'
 
 /**
@@ -52,7 +52,8 @@ export async function ingestIntoVault(
 
   const contentHash = hasher.digest('hex')
 
-  // Best-effort and never load-bearing — see preview.ts on why null is the ordinary answer today.
+  // Best-effort and never load-bearing: a coffre file with no stand-in still registers, and shows its
+  // format's icon. Since the decoders landed this is a real picture for TIFF and HEIC too.
   const preview = await buildPreview(file)
 
   try {

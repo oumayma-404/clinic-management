@@ -100,11 +100,16 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
     /*
      * ⚠️ A 404 on this route is a DEPLOYMENT FACT, remembered rather than re-discovered.
      *
-     * `ConnectivityController` gates on `ExposesTrustEndpoints`, so on `HostedMultiTenant` the endpoint is simply
-     * absent — and this probe polls, so every hosted session accumulated a run of 404s (8–22 in a short session)
-     * that read as errors while the state they produced was correct all along. The request itself has to keep
-     * happening: it is also the only thing that answers « is the clinic's server reachable at all ». What is
-     * remembered is that there will never be an egress reading here, so the absence stops being news.
+     * **The server no longer sends one.** `ConnectivityController` used to gate the whole route on
+     * `ExposesTrustEndpoints`, so on `HostedMultiTenant` it was simply absent — and this probe polls every 15 s,
+     * so a hosted browser accumulated ~240 console errors an hour per tab while the state they produced was
+     * correct all along. That is what support reads when a clinic reports a bug. The route now answers 200 with
+     * `internetReachable: null`, which the `typeof … === "boolean"` guard below already resolves to « signal
+     * absent » — so the *outcome* of this branch is unchanged and only the noise is gone.
+     *
+     * The branch stays, and is not dead: a client can be newer than the server it is talking to (a phone shell,
+     * a browser tab left open across a deploy), and the request itself must keep happening regardless — it is
+     * also the only thing that answers « is the clinic's server reachable at all ».
      */
     let egressEndpointAbsent = false
 

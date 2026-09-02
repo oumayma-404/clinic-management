@@ -1,5 +1,7 @@
 using ClinicManagement.Domain.Entities;
 
+using ClinicManagement.Application.Common.Files;
+
 namespace ClinicManagement.Application.DTOs;
 
 /// <summary>
@@ -25,7 +27,7 @@ public static class PatientFileMappingExtensions
         UploadedBy = file.UploadedBy,
         Residency = file.Residency.ToString(),
         ContentHash = file.ContentHash,
-        HasPreview = !string.IsNullOrEmpty(file.PreviewStorageKey),
+        HasPreview = PatientFilePreviewPolicy.HasSomethingToShow(file),
         Version = file.Version,
     };
 }

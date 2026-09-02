@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { patientFilesApi } from "@/lib/api/patient-files"
+import { decodeForViewing, type ArchiveListing } from "@/lib/files/decoders"
+import { findVerifiedInVault } from "@/lib/vault/path"
 import { showErrorToast } from "@/lib/errors"
 import type { UploadPolicy } from "@/lib/api/upload-policy"
 import type { PatientFileDto } from "@/lib/api/types"
 
-import { isPreviewableFile } from "./file-kind"
+import { previewMode } from "./file-kind"
 
 /**
  * Opening, holding, navigating and releasing a patient file's preview — **one copy** (AC-5.3).
@@ -15,6 +17,14 @@ import { isPreviewableFile } from "./file-kind"
  * It existed twice, in `patient-files-manager.tsx` and in `app/patients/[id]/page.tsx`, byte for byte down to
  * the object-URL revoke. Only the PDF frame had ever been extracted, so the half that leaks memory when it goes
  * wrong was the half that was duplicated.
+ *
+ * <p>⚠️ **Where the bytes come from depends on the file's residency, and getting that wrong showed « ce format
+ * ne s'affiche pas » on the one machine holding the file.** A coffre original never reached the server, so
+ * asking the server for it can only fail; it is read from the paired folder instead, and on a machine with no
+ * copy the dialog says where it is rather than reporting a failure.</p>
+ *
+ * <p>⚠️ **A format with no decoder never fetches anything.** The gate is `previewMode`, so a 150 Mo STL is not
+ * pulled across a clinic's uplink to discover that nothing can paint it.</p>
  */
 
 /**
@@ -33,9 +43,24 @@ export interface FilePreviewSequence {
   onPastEnd?: () => void
 }
 
+/** What the dialog should draw, once the bytes are in and any decoder has run. */
+export type PreviewRender = "image" | "pdf" | "archive" | "none"
+
+/** Why nothing is shown — so the dialog can say which, rather than one sentence covering both. */
+export type PreviewUnavailable =
+  /** A coffre original, and this machine is not the one holding it. */
+  | "elsewhere"
+  /** The bytes are here and nothing in this build can turn them into something to look at. */
+  | "undecodable"
+
 export interface FilePreview {
   file: PatientFileDto | null
+  /** A `blob:` URL for the `image` and `pdf` renders; null for every other. */
   url: string | null
+  /** The archive's index, for the `archive` render. */
+  archive: ArchiveListing | null
+  render: PreviewRender
+  unavailable: PreviewUnavailable | null
   loading: boolean
   files: PatientFileDto[]
   /** 1-based across the whole set, 0 when the open file is not in the sequence. */
@@ -53,9 +78,14 @@ export function useFilePreview(
   patientId: string,
   policy?: UploadPolicy | null,
   sequence?: FilePreviewSequence,
+  /** This machine's coffre, when the screen has one. Without it a coffre original reads as « elsewhere ». */
+  vault?: FileSystemDirectoryHandle | null,
 ): FilePreview {
   const [file, setFile] = useState<PatientFileDto | null>(null)
   const [url, setUrl] = useState<string | null>(null)
+  const [archive, setArchive] = useState<ArchiveListing | null>(null)
+  const [render, setRender] = useState<PreviewRender>("none")
+  const [unavailable, setUnavailable] = useState<PreviewUnavailable | null>(null)
   const [loading, setLoading] = useState(false)
 
   // The live URL, for the unmount release — reading it out of state there would capture a stale value and leak
@@ -71,6 +101,8 @@ export function useFilePreview(
   seq.current = sequence
   const policyRef = useRef(policy)
   policyRef.current = policy
+  const vaultRef = useRef(vault)
+  vaultRef.current = vault
 
   /** Discards a download that a faster arrow press has already superseded. */
   const requestId = useRef(0)
@@ -87,6 +119,9 @@ export function useFilePreview(
     release()
     setFile(null)
     setUrl(null)
+    setArchive(null)
+    setRender("none")
+    setUnavailable(null)
     setLoading(false)
   }, [release])
 
@@ -98,32 +133,64 @@ export function useFilePreview(
       const token = ++requestId.current
       setFile(target)
       setUrl(null)
+      setArchive(null)
+      setRender("none")
+      setUnavailable(null)
 
-      if (!isPreviewableFile(target, policyRef.current)) {
+      const mode = previewMode(target, policyRef.current)
+      if (mode === "none") {
         // Nothing to fetch: the dialog opens on its « télécharger pour consulter » branch rather than pulling a
-        // 150 MB study the browser cannot paint.
+        // 150 MB study nothing in this build can paint.
         setLoading(false)
         return
       }
 
       setLoading(true)
-      patientFilesApi
-        .downloadFile(patientId, target.id)
-        .then((blob) => {
+      void (async () => {
+        try {
+          const source = await sourceBytes(patientId, target, vaultRef.current ?? null)
           if (token !== requestId.current) return
-          const objectUrl = window.URL.createObjectURL(blob)
-          liveUrl.current = objectUrl
-          setUrl(objectUrl)
-        })
-        .catch((error) => {
+
+          if (!source) {
+            // ⚠️ Not an error, and not « undecodable » either. A coffre original lives on the machine that
+            // recorded it, and a colleague's laptop legitimately has no copy.
+            setUnavailable("elsewhere")
+            return
+          }
+
+          if (mode === "decode") {
+            const decoded = await decodeForViewing(source, target.fileName)
+            if (token !== requestId.current) return
+
+            if (!decoded) {
+              setUnavailable("undecodable")
+              return
+            }
+
+            if (decoded.kind === "archive") {
+              setArchive(decoded)
+              setRender("archive")
+              return
+            }
+
+            liveUrl.current = window.URL.createObjectURL(decoded.blob)
+            setUrl(liveUrl.current)
+            setRender("image")
+            return
+          }
+
+          liveUrl.current = window.URL.createObjectURL(source)
+          setUrl(liveUrl.current)
+          setRender(mode === "pdf" ? "pdf" : "image")
+        } catch (error) {
           if (token !== requestId.current) return
           // The dialog used to close itself with no explanation, which reads as « the click did nothing ».
           showErrorToast(error, "Impossible d'afficher l'aperçu de ce fichier. Essayez de le télécharger.")
           setFile(null)
-        })
-        .finally(() => {
+        } finally {
           if (token === requestId.current) setLoading(false)
-        })
+        }
+      })()
     },
     [patientId, release],
   )
@@ -152,6 +219,9 @@ export function useFilePreview(
   return {
     file,
     url,
+    archive,
+    render,
+    unavailable,
     loading,
     files,
     position: index < 0 ? 0 : (sequence?.offset ?? 0) + index + 1,
@@ -163,4 +233,24 @@ export function useFilePreview(
     prev: () => step(-1),
     next: () => step(1),
   }
+}
+
+/**
+ * The file's bytes, from wherever they actually are.
+ *
+ * ⚠️ **A coffre original is read from the disk it never left** — the same rule the download path follows
+ * (AC-9). Asking the server for one can only 404, and at Tunisia's median uplink a 400 Mo study would come back
+ * down a wire it never went up. Null means « not on this machine », which is an ordinary answer.
+ */
+async function sourceBytes(
+  patientId: string,
+  file: PatientFileDto,
+  vault: FileSystemDirectoryHandle | null,
+): Promise<Blob | null> {
+  if (file.residency === "Vault") {
+    if (!vault) return null
+    return findVerifiedInVault(vault, patientId, file.id, file.fileName, file.fileSize)
+  }
+
+  return patientFilesApi.downloadFile(patientId, file.id)
 }

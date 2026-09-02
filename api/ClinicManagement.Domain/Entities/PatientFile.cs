@@ -38,9 +38,10 @@ public class PatientFile : Entity<Guid>, IAuditable
     public string? ContentHash { get; private set; }
 
     /// <summary>
-    /// A small derived image standing in for a vault original wherever the coffre is out of reach. Null is
-    /// ordinary — nothing renders a preview of an STL yet, and a preview that came out too big is dropped rather
-    /// than allowed to become the storage problem this residency exists to avoid.
+    /// A small derived image, painted by the file list in place of the original and standing in for a vault
+    /// original wherever the coffre is out of reach. Null is ordinary — nothing renders a preview of an STL, a
+    /// preview that came out too big is dropped rather than allowed to become the storage problem the vault
+    /// residency exists to avoid, and every file stored before previews existed has none.
     /// </summary>
     public string? PreviewStorageKey { get; private set; }
 
@@ -65,7 +66,8 @@ public class PatientFile : Entity<Guid>, IAuditable
         FileType fileType,
         Guid? folderId = null,
         string? description = null,
-        string? uploadedBy = null)
+        string? uploadedBy = null,
+        string? previewStorageKey = null)
     {
         Id = id;
         PatientId = patientId;
@@ -76,6 +78,7 @@ public class PatientFile : Entity<Guid>, IAuditable
         FileSize = fileSize;
         FileType = fileType;
         Residency = FileResidency.Hosted;
+        PreviewStorageKey = previewStorageKey;
         FolderId = folderId;
         Description = description;
         UploadedBy = uploadedBy;

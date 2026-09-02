@@ -10,6 +10,7 @@ import { getErrorMessage } from "@/lib/errors"
 import { formatFileSize } from "@/lib/format"
 import { destinationFor, refusalFor, type FileDestination, type UploadPolicy } from "@/lib/api/upload-policy"
 import { ingestIntoVault } from "@/lib/vault/ingest"
+import { buildPreview } from "@/lib/files/preview"
 import { cn } from "@/lib/utils"
 
 /**
@@ -109,7 +110,11 @@ export function useUploadQueue({
                 onProgress: ({ copied }) => update(entry.item.id, { progress: copied }),
               })
             } else {
-              await patientFilesApi.uploadFile(patientId, entry.file, folderId)
+              // ⚠️ Built here, not on the server: the browser already holds the bytes and the codecs, and the
+              // clinic's own machine is idle while the upload waits. `buildPreview` returns null for anything it
+              // cannot paint, which the upload carries as « no stand-in » rather than as a failure.
+              const preview = await buildPreview(entry.file)
+              await patientFilesApi.uploadFile(patientId, entry.file, folderId, undefined, preview)
             }
 
             update(entry.item.id, { state: "done", progress: undefined })
