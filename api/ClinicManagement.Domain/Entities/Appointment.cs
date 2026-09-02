@@ -652,8 +652,10 @@ public class Appointment : AggregateRoot<Guid>
         SetProcedures(procedureTypeId.HasValue
             ? new[]
             {
+                // No agreed price: this is the one-act shorthand used by the recurring-series expansion and the
+                // older integrations, none of which negotiates — so the catalogue tarif stands.
                 new AppointmentProcedureInput(
-                    procedureTypeId, procedureName, procedureDurationMinutes, procedureColorHex, keptLink),
+                    procedureTypeId, procedureName, procedureDurationMinutes, procedureColorHex, null, keptLink),
             }
             : Array.Empty<AppointmentProcedureInput>());
 
@@ -676,8 +678,16 @@ public class Appointment : AggregateRoot<Guid>
     /// <para>
     /// Replace rather than add/remove: the picker in the booking dialog hands over the list the user is looking at,
     /// and a diffing API would need the caller to know each row's id — which for a brand-new booking it does not.
-    /// The ids are regenerated on every save, which is why <see cref="AppointmentProcedure"/> holds no state worth
-    /// preserving across one (no état, no money — the fiche de soins is where a performed act is recorded).
+    /// The ids are regenerated on every save, and nothing on <see cref="AppointmentProcedure"/> is discovered
+    /// server-side and worth preserving across one: no état, and no <b>performed</b> money — the fiche de soins is
+    /// where an act carried out is recorded and priced.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>It does carry <see cref="AppointmentProcedure.AgreedCost"/></b>, the price negotiated for this visit,
+    /// which the caller therefore has to re-send on every edit. That is the tri-state on the wire doing its job:
+    /// omitting <c>procedures</c> leaves the acts — and so the agreed prices — untouched, while sending the list
+    /// means « these acts at these prices ». Sending the list <i>without</i> the prices is how a rescheduling
+    /// would silently restore every act to its catalogue tarif.
     /// </para>
     /// </summary>
     public void SetProcedures(IEnumerable<AppointmentProcedureInput> procedures)
@@ -712,6 +722,7 @@ public class Appointment : AggregateRoot<Guid>
                 input.ProcedureName,
                 input.DurationMinutes,
                 input.ColorHex,
+                input.AgreedCost,
                 input.TreatmentPlanItemId,
                 index++));
         }

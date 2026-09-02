@@ -107,6 +107,16 @@ export const ApiErrorCode = {
    * asks them to contact us rather than to renew. Emitted by `SubscriptionRefusals.MissingCode`.
    */
   SubscriptionMissing: 'subscription_missing',
+  /**
+   * « Supprimer (créé par erreur) » was refused because the séance carries real work — a fiche de soins, or a note
+   * d'honoraires that is not cancelled. Not advisory: there is no override, because retiring such a visit would
+   * drop it from the dashboard's figures while its money stays in la caisse.
+   *
+   * The server's sentence names both possibilities and is shown verbatim. Emitted by
+   * `DisregardVisitsCommandHandler.VisitHasWorkCode`, on the single-id route only — the bulk one reports refusals
+   * in its body so that one billed row cannot fail a selection of a hundred.
+   */
+  VisitHasWork: 'visit_has_work',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */

@@ -41,8 +41,12 @@ import { ModeSegmented } from "@/components/ui/mode-segmented"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { AppointmentActsPicker, totalActsDuration, type SelectedAct } from "@/components/appointment-acts-picker"
+import {
+  AppointmentActsPicker, hasInvalidAgreedCost, negotiatedTotalOf, toProcedurePayloads, totalActsDuration,
+  type SelectedAct,
+} from "@/components/appointment-acts-picker"
 import { getErrorMessage } from "@/lib/errors"
+import { formatAmount } from "@/lib/format"
 import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
@@ -64,6 +68,15 @@ export interface PresetPlanAct {
   procedureTypeId?: string
   /** Désignation, for the « devis » chip and the header summary. */
   label: string
+  /**
+   * The price the devis put on this step. It seeds « Prix pour ce rendez-vous » so the visit is booked at the
+   * price the patient was quoted, not at the catalogue tarif the devis may well have discounted away from.
+   *
+   * <p>⚠️ Seeded as **typed**, not as an untouched field: a plan step's price is an agreed price, so it is sent
+   * and carried into the fiche. Editing it here changes this visit only — the devis keeps its own figure, and a
+   * price haggled on the telephone cannot rewrite a quote the patient may have signed.</p>
+   */
+  plannedCost?: number | null
 }
 
 /**
@@ -318,6 +331,10 @@ export function CreateAppointmentDialog({
         treatmentPlanItemId: a.planItemId,
         planLabel: "devis",
         fallbackName: a.label,
+        // The devis' own figure, seeded as typed — see `PresetPlanAct.plannedCost`. A step priced at 0 is left
+        // alone: the plan has not costed it, so the catalogue tarif is the better answer than a free act.
+        agreedCost:
+          a.plannedCost != null && a.plannedCost > 0 ? formatAmount(a.plannedCost) : undefined,
       })),
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -539,6 +556,7 @@ export function CreateAppointmentDialog({
     startMinute,
     durationMinutes: calculatedDuration,
     actNames,
+    negotiatedTotal: negotiatedTotalOf(selectedActs, procedureTypes),
     doctorName: selectedDoctorName,
     warning: overlapWarning
       ? { message: overlapWarning, samePractitioner: overlapSamePractitioner }
@@ -589,6 +607,13 @@ export function CreateAppointmentDialog({
 
     if (calculatedDuration <= 0) {
       setError("La durée doit être supérieure à 0")
+      return false
+    }
+
+    // Refused here rather than sent: `agreedCostOf` reads an unparseable amount as null, so a typo like « 12O »
+    // would book the visit silently at the catalogue tarif — the one figure the user was overriding.
+    if (selectedActs.some(hasInvalidAgreedCost)) {
+      setError("Corrigez le prix d'un acte : saisissez un montant en dinars, par exemple 120,000.")
       return false
     }
 
@@ -678,12 +703,7 @@ export function CreateAppointmentDialog({
       // The séance's acts. A « créneau occupé » carries none by definition — no patient, so no clinical act.
       // A row with a null procedure is a devis link with no catalog act behind it; the server accepts those and
       // names them from the plan step's désignation.
-      const procedures = isBusySlot
-        ? []
-        : selectedActs.map((a) => ({
-            procedureTypeId: a.procedureTypeId,
-            treatmentPlanItemId: a.treatmentPlanItemId ?? null,
-          }))
+      const procedures = isBusySlot ? [] : toProcedurePayloads(selectedActs)
 
       // Create appointment
       const created = await appointmentsApi.create({

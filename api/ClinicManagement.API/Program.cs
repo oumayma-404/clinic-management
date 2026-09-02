@@ -1190,6 +1190,22 @@ try
         job => job.FlagExpiringStock(),
         Cron.Daily(6));
 
+    // Les dépenses mensuelles (caisse-monthly-expenses) — daily, unconditional and deliberately NOT
+    // connectivity-gated, for the expiry scan's reason: it writes a database row, so it has to work on an
+    // offline LAN install.
+    //
+    // ⚠️ Daily and CATCH-UP, not a monthly cron. A `Cron.Monthly` would fire on one nominated day, so a clinic PC
+    // switched off across it would skip that month's loyer for ever, silently. The pass posts every month between
+    // each series' marker and today instead, which makes the schedule a liveness question rather than a
+    // correctness one — being late costs a day, being absent costs nothing.
+    //
+    // 05:00 UTC = 06:00 in Tunis: after the day has turned everywhere, and before the cabinet opens, so the
+    // dépense is already in la caisse the first time somebody looks at it.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.MonthlyExpenseJob>(
+        "post-monthly-expenses",
+        job => job.PostDueMonthlyExpenses(),
+        Cron.Daily(5));
+
     // Housekeeping for the session table (« Rester connecté sur cet appareil »). `PurgeExpiredAsync` had shipped
     // with no caller at all, which was harmless while every row expired within 12 h of its last use; a trusted
     // device's row now lives 30 days past its last rotation, and the read behind « Mes appareils » walks that

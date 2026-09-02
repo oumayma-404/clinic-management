@@ -147,11 +147,14 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     return Result<RecurringSeriesResultDto>.Failure("Type d'acte introuvable.");
                 if (!procedureType.IsActive)
                     return Result<RecurringSeriesResultDto>.Failure("Le type d'acte sélectionné est inactif.");
+                // No agreed price: a series repeats a standing appointment, and a price haggled once is not a
+                // price agreed for every occurrence. Each visit can still be negotiated by editing it.
                 seriesProcedures.Add(new AppointmentProcedureInput(
                     procedureType.Id,
                     procedureType.Name,
                     procedureType.DefaultDurationMinutes,
                     procedureType.Color.Value,
+                    null,
                     null));
                 if (durationMinutes <= 0)
                     durationMinutes = procedureType.DefaultDurationMinutes;
@@ -238,7 +241,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 // always false, so the whole clause was dead. `CompetesFor` is what decides now — see its remarks
                 // for why an unassigned row competes with everything.
                 var collides = existing.Any(e =>
-                    AppointmentScheduling.OccupiesSlot(e.Status) &&
+                    AppointmentScheduling.OccupiesSlot(e) &&
                     AppointmentScheduling.CompetesFor(request.DoctorId, e.DoctorId) &&
                     AppointmentScheduling.Overlaps(e.AppointmentDateTime, e.Duration, occ, duration));
 

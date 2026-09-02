@@ -219,6 +219,16 @@ export function CaisseLedgerTable({
           // omitted, not rendered as « — » »).
           { label: "Chèque", value: chequeSummary(m) },
         ]}
+        /*
+          ⚠️ The card list had NO actions at all, so every « Corriger » on this statement — the payment-date
+          correction, the note's own correction, and now « Modifier la dépense » — existed on a desk machine and
+          nowhere else. That is § 0: the capability was removed by the choice of tree, not by any platform limit.
+          `CaisseRowActions` returns null for a row it has nothing to offer, so a card with no action gets no
+          menu rather than an empty one.
+        */
+        actions={
+          onChanged ? (m) => <CaisseRowActions movement={m} onChanged={onChanged} /> : undefined
+        }
       />
       {movements.length > 0 && closingBalance !== undefined && (
         <p className="border-t px-3 py-2 text-2xs text-muted-foreground md:hidden">
@@ -241,7 +251,18 @@ export function CaisseLedgerTable({
                 a figure a reader will take for the money in the drawer. */}
             <TableHead className="text-right">Solde de la période</TableHead>
             {onChanged && (
-              <TableHead className="w-10 text-right">
+              /*
+                ⚠️ **Sticky to the right edge of the scrollport**, and this is a § 0 fix rather than polish.
+                Nine columns come to 913 px at min-content, so measured against this card's own box the actions
+                column sat OUTSIDE the visible area from 1024 px all the way to 1366 px — every ordinary 1280 px
+                laptop — and only the horizontal drag most people never try could reach it. That column is the
+                only way to correct a payment's date, open a note's correction, or edit and delete a dépense.
+                `sticky` keeps it in view at any width without dropping a column, the same technique
+                `TableEmptyRow` already uses on the other edge of this very table.
+                It needs its own opaque background or the scrolled cells slide under it, and the `border-s`
+                hairline is what stops it reading as part of « Solde de la période ».
+              */
+              <TableHead className="sticky end-0 w-10 border-s bg-card text-right">
                 <span className="sr-only">Corriger</span>
               </TableHead>
             )}
@@ -328,7 +349,10 @@ export function CaisseLedgerTable({
                 </TableCell>
                 <TableCell numeric>{formatDT(movement.runningBalance)}</TableCell>
                 {onChanged && (
-                  <TableCell numeric className="w-10">
+                  /* `bg-card` for the same reason as the header — see its note. It deliberately does NOT tint
+                     with the row's hover: a sticky cell paints over the row's own background, so inheriting it
+                     is not available, and an opaque column that stays put is worth more than a hover tint. */
+                  <TableCell numeric className="sticky end-0 w-10 border-s bg-card">
                     <CaisseRowActions movement={movement} onChanged={onChanged} />
                   </TableCell>
                 )}

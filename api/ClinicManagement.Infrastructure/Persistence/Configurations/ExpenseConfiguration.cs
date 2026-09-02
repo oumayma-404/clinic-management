@@ -43,6 +43,14 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
         builder.Property(e => e.Description)
             .HasMaxLength(1000);
 
+        // ⚠️ `SetNull`, never `Cascade`. This column says where the row CAME FROM; the money is the row's own.
+        // A cascade would let removing a monthly commitment delete every dépense it ever posted — silently
+        // raising the reported Net of every period the series ran through.
+        builder.HasOne<RecurringExpense>()
+            .WithMany()
+            .HasForeignKey(e => e.RecurringExpenseId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.Property(e => e.CreatedAt)
             .IsRequired();
 

@@ -86,6 +86,18 @@ function derivePerTooth(act: SessionAct, toothCount: number): boolean {
   return act.resultingCondition != null
 }
 
+/**
+ * One act booked into the rendez-vous, as the fiche proposes it.
+ *
+ * <p>⚠️ `agreedCost` is **required**, not optional — `null` has to be written out. The fiche prices a booked act
+ * from the catalogue, so a caller that simply omits the price gets the tarif silently; making the field
+ * mandatory turns that omission into a compile error instead of a wrong number on a patient's note.</p>
+ */
+export interface BookedActPrefill {
+  procedure: ProcedureTypeDto
+  agreedCost: number | null
+}
+
 /** A treatment-plan step's values carried into the first act when the step is linked. */
 export interface PlanItemPrefill {
   designationFr?: string
@@ -123,6 +135,107 @@ export function hasInvalidPrice(unitCost: string): boolean {
   return !Number.isFinite(unit) || unit < 0
 }
 
+/**
+ * Rewrite the named acts so the séance bills **exactly** `target` — the « je fais ça à 1 000 » a cabinet
+ * settles at the chair, entered as one figure instead of re-pricing each act by hand.
+ *
+ * <p><b>Why this rewrites the ACTS rather than storing a total.</b> The total on screen is
+ * `Σ actTotal(namedActs)` and stays that way. A separate « overridden total » field would be a second source
+ * of truth, and the one that loses is the one that bills: `DentalRecordInvoiceLines` prices the note from each
+ * act's own `Cost`, so a total stored beside the acts would print on the fiche and never reach the invoice,
+ * la caisse or the patient's balance. Pushing the figure down into the acts is what makes every downstream
+ * read agree by construction — and it is also what makes « the user edits an act afterwards » need no conflict
+ * logic at all: the total is derived, so it simply follows again. Whoever typed last wins, always.</p>
+ *
+ * <p><b>Proportional, not an equal subtraction.</b> Taking the difference off each act in equal parts is the
+ * obvious reading and it breaks on the ordinary case: a 1 000 couronne beside a 200 détartrage, brought to
+ * 1 000, would be 900 and 100 — a 10 % discount on one and half price on the other — and with a wider spread
+ * it drives the smaller act negative, which is the edge case that has to be defended against rather than
+ * produced. Scaling by share keeps each act's price recognisable, can never change a sign, and on the case
+ * that prompted this — two equal acts, 1 200 → 1 000 — gives exactly the −100 each that was asked for.</p>
+ *
+ * <p>⚠️ <b>The arithmetic is in millimes, as integers.</b> Shares of a total do not divide evenly, and three
+ * floats rounded independently do not add up to the figure the dentist typed — they land a millime out, which
+ * on this screen reads as the app refusing the number. Largest-remainder over integers makes the parts sum to
+ * the goal exactly.</p>
+ *
+ * <p>⚠️ <b>An act only stays « /dent » when the new amount divides evenly across its teeth.</b> Otherwise it
+ * becomes a forfait at that amount. A unit price that does not multiply back — 250 over 3 teeth is 83,333, and
+ * ×3 that is 249,999 — would quietly re-inflate or shrink the total the moment anything recomputed it, and the
+ * negotiated-price feature learned the same lesson one surface over: a total cannot be turned back into a unit
+ * price. Where it *does* divide, the per-tooth reading is kept, because the invoice renders it as « 3 × 80 »
+ * and that is the line a patient and a caisse can check.</p>
+ *
+ * <p>⚠️ <b>Both locks are set.</b> Without `unitCostLocked` the catalogue re-prices the act the next time its
+ * card is touched, and without `perToothLocked` the per-tooth default re-arms on the next tooth — either one
+ * silently discards the figure that was just agreed.</p>
+ *
+ * <p>An act the dentist has not named is left alone: it is the trailing blank card, it is not saved, and
+ * giving it a price would make it saveable.</p>
+ */
+export function distributeSessionTotal(acts: SessionAct[], target: number): SessionAct[] {
+  const named = acts.filter(isActNamed)
+  if (named.length === 0) return acts
+
+  // Integer millimes throughout — see the note above on why floats cannot hit the typed figure.
+  const goalM = Math.max(0, Math.round(roundMillimes(target) * 1000))
+  const currentM = named.map((a) => Math.round(actTotal(a) * 1000))
+  const currentTotalM = currentM.reduce((sum, c) => sum + c, 0)
+
+  // Each act's exact share, kept as a numerator so the remainder can be handed out by size rather than by
+  // position. With nothing priced yet there is no share to preserve, so the goal is split evenly — the only
+  // honest reading of « these three acts come to 600 » when all three are blank.
+  const exact = currentM.map((c) =>
+    currentTotalM > 0 ? (c * goalM) / currentTotalM : goalM / named.length,
+  )
+  const partsM = exact.map((v) => Math.floor(v))
+  let leftover = goalM - partsM.reduce((sum, p) => sum + p, 0)
+
+  // Largest-remainder: the millimes that did not divide go to the acts closest to their next whole millime,
+  // and ties go to the bigger act. Handing them all to the first act instead would visibly distort a small one.
+  const byRemainder = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac || partsM[b.i] - partsM[a.i])
+  for (let n = 0; n < byRemainder.length && leftover > 0; n++, leftover--) {
+    partsM[byRemainder[n].i] += 1
+  }
+
+  /*
+   * Nothing that was priced falls to zero while there is money left to spread — « gratuit » is a real thing a
+   * cabinet does, but it should be typed, not arrived at by rounding. One millime is enough to keep the act
+   * out of that reading, and it is taken from the largest act, which can always spare it.
+   */
+  if (goalM > 0) {
+    for (let i = 0; i < partsM.length; i++) {
+      if (partsM[i] !== 0 || currentM[i] === 0) continue
+      let donor = -1
+      for (let j = 0; j < partsM.length; j++) {
+        if (partsM[j] > 1 && (donor === -1 || partsM[j] > partsM[donor])) donor = j
+      }
+      if (donor === -1) break
+      partsM[donor] -= 1
+      partsM[i] += 1
+    }
+  }
+
+  const amountByKey = new Map<string, number>()
+  named.forEach((a, i) => amountByKey.set(a.key, partsM[i]))
+
+  return acts.map((act) => {
+    const amountM = amountByKey.get(act.key)
+    if (amountM === undefined) return act
+    const teeth = act.toothNumbers.length
+    const keepPerTooth = act.perTooth && teeth > 0 && amountM % teeth === 0
+    return {
+      ...act,
+      unitCost: formatAmount((keepPerTooth ? amountM / teeth : amountM) / 1000),
+      perTooth: keepPerTooth,
+      unitCostLocked: true,
+      perToothLocked: true,
+    }
+  })
+}
+
 interface SessionState {
   acts: SessionAct[]
   /**
@@ -137,7 +250,7 @@ export type SessionAction =
   | { type: "reset"; record?: DentalRecordDto | null }
   | { type: "focusAct"; key: string }
   | { type: "addAct" }
-  | { type: "addFromProcedure"; procedure: ProcedureTypeDto }
+  | { type: "addFromProcedure"; procedure: ProcedureTypeDto; agreedCost?: number | null }
   | { type: "removeAct"; key: string }
   | { type: "patchAct"; key: string; patch: Partial<SessionAct> }
   | { type: "pickProcedure"; key: string; procedure: ProcedureTypeDto }
@@ -148,8 +261,10 @@ export type SessionAction =
   | { type: "toggleTooth"; tooth: number }
   | { type: "selectMany"; teeth: number[]; additive: boolean }
   | { type: "clearTeeth" }
-  | { type: "applyAppointment"; procedure: ProcedureTypeDto }
+  | { type: "applyAppointment"; procedures: BookedActPrefill[] }
   | { type: "applyPlanItem"; item: PlanItemPrefill }
+  /** The dentist typed the séance total; the acts follow. See {@link distributeSessionTotal}. */
+  | { type: "setTotal"; total: number }
 
 /**
  * Load a persisted act back into the editor. The pricing intent is read from the stored provenance and is
@@ -208,7 +323,32 @@ const withTeeth = (act: SessionAct, toothNumbers: number[]): SessionAct => ({
   perTooth: derivePerTooth(act, toothNumbers.length),
 })
 
-function applyProcedure(act: SessionAct, pt: ProcedureTypeDto): SessionAct {
+/**
+ * @param agreedCost
+ *   The price negotiated for this act on the rendez-vous it was booked into, when there was one. It **wins over
+ *   the catalogue tarif and arrives locked**: the whole point of typing a figure into the booking dialog is that
+ *   the patient was quoted it, so re-pricing the act from the catalogue the next time the card is touched would
+ *   undo the negotiation at the one moment nobody is looking at the number.
+ *
+ *   <p>⚠️ It is a **forfait**, hence `perTooth: false` with `perToothLocked` — see
+ *   `AppointmentProcedure.AgreedCost`. Teeth are unknown at booking, so « 120 DT » cannot be a unit price
+ *   without silently billing 240 for the two extractions it was agreed for.</p>
+ */
+function applyProcedure(act: SessionAct, pt: ProcedureTypeDto, agreedCost?: number | null): SessionAct {
+  if (agreedCost != null) {
+    return {
+      ...act,
+      procedureTypeId: pt.id,
+      procedureName: pt.name,
+      unitCost: formatAmount(agreedCost),
+      unitCostLocked: true,
+      perTooth: false,
+      perToothLocked: true,
+      resultingCondition: pt.resultingCondition ?? null,
+      picking: false,
+    }
+  }
+
   const next: SessionAct = {
     ...act,
     procedureTypeId: pt.id,
@@ -251,9 +391,12 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       // The « aussi prévu à ce rendez-vous » shortcuts: fill the trailing blank if there is one, else append.
       const last = state.acts[state.acts.length - 1]
       if (last && !isActTouched(last)) {
-        return { ...mapAct(state, last.key, (a) => applyProcedure(a, action.procedure)), focusKey: last.key }
+        return {
+          ...mapAct(state, last.key, (a) => applyProcedure(a, action.procedure, action.agreedCost)),
+          focusKey: last.key,
+        }
       }
-      const act = applyProcedure(emptyAct(makeKey(state.nextKey)), action.procedure)
+      const act = applyProcedure(emptyAct(makeKey(state.nextKey)), action.procedure, action.agreedCost)
       return { acts: [...state.acts, act], focusKey: act.key, nextKey: state.nextKey + 1 }
     }
 
@@ -339,12 +482,16 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       return mapAct(state, focused.key, (a) => withTeeth(a, []))
 
     case "applyAppointment": {
-      // Option C: the booked procedure PROPOSES the act. Only ever fills an untouched session — reopening a saved
-      // record, or a session the dentist has already started, is never overwritten. Nothing is committed: the
-      // proposal is an ordinary card the dentist can change or delete.
+      // ⚠️ EVERY booked act is proposed, not just the first, and the séance's own total is why: with one card the
+      // fiche showed « 1 acte » and one act's money for a visit booked for three, so the others were missed and
+      // never billed. They are ordinary cards — deletable, and a deleted one is offered back — so an act that was
+      // not performed is removed rather than never mentioned.
       const first = state.acts[0]
-      if (state.acts.length !== 1 || isActNamed(first)) return state
-      return { ...mapAct(state, first.key, (a) => applyProcedure(a, action.procedure)), focusKey: first.key }
+      if (state.acts.length !== 1 || isActNamed(first) || action.procedures.length === 0) return state
+      const acts = action.procedures.map((p, i) =>
+        applyProcedure(i === 0 ? first : emptyAct(makeKey(state.nextKey + i - 1)), p.procedure, p.agreedCost),
+      )
+      return { acts, focusKey: acts[0].key, nextKey: state.nextKey + action.procedures.length - 1 }
     }
 
     case "applyPlanItem": {
@@ -363,6 +510,9 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       }
       return { ...state, acts: [withTeeth(next, teeth)], focusKey: first.key }
     }
+
+    case "setTotal":
+      return { ...state, acts: distributeSessionTotal(state.acts, action.total) }
 
     default:
       return state

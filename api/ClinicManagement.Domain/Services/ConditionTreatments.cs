@@ -37,8 +37,22 @@ public static class ConditionTreatments
 {
     private static readonly IReadOnlyList<TreatmentSelector> None = Array.Empty<TreatmentSelector>();
 
-    /// <summary>Restore, then endo, then crown, then take it out. Shared by the three conditions that damage a
-    /// tooth the same way and are answered by the same ladder.</summary>
+    /// <summary>
+    /// Restore, then endo, then crown, then take it out. Shared by the three conditions that damage a tooth the
+    /// same way and are answered by the same ladder.
+    ///
+    /// <para>⚠️ A rung selects by <b>state produced</b>, so it collects every act that produces it — including
+    /// two a dentist would not pick for a *virgin* carie: « Retraitement endodontique » (rung 1: one cannot
+    /// re-treat a canal never treated) and « Extraction de racine (alvéolectomie) » (rung 3: that is for a root
+    /// whose crown is gone). Both are correct on the ladders they belong to — a retreatment for
+    /// `TraitementDeCanal` and `LesionPeriapicale`, an alveolectomy for `RacineResiduelle` — and both chart their
+    /// state correctly, which is what puts them here.</para>
+    ///
+    /// <para>Left as noise on purpose. Excluding them needs the table to <b>name an act</b>, which is the one
+    /// thing this type refuses to do: the moment it does, renaming an act in a clinic's catalogue breaks the
+    /// mapping silently. The rungs are ordered, the sensible act is first and pre-filled, and a dentist reads
+    /// past the rest — a worse trade than either naming acts or dropping their (correct) charting.</para>
+    /// </summary>
     private static readonly TreatmentSelector[] RestoreThenEscalate =
     [
         new(Produces: ToothCondition.Obturation),
@@ -76,11 +90,10 @@ public static class ConditionTreatments
 
         // ⚠️ No act leaves `Bridge` behind — the seeded catalogue files « Couronne / bridge (par élément) » under
         // Couronne — so inverting ResultingCondition left a Bridge diagnosis with no act and no cost at all.
-        [ToothCondition.Bridge] =
-        [
-            new(Category: "Prothèse fixe"),
-            new(Produces: ToothCondition.Couronne),
-        ],
+        // ⚠️ `Produces`, not the discipline. « Couronne / bridge (par élément) » is the act, and it is the one
+        // that produces `Couronne` — while a `Category: "Prothèse fixe"` selector also swept in the inlay-core and
+        // the couronne provisoire, tying the first rung and silently removing this diagnosis' pre-fill.
+        [ToothCondition.Bridge] = [new(Produces: ToothCondition.Couronne)],
 
         /*
          * ⚠️ A missing tooth is REPLACED, never extracted again. Inverting ResultingCondition answered
@@ -89,7 +102,11 @@ public static class ConditionTreatments
         [ToothCondition.ExtraitAbsent] =
         [
             new(Produces: ToothCondition.Implant),
-            new(Category: "Prothèse fixe"),
+            // Same correction as Bridge above: the bridge, not everything filed beside it.
+            new(Produces: ToothCondition.Couronne),
+            // ⚠️ Still a discipline, because nothing charts a removable prosthesis — so « Réparation / rebasage »
+            // and « Gouttière occlusale » are offered here too. Coarse, and accepted: a denture really is the
+            // answer to a missing tooth, and no `Produces` value exists to say so more precisely.
             new(Category: "Prothèse amovible"),
         ],
 

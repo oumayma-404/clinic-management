@@ -235,7 +235,13 @@ export type VisitClosureStep = 'Presence' | 'Fiche' | 'Billing';
  */
 export interface VisitToCloseDto {
   appointmentId: string;
-  patientId: string;
+  /**
+   * Null for a « créneau occupé ». Only ever null in the **retirées** half — a blocked slot has nothing to close,
+   * so it never reaches the worklist, but « Supprimer (créé par erreur) » can retire one from the agenda and this
+   * list is the only way back. Never build a `/patients/{id}` link from it without testing it first.
+   */
+  patientId: string | null;
+  /** The patient's name, or « Créneau occupé » when `patientId` is null. */
   patientName: string;
   /** Slot start, UTC. */
   appointmentDateTime: string;
@@ -545,6 +551,11 @@ export interface AppointmentProcedureDto {
   colorHex?: string | null;
   /** The devis act this line carries out — how a grouped séance reports each of its steps. */
   treatmentPlanItemId?: string | null;
+  /**
+   * The price agreed for this act at this visit — a **forfait**, not a per-tooth rate — or null when nothing was
+   * negotiated and the catalogue tarif stands. What the fiche de soins prices the act at.
+   */
+  agreedCost?: number | null;
   sequenceNumber: number;
 }
 
@@ -1238,8 +1249,33 @@ export interface ExpenseDto {
   amount: number;
   method: string;
   description?: string | null;
+  /** Set when a monthly series posted this row — la caisse marks it « mensuelle ». */
+  recurringExpenseId?: string | null;
   createdAt: string;
   updatedAt?: string | null;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
+}
+
+/**
+ * A dépense that repeats every month — a loyer, a salaire, a credit instalment.
+ *
+ * ⚠️ It is a **standing instruction**, not period data: it carries no date and no window, and « Modifier »
+ * changes what FUTURE months will post. The occurrences already in la caisse are ordinary `ExpenseDto` rows that
+ * keep the figure they were recorded with.
+ */
+export interface RecurringExpenseDto {
+  id: string;
+  category: string;
+  amount: number;
+  method: string;
+  description?: string | null;
+  /** 1–31. A 29–31 is clamped to a shorter month's last day when the row is posted. */
+  dayOfMonth: number;
+  /** `AAAA-MM` — the last month posted. */
+  lastPostedMonth: string;
+  /** `AAAA-MM` — the month the next occurrence is owed for. Derived server-side, so the client does no month maths. */
+  nextMonth: string;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
   version: number;
 }

@@ -27,6 +27,9 @@ public static class AppointmentProcedureMapping
                 DurationMinutes = p.DurationMinutes,
                 ColorHex = p.ProcedureType?.Color.Value ?? p.ColorHex,
                 TreatmentPlanItemId = p.TreatmentPlanItemId,
+                // Never falls back to the catalogue's DefaultCost: null here means « nothing was negotiated », and
+                // the client is what decides that a missing agreed price shows the tarif instead.
+                AgreedCost = p.AgreedCost,
                 SequenceNumber = p.SequenceNumber,
             })
             .ToList();

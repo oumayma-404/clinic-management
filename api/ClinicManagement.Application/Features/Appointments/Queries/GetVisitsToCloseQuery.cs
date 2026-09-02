@@ -115,7 +115,11 @@ public class GetVisitsToCloseQueryHandler
             // « retirées » are complements of each other by construction rather than by two queries agreeing.
             var open = request.Disregarded ? worklist.Disregarded : worklist.Open;
 
+            // A « créneau occupé » has no patient to resolve. It reaches this list only as a *retired* row — a
+            // blocked slot has nothing to close — and only because « Supprimer (créé par erreur) » can retire one
+            // from the agenda, which makes this the one screen that can give it back.
             var patientIds = open
+                .Where(o => o.Appointment.PatientId.HasValue)
                 .Select(o => o.Appointment.PatientId!.Value)
                 .Distinct()
                 .ToList();
@@ -156,13 +160,17 @@ public class GetVisitsToCloseQueryHandler
         IReadOnlyDictionary<Guid, string> roster)
     {
         var a = open.Appointment;
-        var patientId = a.PatientId!.Value;
+        var patientId = a.PatientId;
 
-        // A patient the batch could not resolve is named honestly rather than left blank: an empty cell on a
-        // worklist is indistinguishable from a rendering fault, and the visit still needs closing.
-        var patientName = patients.TryGetValue(patientId, out var patient)
-            ? $"{patient.FirstName} {patient.LastName}".Trim()
-            : "Patient introuvable";
+        // Three cases, and the middle one is the reason this is not a `TryGetValue` with one fallback. A patient
+        // the batch could not resolve is named honestly rather than left blank — an empty cell on a worklist is
+        // indistinguishable from a rendering fault — and a « créneau occupé » has no patient at all, which is a
+        // fact about the row rather than a lookup that failed.
+        var patientName = patientId is null
+            ? "Créneau occupé"
+            : patients.TryGetValue(patientId.Value, out var patient)
+                ? $"{patient.FirstName} {patient.LastName}".Trim()
+                : "Patient introuvable";
 
         return new VisitToCloseDto
         {

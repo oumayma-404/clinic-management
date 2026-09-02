@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using MediatR;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Expenses.Commands;
 using ClinicManagement.Application.Features.Expenses.Queries;
@@ -98,6 +100,52 @@ public class ExpensesController : ApiControllerBase
         var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
+
+    /// <summary>
+    /// « Dépenses mensuelles » — the clinic's standing monthly commitments (loyer, salaire, crédit).
+    ///
+    /// <para>No window and no paging, unlike every other read la caisse makes: a series is a standing
+    /// instruction rather than period data. Active only — a stopped series is off the list.</para>
+    /// </summary>
+    [HttpGet("recurring")]
+    public async Task<ActionResult<IReadOnlyList<RecurringExpenseDto>>> GetRecurringExpenses()
+    {
+        var result = await _mediator.Send(new GetRecurringExpensesQuery());
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Modify a monthly dépense. Future months only — the occurrences already posted are untouched.</summary>
+    [HttpPut("recurring/{id:guid}")]
+    public async Task<ActionResult<RecurringExpenseDto>> UpdateRecurringExpense(
+        Guid id,
+        [FromBody] UpdateRecurringExpenseCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result, NotFoundOrBadRequest(result)) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Arrêter » a monthly dépense — the credit is paid off. Not a deletion: nothing already posted moves, and
+    /// the series is kept, stopped, so the journal can still say what those dépenses were.
+    /// </summary>
+    [HttpPost("recurring/{id:guid}/stop")]
+    public async Task<IActionResult> StopRecurringExpense(Guid id)
+    {
+        var result = await _mediator.Send(new StopRecurringExpenseCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result, NotFoundOrBadRequest(result)) : NoContent();
+    }
+
+    /// <summary>
+    /// 404 for a series that is not this clinic's (or has been stopped), 400 for a refused field.
+    ///
+    /// <para>Branching on the <c>Code</c>, never on the sentence — a reworded French message must not change a
+    /// status code. See <c>OdontogramController</c> for the same shape.</para>
+    /// </summary>
+    private static int NotFoundOrBadRequest(Result result) =>
+        result.Code == UpdateRecurringExpenseCommand.NotFoundCode
+            ? StatusCodes.Status404NotFound
+            : StatusCodes.Status400BadRequest;
 
     /// <summary>Update an existing expense.</summary>
     [HttpPut("{id:guid}")]

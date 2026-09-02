@@ -124,13 +124,21 @@ export function VisitClosureList({
     }
   }
 
-  /** The patient page's own record modal, through the deep link the post-visit prompt already uses. */
-  const openFiche = (visit: VisitToCloseDto) =>
+  /**
+   * The patient page's own record modal, through the deep link the post-visit prompt already uses.
+   *
+   * ⚠️ Guarded on the patient because `patientId` is null for a « créneau occupé ». Unreachable in practice — a
+   * blocked slot has nothing to close, so it only ever appears in the *retirées* half, whose rows offer nothing but
+   * « Remettre dans la liste » — but a deep link built from `null` would navigate to `/patients/null`.
+   */
+  const openFiche = (visit: VisitToCloseDto) => {
+    if (!visit.patientId) return
     router.push(
       `/patients/${encodeURIComponent(visit.patientId)}?addRecord=1&appointmentId=${encodeURIComponent(
         visit.appointmentId,
       )}`,
     )
+  }
 
   /**
    * « Encaisser » — the fiche's own `BillDentalRecordDialog`, opened here rather than on the patient page.
@@ -139,7 +147,7 @@ export function VisitClosureList({
    * action, and the alternative was landing the user on a records tab to find the séance themselves.
    */
   const openBilling = async (visit: VisitToCloseDto) => {
-    if (!visit.dentalRecordId) return
+    if (!visit.dentalRecordId || !visit.patientId) return
     setBusyId(visit.appointmentId)
     try {
       const records = await dentalRecordsApi.list(visit.patientId)
@@ -248,7 +256,13 @@ export function VisitClosureList({
                             className="absolute inset-y-0 start-0 w-[3px]"
                             style={{ backgroundColor: stripeFor(visit) }}
                           />
-                          <PatientNameLink patientId={visit.patientId} name={visit.patientName} />
+                          {/* « Créneau occupé » is a name with no fiche behind it, so it is text, not a link —
+                              a link to `/patients/null` is worse than no link. */}
+                          {visit.patientId ? (
+                            <PatientNameLink patientId={visit.patientId} name={visit.patientName} />
+                          ) : (
+                            <span className="text-muted-foreground">{visit.patientName}</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           <div>{formatDateTime(visit.appointmentDateTime)}</div>
@@ -316,7 +330,9 @@ export function VisitClosureList({
                     title={(v) => v.patientName}
                     // The table's stripe, through the primitive's own accent bar — same hue, same meaning.
                     accent={stripeFor}
-                    href={(v) => `/patients/${encodeURIComponent(v.patientId)}`}
+                    // Undefined for a « créneau occupé » — the primitive renders such a row as plain, unlinked
+                    // content, which is right: a blocked slot has no fiche to open.
+                    href={(v) => (v.patientId ? `/patients/${encodeURIComponent(v.patientId)}` : undefined)}
                     subtitle={(v) => formatDateTime(v.appointmentDateTime)}
                     status={(v) => <ClosureProgress visit={v} />}
                     fields={(v) => [
@@ -586,7 +602,13 @@ function RowActions({
         variant="outline"
         disabled={busy}
         onClick={() => void onRestore(visit)}
-        aria-label={`Remettre la séance de ${visit.patientName} dans la liste`}
+        /* « de {nom} » only when there is a name — `patientName` is « Créneau occupé » for a blocked slot, and
+           « Remettre la séance de Créneau occupé » is what the naive template reads out. */
+        aria-label={
+          visit.patientId
+            ? `Remettre la séance de ${visit.patientName} dans la liste`
+            : `Remettre le créneau occupé du ${formatDateTime(visit.appointmentDateTime)} dans la liste`
+        }
       >
         <Undo2 aria-hidden="true" className="me-1.5 size-4" />
         Remettre dans la liste

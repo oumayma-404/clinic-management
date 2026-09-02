@@ -77,7 +77,16 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
             // Which of these visits are already billed (AC-P6.13). One batched read for the whole window, not
             // one per row — and bounded by the window, so the agenda does not pull every appointment-linked
             // invoice the clinic has ever raised.
-            var appointmentList = appointments.ToList();
+            // ⚠️ A séance retirée is gone from this read, and that is what makes « Supprimer (créé par erreur) »
+            // mean anything: the mark already leaves the dashboard's figures, but a row the user was told they
+            // deleted must also stop drawing itself on the agenda and in the patient's history.
+            //
+            // ⚠️ Filtered HERE and not in `AppointmentRepository.GetByClinicIdAsync`. That method also feeds
+            // `AppointmentScheduling.FindCollisionAsync`, and the database's exclusion constraint holds the slot on
+            // `Status NOT IN (5, 6)` — a retired séance is still `Scheduled`, so it still owns its slot in
+            // PostgreSQL. Hiding it from collision detection would pass the app check and then fail the INSERT on a
+            // raw constraint violation. Freeing the slot means changing the constraint, which is a migration.
+            var appointmentList = appointments.Where(a => !a.IsDisregarded).ToList();
             var invoiceLinks = await AppointmentInvoiceLinks.ResolveAsync(
                 _invoiceRepository, clinicId, appointmentList.Select(a => a.Id).ToList(), cancellationToken);
 

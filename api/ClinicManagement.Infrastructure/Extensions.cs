@@ -135,6 +135,7 @@ public static class Extensions
         services.AddScoped<ITreatmentPlanRepository, TreatmentPlanRepository>();
         // Clinical-workflow-depth repositories (caisse expenses, waiting list, dental-lab work orders).
         services.AddScoped<IExpenseRepository, ExpenseRepository>();
+        services.AddScoped<IRecurringExpenseRepository, RecurringExpenseRepository>();
         services.AddScoped<IAuditEntryRepository, AuditEntryRepository>();
         // L4d — the backup ledger. Registered beside the other repositories rather than only for the job,
         // because « Paramètres » reads it too (« Dernière sauvegarde réussie ») and so does the history endpoint.

@@ -35,8 +35,9 @@ public class AppointmentMultiActTests
         at ?? new DateTime(2026, 3, 12, 9, 0, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
 
     private static AppointmentProcedureInput Act(
-        Guid procedureTypeId, string name, int minutes, string colour, Guid? planItemId = null) =>
-        new(procedureTypeId, name, minutes, colour, planItemId);
+        Guid procedureTypeId, string name, int minutes, string colour, Guid? planItemId = null,
+        decimal? agreedCost = null) =>
+        new(procedureTypeId, name, minutes, colour, agreedCost, planItemId);
 
     // ---- The derived lead-act snapshot -------------------------------------------------------------------
 
@@ -81,7 +82,10 @@ public class AppointmentMultiActTests
     {
         var appointment = Appointment();
 
-        appointment.SetProcedures(new[] { new AppointmentProcedureInput(null, "Facette céramique", null, null, PlanItemA) });
+        appointment.SetProcedures(new[]
+        {
+            new AppointmentProcedureInput(null, "Facette céramique", null, null, null, PlanItemA),
+        });
 
         var row = Assert.Single(appointment.Procedures);
         Assert.Null(row.ProcedureTypeId);

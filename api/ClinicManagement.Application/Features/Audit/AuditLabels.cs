@@ -41,6 +41,7 @@ public static class AuditLabels
         nameof(CreditNote) => "Avoir",
         nameof(TreatmentPlan) => "Devis / plan de traitement",
         nameof(Expense) => "Dépense",
+        nameof(RecurringExpense) => "Dépense mensuelle",
         nameof(StockItem) => "Article de stock",
         nameof(StockMovement) => "Mouvement de stock",
         nameof(MedicalDocument) => "Document médical",

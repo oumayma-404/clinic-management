@@ -139,6 +139,22 @@ export function toLocalIso(date: Date): string {
 }
 
 /**
+ * An ISO **instant** → the `YYYY-MM-DD` day it falls on, in the viewer's own calendar.
+ *
+ * ⚠️ **Never `iso.slice(0, 10)`, and this is the third face of the same defect** — the one that bites when the
+ * value came off the wire rather than out of a `Date`. Money instants are stored as the start of a *Tunisian*
+ * day, so the 1st of September is serialised `2026-08-31T23:00:00Z`: slicing the string yields **the 31st of
+ * August**. It cost a « Corriger la date » that pre-filled the day before the payment, and a « Modifier la
+ * dépense » on l'extrait that looked the row up on the wrong day and reported it as deleted.
+ *
+ * Delegates to {@link toLocalIso}, so an unparseable value returns `""` rather than a plausible wrong day.
+ */
+export function localDayIso(iso?: string | null): string {
+  if (!iso) return "";
+  return toLocalIso(new Date(iso));
+}
+
+/**
  * True when an ISO date falls strictly before today — i.e. its calendar day has passed.
  *
  * Deliberately a CALENDAR-DAY comparison, not an instant one. Due dates are stored at midnight, so comparing

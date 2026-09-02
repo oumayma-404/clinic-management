@@ -143,6 +143,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("AgreedCost")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
                     b.Property<Guid>("AppointmentId")
                         .HasColumnType("uuid");
 
@@ -1541,6 +1545,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("Method")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("RecurringExpenseId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1551,6 +1558,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("RecurringExpenseId");
 
                     b.HasIndex("ClinicId", "ExpenseDate");
 
@@ -3152,6 +3161,61 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("RecurringAppointments", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RecurringExpense", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DayOfMonth")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("LastPostedMonth")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<int>("Method")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "CancelledAt")
+                        .HasFilter("\"CancelledAt\" IS NULL");
+
+                    b.ToTable("RecurringExpenses", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.SessionFamily", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4188,6 +4252,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasForeignKey("ClinicId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("ClinicManagement.Domain.Entities.RecurringExpense", null)
+                        .WithMany()
+                        .HasForeignKey("RecurringExpenseId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Installment", b =>
@@ -4700,6 +4769,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Patient");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RecurringExpense", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.SessionFamily", b =>

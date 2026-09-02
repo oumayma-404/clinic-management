@@ -14,10 +14,36 @@ namespace ClinicManagement.Application.Features.ProcedureTypes;
 /// and clinics wanting a finer breakdown add their own rows. Prices are indicative midpoints (they vary widely
 /// by city/tier), meant as a starting point. Used both to seed a new clinic on creation and to backfill an
 /// existing clinic's menu on demand.
+///
+/// <para><b>⚠️ No row may sit below the CNOMDT floor.</b> The Conseil National de l'Ordre des Médecins Dentistes
+/// de Tunisie publishes a <i>barème d'honoraires minimums</i> (adopted 27 December 2020), and article 30 of the
+/// code de déontologie forbids a dentist charging under it. Two rows shipped below it — détartrage at 60 against
+/// a floor of 90, and blanchiment at 400 against 500 — so the product's own defaults invited every new clinic to
+/// break that rule. <c>ProcedureTypeCatalogSeedFloorTests</c> holds the whole list against the barème now.</para>
+///
+/// <para>⚠️ The list is 19 rows <b>on purpose</b>. It was 43 and was cut on practitioner feedback for splitting
+/// hairs — « 1 face » vs « 2-3 faces », mono- vs pluriradiculaire, céramo-métal vs zircone (<c>feef4d8a</c>).
+/// Re-adding a clinical <i>variant</i> of a row that already exists is re-opening a closed decision; a genuinely
+/// distinct act that has no row at all is a different question.</para>
 /// </summary>
 public static class ProcedureTypeCatalogSeed
 {
-    public sealed record SeedRow(string Name, int DurationMinutes, decimal DefaultCost, string Category);
+    /// <summary>
+    /// One starter act. <paramref name="ResultingCondition"/> is <b>tri-state</b>: <c>null</c> takes the
+    /// discipline's default from <see cref="CategoryResultingConditions"/>, and <c>Sain</c> means « this act
+    /// charts nothing » — the entity already reads <c>Sain</c> as no state, so the two say different things.
+    ///
+    /// <para>⚠️ It exists because three acts would otherwise be mis-charted by their own discipline: an
+    /// inlay-core is filed under Prothèse fixe but does not put a crown on the tooth, draining an abscess is
+    /// filed under Chirurgie but does not remove it, and a bone graft is filed under Implantologie but is not an
+    /// implant. Each would have written a state the patient's odontogram does not have.</para>
+    /// </summary>
+    public sealed record SeedRow(
+        string Name,
+        int DurationMinutes,
+        decimal DefaultCost,
+        string Category,
+        ToothCondition? ResultingCondition = null);
 
     /// <summary>
     /// Category → palette colour (must be a value <see cref="ColorHex"/> accepts; the picker's palette is served
@@ -37,21 +63,46 @@ public static class ProcedureTypeCatalogSeed
     /// derived guard; a thirteenth category that reuses a hex fails there rather than in a cabinet's agenda.
     /// </para>
     /// </remarks>
-    private static readonly Dictionary<string, string> CategoryColors = new()
+    /// <summary>
+    /// Category → palette **hue family** (a key of <see cref="ColorHex.GetPalette"/>). The act's own colour is a
+    /// <i>tone</i> of it, picked per act — see <see cref="ColourFor"/>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>Every category must own a distinct family, and two pairs did not.</b> « Esthétique » shipped on
+    /// « Orthodontie »'s rose and « Pédodontie » on « Parodontologie »'s vert, so four disciplines rendered as two
+    /// hues: a facette and a séance orthodontique were the same pink in the agenda, and a détartrage and a soin
+    /// d'enfant the same green. The first fix moved the two onto the <i>Clair</i> nuance of the family they
+    /// collided with — which un-collided the categories but spent the nuance that the acts inside them now need.
+    /// So the two move to the palette's remaining free families instead: Pédodontie → olive, Esthétique → indigo.
+    /// <para>
+    /// The other ten keep the family whose <i>Moyen</i> tone they already carried, so the first act of each
+    /// discipline is the colour that discipline has always been.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<string, string> CategoryFamilies = new()
     {
-        ["Consultation"] = "#6C757D",
-        ["Radiologie"] = "#60A5FA",
-        ["Soins conservateurs"] = "#2A9D8F",
-        ["Endodontie"] = "#4F83CC",
-        ["Parodontologie"] = "#6BAA75",
-        ["Chirurgie/Extraction"] = "#E76F51",
-        ["Prothèse fixe"] = "#9B8EDC",
-        ["Prothèse amovible"] = "#5EEAD4",
-        ["Implantologie"] = "#E9A23B",
-        ["Orthodontie"] = "#FB7185",
-        ["Esthétique"] = "#F79AA6",
-        ["Pédodontie"] = "#93C79C",
+        ["Consultation"] = "slate",
+        ["Radiologie"] = "sky",
+        ["Soins conservateurs"] = "teal",
+        ["Endodontie"] = "blue",
+        ["Parodontologie"] = "green",
+        ["Chirurgie/Extraction"] = "coral",
+        ["Prothèse fixe"] = "violet",
+        ["Prothèse amovible"] = "mint",
+        ["Implantologie"] = "amber",
+        ["Orthodontie"] = "rose",
+        ["Esthétique"] = "indigo",
+        ["Pédodontie"] = "olive",
     };
+
+    /// <summary>
+    /// Which tone each successive act of a discipline takes: <b>Moyen, then Foncé, then Clair</b>, cycling.
+    ///
+    /// <para>Moyen first so the first act of every discipline keeps the colour that discipline already had — the
+    /// change adds distinctions, it does not repaint what a clinic recognises. Indices are into a family's
+    /// <c>Tones</c> list, which the palette orders Clair · Moyen · Foncé.</para>
+    /// </summary>
+    private static readonly int[] ToneOrder = [1, 2, 0];
 
     private const string FallbackColor = "#6C757D";
 
@@ -75,7 +126,7 @@ public static class ProcedureTypeCatalogSeed
         new("Radiographie panoramique", 15, 40m, "Radiologie"),
         new("Soin de carie / obturation", 40, 90m, "Soins conservateurs"),
         new("Traitement de canal (dévitalisation)", 60, 150m, "Endodontie"),
-        new("Détartrage", 30, 60m, "Parodontologie"),
+        new("Détartrage", 30, 90m, "Parodontologie"),
         new("Traitement parodontal (surfaçage / curetage)", 45, 120m, "Parodontologie"),
         new("Extraction simple", 30, 60m, "Chirurgie/Extraction"),
         new("Extraction chirurgicale (sagesse / dent incluse)", 60, 200m, "Chirurgie/Extraction"),
@@ -85,9 +136,50 @@ public static class ProcedureTypeCatalogSeed
         new("Implant dentaire", 60, 1500m, "Implantologie"),
         new("Traitement orthodontique (multi-attaches)", 60, 3500m, "Orthodontie"),
         new("Séance orthodontique (contrôle / activation)", 30, 80m, "Orthodontie"),
-        new("Blanchiment dentaire", 60, 400m, "Esthétique"),
+        new("Blanchiment dentaire", 60, 500m, "Esthétique"),
         new("Facette", 60, 700m, "Esthétique"),
         new("Soin dentaire enfant (dent de lait)", 30, 60m, "Pédodontie"),
+
+        /*
+         * ── Actes distincts, ajoutés après relecture du barème de l'Ordre ───────────────────────────────────
+         *
+         * ⚠️ Each of these is an act with NO row above, never a grade of one that has. The list was cut 43 → 19
+         * on practitioner feedback for splitting hairs (« 1 face » vs « 2-3 faces », mono- vs pluriradiculaire,
+         * céramo-métal vs zircone), and that decision stands: nothing here re-opens it. What the cut also took
+         * out, as collateral, were procedures a dentist books and bills in their own right — a coiffage is not
+         * an obturation, an inlay-core is not a couronne, a scellement de sillons is not a soin.
+         *
+         * Prices are the CNOMDT barème d'honoraires minimums (27/12/2020) where it covers the act, and marked
+         * « estimation » where it does not. They are floors, not recommendations — see the class docstring.
+         */
+        new("Coiffage pulpaire", 30, 30m, "Soins conservateurs",
+            // Charts nothing: the barème's own line is « à l'exclusion de l'obturation définitive ». Left on its
+            // discipline's default it produced `Obturation`, tied with « Soin de carie » on the first rung of the
+            // carie ladder, and a tie is what makes the odontogram stop pre-filling the plan line at all.
+            ToothCondition.Sain),                                                           // barème 30
+        new("Retraitement endodontique", 90, 250m, "Endodontie"),                       // estimation
+        new("Inlay-core (reconstitution corono-radiculaire)", 45, 80m, "Prothèse fixe",
+            // Charts nothing: the core is placed, the crown that covers it is a separate act.
+            ToothCondition.Sain),                                                       // barème 80
+        new("Couronne provisoire", 30, 60m, "Prothèse fixe",
+            // Charts nothing: the odontogram records what the tooth carries lastingly, and a provisoire is by
+            // definition replaced. It also tied with the definitive crown on the Couronne and Bridge ladders.
+            ToothCondition.Sain),                                                           // barème 60
+        new("Extraction de racine (alvéolectomie)", 40, 60m, "Chirurgie/Extraction"),   // barème 60
+        new("Incision d'abcès et drainage", 20, 40m, "Chirurgie/Extraction",
+            // Charts nothing: the tooth stays. Its discipline's default would have recorded it as extracted.
+            ToothCondition.Sain),                                                       // estimation
+        new("Gingivectomie", 45, 50m, "Parodontologie"),                                // barème 50 (partielle)
+        new("Frénectomie", 45, 100m, "Parodontologie"),                                 // estimation
+        new("Greffe osseuse / comblement", 60, 700m, "Implantologie",
+            // Charts nothing: preparing the bone is not placing an implant.
+            ToothCondition.Sain),                                                       // barème 700
+        new("Scellement de sillons", 30, 80m, "Pédodontie"),                            // barème 80
+        new("Application de fluor (par arcade)", 20, 200m, "Pédodontie"),               // barème 200
+        new("Couronne pédodontique préformée", 40, 110m, "Pédodontie"),                 // barème 110
+        new("Mainteneur d'espace fixe", 40, 160m, "Pédodontie"),                        // barème 160
+        new("Gouttière occlusale (bruxisme)", 45, 400m, "Prothèse amovible"),           // barème 400
+        new("Contention post-orthodontique", 30, 300m, "Orthodontie"),                  // estimation
     };
 
     /// <summary>
@@ -101,17 +193,55 @@ public static class ProcedureTypeCatalogSeed
     /// transposition away from re-creating exactly that bug silently.
     /// </para>
     /// </summary>
-    public static IEnumerable<ProcedureType> CreateFor(Guid clinicId) =>
-        Rows.Select(r => new ProcedureType(
-            id: Guid.NewGuid(),
-            clinicId: clinicId,
-            name: r.Name,
-            defaultDurationMinutes: r.DurationMinutes,
-            color: ColorHex.FromString(CategoryColors.TryGetValue(r.Category, out var color) ? color : FallbackColor),
-            // A seeded act has no description — the starter row carries a name, a price and a discipline, and
-            // inventing prose for it would be putting words in the clinic's mouth.
-            description: null,
-            defaultCost: r.DefaultCost,
-            resultingCondition: CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null,
-            category: r.Category));
+    public static IEnumerable<ProcedureType> CreateFor(Guid clinicId)
+    {
+        // How many acts of this discipline have already been built — the act's index inside its own category, and
+        // what picks its tone. Counted here rather than precomputed so `Rows` stays a plain readable list.
+        var seenPerCategory = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var r in Rows)
+        {
+            seenPerCategory.TryGetValue(r.Category, out var indexInCategory);
+            seenPerCategory[r.Category] = indexInCategory + 1;
+
+            yield return new ProcedureType(
+                id: Guid.NewGuid(),
+                clinicId: clinicId,
+                name: r.Name,
+                defaultDurationMinutes: r.DurationMinutes,
+                color: ColorHex.FromString(ColourFor(r.Category, indexInCategory)),
+                // A seeded act has no description — the starter row carries a name, a price and a discipline, and
+                // inventing prose for it would be putting words in the clinic's mouth.
+                description: null,
+                defaultCost: r.DefaultCost,
+                // The row's own answer wins; only a row that gives none falls back to its discipline's default.
+                resultingCondition: r.ResultingCondition
+                    ?? (CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null),
+                category: r.Category);
+        }
+    }
+
+    /// <summary>
+    /// The discipline's hue, at the tone this act's position calls for.
+    ///
+    /// <para>⚠️ Read out of <see cref="ColorHex.GetPalette"/> rather than written here: that value object is the
+    /// sole authority on which colours exist, and a second table of hexes is how a seeded act ends up carrying one
+    /// the picker cannot offer back.</para>
+    ///
+    /// <para>⚠️ A family has three tones, and « Pédodontie » has five acts — so the tones <b>cycle</b>, and the
+    /// fourth act of a discipline repeats the first's colour. That is the honest ceiling of a palette built to
+    /// keep a discipline readable as one hue: the alternative is borrowing an unrelated family, which buys
+    /// distinctness by destroying the thing the colour is for. At most two acts share a colour, where before
+    /// every act of a discipline did.</para>
+    /// </summary>
+    private static string ColourFor(string category, int indexInCategory)
+    {
+        if (!CategoryFamilies.TryGetValue(category, out var familyKey)) return FallbackColor;
+
+        var family = ColorHex.GetPalette().FirstOrDefault(f => f.Key == familyKey);
+        if (family is null || family.Tones.Count == 0) return FallbackColor;
+
+        var tone = ToneOrder[indexInCategory % ToneOrder.Length];
+        return family.Tones[tone % family.Tones.Count].Hex;
+    }
 }

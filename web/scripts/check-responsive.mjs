@@ -949,6 +949,114 @@ check(
   },
 );
 
+check(
+  "idle-limit-follows-the-device",
+  "N15",
+  "The inactivity limit is chosen by `trusted`, and the lock screen names no duration",
+  "`idleLimitMinutes` answers two questions that must stay separate: `trusted` decides HOW LONG the wait is, " +
+    "`canLock` decides WHAT HAPPENS at the end of it. It used to lead with `if (canLock) return " +
+    "DEFAULT_IDLE_LIMIT_MINUTES`, which handed a lockable device 30 minutes however trusted it was — so " +
+    "« Rester connecté sur cet appareil » had no effect on interruptions on the desktop app, the one platform " +
+    "most likely to have it ticked, and a practitioner got Windows Hello every half hour all day with a patient " +
+    "in the chair. Nothing failed; the feature simply did not do the thing it was for. The second half is the " +
+    "same defect in prose: the lock card said « après 30 minutes d'inactivité », a number it is never told and " +
+    "which is now wrong on exactly the trusted device that waits 8 h.",
+  () => {
+    const offenders = [];
+
+    // Half one: the limit must not be decided by `canLock`.
+    const limitLines = read("lib/auth/idle-limit.ts").split(/\r?\n/);
+    const limitMask = commentMask(limitLines);
+    limitLines.forEach((line, i) => {
+      if (limitMask[i]) return;
+      if (/\bif\s*\(\s*canLock\s*\)/.test(line)) {
+        offenders.push({
+          file: "lib/auth/idle-limit.ts",
+          line: i + 1,
+          text: "`canLock` decides the ending, never the duration — branch on `trusted` for the limit",
+        });
+      }
+    });
+
+    // Half two: the lock card must not name a duration it is not given.
+    const gateLines = read("components/session-lock-gate.tsx").split(/\r?\n/);
+    const gateMask = commentMask(gateLines);
+    gateLines.forEach((line, i) => {
+      if (gateMask[i]) return;
+      // A digit (or a spelled-out small number) immediately followed by a unit, in user-facing prose.
+      if (/\b(\d+|une|deux|trente|huit)\s*(minutes?|heures?|min\b|h\b)/i.test(line)) {
+        offenders.push({
+          file: "components/session-lock-gate.tsx",
+          line: i + 1,
+          text: "the limit is 30 min or 8 h depending on the device — say « une période d'inactivité »",
+        });
+      }
+    });
+
+    return offenders;
+  },
+);
+
+check(
+  "agreed-cost-reaches-the-fiche",
+  "N14",
+  "A booked act's negotiated price is carried into the fiche de soins at every prefill site",
+  "« Prix pour ce rendez-vous » exists so a price haggled on the telephone is the price billed. But the fiche " +
+    "does NOT read the appointment's act rows for pricing — it resolves each row's `procedureTypeId` back to " +
+    "the CATALOGUE, and `applyProcedure` then prices the act from `defaultCost`. So a prefill site that " +
+    "dispatches `applyAppointment` or `addFromProcedure` without `agreedCost` shows the negotiated figure in " +
+    "the booking dialog and silently reverts to the tarif in the fiche — worse than not having the feature, " +
+    "because the dentist has been given a number to trust. There are two such sites (the lead act, and the " +
+    "« aussi prévu à ce rendez-vous » shortcuts) and they are reached by different code paths, which is exactly " +
+    "how one of them gets fixed and the other does not. Pass `agreedCost` from the booked ROW, never from the " +
+    "catalogue entry.",
+  () => {
+    const offenders = [];
+
+    /*
+     * `applyAppointment` is held by the TYPE, not by a grep: `BookedActPrefill.agreedCost` is required and
+     * explicitly nullable, so a caller that omits the price does not compile. What a grep must still hold is
+     * that the field stays mandatory — `agreedCost?:` would make every omission silent again.
+     */
+    const storeLines = read("components/record/use-session-acts.ts").split(/\r?\n/);
+    const storeMask = commentMask(storeLines);
+    const store = storeLines.map((l, i) => (storeMask[i] ? "" : l)).join("\n");
+    const carrier = /export interface BookedActPrefill\s*\{[^}]*\}/.exec(store);
+    if (!carrier) {
+      offenders.push({
+        file: "components/record/use-session-acts.ts",
+        text: "BookedActPrefill not found — the guard cannot check the carrier and must not pass",
+      });
+    } else if (!/\bagreedCost\s*:/.test(carrier[0])) {
+      offenders.push({
+        file: "components/record/use-session-acts.ts",
+        text: "BookedActPrefill.agreedCost is optional or gone — an omitted price reverts to the tarif in silence",
+      });
+    }
+
+    // `addFromProcedure` passes the price inline, so its dispatch sites are the grep's half.
+    const PREFILL = /type:\s*"addFromProcedure"/;
+    for (const f of tsx()) {
+      const src = read(f);
+      if (!PREFILL.test(src)) continue;
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      lines.forEach((l, i) => {
+        if (masked[i] || !PREFILL.test(l)) return;
+        // The dispatch object may span lines, so the window is the statement rather than the one line.
+        if (!/agreedCost/.test(lines.slice(i, i + 8).join("\n"))) {
+          offenders.push({
+            file: f,
+            line: i + 1,
+            text: "addFromProcedure dispatched without agreedCost — the fiche will re-price from the catalogue",
+          });
+        }
+      });
+    }
+    return offenders;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

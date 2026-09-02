@@ -40,7 +40,7 @@ import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
-import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, MoreHorizontal } from "lucide-react"
+import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import {
   AppointmentRecap,
@@ -49,8 +49,13 @@ import {
 } from "@/components/appointment-recap"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { AppointmentActsPicker, totalActsDuration, type SelectedAct } from "@/components/appointment-acts-picker"
-import { getErrorMessage } from "@/lib/errors"
+import {
+  AppointmentActsPicker, hasInvalidAgreedCost, negotiatedTotalOf, toProcedurePayloads, totalActsDuration,
+  type SelectedAct,
+} from "@/components/appointment-acts-picker"
+import { getErrorMessage, showErrorToast } from "@/lib/errors"
+import { formatAmount, quoteFr } from "@/lib/format"
+import { toast } from "sonner"
 import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
@@ -135,6 +140,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
+  /**
+   * « Supprimer (créé par erreur) » — deliberately NOT a second door to « Annulé ». A séance nobody ever booked
+   * on purpose is not an absence, and `Cancelled` counts in the « taux d'absence », so tidying the agenda that
+   * way is what makes a cabinet's own figures describe a month it did not have.
+   */
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showPastTimeConfirm, setShowPastTimeConfirm] = useState(false)
   // The server's out-of-hours reason while its confirm is open, or null. See create-appointment-dialog.
   const [outsideHoursPrompt, setOutsideHoursPrompt] = useState<string | null>(null)
@@ -264,6 +275,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     startMinute,
     durationMinutes: calculatedDuration,
     actNames,
+    negotiatedTotal: negotiatedTotalOf(selectedActs, procedureTypes),
     doctorName: selectedDoctorName,
     warning: overlapWarning
       ? { message: overlapWarning, samePractitioner: overlapSamePractitioner }
@@ -357,6 +369,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 treatmentPlanItemId: p.treatmentPlanItemId ?? null,
                 planLabel: p.treatmentPlanItemId ? "devis" : undefined,
                 fallbackName: p.name ?? undefined,
+                // A negotiated price hydrates as **typed**, so it is re-sent on save. Leaving it undefined would
+                // show the catalogue tarif in the field and the next save — rescheduling, changing the note,
+                // anything — would quietly restore every act to that tarif, since the list replaces the acts.
+                agreedCost: p.agreedCost != null ? formatAmount(p.agreedCost) : undefined,
               }))
           : appointment.procedureTypeId
             ? [
@@ -447,6 +463,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       return false
     }
 
+    // Same guard as the create dialog: an unparseable amount reads as null and would silently put the act back
+    // to its catalogue tarif on save.
+    if (selectedActs.some(hasInvalidAgreedCost)) {
+      setError("Corrigez le prix d'un acte : saisissez un montant en dinars, par exemple 120,000.")
+      return false
+    }
+
     return true
   }
 
@@ -496,10 +519,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         // Replaces the whole list. `[]` is a real instruction here (« ce rendez-vous n'a plus d'acte ») and the
         // server distinguishes it from an omitted key, which is why this dialog always sends it and the cancel
         // path — which posts { status } alone — never does.
-        procedures: selectedActs.map((a) => ({
-          procedureTypeId: a.procedureTypeId,
-          treatmentPlanItemId: a.treatmentPlanItemId ?? null,
-        })),
+        procedures: toProcedurePayloads(selectedActs),
         allowOutsideWorkingHours: allowOutsideWorkingHours || undefined,
         allowOverlap: allowOverlap || undefined,
         // The version this form was hydrated from.
@@ -581,6 +601,37 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     }
   }
 
+  /**
+   * Take a mis-booked séance out of the agenda, the patient's history and the dashboard's figures, without
+   * claiming the patient cancelled or failed to come. The server's own mark, the one « À clôturer » uses.
+   *
+   * On failure only the CONFIRMATION closes — the form behind it keeps every field the user typed (§ 13). The one
+   * refusal this can meet (the séance carries a fiche or a live note d'honoraires) is a real answer with no
+   * override, so it goes to the toast, which is the app's live region and reads the server's own sentence.
+   */
+  const handleDeleteAppointment = async () => {
+    const appointment = source
+    if (!appointment) return
+
+    setLoading(true)
+    try {
+      await appointmentsApi.disregardVisit(appointment.id)
+
+      setShowDeleteDialog(false)
+      toast.success("Rendez-vous supprimé", {
+        description:
+          `Il ne compte pas comme une annulation. Vous pouvez le récupérer dans ${quoteFr("À clôturer")}.`,
+      })
+      onSuccess?.()
+      onOpenChange(false)
+    } catch (err) {
+      setShowDeleteDialog(false)
+      showErrorToast(err, "Échec de la suppression du rendez-vous")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   /*
    * A typed booking is not discarded by a stray tap (J9). Below `md:` this is a full-screen sheet, so the strip
    * above it is a live dismiss target over a form that can hold a patient, several acts, a doctor and a time.
@@ -596,6 +647,16 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * other hook here already precedes the return; a hook must never sit after a conditional return.
    */
   const guard = useDirtyGuard(open, onOpenChange)
+
+  /*
+   * What the deletion confirm names (§ 13 — « Êtes-vous sûr ? » cannot say which of a day's séances is going).
+   * ⚠️ Branches on `patientId`, not on the name: `AppointmentDto.patientName` is the server's own « Occupé » for a
+   * blocked slot, so the obvious one-line template reads « Le rendez-vous de Occupé ».
+   */
+  const deletionTarget = source
+    ? `${source.patientId ? `Le rendez-vous de ${patientName}` : "Le créneau occupé"} du `
+      + format(parseISO(source.appointmentDateTime), "d MMMM à HH:mm", { locale: fr })
+    : ""
 
   if (!appointment) return null
 
@@ -1065,6 +1126,33 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       <X className="h-4 w-4" />
                       Annuler le rendez-vous
                     </DropdownMenuItem>
+                    {/*
+                      ⚠️ Not the same outcome as the item above, and that is the whole reason it exists. « Annulé »
+                      is a statement about a patient who was expected and did not come — the dashboard counts it in
+                      the « taux d'absence » alongside « Absent ». A séance typed into the wrong day, or onto the
+                      wrong patient, is neither: cancelling it to tidy the agenda is what makes a cabinet's own
+                      figures describe a month it did not have. This one asserts nothing.
+
+                      Wording: « Supprimer », because that is what the user came to do, and nothing they can reach
+                      contradicts it — the séance leaves the agenda, the patient's history and the figures. The
+                      description says where it can be recovered rather than calling the action something else.
+                    */}
+                    {/*
+                      Offered on a « créneau occupé » too — a blocked slot drawn on the wrong day is as much a
+                      mis-entry as a patient's RDV, and cancelling one inflates the taux d'absence exactly the same
+                      way, since the status counts behind it do not care whether a row has a patient.
+                      « séances retirées » lists a retired blocked slot as « Créneau occupé », unlinked, so the
+                      recovery this dialog promises is real for it as well.
+                    */}
+                    <DropdownMenuItem
+                      variant="destructive"
+                      className="coarse:py-3"
+                      disabled={loading}
+                      onSelect={() => setShowDeleteDialog(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Supprimer (créé par erreur)
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button
@@ -1124,6 +1212,31 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {loading ? "Annulation…" : "Oui, annuler le rendez-vous"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* « Supprimer (créé par erreur) » — names the patient and the slot, because « Êtes-vous sûr ? » cannot say
+          which of a day's séances is about to leave the agenda (§ 13). */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce rendez-vous ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletionTarget} quittera l&apos;agenda{source?.patientId ? " et le dossier du patient" : ""}, et ne
+              comptera pas comme une annulation dans le taux d&apos;absence. Vous pourrez le récupérer dans{" "}
+              {quoteFr("À clôturer")} › séances retirées.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading}>Non, conserver</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAppointment}
+              disabled={loading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {loading ? "Suppression…" : "Oui, supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

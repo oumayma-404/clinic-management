@@ -27,6 +27,7 @@ import type {
   PatientDto,
   ToothStateDto,
   AppointmentDto,
+  AppointmentProcedureDto,
 } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, toLocalIso, todayLocalIso } from "@/lib/format"
 import { conditionStyle, needsTreatment, serializeSurfaces } from "@/components/odontogram-conditions"
@@ -38,7 +39,9 @@ import { ApiError } from "@/lib/api/client"
 import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON, type CorrectionPreview } from "@/components/factures/correct-invoice-dialog"
 import { ActCard } from "@/components/record/act-card"
 import { RecordSection } from "@/components/record/record-section"
-import { actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs } from "@/components/record/use-session-acts"
+import {
+  actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs, type BookedActPrefill,
+} from "@/components/record/use-session-acts"
 import {
   CHEQUE_METHOD,
   ChequeFields,
@@ -236,6 +239,30 @@ export function PatientRecordModal({
 
   const { acts, namedActs, grandTotal, focusedAct, focusKey, dispatch } = useSessionActs(record)
 
+  /**
+   * What is being typed into « Total », or `null` when the field simply shows the derived figure.
+   *
+   * <p>It has to be held separately for the length of the edit: the displayed value is `formatAmount(grandTotal)`,
+   * so writing straight through would reformat every keystroke — « 1 » becoming « 1,000 » with the caret behind
+   * it, which makes the field impossible to type a second digit into. Clearing the draft on commit is also what
+   * re-syncs the field afterwards: once it is `null` the input is again a pure read of the acts, so correcting an
+   * act's tarif by hand moves the total with no further wiring.</p>
+   */
+  const [totalDraft, setTotalDraft] = useState<string | null>(null)
+
+  /**
+   * Commit the typed total onto the acts. An unusable or negative entry is dropped and the field snaps back to
+   * the real total — the number visibly returning is the refusal, and there is nothing to report beyond it.
+   */
+  const commitTotal = useCallback(() => {
+    setTotalDraft((draft) => {
+      if (draft === null) return null
+      const parsed = parseAmountInput(draft)
+      if (Number.isFinite(parsed) && parsed >= 0) dispatch({ type: "setTotal", total: parsed })
+      return null
+    })
+  }, [dispatch])
+
   /*
    * Load the active procedure catalog (the picker's source) when the modal opens.
    *
@@ -343,14 +370,47 @@ export function PatientRecordModal({
     })
   }, [open, record, appointment, planItems, dispatch])
 
-  // Option C: propose the appointment's booked procedure. Runs after the reset above and is itself guarded —
-  // `applyAppointment` is a no-op unless the session is untouched, so it can never clobber a saved record or
-  // work in progress. A record being edited is never re-proposed.
+  /**
+   * Every act booked into this séance, in the dentist's order, resolved against the catalogue.
+   *
+   * <p>⚠️ The booked ROW travels with the catalogue entry, not just its id — the agreed price lives on the row,
+   * and resolving to a bare `ProcedureTypeDto` is what would price a negotiated act from the tarif.</p>
+   */
+  const bookedActs = useMemo(
+    () =>
+      (appointment?.procedures ?? [])
+        .slice()
+        .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+        .map((row) => ({
+          row,
+          procedure: row.procedureTypeId
+            ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
+            : undefined,
+        }))
+        .filter(
+          (entry): entry is { row: AppointmentProcedureDto; procedure: ProcedureTypeDto } => !!entry.procedure,
+        ),
+    [appointment?.procedures, procedureTypes],
+  )
+
+  // Propose EVERY act booked into the séance. Guarded twice over: `applyAppointment` is a no-op unless the
+  // session is a single untouched card, so it can never clobber a saved record or work in progress.
   useEffect(() => {
-    if (!open || record || !appointment?.procedureTypeId || procedureTypes.length === 0) return
-    const booked = procedureTypes.find((p) => p.id === appointment.procedureTypeId)
-    if (booked) dispatch({ type: "applyAppointment", procedure: booked })
-  }, [open, record, appointment, procedureTypes, dispatch])
+    if (!open || record || procedureTypes.length === 0) return
+    // ⚠️ Prices come from the appointment's own act ROWS, never from `defaultCost` — a visit booked at a
+    // negotiated 120 DT would otherwise open the fiche at the 150 DT tarif.
+    const prefill: BookedActPrefill[] = bookedActs.map(({ row, procedure }) => ({
+      procedure,
+      agreedCost: row.agreedCost ?? null,
+    }))
+    // A response predating `procedures` carries only the lead-act scalar; without this fallback such a visit
+    // would propose nothing at all.
+    if (prefill.length === 0 && appointment?.procedureTypeId) {
+      const lead = procedureTypes.find((p) => p.id === appointment.procedureTypeId)
+      if (lead) prefill.push({ procedure: lead, agreedCost: null })
+    }
+    if (prefill.length > 0) dispatch({ type: "applyAppointment", procedures: prefill })
+  }, [open, record, appointment?.procedureTypeId, bookedActs, procedureTypes, dispatch])
 
   // « Montant payé » mirrors the running total until the user takes the field over.
   useEffect(() => {
@@ -775,26 +835,32 @@ export function PatientRecordModal({
           .filter(Boolean)
           .join(" · ")
 
-  // The one card that came from the booking, and only while it is still the whole séance.
-  const proposedFromAppointment =
-    !record && acts.length === 1 && appointment?.procedureTypeId != null &&
-    acts[0].procedureTypeId === appointment.procedureTypeId
-      ? acts[0].key
-      : null
+  /**
+   * The cards that came from the booking. Every booked act is proposed now, so this is a set rather than one key
+   * — labelling only the first left the second and third looking hand-added on a visit that had planned them.
+   */
+  const proposedFromAppointment = useMemo(() => {
+    if (record) return new Set<string>()
+    const booked = new Set(bookedActs.map((b) => b.procedure.id))
+    return new Set(
+      acts.filter((a) => a.procedureTypeId && booked.has(a.procedureTypeId)).map((a) => a.key),
+    )
+  }, [record, bookedActs, acts])
 
   /**
    * The séance's other booked acts, resolved against the catalogue and minus anything already in this session
    * (charted or in the draft) — so the shortcuts thin out as the dentist works through the visit instead of
    * re-offering an act they have just recorded.
    */
+
+  /**
+   * Booked acts NOT in the pile. Now that every one is proposed on arrival this is normally empty, and it renders
+   * for one case only: an act the dentist deleted. Offering it back is what keeps a mistaken deletion recoverable.
+   */
   const otherBookedActs = useMemo(() => {
     const used = new Set<string>(acts.map((a) => a.procedureTypeId).filter((id): id is string => !!id))
-    return (appointment?.procedures ?? [])
-      .slice()
-      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-      .map((p) => (p.procedureTypeId ? procedureTypes.find((pt) => pt.id === p.procedureTypeId) : undefined))
-      .filter((pt): pt is ProcedureTypeDto => !!pt && !used.has(pt.id))
-  }, [appointment?.procedures, procedureTypes, acts])
+    return bookedActs.filter((entry) => !used.has(entry.procedure.id))
+  }, [bookedActs, acts])
 
   return (
     <>
@@ -923,7 +989,7 @@ export function PatientRecordModal({
               procedureTypes={procedureTypes}
               color={actColors.get(act.key) ?? ACT_PALETTE[0]}
               arch={arch}
-              proposedFromAppointment={act.key === proposedFromAppointment}
+              proposedFromAppointment={proposedFromAppointment.has(act.key)}
               duplicate={duplicateKeys.has(act.key)}
               error={saveError?.actKey === act.key ? saveError.message : null}
               dispatch={dispatch}
@@ -950,31 +1016,43 @@ export function PatientRecordModal({
         </div>
 
         {/*
-          The rest of the séance. An appointment can carry several acts, and only the first one is *proposed* —
-          proposing all of them would have to commit acts the dentist has not confirmed, with no teeth and no
-          price, which is exactly what the confirm-first flow exists to avoid.
-
-          So the others are named rather than pre-filled, each with a one-tap « Ajouter ». Without this the fiche
-          would silently document one act of a visit booked for three, and nothing on the screen would say so.
+          ⚠️ This used to be where every act after the first lived — a faint dashed row of « + » chips under the
+          one card that had been proposed. It read as « un seul acte était prévu »: the séance's own header said
+          « 1 acte » and showed one act's money for a visit booked for three, so the others were missed and never
+          billed. Every booked act is a real card now, and this row is what is left over — an act the dentist
+          deleted, offered back, so removing one by mistake is recoverable.
         */}
         {!record && otherBookedActs.length > 0 && (
           <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2">
             <p className="text-xs text-muted-foreground">
-              Aussi prévu à ce rendez-vous — à confirmer un par un :
+              Prévu à ce rendez-vous, retiré de la fiche — remettre :
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {otherBookedActs.map((booked) => (
+              {otherBookedActs.map(({ row, procedure }) => (
                 <Button
-                  key={booked.id}
+                  key={procedure.id}
                   type="button"
                   variant="outline"
                   size="sm"
                   className="h-7 gap-1 text-xs"
                   disabled={loading}
-                  onClick={() => dispatch({ type: "addFromProcedure", procedure: booked })}
+                  onClick={() =>
+                    dispatch({
+                      type: "addFromProcedure",
+                      procedure,
+                      agreedCost: row.agreedCost ?? null,
+                    })
+                  }
                 >
                   <Plus className="h-3 w-3" />
-                  {booked.name}
+                  {procedure.name}
+                  {/* The agreed price on the chip, because the whole point is that this act is not at its tarif
+                      and the dentist should see that before tapping « Ajouter ». */}
+                  {row.agreedCost != null && (
+                    <span className="tabular-nums text-muted-foreground">
+                      · {formatAmount(row.agreedCost)} DT
+                    </span>
+                  )}
                 </Button>
               ))}
             </div>
@@ -1361,9 +1439,40 @@ export function PatientRecordModal({
                 </SelectContent>
               </Select>
             </div>
+            {/* The total is EDITABLE, and typing in it re-prices the acts (`setTotal` → `distributeSessionTotal`)
+                rather than storing a figure of its own — the acts are what the note d'honoraires is built from.
+                It is still `Σ actTotal` on the way out, which is why editing an act afterwards simply moves it
+                again: there is no contest to resolve, and the last person to type always wins. */}
             <div className="flex shrink-0 items-center gap-1.5 text-sm">
-              <span className="text-muted-foreground">Total</span>
-              <span className="text-base font-semibold tabular-nums">{formatDT(grandTotal)}</span>
+              <Label htmlFor="session-total" className="text-muted-foreground">
+                Total
+              </Label>
+              {/* Same `text` + `inputMode="decimal"` as « Payé » directly above, and for the same J8 reason: a
+                  `type="number"` refuses the comma this product prints with and hands back an EMPTY value. */}
+              <Input
+                id="session-total"
+                type="text"
+                inputMode="decimal"
+                className="h-8 w-28 text-right text-base font-semibold tabular-nums"
+                value={totalDraft ?? formatAmount(grandTotal)}
+                onChange={(e) => setTotalDraft(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={commitTotal}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    commitTotal()
+                  } else if (e.key === "Escape") {
+                    setTotalDraft(null)
+                  }
+                }}
+                aria-describedby="session-total-hint"
+                disabled={loading || namedActs.length === 0}
+                placeholder="0,000"
+              />
+              <span id="session-total-hint" className="sr-only">
+                Modifier ce total répartit le montant sur les actes de la séance.
+              </span>
             </div>
             {/* Wraps to its own line below `sm:` — three figures do not fit 342px, and « Reste à payer » is the
                 one of the three that is a sentence rather than a number. */}

@@ -16,6 +16,14 @@ public class Expense : AggregateRoot<Guid>
     public decimal Amount { get; private set; }
     public PaymentMethod Method { get; private set; }
     public string? Description { get; private set; }
+
+    /// <summary>
+    /// The <see cref="RecurringExpense"/> that posted this row, or null for a hand-typed dépense. It is a label
+    /// on the row's ORIGIN and nothing more: the row is an ordinary dépense to every money read, and editing or
+    /// deleting it changes nothing about the series.
+    /// </summary>
+    public Guid? RecurringExpenseId { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -28,7 +36,8 @@ public class Expense : AggregateRoot<Guid>
         string category,
         decimal amount,
         PaymentMethod method,
-        string? description = null)
+        string? description = null,
+        Guid? recurringExpenseId = null)
     {
         if (amount <= 0)
             throw new ArgumentException("Le montant de la dépense doit être supérieur à 0.", nameof(amount));
@@ -40,6 +49,7 @@ public class Expense : AggregateRoot<Guid>
         Amount = amount;
         Method = method;
         Description = description;
+        RecurringExpenseId = recurringExpenseId;
         CreatedAt = DateTime.UtcNow;
     }
 

@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
-import { parseAmountInput, quoteFr } from "@/lib/format"
+import { formatAmount, parseAmountInput, quoteFr } from "@/lib/format"
+import type { AppointmentProcedurePayload } from "@/lib/api/appointments"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 
 /**
@@ -32,6 +33,68 @@ export interface SelectedAct {
   planLabel?: string
   /** Name for a link-only row, since there is no catalog entry to read one from. */
   fallbackName?: string
+  /**
+   * The price agreed for this act at this visit, **as typed** — a raw string, not a number, because « 90,500 »
+   * is how this product prints money and `parseAmountInput` is what reads that back. A `type="number"` input
+   * refuses the comma outright.
+   *
+   * <p>⚠️ `undefined` means **untouched**, and is not the same as `""`. Untouched shows the catalogue tarif in
+   * the field and sends *nothing*, so the act stays at whatever its tarif is on the day the fiche is filled.
+   * Prefilling the value into this field instead would freeze today's catalogue price onto every booking anyone
+   * ever makes, and « personne n'a négocié » would become unsayable.</p>
+   */
+  agreedCost?: string
+}
+
+/**
+ * The agreed price of one act as a number, or null when none was negotiated (or the field was cleared, which is
+ * the same statement: leave it at the tarif).
+ */
+export function agreedCostOf(act: SelectedAct): number | null {
+  if (act.agreedCost === undefined || act.agreedCost.trim() === "") return null
+  const parsed = parseAmountInput(act.agreedCost)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/** True when a typed price cannot be read as money, or is negative — the server refuses both. */
+export function hasInvalidAgreedCost(act: SelectedAct): boolean {
+  if (act.agreedCost === undefined || act.agreedCost.trim() === "") return false
+  const parsed = parseAmountInput(act.agreedCost)
+  return !Number.isFinite(parsed) || parsed < 0
+}
+
+/**
+ * What the séance costs at the prices typed into it, or **null** when nothing was negotiated.
+ *
+ * <p>Null when no act carries a price of its own, so the récapitulatif states a figure only when there is one to
+ * verify. An act left at its tarif inside a séance where another was negotiated still contributes its tarif —
+ * the total the patient was quoted is the whole séance, not the discounted part of it, which is why the
+ * catalogue is a parameter here rather than something this module goes looking for.</p>
+ */
+export function negotiatedTotalOf(acts: SelectedAct[], procedureTypes: ProcedureTypeDto[]): number | null {
+  if (!acts.some((a) => agreedCostOf(a) != null)) return null
+
+  const byId = new Map(procedureTypes.map((p) => [p.id, p]))
+  return acts.reduce((sum, act) => {
+    const agreed = agreedCostOf(act)
+    if (agreed != null) return sum + agreed
+    const tariff = act.procedureTypeId ? byId.get(act.procedureTypeId)?.defaultCost : null
+    return sum + (tariff ?? 0)
+  }, 0)
+}
+
+/**
+ * The acts as the API wants them. Exported and shared rather than built inline in each booking dialog, for the
+ * reason `AppointmentProcedureMapping` is shared server-side: the two must agree. A dialog that assembled
+ * `procedures` without `agreedCost` would silently restore every act of the visit to its catalogue tarif,
+ * because the server replaces the whole list.
+ */
+export function toProcedurePayloads(acts: SelectedAct[]): AppointmentProcedurePayload[] {
+  return acts.map((act) => ({
+    procedureTypeId: act.procedureTypeId,
+    treatmentPlanItemId: act.treatmentPlanItemId ?? null,
+    agreedCost: agreedCostOf(act),
+  }))
 }
 
 /**
@@ -114,6 +177,9 @@ export function AppointmentActsPicker({
             durationMinutes: null,
             colorHex: "#6C757D",
             missing: false,
+            // A hand-typed devis line has no catalogue tarif to fall back on, so there is nothing to prefill and
+            // nothing to « remettre au tarif » — its price line starts empty.
+            tariff: null,
           }
         }
         const pt = byId.get(act.procedureTypeId)
@@ -123,6 +189,7 @@ export function AppointmentActsPicker({
           durationMinutes: pt?.defaultDurationMinutes ?? null,
           colorHex: pt?.colorHex ?? "#6C757D",
           missing: !pt,
+          tariff: pt?.defaultCost ?? null,
         }
       }),
     [value, byId],
@@ -145,6 +212,10 @@ export function AppointmentActsPicker({
   }
 
   const removeAt = (index: number) => onChange(value.filter((_, i) => i !== index))
+
+  /** `undefined` puts the row back to « rien de négocié » — the field shows the tarif again and sends nothing. */
+  const setAgreedCost = (index: number, next: string | undefined) =>
+    onChange(value.map((act, i) => (i === index ? { ...act, agreedCost: next } : act)))
 
   const handleCreateCustom = async () => {
     setCustomError(null)
@@ -220,8 +291,9 @@ export function AppointmentActsPicker({
           {rows.map((row, index) => (
             <li
               key={`${row.act.procedureTypeId ?? row.act.treatmentPlanItemId ?? "act"}-${index}`}
-              className="flex items-center gap-2 rounded-md border bg-background px-3 py-2"
+              className="rounded-md border bg-background px-3 py-2"
             >
+              <div className="flex items-center gap-2">
               <span
                 className="h-3 w-3 shrink-0 rounded-full"
                 style={{ backgroundColor: row.colorHex }}
@@ -261,6 +333,65 @@ export function AppointmentActsPicker({
               >
                 <X className="h-4 w-4" />
               </Button>
+              </div>
+
+              {/*
+                ⚠️ Its own line, not another cell on the identity row. That row already wraps rather than
+                truncates at 390 px — the act's name IS the row's identity — and squeezing a ~7rem money field
+                beside it would take the name back below the width that made it readable.
+
+                « Prix pour ce rendez-vous », never « Prix » alone: the panel below can also create a catalogue
+                act with a price, and that one changes the tarif for every future visit. Two money fields a
+                thumb's width apart, one local and one permanent, is a mistake nobody would notice making.
+              */}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <Label
+                  htmlFor={`${idPrefix}-price-${index}`}
+                  className="shrink-0 text-2xs font-normal text-muted-foreground"
+                >
+                  Prix pour ce rendez-vous
+                </Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
+                    DT
+                  </span>
+                  <Input
+                    id={`${idPrefix}-price-${index}`}
+                    // `text` + `inputMode="decimal"`, matching the fiche's own tarif field: `type="number"`
+                    // refuses the comma this product prints money with, so « 90,500 » could not be typed at all.
+                    type="text"
+                    inputMode="decimal"
+                    className={cn(
+                      "h-8 w-28 ps-7 text-xs tabular-nums",
+                      hasInvalidAgreedCost(row.act) && "border-destructive",
+                    )}
+                    // Untouched shows the tarif without claiming it was agreed — see `SelectedAct.agreedCost`.
+                    value={
+                      row.act.agreedCost ?? (row.tariff != null ? formatAmount(row.tariff) : "")
+                    }
+                    onChange={(e) => setAgreedCost(index, e.target.value)}
+                    disabled={disabled}
+                    aria-invalid={hasInvalidAgreedCost(row.act)}
+                    aria-label={`Prix convenu pour ${row.name} à ce rendez-vous`}
+                    placeholder={row.tariff == null ? "Prix libre" : undefined}
+                  />
+                </div>
+                {row.act.agreedCost !== undefined && row.tariff != null && (
+                  <button
+                    type="button"
+                    onClick={() => setAgreedCost(index, undefined)}
+                    disabled={disabled}
+                    className="shrink-0 text-2xs text-muted-foreground underline decoration-dotted hover:text-foreground"
+                  >
+                    remettre au tarif ({formatAmount(row.tariff)} DT)
+                  </button>
+                )}
+                {hasInvalidAgreedCost(row.act) && (
+                  <span className="basis-full text-2xs text-destructive">
+                    Montant invalide — par exemple 120,000.
+                  </span>
+                )}
+              </div>
             </li>
           ))}
         </ul>
@@ -440,8 +571,10 @@ export function AppointmentActsPicker({
               />
             </div>
             <div className="space-y-1">
+              {/* « Tarif au catalogue », not « Montant »: this one is permanent and seeds every future visit,
+                  while each act row above carries a price for this rendez-vous only. */}
               <Label htmlFor={`${idPrefix}-custom-cost`} className="text-xs text-muted-foreground">
-                Montant
+                Tarif au catalogue
               </Label>
               <div className="relative">
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DT</span>

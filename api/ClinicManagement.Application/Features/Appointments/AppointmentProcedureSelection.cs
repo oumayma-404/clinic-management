@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.ProcedureTypes;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -6,8 +7,13 @@ namespace ClinicManagement.Application.Features.Appointments;
 
 /// <summary>
 /// One act as the client asks for it: a catalog id, plus the devis step it carries out when the séance was built
-/// from a treatment plan. Everything else about the act (name, duration, colour) is read from the catalog
-/// server-side — the client sends what it chose, never what it thinks the act costs or lasts.
+/// from a treatment plan. The act's name, duration and colour are read from the catalog server-side — the client
+/// sends what it chose, never what it thinks the act is called or how long it takes.
+/// <para>
+/// ⚠️ <see cref="AgreedCost"/> is the deliberate exception, and the only one: a negotiated price is a fact the
+/// client is the sole source of, because it was agreed on the telephone. It is validated here rather than
+/// trusted.
+/// </para>
 /// </summary>
 public class AppointmentProcedureRequest
 {
@@ -21,6 +27,18 @@ public class AppointmentProcedureRequest
 
     /// <summary>Optional devis step this act realises. Validated against the command's <c>TreatmentPlanId</c>.</summary>
     public Guid? TreatmentPlanItemId { get; set; }
+
+    /// <summary>
+    /// The price agreed for this act at this visit, in dinars — a <b>forfait</b>, not a per-tooth rate. Omit it
+    /// (or send null) to leave the act at its catalogue tarif, which is what every booking that does not
+    /// negotiate sends and what makes this field additive.
+    ///
+    /// <para>A patient who telephones and haggles is the whole reason this exists: the devis is the product's
+    /// answer to a negotiated price, and it is too heavy for one act settled in one sentence. The figure the
+    /// receptionist types here is carried into the fiche de soins for that visit, so the amount quoted is the
+    /// amount billed.</para>
+    /// </summary>
+    public decimal? AgreedCost { get; set; }
 }
 
 /// <summary>
@@ -35,6 +53,17 @@ public static class AppointmentProcedureSelection
     /// one request issue arbitrarily many queries.
     /// </summary>
     public const int MaxProceduresPerAppointment = 12;
+
+    /// <summary>
+    /// Refusals for a negotiated price. The ceiling is <c>ProcedureTypeRefusals.MaxCost</c> deliberately rather
+    /// than a figure of its own: it is the <c>decimal(18,3)</c> column's own limit, the same column, and a second
+    /// constant here would be a second authority over one fact. Without it PostgreSQL refuses the write and the
+    /// dentist reads an English EF sentence — the exact failure that class was written for.
+    /// </summary>
+    public const string AgreedCostNegative = "Le prix convenu pour un acte ne peut pas être négatif.";
+
+    public const string AgreedCostTooLarge =
+        "Le prix convenu pour un acte est trop élevé. Saisissez un montant en dinars, par exemple 120,000.";
 
     /// <summary>
     /// The effective list of acts, reconciling the multi-act field with the single-act one.
@@ -102,6 +131,17 @@ public static class AppointmentProcedureSelection
 
         foreach (var item in requested)
         {
+            // Checked for every act, catalogue-backed or link-only, and before anything else about the row: a
+            // price refused only on the branch that happens to be read first is a price accepted on the other.
+            if (item.AgreedCost is < 0)
+            {
+                return Result<List<AppointmentProcedureInput>>.Failure(AgreedCostNegative);
+            }
+            if (item.AgreedCost > ProcedureTypeRefusals.MaxCost)
+            {
+                return Result<List<AppointmentProcedureInput>>.Failure(AgreedCostTooLarge);
+            }
+
             // Link-only act: no catalogue entry, so no duration or colour either. It exists to carry the devis
             // link, and the séance's total duration simply does not count it — which is honest, since nothing
             // anywhere knows how long a hand-typed plan line takes.
@@ -119,6 +159,7 @@ public static class AppointmentProcedureSelection
                         : "Acte du devis",
                     null,
                     null,
+                    item.AgreedCost,
                     item.TreatmentPlanItemId));
                 continue;
             }
@@ -153,6 +194,11 @@ public static class AppointmentProcedureSelection
                 procedureType.Name,
                 procedureType.DefaultDurationMinutes,
                 procedureType.Color.Value,
+                // The client's figure, kept as sent — including null, which means « no negotiation » and leaves
+                // the act at its tarif. Substituting `procedureType.DefaultCost` here would freeze today's
+                // catalogue price onto the visit and make a later tarif change invisible to a booking nobody
+                // negotiated.
+                item.AgreedCost,
                 item.TreatmentPlanItemId));
         }
 
