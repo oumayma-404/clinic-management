@@ -296,12 +296,25 @@ public class AppointmentRepository : IAppointmentRepository
             .Where(a => a.ClinicId == clinicId
                         // A « créneau occupé » has nothing to close.
                         && a.PatientId != null
-                        // Both are complete answers rather than gaps: a visit that did not happen needs no fiche
-                        // and owes no money. Excluded here so the in-memory rule never has to un-say them.
-                        && a.Status != AppointmentStatus.Cancelled
-                        && a.Status != AppointmentStatus.NoShow
                         && a.AppointmentDateTime >= fromUtc
-                        && a.AppointmentDateTime <= nowUtc
+                        // ⚠️ A séance RETIRÉE is a candidate whatever its hour and whatever its statut, and that
+                        // is what keeps « Supprimer (créé par erreur) » from being a black hole. The elapsed bound
+                        // is right for the worklist — a visit that has not happened owes nothing yet — but
+                        // « séances retirées » is the ONLY screen that lists the mark, so under the old predicate a
+                        // mis-typed séance NEXT Tuesday left the agenda, left the figures, and appeared nowhere:
+                        // unrecoverable, while the dialog that removed it promised otherwise. The two exclusions
+                        // below move inside the same branch for the same reason — a row can be annulée and then
+                        // retirée, and the second mark must stay visible.
+                        //
+                        // The OPEN half is untouched by construction: a disregarded row never satisfies
+                        // `VisitClosureRules.IsOnWorklist`, so nothing new reaches the worklist or the dashboard
+                        // chip — only the « retirées » complement grows, which is exactly the recovery list.
+                        && (a.DisregardedAtUtc != null
+                            || (a.AppointmentDateTime <= nowUtc
+                                // Both are complete answers rather than gaps: a visit that did not happen needs no
+                                // fiche and owes no money. Excluded so the in-memory rule never has to un-say them.
+                                && a.Status != AppointmentStatus.Cancelled
+                                && a.Status != AppointmentStatus.NoShow))
                         && (doctorId == null || a.DoctorId == doctorId))
             // Unique column last — the caller pages this, and OFFSET over a non-unique sort can show a row on two
             // pages and skip another, which on this screen reads as « une séance a disparu ».

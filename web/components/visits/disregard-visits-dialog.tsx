@@ -67,11 +67,28 @@ export function DisregardVisitsDialog({ visits, onOpenChange, onDone }: Disregar
         true,
       )
 
-      toast.success(
-        result.changed === 1
-          ? "Séance retirée de la liste."
-          : `${result.changed.toLocaleString("fr-TN")} séances retirées de la liste.`,
-      )
+      /*
+       * ⚠️ `refused` must be reported, or the count lies by omission. The server refuses a séance carrying a fiche
+       * de soins or a note d'honoraires vivante, and answers with the rows it did NOT touch rather than failing the
+       * whole selection — so « 34 séances retirées » over a selection of 40 is true and still leaves six rows on
+       * screen with nothing said about why they stayed. That reads as the button half-working.
+       */
+      const refused = result.refused.length
+      const moved = result.changed === 1
+        ? "Séance retirée de la liste."
+        : `${result.changed.toLocaleString("fr-TN")} séances retirées de la liste.`
+
+      if (refused > 0) {
+        toast.warning(result.changed === 0 ? "Aucune séance retirée." : moved, {
+          description: refused === 1
+            ? "1 séance a été conservée : elle a une fiche de soins ou une note d’honoraires."
+            : `${refused.toLocaleString("fr-TN")} séances ont été conservées : elles ont une fiche de soins `
+              + "ou une note d’honoraires.",
+        })
+      } else {
+        toast.success(moved)
+      }
+
       onDone()
     } catch (err) {
       // § 13 — the dialog stays open so the action can be retried without rebuilding the selection.

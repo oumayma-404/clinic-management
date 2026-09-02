@@ -140,6 +140,28 @@ public static class VisitClosureReader
             var input = BuildInput(
                 appointment, fichesByAppointment, invoiceLinks, debtBearingItemIds, billedFicheIds);
 
+            var state = VisitClosureRules.Evaluate(input);
+
+            fichesByAppointment.TryGetValue(appointment.Id, out var fiches);
+            invoiceLinks.TryGetValue(appointment.Id, out var invoice);
+
+            var visit = new OpenVisit(appointment, state, fiches?.FirstOrDefault().DentalRecordId, invoice);
+
+            // ⚠️ A séance RETIRÉE is listed whatever else is true of it, and the two gates below are skipped for
+            // it deliberately. « séances retirées » is the only screen that lists the mark, so it is also the only
+            // way to undo one — and both gates describe a *worklist*, not the mark: `IsClosable` drops a slot that
+            // has not ended, `IsOpen` drops one that owes nothing. Applied here they hid exactly the rows this
+            // list exists to give back. A séance mis-typed onto next Tuesday left the agenda, left the figures and
+            // appeared nowhere, under a dialog that promised it could be recovered.
+            //
+            // The OPEN half keeps both gates, in the same order, so the worklist and the dashboard chip are
+            // unchanged: the partition below simply moved above them.
+            if (input.Disregarded)
+            {
+                disregarded.Add(visit);
+                continue;
+            }
+
             // The end-of-slot test runs here and not in SQL: `Duration` is persisted as ticks behind a value
             // converter, so `AppointmentDateTime + Duration` has no translation, and the trigger-maintained
             // AppointmentEndDateTime column is deliberately unmapped. What makes that affordable is the window
@@ -149,28 +171,12 @@ public static class VisitClosureReader
                 continue;
             }
 
-            var state = VisitClosureRules.Evaluate(input);
             if (!state.IsOpen)
             {
                 continue;
             }
 
-            fichesByAppointment.TryGetValue(appointment.Id, out var fiches);
-            invoiceLinks.TryGetValue(appointment.Id, out var invoice);
-
-            var visit = new OpenVisit(appointment, state, fiches?.FirstOrDefault().DentalRecordId, invoice);
-
-            // The partition, not a filter: a séance somebody set aside is still an open séance, and the screen
-            // that shows what has been set aside needs it evaluated exactly like the rest. `IsOnWorklist` is the
-            // rule this expresses — asked here as the field it reads, because both halves are wanted.
-            if (input.Disregarded)
-            {
-                disregarded.Add(visit);
-            }
-            else
-            {
-                open.Add(visit);
-            }
+            open.Add(visit);
         }
 
         // Most recent first: the client cuts this into « Aujourd'hui / Hier / mercredi 12 août », and a list

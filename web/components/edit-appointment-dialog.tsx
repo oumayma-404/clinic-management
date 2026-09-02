@@ -650,12 +650,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   /*
    * What the deletion confirm names (§ 13 — « Êtes-vous sûr ? » cannot say which of a day's séances is going).
-   * ⚠️ Branches on `patientId`, not on the name: `AppointmentDto.patientName` is the server's « Occupé » for a
-   * blocked slot, so the obvious wording reads « le rendez-vous de Occupé ».
+   * Only reachable for a séance with a patient: the menu item is absent on a « créneau occupé », whose removal
+   * « séances retirées » cannot list and therefore cannot undo.
    */
   const deletionTarget = source
-    ? `${source.patientId ? `Le rendez-vous de ${patientName}` : "Le créneau occupé"} du ` +
-      format(parseISO(source.appointmentDateTime), "d MMMM à HH:mm", { locale: fr })
+    ? `Le rendez-vous de ${patientName} du `
+      + format(parseISO(source.appointmentDateTime), "d MMMM à HH:mm", { locale: fr })
     : ""
 
   if (!appointment) return null
@@ -1137,15 +1137,25 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       contradicts it — the séance leaves the agenda, the patient's history and the figures. The
                       description says where it can be recovered rather than calling the action something else.
                     */}
-                    <DropdownMenuItem
-                      variant="destructive"
-                      className="coarse:py-3"
-                      disabled={loading}
-                      onSelect={() => setShowDeleteDialog(true)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Supprimer (créé par erreur)
-                    </DropdownMenuItem>
+                    {/*
+                      ⚠️ Not offered on a « créneau occupé », and the reason is the recovery promise rather than the
+                      deletion. « À clôturer › séances retirées » is the only screen that lists the mark, and it
+                      reads séances with a patient — a blocked slot has nothing to close, so a retired one would
+                      leave the agenda and appear nowhere. Offering an irreversible removal under a dialog that says
+                      it can be undone is the worse half of that trade, so the control is absent here; a blocked
+                      slot is re-drawn in one drag.
+                    */}
+                    {source?.patientId && (
+                      <DropdownMenuItem
+                        variant="destructive"
+                        className="coarse:py-3"
+                        disabled={loading}
+                        onSelect={() => setShowDeleteDialog(true)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Supprimer (créé par erreur)
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button
