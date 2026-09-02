@@ -227,6 +227,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         item.toothNumbers.length > 0
           ? `${item.designationFr} (dents ${item.toothNumbers.join(", ")})`
           : item.designationFr,
+      plannedCost: item.plannedCost,
     }),
     [resolveProcedureTypeId],
   )

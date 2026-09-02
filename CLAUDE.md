@@ -139,6 +139,7 @@ how it was built, `notes.md` is what shipped.
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
+- [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 
 **Reads, lists and catalogues**
@@ -213,6 +214,11 @@ touching the area.
   `RealtimeResourceResolverTests` compares the two sets in both directions and fails either way.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
+- **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill
+  paths (`applyAppointment`, `addFromProcedure`) resolve `procedureTypeId` back to a `ProcedureTypeDto` and
+  read `defaultCost`, so an act's negotiated `AgreedCost` has to be threaded through explicitly or it reverts
+  to the tarif in silence — and a saved `procedures` list that omits the prices restores every act to its
+  tarif, because `SetProcedures` replaces the whole list. `check:responsive`'s N14 holds the prefill half.
 - **`IFileStorage.UploadAsync` requires a `Guid clinicId`**, so an unprefixed key is unwritable; but
   `DownloadAsync`/`DeleteAsync` take the stored key **verbatim**, because pre-US-5 rows hold flat keys.
 - **An unloaded collection navigation is empty, not stale**, and a domain property over it answers confidently

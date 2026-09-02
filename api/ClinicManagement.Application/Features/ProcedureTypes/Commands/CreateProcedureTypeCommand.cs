@@ -89,6 +89,14 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
                 return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.CostNegative);
             }
 
+            // ⚠️ The ceiling was on the update path only, though ProcedureTypeRefusals' own docstring claims it
+            // was missing from « both » and had been put right. Creating an act at 999 999 999 999 999 999 was
+            // accepted here and refused by PostgreSQL, reaching the dentist as an English EF sentence.
+            if (request.DefaultCost > ProcedureTypeRefusals.MaxCost)
+            {
+                return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.CostTooLarge);
+            }
+
             // Validate and create color
             ColorHex color;
             try

@@ -35,6 +35,22 @@ public class AppointmentProcedure : Entity<Guid>
     public string? ColorHex { get; private set; }
 
     /// <summary>
+    /// The price agreed for this act at this visit, or <b>null</b> when nothing was negotiated and the
+    /// catalogue's own tarif stands. Null is the ordinary case and what every row written before this existed
+    /// means, which is why the absence is modelled rather than a 0 written in its place — a negotiated 0 (an act
+    /// offered) is a real answer and must stay distinguishable from « personne n'a négocié ».
+    ///
+    /// <para>⚠️ It is a <b>forfait for the act</b>, never a per-tooth rate. Teeth are not known when a visit is
+    /// booked, so a unit price could not be turned back into the total the patient was quoted on the phone: told
+    /// « 120 DT » for two extractions, a per-tooth reading bills 240. The fiche de soins therefore reopens such an
+    /// act as a forfait at exactly this figure.</para>
+    ///
+    /// <para>This is the one thing about an act the <b>client</b> tells the server rather than the catalogue —
+    /// see <c>AppointmentProcedureRequest.AgreedCost</c>, which explains why, and validates it.</para>
+    /// </summary>
+    public decimal? AgreedCost { get; private set; }
+
+    /// <summary>
     /// The treatment-plan act this line carries out, if any. **This is the field that makes grouping work**: two
     /// devis acts booked into one séance are two rows here pointing at two plan items, so the plan's per-act état
     /// resolves for both instead of only for whichever one won the parent's single scalar.
@@ -56,6 +72,7 @@ public class AppointmentProcedure : Entity<Guid>
         string? procedureName,
         int? durationMinutes,
         string? colorHex,
+        decimal? agreedCost,
         Guid? treatmentPlanItemId,
         int sequenceNumber)
     {
@@ -72,6 +89,11 @@ public class AppointmentProcedure : Entity<Guid>
         {
             throw new ArgumentException("La position de l'acte ne peut pas être négative.", nameof(sequenceNumber));
         }
+        // Zero is allowed — an act offered is a negotiation, and only a negative price is nonsense.
+        if (agreedCost is < 0)
+        {
+            throw new ArgumentException("Le prix convenu ne peut pas être négatif.", nameof(agreedCost));
+        }
 
         Id = id;
         AppointmentId = appointmentId;
@@ -79,6 +101,7 @@ public class AppointmentProcedure : Entity<Guid>
         ProcedureName = string.IsNullOrWhiteSpace(procedureName) ? null : procedureName.Trim();
         DurationMinutes = durationMinutes;
         ColorHex = string.IsNullOrWhiteSpace(colorHex) ? null : colorHex.Trim();
+        AgreedCost = agreedCost;
         TreatmentPlanItemId = treatmentPlanItemId;
         SequenceNumber = sequenceNumber;
     }
@@ -110,4 +133,5 @@ public record AppointmentProcedureInput(
     string? ProcedureName,
     int? DurationMinutes,
     string? ColorHex,
+    decimal? AgreedCost,
     Guid? TreatmentPlanItemId);

@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from "react"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { cn } from "@/lib/utils"
+import { formatDT } from "@/lib/format"
 
 /**
  * The advisory clash the booking dialogs compute, in the one shape this panel renders it.
@@ -45,6 +46,16 @@ export interface AppointmentRecapModel {
   durationMinutes: number
   /** The séance's acts, in the dentist's order. Empty is a real state (a visit booked with no act). */
   actNames: string[]
+  /**
+   * What the séance's acts add up to at the prices typed into « Prix pour ce rendez-vous », or **null** when no
+   * act carries a negotiated price and only the catalogue tarifs are in play.
+   *
+   * <p>Null rather than the tarif total, deliberately: the pane exists to be checked before committing, and a
+   * money figure it states on every ordinary booking is a figure nobody reads by the second week. It appears
+   * only when there is something to verify — which is exactly the case this pane was needed for, since a price
+   * agreed on the telephone is the one part of the booking the caller cannot see anywhere else.</p>
+   */
+  negotiatedTotal?: number | null
   doctorName?: string | null
   warning?: AppointmentRecapWarning | null
 }
@@ -199,9 +210,15 @@ export function AppointmentRecap({ model, variant, className, children }: Appoin
             <p className="truncate text-xs font-semibold leading-tight">
               {who ?? <span className="font-normal text-muted-foreground">Patient à choisir</span>}
             </p>
+            {/* ⚠️ The agreed price belongs here too, not only in the rail. Below `lg:` this strip IS the
+                récapitulatif, so stating the figure in one rendering and not the other would break this
+                component's own rule — and it is the phone where a receptionist takes the call that sets it. */}
             <p className="truncate text-2xs text-muted-foreground tabular-nums">
               {shortDayLabel ? `${shortDayLabel} · ${span}` : span}
               {model.actNames.length > 0 && ` · ${model.actNames.length} acte${model.actNames.length > 1 ? "s" : ""}`}
+              {model.negotiatedTotal != null && (
+                <span className="font-medium text-foreground"> · {formatDT(model.negotiatedTotal)}</span>
+              )}
             </p>
           </div>
         </div>
@@ -227,6 +244,12 @@ export function AppointmentRecap({ model, variant, className, children }: Appoin
           label="Actes"
           value={model.actNames.length > 0 ? model.actNames.length : <span className="text-muted-foreground">Aucun</span>}
         />
+        {model.negotiatedTotal != null && (
+          <RecapRow
+            label="Prix convenu"
+            value={<span className="tabular-nums">{formatDT(model.negotiatedTotal)}</span>}
+          />
+        )}
         <RecapRow
           label="Praticien"
           value={model.doctorName || <span className="text-muted-foreground">Aucun</span>}

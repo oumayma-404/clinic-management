@@ -137,7 +137,7 @@ export type SessionAction =
   | { type: "reset"; record?: DentalRecordDto | null }
   | { type: "focusAct"; key: string }
   | { type: "addAct" }
-  | { type: "addFromProcedure"; procedure: ProcedureTypeDto }
+  | { type: "addFromProcedure"; procedure: ProcedureTypeDto; agreedCost?: number | null }
   | { type: "removeAct"; key: string }
   | { type: "patchAct"; key: string; patch: Partial<SessionAct> }
   | { type: "pickProcedure"; key: string; procedure: ProcedureTypeDto }
@@ -148,7 +148,7 @@ export type SessionAction =
   | { type: "toggleTooth"; tooth: number }
   | { type: "selectMany"; teeth: number[]; additive: boolean }
   | { type: "clearTeeth" }
-  | { type: "applyAppointment"; procedure: ProcedureTypeDto }
+  | { type: "applyAppointment"; procedure: ProcedureTypeDto; agreedCost?: number | null }
   | { type: "applyPlanItem"; item: PlanItemPrefill }
 
 /**
@@ -208,7 +208,32 @@ const withTeeth = (act: SessionAct, toothNumbers: number[]): SessionAct => ({
   perTooth: derivePerTooth(act, toothNumbers.length),
 })
 
-function applyProcedure(act: SessionAct, pt: ProcedureTypeDto): SessionAct {
+/**
+ * @param agreedCost
+ *   The price negotiated for this act on the rendez-vous it was booked into, when there was one. It **wins over
+ *   the catalogue tarif and arrives locked**: the whole point of typing a figure into the booking dialog is that
+ *   the patient was quoted it, so re-pricing the act from the catalogue the next time the card is touched would
+ *   undo the negotiation at the one moment nobody is looking at the number.
+ *
+ *   <p>⚠️ It is a **forfait**, hence `perTooth: false` with `perToothLocked` — see
+ *   `AppointmentProcedure.AgreedCost`. Teeth are unknown at booking, so « 120 DT » cannot be a unit price
+ *   without silently billing 240 for the two extractions it was agreed for.</p>
+ */
+function applyProcedure(act: SessionAct, pt: ProcedureTypeDto, agreedCost?: number | null): SessionAct {
+  if (agreedCost != null) {
+    return {
+      ...act,
+      procedureTypeId: pt.id,
+      procedureName: pt.name,
+      unitCost: formatAmount(agreedCost),
+      unitCostLocked: true,
+      perTooth: false,
+      perToothLocked: true,
+      resultingCondition: pt.resultingCondition ?? null,
+      picking: false,
+    }
+  }
+
   const next: SessionAct = {
     ...act,
     procedureTypeId: pt.id,
@@ -251,9 +276,12 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       // The « aussi prévu à ce rendez-vous » shortcuts: fill the trailing blank if there is one, else append.
       const last = state.acts[state.acts.length - 1]
       if (last && !isActTouched(last)) {
-        return { ...mapAct(state, last.key, (a) => applyProcedure(a, action.procedure)), focusKey: last.key }
+        return {
+          ...mapAct(state, last.key, (a) => applyProcedure(a, action.procedure, action.agreedCost)),
+          focusKey: last.key,
+        }
       }
-      const act = applyProcedure(emptyAct(makeKey(state.nextKey)), action.procedure)
+      const act = applyProcedure(emptyAct(makeKey(state.nextKey)), action.procedure, action.agreedCost)
       return { acts: [...state.acts, act], focusKey: act.key, nextKey: state.nextKey + 1 }
     }
 
@@ -344,7 +372,10 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       // proposal is an ordinary card the dentist can change or delete.
       const first = state.acts[0]
       if (state.acts.length !== 1 || isActNamed(first)) return state
-      return { ...mapAct(state, first.key, (a) => applyProcedure(a, action.procedure)), focusKey: first.key }
+      return {
+        ...mapAct(state, first.key, (a) => applyProcedure(a, action.procedure, action.agreedCost)),
+        focusKey: first.key,
+      }
     }
 
     case "applyPlanItem": {

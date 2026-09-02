@@ -27,6 +27,7 @@ import type {
   PatientDto,
   ToothStateDto,
   AppointmentDto,
+  AppointmentProcedureDto,
 } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, toLocalIso, todayLocalIso } from "@/lib/format"
 import { conditionStyle, needsTreatment, serializeSurfaces } from "@/components/odontogram-conditions"
@@ -349,7 +350,17 @@ export function PatientRecordModal({
   useEffect(() => {
     if (!open || record || !appointment?.procedureTypeId || procedureTypes.length === 0) return
     const booked = procedureTypes.find((p) => p.id === appointment.procedureTypeId)
-    if (booked) dispatch({ type: "applyAppointment", procedure: booked })
+    // ⚠️ The price comes from the appointment's own act ROW, never from `booked.defaultCost`. The lead act is a
+    // derived snapshot of the first row, so the catalogue is the wrong place to ask: a visit booked at a
+    // negotiated 120 DT would open the fiche at the 150 DT tarif, and the patient would be billed a price
+    // nobody quoted them.
+    const bookedRow = appointment.procedures
+      ?.slice()
+      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+      .find((p) => p.procedureTypeId === appointment.procedureTypeId)
+    if (booked) {
+      dispatch({ type: "applyAppointment", procedure: booked, agreedCost: bookedRow?.agreedCost ?? null })
+    }
   }, [open, record, appointment, procedureTypes, dispatch])
 
   // « Montant payé » mirrors the running total until the user takes the field over.
@@ -792,8 +803,20 @@ export function PatientRecordModal({
     return (appointment?.procedures ?? [])
       .slice()
       .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-      .map((p) => (p.procedureTypeId ? procedureTypes.find((pt) => pt.id === p.procedureTypeId) : undefined))
-      .filter((pt): pt is ProcedureTypeDto => !!pt && !used.has(pt.id))
+      // ⚠️ The booked ROW travels with the catalogue entry, not just its id. This used to resolve straight to a
+      // `ProcedureTypeDto` and throw the row away, which is exactly where a negotiated price would have died:
+      // the shortcut would have priced the second act of a séance from the catalogue while the first — reached by
+      // a different code path — carried the agreed figure. Two acts of one visit, two pricing rules.
+      .map((row) => ({
+        row,
+        procedure: row.procedureTypeId
+          ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
+          : undefined,
+      }))
+      .filter(
+        (entry): entry is { row: AppointmentProcedureDto; procedure: ProcedureTypeDto } =>
+          !!entry.procedure && !used.has(entry.procedure.id),
+      )
   }, [appointment?.procedures, procedureTypes, acts])
 
   return (
@@ -963,18 +986,31 @@ export function PatientRecordModal({
               Aussi prévu à ce rendez-vous — à confirmer un par un :
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {otherBookedActs.map((booked) => (
+              {otherBookedActs.map(({ row, procedure }) => (
                 <Button
-                  key={booked.id}
+                  key={procedure.id}
                   type="button"
                   variant="outline"
                   size="sm"
                   className="h-7 gap-1 text-xs"
                   disabled={loading}
-                  onClick={() => dispatch({ type: "addFromProcedure", procedure: booked })}
+                  onClick={() =>
+                    dispatch({
+                      type: "addFromProcedure",
+                      procedure,
+                      agreedCost: row.agreedCost ?? null,
+                    })
+                  }
                 >
                   <Plus className="h-3 w-3" />
-                  {booked.name}
+                  {procedure.name}
+                  {/* The agreed price on the chip, because the whole point is that this act is not at its tarif
+                      and the dentist should see that before tapping « Ajouter ». */}
+                  {row.agreedCost != null && (
+                    <span className="tabular-nums text-muted-foreground">
+                      · {formatAmount(row.agreedCost)} DT
+                    </span>
+                  )}
                 </Button>
               ))}
             </div>

@@ -949,6 +949,51 @@ check(
   },
 );
 
+check(
+  "agreed-cost-reaches-the-fiche",
+  "N14",
+  "A booked act's negotiated price is carried into the fiche de soins at every prefill site",
+  "« Prix pour ce rendez-vous » exists so a price haggled on the telephone is the price billed. But the fiche " +
+    "does NOT read the appointment's act rows for pricing — it resolves each row's `procedureTypeId` back to " +
+    "the CATALOGUE, and `applyProcedure` then prices the act from `defaultCost`. So a prefill site that " +
+    "dispatches `applyAppointment` or `addFromProcedure` without `agreedCost` shows the negotiated figure in " +
+    "the booking dialog and silently reverts to the tarif in the fiche — worse than not having the feature, " +
+    "because the dentist has been given a number to trust. There are two such sites (the lead act, and the " +
+    "« aussi prévu à ce rendez-vous » shortcuts) and they are reached by different code paths, which is exactly " +
+    "how one of them gets fixed and the other does not. Pass `agreedCost` from the booked ROW, never from the " +
+    "catalogue entry.",
+  () => {
+    // Keyed on the dispatch, not on a file list: a third prefill site added anywhere is caught the same way.
+    const PREFILL = /type:\s*"(?:applyAppointment|addFromProcedure)"/;
+
+    const offenders = [];
+    for (const f of tsx()) {
+      const src = read(f);
+      if (!PREFILL.test(src)) continue;
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      lines.forEach((l, i) => {
+        if (masked[i] || !PREFILL.test(l)) return;
+        /*
+         * The dispatch object may be written across several lines, so the window is the statement rather than
+         * the one line — six lines forward covers both shapes in use (a single-line object, and the multi-line
+         * form the shortcut button needs). `use-session-acts.ts` declares these actions rather than dispatching
+         * them, and its declaration lines carry `agreedCost?` for the same reason, so it passes on its own.
+         */
+        const window = lines.slice(i, i + 6).join("\n");
+        if (!/agreedCost/.test(window)) {
+          offenders.push({
+            file: f,
+            line: i + 1,
+            text: "prefill dispatched without agreedCost — the fiche will re-price from the catalogue",
+          });
+        }
+      });
+    }
+    return offenders;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

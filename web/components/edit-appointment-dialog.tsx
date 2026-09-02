@@ -49,9 +49,12 @@ import {
 } from "@/components/appointment-recap"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { AppointmentActsPicker, totalActsDuration, type SelectedAct } from "@/components/appointment-acts-picker"
+import {
+  AppointmentActsPicker, hasInvalidAgreedCost, negotiatedTotalOf, toProcedurePayloads, totalActsDuration,
+  type SelectedAct,
+} from "@/components/appointment-acts-picker"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
-import { quoteFr } from "@/lib/format"
+import { formatAmount, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
 import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -272,6 +275,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     startMinute,
     durationMinutes: calculatedDuration,
     actNames,
+    negotiatedTotal: negotiatedTotalOf(selectedActs, procedureTypes),
     doctorName: selectedDoctorName,
     warning: overlapWarning
       ? { message: overlapWarning, samePractitioner: overlapSamePractitioner }
@@ -365,6 +369,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 treatmentPlanItemId: p.treatmentPlanItemId ?? null,
                 planLabel: p.treatmentPlanItemId ? "devis" : undefined,
                 fallbackName: p.name ?? undefined,
+                // A negotiated price hydrates as **typed**, so it is re-sent on save. Leaving it undefined would
+                // show the catalogue tarif in the field and the next save — rescheduling, changing the note,
+                // anything — would quietly restore every act to that tarif, since the list replaces the acts.
+                agreedCost: p.agreedCost != null ? formatAmount(p.agreedCost) : undefined,
               }))
           : appointment.procedureTypeId
             ? [
@@ -455,6 +463,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       return false
     }
 
+    // Same guard as the create dialog: an unparseable amount reads as null and would silently put the act back
+    // to its catalogue tarif on save.
+    if (selectedActs.some(hasInvalidAgreedCost)) {
+      setError("Corrigez le prix d'un acte : saisissez un montant en dinars, par exemple 120,000.")
+      return false
+    }
+
     return true
   }
 
@@ -504,10 +519,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         // Replaces the whole list. `[]` is a real instruction here (« ce rendez-vous n'a plus d'acte ») and the
         // server distinguishes it from an omitted key, which is why this dialog always sends it and the cancel
         // path — which posts { status } alone — never does.
-        procedures: selectedActs.map((a) => ({
-          procedureTypeId: a.procedureTypeId,
-          treatmentPlanItemId: a.treatmentPlanItemId ?? null,
-        })),
+        procedures: toProcedurePayloads(selectedActs),
         allowOutsideWorkingHours: allowOutsideWorkingHours || undefined,
         allowOverlap: allowOverlap || undefined,
         // The version this form was hydrated from.

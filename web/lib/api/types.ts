@@ -545,6 +545,11 @@ export interface AppointmentProcedureDto {
   colorHex?: string | null;
   /** The devis act this line carries out — how a grouped séance reports each of its steps. */
   treatmentPlanItemId?: string | null;
+  /**
+   * The price agreed for this act at this visit — a **forfait**, not a per-tooth rate — or null when nothing was
+   * negotiated and the catalogue tarif stands. What the fiche de soins prices the act at.
+   */
+  agreedCost?: number | null;
   sequenceNumber: number;
 }
 

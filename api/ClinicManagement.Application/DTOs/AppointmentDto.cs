@@ -92,5 +92,13 @@ public class AppointmentProcedureDto
     /// <summary>The devis act this line carries out, if any — how a grouped séance reports each of its steps.</summary>
     public Guid? TreatmentPlanItemId { get; set; }
 
+    /// <summary>
+    /// The price agreed for this act at this visit (a forfait), or null when none was negotiated and the
+    /// catalogue tarif stands. This is what the fiche de soins prices the act at, so it has to be on the read
+    /// as well as the write: without it the edit dialog would reopen a negotiated visit at its catalogue prices
+    /// and re-save them.
+    /// </summary>
+    public decimal? AgreedCost { get; set; }
+
     public int SequenceNumber { get; set; }
 }
