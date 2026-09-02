@@ -111,9 +111,17 @@ public class ProcedureTypeCatalogSeedFloorTests
         Assert.Null(charted["Incision d'abcès et drainage"]);
         Assert.Null(charted["Greffe osseuse / comblement"]);
 
+        // Two more, found by running the ladders over the real catalogue rather than by reading the rows: a
+        // coiffage is « à l'exclusion de l'obturation définitive » in the barème's own words, and a provisoire is
+        // by definition replaced. Left on their disciplines' defaults each tied the first rung of a ladder, which
+        // is what removes a diagnosis' pre-filled plan line — see SeededCatalogueSuggestionTests.
+        Assert.Null(charted["Coiffage pulpaire"]);
+        Assert.Null(charted["Couronne provisoire"]);
+
         // And the override did not go too far — the discipline's default still reaches the acts it is right for.
-        Assert.Equal(ToothCondition.Couronne, charted["Couronne provisoire"]);
+        Assert.Equal(ToothCondition.Obturation, charted["Soin de carie / obturation"]);
         Assert.Equal(ToothCondition.ExtraitAbsent, charted["Extraction de racine (alvéolectomie)"]);
         Assert.Equal(ToothCondition.TraitementDeCanal, charted["Retraitement endodontique"]);
+        Assert.Equal(ToothCondition.Couronne, charted["Couronne / bridge (par élément)"]);
     }
 }

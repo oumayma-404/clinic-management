@@ -76,11 +76,10 @@ public static class ConditionTreatments
 
         // ⚠️ No act leaves `Bridge` behind — the seeded catalogue files « Couronne / bridge (par élément) » under
         // Couronne — so inverting ResultingCondition left a Bridge diagnosis with no act and no cost at all.
-        [ToothCondition.Bridge] =
-        [
-            new(Category: "Prothèse fixe"),
-            new(Produces: ToothCondition.Couronne),
-        ],
+        // ⚠️ `Produces`, not the discipline. « Couronne / bridge (par élément) » is the act, and it is the one
+        // that produces `Couronne` — while a `Category: "Prothèse fixe"` selector also swept in the inlay-core and
+        // the couronne provisoire, tying the first rung and silently removing this diagnosis' pre-fill.
+        [ToothCondition.Bridge] = [new(Produces: ToothCondition.Couronne)],
 
         /*
          * ⚠️ A missing tooth is REPLACED, never extracted again. Inverting ResultingCondition answered
@@ -89,7 +88,11 @@ public static class ConditionTreatments
         [ToothCondition.ExtraitAbsent] =
         [
             new(Produces: ToothCondition.Implant),
-            new(Category: "Prothèse fixe"),
+            // Same correction as Bridge above: the bridge, not everything filed beside it.
+            new(Produces: ToothCondition.Couronne),
+            // ⚠️ Still a discipline, because nothing charts a removable prosthesis — so « Réparation / rebasage »
+            // and « Gouttière occlusale » are offered here too. Coarse, and accepted: a denture really is the
+            // answer to a missing tooth, and no `Produces` value exists to say so more precisely.
             new(Category: "Prothèse amovible"),
         ],
 

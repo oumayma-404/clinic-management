@@ -127,12 +127,19 @@ public static class ProcedureTypeCatalogSeed
          * Prices are the CNOMDT barème d'honoraires minimums (27/12/2020) where it covers the act, and marked
          * « estimation » where it does not. They are floors, not recommendations — see the class docstring.
          */
-        new("Coiffage pulpaire", 30, 30m, "Soins conservateurs"),                       // barème 30
+        new("Coiffage pulpaire", 30, 30m, "Soins conservateurs",
+            // Charts nothing: the barème's own line is « à l'exclusion de l'obturation définitive ». Left on its
+            // discipline's default it produced `Obturation`, tied with « Soin de carie » on the first rung of the
+            // carie ladder, and a tie is what makes the odontogram stop pre-filling the plan line at all.
+            ToothCondition.Sain),                                                           // barème 30
         new("Retraitement endodontique", 90, 250m, "Endodontie"),                       // estimation
         new("Inlay-core (reconstitution corono-radiculaire)", 45, 80m, "Prothèse fixe",
             // Charts nothing: the core is placed, the crown that covers it is a separate act.
             ToothCondition.Sain),                                                       // barème 80
-        new("Couronne provisoire", 30, 60m, "Prothèse fixe"),                           // barème 60
+        new("Couronne provisoire", 30, 60m, "Prothèse fixe",
+            // Charts nothing: the odontogram records what the tooth carries lastingly, and a provisoire is by
+            // definition replaced. It also tied with the definitive crown on the Couronne and Bridge ladders.
+            ToothCondition.Sain),                                                           // barème 60
         new("Extraction de racine (alvéolectomie)", 40, 60m, "Chirurgie/Extraction"),   // barème 60
         new("Incision d'abcès et drainage", 20, 40m, "Chirurgie/Extraction",
             // Charts nothing: the tooth stays. Its discipline's default would have recorded it as extracted.
