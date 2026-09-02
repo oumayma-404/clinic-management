@@ -237,6 +237,30 @@ export function PatientRecordModal({
 
   const { acts, namedActs, grandTotal, focusedAct, focusKey, dispatch } = useSessionActs(record)
 
+  /**
+   * What is being typed into « Total », or `null` when the field simply shows the derived figure.
+   *
+   * <p>It has to be held separately for the length of the edit: the displayed value is `formatAmount(grandTotal)`,
+   * so writing straight through would reformat every keystroke — « 1 » becoming « 1,000 » with the caret behind
+   * it, which makes the field impossible to type a second digit into. Clearing the draft on commit is also what
+   * re-syncs the field afterwards: once it is `null` the input is again a pure read of the acts, so correcting an
+   * act's tarif by hand moves the total with no further wiring.</p>
+   */
+  const [totalDraft, setTotalDraft] = useState<string | null>(null)
+
+  /**
+   * Commit the typed total onto the acts. An unusable or negative entry is dropped and the field snaps back to
+   * the real total — the number visibly returning is the refusal, and there is nothing to report beyond it.
+   */
+  const commitTotal = useCallback(() => {
+    setTotalDraft((draft) => {
+      if (draft === null) return null
+      const parsed = parseAmountInput(draft)
+      if (Number.isFinite(parsed) && parsed >= 0) dispatch({ type: "setTotal", total: parsed })
+      return null
+    })
+  }, [dispatch])
+
   /*
    * Load the active procedure catalog (the picker's source) when the modal opens.
    *
@@ -1397,9 +1421,40 @@ export function PatientRecordModal({
                 </SelectContent>
               </Select>
             </div>
+            {/* The total is EDITABLE, and typing in it re-prices the acts (`setTotal` → `distributeSessionTotal`)
+                rather than storing a figure of its own — the acts are what the note d'honoraires is built from.
+                It is still `Σ actTotal` on the way out, which is why editing an act afterwards simply moves it
+                again: there is no contest to resolve, and the last person to type always wins. */}
             <div className="flex shrink-0 items-center gap-1.5 text-sm">
-              <span className="text-muted-foreground">Total</span>
-              <span className="text-base font-semibold tabular-nums">{formatDT(grandTotal)}</span>
+              <Label htmlFor="session-total" className="text-muted-foreground">
+                Total
+              </Label>
+              {/* Same `text` + `inputMode="decimal"` as « Payé » directly above, and for the same J8 reason: a
+                  `type="number"` refuses the comma this product prints with and hands back an EMPTY value. */}
+              <Input
+                id="session-total"
+                type="text"
+                inputMode="decimal"
+                className="h-8 w-28 text-right text-base font-semibold tabular-nums"
+                value={totalDraft ?? formatAmount(grandTotal)}
+                onChange={(e) => setTotalDraft(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={commitTotal}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    commitTotal()
+                  } else if (e.key === "Escape") {
+                    setTotalDraft(null)
+                  }
+                }}
+                aria-describedby="session-total-hint"
+                disabled={loading || namedActs.length === 0}
+                placeholder="0,000"
+              />
+              <span id="session-total-hint" className="sr-only">
+                Modifier ce total répartit le montant sur les actes de la séance.
+              </span>
             </div>
             {/* Wraps to its own line below `sm:` — three figures do not fit 342px, and « Reste à payer » is the
                 one of the three that is a sentence rather than a number. */}
