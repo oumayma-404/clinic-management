@@ -161,6 +161,11 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN}
+      # The old hostname, kept answering alongside DOMAIN so desktop clients that pin it at compile time
+      # (`ServerConfig.HostedHost`) are not stranded by the rename. Defaults to DOMAIN — Caddy would refuse to
+      # parse a site address ending in a bare comma, so this must never resolve to an empty string; repeating
+      # the canonical name is the harmless no-op form. See the note at the top of Caddyfile.
+      LEGACY_DOMAIN: ${LEGACY_DOMAIN:-${DOMAIN}}
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

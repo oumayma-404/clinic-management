@@ -9,13 +9,24 @@
 # Shared by both hosted profiles (docker-compose.prod.yml = CloudBrowser,
 # docker-compose.hosted.yml = HostedMultiTenant).
 #
-# DOMAIN and ACME_EMAIL are injected from the environment by docker-compose.
+# DOMAIN, LEGACY_DOMAIN and ACME_EMAIL are injected from the environment by docker-compose.
+#
+# ⚠️ LEGACY_DOMAIN is the SECOND name this site answers to, and it exists because the desktop shell pins its
+# host at compile time (`ServerConfig.HostedHost`). An installed client never re-reads that constant, so the
+# day the deployment moved to its own domain, dropping the old OVH hostname would have stranded every client
+# already in a cabinet — Caddy would stop getting a certificate for the name they dial, and the failure would
+# look like the product being down rather than like a rename. It serves both until a new client has shipped
+# and the installed base has taken the update.
+#
+# It is a SEPARATE variable rather than a comma-list inside DOMAIN because DOMAIN is not only a site address:
+# docker-compose builds `FrontendUrl` and `GoogleCalendar__RedirectUri` out of it, and a comma-list there would
+# produce a redirect URI Google can never match. DOMAIN stays the ONE canonical name; this is an alias.
 
 {
 	email {$ACME_EMAIL}
 }
 
-{$DOMAIN} {
+{$DOMAIN}, {$LEGACY_DOMAIN} {
 	encode zstd gzip
 
 	# HSTS is set HERE, at the site level, so it covers /api/*, /hub/*, /health AND the pages — the API can only
