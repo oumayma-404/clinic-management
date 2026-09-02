@@ -14,6 +14,17 @@ namespace ClinicManagement.Application.Features.ProcedureTypes;
 /// and clinics wanting a finer breakdown add their own rows. Prices are indicative midpoints (they vary widely
 /// by city/tier), meant as a starting point. Used both to seed a new clinic on creation and to backfill an
 /// existing clinic's menu on demand.
+///
+/// <para><b>⚠️ No row may sit below the CNOMDT floor.</b> The Conseil National de l'Ordre des Médecins Dentistes
+/// de Tunisie publishes a <i>barème d'honoraires minimums</i> (adopted 27 December 2020), and article 30 of the
+/// code de déontologie forbids a dentist charging under it. Two rows shipped below it — détartrage at 60 against
+/// a floor of 90, and blanchiment at 400 against 500 — so the product's own defaults invited every new clinic to
+/// break that rule. <c>ProcedureTypeCatalogSeedFloorTests</c> holds the whole list against the barème now.</para>
+///
+/// <para>⚠️ The list is 19 rows <b>on purpose</b>. It was 43 and was cut on practitioner feedback for splitting
+/// hairs — « 1 face » vs « 2-3 faces », mono- vs pluriradiculaire, céramo-métal vs zircone (<c>feef4d8a</c>).
+/// Re-adding a clinical <i>variant</i> of a row that already exists is re-opening a closed decision; a genuinely
+/// distinct act that has no row at all is a different question.</para>
 /// </summary>
 public static class ProcedureTypeCatalogSeed
 {
@@ -75,7 +86,7 @@ public static class ProcedureTypeCatalogSeed
         new("Radiographie panoramique", 15, 40m, "Radiologie"),
         new("Soin de carie / obturation", 40, 90m, "Soins conservateurs"),
         new("Traitement de canal (dévitalisation)", 60, 150m, "Endodontie"),
-        new("Détartrage", 30, 60m, "Parodontologie"),
+        new("Détartrage", 30, 90m, "Parodontologie"),
         new("Traitement parodontal (surfaçage / curetage)", 45, 120m, "Parodontologie"),
         new("Extraction simple", 30, 60m, "Chirurgie/Extraction"),
         new("Extraction chirurgicale (sagesse / dent incluse)", 60, 200m, "Chirurgie/Extraction"),
@@ -85,7 +96,7 @@ public static class ProcedureTypeCatalogSeed
         new("Implant dentaire", 60, 1500m, "Implantologie"),
         new("Traitement orthodontique (multi-attaches)", 60, 3500m, "Orthodontie"),
         new("Séance orthodontique (contrôle / activation)", 30, 80m, "Orthodontie"),
-        new("Blanchiment dentaire", 60, 400m, "Esthétique"),
+        new("Blanchiment dentaire", 60, 500m, "Esthétique"),
         new("Facette", 60, 700m, "Esthétique"),
         new("Soin dentaire enfant (dent de lait)", 30, 60m, "Pédodontie"),
     };
