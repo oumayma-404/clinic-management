@@ -6,9 +6,24 @@
 <title>Quatre temps</title>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   « QUATRE TEMPS » — hero scene, 14 s seamless loop, 4 acts of 3.5 s.
+   « QUATRE TEMPS » — hero scene, 17.5 s seamless loop: an APEXA end card,
+   then 4 acts of 3.5 s.
 
-   ONE master duration. Every animated element runs `--T` (14s) infinite, with
+   ⚠️ THE LOOP OPENS AND CLOSES ON THE LOGO, and those are the same instant.
+   0 % IS 100 %, so one end card serves as both. It sits at the HEAD: the film
+   opens by DRAWING the lockup — the Λ rises, the letters track outward, a
+   reflection crosses — holds it, dissolves into the agenda, plays the four
+   acts, and closes with the plate fading back over act 4's exit, straight
+   into the next build. Opening on an already-assembled logo was the first
+   cut of this and it read as a film that had already finished.
+
+   The logo owns 0 %–20 % (3.5 s) and the acts own 20 %–100 % (14 s, their
+   original pacing to the millisecond). Every act track holds its final value
+   across 0 %–20 % — a still frame, under an opaque plate, for as long as the
+   build runs. That hold is why nothing about the four acts had to be
+   re-timed: their percentages are the originals × 0.8, rotated +20 %.
+
+   ONE master duration. Every animated element runs `--T` (17.5s) infinite, with
    keyframes expressed in % of the whole loop, so nothing can drift and 100%
    is authored identical to 0%. Sibling stagger is done with NEGATIVE delays
    only (`--d` = "starts this many ms earlier"): a positive delay would leave
@@ -47,7 +62,7 @@
   --ease-out:    cubic-bezier(.23, 1, .32, 1);
   --ease-in-out: cubic-bezier(.77, 0, .175, 1);
 
-  --T: 14s;
+  --T: 17.5s;
   --r-card: 20px;
   --r-med:  12px;
   --r-sm:   10px;
@@ -561,192 +576,348 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── ground ─────────────────────────────────────────────────────────────── */
-@keyframes glow1 { 0%,22.86% { opacity: 1 } 27.14%,94% { opacity: 0 } 100% { opacity: 1 } }
-@keyframes glow2 { 0%,22.14% { opacity: 0 } 26.43%,47.86% { opacity: 1 } 52.14%,100% { opacity: 0 } }
-@keyframes glow3 { 0%,46.43% { opacity: 0 } 51.43%,72.86% { opacity: 1 } 77.14%,100% { opacity: 0 } }
-@keyframes glow4 { 0%,71.43% { opacity: 0 } 76.43%,93.57% { opacity: 1 } 98.57%,100% { opacity: 0 } }
+@keyframes glow1 {
+  0% {opacity: 1}
+  20%,38.288% {opacity: 1}
+  41.712%,95.2% {opacity: 0}
+  100% {opacity: 1}
+}
+@keyframes glow2 {
+  0% {opacity: 0}
+  20%,37.712% {opacity: 0}
+  41.144%,58.288% {opacity: 1}
+  61.712%,100% {opacity: 0}
+}
+@keyframes glow3 {
+  0% {opacity: 0}
+  20%,57.144% {opacity: 0}
+  61.144%,78.288% {opacity: 1}
+  81.712%,100% {opacity: 0}
+}
+@keyframes glow4 {
+  0% {opacity: 0}
+  20%,77.144% {opacity: 0}
+  81.144%,94.856% {opacity: 1}
+  98.856%,100% {opacity: 0}
+}
 
 /* ── HUD ────────────────────────────────────────────────────────────────── */
 @keyframes cap1 {
-  0%            { opacity: .5; transform: translateY(.2rem) }
-  2.14%,23.93%  { opacity: 1;  transform: translateY(0) }
-  26.07%,97.86% { opacity: 0;  transform: translateY(-.4rem) }
-  100%          { opacity: .5; transform: translateY(.2rem) }
+  0% {opacity: 0;  transform: translateY(-.4rem)}
+  20% {opacity: 0; transform: translateY(.45rem)}
+  22.4%,39.144% {opacity: 1;  transform: translateY(0)}
+  40.856% {opacity: 0;  transform: translateY(-.4rem)}
+  100% {opacity: 0;  transform: translateY(-.4rem)}
 }
-@keyframes cap2 { 0%,26.79% { opacity: 0; transform: translateY(.45rem) } 29.64%,48.93% { opacity: 1; transform: translateY(0) } 51.07%,100% { opacity: 0; transform: translateY(-.4rem) } }
-@keyframes cap3 { 0%,51.79% { opacity: 0; transform: translateY(.45rem) } 54.64%,73.93% { opacity: 1; transform: translateY(0) } 76.07%,100% { opacity: 0; transform: translateY(-.4rem) } }
-@keyframes cap4 { 0%,76.43% { opacity: 0; transform: translateY(.45rem) } 79.29%,96.07% { opacity: 1; transform: translateY(0) } 98.21%,100% { opacity: 0; transform: translateY(-.4rem) } }
+@keyframes cap2 {
+  0% {opacity: 0; transform: translateY(-.4rem)}
+  20%,41.432% {opacity: 0; transform: translateY(.45rem)}
+  43.712%,59.144% {opacity: 1; transform: translateY(0)}
+  60.856%,100% {opacity: 0; transform: translateY(-.4rem)}
+}
+@keyframes cap3 {
+  0% {opacity: 0; transform: translateY(-.4rem)}
+  20%,61.432% {opacity: 0; transform: translateY(.45rem)}
+  63.712%,79.144% {opacity: 1; transform: translateY(0)}
+  80.856%,100% {opacity: 0; transform: translateY(-.4rem)}
+}
+@keyframes cap5 {
+  0%,20%      { opacity: 1; transform: translateY(0) }
+  22.4%       { opacity: 0; transform: translateY(-.4rem) }
+  23%,98.6%   { opacity: 0; transform: translateY(.45rem) }
+  100%        { opacity: 1; transform: translateY(0) }
+}
+@keyframes cap4 {
+  0% {opacity: 0; transform: translateY(-.4rem)}
+  20%,81.144% {opacity: 0; transform: translateY(.45rem)}
+  83.432%,96.856% {opacity: 1; transform: translateY(0)}
+  98.568%,100% {opacity: 0; transform: translateY(-.4rem)}
+}
 
 /* the rail unwinds right to left over the last 0.5 s, while act 1 flies in */
-@keyframes railFill1 { 0% { transform: scaleX(0) } 25%,97.5% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 99.29%,100% { transform: scaleX(0) } }
-@keyframes railFill2 { 0%,25% { transform: scaleX(0) } 50%,97.14% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 98.93%,100% { transform: scaleX(0) } }
-@keyframes railFill3 { 0%,50% { transform: scaleX(0) } 75%,96.79% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 98.57%,100% { transform: scaleX(0) } }
-@keyframes railFill4 { 0%,75% { transform: scaleX(0) } 96.43% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 98.21%,100% { transform: scaleX(0) } }
+@keyframes railFill1 {
+  0%,20% {transform: scaleX(0)}
+  40%,98.6% {transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1)}
+  100% {transform: scaleX(0)}
+}
+@keyframes railFill2 {
+  0%,40% {transform: scaleX(0)}
+  60%,98.6% {transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1)}
+  100% {transform: scaleX(0)}
+}
+@keyframes railFill3 {
+  0%,60% {transform: scaleX(0)}
+  80%,98.6% {transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1)}
+  100% {transform: scaleX(0)}
+}
+@keyframes railFill4 {
+  0%,80% {transform: scaleX(0)}
+  97.144%,98.6% {transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1)}
+  100% {transform: scaleX(0)}
+}
 
 /* ── act 1 · the agenda, arriving across the seam ───────────────────────── */
 @keyframes dayIn {
-  0%            { opacity: .55; transform: translateX(-.5em) }
-  2.14%,23.21%  { opacity: 1;   transform: translateX(0) }
-  26.43%        { opacity: 0;   transform: translateX(-1.8em) }
-  30%,97.86%    { opacity: 0;   transform: translateX(-1.2em); animation-timing-function: linear }
-  100%          { opacity: .55; transform: translateX(-.5em) }
+  0% {opacity: 0;   transform: translateX(-1.2em); animation-timing-function: linear}
+  20% {opacity: 0;  transform: translateX(-1.2em)}
+  21.712%,38.568% {opacity: 1;   transform: translateX(0)}
+  41.144% {opacity: 0;   transform: translateX(-1.8em)}
+  44% {opacity: 0;   transform: translateX(-1.2em); animation-timing-function: linear}
+  100% {opacity: 0;   transform: translateX(-1.2em); animation-timing-function: linear}
 }
 @keyframes hhIn {
-  0%           { opacity: .5; transform: translateX(-.7em) }
-  3.21%,22.86% { opacity: 1;  transform: translateX(0) }
-  25.71%       { opacity: 0;  transform: translateX(-2.4em) }
-  30%,97.5%    { opacity: 0;  transform: translateX(-1.4em); animation-timing-function: linear }
-  100%         { opacity: .5; transform: translateX(-.7em) }
+  0% {opacity: 0;  transform: translateX(-1.4em); animation-timing-function: linear}
+  20% {opacity: 0;  transform: translateX(-1.4em)}
+  22.568%,38.288% {opacity: 1;  transform: translateX(0)}
+  40.568% {opacity: 0;  transform: translateX(-2.4em)}
+  44% {opacity: 0;  transform: translateX(-1.4em); animation-timing-function: linear}
+  100% {opacity: 0;  transform: translateX(-1.4em); animation-timing-function: linear}
 }
 @keyframes blkIn {
-  0%            { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
-  6.07%,16.07%  { opacity: 1;   transform: translate(0em, 0em) scale(1) }
-  18.57%,23.21% { opacity: .32; transform: translate(0em, 0em) scale(.985) }
-  27.5%         { opacity: 0;   transform: translate(var(--ox, 6em), var(--oy, 0em)) scale(.9) }
-  34%,97.14%    { opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear }
-  100%          { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
+  0% {opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear}
+  20% {opacity: 0;   transform: translate(9em, 0em) scale(.97)}
+  24.856%,32.856% {opacity: 1;   transform: translate(0em, 0em) scale(1)}
+  34.856%,38.568% {opacity: .32; transform: translate(0em, 0em) scale(.985)}
+  42% {opacity: 0;   transform: translate(var(--ox, 6em), var(--oy, 0em)) scale(.9)}
+  47.2% {opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear}
+  100% {opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear}
 }
 @keyframes blkSel {
-  0%            { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
-  6.07%,16.07%  { opacity: 1;   transform: translate(0em, 0em) scale(1) }
-  18.57%,23.21% { opacity: 1;   transform: translate(0em, 0em) scale(1.03) }
-  25.71%        { opacity: 1;   transform: translate(0em, 7.5em) scale(1.07) }
-  27.86%        { opacity: 0;   transform: translate(0em, 10.5em) scale(1.16) }
-  34%,97.14%    { opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear }
-  100%          { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
+  0% {opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear}
+  20% {opacity: 0;   transform: translate(9em, 0em) scale(.97)}
+  24.856%,32.856% {opacity: 1;   transform: translate(0em, 0em) scale(1)}
+  34.856%,38.568% {opacity: 1;   transform: translate(0em, 0em) scale(1.03)}
+  40.568% {opacity: 1;   transform: translate(0em, 7.5em) scale(1.07)}
+  42.288% {opacity: 0;   transform: translate(0em, 10.5em) scale(1.16)}
+  47.2% {opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear}
+  100% {opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear}
 }
-@keyframes tintIn { 0%,7.14% { transform: scaleX(0) } 10.71%,25% { transform: scaleX(1) } 30%,100% { transform: scaleX(0) } }
-@keyframes barIn  { 0%,6.43% { transform: scaleY(0) } 9.64%,25%  { transform: scaleY(1) } 30%,100% { transform: scaleY(0) } }
-@keyframes dotIn  { 0%,7.86% { transform: scale(0) }  10.36%,25% { transform: scale(1) }  30%,100% { transform: scale(0) } }
+@keyframes tintIn {
+  0% {transform: scaleX(0)}
+  20%,25.712% {transform: scaleX(0)}
+  28.568%,40% {transform: scaleX(1)}
+  44%,100% {transform: scaleX(0)}
+}
+@keyframes barIn {
+  0% {transform: scaleY(0)}
+  20%,25.144% {transform: scaleY(0)}
+  27.712%,40% {transform: scaleY(1)}
+  44%,100% {transform: scaleY(0)}
+}
+@keyframes dotIn {
+  0% {transform: scale(0)}
+  20%,26.288% {transform: scale(0)}
+  28.288%,40% {transform: scale(1)}
+  44%,100% {transform: scale(0)}
+}
 @keyframes pickIn {
-  0%,16.07%     { opacity: 0; transform: scale(1.07) }
-  18.57%,23.57% { opacity: 1; transform: scale(1) }
-  25.71%        { opacity: 0; transform: scale(1.02) }
-  30%,100%      { opacity: 0; transform: scale(1.07) }
+  0% {opacity: 0; transform: scale(1.07)}
+  20%,32.856% {opacity: 0; transform: scale(1.07)}
+  34.856%,38.856% {opacity: 1; transform: scale(1)}
+  40.568% {opacity: 0; transform: scale(1.02)}
+  44%,100% {opacity: 0; transform: scale(1.07)}
 }
 
 /* ── act 2 · la fiche ───────────────────────────────────────────────────── */
 @keyframes cardIn {
-  0%,24.64%     { opacity: 0; transform: translateY(1.6em) scale(.93) }
-  27.86%        { opacity: 1; transform: translateY(.5em) scale(.977) }
-  31.07%,48.93% { opacity: 1; transform: translateY(0em) scale(1) }
-  51.79%        { opacity: 0; transform: translateY(-3em) scale(.965) }
-  58%,100%      { opacity: 0; transform: translateY(1.6em) scale(.93) }
+  0% {opacity: 0; transform: translateY(1.6em) scale(.93)}
+  20%,39.712% {opacity: 0; transform: translateY(1.6em) scale(.93)}
+  42.288% {opacity: 1; transform: translateY(.5em) scale(.977)}
+  44.856%,59.144% {opacity: 1; transform: translateY(0em) scale(1)}
+  61.432% {opacity: 0; transform: translateY(-3em) scale(.965)}
+  66.4%,100% {opacity: 0; transform: translateY(1.6em) scale(.93)}
 }
 @keyframes metaIn {
-  0%,38.93%     { opacity: 0; transform: translateY(1em) }
-  41.43%,48.21% { opacity: 1; transform: translateY(0em) }
-  50.36%        { opacity: 0; transform: translateY(-1em) }
-  56%,100%      { opacity: 0; transform: translateY(1em) }
+  0% {opacity: 0; transform: translateY(1em)}
+  20%,51.144% {opacity: 0; transform: translateY(1em)}
+  53.144%,58.568% {opacity: 1; transform: translateY(0em)}
+  60.288% {opacity: 0; transform: translateY(-1em)}
+  64.8%,100% {opacity: 0; transform: translateY(1em)}
 }
 /* the tooth numbers land with the last tooth, never before the first */
 @keyframes numIn {
-  0%,31.43%     { opacity: 0; transform: translateY(.5em) }
-  33.57%,48.21% { opacity: 1; transform: translateY(0em) }
-  50.36%        { opacity: 0; transform: translateY(-.6em) }
-  56%,100%      { opacity: 0; transform: translateY(.5em) }
+  0% {opacity: 0; transform: translateY(.5em)}
+  20%,45.144% {opacity: 0; transform: translateY(.5em)}
+  46.856%,58.568% {opacity: 1; transform: translateY(0em)}
+  60.288% {opacity: 0; transform: translateY(-.6em)}
+  64.8%,100% {opacity: 0; transform: translateY(.5em)}
 }
 @keyframes toothIn {
-  0%,29.64%     { opacity: 0; transform: translateY(.6em) scale(.86) }
-  32.14%,48.21% { opacity: 1; transform: translateY(0em) scale(1) }
-  50.36%        { opacity: 0; transform: translateY(1.4em) scale(.8) }
-  56%,100%      { opacity: 0; transform: translateY(.6em) scale(.86) }
+  0% {opacity: 0; transform: translateY(.6em) scale(.86)}
+  20%,43.712% {opacity: 0; transform: translateY(.6em) scale(.86)}
+  45.712%,58.568% {opacity: 1; transform: translateY(0em) scale(1)}
+  60.288% {opacity: 0; transform: translateY(1.4em) scale(.8)}
+  64.8%,100% {opacity: 0; transform: translateY(.6em) scale(.86)}
 }
 @keyframes nowIn {
-  0%,36.07%     { transform: scale(0) }
-  38.93%        { transform: scale(1.14) }
-  40.36%,50%    { transform: scale(1) }
-  51.5%,100%    { transform: scale(0) }
+  0% {transform: scale(0)}
+  20%,48.856% {transform: scale(0)}
+  51.144% {transform: scale(1.14)}
+  52.288%,60% {transform: scale(1)}
+  61.2%,100% {transform: scale(0)}
 }
 
 /* ── act 3 · la note ────────────────────────────────────────────────────── */
 @keyframes sheetIn {
-  0%,50.36%     { opacity: 0; transform: translateY(7em) scale(.98) }
-  54.64%,73.57% { opacity: 1; transform: translateY(0em) scale(1) }
-  78.21%        { opacity: 0; transform: translateY(-2.4em) scale(.965) }
-  82%,100%      { opacity: 0; transform: translateY(7em) scale(.98) }
+  0% {opacity: 0; transform: translateY(7em) scale(.98)}
+  20%,60.288% {opacity: 0; transform: translateY(7em) scale(.98)}
+  63.712%,78.856% {opacity: 1; transform: translateY(0em) scale(1)}
+  82.568% {opacity: 0; transform: translateY(-2.4em) scale(.965)}
+  85.6%,100% {opacity: 0; transform: translateY(7em) scale(.98)}
 }
-@keyframes sheetBar { 0%,52.86% { transform: scaleX(0) } 56.07%,75% { transform: scaleX(1) } 80%,100% { transform: scaleX(0) } }
+@keyframes sheetBar {
+  0% {transform: scaleX(0)}
+  20%,62.288% {transform: scaleX(0)}
+  64.856%,80% {transform: scaleX(1)}
+  84%,100% {transform: scaleX(0)}
+}
 @keyframes sh3In {
-  0%,53.57%     { opacity: 0; transform: translateY(1em) }
-  56.79%,73.57% { opacity: 1; transform: translateY(0em) }
-  76.43%        { opacity: 0; transform: translateY(-.8em) }
-  80%,100%      { opacity: 0; transform: translateY(1em) }
+  0% {opacity: 0; transform: translateY(1em)}
+  20%,62.856% {opacity: 0; transform: translateY(1em)}
+  65.432%,78.856% {opacity: 1; transform: translateY(0em)}
+  81.144% {opacity: 0; transform: translateY(-.8em)}
+  84%,100% {opacity: 0; transform: translateY(1em)}
 }
 @keyframes lineWrite {
-  0%,56.43%   { opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(0em) }
-  57.86%      { opacity: 1; clip-path: inset(0 55% 0 0);  transform: translateX(0em) }
-  60%,73.57%  { opacity: 1; clip-path: inset(0 0% 0 0);   transform: translateX(0em) }
-  76.79%      { opacity: 0; clip-path: inset(0 0% 0 0);   transform: translateX(3.5em) }
-  80%,100%    { opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(0em) }
+  0% {opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(0em)}
+  20%,65.144% {opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(0em)}
+  66.288% {opacity: 1; clip-path: inset(0 55% 0 0);  transform: translateX(0em)}
+  68%,78.856% {opacity: 1; clip-path: inset(0 0% 0 0);   transform: translateX(0em)}
+  81.432% {opacity: 0; clip-path: inset(0 0% 0 0);   transform: translateX(3.5em)}
+  84%,100% {opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(0em)}
 }
 @keyframes totIn {
-  0%,61.43%     { opacity: 0; transform: translateY(.9em) scale(.96) }
-  64.64%,73.21% { opacity: 1; transform: translateY(0em) scale(1) }
-  75.36%        { opacity: 0; transform: translateY(-.6em) scale(.98) }
-  80%,100%      { opacity: 0; transform: translateY(.9em) scale(.96) }
+  0% {opacity: 0; transform: translateY(.9em) scale(.96)}
+  20%,69.144% {opacity: 0; transform: translateY(.9em) scale(.96)}
+  71.712%,78.568% {opacity: 1; transform: translateY(0em) scale(1)}
+  80.288% {opacity: 0; transform: translateY(-.6em) scale(.98)}
+  84%,100% {opacity: 0; transform: translateY(.9em) scale(.96)}
 }
 @keyframes sfootIn {
-  0%,65%        { opacity: 0; transform: translateY(.8em) }
-  67.86%,73.57% { opacity: 1; transform: translateY(0em) }
-  76.43%        { opacity: 0; transform: translateY(-.6em) }
-  80%,100%      { opacity: 0; transform: translateY(.8em) }
+  0% {opacity: 0; transform: translateY(.8em)}
+  20%,72% {opacity: 0; transform: translateY(.8em)}
+  74.288%,78.856% {opacity: 1; transform: translateY(0em)}
+  81.144% {opacity: 0; transform: translateY(-.6em)}
+  84%,100% {opacity: 0; transform: translateY(.8em)}
 }
 
 /* the amount crossing from the note into the caisse total */
 @keyframes flyPath {
-  0%,73.57%   { opacity: 0; transform: translate(calc(-50% + var(--fx0)), calc(-50% + var(--fy0))) scale(.92) }
-  75.71%      { opacity: 1; transform: translate(calc(-50% + var(--fx0)), calc(-50% + var(--fy0))) scale(1) }
-  78.21%      { opacity: 1; transform: translate(calc(-50% + var(--fxm)), calc(-50% + var(--fym))) scale(1.04) }
-  81.07%      { opacity: 1; transform: translate(calc(-50% + var(--fx1)), calc(-50% + var(--fy1))) scale(1) }
-  82.86%,100% { opacity: 0; transform: translate(calc(-50% + var(--fx1)), calc(-50% + var(--fy1))) scale(.9) }
+  0% {opacity: 0; transform: translate(calc(-50% + var(--fx1)), calc(-50% + var(--fy1))) scale(.9)}
+  20%,78.856% {opacity: 0; transform: translate(calc(-50% + var(--fx0)), calc(-50% + var(--fy0))) scale(.92)}
+  80.568% {opacity: 1; transform: translate(calc(-50% + var(--fx0)), calc(-50% + var(--fy0))) scale(1)}
+  82.568% {opacity: 1; transform: translate(calc(-50% + var(--fxm)), calc(-50% + var(--fym))) scale(1.04)}
+  84.856% {opacity: 1; transform: translate(calc(-50% + var(--fx1)), calc(-50% + var(--fy1))) scale(1)}
+  86.288%,100% {opacity: 0; transform: translate(calc(-50% + var(--fx1)), calc(-50% + var(--fy1))) scale(.9)}
 }
 
 /* ── act 4 · la caisse ──────────────────────────────────────────────────── */
 @keyframes tillIn {
-  0%,74.29%     { opacity: 0; transform: translateY(3em) scale(.96) }
-  79.29%,94.64% { opacity: 1; transform: translateY(0em) scale(1) }
-  98.57%        { opacity: 0; transform: translateY(-2.6em) scale(.97) }
-  99.9%,100%    { opacity: 0; transform: translateY(3em) scale(.96) }
+  0% {opacity: 0; transform: translateY(3em) scale(.96)}
+  20%,79.432% {opacity: 0; transform: translateY(3em) scale(.96)}
+  83.432%,95.712% {opacity: 1; transform: translateY(0em) scale(1)}
+  98.856% {opacity: 0; transform: translateY(-2.6em) scale(.97)}
+  99.92%,100% {opacity: 0; transform: translateY(3em) scale(.96)}
 }
 @keyframes sumIn {
-  0%,77.14%     { opacity: 0; transform: translateY(.9em) }
-  80.71%,94.29% { opacity: 1; transform: translateY(0em) }
-  97.5%         { opacity: 0; transform: translateY(-.7em) }
-  99.9%,100%    { opacity: 0; transform: translateY(.9em) }
+  0% {opacity: 0; transform: translateY(.9em)}
+  20%,81.712% {opacity: 0; transform: translateY(.9em)}
+  84.568%,95.432% {opacity: 1; transform: translateY(0em)}
+  98% {opacity: 0; transform: translateY(-.7em)}
+  99.92%,100% {opacity: 0; transform: translateY(.9em)}
 }
 @keyframes roll {
-  0%,82.5%     { transform: translateY(calc(var(--from) * -1.12em)) }
-  87.5%,99.5%  { transform: translateY(calc(var(--to) * -1.12em)) }
-  99.9%,100%   { transform: translateY(calc(var(--from) * -1.12em)) }
+  0% {transform: translateY(calc(var(--from) * -1.12em))}
+  20%,86% {transform: translateY(calc(var(--from) * -1.12em))}
+  90%,99.6% {transform: translateY(calc(var(--to) * -1.12em))}
+  99.92%,100% {transform: translateY(calc(var(--from) * -1.12em))}
 }
 @keyframes mvIn {
-  0%,78.21%     { opacity: 0; transform: translateX(-1.4em) }
-  81.79%,94.29% { opacity: 1; transform: translateX(0em) }
-  97.86%        { opacity: 0; transform: translateX(1.4em) }
-  99.9%,100%    { opacity: 0; transform: translateX(-1.4em) }
+  0% {opacity: 0; transform: translateX(-1.4em)}
+  20%,82.568% {opacity: 0; transform: translateX(-1.4em)}
+  85.432%,95.432% {opacity: 1; transform: translateX(0em)}
+  98.288% {opacity: 0; transform: translateX(1.4em)}
+  99.92%,100% {opacity: 0; transform: translateX(-1.4em)}
 }
 @keyframes hotIn {
-  0%,82.14%   { opacity: 0; transform: scaleX(.4) }
-  85%,94.29%  { opacity: 1; transform: scaleX(1) }
-  96.43%,100% { opacity: 0; transform: scaleX(1) }
+  0% {opacity: 0; transform: scaleX(1)}
+  20%,85.712% {opacity: 0; transform: scaleX(.4)}
+  88%,95.432% {opacity: 1; transform: scaleX(1)}
+  97.144%,100% {opacity: 0; transform: scaleX(1)}
 }
 @keyframes encIn {
-  0%,85%      { opacity: 0; transform: scale(.7) }
-  87.14%,94.29% { opacity: 1; transform: scale(1) }
-  96.43%,100% { opacity: 0; transform: scale(.9) }
+  0% {opacity: 0; transform: scale(.9)}
+  20%,88% {opacity: 0; transform: scale(.7)}
+  89.712%,95.432% {opacity: 1; transform: scale(1)}
+  97.144%,100% {opacity: 0; transform: scale(.9)}
 }
 @keyframes rapFly {
-  0%,86.43%     { opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92) }
-  89.29%,92.14% { opacity: 1; transform: translate(0em, 0em) rotate(0deg) scale(1) }
-  97.5%         { opacity: 0; transform: translate(9em, -7.5em) rotate(-7deg) scale(.84) }
-  99.9%,100%    { opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92) }
+  0% {opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92)}
+  20%,89.144% {opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92)}
+  91.432%,93.712% {opacity: 1; transform: translate(0em, 0em) rotate(0deg) scale(1)}
+  98% {opacity: 0; transform: translate(9em, -7.5em) rotate(-7deg) scale(.84)}
+  99.92%,100% {opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92)}
 }
 @keyframes thesisIn {
-  0%,90.71%     { opacity: 0; transform: translateY(.9em) }
-  94.29%,96.43% { opacity: 1; transform: translateY(0em) }
-  98.57%        { opacity: 0; transform: translateY(-.6em) }
-  99.9%,100%    { opacity: 0; transform: translateY(.9em) }
+  0% {opacity: 0; transform: translateY(.9em)}
+  20%,92.568% {opacity: 0; transform: translateY(.9em)}
+  95.432%,97.144% {opacity: 1; transform: translateY(0em)}
+  98.856% {opacity: 0; transform: translateY(-.6em)}
+  99.92%,100% {opacity: 0; transform: translateY(.9em)}
+}
+
+
+/* ── the end card · variant C, « rise & track » ──────────────────────────
+   The render's clock in this loop's percentages: its t = 0 is 80 %, and one
+   of its milliseconds is 1/175 %. So 950 ms (the rise) ends at 85.43 %,
+   1550 ms (the letters settling) at 88.86 %, and the specular sweep runs
+   1900 → 2720 ms = 90.86 → 95.54 %. What follows to 100 % is the render's
+   own one-second hold on the resolved lockup — which is also 0 %. */
+@keyframes endPlate {
+  0%,20%      { opacity: 1 }
+  22.3%,97.7% { opacity: 0 }
+  100%        { opacity: 1 }
+}
+/* the exit: the lockup blooms outward as the agenda arrives underneath it */
+@keyframes endLock {
+  0%,20%      { opacity: 1; transform: scale(1); animation-timing-function: cubic-bezier(.33,1,.68,1) }
+  22.9%       { opacity: 0; transform: scale(1.05) }
+  23.4%,99.9% { opacity: 0; transform: scale(1) }
+  100%        { opacity: 1; transform: scale(1) }
+}
+@keyframes endMarkFade {
+  0%          { opacity: 0; animation-timing-function: cubic-bezier(.33,1,.68,1) }
+  2.74%,23%   { opacity: 1 }
+  23.4%,100%  { opacity: 0 }
+}
+/* outBack(1.42) — the rise overshoots and settles, which is the whole read */
+@keyframes endMarkRise {
+  0%          { transform: scale(.42); animation-timing-function: cubic-bezier(.34,1.56,.64,1) }
+  5.43%,23%   { transform: scale(1) }
+  23.4%,100%  { transform: scale(.42) }
+}
+@keyframes endBloom {
+  0%,1.03%    { opacity: 0 }
+  4.17%       { opacity: .62 }
+  7.31%,100%  { opacity: 0 }
+}
+@keyframes endWord {
+  0%,3.43%    { opacity: 0; animation-timing-function: cubic-bezier(.33,1,.68,1) }
+  7.09%,23%   { opacity: 1 }
+  23.4%,100%  { opacity: 0 }
+}
+/* the letters start bunched at 0.78 of their tracking and open outward to 1.
+   --tx is each letter's own offset at that scale, in wordmark user units. */
+@keyframes endLtr {
+  0%,3.43%    { transform: translateX(var(--tx)); animation-timing-function: cubic-bezier(.22,1,.36,1) }
+  8.86%,23%   { transform: translateX(0) }
+  23.4%,100%  { transform: translateX(var(--tx)) }
+}
+/* one sweep across both halves of the lockup, --sx apart in their own spaces */
+@keyframes endShine {
+  0%,10.86%   { opacity: 0; transform: translateX(0) }
+  13.2%       { opacity: var(--sa, .9) }
+  15.54%,100% { opacity: 0; transform: translateX(var(--sx)) }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -761,6 +932,8 @@
 .caption span:nth-child(2) { animation-name: cap2 }
 .caption span:nth-child(3) { animation-name: cap3 }
 .caption span:nth-child(4) { animation-name: cap4 }
+/* wired by class, not by position: .cap-still already sits at nth-child(5) */
+.caption span.cap-end { animation-name: cap5 }
 
 .blk     { animation-name: blkIn }
 .blk.sel { animation-name: blkSel }
@@ -773,6 +946,73 @@
 .m  { animation-name: metaIn;  animation-timing-function: var(--ease-out) }
 .arch-n { animation-name: numIn; animation-timing-function: var(--ease-out) }
 .s3 { animation-name: sh3In;   animation-timing-function: var(--ease-out) }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE END CARD — « rise & track », the brand's own animated lockup, ported
+   from the delivered end-card renders (variant C) to CSS so it shares this
+   file's single `--T` clock instead of drifting against it as a <video>
+   would. Same geometry, same easing curves, same 3.4 s beat; vector, ~6 KB,
+   and it survives `prefers-reduced-motion` because it is not a film.
+
+   ⚠️ THE PLATE IS DEEPER THAN --ink ON PURPOSE. The lockup's gradient runs
+   #1B54CE → #2FC6E0, and its dark end is only a shade off --ink (#295AA8):
+   on the card's own ground the left limb of the Λ disappears. The plate dims
+   the stage to a deepened blue — still the logo's blue, never a grey-navy,
+   which is the two-brands problem tokens.css exists to prevent.
+
+   ⚠️ IT IS ALSO WHAT COVERS THE HOLD. The four acts are frozen at their last
+   values from 0 % to 20 %; the plate is opaque across all of it, so the freeze
+   is never on screen. It closes over act 4's exit in the 0.4 s before the
+   seam and lifts 0.4 s after the build resolves — the logo IS the transition
+   at both ends, not a cut to one.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.end {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  pointer-events: none;
+}
+.end-plate {
+  position: absolute; inset: 0;
+  background: radial-gradient(120% 120% at 50% 42%, #1A4380 0%, #0E2A52 72%);
+  animation-name: endPlate;
+}
+.end-lock {
+  position: relative;
+  width: 48cqw;
+  display: flex; flex-direction: column; align-items: center;
+  animation-name: endLock;
+}
+/* the mark's own box, and the origin the rise scales about (62 %, not 50 %:
+   the chevron's optical centre sits below its geometric one) */
+.end-mark {
+  position: relative;
+  width: 16.2cqw;
+  margin-bottom: 4.4cqw;
+  transform-origin: 50% 62%;
+  animation-name: endMarkFade, endMarkRise;
+}
+.end-word { position: relative; width: 100%; animation-name: endWord }
+.end svg { display: block; width: 100%; height: auto; overflow: visible }
+/* the halo behind the mark — a transient flash at the apex of the rise, gone
+   by the time the word lands. A div, not the render's <radialGradient>: it
+   costs one paint instead of an SVG filter region. */
+.end-bloom {
+  position: absolute; left: 50%; top: 44%;
+  width: 230%; aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side,
+    rgb(127 216 245 / .55) 0%, rgb(59 160 230 / .18) 45%, rgb(59 160 230 / 0) 100%);
+  animation-name: endBloom;
+}
+.end-ltr { animation-name: endLtr }
+.end-shine { animation-name: endShine }
+.end-plate, .end-lock, .end-mark, .end-word, .end-bloom, .end-ltr, .end-shine {
+  animation-duration: var(--T);
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    THE PHONE BRANCH — the world keeps ~10 px per em, so labels stay labels.
@@ -788,6 +1028,11 @@
   .only-narrow { display: inline }
 
   .act { padding: 1.4em }
+
+  /* the stage is taller than it is wide here, so the lockup takes more of the
+     width than the 48 % the 16:9 render used, or it reads as a sticker */
+  .end-lock { width: 62cqw }
+  .end-mark { width: 21cqw; margin-bottom: 5.6cqw }
 
   .day { margin-bottom: 1.1em }
   .day b { font-size: 1.35em }
@@ -873,7 +1118,7 @@
 @media (prefers-reduced-motion: reduce) {
   .film *, .film *::before, .film *::after { animation: none !important; transition: none !important }
 
-  .act, .fly { display: none !important }
+  .act, .fly, .end { display: none !important }
   .caption span { display: none !important }
   .caption span.cap-still { display: flex !important; opacity: 1 !important; transform: none !important }
   .rail > i::after { transform: scaleX(1) !important }
@@ -1103,6 +1348,60 @@ body { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
           <div class="note-strip"><i></i><span class="only-wide">Note d’honoraires n° 2026-0184</span><span class="only-narrow">Note n° 2026-0184</span><b>240,000 DT</b><span class="enc">encaissé</span></div>
         </div>
       </div>
+      <!-- ══ THE END CARD ══════════════════════════════════════════════════
+           The APEXA lockup, drawn — the mark's outline and the five letter
+           groups are the delivered end-card geometry verbatim (mark box
+           105×100, word box 625×100), and the gradient is --brand-grad's own
+           three stops so the film's logo and the topbar's plate are one
+           colour. Last child of .world: it paints over every act.
+
+           ⚠️ The specular sweep is a <rect> travelling under a <mask> of the
+           artwork, not the render's animated gradient coordinates — x1/x2 on
+           a <linearGradient> are attributes, and CSS cannot animate those.
+           Same sweep, one compositor transform. -->
+      <div class="end">
+        <div class="end-plate"></div>
+        <div class="end-lock">
+          <div class="end-mark">
+            <div class="end-bloom"></div>
+            <svg viewBox="0 0 105 100" aria-hidden="true">
+              <defs>
+                <linearGradient id="egm" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="105" y2="0">
+                  <stop offset="0" stop-color="#1B54CE"/><stop offset=".5" stop-color="#1E86DC"/><stop offset="1" stop-color="#2FC6E0"/>
+                </linearGradient>
+                <linearGradient id="egs" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".85"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+                </linearGradient>
+                <mask id="emk" maskUnits="userSpaceOnUse" x="-80" y="-20" width="280" height="140">
+                  <path d="M0,100 L52.5,0 L105,100 L81,100 L52.5,45.714 L24,100 Z" fill="#fff"/>
+                </mask>
+              </defs>
+              <path d="M0,100 L52.5,0 L105,100 L81,100 L52.5,45.714 L24,100 Z" fill="url(#egm)"/>
+              <g mask="url(#emk)"><rect class="end-shine" style="--sx:175px" x="-70" y="-10" width="58" height="120" fill="url(#egs)"/></g>
+            </svg>
+          </div>
+          <div class="end-word">
+            <svg viewBox="0 0 625 100" aria-hidden="true">
+              <defs>
+                <linearGradient id="egw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="625" y2="0">
+                  <stop offset="0" stop-color="#1B54CE"/><stop offset=".5" stop-color="#1E86DC"/><stop offset="1" stop-color="#2FC6E0"/>
+                </linearGradient>
+                <mask id="ewk" maskUnits="userSpaceOnUse" x="-280" y="-30" width="1200" height="160">
+                  <g fill="none" stroke="#fff" stroke-width="7.5" stroke-linejoin="miter" stroke-miterlimit="12"><path d="M0,100 L41,0 L82,100"/><path d="M151.75,0 V100"/><path d="M151.75,3.75 H188 a24,24 0 0 1 0,48 H151.75"/><path d="M285.75,0 V100"/><path d="M285.75,3.75 H334"/><path d="M285.75,50 H326"/><path d="M285.75,96.25 H334"/><path d="M400,0 L476,100"/><path d="M476,0 L400,100"/><path d="M542,100 L583,0 L624,100"/></g>
+                </mask>
+              </defs>
+              <g fill="none" stroke="url(#egw)" stroke-width="7.5" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="12">
+                <g class="end-ltr" style="--tx:59.73px"><path d="M0,100 L41,0 L82,100"/></g>
+                <g class="end-ltr" style="--tx:28.71px"><path d="M151.75,0 V100"/><path d="M151.75,3.75 H188 a24,24 0 0 1 0,48 H151.75"/></g>
+                <g class="end-ltr" style="--tx:0.99px"><path d="M285.75,0 V100"/><path d="M285.75,3.75 H334"/><path d="M285.75,50 H326"/><path d="M285.75,96.25 H334"/></g>
+                <g class="end-ltr" style="--tx:-27.61px"><path d="M400,0 L476,100"/><path d="M476,0 L400,100"/></g>
+                <g class="end-ltr" style="--tx:-59.51px"><path d="M542,100 L583,0 L624,100"/></g>
+              </g>
+              <g mask="url(#ewk)"><rect class="end-shine" style="--sx:885px; --sa:.765" x="-260" y="-20" width="230" height="140" fill="url(#egs)"/></g>
+            </svg>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1113,6 +1412,7 @@ body { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
         <span style="--zc: var(--amber-lit)"><i></i><b>La note se crée</b></span>
         <span style="--zc: var(--accent-lit)"><i></i><b>La caisse suit</b></span>
       <span class="cap-still" style="--zc: var(--accent-lit)"><i></i><b>Une seule saisie, tout le reste suit.</b></span>
+      <span class="cap-end" style="--zc: var(--accent-lit)"><i></i><b>APEXA</b><em>logiciel de cabinet dentaire</em></span>
     </div>
     <div class="rail"><i></i><i></i><i></i><i></i></div>
   </div>
