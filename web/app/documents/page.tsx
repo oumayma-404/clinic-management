@@ -2,73 +2,13 @@
 
 import { useState } from "react"
 import { Card } from "@/components/ui/card"
-import { CalendarX, FileText, Mail, FileBarChart, Shield } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { HonorairesLauncher } from "@/components/documents/honoraires-launcher"
 import { PageHeader } from "@/components/ui/page-header"
+import { DOCUMENT_TEMPLATES } from "@/lib/documents"
 
-/**
- * The five templates, each with its own categorical hue.
- *
- * <p>`tile` is written as a complete class string per entry rather than composed from `bg-chart-${n}/12`:
- * Tailwind scans source for literal class names, so an interpolated one is never generated and the tile would
- * render with no colour at all — the quiet failure mode of every themed system.</p>
- *
- * <p>There was also a second field, `color: "text-chart-N"`, that nothing read — the tile carries both the wash
- * and the ink. A duplicated hue nobody renders is the thing that drifts from the one that is rendered.</p>
- *
- * <p>This is a module constant, not a fetch: there is no loading state and no empty state to render, because
- * the gallery cannot be empty and cannot fail.</p>
- */
-const documentTemplates = [
-  {
-    type: "prescription",
-    title: "Ordonnance",
-    description: "Prescription médicale pour traitement dentaire et médicaments",
-    icon: FileText,
-    tile: "bg-chart-1/12 text-chart-1",
-  },
-  {
-    type: "liaison",
-    title: "Lettre de liaison",
-    description: "Courrier médical de liaison vers un confrère ou spécialiste",
-    icon: Mail,
-    tile: "bg-chart-5/12 text-chart-5",
-  },
-  {
-    type: "honoraires",
-    title: "Note d'honoraires",
-    description: "Facture détaillée des soins et traitements dentaires",
-    icon: FileBarChart,
-    tile: "bg-chart-4/12 text-chart-4",
-  },
-  {
-    type: "certificat",
-    title: "Certificat médical",
-    // ⚠️ It no longer claims to cover an arrêt de travail (L11). It never could: a free-text certificat is not
-    // the CNAM P 061 form and the caisse refuses it, so the description was pointing dentists at the one
-    // template guaranteed not to work for that.
-    description: "Certificat de soins, aptitude ou justificatif médical libre",
-    icon: Shield,
-    tile: "bg-chart-3/12 text-chart-3",
-  },
-  {
-    type: "arret-travail",
-    title: "Arrêt de travail",
-    description: "Certificat médical d'arrêt de travail sur le formulaire officiel CNAM P 061",
-    icon: CalendarX,
-    tile: "bg-chart-3/12 text-chart-3",
-  },
-  {
-    type: "bulletin-cnam",
-    title: "Bulletin de soins CNAM",
-    description: "Bulletin de remboursement des frais de soins (BS1) à déposer à la CNAM",
-    icon: FileText,
-    tile: "bg-chart-2/12 text-chart-2",
-  },
-]
 
 export default function DocumentsPage() {
   const router = useRouter()
@@ -98,7 +38,7 @@ export default function DocumentsPage() {
         {/* Template Grid. AC-P3.38 — every clickable Card is keyboard-operable: it is the click target, so
             it has to be a tab stop with Enter/Space and a visible focus ring, not a mouse-only div. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-          {documentTemplates.map((template) => {
+          {DOCUMENT_TEMPLATES.map((template) => {
             const Icon = template.icon
             const open = () =>
               template.type === "honoraires" ? setHonorairesOpen(true) : openTemplate(template.type)

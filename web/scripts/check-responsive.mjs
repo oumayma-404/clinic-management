@@ -1057,6 +1057,112 @@ check(
   },
 );
 
+/**
+ * The text of the JSX opening tag beginning at `i`, plus the index just past its `>`.
+ *
+ * <p>Brace-depth aware, so `className={cn(a, b)}` and `onClick={() => f(x > 1)}` are included whole instead of
+ * being cut at the first `>` that happens to sit inside an expression.</p>
+ */
+function openingTag(src, i) {
+  let depth = 0;
+  let j = i;
+  while (j < src.length) {
+    const c = src[j];
+    if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) return [src.slice(i, j + 1), j + 1];
+    j++;
+  }
+  return [src.slice(i), src.length];
+}
+
+/** 1-based line number of a character offset. */
+const lineAt = (src, index) => src.slice(0, index).split("\n").length;
+
+check(
+  "table-hinge-fits-its-box",
+  "P6",
+  "A `TABLE_ONLY` table of five or more columns uses the `_LG` hinge",
+  "§ 1 of .claude/rules/frontend-web.md puts the table/cards threshold at « roughly eight or more columns », " +
+    "and that figure is sized for a table at PAGE level: an 820 px tablet leaves ~532 px once the 256 px rail " +
+    "is subtracted. A table nested one level further — a Card inside a TabsContent — gets ~451 px, so the " +
+    "threshold falls to five. Measured on the patient file at 820x1024: Rendez-vous (7 cols) rendered 764 px " +
+    "into 451 px and hid 313 of them, Fichiers (5) hid 180, Dossiers medicaux (6) hid 71, and the column that " +
+    "pays is always the last one — Actions. A dentist on an iPad literally could not see « Modifier » or " +
+    "« Supprimer », which is what a trialling dentist reported as « editing the medical record does not work ». " +
+    "Cells wrap, so a text column shrinks; a Button does not, because Button is `whitespace-nowrap shrink-0`, " +
+    "and Actions is the cell that holds buttons. Five columns is therefore the honest ceiling for `md:` here. " +
+    "Fix by switching that table to TABLE_ONLY_LG / CARDS_ONLY_LG — and check the card form carries the same " +
+    "actions before you do, because § 0 says no capability is removed by a layout decision.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const inComment = commentMask(src.split(/\r?\n/));
+      const re = /<Table\b/g;
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        const line = lineAt(src, m.index);
+        if (inComment[line - 1]) continue;
+        const [tag, end] = openingTag(src, m.index);
+        // The `_LG` hinge is the fix, so only the plain one is judged. `\b` after TABLE_ONLY is what keeps
+        // `{TABLE_ONLY_LG}` out of this check rather than a negative lookahead that would also skip it.
+        if (!/containerClassName=\{TABLE_ONLY\}/.test(tag)) continue;
+        const close = src.indexOf("</Table>", end);
+        const body = close === -1 ? src.slice(end) : src.slice(end, close);
+        // `<TableHead\b` cannot match `<TableHeader`: between "d" and "e" there is no word boundary.
+        const cols = (body.match(/<TableHead\b/g) || []).length;
+        if (cols >= 5) {
+          hits.push({ file: rel(file), line, text: `${cols} columns on the md: hinge — use TABLE_ONLY_LG` });
+        }
+      }
+    }
+    return hits;
+  }
+);
+
+check(
+  "icon-button-is-named",
+  "P2",
+  "An icon-only `<Button>` carries an `aria-label`",
+  "§ 13: aria-label on every icon-only control. A `title` is not a substitute — it needs a hover, and this " +
+    "app's primary device is a tablet, so on the machine it is actually used on the label does not exist at " +
+    "all (§ 9.2). Unlabelled, a screen reader announces « bouton » and nothing more; in a table of ten fiches " +
+    "that is ten identical announcements over a destructive action on a clinical record. Five shipped: the " +
+    "patient file's Facturer / Modifier / Supprimer trio, stock-table's history button — sitting between two " +
+    "siblings that were already labelled — and the ordonnance editor's medication remove, which had no title " +
+    "either, so it was unlabelled on every channel. Name what the control acts on, not just the verb: " +
+    "`Supprimer la fiche de soins du 12/03/2026`, the way the delete confirmation already does. " +
+    "Deliberately conservative — a Button whose children include any {expression} is skipped, because its " +
+    "label may well be that expression, so this check reports only what is certainly unnamed.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const inComment = commentMask(src.split(/\r?\n/));
+      const re = /<Button\b/g;
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        const line = lineAt(src, m.index);
+        if (inComment[line - 1]) continue;
+        const [tag, end] = openingTag(src, m.index);
+        if (/\baria-label\b/.test(tag)) continue;
+        if (tag.trimEnd().endsWith("/>")) continue;
+        const close = src.indexOf("</Button>", end);
+        if (close === -1) continue;
+        const body = src.slice(end, close);
+        if (/<Button\b/.test(body)) continue;
+        let text = body.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+        text = text.replace(/<[^>]*>/g, "");
+        if (text.includes("{")) continue;
+        if (text.trim()) continue;
+        hits.push({ file: rel(file), line, text: "icon-only <Button> with no aria-label" });
+      }
+    }
+    return hits;
+  }
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

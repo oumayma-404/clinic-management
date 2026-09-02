@@ -38,10 +38,19 @@ These are Tailwind's **stock** boundaries. ⚠️ **Never declare `--breakpoint-
 v4 redeclaring an existing key silently re-points every utility already using it (75 `md:` sites). The
 `breakpoint-tokens` check fails on it.
 
-`md:` (768) is the ordinary phone↔desktop hinge. **A table of roughly eight or more columns needs `lg:`
-instead** — an iPad portrait is 820 px and therefore already `md:`, so it would get the desktop grid *and* the
-256 px rail: ~532 px for a 10-column table. Cells wrap (§ 6), so such a table now *fits* that box instead of
-scrolling out of it — at ~50 px a column, which is legible without being readable.
+`md:` (768) is the ordinary phone↔desktop hinge. **A table needs `lg:` instead once it has five columns** —
+an iPad portrait is 820 px and therefore already `md:`, so it would get the desktop grid *and* the 256 px rail.
+Cells wrap (§ 6), so a *text* column shrinks to fit; the column that cannot is **`Actions`**, because `Button`
+is `whitespace-nowrap shrink-0` (§ 10.1), and it is the last one — so what a tablet loses is precisely the row's
+controls.
+
+⚠️ **Five, not « roughly eight ».** That older figure assumed a table at page level (~532 px of usable width).
+Nest it one level further — a `Card` inside a `TabsContent`, which is what most of this app's tables are — and
+the box measures **451 px**. Measured on the patient file at 820×1024: Rendez-vous (7 cols) laid out 764 px and
+hid **313**; Fichiers (5) hid 180; Dossiers médicaux (6) hid 71; Documents (4) fitted exactly, at 451/451. So a
+dentist on an iPad could not see « Modifier » or « Supprimer » at all — which is what a trialling dentist
+reported as *« editing the medical record does not work »*. `table-hinge-fits-its-box` holds the threshold, and
+before switching a table over, check its card form carries the same actions (§ 0).
 
 Never assume a viewport in JS. Layout decisions are CSS; if a component must know, it reads a media query, not
 a `window.innerWidth` snapshot taken once.
@@ -56,7 +65,8 @@ with a finger; a 1440 px desk machine with a mouse must keep its density.
 Two different fixes — picking the wrong one causes wrong-action bugs:
 
 ```tsx
-// ✅ An ISOLATED small control: overlay a hit area, paint nothing.
+// ✅ An ISOLATED small control: overlay a hit area, paint nothing. `aria-label` is not optional on an
+//    icon-only control — see § 13; `icon-button-is-named` fails the gate without one.
 <Button size="icon" className="touch-target" aria-label="Modifier" />
 
 // ✅ Anything in a ROW or a STACK — menu items, tooth cells, pager buttons: grow its own box.
@@ -126,7 +136,7 @@ Non-negotiables for either:
 ## § 6 A `<Table>` never ships alone
 
 Below its hinge, a table renders as a **card list** — `ui/card-list.tsx` with `CARDS_ONLY`/`TABLE_ONLY`
-(`md:`), or `CARDS_ONLY_LG`/`TABLE_ONLY_LG` for ~8+ columns.
+(`md:`) for four columns or fewer, or `CARDS_ONLY_LG`/`TABLE_ONLY_LG` from five up (§ 1 for the measurements).
 
 ```tsx
 // ✅ Two trees. A real <table> above, a semantic list below.
@@ -243,7 +253,10 @@ channel:
 - **In flight:** disabled, with a single effect on double-submit.
 - **Success:** a French `sonner` toast (its container is the app's live region, so toasts announce).
 - **Failure:** `showErrorToast`, the dialog **left open with its input intact**. Never close a form on error.
-- **Labels:** a real `<Label htmlFor>`. A placeholder is not a label. `aria-label` on every icon-only control.
+- **Labels:** a real `<Label htmlFor>`. A placeholder is not a label. `aria-label` on every icon-only control —
+  and it names the *thing*, not just the verb (« Supprimer la fiche de soins du 12/03/2026 »), because a table
+  of ten fiches otherwise announces the same word ten times. A `title` is not a substitute: it needs a hover,
+  and this app's primary device has no pointer to hover with (§ 9.2). `icon-button-is-named` holds it.
 - **A clickable `Card`:** `role="button"` + `tabIndex={0}` + Enter/Space.
 - **An inline async result:** `role="status"`.
 - **Empty states via `ui/empty-state.tsx`**, and keep the three kinds apart: *nothing yet* (invite + the action

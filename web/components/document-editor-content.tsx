@@ -319,12 +319,21 @@ function MedicationItem({
             </div>
           </div>
         </div>
+        {/* Named after the medication it removes. Unlabelled, this announced « bouton » and nothing else —
+            on a prescription, in a list where every row's remove control is identical. The name is optional
+            while the row is still being typed, hence the fallback. */}
         <Button
           type="button"
           variant="ghost"
           size="sm"
           onClick={onRemove}
           className="h-10 w-10"
+          title="Retirer ce médicament"
+          aria-label={
+            medication.name
+              ? `Retirer ${medication.name} de l'ordonnance`
+              : "Retirer ce médicament de l'ordonnance"
+          }
         >
           <X className="w-4 h-4" />
         </Button>

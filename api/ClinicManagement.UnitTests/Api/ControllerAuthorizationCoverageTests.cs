@@ -99,7 +99,7 @@ public class ControllerAuthorizationCoverageTests
                                      // nobody could get past. It reads nothing, writes nothing but a log line,
                                      // strips the address to its route pattern before recording it (FR-4.4),
                                      // caps the body, and has its own rate-limit policy that DROPS the excess.
-        "Connectivity.Get",          // non-sensitive online/offline poll (Local-only; 404s in Cloud)
+        "Connectivity.Get",          // non-sensitive online/offline poll (answered on every deployment)
         "Meta.ClientRequirements",   // the client-version floor + both store URLs (mobile-native-shells AC-28).
                                      // Anonymous by necessity: a shell below the floor must be able to ask
                                      // BEFORE signing in, and the answer's whole purpose is to reach a client

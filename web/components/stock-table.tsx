@@ -624,7 +624,7 @@ export function StockTable({
                               <Plus className="h-3 w-3" />
                               Entrée
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => openHistory(item)} className="h-8 w-8 p-0" title="Historique des mouvements">
+                            <Button variant="ghost" size="sm" onClick={() => openHistory(item)} className="h-8 w-8 p-0" title="Historique des mouvements" aria-label={`Historique des mouvements de ${item.name}`}>
                               <History className="h-4 w-4" />
                             </Button>
                             {/* Icon-only, like `patients-table`: labelled, these two made Actions 453 px — 42 % of the

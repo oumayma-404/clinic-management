@@ -23,7 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
@@ -732,7 +732,7 @@ function RecurringSeriesScreen() {
                   />
                 </div>
                 <CardList
-                  className={CARDS_ONLY}
+                  className={CARDS_ONLY_LG}
                   ariaLabel="Séries de rendez-vous récurrents"
                   items={series}
                   loading={loading}
@@ -763,7 +763,10 @@ function RecurringSeriesScreen() {
                     ) : null
                   }
                 />
-                <Table containerClassName={TABLE_ONLY}>
+                                {/* Eight columns — past the `md:` ceiling by any reading, and `table-hinge-fits-its-box`
+                    holds it. The screen is unrouted (see the tombstone above) but still compiled, and a
+                    parked screen that quietly breaks its own device contract is worse than a deleted one. */}
+<Table containerClassName={TABLE_ONLY_LG}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Patient</TableHead>

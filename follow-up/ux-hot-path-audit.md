@@ -15,6 +15,26 @@ big wins, 3 survived.**
 
 # 1 · BUGS — verified, with the evidence that survived challenge
 
+> **All six are fixed** (B6 by the owner's decision: skipped — its cause is the deliberate promotion of the
+> odontogram to lead the page, and every fix for it fights that decision). Verified with `npx tsc --noEmit`,
+> `npm run check:responsive` (29/29, two new checks **proven red** on a deliberate violation first) and a
+> browser pass at 320 / 390 / 820 / 1180 / 1440.
+>
+> **Fixing them turned up four more defects of the same shape, all fixed too:**
+>
+> | Found while fixing | Defect |
+> |---|---|
+> | B24 | `stock-table.tsx`'s history button was unlabelled **between two siblings that were already labelled** — the propagation failure in miniature |
+> | B24 | The ordonnance editor's medication-remove had *no* label on any channel — no text, no `title`, no `aria-label`. It announced « bouton » |
+> | B4 | The patient file's private 4-entry label map had no `honoraires` and no `arret-travail`, so a saved **arrêt de travail displayed its raw key** `arret-travail` |
+> | B7's new check | Two more tables past the threshold: `recurring-series` (8 columns) and `archive-grants-card` (5) |
+>
+> `.claude/rules/frontend-web.md` § 1 and § 6 were **wrong** and are corrected in the same change: they put the
+> table/cards threshold at « roughly eight or more columns », a figure sized for a table at page level. Nested
+> in a `Card` inside a `TabsContent` — which is what most of this app's tables are — the box is 451 px, not
+> ~532 px, and the real threshold is **five**.
+
+
 | # | Sev | Bug | Verified how |
 |---|---|---|---|
 | **B7** | 🔴 | **`ACTIONS` column pushed outside the visible width at 820 px** — edit + delete render, are focusable, and can't be seen. **This is the doctor's "editing didn't work"** (it works — §5) | `TABLE_ONLY` is `hidden md:block`, so the **table** form is chosen from 768 px up, inside a container of ~450–520 px once the 255 px rail is subtracted. Measured: 515 px table in 451 px, 64 px hidden |
@@ -24,8 +44,21 @@ big wins, 3 survived.**
 | **B4** | 🟠 | **Patient Documents panel creates 1 of 6 document types** (`Nouvelle ordonnance`). `Arrêt de travail` + `Bulletin CNAM` — the two most frequent in Tunisia — mean leaving the patient, then re-finding them | panel actions = `["Nouvelle ordonnance"]` → `/documents/prescription?patientId=…`. The `?patientId=` pattern already works, so the fix is a button + a route per type |
 | **B29** | 🟡 | **The reachability probe polls a route that is absent on this deployment.** `/health` is public on every profile and answers the same question | `ConnectivityController` returns `NotFound()` unless `ExposesTrustEndpoints`; `connectivity.tsx` polls every 15 s regardless. **Demoted:** the request *must* keep firing (it is also the reachability probe) and the state machine is correct — this is console noise, not misbehaviour |
 
-**Also real, but a missing control rather than a bug:** `patients-table.tsx:213` hardcodes `sort: 'RecentlyAdded'`.
-The API supports sorting; the UI never exposes it. (Was B9.)
+## 1.1 How each was fixed
+
+| # | Fix |
+|---|---|
+| **B7** | The patient file's Dossiers médicaux (6 cols), Rendez-vous (7) and Fichiers (5) moved to the `_LG` hinge, so an 820 px tablet gets the card form — whose menu carries the same actions **with visible text labels**, better than the icon-only table it replaces. Documents (4 cols) measured 451/451 with nothing hidden and **stays** on `md:`. `table-hinge-fits-its-box` now holds the threshold repo-wide |
+| **B24** | `aria-label` on all five icon-only buttons, each naming its object (« Supprimer la fiche de soins du 12/03/2026 ») the way the delete confirmation already did. `icon-button-is-named` holds it — deliberately conservative: a `<Button>` whose children include any `{expression}` is skipped, so it reports only what is certainly unnamed |
+| **B23** | One `BilledAmount` component, used by both the card and the table, replacing the strikethrough with a muted figure plus a « facturé n° 2026-0089 » badge carrying the invoice's own number. `line-through` now means « annulé » and nothing else, across all nine remaining sites |
+| **B4** | `web/lib/documents.ts` is the single registry. The patient panel keeps « Nouvelle ordonnance » as a one-tap primary (it is far the most frequent) and adds « Autre document » for the other five — verified end to end: two clicks from the patient file to the CNAM P 061 form with the patient already attached |
+| **B29** | `ConnectivityController` answers **200 with `InternetReachable = null`** instead of 404. The client needed no change: a body whose `internetReachable` is not a boolean already resolves to « signal absent », AC-63's third row. ⚠️ **Not** `/health` instead — that route deliberately carries no `lb_try_duration`, so it would report the API down during every rolling deploy, the exact false alarm the deploy work removed |
+
+**Also real, but a missing control rather than a bug — not done:** `patients-table.tsx:213` hardcodes
+`sort: 'RecentlyAdded'`. The API supports sorting; the UI never exposes it. Left alone deliberately: only two
+sort values exist (`Name`, `RecentlyAdded`) and `IPatientRepository`'s own enum documents `RecentlyAdded` as
+*"what « Patients » itself shows, so the fiche just created is the first row rather than somewhere under Z"* —
+a considered choice, not an oversight. (Was B9.)
 
 ---
 
