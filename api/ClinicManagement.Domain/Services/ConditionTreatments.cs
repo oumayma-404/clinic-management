@@ -37,8 +37,22 @@ public static class ConditionTreatments
 {
     private static readonly IReadOnlyList<TreatmentSelector> None = Array.Empty<TreatmentSelector>();
 
-    /// <summary>Restore, then endo, then crown, then take it out. Shared by the three conditions that damage a
-    /// tooth the same way and are answered by the same ladder.</summary>
+    /// <summary>
+    /// Restore, then endo, then crown, then take it out. Shared by the three conditions that damage a tooth the
+    /// same way and are answered by the same ladder.
+    ///
+    /// <para>⚠️ A rung selects by <b>state produced</b>, so it collects every act that produces it — including
+    /// two a dentist would not pick for a *virgin* carie: « Retraitement endodontique » (rung 1: one cannot
+    /// re-treat a canal never treated) and « Extraction de racine (alvéolectomie) » (rung 3: that is for a root
+    /// whose crown is gone). Both are correct on the ladders they belong to — a retreatment for
+    /// `TraitementDeCanal` and `LesionPeriapicale`, an alveolectomy for `RacineResiduelle` — and both chart their
+    /// state correctly, which is what puts them here.</para>
+    ///
+    /// <para>Left as noise on purpose. Excluding them needs the table to <b>name an act</b>, which is the one
+    /// thing this type refuses to do: the moment it does, renaming an act in a clinic's catalogue breaks the
+    /// mapping silently. The rungs are ordered, the sensible act is first and pre-filled, and a dentist reads
+    /// past the rest — a worse trade than either naming acts or dropping their (correct) charting.</para>
+    /// </summary>
     private static readonly TreatmentSelector[] RestoreThenEscalate =
     [
         new(Produces: ToothCondition.Obturation),
