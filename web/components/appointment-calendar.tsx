@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { AppointmentQuickStatus } from "@/components/appointment-quick-status"
+import { AppointmentQuickActions } from "@/components/appointment-quick-actions"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ExportButton } from "@/components/ui/export-button"
@@ -1801,17 +1801,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             </Badge>
           )}
           {/*
-            AC-24: advance the visit's statut without opening the edit dialog.
+            AC-24: advance the visit's statut — or delete a séance booked by mistake — without opening the edit
+            dialog.
 
             ⚠️ Gated on the block having the room, not on the pointer. A block is sized by DURATION — a 15-minute
             visit is 12 px at `HOUR_HEIGHT` — so below ~36 px a trigger of any size would either be clipped by the
             block's own `overflow-hidden` or crowd the patient's name off the only line it has. This removes no
-            capability (§ 0): the block still opens the edit dialog on click, which is where the statut has always
-            been changed, and the popover's own options carry the 44 px coarse floor.
+            capability (§ 0): the block still opens the edit dialog on click, whose footer carries both actions as
+            real buttons, and the popover's own options carry the 44 px coarse floor.
           */}
           {!isVerySmall && height >= 36 && (
             <span {...{ [AGENDA_NO_DRAG_ATTR]: "" }} className="contents">
-              <AppointmentQuickStatus
+              <AppointmentQuickActions
                 appointment={appointment}
                 onChanged={() => onChanged?.()}
                 compact
