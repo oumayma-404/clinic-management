@@ -63,21 +63,46 @@ public static class ProcedureTypeCatalogSeed
     /// derived guard; a thirteenth category that reuses a hex fails there rather than in a cabinet's agenda.
     /// </para>
     /// </remarks>
-    private static readonly Dictionary<string, string> CategoryColors = new()
+    /// <summary>
+    /// Category → palette **hue family** (a key of <see cref="ColorHex.GetPalette"/>). The act's own colour is a
+    /// <i>tone</i> of it, picked per act — see <see cref="ColourFor"/>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>Every category must own a distinct family, and two pairs did not.</b> « Esthétique » shipped on
+    /// « Orthodontie »'s rose and « Pédodontie » on « Parodontologie »'s vert, so four disciplines rendered as two
+    /// hues: a facette and a séance orthodontique were the same pink in the agenda, and a détartrage and a soin
+    /// d'enfant the same green. The first fix moved the two onto the <i>Clair</i> nuance of the family they
+    /// collided with — which un-collided the categories but spent the nuance that the acts inside them now need.
+    /// So the two move to the palette's remaining free families instead: Pédodontie → olive, Esthétique → indigo.
+    /// <para>
+    /// The other ten keep the family whose <i>Moyen</i> tone they already carried, so the first act of each
+    /// discipline is the colour that discipline has always been.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<string, string> CategoryFamilies = new()
     {
-        ["Consultation"] = "#6C757D",
-        ["Radiologie"] = "#60A5FA",
-        ["Soins conservateurs"] = "#2A9D8F",
-        ["Endodontie"] = "#4F83CC",
-        ["Parodontologie"] = "#6BAA75",
-        ["Chirurgie/Extraction"] = "#E76F51",
-        ["Prothèse fixe"] = "#9B8EDC",
-        ["Prothèse amovible"] = "#5EEAD4",
-        ["Implantologie"] = "#E9A23B",
-        ["Orthodontie"] = "#FB7185",
-        ["Esthétique"] = "#F79AA6",
-        ["Pédodontie"] = "#93C79C",
+        ["Consultation"] = "slate",
+        ["Radiologie"] = "sky",
+        ["Soins conservateurs"] = "teal",
+        ["Endodontie"] = "blue",
+        ["Parodontologie"] = "green",
+        ["Chirurgie/Extraction"] = "coral",
+        ["Prothèse fixe"] = "violet",
+        ["Prothèse amovible"] = "mint",
+        ["Implantologie"] = "amber",
+        ["Orthodontie"] = "rose",
+        ["Esthétique"] = "indigo",
+        ["Pédodontie"] = "olive",
     };
+
+    /// <summary>
+    /// Which tone each successive act of a discipline takes: <b>Moyen, then Foncé, then Clair</b>, cycling.
+    ///
+    /// <para>Moyen first so the first act of every discipline keeps the colour that discipline already had — the
+    /// change adds distinctions, it does not repaint what a clinic recognises. Indices are into a family's
+    /// <c>Tones</c> list, which the palette orders Clair · Moyen · Foncé.</para>
+    /// </summary>
+    private static readonly int[] ToneOrder = [1, 2, 0];
 
     private const string FallbackColor = "#6C757D";
 
@@ -168,19 +193,55 @@ public static class ProcedureTypeCatalogSeed
     /// transposition away from re-creating exactly that bug silently.
     /// </para>
     /// </summary>
-    public static IEnumerable<ProcedureType> CreateFor(Guid clinicId) =>
-        Rows.Select(r => new ProcedureType(
-            id: Guid.NewGuid(),
-            clinicId: clinicId,
-            name: r.Name,
-            defaultDurationMinutes: r.DurationMinutes,
-            color: ColorHex.FromString(CategoryColors.TryGetValue(r.Category, out var color) ? color : FallbackColor),
-            // A seeded act has no description — the starter row carries a name, a price and a discipline, and
-            // inventing prose for it would be putting words in the clinic's mouth.
-            description: null,
-            defaultCost: r.DefaultCost,
-            // The row's own answer wins; only a row that gives none falls back to its discipline's default.
-            resultingCondition: r.ResultingCondition
-                ?? (CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null),
-            category: r.Category));
+    public static IEnumerable<ProcedureType> CreateFor(Guid clinicId)
+    {
+        // How many acts of this discipline have already been built — the act's index inside its own category, and
+        // what picks its tone. Counted here rather than precomputed so `Rows` stays a plain readable list.
+        var seenPerCategory = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var r in Rows)
+        {
+            seenPerCategory.TryGetValue(r.Category, out var indexInCategory);
+            seenPerCategory[r.Category] = indexInCategory + 1;
+
+            yield return new ProcedureType(
+                id: Guid.NewGuid(),
+                clinicId: clinicId,
+                name: r.Name,
+                defaultDurationMinutes: r.DurationMinutes,
+                color: ColorHex.FromString(ColourFor(r.Category, indexInCategory)),
+                // A seeded act has no description — the starter row carries a name, a price and a discipline, and
+                // inventing prose for it would be putting words in the clinic's mouth.
+                description: null,
+                defaultCost: r.DefaultCost,
+                // The row's own answer wins; only a row that gives none falls back to its discipline's default.
+                resultingCondition: r.ResultingCondition
+                    ?? (CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null),
+                category: r.Category);
+        }
+    }
+
+    /// <summary>
+    /// The discipline's hue, at the tone this act's position calls for.
+    ///
+    /// <para>⚠️ Read out of <see cref="ColorHex.GetPalette"/> rather than written here: that value object is the
+    /// sole authority on which colours exist, and a second table of hexes is how a seeded act ends up carrying one
+    /// the picker cannot offer back.</para>
+    ///
+    /// <para>⚠️ A family has three tones, and « Pédodontie » has five acts — so the tones <b>cycle</b>, and the
+    /// fourth act of a discipline repeats the first's colour. That is the honest ceiling of a palette built to
+    /// keep a discipline readable as one hue: the alternative is borrowing an unrelated family, which buys
+    /// distinctness by destroying the thing the colour is for. At most two acts share a colour, where before
+    /// every act of a discipline did.</para>
+    /// </summary>
+    private static string ColourFor(string category, int indexInCategory)
+    {
+        if (!CategoryFamilies.TryGetValue(category, out var familyKey)) return FallbackColor;
+
+        var family = ColorHex.GetPalette().FirstOrDefault(f => f.Key == familyKey);
+        if (family is null || family.Tones.Count == 0) return FallbackColor;
+
+        var tone = ToneOrder[indexInCategory % ToneOrder.Length];
+        return family.Tones[tone % family.Tones.Count].Hex;
+    }
 }
