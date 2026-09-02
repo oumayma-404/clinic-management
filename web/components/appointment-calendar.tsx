@@ -748,9 +748,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const renderSyncControls = (appointment: AppointmentDto) => {
     if (appointment.isSyncedToGoogle) return null
     if (isBusySlot(appointment)) return null
-    // Cancelled/completed appointments intentionally carry no Google event (the sync service deletes
-    // it); don't advertise "push to Google" for them — the badge is for appointments not yet synced
-    // (e.g. created offline), per AC-6.6.
+    // ⚠️ A cancelled/completed séance is skipped here because the server will not create an event for it after
+    // the fact, so offering the push would be a dead control. NOT because « the sync service deletes it » — this
+    // comment used to say that and it is the opposite of the rule: nothing in this product deletes a Google
+    // event, and `GoogleCalendarNeverDeletesTests` enforces it. The rows this skips are the historical ones whose
+    // id the retired delete had already nulled; their events are still in the practice's calendar.
     const status = appointment.status.toLowerCase()
     if (status === "cancelled" || status === "completed") return null
 
