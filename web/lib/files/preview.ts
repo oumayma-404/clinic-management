@@ -22,7 +22,14 @@ import { decodeToImage, decodesToImage } from './decoders'
 /** The server drops anything larger, so there is no point producing one. Mirrors `FileTypeCatalog.PreviewBytes`. */
 const PREVIEW_MAX_BYTES = 4 * 1024 * 1024
 
-const PREVIEW_EDGE = 1400
+/**
+ * The longest edge a stand-in is built at.
+ *
+ * ⚠️ **Exported because the viewer needs it to know whether a stand-in was downscaled at all.** An original
+ * already smaller than this is copied at its own size, so the stand-in IS the full image — and offering
+ * « Pleine résolution » there is a control that spends seconds to produce a pixel-identical picture.
+ */
+export const PREVIEW_EDGE = 1400
 const PREVIEW_QUALITY = 0.82
 
 /** What a browser can decode on its own, without a format-specific parser. */

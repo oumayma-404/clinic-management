@@ -165,7 +165,13 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   a 2 Go lab archive is listed by touching ~64 Ko and no archive can expand into memory. Every npm ZIP package
   is built to *extract*: the async paths spin a `blob:` worker and the sync paths inflate.
   ⚠️ **A canvas has a maximum area (~268 Mpx in Chrome) and exceeding it paints a blank one with no error**, so
-  `raster.ts` goes through an `ImageBitmap` and only ever creates a canvas at the size `fitWithin` allows.
+  `raster.ts` goes through an `ImageBitmap` and only ever creates a canvas at the size `fitWithin` allows. Its
+  `MAX_EDGE` is **2560**, not the canvas limit: measured on a 51 Mpx HEIF, encoding at 8192 cost 1171 ms and
+  8,9 Mo against 91 ms and 1,4 Mo at 2560, for a picture nobody can tell apart in a 1000 px dialog.
+  ⚠️ **A decode is not something to do on the way to showing a file.** libheif takes ~11 s on that same image —
+  the decoders are the slow half by an order of magnitude — so the viewer paints the stored stand-in first and
+  runs a decoder only when asked (`use-file-preview`). `PREVIEW_EDGE` is exported from `preview.ts` for the one
+  question that gates the offer: an original smaller than it *is* its own stand-in.
   ⚠️ **libheif runs in a `blob:` Worker**, which `default-src 'self'` refuses — hence `worker-src 'self' blob:`
   in all four CSP copies. A dev server sends no CSP, so without it the failure appears **only in production**.
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.

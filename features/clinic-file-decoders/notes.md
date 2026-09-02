@@ -160,6 +160,64 @@ guard without answering it.
 
 ---
 
+## 5. Eleven seconds, reported from production
+
+The first deployment worked and was **unusable**: « the preview just keeps loading forever … unacceptable
+amount of waiting », on `sourire-avant-traitement.heif`.
+
+⚠️ **The obvious explanation was wrong, and measuring is what caught it.** That file is 2,4 Mo and decodes to
+**51 megapixels** (8736×5856), so the guess was that the resize and re-encode were the cost. Measured in Chrome:
+
+| stage | ms |
+|---|---|
+| **libheif's own decode** | **11 038** |
+| resize + JPEG encode at 8192 px (what shipped) | 1 171 |
+| the `<img>` decoding that JPEG again | 195 |
+| resize + JPEG encode at 2560 px | 91 |
+
+Tuning the pipeline could have won 1,2 s of 12,4. The decode is the wall, it is inside libheif, and no amount of
+our own code touches it.
+
+### What actually fixed it: don't decode the original at all
+
+Every one of these files **already has a stand-in** — the ~200 Ko JPEG built at upload, the same one the
+thumbnail paints. The viewer now shows that first. Measured end to end, click to picture on screen:
+
+| file | before | after |
+|---|---|---|
+| `sourire-avant-traitement.heif` (51 Mpx) | ~12 400 ms | **342 ms** |
+| `photo-intrabuccale-iphone.heic` | ~1 000 ms | **273 ms** |
+| `radio-retroalveolaire.tif` | ~900 ms | **305 ms** |
+| `bon-labo-couronne-26.zip` | — | **473 ms** |
+
+⚠️ **The original stays reachable** (§ 0 — no capability removed by a performance decision): « Pleine
+résolution » runs the decode on request. Deliberately a button rather than a background upgrade, because
+arrowing through ten files would otherwise spend eleven seconds and several hundred megabytes each, for a
+difference nobody asked to see.
+
+### Three smaller things the measurement exposed
+
+- **`MAX_EDGE` was 8192**, chosen as « inside the canvas limit », which is the wrong question for a dialog a
+  thousand pixels wide. At 2560 the encode is 91 ms instead of 1171 and the blob is 1,4 Mo instead of 8,9 — for
+  a picture nobody can tell apart.
+- **The offer was made where it buys nothing.** Two 640×480 TIFFs offered « Pleine résolution » and produced a
+  pixel-identical image: their originals are *smaller* than `PREVIEW_EDGE`, so the stand-in **is** the original.
+  It is now gated on the loaded image really being at the cap.
+- **The spinner said one thing for two waits.** Fetching a stand-in is a fifth of a second and a decode is
+  eleven; a spinner that says nothing for eleven seconds reads as a hung screen. « Décodage de l'image… », with
+  a line saying it takes a few seconds on a large image.
+
+⚠️ And the footer's new control had to earn its place: at 390 px it squeezed « Télécharger » from 221 px to
+**56 px** — a clipped label on the primary way out, to make room for the secondary control. Its label now goes
+below `sm:` exactly as « Supprimer »'s does, with an `aria-label` (a `hidden` span leaves the accessibility tree
+too), and **both** icon-collapsing buttons gained `coarse:min-w-11`: `coarse:h-11` alone left them 40 px wide,
+four short of the floor, and an overlay would steal the neighbour's taps.
+
+Re-verified at 320 / 390 / 1180: zero footer overflow, zero page overflow, every control 44×44 on a coarse
+pointer, and the offer correct in all six cases.
+
+---
+
 ## Still open (named, not hidden)
 
 - **The coffre's own path is verified only by construction here.** The dev API does not offer `vaultAvailable`,
