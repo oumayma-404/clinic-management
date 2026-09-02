@@ -38,7 +38,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 | `odontogram.ts` | `odontogramApi` | `/patients/{id}/odontogram` get; `diagnose` / `removeCondition` (charted diagnoses only). |
 | `patient-medical-history.ts` / `patient-family-history.ts` | `patientMedicalHistoryApi` / `patientFamilyHistoryApi` | `/patients/{id}/medical-history` \| `/family-history` CRUD. |
 | `patient-files.ts` | `patientFilesApi` | `/patients/{id}/files` folders/files: list (`getFiles` unwrapped / **`getFilesPaged`**), init defaults, create folder, upload, download (Blob), **`updateFile`** (rename / describe / move, tri-state — only the keys you send are touched, and `fileName` is the *base* name), **`renameFolder`**, delete. **`getPatientSummaries`** backs `/fichiers` and is the odd one out — it is a read over `/patients/file-summaries`, not under a patient, because it answers « how big is each patient's drawer? » across the clinic; every narrowing it takes (`search`, `withFilesOnly`, `sort`) is applied server-side before the page is cut and must never be re-applied to the rows it returns. ⚠️ **No raw `fetch` here any more**: all four write/download calls used to hand-roll their own error block reading `errorData.message` while the backend sends `{ error }`, so a refused upload surfaced « HTTP 400: Bad Request » instead of the French reason (`patient-file-uploads` P1). |
-| `upload-policy.ts` | `uploadPolicyApi` | **`GET /api/meta/upload-policy`** — what the patient-file door accepts, **served rather than mirrored** (P3). Exports `refusalFor(policy, file)`, the client-side half of the same rules using the server's own sentences, plus `extensionOf`/`formatFor`. The picker previously carried a literal `application/pdf,image/png,image/jpeg` that was accurate when written and hid every DICOM once the catalog widened. Consumed through `lib/hooks/use-upload-policy.ts`, which caches one in-flight promise per page load and **fails open** — a metadata read that fails must not close a working picker. |
+| `upload-policy.ts` | `uploadPolicyApi` | **`GET /api/meta/upload-policy[?profile=]`** — what an upload door accepts, **served rather than mirrored** (P3). Exports `refusalFor(policy, file)`, `destinationFor`, `acceptHint` and `extensionOf`/`formatFor`. ⚠️ **Four doors now, not one** (`patient-file` · `profile-image` · `medical-document-pdf` · `csv`): the cachet, the two clinic-logo pickers and the CSV import each carried a hand-written `accept` — `image/*` against a PNG-and-JPEG server profile, `.csv` against a door that also takes `.txt`, and a « 2 Mo maximum » the server did not enforce (it accepted 25) — so serving one policy for every door would have moved the drift up a level rather than removing it. An **unknown** profile is refused, never defaulted to the patient drawer. Consumed through `lib/hooks/use-upload-policy.ts`, which caches one in-flight promise **per door** per page load and **fails open** — a metadata read that fails must not close a working picker. |
 | `medical-documents.ts` | `medicalDocumentsApi` | `/medical-documents` CRUD; `generatePdf` (job) + `generatePdfForDownload` (Blob). FormData when a PDF is attached. |
 | `dashboard.ts` | `dashboardApi` | **`get(period)`** → `/dashboard?period=Today\|Week\|Month`. One call, four sections. The period key is the only input — the server derives both windows. *(`getStats` and its six boundary params are gone.)* |
 | `stock.ts` | `stockApi` | `/stock` list(`lowStockOnly`)/create/update/delete; exports `StockItemPayload`. |
@@ -135,8 +135,19 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   parser. v1 registers those with no preview and the list shows a typed placeholder; the server already stores,
   caps (4 Mo) and serves one, so adding a decoder later changes that file alone.
   ⚠️ **A missing coffre is a first-class state, never an error** — most machines have none (a phone, Safari, a
-  laptop at home) and on those every hosted file still opens. `hooks/use-vault.ts` keeps the four states apart:
-  `checking` / `ready` / `unpaired` (offer a picker) / `unsupported` (explain; never a dead control).
+  laptop at home) and on those every hosted file still opens. `hooks/use-vault.ts` keeps **five** states apart:
+  `checking` / `ready` / **`lapsed`** (a folder is remembered, its permission is not — offer `reconnect`, ONE
+  click) / `unpaired` (offer the picker) / `unsupported` (explain; never a dead control).
+  ⚠️ `lapsed` is the state this hook was written for and missed. A browser drops the grant when the last tab for
+  the origin closes, so the cabinet's first visit each morning found the folder *stored and un-granted*, reported
+  it as `unpaired`, and sent the user back through the whole picker — while `reconnectVault()` sat there with no
+  caller at all.
+  ⚠️ **`path.ts` also owns `verifyVaultIntegrity`, the only reader of `contentHash` in the product.** The
+  registration computes it, sends it and the server stores it; until that function existed nothing ever compared
+  it, so `findVerifiedInVault`'s size check was the whole of a coffre file's integrity story and a replacement of
+  the same length read as genuine. It is an explicit action (« Vérifier l'intégrité »), not a check on open —
+  hashing 25 Go is about a minute. Its `dottedExtensionOf` is named for the dot because
+  `lib/api/upload-policy.ts` exports a **dot-less** `extensionOf` into the same feature.
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.
 
 ## Conventions

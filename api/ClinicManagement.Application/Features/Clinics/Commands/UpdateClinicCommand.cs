@@ -144,6 +144,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             // Handle logo upload if provided
             var originalLogoUrl = clinic.LogoUrl; // Persisted value, used for orphan cleanup below
             string? logoUrl = originalLogoUrl;    // Keep existing logo by default
+            var logoContentType = clinic.LogoContentType;
 
             if (request.LogoFile != null)
             {
@@ -183,6 +184,9 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     clinicId,
                     "logo",
                     cancellationToken);
+
+                // The VALIDATED type, from the catalog entry the bytes agreed with — never the browser's claim.
+                logoContentType = logo.ContentType;
             }
 
             try
@@ -197,7 +201,8 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     request.PhoneSpecified ? request.Phone : clinic.Phone,
                     request.EmailSpecified ? request.Email : clinic.Email,
                     logoUrl,
-                    request.CitySpecified ? request.City : clinic.City);
+                    request.CitySpecified ? request.City : clinic.City,
+                    logoContentType);
 
                 clinic.SetBillingSettings(
                     request.MatriculeFiscalSpecified ? request.MatriculeFiscal : clinic.MatriculeFiscal,

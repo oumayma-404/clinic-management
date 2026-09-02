@@ -457,13 +457,16 @@ public class ClinicArchiveStore : IClinicArchiveStore
     private static IEnumerable<string> StorageKeysOf<TRow>(
         string table, IEnumerable<TRow> rows, Func<TRow, string, string?> read)
     {
-        if (!ClinicArchiveScope.BlobProperties.TryGetValue(table, out var property))
+        if (!ClinicArchiveScope.BlobProperties.TryGetValue(table, out var properties))
         {
             return Array.Empty<string>();
         }
 
+        // ⚠️ One row can point at more than one object — a coffre file carries its stand-in image beside (or, for a
+        // vault row, instead of) its original. Reading only the first property is what left previews out of every
+        // archive; the de-duplication below is also what stops a row that repeats a key from packing it twice.
         return rows
-            .Select(row => read(row, property))
+            .SelectMany(row => properties.Select(property => read(row, property)))
             .Where(key => !string.IsNullOrWhiteSpace(key))
             .Select(key => key!)
             .Distinct(StringComparer.Ordinal);

@@ -29,16 +29,46 @@ public class UploadPatientFileAtomicityTests
     private readonly Mock<IUnitOfWork> _uow = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
-    // NOTE (security-remediation): added only so the test project compiles while the FileResidency feature is
-    // in flight in this working tree. Its owner should replace this with whatever setup those cases need.
+    /// <summary>
+    /// Where this deployment keeps a file of a given format and size.
+    ///
+    /// <para>⚠️ Defaulted to <see cref="FileResidency.Hosted"/> because that is what this class is about — the
+    /// atomicity of writing a blob and its row together, which only exists on the hosted path. A coffre file
+    /// writes no original at all, so it has no atomicity to test here; its own door is
+    /// <c>RegisterVaultFileCommand</c>. The enum has no <c>0</c> member, so Moq's default would be an invalid
+    /// value rather than a neutral one, which is why this is stated rather than left unset.</para>
+    /// </summary>
     private readonly Mock<IFileResidencyPolicy> _residencyPolicy = new();
 
     public UploadPatientFileAtomicityTests()
     {
-        // FileResidency has no 0 member, so Moq's default would be an invalid value. Hosted is the ordinary path.
         _residencyPolicy
             .Setup(p => p.Decide(It.IsAny<FileTypeEntry>(), It.IsAny<long>()))
             .Returns(FileResidency.Hosted);
+    }
+
+    /// <summary>
+    /// ⚠️ The other side of the same door, and the one case that is <b>not</b> about atomicity: a study the
+    /// catalogue files at the cabinet must be refused <i>here</i>, before anything is written, and pointed at the
+    /// coffre. Without it the 25 Mo threshold would be advice the picker follows and nothing enforces — a
+    /// third-party caller could put a four-hundred-megabyte study on the hosted disk through the ordinary door.
+    /// </summary>
+    [Fact]
+    public async Task A_File_That_Belongs_In_The_Coffre_Is_Refused_Here_And_Nothing_Is_Written()
+    {
+        PatientFound();
+        _residencyPolicy
+            .Setup(p => p.Decide(It.IsAny<FileTypeEntry>(), It.IsAny<long>()))
+            .Returns(FileResidency.Vault);
+
+        var result = await Handler().Handle(ACommand(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        _fileStorage.Verify(
+            s => s.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _files.Verify(r => r.AddAsync(It.IsAny<PatientFile>(), It.IsAny<CancellationToken>()), Times.Never);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private UploadPatientFileCommandHandler Handler() =>

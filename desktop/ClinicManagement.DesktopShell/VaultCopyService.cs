@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -100,12 +101,21 @@ public sealed class VaultCopyService
             ? $"Le coffre était déjà à jour ({total} fichier(s))."
             : $"{copied} fichier(s) copié(s) dans {destination}.";
 
-        // ⚠️ A failed report is stated rather than swallowed: the copy is on disk either way, but the practice
-        // will keep being nagged, and « la copie a réussi » beside a nag that will not clear is the confusing pair.
-        return reported
-            ? new ArchiveCopyOutcome(true, message, destination)
-            : new ArchiveCopyOutcome(
-                true, message + " Le serveur n'a pas pu être informé ; l'alerte peut persister.", destination);
+        // ⚠️ A report that did not land, or landed short, is stated rather than swallowed: the copy is on disk
+        // either way, but the practice will keep being nagged, and « la copie a réussi » beside a nag that will not
+        // clear is the confusing pair. « Incomplete » names a different cause from « not reported » on purpose —
+        // one is a network problem to retry, the other is files this machine's coffre does not have.
+        return reported switch
+        {
+            VaultReportOutcome.Covered => new ArchiveCopyOutcome(true, message, destination),
+            VaultReportOutcome.Incomplete => new ArchiveCopyOutcome(
+                true,
+                message + " Le serveur indique que la copie ne couvre pas tous les fichiers du coffre ;"
+                + " l'alerte reste active.",
+                destination),
+            _ => new ArchiveCopyOutcome(
+                true, message + " Le serveur n'a pas pu être informé ; l'alerte peut persister.", destination),
+        };
     }
 
     /// <summary>Walks the coffre and copies what the destination lacks. Returns (copied, bytes copied, files seen).</summary>
@@ -195,10 +205,16 @@ public sealed class VaultCopyService
     }
 
     /// <summary>
-    /// Tells the server a copy landed. Every failure is <c>false</c> — the copy is real and on disk, and the only
-    /// consequence of an unreported one is that the alert keeps standing, which is the safe direction.
+    /// Tells the server a copy landed, and asks whether it covered everything.
+    ///
+    /// <para>⚠️ Three outcomes, not two. A failure to report is <see cref="VaultReportOutcome.NotReported"/> — the
+    /// copy is real and on disk, and the only consequence is that the alert keeps standing, which is the safe
+    /// direction. But the server also compares the figures with what it has on record, and answers
+    /// <see cref="VaultReportOutcome.Incomplete"/> when the copy fell short: it never saw the originals, so this
+    /// comparison is the only evidence that exists, and a copy covering three studies of four hundred used to
+    /// clear the alert exactly as a complete one did.</para>
     /// </summary>
-    private async Task<bool> ReportAsync(
+    private async Task<VaultReportOutcome> ReportAsync(
         int fileCount, long totalBytes, string? reuseToken, CancellationToken cancellationToken)
     {
         try
@@ -212,7 +228,7 @@ public sealed class VaultCopyService
                     http, _server, _settings.GrantSecret, cancellationToken);
                 if (!exchange.Succeeded)
                 {
-                    return false;
+                    return VaultReportOutcome.NotReported;
                 }
 
                 token = exchange.Token;
@@ -231,11 +247,27 @@ public sealed class VaultCopyService
                 "application/json");
 
             using var response = await http.SendAsync(request, cancellationToken);
-            return response.IsSuccessStatusCode;
+            if (!response.IsSuccessStatusCode)
+            {
+                return VaultReportOutcome.NotReported;
+            }
+
+            // An older server answered 204 with no body; that is « reported » and nothing more can be said.
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return VaultReportOutcome.Covered;
+            }
+
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("covered", out var covered)
+                && covered.ValueKind == JsonValueKind.False
+                    ? VaultReportOutcome.Incomplete
+                    : VaultReportOutcome.Covered;
         }
         catch
         {
-            return false;
+            return VaultReportOutcome.NotReported;
         }
     }
 
@@ -253,4 +285,24 @@ public sealed class VaultCopyService
             // Best-effort: a leftover .part is pruned by the next run's own staging.
         }
     }
+}
+
+/// <summary>
+/// What the server made of a coffre-copy report.
+///
+/// <para>⚠️ <see cref="Incomplete"/> is a success that is not good enough, and it is the reason this is not a
+/// bool. The server never received a coffre original, so the file count and byte total it is handed are the only
+/// evidence it will ever have; comparing them with its own records is what tells a complete copy from one that
+/// covered a handful of studies, and only the first may clear the staleness alert.</para>
+/// </summary>
+internal enum VaultReportOutcome
+{
+    /// <summary>The report did not land — a network fault, a refused grant. The alert keeps standing.</summary>
+    NotReported = 0,
+
+    /// <summary>The copy accounts for everything on record. The alert clears.</summary>
+    Covered = 1,
+
+    /// <summary>The report landed and fell short of the record. The alert deliberately stays up.</summary>
+    Incomplete = 2,
 }

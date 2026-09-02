@@ -31,6 +31,8 @@ import {
 } from "lucide-react"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { toast } from "sonner"
+import { refusalFor } from "@/lib/api/upload-policy"
+import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import Image from "next/image"
 import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
@@ -120,6 +122,7 @@ type WorkingHoursInput = WorkingDay
 export default function ClinicSettings() {
   const { accessToken } = useAuthToken()
   const { mode, user } = useSession()
+  const policy = useUploadPolicy("profile-image")
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -269,14 +272,26 @@ export default function ClinicSettings() {
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setLogoFile(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setLogoPreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
+    // Cleared first, or a logo refused below cannot be re-picked: the element still holds it and choosing the
+    // same file fires no `change` event.
+    e.target.value = ""
+    if (!file) return
+
+    // ⚠️ The served policy, not `image/*`. The server's door takes PNG and JPEG only and caps them well below the
+    // patient drawer's ceiling, so a WebP or an oversized logo was accepted here and refused there — after the
+    // whole file had been sent.
+    const refusal = policy ? refusalFor(policy, file) : null
+    if (refusal) {
+      toast.error(refusal)
+      return
     }
+
+    setLogoFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setLogoPreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
   }
 
   const addDoctor = () => {
@@ -894,7 +909,7 @@ export default function ClinicSettings() {
                       <span className="text-2xs text-muted-foreground group-hover:text-primary font-medium transition-colors mt-1">
                         {logoUrl ? "Modifier" : "Téléverser"}
                       </span>
-                      <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                      <input type="file" accept={policy?.accept} onChange={handleLogoUpload} className="hidden" />
                     </label>
                   ) : logoUrl ? (
                     // Show indicator that logo exists when not in edit mode

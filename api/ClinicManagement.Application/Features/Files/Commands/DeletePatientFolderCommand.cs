@@ -4,7 +4,6 @@ using ClinicManagement.Application.Common.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
-using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Files.Commands;
@@ -77,13 +76,11 @@ public class DeletePatientFolderCommandHandler : IRequestHandler<DeletePatientFo
             // row pointing at a deleted folder (or the folder removed while its file rows survive). The blobs
             // are deleted only AFTER the DB commit: a mid-loop storage error can no longer skip a DB delete,
             // and a leaked blob is preferable to an orphaned record (AC-3, bug #18).
-            // ⚠️ Coffre files contribute no key: their originals live on the practice's own disk and are left
-            // there, exactly as DeletePatientFileCommand leaves them.
+            // ⚠️ Coffre files contribute no *original* key: those live on the practice's own disk and are left
+            // there, exactly as DeletePatientFileCommand leaves them. They do contribute their hosted preview —
+            // `PatientFileBlobs` is the one place that knows which of the two a row owns.
             var filesInFolder = await _fileRepository.GetByFolderIdAsync(request.FolderId, cancellationToken);
-            var storageKeys = filesInFolder
-                .Where(f => f.Residency == FileResidency.Hosted && f.StorageKey != null)
-                .Select(f => f.StorageKey!)
-                .ToList();
+            var storageKeys = PatientFileBlobs.OwnedByAll(filesInFolder).ToList();
 
             foreach (var file in filesInFolder)
             {

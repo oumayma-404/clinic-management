@@ -202,8 +202,11 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                     cancellationToken);
 
 
-                // Update clinic with logo URL (preserve the city already set on the clinic)
-                clinic.Update(clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl, clinic.City);
+                // Update clinic with logo URL (preserve the city already set on the clinic). The VALIDATED
+                // content type travels with the key — the read serves it verbatim, and `nosniff` means a JPEG
+                // labelled `image/png` simply does not render.
+                clinic.Update(
+                    clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl, clinic.City, logo.ContentType);
             }
 
             // The creator of a new clinic is its admin (finding: Cloud onboarding assigned only

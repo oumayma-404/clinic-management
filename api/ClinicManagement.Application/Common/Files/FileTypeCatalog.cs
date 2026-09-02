@@ -17,8 +17,27 @@ namespace ClinicManagement.Application.Common.Files;
 /// </summary>
 public static class FileTypeCatalog
 {
-    /// <summary>Documents, text and raster images — big enough for a full-mouth series, small enough to stream.</summary>
+    /// <summary>Documents and text — big enough for a full-mouth series, small enough to stream.</summary>
     public const long DocumentBytes = 25L * 1024 * 1024;
+
+    /// <summary>
+    /// Raster images a browser can paint: PNG, JPEG, WebP.
+    ///
+    /// <para>⚠️ <b>Higher than <see cref="DocumentBytes"/>, and deliberately NOT a coffre route.</b> A panoramique
+    /// exported as a 40 Mo PNG was simply refused, which is the exact problem the coffre exists for — but sending
+    /// it to the coffre would be worse: these are the formats a dentist opens from home, from a phone, from the
+    /// second chair, and a coffre file is openable only where its bytes are. What a browser can paint is worth
+    /// hosting; what it cannot decode is what belongs at the cabinet. Forty seconds on a 9 Mbps uplink is a price
+    /// worth paying for a picture that is reachable from everywhere.</para>
+    /// </summary>
+    public const long ImageBytes = 50L * 1024 * 1024;
+
+    /// <summary>
+    /// A cachet or a clinic logo. Small on purpose and enforced by the <b>profile</b> rather than by the PNG and
+    /// JPEG entries, which the patient's file drawer shares — a header image has no business being 25 Mo, and both
+    /// are read fully into memory on every document render.
+    /// </summary>
+    public const long ProfileImageBytes = 5L * 1024 * 1024;
 
     /// <summary>DICOM studies, meshes and lab archives. A CBCT export is routinely over 100 MB.</summary>
     public const long LargeBytes = 150L * 1024 * 1024;
@@ -60,11 +79,11 @@ public static class FileTypeCatalog
         SignatureRule.Required(0, "%PDF-"), true, "PDF");
 
     public static readonly FileTypeEntry Png = new(
-        new[] { "png" }, "image/png", FileType.Scan, DocumentBytes,
+        new[] { "png" }, "image/png", FileType.Scan, ImageBytes,
         SignatureRule.Required(0, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }), true, "PNG");
 
     public static readonly FileTypeEntry Jpeg = new(
-        new[] { "jpg", "jpeg" }, "image/jpeg", FileType.Scan, DocumentBytes,
+        new[] { "jpg", "jpeg" }, "image/jpeg", FileType.Scan, ImageBytes,
         SignatureRule.Required(0, new byte[] { 0xFF, 0xD8, 0xFF }), true, "JPEG");
 
     private static readonly FileTypeEntry[] Entries =
@@ -74,22 +93,26 @@ public static class FileTypeCatalog
         Jpeg,
 
         // AC-3.1 — imaging and photos. HEIC is here because an iPhone photographing a case is the normal path.
-        new(new[] { "webp" }, "image/webp", FileType.Scan, DocumentBytes,
+        new(new[] { "webp" }, "image/webp", FileType.Scan, ImageBytes,
             // "WEBP" at offset 8 rather than "RIFF" at 0: a WAV file opens with RIFF too.
             SignatureRule.Required(8, "WEBP"), true, "WebP"),
         new(new[] { "gif" }, "image/gif", FileType.Scan, DocumentBytes,
             SignatureRule.Required(0, "GIF87a", "GIF89a"), true, "GIF"),
-        new(new[] { "tiff", "tif" }, "image/tiff", FileType.Scan, DocumentBytes,
+        // TIFF is the odd one out of the raster set and takes the coffre route: no browser paints one, and a
+        // full-mouth series or a stitched panoramique routinely runs to hundreds of megabytes. Not previewable and
+        // genuinely large is exactly the pair the coffre exists for.
+        new(new[] { "tiff", "tif" }, "image/tiff", FileType.Scan, LargeBytes,
             SignatureRule.Required(0, new byte[] { 0x49, 0x49, 0x2A, 0x00 }, new byte[] { 0x4D, 0x4D, 0x00, 0x2A }),
-            false, "TIFF"),
+            false, "TIFF",
+            residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
         new(new[] { "bmp" }, "image/bmp", FileType.Scan, DocumentBytes,
             SignatureRule.Required(0, "BM"), true, "BMP"),
         new(new[] { "heic", "heif" }, "image/heic", FileType.Scan, DocumentBytes,
             // The ISO-BMFF `ftyp` box at offset 4; the brand that follows it varies by device and iOS version.
             SignatureRule.Required(4, "ftyp"), false, "HEIC"),
 
-        // AC-3.2 — dental 3D and CBCT. These are the six formats a study arrives in, and the only ones the
-        // coffre takes: above DocumentBytes their bytes stay on the cabinet's own hardware.
+        // AC-3.2 — dental 3D and CBCT. These six plus TIFF above are the formats a study arrives in, and the only
+        // ones the coffre takes: above DocumentBytes their bytes stay on the cabinet's own hardware.
         new(new[] { "dcm", "dicom" }, "application/dicom", FileType.Scan, LargeBytes,
             // AC-2.4: DICM sits behind a 128-byte preamble, and preamble-less exports from real scanners exist.
             SignatureRule.Advisory(128, "DICM"), false, "DICOM",

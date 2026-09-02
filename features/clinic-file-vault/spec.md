@@ -58,8 +58,17 @@ The feature is `HostedMultiTenant`-only: on `SelfHostedLan` the bytes are alread
 - **AC-9:** Opening a vault file on a device holding the coffre opens the original at full resolution with no
   network transfer, gated on `file.size === row.fileSize`. Elsewhere it renders the preview and names where the
   original is.
+  ⚠️ **CORRECTED 2026-09-02 — the second clause is false in v1 and was false the day it shipped.** All seven
+  coffre formats are `isBrowserPreviewable: false`, so `web/lib/vault/preview.ts`'s `buildPreview` returns `null`
+  for every one of them: **no coffre file has ever had a preview**, and on a device without the coffre the row
+  shows a typed placeholder, its badge, and the path to the machine that holds it. The preview pipeline is built
+  and correct and has nothing to feed it until a DICOM/STL decoder is added. Recorded rather than quietly fixed
+  because `preview.ts` owns this decision in its own comment while this AC still promised the opposite.
 - **AC-10:** Deleting a vault file removes the row and **leaves the bytes on the cabinet's disk**. The app never
   destroys originals on hardware it does not host.
+  ⚠️ **AMENDED 2026-09-02:** it leaves the *original*. A coffre row still owns one **hosted** blob — its preview —
+  and that one goes with the row. Both delete commands read `PatientFileBlobs`, which is the single answer to
+  « what does this row own? »; they previously deleted the original and silently orphaned the preview.
 - **AC-11:** The shell copies the coffre alongside the archive and reports it; a clinic whose vault has had no
   second copy for 30 days receives the `ArchiveStale`-shaped ensure/clear notification, cleared by the next copy.
 - **AC-12:** At 320 px the patient's file list renders as cards with no horizontal scroll; the residency badge

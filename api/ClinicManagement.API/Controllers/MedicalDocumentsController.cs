@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Files;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
@@ -79,6 +80,11 @@ public class MedicalDocumentsController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    // Sized from the catalog CONST for this door — an attribute argument must be a compile-time constant.
+    // Without it ASP.NET's default 30 MB body limit is the real ceiling, and a file between this door's cap and
+    // that default dies on a framework 413 the app never sees and cannot explain in French.
+    [RequestSizeLimit(FileTypeCatalog.DocumentBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.DocumentBytes)]
     [HttpPost]
     public async Task<ActionResult<Application.DTOs.MedicalDocumentDto>> CreateDocument(
         CancellationToken cancellationToken = default)
@@ -175,6 +181,11 @@ public class MedicalDocumentsController : ApiControllerBase
         return CreatedAtAction(nameof(GetDocument), new { id = result.Value.Id }, result.Value);
     }
 
+    // Sized from the catalog CONST for this door — an attribute argument must be a compile-time constant.
+    // Without it ASP.NET's default 30 MB body limit is the real ceiling, and a file between this door's cap and
+    // that default dies on a framework 413 the app never sees and cannot explain in French.
+    [RequestSizeLimit(FileTypeCatalog.DocumentBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.DocumentBytes)]
     [HttpPut("{id}")]
     public async Task<ActionResult<Application.DTOs.MedicalDocumentDto>> UpdateDocument(
         Guid id,

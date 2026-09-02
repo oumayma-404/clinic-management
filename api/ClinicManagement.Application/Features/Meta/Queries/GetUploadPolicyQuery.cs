@@ -17,6 +17,11 @@ namespace ClinicManagement.Application.Features.Meta.Queries;
 /// </summary>
 public class GetUploadPolicyQuery : IRequest<Result<UploadPolicyDto>>
 {
+    /// <summary>
+    /// Which door to describe. Absent means the patient's file drawer, which is what the endpoint served when it
+    /// served only one — so an older client keeps working unchanged.
+    /// </summary>
+    public string? Profile { get; set; }
 }
 
 public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery, Result<UploadPolicyDto>>
@@ -30,7 +35,17 @@ public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery,
 
     public Task<Result<UploadPolicyDto>> Handle(GetUploadPolicyQuery request, CancellationToken cancellationToken)
     {
-        var profile = FileUploadProfile.PatientFile;
+        var profile = request.Profile is null
+            ? FileUploadProfile.PatientFile
+            : FileUploadProfile.TryByName(request.Profile);
+
+        // An unknown door is refused rather than defaulting to the patient-file one: silently handing a logo
+        // picker the drawer's policy would offer DICOM as a clinic logo and quote the wrong ceiling.
+        if (profile is null)
+        {
+            return Task.FromResult(Result<UploadPolicyDto>.Failure("Ce type d'envoi n'existe pas."));
+        }
+
         var vaultAvailable = _residencyPolicy.VaultAvailable;
 
         var dto = new UploadPolicyDto
@@ -45,7 +60,7 @@ public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery,
             DeniedExtensions = FileTypeCatalog.DeniedExtensions.OrderBy(e => e, StringComparer.Ordinal).ToList(),
             VaultAvailable = vaultAvailable,
             VaultUnavailableMessage = FileResidencyRefusals.Unavailable(),
-            Formats = profile.Entries.Select(entry => ToFormat(entry, vaultAvailable)).ToList()
+            Formats = profile.Entries.Select(entry => ToFormat(profile, entry, vaultAvailable)).ToList()
         };
 
         return Task.FromResult(Result<UploadPolicyDto>.Success(dto));
@@ -53,20 +68,24 @@ public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery,
 
     // Where there is no coffre every format reads as always-hosted at the door's own ceiling, so a client written
     // against one deployment kind cannot show a « conservé au cabinet » state on the other (AC-7).
-    private static UploadPolicyFormatDto ToFormat(FileTypeEntry entry, bool vaultAvailable)
+    private static UploadPolicyFormatDto ToFormat(FileUploadProfile profile, FileTypeEntry entry, bool vaultAvailable)
     {
         var routesToVault = vaultAvailable && entry.Residency.Kind == ResidencyKind.HostedUpTo;
+
+        // The DOOR's cap, which is the entry's own unless the profile is tighter — a JPEG cachet is five megabytes
+        // where a JPEG radiograph is fifty, and the picker must quote the one it is standing in front of.
+        var maxBytes = profile.CapFor(entry);
 
         return new UploadPolicyFormatDto
         {
             Extensions = entry.Extensions.ToList(),
             ContentType = entry.ContentType,
             Label = entry.Label,
-            MaxBytes = entry.MaxBytes,
+            MaxBytes = maxBytes,
             IsBrowserPreviewable = entry.IsBrowserPreviewable,
-            TooLargeMessage = FileUploadValidator.TooLargeMessage(entry.MaxBytes),
+            TooLargeMessage = FileUploadValidator.TooLargeMessage(maxBytes),
             Residency = routesToVault ? "hostedUpTo" : "hosted",
-            HostedMaxBytes = routesToVault ? entry.Residency.HostedMaxBytes : entry.MaxBytes,
+            HostedMaxBytes = routesToVault ? entry.Residency.HostedMaxBytes : maxBytes,
             VaultMaxBytes = routesToVault ? entry.VaultMaxBytes : 0,
             VaultTooLargeMessage = routesToVault
                 ? FileResidencyRefusals.TooLarge(entry.VaultMaxBytes)

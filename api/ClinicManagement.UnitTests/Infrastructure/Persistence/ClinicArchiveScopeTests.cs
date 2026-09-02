@@ -324,12 +324,48 @@ public class ClinicArchiveScopeTests
 
         Assert.NotEmpty(ClinicArchiveScope.BlobProperties);
 
-        foreach (var (entity, property) in ClinicArchiveScope.BlobProperties)
+        foreach (var (entity, properties) in ClinicArchiveScope.BlobProperties)
         {
             var table = plan.Tables.SingleOrDefault(t => t.Name == entity);
             Assert.True(table is not null, $"{entity} declares a blob property but is not archived.");
-            Assert.True(table!.EntityType.FindProperty(property) is not null,
-                $"{entity}.{property} is declared as a storage key but is not a mapped column.");
+            Assert.NotEmpty(properties);
+
+            foreach (var property in properties)
+            {
+                Assert.True(table!.EntityType.FindProperty(property) is not null,
+                    $"{entity}.{property} is declared as a storage key but is not a mapped column.");
+            }
+        }
+    }
+
+    // [AC-5] The other direction, and the one that would have caught `PatientFile.PreviewStorageKey`: a property
+    // whose NAME says it holds a storage key must be declared, or its objects are silently outside every archive
+    // and every restore while the rows that name them travel normally. `Clinic.LogoUrl` is the reason the rule is
+    // « declared », so it is named here as the one exception the convention cannot see.
+    [Fact]
+    public void Every_StorageKey_Shaped_Property_On_An_Archived_Entity_Is_Declared()
+    {
+        using var db = Context();
+        var plan = Plan(db);
+
+        foreach (var table in plan.Tables)
+        {
+            var declared = ClinicArchiveScope.BlobProperties.TryGetValue(table.Name, out var properties)
+                ? properties
+                : Array.Empty<string>();
+
+            var shaped = table.EntityType.GetProperties()
+                .Where(p => p.ClrType == typeof(string))
+                .Select(p => p.Name)
+                .Where(name => name.EndsWith("StorageKey", StringComparison.Ordinal))
+                .ToList();
+
+            foreach (var name in shaped)
+            {
+                Assert.True(declared.Contains(name, StringComparer.Ordinal),
+                    $"{table.Name}.{name} looks like a storage key but is not in ClinicArchiveScope.BlobProperties, "
+                    + "so its objects would not travel with an archive. Declare it, or rename it if it is not one.");
+            }
         }
     }
 

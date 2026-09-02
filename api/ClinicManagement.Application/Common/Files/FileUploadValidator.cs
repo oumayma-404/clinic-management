@@ -81,9 +81,12 @@ public static class FileUploadValidator
             return Result<ValidatedUpload>.Failure(EmptyFileMessage);
         }
 
-        if (declaredLength > entry.MaxBytes)
+        // The DOOR's cap, not the entry's: a cachet and a panoramique are both JPEG, and only one of them may be
+        // fifty megabytes. `CapFor` is the entry's own unless the profile is tighter.
+        var maxBytes = profile.CapFor(entry);
+        if (declaredLength > maxBytes)
         {
-            return Result<ValidatedUpload>.Failure(TooLargeMessage(entry.MaxBytes));
+            return Result<ValidatedUpload>.Failure(TooLargeMessage(maxBytes));
         }
 
         var header = new byte[HeaderBytes];

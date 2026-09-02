@@ -11,6 +11,8 @@ import { Upload, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { doctorsApi } from "@/lib/api/doctors"
 import { ApiError } from "@/lib/api/client"
+import { acceptHint, refusalFor } from "@/lib/api/upload-policy"
+import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 
 export interface DoctorDocumentIdentityTarget {
   id: string
@@ -26,9 +28,6 @@ interface DoctorDocumentIdentityDialogProps {
   onSaved?: () => void
 }
 
-const MAX_CACHET_BYTES = 2 * 1024 * 1024
-const ACCEPTED_CACHET_TYPES = ["image/png", "image/jpeg", "image/jpg"]
-
 /**
  * Set another practitioner's **document identity** — their CNOMDT ordre number and their cachet (AC-P2.30).
  *
@@ -37,8 +36,11 @@ const ACCEPTED_CACHET_TYPES = ["image/png", "image/jpeg", "image/jpg"]
  * these two fields. Document identity has its own endpoint (`PUT /api/doctors/{id}`, own-or-admin, multipart),
  * so it gets its own dialog rather than being smuggled into a bulk roster rewrite.
  *
- * The validation here mirrors the server's (type allow-list + 2 MB) so an oversized file is refused before the
- * upload rather than after it; the server still re-checks, including the magic bytes.
+ * ⚠️ **The pre-check is the SERVED policy, never a constant here.** It used to refuse anything over « 2 Mo »
+ * beside a comment claiming to mirror the server — which accepted twenty-five megabytes, the patient drawer's
+ * document cap, because PNG and JPEG are shared between the two doors and the entry carried the only number.
+ * `profile-image` is now its own door with its own ceiling and the picker quotes whatever it is, in the server's
+ * own words. A failed probe leaves the picker open; the server is the guard, and it still re-checks the bytes.
  */
 export function DoctorDocumentIdentityDialog({
   doctor,
@@ -52,6 +54,7 @@ export function DoctorDocumentIdentityDialog({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const policy = useUploadPolicy("profile-image")
 
   useEffect(() => {
     if (!doctor) return
@@ -64,12 +67,9 @@ export function DoctorDocumentIdentityDialog({
 
   const pickCachet = (file: File | undefined) => {
     if (!file) return
-    if (!ACCEPTED_CACHET_TYPES.includes(file.type)) {
-      setError("Le cachet doit être une image PNG ou JPEG.")
-      return
-    }
-    if (file.size > MAX_CACHET_BYTES) {
-      setError("Le cachet est trop volumineux (2 Mo maximum).")
+    const refusal = policy ? refusalFor(policy, file) : null
+    if (refusal) {
+      setError(refusal)
       return
     }
     setError(null)
@@ -156,7 +156,7 @@ export function DoctorDocumentIdentityDialog({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg"
+              accept={policy?.accept}
               className="hidden"
               onChange={(e) => pickCachet(e.target.files?.[0])}
             />
@@ -190,7 +190,7 @@ export function DoctorDocumentIdentityDialog({
                 </Button>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">PNG ou JPEG, 2 Mo maximum.</p>
+            <p className="text-xs text-muted-foreground">{acceptHint(policy)}</p>
           </div>
         </div>
 

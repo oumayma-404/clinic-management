@@ -344,8 +344,12 @@ that is not there. Say « Vérifiez votre connexion ». The `local-network-wordi
 
 **An `<input type="file">` clears its own `value` before the upload runs**, or a failed upload cannot be retried with
 the same file: the element still holds it, so re-picking fires no `change` event at all. Copy the `FileList` into an
-array *first* — clearing `value` empties the live list. And declare an `accept` that mirrors the server's allow-list,
-never a narrower guess: `image/*` on the patient-files input would hide the PDFs the server accepts.
+array *first* — clearing `value` empties the live list. And **read the `accept` from `useUploadPolicy(<door>)`**,
+never write one by hand: `GET /api/meta/upload-policy?profile=` serves all four doors (`patient-file` ·
+`profile-image` · `medical-document-pdf` · `csv`) with the server's own caps and refusal sentences. Every
+hand-written one in this app had drifted — `image/*` against a PNG-and-JPEG door, `.csv` against a door that also
+takes `.txt`, and a « 2 Mo maximum » helper line the server did not enforce. Use `refusalFor(policy, file)` for the
+pre-check and `acceptHint(policy)` for the helper line.
 
 **A `blob:` PDF in an `<iframe>` is not a preview on a finger.** Android WebView renders it **blank** and iOS Safari
 as one non-scrollable page, so any embedded-PDF surface needs two trees behind `coarse:` with the file itself as the

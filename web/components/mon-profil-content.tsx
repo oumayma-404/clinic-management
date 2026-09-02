@@ -16,6 +16,8 @@ import { ApiError } from "@/lib/api/client"
 import type { DoctorProfileDto } from "@/lib/api/types"
 import { specialtyLabel } from "@/lib/specialties"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
+import { acceptHint, refusalFor } from "@/lib/api/upload-policy"
+import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 
 /**
  * The icon chip both section headings on this page wear.
@@ -36,6 +38,7 @@ export function MonProfilContent() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const policy = useUploadPolicy("profile-image")
 
   const [ordreNumber, setOrdreNumber] = useState("")
   const [cachetFile, setCachetFile] = useState<File | null>(null)
@@ -96,7 +99,19 @@ export function MonProfilContent() {
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    // Cleared before anything else: without it a file refused below cannot be re-picked, since the element still
+    // holds it and choosing the same one fires no `change` event at all.
+    e.target.value = ""
     if (!file) return
+
+    // ⚠️ The served policy, not `image/*`. This field accepted every image type the OS knows while the server's
+    // door takes PNG and JPEG only, so a WebP or a HEIC cachet was picked here, uploaded, and refused there.
+    const refusal = policy ? refusalFor(policy, file) : null
+    if (refusal) {
+      toast.error(refusal)
+      return
+    }
+
     setCachetFile(file)
     setRemoveCachet(false)
     setCachetPreview((prev) => {
@@ -253,12 +268,13 @@ export function MonProfilContent() {
               <label className="w-40 h-24 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary hover:bg-accent transition text-muted-foreground hover:text-primary">
                 <Upload className="h-5 w-5" />
                 <span className="text-2xs font-medium mt-1">Charger</span>
-                <input type="file" accept="image/*" onChange={handleFile} className="hidden" disabled={saving} />
+                <input type="file" accept={policy?.accept} onChange={handleFile} className="hidden" disabled={saving} />
               </label>
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            PNG ou JPEG. Si aucun cachet n&apos;est chargé, le document affiche une simple ligne de signature.
+            {acceptHint(policy) ?? "PNG ou JPEG."} Si aucun cachet n&apos;est chargé, le document affiche une
+            simple ligne de signature.
           </p>
         </div>
 

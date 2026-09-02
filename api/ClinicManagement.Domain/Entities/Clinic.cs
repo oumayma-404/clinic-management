@@ -14,6 +14,18 @@ public class Clinic : AggregateRoot<Guid>
     public string? Code { get; private set; } // Unique code for joining clinic
     public string? LogoUrl { get; private set; } // Logo storage key in MinIO
 
+    /// <summary>
+    /// The validated content type the logo was stored under.
+    ///
+    /// <para>⚠️ <b>Without it the read hardcoded <c>image/png</c>, and a JPEG logo did not render at all.</b> The
+    /// door accepts PNG and JPEG (<c>FileUploadProfile.ProfileImage</c>) and every response carries
+    /// <c>X-Content-Type-Options: nosniff</c>, so a JPEG served as PNG is refused by the browser rather than
+    /// guessed at — silently, on the mark that appears at the top of every ordonnance and every facture.
+    /// <c>Doctor.CachetContentType</c> beside it has stored this since it was written, and its own comment named
+    /// the logo path as the one that did not.</para>
+    /// </summary>
+    public string? LogoContentType { get; private set; }
+
     // Billing / note d'honoraires settings (Tunisia). Frozen onto each invoice at issue.
     public string? MatriculeFiscal { get; private set; }
     public bool VatApplicable { get; private set; }
@@ -209,7 +221,14 @@ public class Clinic : AggregateRoot<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
-    public void Update(string name, string? address = null, string? phone = null, string? email = null, string? logoUrl = null, string? city = null)
+    public void Update(
+        string name,
+        string? address = null,
+        string? phone = null,
+        string? email = null,
+        string? logoUrl = null,
+        string? city = null,
+        string? logoContentType = null)
     {
         Name = name;
         Address = address;
@@ -217,6 +236,9 @@ public class Clinic : AggregateRoot<Guid>
         Phone = phone;
         Email = email;
         LogoUrl = logoUrl;
+        // The key and its type move together, always: a stored type describing a key that has been replaced is
+        // worse than none at all, and clearing the logo must clear both.
+        LogoContentType = string.IsNullOrWhiteSpace(logoUrl) ? null : logoContentType;
         UpdatedAt = DateTime.UtcNow;
     }
 

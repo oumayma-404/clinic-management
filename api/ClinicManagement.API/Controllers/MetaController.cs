@@ -198,16 +198,21 @@ public class MetaController : ApiControllerBase
         $"{Request.Scheme}://{Request.Host}{ClientDownloadPath}";
 
     /// <summary>
-    /// What the patient-file door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt
+    /// What an upload door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt
     /// from the client-version floor: only <c>client-requirements</c> earns that, being the answer a refused
     /// client needs in order to stop being refused.
+    ///
+    /// <para><paramref name="profile"/> names the door — absent means the patient's file drawer, which is what
+    /// this served when it served only one. The cachet, the clinic logo and the CSV import each carried their own
+    /// hand-written <c>accept</c> in the browser, and all three disagreed with the catalog.</para>
     /// </summary>
     [HttpGet("upload-policy")]
     [AllowsWithoutSubscription("Not clinic work — what the file picker may offer, read on a screen an expired cabinet still opens.")]
     public async Task<ActionResult<Application.DTOs.UploadPolicyDto>> UploadPolicy(
+        [FromQuery] string? profile = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _mediator.Send(new GetUploadPolicyQuery(), cancellationToken);
+        var result = await _mediator.Send(new GetUploadPolicyQuery { Profile = profile }, cancellationToken);
 
         if (!result.IsSuccess)
         {

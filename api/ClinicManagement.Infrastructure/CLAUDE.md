@@ -123,6 +123,12 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
   onto the model's own properties instead, through the **private parameterless ctor** — not
   `GetUninitializedObject`, which leaves the `List<T>` fields backing collection navigations null and NREs inside
   EF's own fix-up the moment the entry is marked `Added`.
+  ⚠️ **`BlobProperties` maps a table to a LIST of blob columns, because an entity may own more than one.** It held
+  a single property per table, so when `PatientFile.PreviewStorageKey` arrived with the coffre there was nowhere to
+  declare it: the stand-in image is the one part of a coffre file the deployment stores, and it was silently outside
+  every archive and every restore. `ClinicArchiveScopeTests` now asserts **both directions** — every declared
+  property exists on its entity, *and* every `…StorageKey`-shaped property on an archived entity is declared
+  (`Clinic.LogoUrl` is why the rule is « declared » rather than derived, and is the one named exception).
   ⚠️ **The entity set is derived from the model, never listed**: every non-owned type with a path to a clinic,
   minus `ClinicArchiveScope.Excluded`. Three scopes and no fourth — `Self` (the `Clinic` row, matched on its PK: it
   has no `ClinicId` because it *is* the clinic), `Direct` (its own `ClinicId`), `Child` (through the parent's ids,

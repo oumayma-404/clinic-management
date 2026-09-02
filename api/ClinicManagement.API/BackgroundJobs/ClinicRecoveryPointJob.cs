@@ -262,7 +262,7 @@ public class ClinicRecoveryPointJob
     /// </summary>
     private async Task EvaluateVaultCopyStalenessAsync(Clinic clinic)
     {
-        if (await _patientFiles.CountVaultFilesAsync(clinic.Id) == 0)
+        if ((await _patientFiles.GetVaultTotalsAsync(clinic.Id)).IsEmpty)
         {
             await _notificationGenerator.ClearVaultCopyStaleAsync(clinic.Id);
             return;

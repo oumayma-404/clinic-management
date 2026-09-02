@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Files;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
@@ -50,6 +51,11 @@ public class ClinicsController : ApiControllerBase
     /// <summary>
     /// Create a new clinic (first user/admin)
     /// </summary>
+    // Sized from the catalog CONST for this door — an attribute argument must be a compile-time constant.
+    // Without it ASP.NET's default 30 MB body limit is the real ceiling, and a file between this door's cap and
+    // that default dies on a framework 413 the app never sees and cannot explain in French.
+    [RequestSizeLimit(FileTypeCatalog.ProfileImageBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.ProfileImageBytes)]
     [HttpPost]
     public async Task<IActionResult> CreateClinic()
     {
@@ -205,6 +211,11 @@ public class ClinicsController : ApiControllerBase
     /// <summary>
     /// Update clinic information for the current user's clinic
     /// </summary>
+    // Sized from the catalog CONST for this door — an attribute argument must be a compile-time constant.
+    // Without it ASP.NET's default 30 MB body limit is the real ceiling, and a file between this door's cap and
+    // that default dies on a framework 413 the app never sees and cannot explain in French.
+    [RequestSizeLimit(FileTypeCatalog.ProfileImageBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.ProfileImageBytes)]
     [HttpPut]
     // Clinic configuration, and specifically the billing settings — matricule fiscal, TVA, timbre.
     // Every write on the tabs beside it was already admin-gated; this one was reachable by any authenticated user.
