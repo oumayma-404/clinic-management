@@ -950,6 +950,54 @@ check(
 );
 
 check(
+  "idle-limit-follows-the-device",
+  "N15",
+  "The inactivity limit is chosen by `trusted`, and the lock screen names no duration",
+  "`idleLimitMinutes` answers two questions that must stay separate: `trusted` decides HOW LONG the wait is, " +
+    "`canLock` decides WHAT HAPPENS at the end of it. It used to lead with `if (canLock) return " +
+    "DEFAULT_IDLE_LIMIT_MINUTES`, which handed a lockable device 30 minutes however trusted it was — so " +
+    "« Rester connecté sur cet appareil » had no effect on interruptions on the desktop app, the one platform " +
+    "most likely to have it ticked, and a practitioner got Windows Hello every half hour all day with a patient " +
+    "in the chair. Nothing failed; the feature simply did not do the thing it was for. The second half is the " +
+    "same defect in prose: the lock card said « après 30 minutes d'inactivité », a number it is never told and " +
+    "which is now wrong on exactly the trusted device that waits 8 h.",
+  () => {
+    const offenders = [];
+
+    // Half one: the limit must not be decided by `canLock`.
+    const limitLines = read("lib/auth/idle-limit.ts").split(/\r?\n/);
+    const limitMask = commentMask(limitLines);
+    limitLines.forEach((line, i) => {
+      if (limitMask[i]) return;
+      if (/\bif\s*\(\s*canLock\s*\)/.test(line)) {
+        offenders.push({
+          file: "lib/auth/idle-limit.ts",
+          line: i + 1,
+          text: "`canLock` decides the ending, never the duration — branch on `trusted` for the limit",
+        });
+      }
+    });
+
+    // Half two: the lock card must not name a duration it is not given.
+    const gateLines = read("components/session-lock-gate.tsx").split(/\r?\n/);
+    const gateMask = commentMask(gateLines);
+    gateLines.forEach((line, i) => {
+      if (gateMask[i]) return;
+      // A digit (or a spelled-out small number) immediately followed by a unit, in user-facing prose.
+      if (/\b(\d+|une|deux|trente|huit)\s*(minutes?|heures?|min\b|h\b)/i.test(line)) {
+        offenders.push({
+          file: "components/session-lock-gate.tsx",
+          line: i + 1,
+          text: "the limit is 30 min or 8 h depending on the device — say « une période d'inactivité »",
+        });
+      }
+    });
+
+    return offenders;
+  },
+);
+
+check(
   "agreed-cost-reaches-the-fiche",
   "N14",
   "A booked act's negotiated price is carried into the fiche de soins at every prefill site",

@@ -7,26 +7,39 @@
  * and gain nothing it did not already have from the cookie it holds. What the numbers decide is how often a
  * dentist is interrupted — so they are chosen against the working day, not against a threat model.
  *
- * ⚠️ **The limit is a function of what happens when it expires.** That is the whole rule, and getting it
- * backwards is how the old behaviour came about:
+ * ⚠️ **`trusted` decides HOW LONG the wait is; `canLock` decides WHAT HAPPENS at the end of it.** Those are two
+ * separate questions and this function used to answer both with one: `if (canLock) return 30` came first, so a
+ * lockable device got half an hour *however* trusted it was, and « Rester connecté sur cet appareil » had no
+ * effect on interruptions at all on the one platform where it was most likely to be ticked.
  *
- * - Where the shell can ask the operating system who is holding the device (`confirmIdentity`), expiry **locks**:
- *   the cookie is untouched, the page stays mounted, and a fingerprint or Windows Hello returns the user to the
- *   same open fiche. That costs seconds, so there is no reason to wait long — 30 minutes stays.
- * - Where it cannot, expiry is a **full sign-out**: cookie cleared, session revoked server-side, back to
- *   password and a six-digit code. On a device its owner has vouched for, paying that price after half an hour of
- *   treating a patient is the complaint this feature exists to answer, so the wait is much longer.
+ * The reasoning was that a lock costs only seconds to clear, so there is no reason to wait long before showing
+ * one. It is true that it costs seconds — and it was still wrong, because it priced the interruption at the cost
+ * of dismissing it rather than at the cost of *being* interrupted. Windows Hello every thirty minutes, all day,
+ * on the practitioner's own laptop, while a patient is in the chair: that is the complaint « remember this
+ * device » exists to answer, and answering it only for devices that cannot lock inverted the feature.
  *
- * The consequence worth stating out loud: a trusted device that gains a lock screen gets a *shorter* idle limit,
- * not a longer one, and that is an improvement rather than a regression.
+ * So the wait now follows the device, and `canLock` still chooses the ending:
+ *
+ * - **Lockable** — expiry **locks**: the cookie is untouched, the page stays mounted, and Windows Hello or a
+ *   fingerprint returns the user to the same open fiche.
+ * - **Not lockable** — expiry is a **full sign-out**: cookie cleared, session revoked server-side, back to
+ *   password and a six-digit code.
+ *
+ * A trusted device therefore waits 8 h either way, and gets the *cheaper* of the two endings where it can.
+ * An untrusted one — a shared reception PC, a browser where nobody ticked the box — still waits 30 minutes,
+ * which is the case the short limit was written for.
  */
 
 /** The default, and what an untrusted browser or a shared reception PC gets. */
 export const DEFAULT_IDLE_LIMIT_MINUTES = 30
 
 /**
- * A trusted device with no way to lock. Long enough to cover a morning of chairside work and a lunch break,
- * short enough that a machine left running overnight is not still signed in when the cleaners come through.
+ * A device its owner ticked « Rester connecté sur cet appareil » on. Long enough to cover a morning of chairside
+ * work and a lunch break, short enough that a machine left running overnight is not still signed in when the
+ * cleaners come through.
+ *
+ * ⚠️ Applies whether or not the device can lock. It used to apply only where it could NOT, which is the
+ * inversion the note on `idleLimitMinutes` describes.
  */
 export const TRUSTED_IDLE_LIMIT_MINUTES = 8 * 60
 
@@ -37,8 +50,11 @@ export const TRUSTED_IDLE_LIMIT_MINUTES = 8 * 60
  * @param canLock whether the shell can confirm the device owner instead of signing out
  */
 export function idleLimitMinutes(trusted: boolean, canLock: boolean): number {
-  // A lock is cheap to recover from, so the ordinary wait applies however trusted the device is.
-  if (canLock) return DEFAULT_IDLE_LIMIT_MINUTES
+  // ⚠️ `canLock` is deliberately NOT read here any more — see the note above. It is still a parameter because
+  // it is part of the question this function answers ("what limit does THIS session get") and dropping it would
+  // move the decision to the caller, which is where it was before there was one place for it. A caller that
+  // stops passing it should be a compile error, not a silent change of policy.
+  void canLock
 
   return trusted ? TRUSTED_IDLE_LIMIT_MINUTES : DEFAULT_IDLE_LIMIT_MINUTES
 }

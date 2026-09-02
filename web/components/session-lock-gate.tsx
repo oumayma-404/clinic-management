@@ -86,6 +86,26 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
       return
     }
 
+    /*
+     * ⚠️ **A dismissal is not a failed identity check, and it used to cost the same as one.** `cancelled` and
+     * `rejected` both consumed an attempt, so three stray clicks — or three Hello prompts that appeared before
+     * the user was looking at them — ended the session and asked for the password and a six-digit code. Nobody
+     * had refused anything; the OS had simply not been answered.
+     *
+     * So a dismissal re-shows this gate and costs nothing. The attempt count still exists and still bounds the
+     * thing it was written to bound: `rejected` is the OS saying « that is not the owner », and three of those
+     * still fall through to the password.
+     *
+     * ⚠️ That does leave a dismissal repeatable without limit, which is deliberate and is not the exposure it
+     * sounds like: this overlay is opaque `bg-background` precisely so a paused session shows nothing, so an
+     * indefinitely-dismissed lock is a blank screen over a covered app — the same state as a locked laptop.
+     * And « Se déconnecter » below is a one-click exit, so nobody is trapped here either.
+     */
+    if (outcome === "cancelled") {
+      setLastOutcome("cancelled")
+      return
+    }
+
     const used = attemptsUsedRef.current + 1
     attemptsUsedRef.current = used
     setAttemptsUsed(used)
@@ -121,8 +141,15 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
             <Lock className="size-7 text-primary" aria-hidden="true" />
           </div>
           <CardTitle id="session-lock-gate-title">Session verrouillée</CardTitle>
+          {/*
+            ⚠️ **No number here.** This said « après 30 minutes d'inactivité », which stopped being true the
+            moment the limit began to follow the device: it is 8 h on one the owner has vouched for and 30 min
+            on a shared machine, decided by `idleLimitMinutes`. A sentence naming one of them is a second source
+            of truth for a value this component is not told, and the version that is wrong is the one shown to
+            the practitioner who is least likely to be interrupted — so it names none.
+          */}
           <CardDescription>
-            Votre session a été mise en pause après 30 minutes d&apos;inactivité. Confirmez votre identité pour
+            Votre session a été mise en pause après une période d&apos;inactivité. Confirmez votre identité pour
             reprendre exactement où vous en étiez.
           </CardDescription>
         </CardHeader>
@@ -131,10 +158,21 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
             // `role="status"`, not an error toast: this is the result of the action the user just took, and it
             // has to be readable beside the button that retries it.
             <p role="status" className="text-center text-sm text-destructive">
-              {lastOutcome === "cancelled" ? "Vérification annulée." : "La vérification a échoué."}{" "}
-              {attemptsLeft === 1
-                ? "Il vous reste une tentative avant la saisie du mot de passe."
-                : `Il vous reste ${attemptsLeft} tentatives avant la saisie du mot de passe.`}
+              {/*
+                ⚠️ A cancellation no longer consumes an attempt, so it must not report a count either — saying
+                « il vous reste 2 tentatives » after an action that cost nothing is the kind of small lie that
+                makes someone stop trusting the rest of the screen.
+              */}
+              {lastOutcome === "cancelled" ? (
+                "Vérification annulée. Réessayez lorsque vous êtes prêt."
+              ) : (
+                <>
+                  La vérification a échoué.{" "}
+                  {attemptsLeft === 1
+                    ? "Il vous reste une tentative avant la saisie du mot de passe."
+                    : `Il vous reste ${attemptsLeft} tentatives avant la saisie du mot de passe.`}
+                </>
+              )}
             </p>
           )}
 
