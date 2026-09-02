@@ -77,6 +77,21 @@ public class DisregardedVisitsStayRecoverableTests
         Assert.Equal(new[] { cancelled.Id }, worklist.Disregarded.Select(v => v.Appointment.Id));
     }
 
+    // A « créneau occupé » drawn on the wrong day is a mis-entry like any other, and cancelling one inflates the
+    // taux d'absence the same way — the status counts behind it do not care whether a row has a patient.
+    [Fact]
+    public async Task A_Retired_Créneau_Occupé_Is_Listed_Among_The_Retired()
+    {
+        var blocked = new Appointment(
+            Guid.NewGuid(), ClinicId, patientId: null, doctorId: null, Now.AddDays(2), TimeSpan.FromHours(2));
+        blocked.Disregard(UserId, Now);
+
+        var worklist = await Read(blocked);
+
+        Assert.Equal(new[] { blocked.Id }, worklist.Disregarded.Select(v => v.Appointment.Id));
+        Assert.Null(worklist.Disregarded[0].Appointment.PatientId);
+    }
+
     // ⚠️ The worklist itself must be untouched by all of the above — the partition moved above the two gates, the
     // gates did not go away. A future séance nobody retired owes nothing yet and belongs on neither list.
     [Fact]
@@ -96,6 +111,20 @@ public class DisregardedVisitsStayRecoverableTests
         var worklist = await Read(yesterday);
 
         Assert.Equal(new[] { yesterday.Id }, worklist.Open.Select(v => v.Appointment.Id));
+        Assert.Empty(worklist.Disregarded);
+    }
+
+    // The other half of the blocked-slot rule: one nobody retired still has nothing to close, so it must not
+    // appear on the worklist merely because the patient exclusion moved branches.
+    [Fact]
+    public async Task An_Elapsed_Créneau_Occupé_Nobody_Retired_Is_On_Neither_List()
+    {
+        var blocked = new Appointment(
+            Guid.NewGuid(), ClinicId, patientId: null, doctorId: null, Now.AddHours(-3), TimeSpan.FromHours(1));
+
+        var worklist = await Read(blocked);
+
+        Assert.Empty(worklist.Open);
         Assert.Empty(worklist.Disregarded);
     }
 

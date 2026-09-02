@@ -235,7 +235,13 @@ export type VisitClosureStep = 'Presence' | 'Fiche' | 'Billing';
  */
 export interface VisitToCloseDto {
   appointmentId: string;
-  patientId: string;
+  /**
+   * Null for a « créneau occupé ». Only ever null in the **retirées** half — a blocked slot has nothing to close,
+   * so it never reaches the worklist, but « Supprimer (créé par erreur) » can retire one from the agenda and this
+   * list is the only way back. Never build a `/patients/{id}` link from it without testing it first.
+   */
+  patientId: string | null;
+  /** The patient's name, or « Créneau occupé » when `patientId` is null. */
   patientName: string;
   /** Slot start, UTC. */
   appointmentDateTime: string;

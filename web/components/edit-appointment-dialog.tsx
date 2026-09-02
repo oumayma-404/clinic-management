@@ -650,11 +650,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   /*
    * What the deletion confirm names (§ 13 — « Êtes-vous sûr ? » cannot say which of a day's séances is going).
-   * Only reachable for a séance with a patient: the menu item is absent on a « créneau occupé », whose removal
-   * « séances retirées » cannot list and therefore cannot undo.
+   * ⚠️ Branches on `patientId`, not on the name: `AppointmentDto.patientName` is the server's own « Occupé » for a
+   * blocked slot, so the obvious one-line template reads « Le rendez-vous de Occupé ».
    */
   const deletionTarget = source
-    ? `Le rendez-vous de ${patientName} du `
+    ? `${source.patientId ? `Le rendez-vous de ${patientName}` : "Le créneau occupé"} du `
       + format(parseISO(source.appointmentDateTime), "d MMMM à HH:mm", { locale: fr })
     : ""
 
@@ -1138,24 +1138,21 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       description says where it can be recovered rather than calling the action something else.
                     */}
                     {/*
-                      ⚠️ Not offered on a « créneau occupé », and the reason is the recovery promise rather than the
-                      deletion. « À clôturer › séances retirées » is the only screen that lists the mark, and it
-                      reads séances with a patient — a blocked slot has nothing to close, so a retired one would
-                      leave the agenda and appear nowhere. Offering an irreversible removal under a dialog that says
-                      it can be undone is the worse half of that trade, so the control is absent here; a blocked
-                      slot is re-drawn in one drag.
+                      Offered on a « créneau occupé » too — a blocked slot drawn on the wrong day is as much a
+                      mis-entry as a patient's RDV, and cancelling one inflates the taux d'absence exactly the same
+                      way, since the status counts behind it do not care whether a row has a patient.
+                      « séances retirées » lists a retired blocked slot as « Créneau occupé », unlinked, so the
+                      recovery this dialog promises is real for it as well.
                     */}
-                    {source?.patientId && (
-                      <DropdownMenuItem
-                        variant="destructive"
-                        className="coarse:py-3"
-                        disabled={loading}
-                        onSelect={() => setShowDeleteDialog(true)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Supprimer (créé par erreur)
-                      </DropdownMenuItem>
-                    )}
+                    <DropdownMenuItem
+                      variant="destructive"
+                      className="coarse:py-3"
+                      disabled={loading}
+                      onSelect={() => setShowDeleteDialog(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Supprimer (créé par erreur)
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button
@@ -1227,9 +1224,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer ce rendez-vous ?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deletionTarget} quittera l&apos;agenda et le dossier du patient, et ne comptera pas comme une
-              annulation dans le taux d&apos;absence. Vous pourrez le récupérer dans {quoteFr("À clôturer")} ›
-              séances retirées.
+              {deletionTarget} quittera l&apos;agenda{source?.patientId ? " et le dossier du patient" : ""}, et ne
+              comptera pas comme une annulation dans le taux d&apos;absence. Vous pourrez le récupérer dans{" "}
+              {quoteFr("À clôturer")} › séances retirées.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

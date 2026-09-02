@@ -294,8 +294,6 @@ public class AppointmentRepository : IAppointmentRepository
             // issue one query per appointment to say « Détartrage ».
             .Include(a => a.Procedures)
             .Where(a => a.ClinicId == clinicId
-                        // A « créneau occupé » has nothing to close.
-                        && a.PatientId != null
                         && a.AppointmentDateTime >= fromUtc
                         // ⚠️ A séance RETIRÉE is a candidate whatever its hour and whatever its statut, and that
                         // is what keeps « Supprimer (créé par erreur) » from being a black hole. The elapsed bound
@@ -311,6 +309,9 @@ public class AppointmentRepository : IAppointmentRepository
                         // chip — only the « retirées » complement grows, which is exactly the recovery list.
                         && (a.DisregardedAtUtc != null
                             || (a.AppointmentDateTime <= nowUtc
+                                // A « créneau occupé » has nothing to close — but a retired one still has to be
+                                // findable, so this exclusion lives in the same branch as the other two.
+                                && a.PatientId != null
                                 // Both are complete answers rather than gaps: a visit that did not happen needs no
                                 // fiche and owes no money. Excluded so the in-memory rule never has to un-say them.
                                 && a.Status != AppointmentStatus.Cancelled

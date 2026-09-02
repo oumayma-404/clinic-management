@@ -14,7 +14,17 @@ namespace ClinicManagement.Application.DTOs;
 public class VisitToCloseDto
 {
     public Guid AppointmentId { get; set; }
-    public Guid PatientId { get; set; }
+
+    /// <summary>
+    /// Null for a « créneau occupé » — a blocked slot has no patient.
+    ///
+    /// <para>Only ever null in the <b>retirées</b> half: a blocked slot has nothing to close, so it never reaches
+    /// the worklist, but « Supprimer (créé par erreur) » can retire one from the agenda and that list is the only
+    /// way back. A client must therefore not build a <c>/patients/{id}</c> link from this without testing it.</para>
+    /// </summary>
+    public Guid? PatientId { get; set; }
+
+    /// <summary>The patient's name, or « Créneau occupé » when <see cref="PatientId"/> is null.</summary>
     public string PatientName { get; set; } = string.Empty;
 
     /// <summary>Slot start, UTC. The client renders it in the clinic's own day.</summary>
