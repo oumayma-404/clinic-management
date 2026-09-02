@@ -101,6 +101,31 @@ update and had been put right. It was on **update only**. Creating a procedure t
 dentist as an English EF sentence — the exact failure that class was written for. The guard this feature reuses
 for `AgreedCost` is the same constant, so the hole was directly in the way.
 
+### Every booked act is proposed, not just the first
+
+⚠️ **Shipped one commit later, and the negotiated price is what made it urgent.** A visit booked for three acts
+opened its new fiche with **one** card; the other two sat under it as a faint dashed row of « + » chips headed
+« Aussi prévu à ce rendez-vous — à confirmer un par un ». So the séance's own header said « 1 acte » and showed
+**one act's money** for a visit worth three — and with a per-act agreed price that figure is now what the note
+d'honoraires is built from. Users missed the chips entirely, which is lost clinical record *and* lost revenue,
+with nothing on screen saying so.
+
+`applyAppointment` therefore takes a **list** (`BookedActPrefill[]`) and fills every booked act as a real card,
+first one armed, each carrying its own agreed price. The chip row survives for exactly one case now — an act the
+dentist **deleted** — and says so (« Prévu à ce rendez-vous, retiré de la fiche — remettre »), which is what
+keeps a mistaken deletion recoverable.
+
+⚠️ **This reverses a deliberate decision** whose comment read « proposing all of them would have to commit acts
+the dentist has not confirmed ». The trade is real and was taken knowingly: a prefilled act that was *not*
+performed is documented and billed unless deleted. It is the mirror of the defect it replaces, and the milder
+one — a card on screen with a delete button beside it, versus an act nobody ever saw.
+
+⚠️ **`BookedActPrefill.agreedCost` is required, not optional** (`number | null`, written out). The fiche prices a
+booked act from the *catalogue*, so a caller that merely omits the price gets the tarif silently — mandatory
+turns that into a compile error. That is also why N14 changed shape: proximity greps could not follow a price
+into a carrier built twelve lines above its dispatch, so `applyAppointment` is held by the **type** and the
+guard's remaining job is to assert the field stays mandatory. Both halves red-proofed.
+
 ### Verified
 
 API build 0 · **3865/3865** unit tests · `tsc --noEmit` 0 · `check:responsive` **26/26** ·
