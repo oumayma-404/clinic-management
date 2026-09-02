@@ -23,12 +23,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Label } from "@/components/ui/label"
@@ -40,7 +34,7 @@ import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
-import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react"
+import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, Trash2 } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import {
   AppointmentRecap,
@@ -1085,92 +1079,71 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               « ⋯ » menu now: still one press away, no longer competing with Enregistrer, and the confirmation
               it opens is unchanged.
             */}
-            <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-6 py-4">
-              {/*
-                ⚠️ One flex item below `sm:`, dissolved by `sm:contents` above it. `DialogFooter` is
-                `flex-col-reverse` on a phone, so three children are three full-width rows — which is how this
-                footer got to ~150 px of an 844 px screen in the first place. Grouping « ⋯ » with « Fermer »
-                makes it two rows: the primary action, then the secondary pair sharing one. `contents` at `sm:`
-                removes the wrapper from the box tree entirely, so the trigger's own `sm:mr-auto` still pushes
-                it to the far edge of the desktop row.
-              */}
-              <div className="flex gap-2 sm:contents">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      // `bg-card` for the reason the date trigger states — the footer is `bg-background` too, so
-                      // an `outline` trigger there is painted the surface it sits on and reads as loose dots.
-                      /*
-                       * ⚠️ `order-2` below `sm:` puts it on the RIGHT of the pair, and that is not cosmetic:
-                       * the assistant's launcher is a fixed circle at the bottom-LEFT, and it sits exactly on
-                       * this row. On the left the trigger is covered — and since « Annuler le rendez-vous »
-                       * now lives only behind it, an unreachable trigger is an unreachable action.
-                       */
-                      className="touch-target order-2 shrink-0 bg-card sm:order-none sm:mr-auto"
-                      aria-label="Autres actions"
-                      disabled={loading}
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem
-                      variant="destructive"
-                      className="coarse:py-3"
-                      disabled={loading || status === "cancelled"}
-                      onSelect={() => setShowCancelDialog(true)}
-                    >
-                      <X className="h-4 w-4" />
-                      Annuler le rendez-vous
-                    </DropdownMenuItem>
-                    {/*
-                      ⚠️ Not the same outcome as the item above, and that is the whole reason it exists. « Annulé »
-                      is a statement about a patient who was expected and did not come — the dashboard counts it in
-                      the « taux d'absence » alongside « Absent ». A séance typed into the wrong day, or onto the
-                      wrong patient, is neither: cancelling it to tidy the agenda is what makes a cabinet's own
-                      figures describe a month it did not have. This one asserts nothing.
+            {/*
+              ⚠️ `flex-col` is deliberate and cancels `DialogFooter`'s `flex-col-reverse` — same tailwind-merge
+              group, caller wins — because with FOUR actions a reversed DOM order is unreadable to maintain. The
+              order is stated explicitly instead, and it is the point of the layout below `sm:`:
 
-                      Wording: « Supprimer », because that is what the user came to do, and nothing they can reach
-                      contradicts it — the séance leaves the agenda, the patient's history and the figures. The
-                      description says where it can be recovered rather than calling the action something else.
-                    */}
-                    {/*
-                      Offered on a « créneau occupé » too — a blocked slot drawn on the wrong day is as much a
-                      mis-entry as a patient's RDV, and cancelling one inflates the taux d'absence exactly the same
-                      way, since the status counts behind it do not care whether a row has a patient.
-                      « séances retirées » lists a retired blocked slot as « Créneau occupé », unlinked, so the
-                      recovery this dialog promises is real for it as well.
-                    */}
-                    <DropdownMenuItem
-                      variant="destructive"
-                      className="coarse:py-3"
-                      disabled={loading}
-                      onSelect={() => setShowDeleteDialog(true)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Supprimer (créé par erreur)
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  [ Supprimer ] [ Annuler ]     ← destructive pair, furthest from the thumb
+                  [ Fermer ]    [ Enregistrer ] ← dismiss + primary, nearest it
+
+              Two rows, not four: four full-width rows is ~200 px of an 844 px screen, which is the defect this
+              footer was cut down from once already. Each row is a `flex` of two `flex-1` children, so nothing
+              relies on a label's intrinsic width. `sm:contents` dissolves both rows above the hinge, letting the
+              four buttons sit in one line with `sm:mr-auto` pushing the destructive pair to the far edge.
+            */}
+            <DialogFooter className="flex-shrink-0 flex-col gap-2 border-t bg-background px-6 py-4">
+              <div className="order-1 flex gap-2 sm:contents">
+                {/*
+                  ⚠️ Both actions are BUTTONS now, not items behind a « ⋯ ». They were folded away because
+                  « Annulé » is also one of the statut buttons at the top of this form, so the footer presented one
+                  outcome twice — but « Supprimer » is a third outcome that the statut row cannot express at all,
+                  and burying the pair made the two things a user comes here to do the two hardest to find.
+
+                  ⚠️ The visible labels are short and the full phrase lives in `aria-label` (§ 10.1): at 320 px each
+                  cell is ~116 px, and `Button` is `whitespace-nowrap shrink-0`, so « Supprimer le rendez-vous »
+                  would paint straight through the footer's edge rather than wrap.
+                */}
                 <Button
                   type="button"
                   variant="outline"
-                  className="order-1 flex-1 bg-card sm:order-none sm:flex-none"
+                  className="flex-1 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive sm:mr-auto sm:flex-none"
+                  onClick={() => setShowDeleteDialog(true)}
+                  disabled={loading}
+                  aria-label="Supprimer le rendez-vous (créé par erreur)"
+                >
+                  <Trash2 className="h-4 w-4 sm:mr-2" />
+                  Supprimer
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 bg-card sm:flex-none"
+                  onClick={() => setShowCancelDialog(true)}
+                  disabled={loading || status === "cancelled"}
+                  aria-label="Annuler le rendez-vous"
+                >
+                  <X className="h-4 w-4 sm:mr-2" />
+                  Annuler
+                </Button>
+              </div>
+              <div className="order-2 flex gap-2 sm:contents">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 bg-card sm:flex-none"
                   onClick={() => guard.onOpenChange(false)}
                   disabled={loading}
                 >
                   Fermer
                 </Button>
+                {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
+                    Blocking here made the warning a dead end and hid the fact that proceeding is allowed. */}
+                <Button type="submit" className="flex-1 sm:flex-none" disabled={loading}>
+                  <Save className="h-4 w-4 mr-2" />
+                  {loading ? "Enregistrement…" : "Enregistrer"}
+                </Button>
               </div>
-              {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
-                  Blocking here made the warning a dead end and hid the fact that proceeding is allowed. */}
-              <Button type="submit" disabled={loading}>
-                <Save className="h-4 w-4 mr-2" />
-                {loading ? "Enregistrement…" : "Enregistrer"}
-              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
