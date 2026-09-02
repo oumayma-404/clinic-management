@@ -146,6 +146,30 @@ jobs:
             BatchMode yes
           CONF
 
+      # ⚠️ **The public domain is read off the server, not remembered here.** `vars.DEPLOY_DOMAIN` was a GitHub
+      # variable holding a hostname that also lives in the server's `.env` as `DOMAIN` — two copies, nothing
+      # comparing them. The day the deployment took its own name (app.apexa.tn) the variable kept the old OVH
+      # hostname, so the `/health` gate below polled a name Caddy had just stopped serving, looped thirty times
+      # and failed the workflow on a deployment that was live and healthy. It then skipped `verify-schema` on
+      # the way down, which is the step that would have caught a real problem — a false red that also disables
+      # the true check is worse than no check.
+      #
+      # `.env` is the authority for a reason: compose interpolates `DOMAIN` into Caddy's site address AND into
+      # `FrontendUrl` and `GoogleCalendar__RedirectUri`. Whatever is in there IS the domain, by construction.
+      #
+      # `vars.DEPLOY_DOMAIN` survives only as a fallback for a server whose `.env` cannot be read, and an empty
+      # result is a hard failure: a health gate that silently checks nothing would pass every broken deploy.
+      - name: Resolve the deployment's public domain
+        run: |
+          domain=$(ssh vps "grep -oP '(?<=^DOMAIN=).*' '${{ vars.VPS_DEPLOY_DIR }}/.env' | tr -d '\r\"'" || true)
+          [ -n "$domain" ] || domain="${{ vars.DEPLOY_DOMAIN }}"
+          if [ -z "$domain" ]; then
+            echo "::error::Could not read DOMAIN from the server's .env and vars.DEPLOY_DOMAIN is empty."
+            exit 1
+          fi
+          echo "DEPLOY_DOMAIN=$domain" >> "$GITHUB_ENV"
+          echo "Deployment domain: $domain"
+
       # tar rather than rsync (not installed everywhere) or `scp -r` (which cannot exclude). Extracting
       # overwrites only what the archive contains, so the three excluded paths keep whatever the server has.
       - name: Ship deploy/ to the server
@@ -321,7 +345,7 @@ jobs:
       - name: Wait for the front door
         run: |
           for attempt in $(seq 1 30); do
-            if body=$(curl -fsS --max-time 10 "https://${{ vars.DEPLOY_DOMAIN }}/health" 2>/dev/null); then
+            if body=$(curl -fsS --max-time 10 "https://$DEPLOY_DOMAIN/health" 2>/dev/null); then
               echo "$body"
               case "$body" in
                 *Degraded*) echo "::warning::/health reports Degraded — the deployment is serving, but read the API log." ;;
@@ -331,7 +355,7 @@ jobs:
             echo "attempt $attempt: not answering yet"
             sleep 10
           done
-          echo "::error::https://${{ vars.DEPLOY_DOMAIN }}/health did not answer 200 within 5 minutes."
+          echo "::error::https://$DEPLOY_DOMAIN/health did not answer 200 within 5 minutes."
           exit 1
 
       # Migrations apply themselves at startup (DeferredStartupService, behind a MigrationLock advisory lock), so
@@ -359,5 +383,5 @@ jobs:
             echo "|---|---|"
             echo "| Commit | \`$CLINIC_IMAGE_TAG\` |"
             echo "| Images | \`$CLINIC_IMAGE_PREFIX-{api,web,console}:$CLINIC_IMAGE_TAG\` |"
-            echo "| Domain | https://${{ vars.DEPLOY_DOMAIN }} |"
+            echo "| Domain | https://$DEPLOY_DOMAIN |"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -397,20 +397,32 @@ services:
       # non-secure scheme from its own hop and drop `Secure` from an internet-facing session cookie.
       AUTH_COOKIE_SECURE: "true"
     networks: [internal]
-    # A TCP probe rather than an HTTP one, on purpose. Every page this app serves is behind auth, so `/` is a
-    # redirect and there is no unauthenticated 200 to curl — and `node:22-alpine` has no curl anyway. What the
-    # deploy actually needs to know is « is Next accepting connections yet », which is precisely this. `node` is
-    # the one binary guaranteed to be here.
+    # ⚠️ **An HTTP probe, because a TCP one answers the wrong question — and shipping the wrong one cost a real
+    # first-open.** This was `net.connect(3000)`, on the reasoning that every page is behind auth so there is no
+    # unauthenticated 200 to fetch. The reasoning was wrong twice: `/login` is statically prerendered and
+    # answers 200 to nobody in particular, and Node accepts a socket long before Next can render anything. So
+    # `--wait` was satisfied by a server that could not yet serve, the workflow declared the deploy done, and
+    # the first person to open the app paid Next's whole warm-up — measured as a « Connexion au serveur… » that
+    # sat there long enough to look like an outage, on 2026-09-02, right after a deploy that had "succeeded".
+    #
+    # `/login` is the right target precisely because it is public: an authenticated route would need a session
+    # the probe has no way to hold, and would fail closed for the wrong reason forever.
+    #
+    # `fetch` rather than curl — `node:22-alpine` has no curl, and Node 18+ has fetch as a global, so the one
+    # binary guaranteed to be in this image is enough. `r.ok` and not merely « a response »: a 500 from a broken
+    # build is exactly the state that must not count as ready.
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 5s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      # Longer than the socket probe's 20 s: rendering a route the first time is slower than binding a port,
+      # and this is the wait that now actually covers that work instead of skipping it.
+      start_period: 40s
     stop_grace_period: 30s
     # No `ports:` — Caddy proxies everything except /api/* and /hub/* to this service.
 
@@ -434,18 +446,20 @@ services:
       CONSOLE_API_URL: http://api:5443/api
     networks:
       - internal
-    # Same TCP probe as `web`, and it earns its place for the same reason: the console is recreated by every
-    # deploy too, so without a readiness signal `--wait` would return before it could answer.
+    # Same HTTP probe as `web` and for the same reason — the console is recreated by every deploy too, and a
+    # socket that is open is not an application that can answer. Its root serves the sign-in surface, so `/` is
+    # this app's equivalent of `web`'s `/login`; `< 500` rather than `r.ok` because a redirect here is a
+    # correctly-working console, not a failure.
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
       interval: 5s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 40s
     stop_grace_period: 30s
     # No `ports:` — only Caddy's loopback-published 9443 reaches it.
 
