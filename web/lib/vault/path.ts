@@ -8,7 +8,7 @@
  */
 
 /** The extension of a stored file name, dot included and lower-cased; empty when it carries none. */
-export function extensionOf(fileName: string): string {
+export function dottedExtensionOf(fileName: string): string {
   const dot = fileName.lastIndexOf('.')
   if (dot <= 0 || dot === fileName.length - 1) return ''
   return fileName.slice(dot).toLowerCase()
@@ -38,7 +38,7 @@ export function vaultDisplayPath(
 
 /** The segments under the coffre root: the patient's folder, then the file. */
 export function vaultSegments(patientId: string, fileId: string, fileName: string): [string, string] {
-  return [patientId, `${fileId}${extensionOf(fileName)}`]
+  return [patientId, `${fileId}${dottedExtensionOf(fileName)}`]
 }
 
 /**
@@ -76,6 +76,71 @@ export async function findVerifiedInVault(
 ): Promise<File | null> {
   const file = await findInVault(vault, patientId, fileId, fileName)
   return file && file.size === expectedSize ? file : null
+}
+
+/** What a verification concluded. `missing` is the ordinary answer on a machine that is not the cabinet's. */
+export type VaultIntegrity =
+  | { kind: 'intact' }
+  | { kind: 'missing' }
+  | { kind: 'size-mismatch'; found: number; expected: number }
+  | { kind: 'hash-mismatch' }
+  | { kind: 'unknown-hash' }
+
+/**
+ * Re-reads the original and compares its SHA-256 against the one recorded when it was filed.
+ *
+ * ⚠️ **This is the only thing that ever reads `contentHash`, and until it existed the hash was decorative.** The
+ * registration computes it, sends it and the server stores it, but the open path compares **size alone** — so a
+ * study replaced by a different file of the same length reads as genuine. Size is still the right test for
+ * *opening* (it is free, and the answer is needed on every click); a hash is a minute on a 25 Go file, so it is
+ * asked for deliberately rather than run behind every preview.
+ *
+ * ⚠️ It is also the only integrity evidence that exists at all for a coffre file: the bytes never reached the
+ * deployment, so the server can corroborate nothing. Before an archive, a disk swap or a hardware move, this is
+ * the question worth asking.
+ */
+export async function verifyVaultIntegrity(
+  vault: FileSystemDirectoryHandle,
+  patientId: string,
+  fileId: string,
+  fileName: string,
+  expectedSize: number,
+  expectedHash: string | null | undefined,
+  onProgress?: (read: number) => void,
+): Promise<VaultIntegrity> {
+  const file = await findInVault(vault, patientId, fileId, fileName)
+  if (!file) return { kind: 'missing' }
+
+  if (file.size !== expectedSize) {
+    return { kind: 'size-mismatch', found: file.size, expected: expectedSize }
+  }
+
+  // A row filed before the hash existed, or one whose registration predates it. Saying « unknown » is honest;
+  // reporting « intact » on the strength of the size alone would be the very claim this function exists to stop.
+  if (!expectedHash) return { kind: 'unknown-hash' }
+
+  const { createSHA256 } = await import('hash-wasm')
+  const hasher = await createSHA256()
+  hasher.init()
+
+  let read = 0
+  const reader = file.stream().getReader()
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      hasher.update(value)
+      read += value.byteLength
+      onProgress?.(read)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  return hasher.digest('hex').toLowerCase() === expectedHash.toLowerCase()
+    ? { kind: 'intact' }
+    : { kind: 'hash-mismatch' }
 }
 
 /**

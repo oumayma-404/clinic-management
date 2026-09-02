@@ -38,6 +38,7 @@ import {
 } from "@/lib/api/patient-import"
 import { getErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
+import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 
 /**
  * « Importer des patients » (L5) — CSV → column mapping → **dry-run preview** → commit.
@@ -300,6 +301,11 @@ function ChooseStep({
   working: boolean
   onFileChosen: (file: File | null) => void
 }) {
+  // ⚠️ The served list, not `.csv`. The server's CSV door also takes `.txt` — a spreadsheet exported as
+  // tab-separated text is the ordinary shape of a practice-management export — and the hand-written attribute
+  // hid exactly those files in the picker while the server would have read them happily.
+  const policy = useUploadPolicy("csv")
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-dashed p-6 text-center">
@@ -316,9 +322,16 @@ function ChooseStep({
           ref={inputRef}
           id="patient-import-file"
           type="file"
-          accept=".csv,text/csv"
+          accept={policy?.accept ?? ".csv,text/csv"}
           className="sr-only"
-          onChange={(event) => onFileChosen(event.target.files?.[0] ?? null)}
+          onChange={(event) => {
+            const picked = event.target.files?.[0] ?? null
+            // ⚠️ Cleared BEFORE the handler runs, and the file captured first: without this a preview that fails
+            // cannot be retried with the same CSV — the element still holds it, so re-picking fires no `change`.
+            // The two sibling pickers in this app both get this right; this one did not.
+            event.target.value = ""
+            onFileChosen(picked)
+          }}
         />
         <Button
           type="button"

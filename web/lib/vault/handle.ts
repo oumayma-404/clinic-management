@@ -86,6 +86,11 @@ async function storeHandle(handle: FileSystemDirectoryHandle): Promise<void> {
   }
 }
 
+/** Whether a folder is remembered at all, regardless of whether its permission still stands. */
+export async function storedVaultExists(): Promise<boolean> {
+  return (await readStoredHandle()) !== null
+}
+
 /** Forgets the stored folder. The bytes on disk are untouched — this unpairs, it does not erase. */
 export async function forgetVault(): Promise<void> {
   try {
@@ -106,15 +111,29 @@ async function stillGranted(handle: FileSystemDirectoryHandle, prompt: boolean):
 }
 
 /**
- * The coffre this machine already has, or null. **Never prompts** — it is safe on every page load, which is why
+ * What this machine's coffre is right now.
+ *
+ * ⚠️ **`lapsed` and `none` are different questions, and collapsing them costs a folder re-pick every morning.**
+ * A browser drops a File System Access grant once the last tab for the origin closes, so a folder chosen
+ * yesterday is still *stored* and merely un-granted today. That is one click to restore (`reconnectVault`),
+ * while « no folder has ever been chosen » is the whole picker. Returning `null` for both sent the second
+ * journey to everyone.
+ */
+export type VaultLookup =
+  | { kind: 'ready'; handle: FileSystemDirectoryHandle }
+  | { kind: 'lapsed' }
+  | { kind: 'none' }
+
+/**
+ * The coffre this machine already has. **Never prompts** — it is safe on every page load, which is why
  * the file list can ask on mount without a permission dialog appearing over a patient record.
  */
-export async function currentVault(): Promise<FileSystemDirectoryHandle | null> {
-  if (typeof window === 'undefined') return null
+export async function currentVault(): Promise<VaultLookup> {
+  if (typeof window === 'undefined') return { kind: 'none' }
 
   listenForShellVault()
 
-  if (shellHandle) return shellHandle
+  if (shellHandle) return { kind: 'ready', handle: shellHandle }
 
   if (shellCanDeliverVault()) {
     // The shell posts the handle shortly after the document is created; a page that mounted first must not
@@ -126,13 +145,13 @@ export async function currentVault(): Promise<FileSystemDirectoryHandle | null> 
         resolve(handle)
       })
     })
-    if (delivered) return delivered
+    if (delivered) return { kind: 'ready', handle: delivered }
   }
 
   const stored = await readStoredHandle()
-  if (!stored) return null
+  if (!stored) return { kind: 'none' }
 
-  return (await stillGranted(stored, false)) ? stored : null
+  return (await stillGranted(stored, false)) ? { kind: 'ready', handle: stored } : { kind: 'lapsed' }
 }
 
 /**

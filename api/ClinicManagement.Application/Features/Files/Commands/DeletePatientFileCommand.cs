@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
-using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Files.Commands;
@@ -71,14 +70,16 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
             // Remove the DB record first and commit; the blob is deleted only AFTER the commit so a failed
             // save never strands the record on a missing blob. A blob-delete failure is logged (a leaked blob
             // is preferable to an orphaned record) — same ordering as DeletePatientFolderCommand (#18/AC-3).
-            // ⚠️ A coffre file has no blob here and its original is NOT erased: those bytes sit on the practice's
-            // own disk, under a ten-to-twenty-year retention duty, and the app does not destroy what it does not
-            // host. The row goes; an orphan on the cabinet's disk is recoverable, a deletion is not.
-            var storageKey = file.Residency == FileResidency.Hosted ? file.StorageKey : null;
+            // ⚠️ A coffre file has no *original* blob here and its original is NOT erased: those bytes sit on the
+            // practice's own disk, under a ten-to-twenty-year retention duty, and the app does not destroy what it
+            // does not host. The row goes; an orphan on the cabinet's disk is recoverable, a deletion is not.
+            // ⚠️ **A coffre file still owns one hosted blob — its preview.** That one IS ours and must go with the
+            // row, or every deleted study leaves an object nothing points at, for the life of the deployment.
+            var storageKeys = PatientFileBlobs.OwnedBy(file).ToList();
             await _fileRepository.DeleteAsync(file, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            if (storageKey != null)
+            foreach (var storageKey in storageKeys)
             {
                 try
                 {

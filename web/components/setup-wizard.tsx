@@ -23,6 +23,9 @@ import { useSession } from "@/lib/auth/session"
 import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 import { getErrorMessage } from "@/lib/errors"
+import { toast } from "sonner"
+import { refusalFor } from "@/lib/api/upload-policy"
+import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 
 const tunisianGovernorates = TUNISIAN_GOVERNORATES
 
@@ -84,6 +87,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
   // The server's own neutral sentence, shown verbatim once a signup is accepted. Non-null IS the success state.
   const [signupAcknowledgement, setSignupAcknowledgement] = useState<string | null>(null)
   const router = useRouter()
+  const policy = useUploadPolicy("profile-image")
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -169,14 +173,26 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setLogoFile(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setLogoPreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
+    // Cleared first, or a logo refused below cannot be re-picked: the element still holds it and choosing the
+    // same file fires no `change` event.
+    e.target.value = ""
+    if (!file) return
+
+    // ⚠️ The served policy, not `image/*`. The server's door takes PNG and JPEG only and caps them well below the
+    // patient drawer's ceiling, so a WebP or an oversized logo was accepted here and refused there — after the
+    // whole file had been sent.
+    const refusal = policy ? refusalFor(policy, file) : null
+    if (refusal) {
+      toast.error(refusal)
+      return
     }
+
+    setLogoFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setLogoPreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
   }
 
   const addDoctor = () => {
@@ -665,7 +681,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                       <label className="w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed border-primary/40 rounded-lg cursor-pointer hover:border-primary hover:bg-accent/20 transition-colors">
                         <Upload className="w-6 h-6 text-primary mb-1" />
                         <span className="text-xs text-muted-foreground">Téléverser</span>
-                        <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                        <input type="file" accept={policy?.accept} onChange={handleLogoUpload} className="hidden" />
                       </label>
                     )}
                   </div>

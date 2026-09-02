@@ -30,13 +30,14 @@ public interface IPatientFileRepository
     /// a new file lands after the last page and is simply picked up next time.</para>
     /// </summary>
     /// <summary>
-    /// How many of the cabinet's files live in its coffre rather than on the server (<c>clinic-file-vault</c>).
+    /// What the cabinet's coffre is <b>supposed</b> to hold — how many originals and how many bytes.
     ///
-    /// <para>⚠️ It exists so the staleness alert can ask « is there anything to lose? » first. A cabinet with an
-    /// empty coffre must never be nagged about not copying it — a warning about an empty folder is the fastest way
-    /// to teach an owner to dismiss this one, and then the real warning goes with it.</para>
+    /// <para>⚠️ It is what turns the shell's copy report from an assertion into a comparison. The report carries a
+    /// file count and a byte total the server has no way to corroborate otherwise, so a copy that silently covered
+    /// three of four hundred studies cleared the staleness alert exactly as a complete one did — and the alert is
+    /// the only thing standing between a practice and a coffre that exists in one place.</para>
     /// </summary>
-    Task<int> CountVaultFilesAsync(Guid clinicId, CancellationToken cancellationToken = default);
+    Task<VaultContentTotals> GetVaultTotalsAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     Task<PagedResult<ClinicFileManifestRow>> GetClinicManifestPageAsync(
         Guid clinicId,

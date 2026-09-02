@@ -16,6 +16,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  ShieldCheck,
   Trash2,
   Upload,
 } from "lucide-react"
@@ -58,7 +59,7 @@ import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import { useVault } from "@/lib/hooks/use-vault"
-import { findVerifiedInVault, vaultDisplayPath } from "@/lib/vault/path"
+import { findVerifiedInVault, vaultDisplayPath, verifyVaultIntegrity } from "@/lib/vault/path"
 import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
@@ -108,6 +109,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
 
   const [fileToEdit, setFileToEdit] = useState<PatientFileDto | null>(null)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
+  const [verifyingFileId, setVerifyingFileId] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<
     { kind: "file"; file: PatientFileDto } | { kind: "folder"; folder: PatientFolderDto } | null
   >(null)
@@ -210,7 +212,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     }
   }, [patientId, loading, loadFailed, folders.length, loadData])
 
-  const { vault, status: vaultStatus, pair: pairVault } = useVault()
+  const { vault, status: vaultStatus, pair: pairVault, reconnect: reconnectVault } = useVault()
 
   const uploads = useUploadQueue({
     patientId,
@@ -336,6 +338,83 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     },
   })
 
+  /**
+   * ⚠️ **The only reader of `contentHash` in the product.** The registration computes it, sends it and the server
+   * stores it — and until this existed nothing ever compared it, so the open path's size check was the whole of
+   * a coffre file's integrity story and a replacement of the same length read as genuine.
+   */
+  const handleVerifyFile = async (file: PatientFileDto) => {
+    if (!vault) return
+
+    // ⚠️ **The menu is allowed to close, and the progress lives in a toast.** Holding it open with
+    // `event.preventDefault()` to show « Vérification… » in place looked tidier and trapped the whole page:
+    // Radix keeps `pointer-events: none` on the document while a menu is open, so for the minute a 25 Go study
+    // takes to hash, nothing else on the screen could be clicked — and the menu was still sitting there over the
+    // result afterwards. A `toast.loading` sharing one id with its outcome says the same thing and blocks nothing.
+    const toastId = `vault-integrity-${file.id}`
+    setVerifyingFileId(file.id)
+    toast.loading(`Vérification de ${quoteFr(file.fileName)}…`, {
+      id: toastId,
+      description: "L'empreinte est recalculée depuis le coffre. Cela peut prendre un moment sur un gros fichier.",
+    })
+
+    try {
+      const verdict = await verifyVaultIntegrity(
+        vault,
+        patientId,
+        file.id,
+        file.fileName,
+        file.fileSize,
+        file.contentHash,
+      )
+      const where = vaultDisplayPath(vault.name, patientId, file.id, file.fileName)
+
+      switch (verdict.kind) {
+        case "intact":
+          toast.success("Original intact", {
+            id: toastId,
+            description: "L'empreinte du fichier correspond à celle enregistrée lors de son dépôt.",
+          })
+          break
+        case "missing":
+          // Not a failure: the study is on the machine that recorded it (§ AC-9's own rule).
+          toast.info("Original conservé au cabinet", {
+            id: toastId,
+            description: `Ce fichier n'est pas dans le coffre de ce poste. Il se trouve dans ${where}.`,
+            action: copyPathAction(where),
+          })
+          break
+        case "size-mismatch":
+          toast.error("L'original ne correspond pas", {
+            id: toastId,
+            description: `Le fichier du coffre fait ${formatFileSize(verdict.found)} au lieu de ${formatFileSize(verdict.expected)}. Rien n'a été modifié ; vérifiez ${where}.`,
+            action: copyPathAction(where),
+          })
+          break
+        case "hash-mismatch":
+          toast.error("L'original a changé depuis son dépôt", {
+            id: toastId,
+            description: `La taille est la bonne mais l'empreinte ne l'est pas : le fichier a été remplacé ou abîmé. Rien n'a été modifié ; vérifiez ${where}.`,
+            action: copyPathAction(where),
+          })
+          break
+        case "unknown-hash":
+          toast.info("Aucune empreinte enregistrée", {
+            id: toastId,
+            description: "Ce fichier a été déposé avant l'enregistrement des empreintes ; son intégrité ne peut pas être vérifiée.",
+          })
+          break
+      }
+    } catch (error) {
+      // Dismiss the loading toast first: `showErrorToast` mints its own, and leaving this one spinning beside it
+      // says the verification is still running when it has already failed.
+      toast.dismiss(toastId)
+      showErrorToast(error, `L'intégrité de ${quoteFr(file.fileName)} n'a pas pu être vérifiée.`)
+    } finally {
+      setVerifyingFileId(null)
+    }
+  }
+
   const handleDownloadFile = async (file: PatientFileDto) => {
     try {
       // AC-9 — a coffre original is opened from the disk it never left. No request, no transfer: at Tunisia's
@@ -403,6 +482,19 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           <FolderInput className="mr-2 h-4 w-4" />
           Renommer, décrire, déplacer
         </DropdownMenuItem>
+        {/* Only where the bytes could be here, and only for a coffre file: the server holds no copy of one, so its
+            recorded empreinte is the only integrity evidence that exists. Deliberately an action rather than a
+            check on open — a 25 Go study takes about a minute to re-read. */}
+        {file.residency === "Vault" && vault && (
+          <DropdownMenuItem
+            className="coarse:py-3"
+            disabled={verifyingFileId === file.id}
+            onSelect={() => void handleVerifyFile(file)}
+          >
+            <ShieldCheck className="mr-2 h-4 w-4" />
+            Vérifier l'intégrité
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           className="coarse:py-3 text-destructive focus:text-destructive"
           onSelect={() => setPendingDelete({ kind: "file", file })}
@@ -501,10 +593,24 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           role="status"
         >
           <p className="text-xs text-muted-foreground">
-            {vaultStatus === "unpaired"
-              ? "Les fichiers volumineux (scanners 3D, empreintes) sont conservés au cabinet. Indiquez le dossier du coffre pour pouvoir en ajouter depuis ce poste."
-              : "Les fichiers volumineux sont conservés au cabinet. Ce navigateur ne peut pas y accéder ; ouvrez APEXA sur le poste du cabinet pour en ajouter. Les autres fichiers s'envoient normalement."}
+            {vaultStatus === "lapsed"
+              ? "Le coffre du cabinet est enregistré sur ce poste, mais ce navigateur en a oublié l'autorisation. Reconnectez-le pour ajouter des fichiers volumineux."
+              : vaultStatus === "unpaired"
+                ? "Les fichiers volumineux (scanners 3D, empreintes) sont conservés au cabinet. Indiquez le dossier du coffre pour pouvoir en ajouter depuis ce poste."
+                : "Les fichiers volumineux sont conservés au cabinet. Ce navigateur ne peut pas y accéder ; ouvrez APEXA sur le poste du cabinet pour en ajouter. Les autres fichiers s'envoient normalement."}
           </p>
+          {/* ⚠️ « lapsed » is one click and « unpaired » is the whole picker. They were one branch, and the
+              browser drops the grant when its last tab closes — so every morning re-asked for the folder. */}
+          {vaultStatus === "lapsed" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full shrink-0 coarse:h-11 sm:w-auto"
+              onClick={() => void reconnectVault()}
+            >
+              Reconnecter le coffre
+            </Button>
+          )}
           {vaultStatus === "unpaired" && (
             <Button
               variant="outline"

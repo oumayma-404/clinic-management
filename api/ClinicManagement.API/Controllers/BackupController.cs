@@ -371,7 +371,12 @@ public class BackupController : ApiControllerBase
 
         var result = await _mediator.Send(command, cancellationToken);
 
-        return result.IsSuccess ? NoContent() : HandleFailure(result);
+        // ⚠️ `covered` is the point of the body, and it is why this is not a 204. The report is a claim the server
+        // cannot corroborate — a coffre original never reached it — so the handler compares it with what the
+        // records say the coffre holds, and a copy that fell short does NOT advance the stamp and does NOT clear
+        // the staleness alert. The shell has to be able to say so; a bare 204 read as « done » beside a nag that
+        // will not clear is the confusing pair its own outcome message already exists to avoid.
+        return result.IsSuccess ? Ok(new { covered = result.Value }) : HandleFailure(result);
     }
 
     [HttpGet("archive")]

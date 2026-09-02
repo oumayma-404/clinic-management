@@ -48,8 +48,17 @@ export interface UploadPolicy {
 /** Which door a file goes through. Decided by the server's policy, never guessed from the extension. */
 export type FileDestination = 'hosted' | 'vault';
 
+/**
+ * The doors the server publishes a policy for. Named rather than free-form so a typo is a `tsc` error and not a
+ * refusal at runtime — the server answers « Ce type d'envoi n'existe pas » for an unknown one.
+ */
+export type UploadProfile = 'patient-file' | 'profile-image' | 'medical-document-pdf' | 'csv';
+
 export const uploadPolicyApi = {
-  get: async (): Promise<UploadPolicy> => apiGet<UploadPolicy>('/meta/upload-policy'),
+  get: async (profile: UploadProfile = 'patient-file'): Promise<UploadPolicy> =>
+    apiGet<UploadPolicy>(
+      profile === 'patient-file' ? '/meta/upload-policy' : `/meta/upload-policy?profile=${profile}`,
+    ),
 };
 
 /** Lower-case, dot-less — the catalog's own key. Mirrors `FileNameSanitizer.ExtensionOf`. */
@@ -108,4 +117,25 @@ export function refusalFor(
 
   // An always-hosted format's hostedMaxBytes IS its maxBytes, so this one comparison covers both shapes.
   return file.size > format.hostedMaxBytes ? format.tooLargeMessage : null;
+}
+
+/**
+ * « PNG ou JPEG, 5 Mo maximum. » — the helper line under a picker, derived from the door it stands in front of.
+ *
+ * ⚠️ It exists because that sentence was **written by hand** on the cachet field and said « 2 Mo » while the
+ * server accepted twenty-five: a helper line is a promise about what will be refused, and a hand-written one is
+ * the first thing to drift when a cap moves. Returns null with no policy in hand, so the field simply says
+ * nothing rather than quoting a number nobody checked.
+ */
+export function acceptHint(policy: UploadPolicy | null): string | null {
+  if (!policy || policy.formats.length === 0) return null;
+
+  const labels = Array.from(new Set(policy.formats.map((format) => format.label)));
+  const megabytes = Math.floor(policy.maxBytes / (1024 * 1024));
+
+  // Two formats read as « PNG ou JPEG »; more than three would be a paragraph, so the accept attribute carries
+  // the full list and the line states the cap alone.
+  const kinds = labels.length <= 3 ? labels.join(' ou ') : null;
+
+  return kinds ? `${kinds}, ${megabytes} Mo maximum.` : `${megabytes} Mo maximum par fichier.`;
 }

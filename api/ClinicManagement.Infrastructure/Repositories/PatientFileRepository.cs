@@ -16,15 +16,20 @@ public class PatientFileRepository : IPatientFileRepository
         _context = context;
     }
 
-    public async Task<int> CountVaultFilesAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    public async Task<VaultContentTotals> GetVaultTotalsAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
-        // IgnoreQueryFilters because the only caller is the daily pass, which runs UseSystemWide with no clinic in
-        // scope; the clinicId parameter is the authoritative check, as it is in the staleness reads beside it.
-        return await _context.PatientFiles
+        // One aggregate, both figures. `IgnoreQueryFilters` because one caller is the daily pass, which runs
+        // UseSystemWide with no clinic in scope; the clinicId parameter is the authoritative check, as it is in the
+        // staleness reads beside it.
+        var totals = await _context.PatientFiles
             .IgnoreQueryFilters()
-            .CountAsync(
-                f => f.ClinicId == clinicId && f.Residency == FileResidency.Vault,
-                cancellationToken);
+            .Where(f => f.ClinicId == clinicId && f.Residency == FileResidency.Vault)
+            .GroupBy(_ => 1)
+            .Select(g => new { Count = g.Count(), Bytes = g.Sum(f => f.FileSize) })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // No rows at all means no group, not a zeroed one — an empty coffre is a legitimate answer, not a failure.
+        return totals is null ? VaultContentTotals.Empty : new VaultContentTotals(totals.Count, totals.Bytes);
     }
 
     public async Task<PatientFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

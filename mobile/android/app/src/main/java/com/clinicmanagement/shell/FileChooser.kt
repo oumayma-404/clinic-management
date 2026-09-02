@@ -145,10 +145,12 @@ class FileChooser(private val activity: ComponentActivity) {
      * unresolvable widens to [ANY_TYPE] — showing every file is a worse filter but a working one.
      */
     private fun resolveMimeTypes(acceptTypes: Array<String>?): Array<String> {
-        val resolved = acceptTypes.orEmpty()
+        val entries = acceptTypes.orEmpty()
             .flatMap { it.split(',') }
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+
+        val resolved = entries
             .mapNotNull { entry ->
                 when {
                     entry.startsWith(".") ->
@@ -159,7 +161,22 @@ class FileChooser(private val activity: ComponentActivity) {
             }
             .distinct()
 
-        return if (resolved.isEmpty()) arrayOf(ANY_TYPE) else resolved.toTypedArray()
+        // ⚠️ **Widen when ANY entry failed to resolve, not only when they all did.** The patient-file `accept` is
+        // the server's own extension list and mixes both kinds: `MimeTypeMap` knows `.pdf` and `.png` and returns
+        // null for `.dcm`, `.stl`, `.ply`, `.obj` and `.3mf`. `mapNotNull` dropped those silently, the list was
+        // non-empty because the ordinary formats survived, so `EXTRA_MIME_TYPES` filtered the picker down to the
+        // formats Android happens to have heard of — and a DICOM study or a 3D impression could not be selected at
+        // all on this shell, which is exactly the defect the served `accept` list exists to prevent.
+        //
+        // Widening rather than mapping the missing types here is deliberate: a local extension→MIME table would be
+        // a second copy of the catalogue, on a device, drifting the first time a format is added server-side.
+        // Showing every file is a worse filter but a working one, and the server re-checks whatever is picked.
+        val anyUnresolved = entries.any { entry ->
+            entry.startsWith(".") &&
+                MimeTypeMap.getSingleton().getMimeTypeFromExtension(entry.removePrefix(".").lowercase()) == null
+        }
+
+        return if (resolved.isEmpty() || anyUnresolved) arrayOf(ANY_TYPE) else resolved.toTypedArray()
     }
 
     private companion object {

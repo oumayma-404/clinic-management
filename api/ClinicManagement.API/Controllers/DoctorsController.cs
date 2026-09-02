@@ -5,6 +5,7 @@ using ClinicManagement.Application.Features.Doctors.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using ClinicManagement.Application.Common.Files;
 using Microsoft.AspNetCore.Mvc;
 using ClinicManagement.Application.Common.Authorization;
 
@@ -33,6 +34,14 @@ public class DoctorsController : ApiControllerBase
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result, StatusCodes.Status404NotFound);
     }
 
+    // The catalog's ceiling for THIS door, per action. Without it ASP.NET's default 30 MB body limit is the real
+    // one, so a file between this door's cap and that default dies on a framework 413 the app never sees and
+    // cannot explain in French — `PatientFilesController.UploadFile`'s documented reason, one door over.
+    // ⚠️ The catalog CONST, not `FileUploadProfile.ProfileImage.MaxBytes`: an attribute argument has to be a
+    // compile-time constant, which is the same reason `MaxBytesAcrossCatalog` exists. `FileTypeCatalogTests`
+    // pins the two together so this cannot fall behind the door it is supposed to size.
+    [RequestSizeLimit(FileTypeCatalog.ProfileImageBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.ProfileImageBytes)]
     [HttpPut("me")]
     public async Task<IActionResult> UpdateMyProfile([FromForm] UpdateDoctorProfileRequest request, CancellationToken cancellationToken)
     {
@@ -42,6 +51,14 @@ public class DoctorsController : ApiControllerBase
 
     // `/me` above is « Mon profil » and open to every role; `/{id}` edits *another* practitioner's document
     // identity — the CNOMDT order number and the cachet that signs ordonnances and certificats.
+    // The catalog's ceiling for THIS door, per action. Without it ASP.NET's default 30 MB body limit is the real
+    // one, so a file between this door's cap and that default dies on a framework 413 the app never sees and
+    // cannot explain in French — `PatientFilesController.UploadFile`'s documented reason, one door over.
+    // ⚠️ The catalog CONST, not `FileUploadProfile.ProfileImage.MaxBytes`: an attribute argument has to be a
+    // compile-time constant, which is the same reason `MaxBytesAcrossCatalog` exists. `FileTypeCatalogTests`
+    // pins the two together so this cannot fall behind the door it is supposed to size.
+    [RequestSizeLimit(FileTypeCatalog.ProfileImageBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.ProfileImageBytes)]
     [HttpPut("{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> UpdateProfile(Guid id, [FromForm] UpdateDoctorProfileRequest request, CancellationToken cancellationToken)

@@ -72,7 +72,14 @@ public class GetClinicLogoQueryHandler : IRequestHandler<GetClinicLogoQuery, Res
             var dto = new ClinicLogoDto
             {
                 FileStream = fileStream,
-                ContentType = "image/png" // Default, could be improved by storing content type
+                // ⚠️ The STORED type. This was hardcoded `image/png`, and the door accepts JPEG too — with
+                // `X-Content-Type-Options: nosniff` on every response, a JPEG announced as PNG is refused by the
+                // browser rather than sniffed, so such a logo rendered nowhere in the product. A row written
+                // before the column existed has no type and falls back to PNG, which is what it was being served
+                // as anyway.
+                ContentType = string.IsNullOrWhiteSpace(clinic.LogoContentType)
+                    ? "image/png"
+                    : clinic.LogoContentType
             };
 
             return Result<ClinicLogoDto>.Success(dto);

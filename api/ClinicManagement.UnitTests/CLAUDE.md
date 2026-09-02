@@ -251,6 +251,24 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   chart does not flag, or the chart flags one the server will not seed. ⚠️ Its `Section` helper takes the closing
   token as a parameter: cutting the `CONDITION_ORDER` array at the next `}` ran on into `CONDITION_FAMILY`, whose
   values then read as condition names.
+- **`Common/Files/*` + `Common/PatientFileResidencyCoverageTests.cs` + `Features/Files/RegisterVaultFileCommandTests.cs`
+  + `Features/Meta/GetUploadPolicyQueryTests.cs`** (`clinic-file-vault-repair`) — the upload surface, which had
+  **zero** coverage between `FileUploadValidator`, `FileTypeCatalog`, `GetUploadPolicyQuery`,
+  `RegisterVaultFileCommand`, `ResidencyRule`, `FileResidencyPolicy` and `VaultPath`. ⚠️ **`FileTypeCatalogTests`
+  is named by `FileTypeCatalog.cs:28` as its own guard and did not exist** — so `MaxBytesAcrossCatalog`, the
+  number `[RequestSizeLimit]` on the patient-file door is sized from, was pinned by nothing; an entry widened past
+  it would 413 in Kestrel before model binding, which is the exact failure that attribute exists to prevent.
+  `RegisterVaultFileCommandTests` is the highest-value class of the four, for a reason peculiar to that door: it is
+  the **one upload path where the server never sees the bytes**, so a name, a length and a hash are all it gets and
+  the checks in that handler are the only thing between the record and a row describing a file nobody can produce.
+  Its load-bearing case asserts on the **storage mock** (`UploadAsync … Times.Never`) rather than on the DTO — a
+  handler that stored the original would still return a perfectly valid response.
+  ⚠️ `FileUploadValidatorTests`' stream cases matter as much as its refusals: a body handed back positioned past
+  the header stores a file missing its first four kilobytes, successfully, with no error anywhere.
+  `PatientFileResidencyCoverageTests` is the derived guard (« a file naming a patient file's storage key must
+  decide `Residency` first »), and **its own non-vacuity test caught it scanning nothing**: `SolutionSources.Root()`
+  returns the directory holding the `.sln`, which *is* `api/`, so a `Path.Combine(root, "api", …)` found no files
+  and passed. Worth repeating for any derived guard here.
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.

@@ -10,7 +10,10 @@ namespace ClinicManagement.Application.DTOs;
 /// </summary>
 public class UploadPolicyDto
 {
-    /// <summary>The door this describes — <c>patient-file</c> today, and the only one served.</summary>
+    /// <summary>
+    /// The door this describes: <c>patient-file</c>, <c>profile-image</c>, <c>medical-document-pdf</c> or
+    /// <c>csv</c>. It is echoed back so a client that asked for one cannot render another's ceiling.
+    /// </summary>
     public string Profile { get; set; } = string.Empty;
 
     /// <summary>The largest file any format of this door accepts.</summary>

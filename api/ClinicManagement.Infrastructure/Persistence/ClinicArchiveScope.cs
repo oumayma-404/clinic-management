@@ -146,13 +146,19 @@ public static class ClinicArchiveScope
     /// <see cref="Doctor.CachetStorageKey"/>'s. <see cref="MedicalDocument"/> is deliberately absent: its rendered
     /// PDF is stored <i>as a <see cref="PatientFile"/></i> (<c>MedicalDocument.FileId</c>), so its bytes already
     /// travel with that row rather than needing a second mechanism.</para>
+    ///
+    /// <para>⚠️ <b>An entity may own more than one, which is why this maps to a list.</b> It held a single
+    /// property per table, so when <see cref="PatientFile.PreviewStorageKey"/> arrived with the coffre there was
+    /// nowhere to declare it: the stand-in image is the one part of a coffre file the deployment stores, and it was
+    /// silently outside every archive and every restore. A one-to-one shape cannot express that, and the entity
+    /// that has two is exactly the one the coffre made important.</para>
     /// </summary>
-    public static readonly IReadOnlyDictionary<string, string> BlobProperties =
-        new Dictionary<string, string>(StringComparer.Ordinal)
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> BlobProperties =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
-            [nameof(PatientFile)] = nameof(PatientFile.StorageKey),
-            [nameof(Doctor)] = nameof(Doctor.CachetStorageKey),
-            [nameof(Clinic)] = nameof(Clinic.LogoUrl),
+            [nameof(PatientFile)] = new[] { nameof(PatientFile.StorageKey), nameof(PatientFile.PreviewStorageKey) },
+            [nameof(Doctor)] = new[] { nameof(Doctor.CachetStorageKey) },
+            [nameof(Clinic)] = new[] { nameof(Clinic.LogoUrl) },
         };
 
     /// <summary>

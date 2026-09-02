@@ -32,6 +32,7 @@ public class ReportVaultCopyCommand : IRequest<Result<bool>>
 public class ReportVaultCopyCommandHandler : IRequestHandler<ReportVaultCopyCommand, Result<bool>>
 {
     private readonly IClinicRepository _clinicRepository;
+    private readonly IPatientFileRepository _fileRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly INotificationGenerator _notifications;
@@ -39,12 +40,14 @@ public class ReportVaultCopyCommandHandler : IRequestHandler<ReportVaultCopyComm
 
     public ReportVaultCopyCommandHandler(
         IClinicRepository clinicRepository,
+        IPatientFileRepository fileRepository,
         IUnitOfWork unitOfWork,
         ICurrentClinicResolver clinicResolver,
         INotificationGenerator notifications,
         ILogger<ReportVaultCopyCommandHandler> logger)
     {
         _clinicRepository = clinicRepository;
+        _fileRepository = fileRepository;
         _unitOfWork = unitOfWork;
         _clinicResolver = clinicResolver;
         _notifications = notifications;
@@ -65,6 +68,27 @@ public class ReportVaultCopyCommandHandler : IRequestHandler<ReportVaultCopyComm
             if (clinic == null)
             {
                 return Result<bool>.Failure("Cabinet introuvable.");
+            }
+
+            // ⚠️ **The report is compared with the record, not merely believed.** This is the only fact about the
+            // practice's second copy the server will ever have — the originals never reached it — and a stamp
+            // written on the shell's word alone cleared the staleness alert whether the copy covered four hundred
+            // studies or three. « At least », not « exactly »: the coffre is the practice's own folder and may
+            // legitimately hold more than the app filed there (see VaultContentTotals).
+            var expected = await _fileRepository.GetVaultTotalsAsync(clinic.Id, cancellationToken);
+            var covered = expected.IsCoveredBy(request.FileCount, request.TotalBytes);
+
+            if (!covered)
+            {
+                _logger.LogWarning(
+                    "Clinic {ClinicId} reported a vault copy of {FileCount} file(s) / {TotalBytes} bytes, "
+                    + "short of the {ExpectedFileCount} file(s) / {ExpectedBytes} bytes on record. "
+                    + "The copy stamp is NOT advanced and the staleness alert stands.",
+                    clinic.Id, request.FileCount, request.TotalBytes, expected.FileCount, expected.TotalBytes);
+
+                // Not a failure: the shell did copy something and has nothing to retry differently. It is told what
+                // is missing so it can say so, and the alert deliberately stays up.
+                return Result<bool>.Success(false);
             }
 
             // The shell's own clock is not trusted for this: a machine with a wrong date could park the stamp in

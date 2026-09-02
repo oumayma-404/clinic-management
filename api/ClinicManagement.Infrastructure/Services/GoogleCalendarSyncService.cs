@@ -32,6 +32,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     private readonly IUnitOfWork _unitOfWork;
 
     private readonly IGoogleTokenProtector _googleTokenProtector;
+    private readonly IRealtimeNotifier _realtimeNotifier;
     private readonly ILogger<GoogleCalendarSyncService> _logger;
 
     public GoogleCalendarSyncService(
@@ -41,6 +42,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         IClinicRepository clinicRepository,
         IUnitOfWork unitOfWork,
         IGoogleTokenProtector googleTokenProtector,
+        IRealtimeNotifier realtimeNotifier,
         ILogger<GoogleCalendarSyncService> logger)
     {
         _googleTokenProtector = googleTokenProtector;
@@ -49,6 +51,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         _patientRepository = patientRepository;
         _clinicRepository = clinicRepository;
         _unitOfWork = unitOfWork;
+        _realtimeNotifier = realtimeNotifier;
         _logger = logger;
     }
 
@@ -226,6 +229,23 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation("Successfully created Google Calendar event {EventId} for appointment {AppointmentId}", eventId, appointmentId);
+
+                /*
+                 * ⚠️ The broadcast belongs HERE, and its absence was a real defect. This save is the only thing in
+                 * the product that flips `AppointmentDto.IsSyncedToGoogle`, and it happens in a fire-and-forget
+                 * scope AFTER the command that created the appointment has already answered — so
+                 * `RealtimeBroadcastBehavior`, which is a MediatR *pipeline* behaviour over commands, never sees
+                 * it. A raw repository save inside a service bypasses the pipeline entirely.
+                 *
+                 * The visible cost: the agenda kept the « non synchronisé » badge on a séance that WAS in the
+                 * practice's Google agenda, until somebody reloaded the page. The badge was telling the truth
+                 * about the response it was rendered from and a lie about the world, which is the worst of both —
+                 * and the manual « Envoyer vers Google Agenda » beside it re-pushed a séance already pushed.
+                 *
+                 * Only the CREATE branch broadcasts: the update branch below re-writes the Google event's fields
+                 * and leaves `GoogleCalendarEventId` exactly as it was, so nothing a client renders has changed.
+                 */
+                await NotifyAppointmentsChangedAsync(appointment.ClinicId, cancellationToken);
             }
             else
             {
@@ -252,6 +272,26 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         {
             _logger.LogError(ex, "Error syncing appointment {AppointmentId} to Google Calendar", appointmentId);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Tell the clinic's connected clients that an appointment changed, so the agenda refetches and drops the
+    /// « non synchronisé » badge on its own.
+    ///
+    /// <para>Swallows everything. Realtime is additive — <see cref="IRealtimeNotifier"/> says so in its own
+    /// contract — and this runs *after* the link is committed, so a failed broadcast must never turn a completed
+    /// sync into a logged error. The worst case without it is the stale badge that existed before.</para>
+    /// </summary>
+    private async Task NotifyAppointmentsChangedAsync(Guid clinicId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _realtimeNotifier.NotifyEntityChangedAsync(clinicId, "appointments", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Google sync could not broadcast the appointment change for clinic {ClinicId}", clinicId);
         }
     }
 
