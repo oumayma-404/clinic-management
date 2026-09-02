@@ -780,3 +780,49 @@ is explicitly labelled as a different period).
 Two nits: *"WhatsApp n'est pas connecté"* is a badge, not a link — it should be the way to fix it; and the
 reminders feature is the highest-ROI item in the research, so its configuration deserves a place in `/setup`
 rather than only here.
+
+---
+
+# Coverage — read this before trusting the completeness of the above
+
+## Walked and challenged (screenshots + DOM/source/DB assertions)
+
+`/appointments` · `/patients` · `/patients/[id]` · the fiche modal · the edit-fiche modal ·
+`Ajouter un patient` · `/` (dashboard) · `/a-cloturer` · `/caisse` · `/factures` + invoice menus and detail ·
+`/treatment-plans/[id]` · `/waiting-list` · `/documents` + the patient Documents panel · `/lab-orders` ·
+`/rappels` · `/setup` · `/creances` + `/recurring-series` (tombstones) · empty states · 390 / 820 / 1180 / 1440 px
+
+## Measured only — NOT looked at
+
+**13 routes** carry metrics in the seventh-pass table (title, screens, primary action, table-fits) and nothing
+more. Nobody opened them:
+
+`/procedure-types` · `/dental-acts` · `/medications` · `/stock` · `/fournisseurs` · `/cheques` · `/fichiers` ·
+`/treatment-plans` (list) · `/journal` · `/users` · `/securite` · `/abonnement` · `/settings`
+
+⚠️ **This is the exact shortcut that hid the biggest finding in this audit.** `/a-cloturer` was first reported
+from metrics as *"5.3 screens, 87 buttons"* — and only a later pass that actually looked at it found that the
+page cannot clear its own backlog, which turned out to be the root cause of the interrupt fixed in `78203d6f`.
+Treat the 13 routes above as unexamined. The likeliest yield is `/dental-acts` (6.4 screens — the longest page
+in the product), `/settings` (4.5), `/cheques` (5.1) and `/journal` (4.5).
+
+## Never tested at all
+
+- **Changing a tarif.** Every dentist's prices differ from the seeded ones, so "set my own prices" is a day-one
+  task on the conversion path — and no one has checked that editing a price works, how many clicks it takes, or
+  whether a changed tarif reaches an already-booked appointment (the repo's own `agreed-cost-reaches-the-fiche`
+  note says pricing flows are where this app has been bitten before).
+- **A true empty-clinic sign-in.** Day one was inferred from seeded catalogues plus empty states on a
+  populated clinic, never walked as a new user with 0 patients.
+- **Saving a fiche end to end** (the fiche modal was filled and measured, never submitted).
+- **Recording a payment end to end** (`Enregistrer un paiement` was found in the menu, never clicked).
+- **Keyboard-only operation**, and screen-reader output.
+- **`/join`, `/signup`, `/mot-de-passe-oublie`, `/reinitialiser-mot-de-passe`, `/change-password`** — the whole
+  self-signup and password-recovery path.
+
+## Small item not previously filed
+
+**The notification bell reads `99+`.** A count that can only mean "too many to matter" trains the user to
+ignore the bell permanently — and the bell is where this product puts things it has decided not to interrupt
+for (including, deliberately, the post-visit reminders). Either scope it to something actionable (today,
+unread-and-relevant) or drop the number and show a dot.
