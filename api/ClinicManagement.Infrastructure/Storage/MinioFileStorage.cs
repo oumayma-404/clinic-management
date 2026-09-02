@@ -1,3 +1,4 @@
+using System.IO.Pipelines;
 using ClinicManagement.Application.Common.Interfaces;
 using Microsoft.Extensions.Logging;
 using Minio;
@@ -101,30 +102,85 @@ public class MinioFileStorage : IFileStorage
         }
     }
 
+    /// <summary>
+    /// The object's bytes, streamed rather than buffered.
+    ///
+    /// <para>⚠️ <b>This used to copy the whole object into a <c>MemoryStream</c> before returning</b>, so every
+    /// concurrent download held the entire file in the server's memory: three people opening a 50 Mo panoramique
+    /// was 150 Mo of a small VPS, and it gets arithmetically worse with every cap this product raises.</para>
+    ///
+    /// <para>⚠️ <b>The stat call is not redundant.</b> MinIO's <c>GetObjectAsync</c> is push-based, so the read
+    /// runs on a background task writing into a pipe — which means a missing object or a refused credential would
+    /// otherwise surface on the caller's <i>first read</i>, long after the handler's try/catch has returned success
+    /// and the response headers have gone out. One HEAD restores the old error timing.</para>
+    /// </summary>
     public async Task<Stream> DownloadAsync(string storageKey, CancellationToken cancellationToken = default)
     {
         try
         {
-            var memoryStream = new MemoryStream();
-
-            // Use the async callback overload (Func<Stream, CancellationToken, Task>) so MinIO awaits the
-            // copy before it closes the underlying HTTP response stream. The synchronous Action<Stream>
-            // overload turns an `async` lambda into async-void: the copy continues after MinIO has already
-            // disposed the stream, throwing on a background thread (NRE) and taking down the whole host.
-            await _minioClient.GetObjectAsync(
-                new GetObjectArgs()
-                    .WithBucket(_bucketName)
-                    .WithObject(storageKey)
-                    .WithCallbackStream(async (stream, ct) => { await stream.CopyToAsync(memoryStream, ct); }),
+            await _minioClient.StatObjectAsync(
+                new StatObjectArgs().WithBucket(_bucketName).WithObject(storageKey),
                 cancellationToken);
-
-            memoryStream.Position = 0;
-            return memoryStream;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error downloading file from MinIO. Storage key: {StorageKey}", storageKey);
             throw;
+        }
+
+        var pipe = new Pipe();
+
+        // ⚠️ The async callback overload (Func<Stream, CancellationToken, Task>), never the synchronous
+        // Action<Stream> one: the latter turns an `async` lambda into async-void, so the copy continues after
+        // MinIO has already disposed the response stream — throwing on a background thread and taking the host
+        // down with it.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _minioClient.GetObjectAsync(
+                    new GetObjectArgs()
+                        .WithBucket(_bucketName)
+                        .WithObject(storageKey)
+                        .WithCallbackStream(async (stream, ct) =>
+                        {
+                            await stream.CopyToAsync(pipe.Writer.AsStream(leaveOpen: true), ct);
+                        }),
+                    cancellationToken);
+
+                await pipe.Writer.CompleteAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error streaming file from MinIO. Storage key: {StorageKey}", storageKey);
+
+                // Completing WITH the exception is what makes the reader throw instead of reporting a clean end
+                // of stream — a silent truncation is the one outcome worse than a failed download.
+                await pipe.Writer.CompleteAsync(ex);
+            }
+        }, cancellationToken);
+
+        return pipe.Reader.AsStream();
+    }
+
+    public async Task<long?> GetLengthAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var stat = await _minioClient.StatObjectAsync(
+                new StatObjectArgs().WithBucket(_bucketName).WithObject(storageKey),
+                cancellationToken);
+
+            return stat.Size;
+        }
+        catch (ObjectNotFoundException)
+        {
+            return null;
+        }
+        catch (BucketNotFoundException)
+        {
+            // Nothing can be there if the bucket is not — the same reading ExistsAsync gives a missing bucket.
+            return null;
         }
     }
 

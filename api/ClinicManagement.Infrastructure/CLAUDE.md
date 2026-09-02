@@ -581,7 +581,32 @@ no consent flag and no audit of which patient was sent.
   `IMinioClient`.
 - **`Storage/LocalDiskFileStorage`** (Local) — blobs under `FileStorage:BasePath` (resolved install-relative via
   `LocalInstallPaths`); opaque relative keys; mirrors MinIO semantics (the same composed keys, deterministic
-  overwrite at a given path, seekable download, idempotent delete, path-traversal-safe).
+  overwrite at a given path, streamed download, idempotent delete, path-traversal-safe).
+- **⚠️ `DownloadAsync` streams; it used to buffer the whole object in memory, on BOTH backends.** Every
+  concurrent download held the entire file in the server's RAM — three people opening a 50 Mo panoramique was
+  150 Mo of a small VPS, and the arithmetic gets worse with every cap this product raises. Local disk now hands
+  back the `FileStream` itself; MinIO feeds a `System.IO.Pipelines` pipe from a background task, because its SDK
+  is push-based (it gives you a stream inside a callback and closes it when the callback returns).
+  Three things about that are load-bearing, and each was a way to get it silently wrong:
+  - **A `StatObjectAsync` runs first.** Without it a missing object or a refused credential surfaces on the
+    caller's *first read* — after the handler's try/catch has returned success and the headers have gone out, so
+    the client gets a **200 with a truncated body** instead of the French failure. Verified against the real
+    store on a seeded row whose blob was never written: 400/404 with an `{ error }` body, host still healthy.
+  - **The writer is completed WITH its exception** (`CompleteAsync(ex)`), which makes the reader throw. Completing
+    cleanly would report end-of-stream, i.e. a silent truncation — which is also why `System.IO.Pipes` was not
+    used: an OS pipe closes as EOF when its producer dies.
+  - **The async `WithCallbackStream` overload, never the `Action<Stream>` one.** The latter turns an `async`
+    lambda into async-void, so the copy continues after MinIO has disposed the response stream — throwing on a
+    background thread and taking the host down.
+  ⚠️ **The stream is forward-only now.** Nothing in the solution seeks a downloaded blob and no download action
+  enables range processing; adding either means giving that caller a seekable copy, not re-buffering everyone's.
+- **⚠️ `GetLengthAsync` exists because the download stream stopped being seekable.** ASP.NET derives
+  `Content-Length` from a seekable stream's own length, so the old buffering supplied it as a side effect —
+  without this a browser downloading a study reports « unknown size » and shows no progress, on exactly the
+  connection where somebody is watching it. `PatientFilesController` sets `Response.ContentLength` by hand from
+  it. It is asked of the **store**, never read off `PatientFile.FileSize`: that column is the *client's claim*
+  for any row predating upload validation, and a wrong `Content-Length` truncates or hangs a response rather
+  than merely misreporting it.
 - **`ProbeAsync` (both, multi-tenant-cloud US-6)** — the reachability check behind `/health`. MinIO asks whether the
   bucket exists (one call exercising DNS, endpoint, TLS and credentials, storing nothing); ⚠️ a **missing** bucket is
   reported as reachable-but-unusable rather than unreachable, because the two have different operator answers and

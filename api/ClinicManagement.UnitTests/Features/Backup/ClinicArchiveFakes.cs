@@ -62,6 +62,9 @@ internal sealed class FakeBlobStore : IFileStorage
     public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken = default) =>
         Task.FromResult(Blobs.ContainsKey(storageKey));
 
+    public Task<long?> GetLengthAsync(string storageKey, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Blobs.TryGetValue(storageKey, out var bytes) ? bytes.Length : (long?)null);
+
     public Task<string> UploadAsync(
         Stream file, string contentType, Guid clinicId, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("The archive never mints a key.");

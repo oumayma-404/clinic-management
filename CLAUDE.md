@@ -142,6 +142,7 @@ how it was built, `notes.md` is what shipped.
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
+- [`large-file-transfer`](features/large-file-transfer/notes.md) — A download is read as it is sent, not copied into the server first (Part 1 of four; the other three are named and not started)
 
 **Reads, lists and catalogues**
 

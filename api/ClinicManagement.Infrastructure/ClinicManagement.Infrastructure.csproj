@@ -36,6 +36,16 @@
     <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="8.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
     <PackageReference Include="Minio" Version="5.0.0" />
+    <!--
+      For MinioFileStorage.DownloadAsync. The MinIO SDK is push-based (it hands you a stream inside a callback
+      and closes it when the callback returns), so turning it into a stream a caller can pull from needs a
+      producer/consumer pipe — the alternative was buffering every download whole in memory, which is what this
+      replaced. `System.IO.Pipelines` is in the ASP.NET shared framework but NOT in Microsoft.NETCore.App, so a
+      plain class library has to name it.
+      ⚠️ Not System.IO.Pipes: an OS pipe closes as EOF when the producer fails, so a mid-transfer MinIO error
+      would arrive as a SILENT TRUNCATION. A PipeWriter completed with an exception makes the reader throw.
+    -->
+    <PackageReference Include="System.IO.Pipelines" Version="8.0.0" />
     <!-- 8.0.11 pulls Npgsql 8.0.x, clearing GHSA-x9vc-6hfv-hg8c. Deliberately NOT 9.0.x: EF Core 9 is a major
          upgrade on a schema with 100+ migrations, not a security patch. -->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />

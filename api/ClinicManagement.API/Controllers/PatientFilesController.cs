@@ -274,6 +274,15 @@ public class PatientFilesController : ApiControllerBase
         // validation existed, whose type was never checked (AC-11.9) — they download, but cannot execute.
         Response.Headers["X-Content-Type-Options"] = "nosniff";
 
+        // ⚠️ Set by hand because the stream is no longer seekable. ASP.NET reads `Content-Length` off a seekable
+        // stream's own length, and buffering the whole object in memory used to supply it as a side effect — so
+        // without this line a browser downloading a study reports « unknown size » and shows no progress at all,
+        // which on a clinic's uplink is exactly when somebody is watching it.
+        if (fileDto.Length is > 0)
+        {
+            Response.ContentLength = fileDto.Length;
+        }
+
         return File(fileDto.FileStream, fileDto.ContentType, fileDto.FileName);
     }
 
