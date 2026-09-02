@@ -1,240 +1,193 @@
-# Hot-path UX audit
+# Hot-path UX audit — after the devil's-advocate pass
 
-**Date** 2026-09-02 · **Method** real browser, signed in, 820×1024 (tablet portrait) + 390/1180/1440 checks.
-Every number measured in the running app. **18 surfaces walked, 13 measured only, 6 things untested** — see
-[§4 Coverage](#4--coverage).
+**Date** 2026-09-02 · **Method** real browser at 820×1024 + 390/1180/1440, then **every finding re-checked
+against source, DB or both**. The second pass is the one that matters: **of 34 bugs filed, 6 survived. Of 14
+big wins, 3 survived.**
 
-**Trigger** A practising dentist trialled the app: *"pas intuitive du tout"*. His 7 defects are fixed (§3.1).
-This audit asks what still fights a dentist leaving paper.
+**Trigger** A practising dentist trialled the app: *"pas intuitive du tout"*. His 7 defects are fixed (§5).
 
----
-
-# 1 · BUGS — fix what we have
-
-Severity: 🔴 blocks or misleads · 🟠 costs real time · 🟡 polish.
-
-## 1.1 Workflow
-
-| # | Sev | Bug | Evidence |
-|---|---|---|---|
-| B1 | 🔴 | **`/a-cloturer` cannot clear its own backlog.** Subtitle promises 3 dimensions (`présence · fiche · encaissement`); chips show `● Venue ○ Fiche ○ Encaissement`. Buttons exist for **1 of 3 — the one already done** | 25×`Venu`[primary] 25×`Absent` 25×`Retirer`; **any button mentioning « fiche » = FALSE**. 62 séances → 62 round trips via the patient file |
-| B2 | 🔴 | **Root cause of the interrupt already fixed in `78203d6f`** — 23 séances accumulated *because* B1 blocks clearing them | see §3.2 |
-| B3 | 🟠 | **Only bulk action is destructive** — `Retirer les 25 séances affichées`. No bulk constructive action | `/a-cloturer` |
-| B4 | 🟠 | **Patient Documents panel creates 1 of 6 document types** (`Nouvelle ordonnance` only). `Arrêt de travail` + `Bulletin CNAM` — the two most frequent — need: leave patient → sidebar → template → re-find patient | panel actions = `["Nouvelle ordonnance"]` |
-| B5 | 🟠 | **Caisse has no payment entry** (only `Nouvelle dépense`). Capability is correctly on the invoice; "someone paid" sends reception to la caisse first | — |
-
-## 1.2 Findability
-
-| # | Sev | Bug | Evidence |
-|---|---|---|---|
-| B6 | 🔴 | **Patient file's tab bar is below the fold** — 7 sections invisible on load. Page reads as one long scroll | tablist y=**1308px**, viewport 1024. The `créances` tombstone even directs users to *"onglet Factures"* |
-| B7 | 🔴 | **`ACTIONS` column clipped** — edit + delete rendered, focusable, pushed outside the visible width. **This is why the doctor thought editing was broken** (it works — §3.1) | table 515px in 451px; 64px hidden h-scroll |
-| B8 | 🟠 | **Half the week off-screen at 820px**; today's column splits per-practitioner so names render `Y…`, `A…` | day headers x=821 (VEN) 941 (SAM) 1061 (DIM) |
-| B9 | 🟠 | **No sort control on `/patients`** at any width | `sort controls=[]`, `sortable headers=[]` @ 390/820/1180/1440 |
-| B10 | 🟠 | **Tablet portrait gets cards, not the table** — 2× the scroll on the densest list | 2121px @820 vs 1146px @1440 |
-| B11 | 🟡 | Sidebar takes **31% of a tablet screen** (255/820), 18 items, clips `Abonnement` | — |
-| B12 | 🟡 | **3 nested scrollbars at once** on the patient file | page 3530/968 · sidebar 966/910 · À-compléter card 294/108 |
-| B13 | 🟡 | **5 fiches per page** of clinical history, inside a 3.6-screen page | `1–5 sur 6 · Page 1 sur 2` |
-| B14 | 🟡 | `/documents` — ~300px per card for a 6-item menu; card not clickable, `Créer >` is a text link | — |
-| B15 | 🟡 | `/setup` — **`Suivant` clipped** on the first screen a customer ever sees | y≈1015 of 1024 |
-
-## 1.3 Numbers that lie
-
-| # | Sev | Bug | Evidence |
-|---|---|---|---|
-| B16 | 🔴 | **Factures' 3 KPIs don't reconcile.** Encaissé **exceeds** facturé by 94 300, yet Reste is still positive. Scope difference hides in 8pt grey (*"et échéances de devis"*) | facturé 31 787 200 · encaissé 31 881 500 · reste +395 700 |
-| B17 | 🔴 | **`/rappels` tiles contradict themselves and the list.** Sub-labels name two scopes at once; a tile reads 0 failures above 3 visible ones | `ENVOYÉS 0 "aujourd'hui · filtre : toute la période"` · `ÉCHECS 0 "7 derniers jours · filtre : toute la période"` · `"Échec"×3` below · subtitle `26 messages` |
-| B18 | 🔴 | **"À clôturer" counts 4 different things, unlabelled.** Greeting **5**, page **62**, popup queue **23** | DB: today=5 · past-without-fiche=61 · `Status=4`=23 · any-without-fiche=178 |
-| B19 | 🟠 | **Factures date filters default empty** → all-time totals, useless for a clinic. (La caisse does this right) | — |
-| B20 | 🟡 | Agenda **filter badge shows "2" with both toggles ON** — nothing hidden, but it reads "you're not seeing everything" | — |
-| B21 | 🟡 | Notification bell reads **`99+`** — can only mean "too many to matter"; trains users to ignore the one place the product puts non-interrupting news | — |
-| B22 | 🟡 | `RESTE 0,000 DT` printed on every `Payée` invoice — a wasted line on the most common row | — |
-
-## 1.4 Signals that mislead
-
-| # | Sev | Bug | Evidence |
-|---|---|---|---|
-| B23 | 🔴 | **Strikethrough means two different things, both on money.** La caisse documents it as *"annulé … barré, ne compte pas dans le solde"*; the patient file uses it for *"Facturé — géré par la facture"*. A user who learns one **actively misreads** the other | 5/5 rows struck on a col headed `MONTANT PAYÉ` |
-| B24 | 🔴 | **Explanation lives in a `title`** — no hover on a tablet. Applies to B23 **and** to `Supprimer la fiche de soins`: a destructive action on a clinical record, 32px, `aria-label` null, **36px from edit** | `title` set, `aria-label` null, `lucide-trash2` |
-| B25 | 🟠 | **Inverted colour encoding on the agenda.** Act type gets the strongest channel across **19 acts** (>8 distinguishable); status — which decides what to do next — gets a 3px border | filter legend: 10 + `+9 autres` |
-| B26 | 🟠 | **No duplicate detection on the phone at patient creation.** Split histories hide the allergy, the prior extraction, the balance. **The lookup already exists** — header search finds by phone | typing `22334455` (Leila Gharbi) → no warning |
-| B27 | 🟡 | Treatment plan: **`ACTION` column empty on every row** (plan is `Annulé`, so no actions). Hide the column when no row has one | table fits; cells contain no controls |
-| B28 | 🟡 | `/lab-orders` patient names **are** links but carry no underline/colour — don't look clickable | `→ /patients/<guid>` |
-
-## 1.5 Waste
-
-| # | Sev | Bug | Evidence |
-|---|---|---|---|
-| B29 | 🔴 | **`/api/connectivity` 404s every 15s by design.** Endpoint gated off on `HostedMultiTenant`; probe fires anyway. **When a clinic reports a bug, support opens the console to a wall of 404s and real errors are invisible.** Fix: probe `/health` (public, every profile) or return `200 {internetReachable:null}` | `POLL_INTERVAL_MS=15_000` → **240/hour/tab ≈ 1 900/day**. 38 in one session; 37 from a resize alone |
-| B30 | 🟠 | **Nothing collapses.** Dashboard 5.2 screens · À clôturer 5.3 · Patient file 3.6 · Caisse 3.6 · `/dental-acts` **6.4** (longest page). All 5 patient-file sections report `ALWAYS EXPANDED`. **Not inherent** — `/treatment-plans`, `/users`, `/fournisseurs` fit in 1 screen | 81 visible buttons on the patient file |
-| B31 | 🟡 | ~**40% of the agenda grid is empty time** (bookings cluster 10:00–16:15 in a 09:00–20:00 grid) | — |
-| B32 | 🟡 | Patient list: `NAISSANCE 30/07/1989` + `37 ans` = same fact twice, half the lines on every card | — |
-| B33 | 🟡 | Add-patient dialog **scrolls (1101px in 722px)** for a form with 2 required fields | — |
-| B34 | 🟡 | Dashboard is 5.2 screens with 4 six-month charts — reporting, not a daily driver. Mitigated by `Personnaliser` (opt-in) | — |
-
-## 1.6 Cross-cutting causes
-
-| Theme | Instances |
-|---|---|
-| **A correct rule wired to one call site** | popup guard (toast ✔ / dialog ✘) · patient Documents (1 of 6) · phone search (search ✔ / create ✘) · `/a-cloturer` (1 of 3 dimensions) |
-| **No notion of "above the fold"** | B6 B30 B31 B33 |
-| **Tiles disagree with their lists** | B16 B17 B18 |
-| **Explanation in a `title`** | B23 B24 |
+> **Why so much died.** This repo writes its decisions into the source. Almost every finding I filed was
+> already answered in a comment next to the code I was judging — a feature that ships, a feature deliberately
+> withdrawn, a disclosure I read as the defect it was added to fix, or a sequencing rule I read as a missing
+> button. See §3; the pattern is the most useful output of this audit.
 
 ---
 
-# 2 · IMPROVEMENTS — what to add
+# 1 · BUGS — verified, with the evidence that survived challenge
 
-## 2.1 Big wins
+| # | Sev | Bug | Verified how |
+|---|---|---|---|
+| **B7** | 🔴 | **`ACTIONS` column pushed outside the visible width at 820 px** — edit + delete render, are focusable, and can't be seen. **This is the doctor's "editing didn't work"** (it works — §5) | `TABLE_ONLY` is `hidden md:block`, so the **table** form is chosen from 768 px up, inside a container of ~450–520 px once the 255 px rail is subtracted. Measured: 515 px table in 451 px, 64 px hidden |
+| **B24** | 🟠 | **`Supprimer la fiche de soins` is an unlabelled 32 px trash icon, 36 px from edit** — destructive, on a clinical record, and its only explanation is a `title` (**no hover on a tablet**) | `patients/[id]/page.tsx:1636` — `title=` set, `aria-label` null, `lucide-trash2` |
+| **B23** | 🟠 | **Strikethrough means "voided" everywhere except one place, where it means "billed successfully"** — a user who learns one **actively misreads** the other, on money | 9 `line-through` sites keyed on `isVoided`/`isCancelled`; `patients/[id]/page.tsx:1473` **and** `:1562` strike a *successful* billing (`title="Facturé — le montant est géré par la facture"`) |
+| **B6** | 🟠 | **Nothing says the patient file has 7 more sections.** The tab bar sits below the fold at 820×1024, so the page reads as one long scroll — the balance, the plan and the invoices look absent | Odontogram `<Card>` at `:1283`, `<Tabs>` at `:1321`. ⚠️ **The cause is deliberate** — the odontogram was promoted to lead the page ("the chart the whole consultation is read off"). **Fix the signal, not the order** |
+| **B4** | 🟠 | **Patient Documents panel creates 1 of 6 document types** (`Nouvelle ordonnance`). `Arrêt de travail` + `Bulletin CNAM` — the two most frequent in Tunisia — mean leaving the patient, then re-finding them | panel actions = `["Nouvelle ordonnance"]` → `/documents/prescription?patientId=…`. The `?patientId=` pattern already works, so the fix is a button + a route per type |
+| **B29** | 🟡 | **The reachability probe polls a route that is absent on this deployment.** `/health` is public on every profile and answers the same question | `ConnectivityController` returns `NotFound()` unless `ExposesTrustEndpoints`; `connectivity.tsx` polls every 15 s regardless. **Demoted:** the request *must* keep firing (it is also the reachability probe) and the state machine is correct — this is console noise, not misbehaviour |
 
-| # | Add | What we gain |
-|---|---|---|
-| I1 | **Periodontal chart** — 6 pocket depths, BOP, recession, mobility, furcation | `ToothState` holds only `ToothNumber/Condition/Surfaces/Note`. **`Traitement parodontal` is already billed with no perio record behind it** — can't justify to the patient, show improvement at recall, or defend it. Clearest "more serious than paper" signal |
-| I2 | **Day-gap → waiting list, one tap** | Dashboard computes **`1 h 45 libre`** (plain text). Waiting list holds *Mehdi Bouazizi, `Haute`, "Douleur 36 — à caser dès qu'un créneau se libère", "Cette semaine"* + `Promouvoir en rendez-vous`. **Wiring exists one direction** (`onCreated` comment: *"e.g. waiting-list promote-and-book"*); the agenda has no reference. Direct revenue, cheap |
-| I3 | **Recurring series** (retired) | Ortho ≈15 visits/18 months · perio quarterly · 6-month recalls. *"Les rendez-vous se créent un par un"* = 15× the booking work for the most predictable revenue in a practice |
-| I4 | **Clinic-wide receivables list** (retired) | `RESTE À RECOUVRER 395 700 DT` is a dead aggregate — chasing it means opening patients one at a time. "Who owes me" is a practice-level question |
-| I5 | **Balance + next visit on the patient header** | Currently age/sex/phone/allergy only. *"Leila owes 340 DT"* must be on screen **before she stands up**, not derived from 6 `Reste` values across 2 pages |
-| I6 | **Tooth-level history** — tap 26, see everything ever done | The most frequent clinical question. Today: read 6 fiches, 5/page, in a table whose actions are off-screen |
-| I7 | **Planned + done in one odontogram view** (overlay, not tabs) | Presenting a plan *is* "here's what's wrong, here's what we'll do" in **one** picture. Tabs make it two. `Créer un plan depuis l'odontogramme` already exists — the view is wrong, not the wiring |
-| I8 | **Persistent medical-alert strip while charting** | Anticoagulants, diabetes, endocarditis prophylaxis, pregnancy, bisphosphonates change what's possible **today** — currently at y=2988 in a section that never collapses. Allergies already handled well |
-| I9 | **No-show risk at booking** | `taux d'absence` is computed somewhere; booking says nothing about *"missed 3 of her last 8"*. One number, large behavioural effect |
-| I10 | **Devis: patient-facing presentation mode** | The devis conversation happens with the patient looking at the screen. Turning it now shows internals — e.g. *"Motif d'annulation : Devis de test QA"* |
-| I11 | **Devis: instalment schedule** | La caisse's own subtitle proves `échéances de devis` exist in the money model. A 300 000 DT plan in Tunisia is normally paid in instalments |
-| I12 | **All 6 document types from the patient panel** | Fixes B4. `Arrêt de travail` + `Bulletin CNAM` are the two most frequent in a Tunisian practice |
-| I13 | **`/setup`: "importer mes patients" step** | `/patients` already has `Importer`; **54% of dentists name portability a top blocker** |
-| I14 | **`/setup`: say what's already done** | *"Votre catalogue d'actes, vos codes CNAM et vos médicaments sont déjà prêts."* Turns anxiety into confidence at the exact moment it's felt — a **copy change** |
-
-## 2.2 Small wins
-
-| # | Add / change | Gain |
-|---|---|---|
-| S1 | `+ Créer le dossier de « Ben Ali »` in the empty patient-search state | Name is already typed. One of the most frequent actions in a practice |
-| S2 | Move the patient tab bar under the header (fixes B6) | Reveals 7 existing sections, balance 1 click away, default view 3.6 → ~1 screen. **Supersedes "collapse the Informations blocks"** |
-| S3 | Filter badge counts only actual restrictions (B20) | Stops crying wolf |
-| S4 | Every tile states its scope, matching the list beneath (B16–B18) | One job fixes three instances |
-| S5 | Probe `/health` for connectivity (B29) | Keeps the signal, loses ~1 900 daily errors |
-| S6 | Patient list: swap birthdate for **last visit + balance** (B32) | Two facts a dentist scans for, replacing one shown twice |
-| S7 | Patient list: table at 820px + sort (B9, B10) | Usable at 2 000 patients |
-| S8 | Collapse the `facultatif` block in add-patient (B33) | Fits without scrolling |
-| S9 | Hide `ACTION` when no row has one (B27) | Stops reading as broken |
-| S10 | Make *"WhatsApp n'est pas connecté"* the link that connects it | Badge → fix, in place |
-| S11 | Reminders configuration inside `/setup` | Highest-ROI feature in the research, currently only in `/rappels` |
-| S12 | Bell: scope the count or show a dot (B21) | Bell becomes worth looking at |
-| S13 | Underline `/lab-orders` patient links (B28) | Looks like what it is |
-| S14 | `En retard` → a filter, not just a badge | Lab delays block fitting appointments |
-| S15 | Visible label on `Supprimer la fiche de soins`, or move it behind the row menu (B24) | Removes a destructive unlabelled control |
+**Also real, but a missing control rather than a bug:** `patients-table.tsx:213` hardcodes `sort: 'RecentlyAdded'`.
+The API supports sorting; the UI never exposes it. (Was B9.)
 
 ---
 
-# 3 · WHAT ALREADY WORKS — the sales argument
+# 2 · WINS — verified, and not already built
 
-## 3.1 His 7 defects — all fixed
+| # | Add | What we gain | Why it survived |
+|---|---|---|---|
+| **I2** | **Day-gap → waiting list, one tap** | Direct revenue, cheap. Both halves exist and **nothing connects them** | Dashboard computes `1 h 45 libre` as plain text. `/waiting-list` holds priority + `CRÉNEAU SOUHAITÉ` + `Promouvoir en rendez-vous`. `appointment-calendar.tsx` contains **no reference to the waiting list** |
+| **I5** | **One balance figure on the patient header** — « solde dû », nothing else | *"Leila owes 340 DT"* on screen **before she stands up** | ⚠️ Nearly died: a « Solde patient » card was **deliberately removed** for showing six figures, two contradictory. It survives *narrowed* — because the removal's stated fallback was *"one click away in « Créances », the Factures tab, and the plan card"*, and **« Créances » has since been retired**. One figure ≠ the six that were removed |
+| **I12** | **All 6 document types from the patient panel** | Fixes B4 — same work item | see B4 |
 
-| Reported | State now |
+## Open questions for the dentist — not wins until he answers
+
+The code says these are absent. **Nothing says he wants them**, and my track record on guessing that is now
+2 for 5 (§3).
+
+| Question to ask him | Why it's a question, not a finding |
 |---|---|
-| Edit medical record wouldn't edit | **Works.** `"Modifier la fiche médicale"`, 4 editable inputs, commit reads `Enregistrer — 150,000 DT`. Only barrier is B7 (clipped) — he never found the button |
-| Editing a facture didn't work | **`Corriger cette note` + `Établir un avoir`** — two distinct correction paths |
-| Couldn't delete a mis-booked appointment | `Supprimer` behind confirmation, deliberately **not** an annulation — *"which counts in the taux d'absence"*. Server refuses if a fiche exists; toast says it's recoverable in « À clôturer » |
-| Act tarif not editable at booking | `appointment-negotiated-price` shipped |
-| Total in fiche not editable | Editable, and typing **re-prices the acts** via `distributeSessionTotal` |
-| Add-record screen too complicated | **Zero required fields.** Code states the principle: *"a required extra tap on every fiche is how a field gets ignored"* |
-| Google import wrecked data | Import retired (`58aa957d`) |
-
-## 3.2 Fixed during this audit — `78203d6f`
-
-Post-visit reminder stopped interrupting. Three causes:
-
-- **Guard existed for the toast path, not the dialog path** — the toast's own comment states it as a hard constraint (*"It must not appear over an open dialog or sheet"*); `Dialog`, which a mouse gets, honoured nothing.
-- `refetch` did `setDismissed(false)` **every 60 s** — sound only when nothing is usually pending.
-- « Plus tard » snoozed **one id for one hour** — it means *not now*, never *not this patient*.
-
-⚠️ **Trap for the next person:** `data-scroll-locked` is set by Radix for *any* modal — **including this one**. `open={… && !bodyBusy}` is self-referential: the prompt opens, sets the lock, sees it, closes, and leaves its overlay at `data-state="closed"` **intercepting every click on the page**. The guard must **latch on open**, never police it.
-
-Verified, snooze fully cleared: 1 prompt on load · booking form alone for **160 s** (≈3 poll cycles) · after dismissal `dialogs=0 overlays=0 bodyLocked=false`, page clickable.
-
-## 3.3 Advertisable, measured
-
-| Claim | Measured |
-|---|---|
-| **Fiche in 3 clicks** (act → tooth → save); **2** for a general act | verified; 1 click on the act auto-fills `Payé` **and** `Total` |
-| **Zero required fields** in the whole fiche | verified |
-| **Patient saved with a first name and a last name** | `Créer le patient` enabled on 2 fields; 3 tiers in the labels (*required / recommandé / facultatif*) + *"L'essentiel suffit à enregistrer le patient"* |
-| **Works on day one — no empty-catalogue cliff** | every clinic incl. the 3 with **0 patients**: **102 act codes · 19 priced acts · 25 medications** |
-| **Your Tunisian paperwork, by name** | `Arrêt de travail` on **CNAM P 061**; **BS1** `Bulletin de soins CNAM` |
-| **Correct a total and the acts re-price** | `distributeSessionTotal` |
-| **Your data is yours** | `Importer` + `Exporter` + archive — the 54% blocker |
-
-## 3.4 Craft worth keeping (and copying)
-
-- **Fiche microcopy:** *"aucune — tapez sur le schéma, ou laissez vide pour un acte général (détartrage, panoramique…)"* — says it's optional **and** gives examples.
-- **Devis footnote:** explains that `Réalisé` is automatic and that a mis-tick is undone with `Détacher la fiche`. Teaches the model **and** the undo.
-- **Edit dialog:** *"Les sections qui portent une valeur sont déjà dépliées."* Commit button states the amount.
-- **Money buttons state amount + date:** *"Annuler le paiement de 90,000 DT du 2 sept. 2026"*. Invoice menu is **contextual** — `Enregistrer un paiement` only when there's a balance.
-- **Caisse:** `NET` tile **states its own formula** (*"encaissé – avoirs – dépenses"*); `DONT` splits Espèces/Chèque/Carte/Virement; dates pre-filled. **Run this page's review over Factures.**
-- **Rappels:** `BLOQUÉS 0 — un réglage à changer` (cause + fix in 4 words). WhatsApp card distinguishes *"we cannot measure"* from *"you are blocked"* and separates SMS. Best error copy in the app: *"Rendez-vous déjà passé — rappel obsolète, non envoyé"*.
-- **Lab orders:** `En retard` badge + aggregate · **`STADE` inline dropdown** (advance in 1 click) · has a `Trier par` (which `/patients` lacks).
-- **Waiting list:** priority + `CRÉNEAU SOUHAITÉ` + note + `Promouvoir en rendez-vous`. Best-designed page.
-- **À clôturer chips** `● Venue ○ Fiche ○ Encaissement` — correct diagnosis (the actions are the bug, B1).
-- **Dashboard:** *"Rideau pour aujourd'hui — 7 séances terminées, 5 à clôturer"* · day strip showing `1 h 45 libre` · *"6 h 40 au fauteuil · 83 % de la journée · fin prévue 16:45"* · `Personnaliser`.
-- **Patient file:** `À COMPLÉTER` card = the *right* way to surface a worklist (contrast with the popup).
-- **Tombstones:** `/creances`, `/recurring-series` — explanation + way out + route kept so links don't 404.
-- **Empty states:** agenda draws the grid + *"Aucun rendez-vous"*; search names the query + `Effacer la recherche`. Unsaved-changes guard says *"Continuer la saisie"*, not "Cancel".
-- **Details:** messaging icon **crossed out** for patients with no phone. A11y labels like *"Voir le lundi 31 août en vue Jour — 5 rendez-vous"*, *"cabinet fermé"*.
-- **390px holds:** `docOverflow=0` on all 4 pages tested · tables → cards · bottom nav · `Exporter` demoted to an icon (**better hierarchy than desktop**). Two issues: À-compléter keeps a **nested scroller on touch**; act names truncate to ~8 chars (`Couron…`).
-
-## 3.5 What the research says (positioning)
-
-| Dentists want | Have it? |
-|---|---|
-| Fewest clicks to document — **the #1 complaint**, measured in clicks/keystrokes | ✅ 3 clicks |
-| Graphical charting, readable chairside | ✅ odontogram + legend + one-tap ranges |
-| Documentation → billing, no re-entry | ✅ act → fiche → facture → caisse |
-| **One screen for the clinical moment** | ❌ 3.6–6.4 screens everywhere (B30) |
-| **Periodontal charts** | ❌ (I1) |
-| Never blocks a correction | ⚠️ mostly fixed; B7/B24 hide the controls |
-| Reminders to cut no-shows | ✅ built |
-| Data portability — **54% name it a blocker** | ✅ import/export/archive |
-
-**Barriers to leaving paper:** fear that *"a task I already do easily will get harder"* (**not cost**) · unclear ROI · portability · fear of unreliability mid-consultation.
-
-**Positioning:** not "more features" — *"faster than your paper chart on day one, and your data is always yours."* Paper is infinitely forgiving; **software that refuses a correction feels worse than paper.**
+| **Do you chart periodontal pockets today, on paper?** | No perio model exists (`ToothState` = `ToothNumber/Condition/Surfaces/Note`), and `Traitement parodontal` is billed with no perio record behind it. But a large build for a minority of general practices |
+| **Would "missed 3 of her last 8" change what you do at booking?** | `absenceRate` exists **clinic-wide only** — per-patient is a new computation, not a wiring job as I first claimed |
+| **When you want to know what's been done on tooth 26, where do you look now?** | `OdontogramActsChart teeth records` already exists inside the odontogram — a per-tooth view may be a filter on something built, not a new feature. **Unverified** |
 
 ---
 
-# 4 · Coverage
+# 3 · KILLED — and why each one died
 
-| | Surfaces |
-|---|---|
-| **Walked + challenged** (screenshots + DOM/source/DB assertions) | `/appointments` · `/patients` · `/patients/[id]` · fiche modal · edit-fiche modal · `Ajouter un patient` · `/` · `/a-cloturer` · `/caisse` · `/factures` + menus + detail · `/treatment-plans/[id]` · `/waiting-list` · `/documents` + patient Documents panel · `/lab-orders` · `/rappels` · `/setup` · `/creances` + `/recurring-series` · empty states · 390/820/1180/1440 |
-| **⚠️ Measured only — NOT looked at** | `/procedure-types` · `/dental-acts` · `/medications` · `/stock` · `/fournisseurs` · `/cheques` · `/fichiers` · `/treatment-plans` (list) · `/journal` · `/users` · `/securite` · `/abonnement` · `/settings` |
-| **Never tested** | changing a tarif · true empty-clinic sign-in · saving a fiche end to end · recording a payment end to end · keyboard-only + screen reader · `/join` `/signup` `/mot-de-passe-oublie` `/reinitialiser-mot-de-passe` `/change-password` |
-
-⚠️ **The "measured only" row is the risk.** `/a-cloturer` was first reported from metrics as *"5.3 screens, 87 buttons"* — a later pass that actually looked found **B1**, the root cause of the interrupt in `78203d6f`. Likeliest remaining yield: `/dental-acts` (6.4 screens), `/cheques` (5.1), `/settings` (4.5), `/journal` (4.5).
-
-⚠️ **Changing a tarif is the biggest untested gap.** Every dentist's prices differ from the 19 seeded ones, so it's a **day-one conversion task** — and nobody has checked it works, its click count, or whether a changed tarif reaches an already-booked appointment. The repo's own `agreed-cost-reaches-the-fiche` guard (N14) exists because pricing propagation has bitten this codebase before.
-
-**"3 clicks to a fiche" is measured up to the save button, not through it.**
-
----
-
-# 5 · Method notes for whoever continues
-
-**Never file a finding from a screenshot alone.** Six died on verification after looking certain:
+**Verified FALSE — the capability ships, or the behaviour is deliberate and documented**
 
 | Filed | Reality |
 |---|---|
-| `/recurring-series` orphan page | deliberate, well-built tombstone |
-| "N" disc over `Accueil` on mobile | `<nextjs-portal>` — Next **dev-mode** indicator |
-| 62/67 touch targets under 40px | measurement artefact (padded icon buttons, inline links) |
-| `/lab-orders` names not clickable | they are links (N13 holding) |
-| `/lab-orders` no aggregate `en retard` | there is one |
-| Invoices can't take a payment | contextual menu — wrong (paid) invoice opened |
+| **B1** `/a-cloturer` can't clear its own backlog *(was my headline bug)* | **`Ajouter la fiche`, `Encaisser` and `Rien à facturer` all exist.** The row shows **only the next unanswered step**, documented with its reason: *"a séance with no fiche has no acts to price"*. Every row I sampled was at `nextStep === "Presence"` |
+| **B2** B1 is the root cause of the popup interrupt | Causal story false with B1. The popup fix (`78203d6f`) stands on its own — §5.2 |
+| **B3** Only bulk action is destructive | A bulk « Venu » asserts 25 patients attended. The file states the principle: offering a question on a row that isn't asking it is the defect |
+| **B5** Caisse has no payment entry | My own row admitted *"the capability is correctly on the invoice"*. Cash with no invoice is the thing the money-integrity work exists to prevent |
+| **B11** Sidebar eats 31 % of a tablet | **It collapses** — `useSidebar()` → `isCollapsed`, `toggleSidebar`, with collapsed tooltips and `sr-only` labels |
+| **B26** No duplicate detection on the phone | **`PatientDuplicateIndex` refuses duplicates before anything is written**, with « Créer quand même » as the opt-out. It fires **on submit** — I typed a phone, expected an inline warning, and never submitted |
+| **B13** 5 fiches per page | Deliberate and documented: page size 5, no selector, *"the pager hides itself entirely below six fiches, which is most patients"* |
+| **B16** Factures' 3 KPIs don't reconcile | The source says *"« Total facturé » and « Reste à recouvrer » DO match the rows to the millime"* and carries a hint naming Encaissé's wider scope. **The disclosure exists; I filed its typography as arithmetic** |
+| **B17** `/rappels` tiles contradict themselves | `filterMeta: "toute la période"` was **added to fix exactly the confusion I reported** (*"a tile reading « 0 · aujourd'hui » filtered the whole date range and returned 22 rows"*). **I filed the fix as the bug** |
+| **B18** "À clôturer" counts 4 unlabelled things | The greeting scopes itself in its own sentence — *"Rideau pour **aujourd'hui** … 5 à clôturer"* — and the page is a backlog. Different questions, both labelled |
+| **B21** Bell reads `99+` | Dev-data artefact: 692 `StaffNotifications` over 24 days of **seeded history plus my own audit traffic**. Real for this database; unprovable for a clinic |
+| **I3** Recurring series | **Retired on purpose** — the owner's dentists call it useless. I killed the tombstone as a false positive in §6, then argued to build the feature back |
+| **I4** Clinic-wide receivables list | **Built, shipped, deliberately withdrawn.** `/creances`'s own subtitle is verbatim my request: *"Qui doit combien — soldes dus par patient (factures + échéanciers), les plus élevés en tête"*. Code kept intact behind the tombstone |
+| **I7** Planned + done in one odontogram | **Already one picture.** Its own description: *"Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s'ajoutent automatiquement"* |
+| **I8** Persistent medical-alert strip while charting | **`PatientAlertPanel` ships** — allergies + active flags + **`medicalHistory`** (antécédents), at the top of the fiche modal body, *extracted* so the document editor would get it too |
+| **I10** Devis patient-facing presentation mode | **`downloadDevisPdf` ships**, plus per-instalment receipts. My evidence was a *cancelled test plan* correctly showing its cancellation reason |
+| **I11** Devis instalment schedule | **Fully built**: `Installment` + `InstallmentPayment` entities, `revise-installments-modal`, `installment-payment-modal`, `plan-timeline`. I cited la caisse's *"échéances de devis"* as proof the model *could* support it — it was proof it **already does** |
 
-Plus one self-inflicted: the self-referential `data-scroll-locked` guard (§3.2). **Every finding that survived came from a DOM assertion, a source read, or a DB query.**
+**Killed as taste, not defect** — B10 (cards at 820 px **is** the device contract) · B12 · B19 · B22 · B25
+(act-colour vs status-colour is a design choice) · B27 · B30 · B31 (an empty grid is where you find a slot to
+book) · B32 (a birthdate identifies, an age is clinical) · B33 · B34 (self-mitigated by `Personnaliser`).
+Small wins S2–S4, S6, S8, S9, S12, S13 died with their bugs; S5, S7, S15 are the surviving bugs' own fixes.
 
-**Browser traps:**
+---
 
-- **The session expires mid-walk** → the app redirects to `/login` and a scrape silently captures Next's RSC payload, returning plausible garbage. **Guard every probe:** `if (/\/login/.test(page.url())) throw`. Cap output length.
-- `refresh-session.mjs` + `browser_close` does **not** restore the session (browser process isn't restarted). Log in through the form; compute TOTP **inside the page** with `crypto.subtle` (HMAC-SHA1) so there's no staleness window.
-- Radix dropdowns need real pointer events — `el.click()` inside `evaluate` does nothing. Use Playwright's `locator.click()`.
-- Two tablists on the patient page: `querySelector('[role=tablist]')` returns the **odontogram's**. Target by `aria-controls`.
+# 4 · UNVERIFIED — do not act on these
+
+Filed from a screenshot, never re-checked. **Given the hit rate above, treat as unfiled.**
+
+B8 (week off-screen at 820 — `appointment-calendar.tsx:186` shows the author already reasoned about tablet
+name width) · B14 (`/documents` cards not clickable) · B15 (`/setup`'s `Suivant` clipped) · B20 (filter badge
+reads 2 with both toggles on) · B28 (`/lab-orders` link styling) · S1 · S10 · S11 · S14 · I13 · I14.
+
+**13 routes were measured but never opened**, and that shortcut is what produced B1: `/procedure-types` ·
+`/dental-acts` · `/medications` · `/stock` · `/fournisseurs` · `/cheques` · `/fichiers` · `/treatment-plans`
+(list) · `/journal` · `/users` · `/securite` · `/abonnement` · `/settings`.
+
+**6 things were never tested.** The biggest is **changing a tarif** — every dentist's prices differ from the
+19 seeded ones, so it's a day-one conversion task, and nobody has checked it works, its click count, or
+whether a change reaches an already-booked appointment. Then: true empty-clinic sign-in · saving a fiche end
+to end · recording a payment end to end · keyboard + screen reader · signup / password-recovery.
+
+---
+
+# 5 · WHAT WORKS — verified, and safe to advertise
+
+## 5.1 His 7 defects — all fixed
+
+| Reported | State now |
+|---|---|
+| Edit medical record wouldn't edit | **Works** — `"Modifier la fiche médicale"`, 4 editable inputs, commit reads `Enregistrer — 150,000 DT`. Only barrier is **B7**: he never found the button |
+| Editing a facture didn't work | **`Corriger cette note` + `Établir un avoir`** — two distinct correction paths |
+| Couldn't delete a mis-booked appointment | `Supprimer` behind confirmation, deliberately **not** an annulation (*"which counts in the taux d'absence"*). Refused if a fiche exists; toast says it's recoverable |
+| Act tarif not editable at booking | `appointment-negotiated-price` shipped |
+| Total in fiche not editable | Editable, and typing **re-prices the acts** (`distributeSessionTotal`) |
+| Add-record screen too complicated | **Zero required fields.** *"a required extra tap on every fiche is how a field gets ignored"* |
+| Google import wrecked data | Import retired (`58aa957d`) |
+
+## 5.2 Fixed during this audit — `78203d6f`
+
+Post-visit reminder stopped interrupting. Three real causes: the guard existed for the **toast** path and not
+the **dialog** path · `refetch` did `setDismissed(false)` every 60 s · « Plus tard » snoozed one id for one hour.
+
+⚠️ **Trap for the next person:** `data-scroll-locked` is set by Radix for *any* modal — **including this one**.
+`open={… && !bodyBusy}` is self-referential: the prompt opens, sets the lock, sees it, closes, and leaves its
+overlay at `data-state="closed"` **intercepting every click on the page**. The guard must **latch on open**.
+
+Verified: 1 prompt on load · booking form alone for 160 s (≈3 poll cycles) · after dismissal
+`dialogs=0 overlays=0 bodyLocked=false`.
+
+## 5.3 Advertisable, measured
+
+| Claim | Measured |
+|---|---|
+| **Fiche in 3 clicks** (act → tooth → save); **2** for a general act | 1 click on the act auto-fills `Payé` **and** `Total`. ⚠️ measured *up to* the save button, not through it |
+| **Zero required fields** in the whole fiche | verified |
+| **A patient is saved with a first name and a last name** | `Créer le patient` enabled on 2 fields; 3 tiers of labels + *"L'essentiel suffit"* |
+| **Works on day one — no empty-catalogue cliff** | every clinic incl. the 3 with 0 patients: **102 act codes · 19 priced acts · 25 medications** |
+| **Your Tunisian paperwork, by name** | `Arrêt de travail` on **CNAM P 061** · **BS1** `Bulletin de soins CNAM` |
+| **Correct a total and the acts re-price** | `distributeSessionTotal` |
+| **Your data is yours** | `Importer` + `Exporter` + archive — the 54 % portability blocker |
+| **A duplicate patient is refused before it is written** | `PatientDuplicateIndex`, with « Créer quand même ». *Found by trying to prove the opposite* |
+
+## 5.4 Craft worth copying
+
+- **Decisions live next to the code.** Withdrawn features keep their route, their screen and their reason
+  (`/creances`, `/recurring-series`) so a bookmark doesn't 404 and restoring is re-pointing an export.
+  **This is what made the audit's second pass possible** — and it is not normal.
+- **Caisse:** the `NET` tile **states its own formula**; `DONT` splits Espèces/Chèque/Carte/Virement; dates
+  pre-filled. **Run this page's review over Factures.**
+- **Rappels:** `BLOQUÉS 0 — un réglage à changer` (cause + fix in 4 words). Best error copy in the app:
+  *"Rendez-vous déjà passé — rappel obsolète, non envoyé"*.
+- **Fiche microcopy:** *"aucune — tapez sur le schéma, ou laissez vide pour un acte général (détartrage,
+  panoramique…)"* — says it's optional **and** gives examples.
+- **Money buttons state amount + date:** *"Annuler le paiement de 90,000 DT du 2 sept. 2026"*. Invoice menu is
+  contextual — `Enregistrer un paiement` only when there's a balance.
+- **`À clôturer`** — chips `● Venue ○ Fiche ○ Encaissement` **and** one action for the one open question.
+- **Waiting list** is the best-designed page in the app. **Patient file's `À COMPLÉTER` card** is the right way
+  to surface a worklist.
+- **390 px holds:** `docOverflow=0` on all 4 pages tested; `Exporter` demoted to an icon — **better hierarchy
+  than desktop**.
+
+## 5.5 Positioning (research)
+
+Dentists' #1 complaint is clicks-to-document ✅ · graphical charting ✅ · documentation→billing with no
+re-entry ✅ · reminders ✅ · portability (**54 % name it a blocker**) ✅ · **perio charting ❌** (open question) ·
+**one screen for the clinical moment ⚠️** (B6/B7).
+
+Barriers to leaving paper are *not* cost: fear that *"a task I already do easily will get harder"*, unclear
+ROI, portability, fear of unreliability mid-consultation. **Paper is infinitely forgiving — software that
+refuses a correction feels worse than paper.**
+
+Positioning: *"faster than your paper chart on day one, and your data is always yours."*
+
+---
+
+# 6 · Method — how to not repeat this
+
+**Read the comment next to the code before filing anything.** 17 of 20 killed findings were answered in a
+source comment within 40 lines of the thing I was judging. The failure modes, in order of how often they bit:
+
+| Failure mode | Count | Discriminator |
+|---|---|---|
+| The feature already ships | 4 | `grep` the domain entity **and** the component directory before writing "add X" |
+| Deliberately withdrawn | 2 | A tombstone is a **decision**. Read it, don't route around it |
+| I filed the fix as the defect | 2 | Confusing copy next to a `git blame` reason usually *is* the remedy |
+| A sequencing rule read as a missing button | 3 | Sample rows in **more than one state** — all 25 of mine were at step 1 |
+| Dev-environment artefact | 2 | Count the rows in the DB before quoting a badge; a 15 s poll cannot fire 37× in a resize |
+| Screenshot never re-checked | 5 | See §4 |
+
+**Browser traps:** the session expires mid-walk and a scrape then silently captures Next's RSC payload from
+`/login` — guard every probe with `if (/\/login/.test(page.url())) throw` · `refresh-session.mjs` +
+`browser_close` does **not** restore a session (the process isn't restarted); log in through the form and
+compute TOTP **in-page** · Radix dropdowns need real pointer events (`el.click()` in `evaluate` does nothing) ·
+two tablists on the patient page — target by `aria-controls`, `querySelector` returns the odontogram's.
