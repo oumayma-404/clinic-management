@@ -73,6 +73,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // Clinical-workflow-depth: caisse expenses, salle-d'attente entries, and dental-lab work orders
     // (all clinic-scoped aggregate roots — added to the global clinic query filter below).
     public DbSet<Expense> Expenses { get; set; }
+    /// <summary>The standing monthly commitments the posting pass turns into <see cref="Expense"/> rows.</summary>
+    public DbSet<RecurringExpense> RecurringExpenses { get; set; }
     public DbSet<WaitingListEntry> WaitingListEntries { get; set; }
     public DbSet<LabWorkOrder> LabWorkOrders { get; set; }
     public DbSet<PatientMedicalHistory> PatientMedicalHistories { get; set; }
@@ -303,6 +305,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // Clinical-workflow-depth aggregate roots — directly clinic-owned → filtered like the others. Their
         // Patient children are reached only through the aggregate, so they need no filter of their own.
         modelBuilder.Entity<Expense>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        // The monthly-dépense templates. Filtered like the rows they post; MonthlyExpenseJob declares
+        // UseSystemWide, which is what lets one daily tick serve every clinic.
+        modelBuilder.Entity<RecurringExpense>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
         modelBuilder.Entity<WaitingListEntry>().HasQueryFilter(w => IsSystemWide || w.ClinicId == ScopedClinicId);
         modelBuilder.Entity<LabWorkOrder>().HasQueryFilter(l => IsSystemWide || l.ClinicId == ScopedClinicId);
         // RecurringAppointment gained a ClinicId (clinical-workflow-depth) → clinic-scoped like the others.

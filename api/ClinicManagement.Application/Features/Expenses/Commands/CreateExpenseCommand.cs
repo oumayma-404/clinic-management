@@ -20,20 +20,30 @@ public class CreateExpenseCommand : IRequest<Result<ExpenseDto>>
     public decimal Amount { get; set; }
     public string Method { get; set; } = string.Empty;
     public string? Description { get; set; }
+
+    /// <summary>
+    /// « Répéter chaque mois ». The dépense being recorded is the series' FIRST occurrence — its day becomes the
+    /// series' day of the month and its month the marker the posting pass starts after — so ticking the switch
+    /// costs one tap and no second form, and cannot post the month the user has just typed twice.
+    /// </summary>
+    public bool RepeatMonthly { get; set; }
 }
 
 public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand, Result<ExpenseDto>>
 {
     private readonly IExpenseRepository _expenseRepository;
+    private readonly IRecurringExpenseRepository _recurringExpenseRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public CreateExpenseCommandHandler(
         IExpenseRepository expenseRepository,
+        IRecurringExpenseRepository recurringExpenseRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _expenseRepository = expenseRepository;
+        _recurringExpenseRepository = recurringExpenseRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -59,16 +69,37 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
             if (clinic.IsFailure)
                 return Result<ExpenseDto>.Failure(clinic.Error ?? "Cabinet introuvable.");
 
+            var category = request.Category.Trim();
+            var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+
+            RecurringExpense? series = null;
+            if (request.RepeatMonthly)
+            {
+                series = new RecurringExpense(
+                    Guid.NewGuid(),
+                    clinic.Value,
+                    category,
+                    request.Amount,
+                    method,
+                    MonthlyExpenseSchedule.DayOfMonthOf(expenseDay),
+                    MonthlyExpenseSchedule.MonthOf(expenseDay),
+                    description);
+
+                await _recurringExpenseRepository.AddAsync(series, cancellationToken);
+            }
+
             var expense = new Expense(
                 Guid.NewGuid(),
                 clinic.Value,
                 expenseDay,
-                request.Category.Trim(),
+                category,
                 request.Amount,
                 method,
-                string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim());
+                description,
+                series?.Id);
 
             await _expenseRepository.AddAsync(expense, cancellationToken);
+            // One save, so a series can never exist without the dépense that started it, or the reverse.
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<ExpenseDto>.Success(expense.ToDto());

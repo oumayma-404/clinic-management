@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { ExpenseDto, CaisseSummaryDto, CaisseLedgerDto } from './types';
+import type { ExpenseDto, RecurringExpenseDto, CaisseSummaryDto, CaisseLedgerDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface ExpensePayload {
@@ -24,6 +24,22 @@ export interface ExpensePayload {
    * one amount silently replaced the other. This is money.
    */
   version?: number;
+  /**
+   * « Répéter chaque mois ». Creates the monthly series alongside the dépense being recorded, in one call —
+   * that row is the series' first occurrence, so its day becomes the series' day of the month and its month the
+   * marker the posting pass starts after. Meaningless on an update; only `create` reads it.
+   */
+  repeatMonthly?: boolean;
+}
+
+/** The editable half of a monthly series. No date: a series has a day of the month, not a day. */
+export interface RecurringExpensePayload {
+  category: string;
+  amount: number;
+  method: string;
+  description?: string | null;
+  dayOfMonth: number;
+  version?: number;
 }
 
 export const expensesApi = {
@@ -47,6 +63,26 @@ export const expensesApi = {
   update: async (id: string, data: ExpensePayload): Promise<ExpenseDto> => apiPut<ExpenseDto>(`/expenses/${id}`, data),
 
   delete: async (id: string): Promise<void> => apiDelete<void>(`/expenses/${id}`),
+
+  /**
+   * « Dépenses mensuelles » — the clinic's ACTIVE series, unpaged and with no window.
+   *
+   * ⚠️ Deliberately not period-scoped, unlike every other read on la caisse: a standing commitment has no date,
+   * so passing the screen's `fromDay`/`toDay` would answer a question nobody asked. A stopped series is absent.
+   */
+  listRecurring: async (): Promise<RecurringExpenseDto[]> =>
+    apiGet<RecurringExpenseDto[]>('/expenses/recurring'),
+
+  /** Future months only — the occurrences already in la caisse keep the figure they were recorded with. */
+  updateRecurring: async (id: string, data: RecurringExpensePayload): Promise<RecurringExpenseDto> =>
+    apiPut<RecurringExpenseDto>(`/expenses/recurring/${id}`, data),
+
+  /**
+   * « Arrêter » — the credit is paid off. NOT a delete: nothing already posted moves, so no caisse figure the
+   * practice has already read changes. Idempotent server-side.
+   */
+  stopRecurring: async (id: string): Promise<void> =>
+    apiPost<void>(`/expenses/recurring/${id}/stop`, {}),
 
   // Caisse (daily cash): net = cashIn − refunds − cashOut over the window (defaults to the clinic-local day
   // server-side). `cashIn` is gross; refunds are their own figure.

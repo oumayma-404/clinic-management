@@ -1249,8 +1249,33 @@ export interface ExpenseDto {
   amount: number;
   method: string;
   description?: string | null;
+  /** Set when a monthly series posted this row — la caisse marks it « mensuelle ». */
+  recurringExpenseId?: string | null;
   createdAt: string;
   updatedAt?: string | null;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
+}
+
+/**
+ * A dépense that repeats every month — a loyer, a salaire, a credit instalment.
+ *
+ * ⚠️ It is a **standing instruction**, not period data: it carries no date and no window, and « Modifier »
+ * changes what FUTURE months will post. The occurrences already in la caisse are ordinary `ExpenseDto` rows that
+ * keep the figure they were recorded with.
+ */
+export interface RecurringExpenseDto {
+  id: string;
+  category: string;
+  amount: number;
+  method: string;
+  description?: string | null;
+  /** 1–31. A 29–31 is clamped to a shorter month's last day when the row is posted. */
+  dayOfMonth: number;
+  /** `AAAA-MM` — the last month posted. */
+  lastPostedMonth: string;
+  /** `AAAA-MM` — the month the next occurrence is owed for. Derived server-side, so the client does no month maths. */
+  nextMonth: string;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
   version: number;
 }

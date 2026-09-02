@@ -25,8 +25,9 @@ import { Label } from "@/components/ui/label"
 import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON } from "@/components/factures/correct-invoice-dialog"
 import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
-import { formatDT } from "@/lib/format"
+import { formatDT, localDayIso } from "@/lib/format"
 import type { CaisseMovementDto } from "@/lib/api/types"
+import { ExpenseMovementActions } from "./expense-movement-actions"
 
 interface CaisseRowActionsProps {
   movement: CaisseMovementDto
@@ -43,20 +44,34 @@ interface CaisseRowActionsProps {
  * the note disagreeing, which is the exact defect this whole area exists to remove. So « Corriger le montant »
  * opens the note's correction instead, right here, without sending anyone to another page.</p>
  *
- * <p>Only offered on an invoice payment that is still live: a voided row is already out of every total, an avoir
- * is its own document, and an expense is not a payment at all.</p>
+ * <p>The two corrections above are offered only on an invoice payment that is still live: a voided row is
+ * already out of every total, and an avoir is its own document.</p>
+ *
+ * <p><b>A dépense is the other case, and it gets the whole form.</b> It has no note behind it — the row IS the
+ * record — so `ExpenseMovementActions` opens the same « Modifier la dépense » the dépenses table below opens,
+ * every field editable, plus the bin for an admin. Until then this component returned null for a dépense, so the
+ * « Corriger » cell was empty on exactly the lines whose correction needs no document at all.</p>
  */
 export function CaisseRowActions({ movement, onChanged }: CaisseRowActionsProps) {
   const [dateOpen, setDateOpen] = useState(false)
   const [correctOpen, setCorrectOpen] = useState(false)
-  const [paidOn, setPaidOn] = useState(movement.occurredOn.slice(0, 10))
+  // ⚠️ `localDayIso`, never `.slice(0, 10)`. `occurredOn` is an INSTANT at the start of a Tunisian day, so a
+  // payment received on the 1st serialises `2026-08-31T23:00:00Z` and slicing pre-filled « Corriger la date »
+  // with the 31st of August — a plausible wrong day in the one field the dialog exists to set.
+  const [paidOn, setPaidOn] = useState(localDayIso(movement.occurredOn))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const actionable =
+  const isExpense = movement.kind === "Expense" && Boolean(movement.targetId)
+  const isCorrectablePayment =
     movement.kind === "InvoicePayment" && !movement.isVoided && Boolean(movement.targetId)
 
-  if (!actionable) return null
+  // It owns its own trigger and menu, because its dialogs have to outlive the menu closing.
+  if (isExpense) {
+    return <ExpenseMovementActions movement={movement} onChanged={onChanged} />
+  }
+
+  if (!isCorrectablePayment) return null
 
   const invoiceId = movement.targetId!
 
@@ -88,7 +103,7 @@ export function CaisseRowActions({ movement, onChanged }: CaisseRowActionsProps)
         <DropdownMenuContent align="end">
           <DropdownMenuItem
             onSelect={() => {
-              setPaidOn(movement.occurredOn.slice(0, 10))
+              setPaidOn(localDayIso(movement.occurredOn))
               setError(null)
               setDateOpen(true)
             }}
