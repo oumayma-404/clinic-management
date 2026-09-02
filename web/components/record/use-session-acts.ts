@@ -86,6 +86,18 @@ function derivePerTooth(act: SessionAct, toothCount: number): boolean {
   return act.resultingCondition != null
 }
 
+/**
+ * One act booked into the rendez-vous, as the fiche proposes it.
+ *
+ * <p>⚠️ `agreedCost` is **required**, not optional — `null` has to be written out. The fiche prices a booked act
+ * from the catalogue, so a caller that simply omits the price gets the tarif silently; making the field
+ * mandatory turns that omission into a compile error instead of a wrong number on a patient's note.</p>
+ */
+export interface BookedActPrefill {
+  procedure: ProcedureTypeDto
+  agreedCost: number | null
+}
+
 /** A treatment-plan step's values carried into the first act when the step is linked. */
 export interface PlanItemPrefill {
   designationFr?: string
@@ -249,7 +261,7 @@ export type SessionAction =
   | { type: "toggleTooth"; tooth: number }
   | { type: "selectMany"; teeth: number[]; additive: boolean }
   | { type: "clearTeeth" }
-  | { type: "applyAppointment"; procedure: ProcedureTypeDto; agreedCost?: number | null }
+  | { type: "applyAppointment"; procedures: BookedActPrefill[] }
   | { type: "applyPlanItem"; item: PlanItemPrefill }
   /** The dentist typed the séance total; the acts follow. See {@link distributeSessionTotal}. */
   | { type: "setTotal"; total: number }
@@ -470,15 +482,16 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       return mapAct(state, focused.key, (a) => withTeeth(a, []))
 
     case "applyAppointment": {
-      // Option C: the booked procedure PROPOSES the act. Only ever fills an untouched session — reopening a saved
-      // record, or a session the dentist has already started, is never overwritten. Nothing is committed: the
-      // proposal is an ordinary card the dentist can change or delete.
+      // ⚠️ EVERY booked act is proposed, not just the first, and the séance's own total is why: with one card the
+      // fiche showed « 1 acte » and one act's money for a visit booked for three, so the others were missed and
+      // never billed. They are ordinary cards — deletable, and a deleted one is offered back — so an act that was
+      // not performed is removed rather than never mentioned.
       const first = state.acts[0]
-      if (state.acts.length !== 1 || isActNamed(first)) return state
-      return {
-        ...mapAct(state, first.key, (a) => applyProcedure(a, action.procedure, action.agreedCost)),
-        focusKey: first.key,
-      }
+      if (state.acts.length !== 1 || isActNamed(first) || action.procedures.length === 0) return state
+      const acts = action.procedures.map((p, i) =>
+        applyProcedure(i === 0 ? first : emptyAct(makeKey(state.nextKey + i - 1)), p.procedure, p.agreedCost),
+      )
+      return { acts, focusKey: acts[0].key, nextKey: state.nextKey + action.procedures.length - 1 }
     }
 
     case "applyPlanItem": {

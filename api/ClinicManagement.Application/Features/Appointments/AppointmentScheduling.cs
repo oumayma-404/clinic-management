@@ -19,12 +19,25 @@ namespace ClinicManagement.Application.Features.Appointments;
 public static class AppointmentScheduling
 {
     /// <summary>
-    /// Statuses that still occupy a slot. <c>Cancelled</c> and <c>NoShow</c> do not — rebooking a freed slot is
-    /// the most common scheduling action there is, and this set is deliberately the same one the database's
-    /// partial exclusion constraint uses (<c>Status NOT IN (5,6)</c>) so the guard and the constraint agree.
+    /// Whether this booking still holds its slot. <c>Cancelled</c> and <c>NoShow</c> do not — rebooking a freed
+    /// slot is the most common scheduling action there is — and neither does a séance somebody
+    /// <b>retired</b> (« Supprimer (créé par erreur) »).
+    ///
+    /// <para>⚠️ <b>This predicate and the database's partial exclusion constraint are one rule in two places and
+    /// must move together.</b> <c>EX_Appointments_NoDoubleBooking</c>'s <c>WHERE</c> is the same test —
+    /// <c>Status NOT IN (5,6) AND "DisregardedAtUtc" IS NULL AND NOT "BookedWithOverlap"</c>. Widened here alone,
+    /// the app would wave a booking through and PostgreSQL would refuse the INSERT with a raw constraint
+    /// violation; narrowed here alone, the app would refuse a slot the database considers free and name a
+    /// collision the user cannot see on the agenda.</para>
+    ///
+    /// <para>It takes the <b>appointment</b> rather than a status because the disregard mark is not on the
+    /// status: an overload taking a bare <c>AppointmentStatus</c> is exactly how a third call site would answer
+    /// this question without it.</para>
     /// </summary>
-    public static bool OccupiesSlot(AppointmentStatus status) =>
-        status != AppointmentStatus.Cancelled && status != AppointmentStatus.NoShow;
+    public static bool OccupiesSlot(Appointment appointment) =>
+        appointment.Status != AppointmentStatus.Cancelled
+        && appointment.Status != AppointmentStatus.NoShow
+        && !appointment.IsDisregarded;
 
     /// <summary>Half-open interval overlap: <c>[aStart, aEnd)</c> against <c>[bStart, bEnd)</c>.</summary>
     public static bool Overlaps(DateTime aStart, TimeSpan aDuration, DateTime bStart, TimeSpan bDuration) =>
@@ -121,7 +134,7 @@ public static class AppointmentScheduling
 
         return candidates.FirstOrDefault(existing =>
             existing.Id != excludeAppointmentId
-            && OccupiesSlot(existing.Status)
+            && OccupiesSlot(existing)
             && CompetesFor(doctorId, existing.DoctorId)
             && Overlaps(existing.AppointmentDateTime, existing.Duration, start, duration));
     }

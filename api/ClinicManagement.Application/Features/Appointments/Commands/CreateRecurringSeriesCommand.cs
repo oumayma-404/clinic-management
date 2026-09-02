@@ -241,7 +241,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 // always false, so the whole clause was dead. `CompetesFor` is what decides now — see its remarks
                 // for why an unassigned row competes with everything.
                 var collides = existing.Any(e =>
-                    AppointmentScheduling.OccupiesSlot(e.Status) &&
+                    AppointmentScheduling.OccupiesSlot(e) &&
                     AppointmentScheduling.CompetesFor(request.DoctorId, e.DoctorId) &&
                     AppointmentScheduling.Overlaps(e.AppointmentDateTime, e.Duration, occ, duration));
 

@@ -39,7 +39,9 @@ import { ApiError } from "@/lib/api/client"
 import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON, type CorrectionPreview } from "@/components/factures/correct-invoice-dialog"
 import { ActCard } from "@/components/record/act-card"
 import { RecordSection } from "@/components/record/record-section"
-import { actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs } from "@/components/record/use-session-acts"
+import {
+  actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs, type BookedActPrefill,
+} from "@/components/record/use-session-acts"
 import {
   CHEQUE_METHOD,
   ChequeFields,
@@ -368,24 +370,47 @@ export function PatientRecordModal({
     })
   }, [open, record, appointment, planItems, dispatch])
 
-  // Option C: propose the appointment's booked procedure. Runs after the reset above and is itself guarded —
-  // `applyAppointment` is a no-op unless the session is untouched, so it can never clobber a saved record or
-  // work in progress. A record being edited is never re-proposed.
+  /**
+   * Every act booked into this séance, in the dentist's order, resolved against the catalogue.
+   *
+   * <p>⚠️ The booked ROW travels with the catalogue entry, not just its id — the agreed price lives on the row,
+   * and resolving to a bare `ProcedureTypeDto` is what would price a negotiated act from the tarif.</p>
+   */
+  const bookedActs = useMemo(
+    () =>
+      (appointment?.procedures ?? [])
+        .slice()
+        .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+        .map((row) => ({
+          row,
+          procedure: row.procedureTypeId
+            ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
+            : undefined,
+        }))
+        .filter(
+          (entry): entry is { row: AppointmentProcedureDto; procedure: ProcedureTypeDto } => !!entry.procedure,
+        ),
+    [appointment?.procedures, procedureTypes],
+  )
+
+  // Propose EVERY act booked into the séance. Guarded twice over: `applyAppointment` is a no-op unless the
+  // session is a single untouched card, so it can never clobber a saved record or work in progress.
   useEffect(() => {
-    if (!open || record || !appointment?.procedureTypeId || procedureTypes.length === 0) return
-    const booked = procedureTypes.find((p) => p.id === appointment.procedureTypeId)
-    // ⚠️ The price comes from the appointment's own act ROW, never from `booked.defaultCost`. The lead act is a
-    // derived snapshot of the first row, so the catalogue is the wrong place to ask: a visit booked at a
-    // negotiated 120 DT would open the fiche at the 150 DT tarif, and the patient would be billed a price
-    // nobody quoted them.
-    const bookedRow = appointment.procedures
-      ?.slice()
-      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-      .find((p) => p.procedureTypeId === appointment.procedureTypeId)
-    if (booked) {
-      dispatch({ type: "applyAppointment", procedure: booked, agreedCost: bookedRow?.agreedCost ?? null })
+    if (!open || record || procedureTypes.length === 0) return
+    // ⚠️ Prices come from the appointment's own act ROWS, never from `defaultCost` — a visit booked at a
+    // negotiated 120 DT would otherwise open the fiche at the 150 DT tarif.
+    const prefill: BookedActPrefill[] = bookedActs.map(({ row, procedure }) => ({
+      procedure,
+      agreedCost: row.agreedCost ?? null,
+    }))
+    // A response predating `procedures` carries only the lead-act scalar; without this fallback such a visit
+    // would propose nothing at all.
+    if (prefill.length === 0 && appointment?.procedureTypeId) {
+      const lead = procedureTypes.find((p) => p.id === appointment.procedureTypeId)
+      if (lead) prefill.push({ procedure: lead, agreedCost: null })
     }
-  }, [open, record, appointment, procedureTypes, dispatch])
+    if (prefill.length > 0) dispatch({ type: "applyAppointment", procedures: prefill })
+  }, [open, record, appointment?.procedureTypeId, bookedActs, procedureTypes, dispatch])
 
   // « Montant payé » mirrors the running total until the user takes the field over.
   useEffect(() => {
@@ -810,38 +835,32 @@ export function PatientRecordModal({
           .filter(Boolean)
           .join(" · ")
 
-  // The one card that came from the booking, and only while it is still the whole séance.
-  const proposedFromAppointment =
-    !record && acts.length === 1 && appointment?.procedureTypeId != null &&
-    acts[0].procedureTypeId === appointment.procedureTypeId
-      ? acts[0].key
-      : null
+  /**
+   * The cards that came from the booking. Every booked act is proposed now, so this is a set rather than one key
+   * — labelling only the first left the second and third looking hand-added on a visit that had planned them.
+   */
+  const proposedFromAppointment = useMemo(() => {
+    if (record) return new Set<string>()
+    const booked = new Set(bookedActs.map((b) => b.procedure.id))
+    return new Set(
+      acts.filter((a) => a.procedureTypeId && booked.has(a.procedureTypeId)).map((a) => a.key),
+    )
+  }, [record, bookedActs, acts])
 
   /**
    * The séance's other booked acts, resolved against the catalogue and minus anything already in this session
    * (charted or in the draft) — so the shortcuts thin out as the dentist works through the visit instead of
    * re-offering an act they have just recorded.
    */
+
+  /**
+   * Booked acts NOT in the pile. Now that every one is proposed on arrival this is normally empty, and it renders
+   * for one case only: an act the dentist deleted. Offering it back is what keeps a mistaken deletion recoverable.
+   */
   const otherBookedActs = useMemo(() => {
     const used = new Set<string>(acts.map((a) => a.procedureTypeId).filter((id): id is string => !!id))
-    return (appointment?.procedures ?? [])
-      .slice()
-      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-      // ⚠️ The booked ROW travels with the catalogue entry, not just its id. This used to resolve straight to a
-      // `ProcedureTypeDto` and throw the row away, which is exactly where a negotiated price would have died:
-      // the shortcut would have priced the second act of a séance from the catalogue while the first — reached by
-      // a different code path — carried the agreed figure. Two acts of one visit, two pricing rules.
-      .map((row) => ({
-        row,
-        procedure: row.procedureTypeId
-          ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
-          : undefined,
-      }))
-      .filter(
-        (entry): entry is { row: AppointmentProcedureDto; procedure: ProcedureTypeDto } =>
-          !!entry.procedure && !used.has(entry.procedure.id),
-      )
-  }, [appointment?.procedures, procedureTypes, acts])
+    return bookedActs.filter((entry) => !used.has(entry.procedure.id))
+  }, [bookedActs, acts])
 
   return (
     <>
@@ -970,7 +989,7 @@ export function PatientRecordModal({
               procedureTypes={procedureTypes}
               color={actColors.get(act.key) ?? ACT_PALETTE[0]}
               arch={arch}
-              proposedFromAppointment={act.key === proposedFromAppointment}
+              proposedFromAppointment={proposedFromAppointment.has(act.key)}
               duplicate={duplicateKeys.has(act.key)}
               error={saveError?.actKey === act.key ? saveError.message : null}
               dispatch={dispatch}
@@ -997,17 +1016,16 @@ export function PatientRecordModal({
         </div>
 
         {/*
-          The rest of the séance. An appointment can carry several acts, and only the first one is *proposed* —
-          proposing all of them would have to commit acts the dentist has not confirmed, with no teeth and no
-          price, which is exactly what the confirm-first flow exists to avoid.
-
-          So the others are named rather than pre-filled, each with a one-tap « Ajouter ». Without this the fiche
-          would silently document one act of a visit booked for three, and nothing on the screen would say so.
+          ⚠️ This used to be where every act after the first lived — a faint dashed row of « + » chips under the
+          one card that had been proposed. It read as « un seul acte était prévu »: the séance's own header said
+          « 1 acte » and showed one act's money for a visit booked for three, so the others were missed and never
+          billed. Every booked act is a real card now, and this row is what is left over — an act the dentist
+          deleted, offered back, so removing one by mistake is recoverable.
         */}
         {!record && otherBookedActs.length > 0 && (
           <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2">
             <p className="text-xs text-muted-foreground">
-              Aussi prévu à ce rendez-vous — à confirmer un par un :
+              Prévu à ce rendez-vous, retiré de la fiche — remettre :
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {otherBookedActs.map(({ row, procedure }) => (

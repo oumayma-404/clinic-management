@@ -963,10 +963,31 @@ check(
     "how one of them gets fixed and the other does not. Pass `agreedCost` from the booked ROW, never from the " +
     "catalogue entry.",
   () => {
-    // Keyed on the dispatch, not on a file list: a third prefill site added anywhere is caught the same way.
-    const PREFILL = /type:\s*"(?:applyAppointment|addFromProcedure)"/;
-
     const offenders = [];
+
+    /*
+     * `applyAppointment` is held by the TYPE, not by a grep: `BookedActPrefill.agreedCost` is required and
+     * explicitly nullable, so a caller that omits the price does not compile. What a grep must still hold is
+     * that the field stays mandatory — `agreedCost?:` would make every omission silent again.
+     */
+    const storeLines = read("components/record/use-session-acts.ts").split(/\r?\n/);
+    const storeMask = commentMask(storeLines);
+    const store = storeLines.map((l, i) => (storeMask[i] ? "" : l)).join("\n");
+    const carrier = /export interface BookedActPrefill\s*\{[^}]*\}/.exec(store);
+    if (!carrier) {
+      offenders.push({
+        file: "components/record/use-session-acts.ts",
+        text: "BookedActPrefill not found — the guard cannot check the carrier and must not pass",
+      });
+    } else if (!/\bagreedCost\s*:/.test(carrier[0])) {
+      offenders.push({
+        file: "components/record/use-session-acts.ts",
+        text: "BookedActPrefill.agreedCost is optional or gone — an omitted price reverts to the tarif in silence",
+      });
+    }
+
+    // `addFromProcedure` passes the price inline, so its dispatch sites are the grep's half.
+    const PREFILL = /type:\s*"addFromProcedure"/;
     for (const f of tsx()) {
       const src = read(f);
       if (!PREFILL.test(src)) continue;
@@ -974,18 +995,12 @@ check(
       const masked = commentMask(lines);
       lines.forEach((l, i) => {
         if (masked[i] || !PREFILL.test(l)) return;
-        /*
-         * The dispatch object may be written across several lines, so the window is the statement rather than
-         * the one line — six lines forward covers both shapes in use (a single-line object, and the multi-line
-         * form the shortcut button needs). `use-session-acts.ts` declares these actions rather than dispatching
-         * them, and its declaration lines carry `agreedCost?` for the same reason, so it passes on its own.
-         */
-        const window = lines.slice(i, i + 6).join("\n");
-        if (!/agreedCost/.test(window)) {
+        // The dispatch object may span lines, so the window is the statement rather than the one line.
+        if (!/agreedCost/.test(lines.slice(i, i + 8).join("\n"))) {
           offenders.push({
             file: f,
             line: i + 1,
-            text: "prefill dispatched without agreedCost — the fiche will re-price from the catalogue",
+            text: "addFromProcedure dispatched without agreedCost — the fiche will re-price from the catalogue",
           });
         }
       });
