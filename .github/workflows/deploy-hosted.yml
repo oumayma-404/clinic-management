@@ -172,6 +172,20 @@ jobs:
       # place the deployment ever type-checks its proxy config. Bringing the recreate forward is what makes that
       # necessary: a Caddyfile that cannot parse would now take the front door down *before* the new images are
       # even pulled, so the deploy must refuse while the old config is still serving.
+      #
+      # ⚠️ **The `{$VAR}` values are DERIVED from the Caddyfile, never listed here** — and that is not tidiness,
+      # it is the bug this step already shipped once. It set `DOMAIN` and `ACME_EMAIL` by name; the Caddyfile
+      # then grew `{$LEGACY_DOMAIN}` for the move to app.apexa.tn, that placeholder expanded to empty inside the
+      # validation container, `{$DOMAIN}, {$LEGACY_DOMAIN} {` became `app.apexa.tn, {`, and Caddy refused it as
+      # « Expected another address but had '{' — check for extra comma ». Nothing was wrong with the deployment:
+      # compose passes `${LEGACY_DOMAIN:-${DOMAIN}}`, so the real Caddy could never see an empty value. A
+      # hand-kept list of variables here was simply a second source of truth for the file's own contents, and it
+      # blocked a good deploy the first time the two disagreed. `config-freshness.sh` beside this makes the same
+      # point about its mount list; this step should have followed it from the start.
+      #
+      # The VALUES are deliberately dummies. Only the syntax is under test, and an empty expansion is the one
+      # thing that changes it — so every placeholder simply has to be non-empty. Using the real `.env` instead
+      # would put 21 KB of secrets through a throwaway container to learn nothing more.
       - name: Put the new proxy config in place before the swap
         run: |
           ssh vps "DEPLOY_DIR='${{ vars.VPS_DEPLOY_DIR }}' bash -s" <<'REMOTE'
@@ -179,9 +193,26 @@ jobs:
           cd "$DEPLOY_DIR"
           COMPOSE="docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml"
 
-          # DOMAIN/ACME_EMAIL are only interpolated by Caddy at load; any non-empty value parses the same.
-          docker run --rm -v "$DEPLOY_DIR/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            -e DOMAIN=validate.invalid -e ACME_EMAIL=validate@invalid \
+          # Every `{$NAME}` the file interpolates, read out of the file itself.
+          placeholders=$(grep -oE '\{\$[A-Za-z_][A-Za-z0-9_]*\}' Caddyfile | tr -d '{$}' | sort -u)
+          if [ -z "$placeholders" ]; then
+            echo "::error::Found no {\$VAR} placeholders in Caddyfile — the derivation broke, and a validation" \
+                 "that silently checks nothing is worse than none. Fix the grep above."
+            exit 1
+          fi
+          echo "Validating with placeholders: $(echo $placeholders | tr '\n' ' ')"
+
+          # An address wants a hostname and `email` wants an address-shaped string; nothing else is inspected.
+          env_args=""
+          for name in $placeholders; do
+            case "$name" in
+              *EMAIL*) env_args="$env_args -e $name=validate@invalid" ;;
+              *)       env_args="$env_args -e $name=validate.invalid" ;;
+            esac
+          done
+
+          # $env_args unquoted on purpose — it is a list of separate arguments, as `$stale` is below.
+          docker run --rm -v "$DEPLOY_DIR/Caddyfile:/etc/caddy/Caddyfile:ro" $env_args \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
 
           stale=$(bash config-freshness.sh --services)

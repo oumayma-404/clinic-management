@@ -8,7 +8,7 @@ shipped features: agenda, odontogramme, fiche de soins, catalogue. Not branched 
 ## Status
 - [x] Implementation
 - [x] Quality checks (build, tsc, check:responsive, build, eye pass)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests (added — see « Test Plan » and « Tests Run » at the end)
 
 ## Working tree note (start of session)
 Five files were already dirty from another author's in-flight work and are **excluded** from this feature:
@@ -247,3 +247,66 @@ column. That is inherent to a sticky column over numeric data; the `border-s` ha
 the `--border` token, over an opaque `--card` background) is what makes it read as a boundary rather than as a
 rendering fault. Judged better than the alternative it replaced — the action being unreachable at 1024–1366 —
 but it is a real visual cost, not a free win.
+
+
+---
+
+## Test Plan
+
+| AC | Action | Target file | Notes |
+|----|--------|-------------|-------|
+| AC-1 | New class | `Features/Expenses/MonthlyExpenseCommandTests.cs` | switch off ⇒ no series · on ⇒ day + month derived from the typed date · both rows in one save · a refused dépense leaves no series |
+| AC-2 | New class | `Features/Expenses/MonthlyExpenseScheduleTests.cs` | up to date ⇒ empty · one month · a quarter oldest-first · across a year · marker ahead ⇒ empty · 5 unreadable keys · the 120-month bound |
+| AC-2 | New class | `Api/MonthlyExpenseJobTests.cs` | the pass posts a due month, fills a quarter, and posts nothing when up to date |
+| AC-2 | New class | `Domain/RecurringExpenseTests.cs` | `MarkPosted` only advances — a re-run cannot rewind the marker and post a month twice |
+| AC-3 | New class | `Api/MonthlyExpenseJobTests.cs` | a posted row carries the series' current values **and** the back-link that makes it « mensuelle » |
+| AC-5 | New class | `Domain/RecurringExpenseTests.cs` + `MonthlyExpenseCommandTests.cs` | `Update` leaves `LastPostedMonth` untouched; the version is round-tripped; a stopped series cannot be modified |
+| AC-6 | New class | `Domain/RecurringExpenseTests.cs` + `MonthlyExpenseCommandTests.cs` + `Api/MonthlyExpenseJobTests.cs` | stop is idempotent and keeps the first instant · does not settle the month it owed · a stopped series is never posted · **the command has exactly one property, so no screen can grow a motif** |
+| AC-7 | New class | `Features/Expenses/MonthlyExpenseScheduleTests.cs` + `Api/MonthlyExpenseJobTests.cs` | the 31st clamped on Feb (28 **and** 29 in 2028), Apr, Jun, Sep; the offset **direction** pinned with a literal (`2026-09-05` ⇒ `2026-09-04T23:00Z`); the `2026-08-31T23:00Z` ⇒ « 1 September » round trip |
+| AC-8 | New class | `Api/MonthlyExpenseJobTests.cs` | the broadcast key comes from the production resolver, not a literal |
+| — | New class | `Features/Expenses/RecurringExpenseTenantIsolationTests.cs` | the repo's standing rule for any clinic-scoped feature: another clinic's series refuses update and stop, reads identically to a missing one, and the list asks only for the caller's clinic |
+
+**Coverage notes — ACs with no unit surface, recorded rather than contrived:**
+- **AC-3's « indistinguishable to every money read »** is SQL (`GetTotalBetweenAsync`, the caisse ledger, the CSV
+  export) and this suite touches no database. What *is* unit-tested is the premise: a posted row is an ordinary
+  `Expense` with the series' own fields. The read half was verified live — the « Dépenses » total moved with the
+  posted rows and `reconcile-money` reported no drift.
+- **AC-6's « no caisse figure changes »** is the same shape. Unit-tested: stopping posts nothing further and saves
+  nothing. Verified live: 3 250,500 DT before and after.
+- **AC-9 (device)** has no C# surface at all — held by `check:responsive` (26/26) and the eye pass above.
+- **The EF query filter and the archive inclusion** are covered by the repo's own derived guards
+  (`TenantScopeFilterTests`, `SystemWideCallerCoverageTests`, `ClinicArchiveScopeTests`), which is why they were
+  run explicitly below rather than left to a full-suite sweep.
+
+## Bug found & fixed by the tests
+
+**`A_Stopped_Series_Is_Never_Posted` failed on its first run — the pass posted three months for a cancelled
+series.** `PostClinicAsync` relied entirely on the repository's SQL predicate (`CancelledAt == null`) and never
+re-checked in the loop. `AppointmentProgressJob` deliberately *does* re-ask — « the read already excludes both of
+these; asking again keeps that agreement checkable here rather than turning a widened predicate into a thrown
+transition » — and this pass had not followed it. Left as written, widening that read (an `includeStopped`
+overload, a changed filtered index) would silently post dépenses for commitments a practice had ended, and on a
+money screen that is a charge nobody ordered. Fix: a two-line `if (!recurring.IsActive) continue;` guard in
+`MonthlyExpenseJob.PostClinicAsync`. The test was not weakened.
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit | the five new classes | **71 passed, 0 failed** |
+| Unit | `TenantScopeFilter` · `SystemWideCallerCoverage` · `RealtimeResourceResolver` · `ClinicArchiveScope` · `ClinicalRecordAuditCoverage` · `ControllerAuthorizationCoverage` | **58 passed, 0 failed** |
+| Unit | **whole suite** (regression) | **3950 passed, 0 failed, 0 skipped** |
+
+Build: 0 errors, and no new warning in any changed file.
+
+⚠️ **Run recipe** — Smart App Control is ON, so `dotnet test` fails at *load* with `0x800711C7`. The working
+path (and the one used for every figure above) is the isolated-`OutDir` + `vstest`-on-prebuilt-DLL recipe:
+```
+dotnet build ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -p:OutDir=<scratch>/utbuild/
+dotnet vstest <scratch>/utbuild/ClinicManagement.UnitTests.dll --TestCaseFilter:"FullyQualifiedName~MonthlyExpense"
+```
+
+## Note on the repo's own convention vs. the generic rule
+The generic test rule bans `// [AC-n]` markers in favour of the method name. **`ClinicManagement.UnitTests/CLAUDE.md`
+requires the opposite** — « Class-level XML `<summary>` and per-test `//` comments cite the spec item they cover
+(`[US-2]`, `[AC-4]`) — preserve this, it's how tests map back to feature specs. » The repo wins, so the markers
+are present, one line each.

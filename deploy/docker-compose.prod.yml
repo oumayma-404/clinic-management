@@ -161,11 +161,11 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN}
-      # The old hostname, kept answering alongside DOMAIN so desktop clients that pin it at compile time
-      # (`ServerConfig.HostedHost`) are not stranded by the rename. Defaults to DOMAIN — Caddy would refuse to
-      # parse a site address ending in a bare comma, so this must never resolve to an empty string; repeating
-      # the canonical name is the harmless no-op form. See the note at the top of Caddyfile.
-      LEGACY_DOMAIN: ${LEGACY_DOMAIN:-${DOMAIN}}
+      # ⚠️ `LEGACY_DOMAIN` was here for the app.apexa.tn transition and is deliberately gone. A leftover
+      # `LEGACY_DOMAIN=` in a server's `.env` is now inert rather than harmful — nothing interpolates it — so
+      # there is no need to go and delete it. If a second address is ever wanted again, read the note at the top
+      # of Caddyfile FIRST: it records the order that keeps installed clients reachable, and the `:-${DOMAIN}`
+      # default this line used to carry, which existed because Caddy refuses a site address ending in a comma.
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
