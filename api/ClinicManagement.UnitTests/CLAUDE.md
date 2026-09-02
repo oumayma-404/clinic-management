@@ -269,6 +269,21 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   decide `Residency` first »), and **its own non-vacuity test caught it scanning nothing**: `SolutionSources.Root()`
   returns the directory holding the `.sln`, which *is* `api/`, so a `Path.Combine(root, "api", …)` found no files
   and passed. Worth repeating for any derived guard here.
+- **`Common/Files/PatientFilePreviewPolicyTests.cs` + `Features/Files/PatientFilePreviewTests.cs`**
+  (`clinic-file-decoders`) — the stand-in image a file carries, and what the drawer paints when it has none.
+  ⚠️ **The load-bearing case is `A_Row_The_Route_Will_Serve_Is_A_Row_The_Browser_Is_Told_To_Ask_For`**, and it is
+  the only thing that can hold the pair together: `PatientFileDto.HasPreview` decides whether the browser *asks*
+  for a preview and `DownloadPatientFilePreviewQuery` decides what to *serve*, so a disagreement is silent in
+  both directions — a row the route would happily serve is never requested, or a tile is drawn against a 404.
+  Neither is visible in a type. It runs the real query over eight shapes of row and compares its verdict with the
+  DTO's flag.
+  ⚠️ One assertion here was **wrong before the code was**: `An_Oversized_Preview_Is_Dropped…` first asserted
+  `HasPreview` false, which pinned « a dropped stand-in means a blank tile » — exactly what the small-original
+  fallback exists to stop being true. It verifies the *upload* never happened instead.
+  ⚠️ `PatientFileResidencyCoverageTests` gained a **`Deciders`** list (the types a door may delegate the
+  residency question to) **and a second test proving each named decider really does mention `Residency`** —
+  without it the list is an allow-list of names, and the day a delegate stopped asking, every door trusting it
+  would go unguarded silently. Same reasoning as the exemption map one level down.
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.

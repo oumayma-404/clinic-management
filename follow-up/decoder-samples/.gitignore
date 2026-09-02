@@ -1,0 +1,8 @@
+# Les fichiers d'essai eux-mêmes restent locaux : 71 Mo d'images d'échantillon dans l'historique git est un coût
+# permanent pour quelque chose que `README.md` (provenance et URL) et `build-samples.mjs` (les deux fichiers
+# fabriqués) permettent de reconstituer en une minute.
+*.heic
+*.heif
+*.tif
+*.tiff
+*.zip

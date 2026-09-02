@@ -139,15 +139,24 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
    */
   const resumeAt = useRef<"first" | "last" | null>(null)
 
-  const preview = useFilePreview(patientId, policy, {
-    files,
-    offset: (filePage.page - 1) * filePage.pageSize,
-    total: filePage.totalCount,
-    hasMoreBefore: filePage.hasPreviousPage,
-    hasMoreAfter: filePage.hasNextPage,
-    onPastStart: () => { resumeAt.current = "last"; setPage((p) => Math.max(1, p - 1)) },
-    onPastEnd: () => { resumeAt.current = "first"; setPage((p) => p + 1) },
-  })
+  // ⚠️ Resolved here rather than beside the upload queue below, because `useFilePreview` needs it: a coffre
+  // original is read from this folder, and asking the server for one can only 404.
+  const { vault, status: vaultStatus, pair: pairVault, reconnect: reconnectVault } = useVault()
+
+  const preview = useFilePreview(
+    patientId,
+    policy,
+    {
+      files,
+      offset: (filePage.page - 1) * filePage.pageSize,
+      total: filePage.totalCount,
+      hasMoreBefore: filePage.hasPreviousPage,
+      hasMoreAfter: filePage.hasNextPage,
+      onPastStart: () => { resumeAt.current = "last"; setPage((p) => Math.max(1, p - 1)) },
+      onPastEnd: () => { resumeAt.current = "first"; setPage((p) => p + 1) },
+    },
+    vault,
+  )
   const openPreview = preview.open
 
   const loadData = useCallback(async () => {
@@ -211,8 +220,6 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       }
     }
   }, [patientId, loading, loadFailed, folders.length, loadData])
-
-  const { vault, status: vaultStatus, pair: pairVault, reconnect: reconnectVault } = useVault()
 
   const uploads = useUploadQueue({
     patientId,
@@ -729,7 +736,6 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       <FileThumbnail
                         patientId={patientId}
                         file={file}
-                        policy={policy}
                         className="absolute inset-0 size-full rounded-none bg-transparent"
                         iconClassName="h-8 w-8"
                         imgClassName="object-contain"
@@ -768,7 +774,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
-                        <FileThumbnail patientId={patientId} file={file} policy={policy} />
+                        <FileThumbnail patientId={patientId} file={file} />
                         <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                             <p className="truncate text-sm font-semibold text-foreground">{file.fileName}</p>
@@ -865,7 +871,6 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       <FilePreviewDialog
         preview={preview}
         patientId={patientId}
-        policy={policy}
         onDownload={(file) => void handleDownloadFile(file)}
         onDelete={(file) => setPendingDelete({ kind: "file", file })}
       />

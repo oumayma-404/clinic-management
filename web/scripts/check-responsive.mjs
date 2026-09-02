@@ -1163,6 +1163,67 @@ check(
   }
 );
 
+check(
+  "decoder-extensions-are-in-the-catalog",
+  "P1",
+  "Every extension `lib/files/decoders` claims is one the server's catalog actually accepts",
+  "The decoder registry is deliberately NOT a mirror of `FileTypeCatalog` — whether a browser paints a format " +
+    "unaided is the server's answer, while whether THIS build ships a decoder for it is a fact about the " +
+    "bundle, and the two are unioned at the point of use rather than compared. But that union only works if " +
+    "both halves are talking about the same file: a registry entry for an extension the catalog never accepts " +
+    "is a decoder that can never run, and a typo (`tif` for `tiff`, `jpg` for `jpeg`) produces exactly that — " +
+    "silently, because the format simply keeps showing its icon and nothing anywhere errors. This checks the " +
+    "one direction that can be wrong; the other (a catalog format with no decoder) is the ordinary case, and " +
+    "is what the typed placeholder is for.",
+  () => {
+    const registryPath = join(WEB_ROOT, "lib", "files", "decoders", "index.ts");
+    const catalogPath = join(
+      WEB_ROOT, "..", "api", "ClinicManagement.Application", "Common", "Files", "FileTypeCatalog.cs"
+    );
+
+    let registrySrc;
+    let catalogSrc;
+    try {
+      registrySrc = readFileSync(registryPath, "utf8");
+      catalogSrc = readFileSync(catalogPath, "utf8");
+    } catch (error) {
+      // A guard that quietly finds nothing to check is indistinguishable from one that passes.
+      return [{ file: rel(registryPath), text: `could not read both sides: ${error.message}` }];
+    }
+
+    /*
+     * Both sides are read from source rather than imported: this script is plain node with no TypeScript
+     * loader and no way to run C#, and a hand-kept list here would be a third copy — i.e. the very drift
+     * being checked for.
+     */
+    const table = registrySrc.match(/const DECODERS[^=]*=\s*\{([\s\S]*?)\n\}/);
+    const declared = table ? [...table[1].matchAll(/^\s*([a-z0-9]+)\s*:/gm)].map((m) => m[1]) : [];
+
+    // Every quoted extension the catalog names — the standalone entries and the `Entries` array alike.
+    const accepted = new Set([...catalogSrc.matchAll(/new\[?\]?\s*\{([^}]*)\}/g)]
+      .flatMap((m) => [...m[1].matchAll(/"([a-z0-9]+)"/g)].map((e) => e[1])));
+
+    const hits = [];
+    if (declared.length === 0) {
+      hits.push({ file: rel(registryPath), text: "no DECODERS entries parsed — the table's shape changed" });
+    }
+    if (accepted.size === 0) {
+      hits.push({ file: "api/…/FileTypeCatalog.cs", text: "no extensions parsed — the catalog's shape changed" });
+    }
+
+    for (const extension of declared) {
+      if (accepted.has(extension)) continue;
+      hits.push({
+        file: rel(registryPath),
+        line: lineAt(registrySrc, registrySrc.indexOf(`${extension}:`)),
+        text: `"${extension}" has a decoder but is not an extension FileTypeCatalog accepts`,
+      });
+    }
+
+    return hits;
+  }
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

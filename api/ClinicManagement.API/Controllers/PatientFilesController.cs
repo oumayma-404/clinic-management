@@ -145,7 +145,10 @@ public class PatientFilesController : ApiControllerBase
             FileSize = request.File.Length,
             FileStream = request.File.OpenReadStream(),
             Description = request.Description,
-            UploadedBy = uploadedBy
+            UploadedBy = uploadedBy,
+            PreviewStream = request.Preview?.OpenReadStream(),
+            PreviewFileName = request.Preview?.FileName,
+            PreviewSize = request.Preview?.Length ?? 0
         };
 
         var result = await _mediator.Send(command, cancellationToken);

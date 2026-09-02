@@ -74,6 +74,15 @@ public class SecurityHeadersMiddleware
 /// failed at the very first step, on every deployment where the policy is enforced — and because the hosted
 /// upload path has no wasm in it, ordinary files kept working and nothing looked broken.</para>
 ///
+/// <para>⚠️ <b><c>worker-src 'self' blob:</c> is here for the file decoders, and it is the one directive that
+/// would otherwise be inherited from <c>default-src 'self'</c>.</b> libheif — what turns an iPhone's HEIC into
+/// something the drawer can paint — runs inside a Worker the library builds from a <c>blob:</c> URL, and with
+/// <c>worker-src</c> undeclared the browser falls back to <c>default-src</c> and refuses it. The failure is
+/// silent in the worst way: the decoder is behind a dynamic import that a plain dev server serves with no CSP at
+/// all, so it works locally and shows a grey icon in production. It grants nothing an attacker could not already
+/// do — <c>script-src</c> carries <c>'unsafe-inline'</c>, so anyone who can inject a script runs it on the main
+/// thread and has no need of a worker.</para>
+///
 /// <para>⚠️ <b>The vendor console does not need it and carries it anyway</b>, because these four copies are
 /// asserted byte-identical and one policy that cannot drift is worth more than one token of extra surface on a
 /// site that has no WebAssembly to compile. Revisit if the console ever diverges for a better reason.</para>
@@ -89,6 +98,7 @@ public class SecurityHeadersMiddleware
         + "img-src 'self' data: blob:; "
         + "font-src 'self' data:; "
         + "connect-src 'self'; "
+        + "worker-src 'self' blob:; "
         + "object-src 'self' blob:; "
         + "frame-src 'self' blob:; "
         + "frame-ancestors 'none'; "

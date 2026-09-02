@@ -159,7 +159,15 @@ public class RegisterVaultFileCommandHandler : IRequestHandler<RegisterVaultFile
                 return Result<PatientFileDto>.Failure("L'empreinte du fichier est absente ou invalide.");
             }
 
-            var previewKey = await StorePreviewAsync(request, patient.ClinicId, cancellationToken);
+            var previewKey = await PatientFilePreviewStore.StoreAsync(
+                _fileStorage,
+                _logger,
+                request.FileId,
+                patient.ClinicId,
+                request.PreviewStream,
+                request.PreviewFileName,
+                request.PreviewSize,
+                cancellationToken);
 
             try
             {
@@ -198,47 +206,6 @@ public class RegisterVaultFileCommandHandler : IRequestHandler<RegisterVaultFile
             _logger.LogError(ex, "Error registering vault file for patient {PatientId}", request.PatientId);
             return Result<PatientFileDto>.Failure("Erreur lors de l'enregistrement du fichier.");
         }
-    }
-
-    /// <summary>
-    /// Stores the stand-in image, or returns null. ⚠️ <b>A preview never fails a registration</b> — it is a
-    /// convenience for the machines that cannot reach the coffre, while the row is the record. An oversized or
-    /// unreadable one is dropped, because the preview is the one part of a coffre file this deployment does keep.
-    /// </summary>
-    private async Task<string?> StorePreviewAsync(
-        RegisterVaultFileCommand request, Guid clinicId, CancellationToken cancellationToken)
-    {
-        if (request.PreviewStream == null || request.PreviewSize <= 0 || request.PreviewSize > FileTypeCatalog.PreviewBytes)
-        {
-            return null;
-        }
-
-        var validation = await FileUploadValidator.ValidateAsync(
-            FileUploadProfile.ProfileImage,
-            request.PreviewFileName,
-            request.PreviewSize,
-            request.PreviewStream,
-            cancellationToken);
-
-        if (validation.IsFailure)
-        {
-            _logger.LogInformation(
-                "Dropped an unusable preview for vault file {FileId}: {Reason}", request.FileId, validation.Error);
-            return null;
-        }
-
-        var preview = validation.Value!;
-        var extension = VaultPathExtension(preview.FileName);
-
-        return await _fileStorage.UploadAsync(
-            preview.Content, preview.ContentType, clinicId, $"previews/{request.FileId:D}{extension}", cancellationToken);
-    }
-
-    private static string VaultPathExtension(string fileName)
-    {
-        var extension = FileNameSanitizer.ExtensionOf(fileName);
-
-        return extension.Length == 0 ? string.Empty : $".{extension}";
     }
 
     private static bool IsSha256Hex(string? value)

@@ -141,6 +141,7 @@ how it was built, `notes.md` is what shipped.
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
+- [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
 
 **Reads, lists and catalogues**
 
@@ -219,6 +220,16 @@ touching the area.
   read `defaultCost`, so an act's negotiated `AgreedCost` has to be threaded through explicitly or it reverts
   to the tarif in silence — and a saved `procedures` list that omits the prices restores every act to its
   tarif, because `SetProcedures` replaces the whole list. `check:responsive`'s N14 holds the prefill half.
+- **A thumbnail paints the stored PREVIEW, so asking about the ORIGINAL is asking the wrong question.**
+  `FileThumbnail`'s gate required the original to be browser-previewable *and* under 8 Mo — the first hid every
+  HEIC and TIFF whose stand-in was ready to serve, the second was left over from when the component downloaded
+  the original. Neither is an error anywhere; the row just shows an icon. Its twin: `PatientFileDto.HasPreview`
+  decides whether the browser *asks* and `DownloadPatientFilePreviewQuery` decides what to *serve* — they go
+  through `PatientFilePreviewPolicy` because a disagreement is silent in both directions.
+- **A decoder that needs a `blob:` Worker fails only in production.** `worker-src` is inherited from
+  `default-src 'self'` unless declared, and a dev server sends no CSP at all — so libheif works on the laptop
+  and shows a grey icon on the VPS. The policy exists in **four** byte-identical copies
+  (`SecurityHeadersMiddleware`, both Caddy sites, `console/next.config.ts`).
 - **`IFileStorage.UploadAsync` requires a `Guid clinicId`**, so an unprefixed key is unwritable; but
   `DownloadAsync`/`DeleteAsync` take the stored key **verbatim**, because pre-US-5 rows hold flat keys.
 - **An unloaded collection navigation is empty, not stale**, and a domain property over it answers confidently

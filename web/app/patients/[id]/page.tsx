@@ -108,6 +108,8 @@ import { downloadBlob } from "@/lib/download"
 import { FilePreviewDialog } from "@/components/patients/files/file-preview-dialog"
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
 import { isImageFile, isPdfFile, isPreviewableFile } from "@/components/patients/files/file-kind"
+import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useVault } from "@/lib/hooks/use-vault"
 
 const calculateAge = (dob: string | null | undefined) => {
   if (!dob) return null
@@ -570,7 +572,13 @@ export default function PatientDetailsPage() {
   // AC-5.3 — the preview lives in one place now; this page held a byte-identical second copy of the hook and
   // the dialog, only the PDF frame having ever been extracted. The sequence is what the viewer's arrows walk:
   // this tab loads every file at once, so there is no page to turn.
-  const preview = useFilePreview(patientId, undefined, { files: filesNewestFirst })
+  // ⚠️ The policy and the coffre are passed here for the same reason they are in the files manager: without the
+  // first, a HEIC's « aperçu » is decided by a MIME-type guess rather than by the served catalog, and without
+  // the second a coffre original reads as « pas sur ce poste » on the very machine holding it. This tab used to
+  // pass neither, so the two surfaces onto the same drawer disagreed about what could be opened.
+  const filesPolicy = useUploadPolicy("patient-file")
+  const { vault } = useVault()
+  const preview = useFilePreview(patientId, filesPolicy, { files: filesNewestFirst }, vault)
   const [refreshKey, setRefreshKey] = useState(0)
   /** Band C — the identity read answered 404 (the patient really is gone), as opposed to failing. */
   const [identityMissing, setIdentityMissing] = useState(false)
@@ -2347,7 +2355,7 @@ export default function PatientDetailsPage() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  {isPreviewableFile(file) && (
+                                  {isPreviewableFile(file, filesPolicy) && (
                                     <DropdownMenuItem onSelect={() => preview.open(file)}>
                                       Aperçu du fichier
                                     </DropdownMenuItem>
@@ -2374,7 +2382,7 @@ export default function PatientDetailsPage() {
                                 .map((file) => {
                                   const isImage = isImageFile(file)
                                   const isPdf = isPdfFile(file)
-                                  const isPreviewable = isPreviewableFile(file)
+                                  const isPreviewable = isPreviewableFile(file, filesPolicy)
 
                                   return (
                                     <TableRow 

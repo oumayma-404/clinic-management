@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, Loader2, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, File as FileIcon, Loader2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -15,12 +15,12 @@ import {
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
 import { formatDate, formatFileSize } from "@/lib/format"
+import type { ArchiveListing } from "@/lib/files/decoders"
 import { cn } from "@/lib/utils"
-import type { UploadPolicy } from "@/lib/api/upload-policy"
 import type { PatientFileDto } from "@/lib/api/types"
 
-import { fileIcon, isImageFile, isPdfFile } from "./file-kind"
-import type { FilePreview } from "./use-file-preview"
+import { fileIcon, isPdfFile } from "./file-kind"
+import type { FilePreview, PreviewUnavailable } from "./use-file-preview"
 
 /** Below this a swipe is a tap that wandered, not a gesture. */
 const SWIPE_THRESHOLD_PX = 50
@@ -35,18 +35,17 @@ const SWIPE_THRESHOLD_PX = 50
 export function FilePreviewDialog({
   preview,
   patientId,
-  policy,
   onDownload,
   onDelete,
 }: {
   preview: FilePreview
   /** Only for the filmstrip's thumbnails; with it absent the strip is not rendered. */
   patientId?: string
-  policy?: UploadPolicy | null
   onDownload: (file: PatientFileDto) => void
   onDelete?: (file: PatientFileDto) => void
 }) {
-  const { file, url, loading, files, position, total, hasPrev, hasNext, close, prev, next } = preview
+  const { file, url, archive, render, unavailable, loading, files, position, total, hasPrev, hasNext, close, prev, next } =
+    preview
   const [renderFailed, setRenderFailed] = useState(false)
   const swipeStartX = useRef<number | null>(null)
 
@@ -119,27 +118,25 @@ export function FilePreviewDialog({
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
                 </div>
-              ) : url && !renderFailed ? (
-                isImageFile(file) ? (
-                  /* `m-auto`, not `items-center`: an auto margin resolves to 0 with no free space, so a tall
-                     radiograph stays scrollable from its top edge instead of overflowing above the box (§ 11). */
-                  <img
-                    src={url}
-                    alt={file.fileName}
-                    onError={() => setRenderFailed(true)}
-                    className="m-auto max-h-full max-w-full rounded-lg object-contain shadow-lg"
-                  />
-                ) : pdf ? (
-                  <PatientFilePdfPreview
-                    previewUrl={url}
-                    fileName={file.fileName}
-                    onDeliver={() => onDownload(file)}
-                  />
-                ) : (
-                  <UnavailablePreview file={file} onDownload={onDownload} />
-                )
+              ) : render === "image" && url && !renderFailed ? (
+                /* `m-auto`, not `items-center`: an auto margin resolves to 0 with no free space, so a tall
+                   radiograph stays scrollable from its top edge instead of overflowing above the box (§ 11). */
+                <img
+                  src={url}
+                  alt={file.fileName}
+                  onError={() => setRenderFailed(true)}
+                  className="m-auto max-h-full max-w-full rounded-lg object-contain shadow-lg"
+                />
+              ) : render === "pdf" && url && !renderFailed ? (
+                <PatientFilePdfPreview
+                  previewUrl={url}
+                  fileName={file.fileName}
+                  onDeliver={() => onDownload(file)}
+                />
+              ) : render === "archive" && archive ? (
+                <ArchiveContents listing={archive} />
               ) : (
-                <UnavailablePreview file={file} onDownload={onDownload} />
+                <UnavailablePreview file={file} reason={unavailable} onDownload={onDownload} />
               )}
 
             </div>
@@ -151,7 +148,7 @@ export function FilePreviewDialog({
               <div className="flex flex-shrink-0 items-center gap-2 border-t bg-muted/20 px-2 py-2">
                 <NavArrow side="prev" disabled={!hasPrev} onClick={prev} />
                 {patientId && files.length > 1 ? (
-                  <Filmstrip preview={preview} patientId={patientId} policy={policy} />
+                  <Filmstrip preview={preview} patientId={patientId} />
                 ) : (
                   <span className="flex-1 text-center text-sm tabular-nums text-muted-foreground">
                     {position} / {total}
@@ -233,11 +230,9 @@ function NavArrow({
 function Filmstrip({
   preview,
   patientId,
-  policy,
 }: {
   preview: FilePreview
   patientId: string
-  policy?: UploadPolicy | null
 }) {
   const { file, files, open } = preview
   const active = useRef<HTMLButtonElement | null>(null)
@@ -266,7 +261,6 @@ function Filmstrip({
             <FileThumbnail
               patientId={patientId}
               file={candidate}
-              policy={policy}
               className="size-12 rounded-none coarse:size-14"
               iconClassName="h-5 w-5"
             />
@@ -277,25 +271,72 @@ function Filmstrip({
   )
 }
 
-/** What a format the browser cannot paint shows instead — the icon and the way through, never a broken image. */
+/**
+ * What is inside an archive. ⚠️ **A list, not a table** — a name and a size have nothing to compare across
+ * columns, and § 6's two-tree hinge would buy nothing here while doubling the DOM inside a dialog that already
+ * scrolls. Nothing is extracted: this is the archive's own index, read from its last few kilobytes.
+ */
+function ArchiveContents({ listing }: { listing: ArchiveListing }) {
+  const files = listing.entries.filter((entry) => !entry.directory)
+
+  return (
+    <div className="flex min-h-0 w-full flex-col gap-3">
+      <p className="text-sm text-muted-foreground" role="status">
+        {files.length === 0
+          ? "Cette archive ne contient aucun fichier."
+          : `${files.length} fichier${files.length > 1 ? "s" : ""} dans cette archive`}
+        {listing.truncated ? ` — les ${listing.totalEntries} éléments ne sont pas tous listés.` : ""}
+      </p>
+
+      {files.length > 0 && (
+        <ul className="divide-y rounded-lg border bg-card">
+          {files.map((entry) => (
+            <li key={entry.name} className="flex items-center gap-3 px-3 py-2">
+              <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {/* `min-w-0` on the flex child, or `break-all` never gets the chance: a flex item's default
+                  `min-width: auto` refuses to shrink below its content and pushes the size out of the row. */}
+              <span className="min-w-0 flex-1 break-all text-sm">{entry.name}</span>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                {formatFileSize(entry.size)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Téléchargez l’archive pour ouvrir son contenu.
+      </p>
+    </div>
+  )
+}
+
+/** What a file with nothing to show renders instead — the icon and the way through, never a broken image. */
 function UnavailablePreview({
   file,
+  reason,
   onDownload,
 }: {
   file: PatientFileDto
+  reason: PreviewUnavailable | null
   onDownload: (file: PatientFileDto) => void
 }) {
   const Icon = fileIcon(file)
 
+  // ⚠️ Two different facts, and one sentence for both was the defect. « Nothing can display this » and « the
+  // original is on another machine » call for opposite actions, and the second is not a failure at all.
+  const message =
+    reason === "elsewhere"
+      ? "L’original est conservé au cabinet et n’est pas disponible sur ce poste. Téléchargez-le depuis le poste qui le détient."
+      : "Ce format ne s’affiche pas dans le navigateur. Téléchargez-le pour le consulter."
+
   return (
     <div className="m-auto flex flex-col items-center gap-3 p-8 text-center">
       <Icon className="h-16 w-16 text-muted-foreground" />
-      <p className="max-w-sm text-sm text-muted-foreground">
-        Ce format ne s&apos;affiche pas dans le navigateur. Téléchargez-le pour le consulter.
-      </p>
+      <p className="max-w-sm text-sm text-muted-foreground">{message}</p>
       <Button variant="outline" onClick={() => onDownload(file)}>
         <Download className="mr-2 h-4 w-4" />
-        Télécharger pour consulter
+        {reason === "elsewhere" ? "Voir où il se trouve" : "Télécharger pour consulter"}
       </Button>
     </div>
   )
