@@ -24,6 +24,12 @@ export interface VisitsToCloseResponse {
 export interface DisregardVisitsResult {
   changed: number;
   skipped: string[];
+  /**
+   * Ids the server refused because the séance carries a fiche de soins or a live note d'honoraires — « non »,
+   * not « rien à faire ». Reported in the body rather than failing the call so one billed row cannot sink a
+   * selection of a hundred; the single-id route answers 409 instead.
+   */
+  refused: string[];
 }
 
 export interface CreateRecurringSeriesPayload {
@@ -107,6 +113,21 @@ export const appointmentsApi = {
       appointmentIds,
       disregard,
     }),
+
+  /**
+   * « Supprimer (créé par erreur) » — the same mark, from the appointment itself rather than from « À clôturer ».
+   *
+   * A séance nobody ever sat in is not annulée: `Cancelled` is a statement about a patient who was expected, and
+   * it counts in the « taux d'absence ». This one asserts nothing, so the visit leaves the agenda, the patient's
+   * history and the dashboard's figures without pretending anything happened. Nothing is destroyed — the row and
+   * its audit trail stay, and « À clôturer › séances retirées » can put it back.
+   *
+   * ⚠️ The **single-id** route, not `disregardVisits([id], …)`: the bulk one reports a refusal in its body, which a
+   * one-button caller reads as a silent success. This one answers 409 with `ApiErrorCode.VisitHasWork` when the
+   * séance carries a fiche or a live note d'honoraires.
+   */
+  disregardVisit: async (appointmentId: string): Promise<DisregardVisitsResult> =>
+    apiPost<DisregardVisitsResult>(`/appointments/${appointmentId}/disregard`, {}),
 
   /**
    * Record that a séance raises no note d'honoraires, or withdraw that.

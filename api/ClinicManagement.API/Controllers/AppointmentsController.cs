@@ -6,6 +6,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Appointments.Commands;
 using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Csv;
@@ -79,7 +80,24 @@ public class AppointmentsController : ApiControllerBase
             Disregard = true,
         });
 
-        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        // The bulk route reports a refusal in the body — a selection of a hundred rows must not fail whole over
+        // one billed séance. A single-id call has no such body to read: « rien n'a bougé » with a 200 is how a
+        // « Supprimer » button appears to work and does not, so this one answers with the refusal.
+        if (result.Value!.Refused.Count > 0)
+        {
+            return HandleFailure(Result.Failure(
+                "Cette séance a une fiche de soins ou une note d'honoraires : elle ne peut pas être retirée. "
+                + "Annulez-la ou modifiez-la plutôt.",
+                DisregardVisitsCommandHandler.VisitHasWorkCode),
+                StatusCodes.Status409Conflict);
+        }
+
+        return Ok(result.Value);
     }
 
     /// <summary>Put one séance back on « À clôturer » — and back into the dashboard's figures.</summary>
