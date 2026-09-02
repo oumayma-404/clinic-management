@@ -90,6 +90,39 @@ public class AppointmentOverlapOverrideTests
             .ReturnsAsync(new[] { existing });
     }
 
+    /// <summary>The same booking, but retired — « Supprimer (créé par erreur) ».</summary>
+    private void RetiredBookingAt(DateTime at)
+    {
+        var existing = new Appointment(
+            Guid.NewGuid(), ClinicId, PatientId, DoctorId, at, TimeSpan.FromMinutes(30));
+        existing.Disregard("local|someone", at);
+        _appointments
+            .Setup(r => r.GetByClinicIdAsync(
+                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { existing });
+    }
+
+    /// <summary>
+    /// A retired séance gives its hour back.
+    ///
+    /// <para>⚠️ This case and the database's <c>EX_Appointments_NoDoubleBooking</c> predicate are one rule, and
+    /// the failure of letting them drift is asymmetric. If the constraint frees the slot and this guard does not,
+    /// the desk is refused a slot the database considers free — and the refusal names an appointment that is not
+    /// on the agenda, because a retired séance is not drawn. If this guard frees it and the constraint does not,
+    /// the handler waves the booking through and the INSERT dies on a raw constraint violation. The migration
+    /// <c>FreeTheSlotOfARetiredAppointment</c> is the other half of this test.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Retired_Séance_Does_Not_Hold_Its_Slot()
+    {
+        RetiredBookingAt(At);
+
+        var result = await CreateHandler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotEqual(AppointmentScheduling.SlotTakenCode, result.Code);
+    }
+
     private void NoExistingBookings() =>
         _appointments
             .Setup(r => r.GetByClinicIdAsync(
