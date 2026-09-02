@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Features.ProcedureTypes;
+using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.UnitTests.Features.ProcedureTypes;
 
@@ -41,6 +42,19 @@ public class ProcedureTypeCatalogSeedFloorTests
         ["Traitement orthodontique (multi-attaches)"] = 3000m, // Traitement orthodontique multi-attache
         ["Blanchiment dentaire"] = 500m,                  // Eclaircissement dentaire (avec ou sans gouttière)
         ["Facette"] = 600m,                               // Facette céramique
+
+        // The distinct acts added after reading the barème.
+        ["Coiffage pulpaire"] = 30m,                      // Coiffage pulpaire / pulpectomie coronaire simple
+        ["Inlay-core (reconstitution corono-radiculaire)"] = 80m, // Inlay core métallique
+        ["Couronne provisoire"] = 60m,                    // Prothèse provisoire
+        ["Extraction de racine (alvéolectomie)"] = 60m,   // Extraction de la ou des racines par alvéolectomie
+        ["Gingivectomie"] = 50m,                          // Gingivectomie partielle
+        ["Greffe osseuse / comblement"] = 700m,           // Expansion osseuse
+        ["Scellement de sillons"] = 80m,                  // Résine de scellement des puits et fissures
+        ["Application de fluor (par arcade)"] = 200m,     // Gouttière pour application de fluor, par arcade
+        ["Couronne pédodontique préformée"] = 110m,       // Couronne pédodontique préformée
+        ["Mainteneur d'espace fixe"] = 160m,              // Mainteneur d'espace fixe
+        ["Gouttière occlusale (bruxisme)"] = 400m,        // Gouttière occlusale
     };
 
     [Fact]
@@ -75,5 +89,31 @@ public class ProcedureTypeCatalogSeedFloorTests
         Assert.True(
             Barème.Count >= priced / 2,
             $"only {Barème.Count} of {priced} priced rows carry a floor — the map has fallen behind the catalogue");
+    }
+
+    /// <summary>
+    /// An act must not write an odontogram state it does not produce.
+    ///
+    /// <para>A seeded act takes its resulting condition from its <b>discipline</b>, which is a coarse default and
+    /// wrong for three rows: an inlay-core is filed under Prothèse fixe but leaves no crown, draining an abscess
+    /// is filed under Chirurgie but removes no tooth, and a bone graft is filed under Implantologie but places no
+    /// implant. Each would chart a state the patient does not have — invisibly, since the fiche saves happily and
+    /// only the odontogram is wrong. The row-level override exists for exactly these, and this pins it.</para>
+    /// </summary>
+    [Fact]
+    public void An_Act_Never_Charts_A_State_It_Does_Not_Produce()
+    {
+        var charted = ProcedureTypeCatalogSeed
+            .CreateFor(Guid.NewGuid())
+            .ToDictionary(p => p.Name, p => p.ResultingCondition);
+
+        Assert.Null(charted["Inlay-core (reconstitution corono-radiculaire)"]);
+        Assert.Null(charted["Incision d'abcès et drainage"]);
+        Assert.Null(charted["Greffe osseuse / comblement"]);
+
+        // And the override did not go too far — the discipline's default still reaches the acts it is right for.
+        Assert.Equal(ToothCondition.Couronne, charted["Couronne provisoire"]);
+        Assert.Equal(ToothCondition.ExtraitAbsent, charted["Extraction de racine (alvéolectomie)"]);
+        Assert.Equal(ToothCondition.TraitementDeCanal, charted["Retraitement endodontique"]);
     }
 }

@@ -28,7 +28,22 @@ namespace ClinicManagement.Application.Features.ProcedureTypes;
 /// </summary>
 public static class ProcedureTypeCatalogSeed
 {
-    public sealed record SeedRow(string Name, int DurationMinutes, decimal DefaultCost, string Category);
+    /// <summary>
+    /// One starter act. <paramref name="ResultingCondition"/> is <b>tri-state</b>: <c>null</c> takes the
+    /// discipline's default from <see cref="CategoryResultingConditions"/>, and <c>Sain</c> means « this act
+    /// charts nothing » — the entity already reads <c>Sain</c> as no state, so the two say different things.
+    ///
+    /// <para>⚠️ It exists because three acts would otherwise be mis-charted by their own discipline: an
+    /// inlay-core is filed under Prothèse fixe but does not put a crown on the tooth, draining an abscess is
+    /// filed under Chirurgie but does not remove it, and a bone graft is filed under Implantologie but is not an
+    /// implant. Each would have written a state the patient's odontogram does not have.</para>
+    /// </summary>
+    public sealed record SeedRow(
+        string Name,
+        int DurationMinutes,
+        decimal DefaultCost,
+        string Category,
+        ToothCondition? ResultingCondition = null);
 
     /// <summary>
     /// Category → palette colour (must be a value <see cref="ColorHex"/> accepts; the picker's palette is served
@@ -99,6 +114,40 @@ public static class ProcedureTypeCatalogSeed
         new("Blanchiment dentaire", 60, 500m, "Esthétique"),
         new("Facette", 60, 700m, "Esthétique"),
         new("Soin dentaire enfant (dent de lait)", 30, 60m, "Pédodontie"),
+
+        /*
+         * ── Actes distincts, ajoutés après relecture du barème de l'Ordre ───────────────────────────────────
+         *
+         * ⚠️ Each of these is an act with NO row above, never a grade of one that has. The list was cut 43 → 19
+         * on practitioner feedback for splitting hairs (« 1 face » vs « 2-3 faces », mono- vs pluriradiculaire,
+         * céramo-métal vs zircone), and that decision stands: nothing here re-opens it. What the cut also took
+         * out, as collateral, were procedures a dentist books and bills in their own right — a coiffage is not
+         * an obturation, an inlay-core is not a couronne, a scellement de sillons is not a soin.
+         *
+         * Prices are the CNOMDT barème d'honoraires minimums (27/12/2020) where it covers the act, and marked
+         * « estimation » where it does not. They are floors, not recommendations — see the class docstring.
+         */
+        new("Coiffage pulpaire", 30, 30m, "Soins conservateurs"),                       // barème 30
+        new("Retraitement endodontique", 90, 250m, "Endodontie"),                       // estimation
+        new("Inlay-core (reconstitution corono-radiculaire)", 45, 80m, "Prothèse fixe",
+            // Charts nothing: the core is placed, the crown that covers it is a separate act.
+            ToothCondition.Sain),                                                       // barème 80
+        new("Couronne provisoire", 30, 60m, "Prothèse fixe"),                           // barème 60
+        new("Extraction de racine (alvéolectomie)", 40, 60m, "Chirurgie/Extraction"),   // barème 60
+        new("Incision d'abcès et drainage", 20, 40m, "Chirurgie/Extraction",
+            // Charts nothing: the tooth stays. Its discipline's default would have recorded it as extracted.
+            ToothCondition.Sain),                                                       // estimation
+        new("Gingivectomie", 45, 50m, "Parodontologie"),                                // barème 50 (partielle)
+        new("Frénectomie", 45, 100m, "Parodontologie"),                                 // estimation
+        new("Greffe osseuse / comblement", 60, 700m, "Implantologie",
+            // Charts nothing: preparing the bone is not placing an implant.
+            ToothCondition.Sain),                                                       // barème 700
+        new("Scellement de sillons", 30, 80m, "Pédodontie"),                            // barème 80
+        new("Application de fluor (par arcade)", 20, 200m, "Pédodontie"),               // barème 200
+        new("Couronne pédodontique préformée", 40, 110m, "Pédodontie"),                 // barème 110
+        new("Mainteneur d'espace fixe", 40, 160m, "Pédodontie"),                        // barème 160
+        new("Gouttière occlusale (bruxisme)", 45, 400m, "Prothèse amovible"),           // barème 400
+        new("Contention post-orthodontique", 30, 300m, "Orthodontie"),                  // estimation
     };
 
     /// <summary>
@@ -123,6 +172,8 @@ public static class ProcedureTypeCatalogSeed
             // inventing prose for it would be putting words in the clinic's mouth.
             description: null,
             defaultCost: r.DefaultCost,
-            resultingCondition: CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null,
+            // The row's own answer wins; only a row that gives none falls back to its discipline's default.
+            resultingCondition: r.ResultingCondition
+                ?? (CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null),
             category: r.Category));
 }
