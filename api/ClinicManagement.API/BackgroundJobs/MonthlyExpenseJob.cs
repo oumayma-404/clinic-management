@@ -105,6 +105,13 @@ public class MonthlyExpenseJob
 
         foreach (var recurring in series)
         {
+            // The read already excludes a stopped series. Asking again keeps that agreement checkable here rather
+            // than letting a widened predicate post months for a commitment the practice has ended.
+            if (!recurring.IsActive)
+            {
+                continue;
+            }
+
             foreach (var month in MonthlyExpenseSchedule.DueMonths(recurring.LastPostedMonth, currentMonth))
             {
                 var expense = new Expense(
