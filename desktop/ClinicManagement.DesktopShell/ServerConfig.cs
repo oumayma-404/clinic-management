@@ -41,10 +41,19 @@ public sealed class ServerConfig
     /// mode chooser, and the LAN branch's field accepts ANY address — so a stranded user can type the new
     /// domain instead of reinstalling. Do not make the hosted branch the only way to reach a hosted server.
     ///
-    /// ⚠️ It is an OVH default hostname, not a product domain. When APEXA gets its own (app.apexa.tn or
-    /// similar), change it HERE and ship a new client; nothing else in the shell names a host.
+    /// ⚠️ It is the product's own domain. It was an OVH default hostname (`vps-dc7e4229.vps.ovh.net`) until
+    /// the deployment took this name; Caddy answered to both for the transition, and that alias has now been
+    /// removed. Changing this constant is therefore a CLIENT RELEASE, not a config edit: `.github/workflows/
+    /// client-installer.yml` fires on a `desktop/**` change landing on main, and until that release has been
+    /// taken, an installed client reaches the server only by the address it already holds.
+    ///
+    /// ⚠️ The order matters if this ever changes again, and it is the reverse of what feels natural: teach the
+    /// proxy the new name FIRST and let it answer to both, ship a client, and only then drop the old one. Doing
+    /// it the other way strands every installed client on a dead host — and because the update feed is fetched
+    /// from whichever server the client is connected to (`ShellUpdater.CheckAndStageAsync`), a stranded client
+    /// cannot even reach the build that would fix it.
     /// </summary>
-    public const string HostedHost = "vps-dc7e4229.vps.ovh.net";
+    public const string HostedHost = "app.apexa.tn";
 
     /// <summary>
     /// The hosted deployment, ready to connect. The port is marked explicit because 443 is not a guess here:
