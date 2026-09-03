@@ -5,13 +5,13 @@ products upload everything and solve the bandwidth with **resumable chunked uplo
 where an on-premises component exists it is a *relay* to the cloud, not a terminus. The arithmetic backs them —
 340 Mo at Tunisia's median 9 Mbps uplink is about five minutes, not an impossibility.
 
-So the plan is four parts, in a deliberately reversible order. **Parts 1 and 2 have landed; 3 and 4 have not.**
+So the plan is four parts, in a deliberately reversible order. **Parts 1, 2 and 3 have landed; 4 has not.**
 
 | | | |
 |---|---|---|
 | **Part 1** | Downloads stream instead of buffering | ✅ landed |
 | **Part 2** | Resumable chunked upload | ✅ landed |
-| **Part 3** | Raise the coffre threshold | ⬜ |
+| **Part 3** | Raise the coffre threshold | ✅ landed — and it was a backup change |
 | **Part 4** | Per-clinic storage quota | ⬜ |
 
 ⚠️ **Retiring the coffre outright is not on this list, and that is a decision, not an omission.** Existing rows
@@ -256,14 +256,123 @@ first pass therefore only ever *measured* that state, and that is exactly how th
   coffre paired, so that door refuses them before the chunked path is reached. That is the *correct* behaviour,
   and it is also why this cannot be verified here.
 
-## Part 3 — raise the threshold (not started)
+## Part 3 — raise the threshold (landed, and it turned out to be a backup change)
 
-`LargeStaysAtTheCabinet = ResidencyRule.HostedUpTo(DocumentBytes)` is the line, and `DocumentBytes` is 25 Mo
-because it is also "what counts as a document". Part 3 gives the residency rule its own constant and raises it.
-⚠️ Do not do this before Part 2: a 150 Mo single POST over a Tunisian uplink that fails at 95 % restarts from
-zero, and the operator has no way to know it will.
+`LargeStaysAtTheCabinet = ResidencyRule.HostedUpTo(DocumentBytes)` was the line, at 25 Mo. It is now
+`StudyStaysAtTheCabinetAbove = LargeBytes` — **150 Mo**, the study formats' own ceiling — so on a hosted
+deployment nothing a format itself accepts is pushed to the cabinet any more.
+
+### What the plan expected to be the constraint, and what actually was
+
+The plan said Part 3 was one constant, blocked only on Part 2. It was not. Sending was indeed solved — Part 1
+made a download a stream, Part 2 made an upload resumable — but **the cost of keeping a byte was fifteen times
+what it looked like**, and that is what had the line pinned.
+
+`deploy/backup/backup.sh` took a full `tar czf` of the whole object store every night, `age`-encrypted it (so
+nothing dedupes or compresses between nights) and kept `BACKUP_RETENTION_DAYS` — **14** — of them on the same
+disk. Plus `rclone copy` to a fresh timestamped folder off-site every night, never pruned. Every hosted
+megabyte therefore cost about **fifteen** on the server and one more off-site for ever.
+
+Measured on the live VPS, read-only, 2026-09-03:
+
+| | |
+|---|---|
+| Disk | 96 Go, **78 Go free**, 19 % used |
+| Live object store | 37,1 Mo |
+| Staged backups | 49,3 Mo across 7 nights |
+| Retention | `BACKUP_RETENTION_DAYS=14` |
+
+At 15× that is **~5 Go of objects** before the disk fills. A full disk is not a billing problem — it stops every
+cabinet on the box at once. `ResidencyRule`'s own docstring had said this all along (« one live copy, fourteen
+nightly tarballs and an off-site copy every night »); nobody had done the division.
+
+### The fix: an incremental per-object mirror
+
+`deploy/backup/mirror-objects.sh` — one `age` file per stored object, refreshed only when that object changed.
+
+⚠️ **What makes this correct rather than merely cheaper is that objects are immutable.** The app creates and
+deletes blobs and never edits one, so « has it changed? » is answerable from size and mtime without re-reading
+the store. Content-hashing every object nightly would have re-read everything, which is the cost being removed.
+
+⚠️ **Per-object `age`, not an rclone `crypt` remote.** That was already considered and rejected, in the comment
+where `backup.sh` verifies its own output: crypt puts the encryption in a gitignored config file, invisible to
+review and unverifiable without a round trip nobody would automate. This keeps the one key `KEY-CUSTODY.md`
+documents.
+
+⚠️ **`age` output is nondeterministic**, so re-encrypting an unchanged object produces different bytes every
+night and would be re-uploaded every night. The manifest is what prevents that, and it is written **last**, only
+on success — a failed run leaves the old one and redoes exactly the work that did not land.
+
+⚠️ **Deletions move into a dated `attic/`, they are not deleted.** The nightly archive gave a 14-day recovery
+window for free; a plain mirror loses it the same night. Off-site the same thing happens through
+`rclone sync --backup-dir`, which is why `objects/` and `attic/` are siblings — rclone refuses a backup-dir
+inside the destination.
+
+⚠️ **A store that reads as empty is REFUSED, and this is the guard that matters most.** The dangerous failure
+is not a crash; it is a volume that did not mount, because an unmounted path is an ordinary empty directory and
+not an error. Every tracked object would look deleted, the whole mirror would move into tonight's attic, and
+`BACKUP_RETENTION_DAYS` later the attic would age out and take the only copy of every practice's imaging with
+it — two clean nights. The old `tar` could not fail this way: it would have archived nothing and yesterday's
+fourteen archives would still be there. An incremental mirror has no such cushion, so it refuses explicitly.
+`BACKUP_ALLOW_EMPTY_STORE=1` is the override.
+
+⚠️ Found by writing the drill, not by reasoning: the first version of that guard only caught « `find` errored
+while files exist », which is nearly unreachable, and would have sailed straight through the case it was for.
+
+### Verified — a drill in the sidecar's own alpine, seven checks
+
+| | |
+|---|---|
+| First run | 4 objects encrypted |
+| Second run, nothing changed | **0 encrypted** — the whole point |
+| One added, one deleted | 1 encrypted, 1 moved to the attic |
+| A mirrored object | decrypts **byte-identical** (including a filename with a space) |
+| A **deleted** object | still recoverable from the attic |
+| Sizes | source 360 K, mirror 364 K — **~1×**, not 15× |
+| An **unmounted** store (empty dir) | **refused**, mirror left intact; the override then lets it through with a warning |
+
+### Then the line moved, and the app was walked
+
+`StudyStaysAtTheCabinetAbove` is its own constant now rather than `DocumentBytes`. They held one value on the
+reasoning that « a document » and « a study » are the same line; they are not — one is what a Word file may
+weigh, the other is what the deployment can afford to keep — and while they were one constant the second
+question could only be answered by changing the answer to the first. `The_Coffre_Line_Is_Its_Own_Number_And_Not_The_Document_Cap`
+pins the shape, and the seven residency assertions that said `DocumentBytes` now name the residency constant.
+
+Against the running stack: the served policy reports **150 Mo** hosted for `tiff` / `dcm` / `stl` / `zip`
+(25 Mo before), PNG unchanged at 50 Mo, PDF at 25 Mo. And the case that shows what it buys — a **31,6 Mo TIFF
+panoramique**, the exact file that read « conservé au cabinet · Refusé » in the Part 2 walk an hour earlier:
+
+- uploaded in chunks, « Envoi… 0 % » → « Envoyé »
+- `residency: Hosted`, **byte-identical** (SHA-256), and **`hasPreview: true`**
+
+That last one is the point of the whole part. A TIFF panoramique is what a clinic's scanner actually produces;
+it was going to a folder openable on exactly one machine, and it now opens anywhere with a thumbnail in the
+drawer.
+
+⚠️ It is also the case that shows *why* the line was wrong rather than merely low: the **PNG** of that same
+radiograph was already hosted, because `ImageBytes` put it there on the reasoning that « what a browser can
+paint is worth hosting ». TIFF took the coffre route for being undecodable — and then the browser learned to
+decode it (`clinic-file-decoders`) while the residency line stayed where it was.
+
+### Still to come
+
+⚠️ **The 340 Mo CBCT this feature was named for is still above the line**, and going past 150 Mo means raising
+`LargeBytes` — the format cap itself. That should wait for **Part 4**: nothing counts stored bytes per clinic,
+so with the multiplier gone the only thing bounding total consumption is the per-file cap. What the backup fix
+bought is room to build that counter, not the right to skip it.
+
+The nightly job has **not** run against production with this change yet, and `deploy/README.md` still records
+that no restore drill has ever been run on this deployment. The mirror is drilled in isolation; the restore path
+in `RESTORE-DRILL.md` is rewritten for it and is unproven end to end, exactly as it was before.
 
 ## Part 4 — a quota (not started)
 
 Once the deployment stores everything, bytes are the cost and a clinic needs a ceiling it can see. Nothing in
 the product counts stored bytes per clinic today.
+
+⚠️ **Part 3 changed the arithmetic this part has to work with, in both directions.** The backup multiplier
+is gone (~15× → ~1×), so the 78 Go free on the live VPS is now tens of gigabytes of usable capacity rather
+than about five — but the per-file line moved 25 Mo → 150 Mo at the same time, so a single cabinet can reach
+that capacity six times faster. The counter is what has to exist before `LargeBytes` itself is raised to cover
+the 340 Mo CBCT.

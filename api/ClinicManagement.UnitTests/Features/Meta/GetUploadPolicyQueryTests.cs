@@ -127,9 +127,36 @@ public class GetUploadPolicyQueryTests
 
         Assert.True(policy.VaultAvailable);
         Assert.Equal("hostedUpTo", dicom.Residency);
-        Assert.Equal(FileTypeCatalog.DocumentBytes, dicom.HostedMaxBytes);
+        // The residency line, named — it used to read `DocumentBytes`, which was the same value for a different
+        // reason and is what let « what a document may weigh » and « what the deployment can keep » be one knob.
+        Assert.Equal(FileTypeCatalog.StudyStaysAtTheCabinetAbove, dicom.HostedMaxBytes);
         Assert.Equal(FileTypeCatalog.VaultBytes, dicom.VaultMaxBytes);
         Assert.NotEmpty(dicom.VaultTooLargeMessage);
+    }
+
+    /// <summary>
+    /// A study the coffre used to swallow is now hosted (`large-file-transfer` Part 3).
+    ///
+    /// <para>⚠️ The case is a 40 Mo panoramique <b>as a TIFF</b>, and it is worth spelling out because the PNG of
+    /// the same radiograph was already hosted — <c>ImageBytes</c> put it there, on the reasoning that what a
+    /// browser can paint is worth hosting. TIFF took the coffre route for being undecodable, and then the browser
+    /// learned to decode it (`clinic-file-decoders`) while the residency line stayed where it was. So the one
+    /// export a clinic actually produces went to a folder openable on exactly one machine.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Forty_Megabyte_Study_Is_Hosted_Rather_Than_Kept_At_The_Cabinet()
+    {
+        var policy = await Read();
+        var fortyMegabytes = 40L * 1024 * 1024;
+
+        foreach (var extension in new[] { "tiff", "dcm", "stl" })
+        {
+            var format = policy.Formats.Single(f => f.Extensions.Contains(extension));
+
+            Assert.True(
+                fortyMegabytes <= format.HostedMaxBytes,
+                $".{extension} at 40 Mo still routes to the coffre (hosted up to {format.HostedMaxBytes} bytes)");
+        }
     }
 
     /// <summary>
