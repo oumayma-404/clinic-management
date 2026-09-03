@@ -118,6 +118,7 @@ public static class Extensions
         services.AddScoped<IDentalRecordRepository, DentalRecordRepository>();
         services.AddScoped<IPatientFolderRepository, PatientFolderRepository>();
         services.AddScoped<IPatientFileRepository, PatientFileRepository>();
+        services.AddScoped<IFileUploadSessionRepository, FileUploadSessionRepository>();
         services.AddScoped<IMedicalDocumentRepository, MedicalDocumentRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IClinicRepository, ClinicRepository>();
@@ -248,6 +249,15 @@ public static class Extensions
                 var logger = sp.GetRequiredService<ILogger<LocalDiskFileStorage>>();
                 return new LocalDiskFileStorage(fileStoragePath, logger);
             });
+
+            // ⚠️ Registered beside its backend, never once for both: the staging area for a resumable upload
+            // has to live on the same medium as the blob it becomes, or completing it would copy the whole file
+            // across two stores.
+            services.AddScoped<IResumableUploadStore>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<LocalDiskResumableUploadStore>>();
+                return new LocalDiskResumableUploadStore(fileStoragePath, logger);
+            });
         }
         else
         {
@@ -321,11 +331,20 @@ public static class Extensions
                     var logger = sp.GetRequiredService<ILogger<MinioFileStorage>>();
                     return new MinioFileStorage(minioClient, minioBucketName, logger);
                 });
+
+                services.AddScoped<IResumableUploadStore>(sp =>
+                {
+                    var minioClient = sp.GetRequiredService<IMinioClient>();
+                    var logger = sp.GetRequiredService<ILogger<MinioResumableUploadStore>>();
+                    return new MinioResumableUploadStore(minioClient, minioBucketName, logger);
+                });
             }
             else
             {
                 // Cloud mode requires MinIO to be configured.
                 services.AddScoped<IFileStorage>(sp =>
+                    throw new InvalidOperationException("MinIO is not configured. Please set MinIO:Endpoint, MinIO:AccessKey, and MinIO:SecretKey in configuration."));
+                services.AddScoped<IResumableUploadStore>(sp =>
                     throw new InvalidOperationException("MinIO is not configured. Please set MinIO:Endpoint, MinIO:AccessKey, and MinIO:SecretKey in configuration."));
             }
         }

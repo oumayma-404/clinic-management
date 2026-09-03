@@ -63,6 +63,19 @@ public static class FileTypeCatalog
     public const long PreviewBytes = 4L * 1024 * 1024;
 
     /// <summary>
+    /// The size of every chunk of a resumable upload but the last.
+    ///
+    /// <para>⚠️ <b>The server fixes it, not the client.</b> It is the unit the resume arithmetic is done in —
+    /// « you have sent N parts, send part N+1 » only means something if both sides agree what a part weighs — so
+    /// a client choosing its own could resume at a boundary the staged parts do not have.</para>
+    ///
+    /// <para>Eight megabytes is a compromise with a slow uplink at both ends: small enough that a dropped
+    /// connection costs at most one chunk (about seven seconds at Tunisia's median 9 Mbps), large enough that a
+    /// 400 Mo study is fifty round trips rather than four hundred.</para>
+    /// </summary>
+    public const long UploadChunkBytes = 8L * 1024 * 1024;
+
+    /// <summary>
     /// How small a hosted original has to be for the preview route to serve <b>it</b> when no stand-in was ever
     /// stored.
     ///
