@@ -40,3 +40,33 @@ export function dicomAdvisoryFor(frames: number): string {
     ? `${BASE} Cette étude contient ${frames} images ; seule la première est affichée.`
     : BASE
 }
+
+/**
+ * What the **interactive viewer** says, and it is a stronger claim than the flattened preview's — not a weaker
+ * one.
+ *
+ * ⚠️ **Choosing the window yourself makes the caveat more necessary, not less.** The flattened stand-in at
+ * least used the window the file declared; in the viewer the operator has moved it, so what is on screen is a
+ * slice of the range *they* picked and a structure outside it is not dim — it is **absent**. « I looked and saw
+ * nothing » is therefore not a finding here. The second half is the other half of the same honesty: a practice
+ * monitor is not a calibrated diagnostic display, whatever the window is set to.
+ */
+export const DICOM_VIEWER_ADVISORY =
+  'Affichage non diagnostique : vous réglez le contraste, et une structure hors de la fenêtre choisie ' +
+  'n’apparaît pas du tout. Écran non calibré — téléchargez l’original pour interpréter.'
+
+/**
+ * Why the window controls are inert on some files.
+ *
+ * ⚠️ **It is not a limitation of this build, and it does not mean the controls are inert.** An
+ * encapsulated-JPEG DICOM holds 8-bit output the exporting device already windowed; the sensor readings are
+ * not in the file at all, so re-applying the file's declared window over them would apply it a second time —
+ * which is why `DicomStudy.declaredWindows` is empty on that path. What the window controls then adjust is
+ * that already-rendered picture: a real and useful thing to do, and **not** the DICOM VOI transform. The
+ * sentence has to say which, or it contradicts a control the reader can plainly still use — measured in the
+ * browser, `radio-jpeg-encapsule.dcm` renders and its window control is live, while an earlier wording of
+ * this line claimed there was nothing to window at all.
+ */
+export const DICOM_RENDERED_VALUES_NOTE =
+  'Ce fichier est compressé en JPEG : l’appareil a déjà choisi son contraste, et le réglage agit sur cette ' +
+  'image-là, pas sur les valeurs du capteur.'

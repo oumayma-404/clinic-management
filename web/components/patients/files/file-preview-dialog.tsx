@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, File as FileIcon, Loader2, Maximize2, TriangleAlert, X } from "lucide-react"
+import { Box, ChevronLeft, ChevronRight, Contrast, Download, File as FileIcon, Loader2, Maximize2, TriangleAlert, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,10 +16,12 @@ import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
 import { formatDate, formatFileSize } from "@/lib/format"
 import { PREVIEW_EDGE } from "@/lib/files/preview"
-import type { ArchiveListing } from "@/lib/files/decoders"
+import { interactiveViewerFor, type ArchiveListing } from "@/lib/files/decoders"
 import { cn } from "@/lib/utils"
 import type { PatientFileDto } from "@/lib/api/types"
 
+import { DicomViewer } from "./dicom-viewer"
+import { MeshViewer } from "./mesh-viewer"
 import { fileIcon, isPdfFile } from "./file-kind"
 import type { FilePreview, PreviewUnavailable } from "./use-file-preview"
 
@@ -46,7 +48,7 @@ export function FilePreviewDialog({
   onDelete?: (file: PatientFileDto) => void
 }) {
   const {
-    file, url, archive, render, unavailable, advisory, loading, stage, showFullResolution,
+    file, url, archive, render, unavailable, advisory, loading, stage, showFullResolution, loadSource,
     files, position, total, hasPrev, hasNext, close, prev, next,
   } = preview
   const [renderFailed, setRenderFailed] = useState(false)
@@ -60,24 +62,47 @@ export function FilePreviewDialog({
    */
   const [standInWasShrunk, setStandInWasShrunk] = useState(false)
   const swipeStartX = useRef<number | null>(null)
+  /**
+   * Whether the DICOM study viewer is up over this dialog.
+   *
+   * ⚠️ It is state here rather than inside the viewer because **this** component owns the ←/→ handler the
+   * viewer has to borrow — see the effect below.
+   */
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   // A new file gets a fresh verdict: one unpaintable image must not turn every later preview into the fallback.
   useEffect(() => {
     setRenderFailed(false)
     setStandInWasShrunk(false)
+    setViewerOpen(false)
   }, [file?.id])
 
+  /*
+   * ⚠️ **Suspended while the study viewer is open, and that is not tidiness.** This listener is on `window`,
+   * so a nested dialog cannot stop it from a React handler — and ←/→ inside the viewer step a FRAME. Left
+   * live, one key press would step the frame and the underlying file at once, so closing the viewer would
+   * land on a different radiograph than the one it was opened from.
+   */
   useEffect(() => {
-    if (!file) return
+    if (!file || viewerOpen) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "ArrowLeft") { event.preventDefault(); prev() }
       if (event.key === "ArrowRight") { event.preventDefault(); next() }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [file, prev, next])
+  }, [file, viewerOpen, prev, next])
 
   const pdf = file ? isPdfFile(file) : false
+  /**
+   * ⚠️ Asked of the **decoder registry**, never of a list kept here: it already answers « which decoder handles
+   * this name? », and a second `.dcm`/`.dicom` list in this file is the drift AC-5.1 removed.
+   *
+   * ⚠️ **Which viewer, not whether one** — there are two now (a DICOM study, and a 3D model), and they share
+   * this row's single « Visionneuse » slot. Asking `=== "dicom"` here is what would have left `.stl` files
+   * silently without their button while everything else about them worked.
+   */
+  const interactive = file ? interactiveViewerFor(file.fileName) : null
   const navigable = hasPrev || hasNext
 
   return (
@@ -212,25 +237,62 @@ export function FilePreviewDialog({
                       being quietly withheld (§ 0). It is a BUTTON and not automatic: the decode costs about
                       eleven seconds and several hundred megabytes on a large image, which is not something to
                       spend on every file somebody arrows past. */}
-                  {showFullResolution && !loading && standInWasShrunk && (
+                  {/* ⚠️ **For a DICOM this REPLACES « Pleine résolution », rather than sitting beside it.**
+                      The viewer opens the original at its own resolution and adds the window, the zoom and the
+                      ruler, so the older control would be a second, weaker way to the same bytes — and a fifth
+                      button in this row does not fit at 390 px, which is how « Télécharger » got clipped the
+                      last time something was added to it. */}
+                  {interactive && !loading ? (
                     <Button
-                      variant="ghost"
-                      onClick={showFullResolution}
-                      aria-label="Afficher en pleine résolution"
-                      title="Afficher l’image d’origine plutôt que l’aperçu enregistré"
-                      className="shrink-0 gap-2 coarse:h-11 coarse:min-w-11"
+                      onClick={() => setViewerOpen(true)}
+                      aria-label={`Ouvrir ${file.fileName} dans la visionneuse ${
+                        interactive === "dicom" ? "DICOM" : "3D"
+                      }`}
+                      className="shrink-0 gap-2 coarse:h-11"
                     >
-                      <Maximize2 className="h-4 w-4 shrink-0" />
-                      {/* ⚠️ The label goes below `sm:`, exactly as « Supprimer »'s does. Measured at 390 px: with
-                          this label visible the row squeezed « Télécharger » from 221 px to 56 px — a clipped
-                          word on the primary way out, to make room for the secondary control. The `aria-label`
-                          is not optional, because `hidden` removes the span from the accessibility tree too. */}
-                      <span className="hidden sm:inline">Pleine résolution</span>
+                      {interactive === "dicom" ? (
+                        <Contrast className="h-4 w-4 shrink-0" />
+                      ) : (
+                        <Box className="h-4 w-4 shrink-0" />
+                      )}
+                      {/* The label stays at EVERY width here, unlike its neighbours': for a `.dcm` or a `.stl`
+                          this is the primary action, and an unlabelled glyph is not how a dentist discovers the
+                          one control that turns a flat stand-in into something they can actually read. */}
+                      Visionneuse
                     </Button>
+                  ) : (
+                    showFullResolution &&
+                    !loading &&
+                    standInWasShrunk && (
+                      <Button
+                        variant="ghost"
+                        onClick={showFullResolution}
+                        aria-label="Afficher en pleine résolution"
+                        title="Afficher l’image d’origine plutôt que l’aperçu enregistré"
+                        className="shrink-0 gap-2 coarse:h-11 coarse:min-w-11"
+                      >
+                        <Maximize2 className="h-4 w-4 shrink-0" />
+                        {/* ⚠️ The label goes below `sm:`, exactly as « Supprimer »'s does. Measured at 390 px: with
+                            this label visible the row squeezed « Télécharger » from 221 px to 56 px — a clipped
+                            word on the primary way out, to make room for the secondary control. The `aria-label`
+                            is not optional, because `hidden` removes the span from the accessibility tree too. */}
+                        <span className="hidden sm:inline">Pleine résolution</span>
+                      </Button>
+                    )
                   )}
-                  <Button variant="outline" onClick={() => onDownload(file)} className="min-w-0 flex-1 gap-2 coarse:h-11 sm:flex-none">
+                  <Button
+                    variant="outline"
+                    onClick={() => onDownload(file)}
+                    aria-label={`Télécharger ${file.fileName}`}
+                    className={cn(
+                      "min-w-0 gap-2 coarse:h-11 sm:flex-none",
+                      // With « Visionneuse » carrying its label, this one gives its own up below `sm:` and keeps
+                      // the icon plus the `aria-label` — the row cannot hold two labelled buttons at 390 px.
+                      interactive ? "shrink-0" : "flex-1",
+                    )}
+                  >
                     <Download className="h-4 w-4 shrink-0" />
-                    <span className="truncate">Télécharger</span>
+                    <span className={cn("truncate", interactive && "hidden sm:inline")}>Télécharger</span>
                   </Button>
                   {onDelete && (
                     <Button
@@ -251,6 +313,30 @@ export function FilePreviewDialog({
                 </div>
               </div>
             </DialogFooter>
+
+            {/* ⚠️ Mounted for every file that has one and opened by the button, rather than mounted when
+                opened: Radix renders nothing while `open` is false, and a component that appears at the same
+                instant as its own `open` skips the enter transition — so the viewer would snap onto the screen.
+                ⚠️ Only ONE of the two is ever mounted: they are separate dialogs, and mounting both would put
+                two `Dialog`s on the same `viewerOpen`. */}
+            {interactive === "dicom" && (
+              <DicomViewer
+                open={viewerOpen}
+                onOpenChange={setViewerOpen}
+                file={file}
+                loadSource={loadSource}
+                onDownload={onDownload}
+              />
+            )}
+            {interactive === "mesh" && (
+              <MeshViewer
+                open={viewerOpen}
+                onOpenChange={setViewerOpen}
+                file={file}
+                loadSource={loadSource}
+                onDownload={onDownload}
+              />
+            )}
           </>
         )}
       </DialogContent>
@@ -385,12 +471,15 @@ function UnavailablePreview({
 }) {
   const Icon = fileIcon(file)
 
-  // ⚠️ Two different facts, and one sentence for both was the defect. « Nothing can display this » and « the
-  // original is on another machine » call for opposite actions, and the second is not a failure at all.
+  // ⚠️ Three different facts, and one sentence for them was the defect. « Nothing can display this », « the
+  // original is on another machine » and « something can display it, but not unasked » call for three
+  // different actions, and only the first is a failure at all.
   const message =
     reason === "elsewhere"
       ? "L’original est conservé au cabinet et n’est pas disponible sur ce poste. Téléchargez-le depuis le poste qui le détient."
-      : "Ce format ne s’affiche pas dans le navigateur. Téléchargez-le pour le consulter."
+      : reason === "viewer-only"
+        ? "Ce fichier est trop volumineux pour un aperçu automatique. Ouvrez la visionneuse pour l’afficher."
+        : "Ce format ne s’affiche pas dans le navigateur. Téléchargez-le pour le consulter."
 
   return (
     <div className="m-auto flex flex-col items-center gap-3 p-8 text-center">
@@ -398,7 +487,11 @@ function UnavailablePreview({
       <p className="max-w-sm text-sm text-muted-foreground">{message}</p>
       <Button variant="outline" onClick={() => onDownload(file)}>
         <Download className="mr-2 h-4 w-4" />
-        {reason === "elsewhere" ? "Voir où il se trouve" : "Télécharger pour consulter"}
+        {reason === "elsewhere"
+          ? "Voir où il se trouve"
+          : reason === "viewer-only"
+            ? "Télécharger l’original"
+            : "Télécharger pour consulter"}
       </Button>
     </div>
   )

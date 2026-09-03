@@ -142,6 +142,8 @@ how it was built, `notes.md` is what shipped.
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
+- [`dicom-interactive-viewer`](features/dicom-interactive-viewer/notes.md) — A radiograph you can read, not just look at: window/level, zoom, frame scrolling and a ruler that refuses to invent millimetres
+- [`mesh-interactive-viewer`](features/mesh-interactive-viewer/notes.md) — The scan you can turn, measure and mark: STL, PLY and OBJ get a thumbnail and a viewer, and every length says which unit it assumed
 - [`large-file-transfer`](features/large-file-transfer/notes.md) — A download is read as it is sent, not copied into the server first (Part 1 of four; the other three are named and not started)
 
 **Reads, lists and catalogues**
@@ -227,6 +229,26 @@ touching the area.
   the original. Neither is an error anywhere; the row just shows an icon. Its twin: `PatientFileDto.HasPreview`
   decides whether the browser *asks* and `DownloadPatientFilePreviewQuery` decides what to *serve* — they go
   through `PatientFilePreviewPolicy` because a disagreement is silent in both directions.
+- **A DICOM's `MONOCHROME1` inversion must be decided in ONE place, and applied in one.** Rendered as
+  `MONOCHROME2` a radiograph is a photographic negative of itself — bone dark, air bright — which reads as a
+  *finding*; applied **twice** it is the original again, correct-looking and wrong beside every `MONOCHROME2`
+  file in the drawer. `lib/files/dicom/study.ts` decides it, `dicom/window.ts`'s **unexported** LUT builder
+  applies it, and `check:responsive`'s `monochrome1-has-one-owner` fails on a second file comparing the
+  literal. The flattened preview and the interactive viewer are two consumers of that one pipeline, never two
+  copies of it.
+- **No mesh format records a unit, so a length in a 3D viewer is an ASSUMPTION and must be shown as one.** STL,
+  PLY and OBJ hold bare floats; « 48,2 » is 48,2 of whatever the exporter had in mind. Dental scanners write
+  millimetres, which makes mm the right default and never a right claim — a model exported in centimetres looks
+  identical and measures ten times wrong. `lib/files/mesh/measure.ts` makes the unit a control, grades its
+  caveat on whether the bounding box is a plausible dental size, and — the part that actually works — the viewer
+  shows the model's own dimensions in the chosen unit at all times, because « 63,0 × 34,1 × 11,8 mm » is an arch
+  and « 6,3 × 3,4 × 1,2 mm » is not. The view buttons are geometric (« Dessus ») and never anatomical
+  (« occlusale ») for the same reason: these formats record no orientation either.
+- **A WebGL context is not released by `dispose()`, and the 17th one blanks a viewer somebody else has open.**
+  Chrome allows sixteen; asking for another kills the oldest, with no error anywhere. Only `forceContextLoss()`
+  hands one back immediately, and the renderer that matters is the *thumbnail* one — built per file on the way
+  up, so a dozen models dropped at once reach the limit in a single gesture.
+  `check:responsive`'s `webgl-context-is-given-back` holds it.
 - **A format's own signature outranks another format's claim, and the reverse order refused real files.** The
   DICOM standard leaves its 128-byte preamble unspecified, so an exporter may put a TIFF header there — making
   `II*\0` at 0 and `DICM` at 128 an ordinary, valid DICOM. `FileUploadValidator`'s advisory branch cross-checked
