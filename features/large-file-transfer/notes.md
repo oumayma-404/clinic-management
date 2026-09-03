@@ -5,14 +5,14 @@ products upload everything and solve the bandwidth with **resumable chunked uplo
 where an on-premises component exists it is a *relay* to the cloud, not a terminus. The arithmetic backs them —
 340 Mo at Tunisia's median 9 Mbps uplink is about five minutes, not an impossibility.
 
-So the plan is four parts, in a deliberately reversible order. **Parts 1, 2 and 3 have landed; 4 has not.**
+So the plan is four parts, in a deliberately reversible order. **All four have landed.**
 
 | | | |
 |---|---|---|
 | **Part 1** | Downloads stream instead of buffering | ✅ landed |
 | **Part 2** | Resumable chunked upload | ✅ landed |
 | **Part 3** | Raise the coffre threshold | ✅ landed — and it was a backup change |
-| **Part 4** | Per-clinic storage quota | ⬜ |
+| **Part 4** | Per-clinic storage quota | ✅ landed |
 
 ⚠️ **Retiring the coffre outright is not on this list, and that is a decision, not an omission.** Existing rows
 describe files that live *only* on a clinic's own PC; deleting the residency concept orphans them. The coffre
@@ -366,13 +366,105 @@ The nightly job has **not** run against production with this change yet, and `de
 that no restore drill has ever been run on this deployment. The mirror is drilled in isolation; the restore path
 in `RESTORE-DRILL.md` is rewritten for it and is unproven end to end, exactly as it was before.
 
-## Part 4 — a quota (not started)
+## Part 4 — a quota (landed)
 
-Once the deployment stores everything, bytes are the cost and a clinic needs a ceiling it can see. Nothing in
-the product counts stored bytes per clinic today.
+Part 3 made a study hostable and removed the reason a cabinet could not fill the deployment's disk. A per-file
+cap bounds one upload and says nothing about ten thousand, so this is the ceiling on the total — and on a hosted
+multi-tenant box a full disk is not a degraded cabinet, it is every cabinet stopped at once.
 
-⚠️ **Part 3 changed the arithmetic this part has to work with, in both directions.** The backup multiplier
-is gone (~15× → ~1×), so the 78 Go free on the live VPS is now tens of gigabytes of usable capacity rather
-than about five — but the per-file line moved 25 Mo → 150 Mo at the same time, so a single cabinet can reach
-that capacity six times faster. The counter is what has to exist before `LargeBytes` itself is raised to cover
-the 340 Mo CBCT.
+### The shape
+
+`ClinicStorageAllowance` composes two answers: **whether** there is a ceiling (`IClinicStoragePolicy`, derived
+from the deployment) and **how much is used** (`IPatientFileRepository.GetHostedBytesAsync`, one indexed
+aggregate).
+
+⚠️ **Whether there is a ceiling is derived; how big it is, is configured.** `Enforced` is `!UsesDiskStorage` —
+the same question `IFileResidencyPolicy` asks from the other side — so no operator setting can turn the ceiling
+off, because where the vendor holds the bytes one practice's uploads are every other practice's outage. The
+*size* is `Deployment:StorageQuotaPerClinicBytes`, because it is a fact about hardware that was bought and no
+code can know it. Where the cabinet owns the disk the allowance reads **nothing at all** — asserted on the
+repository (`Times.Never`), not on the verdict, since a quota that answered « fits » after reading the whole
+store would pass a verdict-only test while doing that work on every upload.
+
+⚠️ **The default is 10 Go, chosen against the measured disk.** 96 Go with 78 Go free, and since Part 3 the backup
+costs about one copy of the object store rather than fifteen — so a cabinet at the ceiling occupies roughly 20 Go
+all told, which at the 150 Mo per-file line is about seventy full studies. It is a ceiling **per cabinet and not
+a reservation**: eight cabinets at the default can promise more than that disk holds, nothing here can check that
+(the deployment does not know how many cabinets it will sell), and `deploy/README.md` states the arithmetic.
+
+### What is counted, and the two things deliberately not
+
+Hosted **patient files**. Medical-document PDFs, cachets, logos and previews also occupy space and are each a few
+hundred kilobytes against a study's hundred megabytes — the term that grows is the one measured. **Recovery
+points are excluded for a stronger reason**: they are the *vendor's* copies of the cabinet's records, so charging
+them to the cabinet's ceiling would push a practice over a limit by an act it did not perform and cannot undo.
+
+So the figure is a **close under-estimate, never an over-estimate** — the safe direction for something a user is
+shown, because a cabinet is never told it is fuller than it is.
+
+### Where it is enforced
+
+Both doors, and at the earliest point each can answer:
+
+- `StartFileUploadCommand` — **before a byte is sent**, which is what the declared length is for. « Vous n'avez
+  plus d'espace » after four minutes of a clinic's uplink is the failure Part 2 exists to end. The length is a
+  claim there, and that is sound in the direction that matters: it is re-checked against what actually arrives,
+  and a client understating it only postpones its own refusal.
+- `UploadPatientFileCommand` — against the **measured** length, since by then the body is parsed. A quota checked
+  against a declared size is a quota a client walks straight through.
+- The coffre door is **exempt**: those bytes never reach the deployment, so counting them against the space the
+  deployment sells would refuse a study for occupying storage it does not occupy.
+
+The check is `used + incoming` against the ceiling, never `used` alone — the latter lets a cabinet one byte under
+its limit add another 150 Mo, which at the Part 3 line is every upload sailing through the last check.
+
+### What the browser is told
+
+`storageQuotaBytes` / `storageUsedBytes` / `storageFullMessage` ride on the **upload policy**, not an endpoint of
+their own: they answer the same question every other field there answers — « what will be refused, and why » —
+and the picker already reads it on the one screen where files are added. A second request would be a second
+moment at which the browser's ceiling could differ from the server's.
+
+⚠️ **A quota of 0 is the signal**, and the browser never infers « no ceiling » from a deployment kind it is not
+told. ⚠️ A caller with **no clinic in scope** reads unbounded rather than failing the whole policy — refusing
+there would take the picker's accept string and every refusal sentence with it, over a figure that is decoration
+on that screen; the server still enforces at the door, where a clinic always exists.
+
+`StorageUsageLine` renders one quiet line above the drop zone. Hiding it until 80 % was the other candidate and
+it is worse: the first time a practice learned there was a ceiling would be the day it stopped them, which is the
+surprise this part exists to prevent. The tone escalates on the meter and the figures, never on a background
+wash — a tinted band above the drop zone reads as an error on a screen where nothing is wrong yet.
+
+### Two defects found while building it, neither by reasoning
+
+⚠️ **`configuration.GetValue<long?>` THROWS on a non-numeric value** rather than returning null. So
+`Deployment:StorageQuotaPerClinicBytes=10Go` would have taken the whole deployment down at startup with a
+`FormatException` from a type converter — the exact failure the fall-back was written to prevent, in the line
+that was supposed to prevent it. Caught by the test asserting the fall-back; the read is a string plus
+`long.TryParse` now.
+
+⚠️ **The refusal said « 0,0 Go sur 0,1 Go utilisés ».** Caught by *reading the served sentence*, not by any test:
+every assertion about the wording used gigabyte-scale fixtures and was green throughout. Forcing gigabytes is
+useless below one, so the unit adapts — a cabinet on 7,4 Mo of a 60 Mo ceiling now reads « 7,4 Mo sur 60,0 Mo ».
+
+### Verified
+
+- 4103 backend tests. The quota's own class covers the boundary (the last file that fits is accepted, the first
+  that does not is refused), the unenforced deployment reading nothing, the derived-vs-configured split, the
+  fall-backs, and both halves of the wording.
+- `npx tsc --noEmit` and `npm run check:responsive` (31) clean.
+- Against the running stack with a 60 Mo ceiling configured: the served policy reports
+  `quota 60,0 Mo · used 7,4 Mo`, and the sentence reads in megabytes.
+
+### Still open
+
+⚠️ **Nothing warns before the ceiling.** The line turns amber at 80 % on a screen someone has to be looking at;
+there is no notification, so a cabinet can meet the limit mid-consultation with no earlier signal. The
+`clinic-subscription` warning job is the shape that would fix it.
+
+⚠️ **The sum of the quotas is not checked against the disk**, and cannot be here — see above. It is an operator
+responsibility, stated in `deploy/README.md` and nowhere enforced.
+
+⚠️ **`LargeBytes` is still 150 Mo**, so the 340 Mo CBCT this feature was named for remains a coffre file. With
+the backup multiplier gone and a quota in place, raising it is now a decision about how much the vendor sells
+rather than a risk to the deployment.

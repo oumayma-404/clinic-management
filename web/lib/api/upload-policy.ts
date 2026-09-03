@@ -48,6 +48,12 @@ export interface UploadPolicy {
    * endpoints** — see `shouldUploadInParts`.
    */
   resumableChunkBytes: number;
+  /** The cabinet's storage ceiling, or **0 where nothing is enforced** — which is the signal itself. */
+  storageQuotaBytes: number;
+  /** What it has already used of that ceiling. Always 0 when there is no ceiling. */
+  storageUsedBytes: number;
+  /** The server's own « plein » sentence, so the two cannot word it differently. Empty when unenforced. */
+  storageFullMessage: string;
 }
 
 /** Which door a file goes through. Decided by the server's policy, never guessed from the extension. */
@@ -121,7 +127,16 @@ export function refusalFor(
   }
 
   // An always-hosted format's hostedMaxBytes IS its maxBytes, so this one comparison covers both shapes.
-  return file.size > format.hostedMaxBytes ? format.tooLargeMessage : null;
+  if (file.size > format.hostedMaxBytes) return format.tooLargeMessage;
+
+  // ⚠️ The cabinet's own ceiling, checked LAST and only for a hosted file. A coffre file's bytes never
+  // reach the deployment, so counting them against the space the deployment sells would refuse a study for
+  // occupying storage it does not occupy. `used + this file`, not `used`, for the reason the server states.
+  if (policy.storageQuotaBytes > 0 && policy.storageUsedBytes + file.size > policy.storageQuotaBytes) {
+    return policy.storageFullMessage;
+  }
+
+  return null;
 }
 
 /**

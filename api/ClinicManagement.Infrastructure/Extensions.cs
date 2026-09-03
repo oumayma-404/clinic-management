@@ -382,6 +382,11 @@ public static class Extensions
         // the profile's Kind alone, so no operator setting can route a cabinet's studies back into a hosted store
         // that is not sized for them.
         services.AddSingleton<IFileResidencyPolicy, FileResidencyPolicy>();
+        // large-file-transfer Part 4 — the ceiling on what one cabinet may store. Same seam and same lifetime:
+        // WHETHER there is one is derived from the profile, and only its SIZE is read from configuration.
+        services.AddSingleton<IClinicStoragePolicy, ClinicStoragePolicy>();
+        // The allowance composes that policy with a per-clinic read, so it is SCOPED — it takes a repository.
+        services.AddScoped<ClinicManagement.Application.Common.Files.ClinicStorageAllowance>();
         // Same lifetime reasoning as the profile it reads: immutable and derived from startup configuration.
         services.AddSingleton<ISecondFactorPolicy, SecondFactorPolicy>();
         services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();

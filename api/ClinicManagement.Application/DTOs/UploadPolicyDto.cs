@@ -53,6 +53,32 @@ public class UploadPolicyDto
     /// drift the way a second copy of the number would.</para>
     /// </summary>
     public long ResumableChunkBytes { get; set; }
+
+    /// <summary>
+    /// The cabinet's storage ceiling in bytes, or <b>0 where nothing is enforced</b> — which is the case on a
+    /// deployment where the clinic's own machine holds the blobs (<c>large-file-transfer</c> Part 4).
+    /// </summary>
+    public long StorageQuotaBytes { get; set; }
+
+    /// <summary>
+    /// What the cabinet is already using of it. Always 0 when <see cref="StorageQuotaBytes"/> is 0.
+    ///
+    /// <para>⚠️ It rides on the upload policy rather than an endpoint of its own because it answers the same
+    /// question every other field here answers — « what will be refused, and why » — and the picker already
+    /// reads this on the one screen where files are added. A second request would be a second moment at which
+    /// the browser's idea of the ceiling could differ from the server's.</para>
+    /// </summary>
+    public long StorageUsedBytes { get; set; }
+
+    /// <summary>
+    /// The server's own « plein » sentence, so the instant refusal and the one the server would give are the
+    /// same words. Empty where nothing is enforced.
+    ///
+    /// <para>⚠️ Composed here rather than in the browser for `TooLargeMessage`'s reason: the numbers are on this
+    /// DTO, so a client could assemble the sentence — and then two places would decide how a size is written in
+    /// French, which is how « 9.8 GB » ends up in the middle of a French refusal.</para>
+    /// </summary>
+    public string StorageFullMessage { get; set; } = string.Empty;
 }
 
 public class UploadPolicyFormatDto
@@ -81,8 +107,8 @@ public class UploadPolicyFormatDto
 
     /// <summary>
     /// The largest file of this format the <b>server</b> will hold. Distinct from <see cref="MaxBytes"/>: that is
-    /// the door's ceiling, this is where the coffre takes over — 25 Mo for a study format on a hosted deployment,
-    /// and the door's own ceiling everywhere else.
+    /// the door's ceiling, this is where the coffre takes over — <c>FileTypeCatalog.StudyStaysAtTheCabinetAbove</c>
+    /// for a study format on a hosted deployment, and the door's own ceiling everywhere else.
     /// </summary>
     public long HostedMaxBytes { get; set; }
 

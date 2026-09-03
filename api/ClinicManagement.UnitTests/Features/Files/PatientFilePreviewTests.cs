@@ -88,7 +88,22 @@ public class PatientFilePreviewTests
 
     private UploadPatientFileCommandHandler Handler() => new(
         _patients.Object, _folders.Object, _files.Object, _storage.Object, _uow.Object,
-        _resolver.Object, _residency.Object, NullLogger<UploadPatientFileCommandHandler>.Instance);
+        _resolver.Object, _residency.Object, UnboundedStorage(),
+        NullLogger<UploadPatientFileCommandHandler>.Instance);
+    /// <summary>
+    /// An allowance that never refuses — these tests are about the upload, not about Part 4's quota.
+    ///
+    /// ⚠️ Built with an <b>unenforced</b> policy rather than a huge ceiling, so it reads no repository at all:
+    /// a mocked `GetHostedBytesAsync` returning Moq's default 0 would look identical here and would quietly
+    /// stop exercising the real path the day the allowance learns to read something else.
+    /// </summary>
+    private static ClinicStorageAllowance UnboundedStorage()
+    {
+        var policy = new Mock<IClinicStoragePolicy>();
+        policy.SetupGet(p => p.Enforced).Returns(false);
+        return new ClinicStorageAllowance(new Mock<IPatientFileRepository>().Object, policy.Object);
+    }
+
 
     /// <summary>The original goes to a generated key; a preview goes to one this test can recognise.</summary>
     private (Func<PatientFile?> recorded, Func<string?> previewPath) StorageAccepts()

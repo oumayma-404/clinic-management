@@ -32,6 +32,20 @@ public class PatientFileRepository : IPatientFileRepository
         return totals is null ? VaultContentTotals.Empty : new VaultContentTotals(totals.Count, totals.Bytes);
     }
 
+    public async Task<long> GetHostedBytesAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // `IgnoreQueryFilters` + an explicit ClinicId for GetVaultTotalsAsync's reason, one method up: the
+        // quota is also read from paths with no clinic in ambient scope, and the parameter is the authority.
+        //
+        // ⚠️ `SumAsync` over an empty set throws on a non-nullable projection — EF translates it to SQL SUM,
+        // which answers NULL for no rows. Summing a `(long?)` and coalescing is what makes « this cabinet has
+        // no files » a legitimate zero rather than an exception on the first upload of a new practice.
+        return await _context.PatientFiles
+            .IgnoreQueryFilters()
+            .Where(f => f.ClinicId == clinicId && f.Residency == FileResidency.Hosted)
+            .SumAsync(f => (long?)f.FileSize, cancellationToken) ?? 0L;
+    }
+
     public async Task<PatientFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.PatientFiles

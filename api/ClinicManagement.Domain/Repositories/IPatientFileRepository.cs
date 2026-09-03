@@ -39,6 +39,13 @@ public interface IPatientFileRepository
     /// </summary>
     Task<VaultContentTotals> GetVaultTotalsAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The bytes this cabinet occupies on the deployment's own storage — hosted files only
+    /// (<c>large-file-transfer</c> Part 4). A coffre file is deliberately not counted: its bytes never reached
+    /// the deployment, so charging them to a quota about the deployment's disk would be a figure about nothing.
+    /// </summary>
+    Task<long> GetHostedBytesAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     Task<PagedResult<ClinicFileManifestRow>> GetClinicManifestPageAsync(
         Guid clinicId,
         PageRequest? paging,

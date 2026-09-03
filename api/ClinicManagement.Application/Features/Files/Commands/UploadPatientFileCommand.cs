@@ -45,6 +45,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IFileResidencyPolicy _residencyPolicy;
+    private readonly ClinicStorageAllowance _storage;
     private readonly ILogger<UploadPatientFileCommandHandler> _logger;
 
     public UploadPatientFileCommandHandler(
@@ -55,6 +56,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         IUnitOfWork unitOfWork,
         ICurrentClinicResolver clinicResolver,
         IFileResidencyPolicy residencyPolicy,
+        ClinicStorageAllowance storage,
         ILogger<UploadPatientFileCommandHandler> logger)
     {
         _patientRepository = patientRepository;
@@ -64,6 +66,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         _unitOfWork = unitOfWork;
         _clinicResolver = clinicResolver;
         _residencyPolicy = residencyPolicy;
+        _storage = storage;
         _logger = logger;
     }
 
@@ -128,6 +131,15 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
             if (_residencyPolicy.Decide(upload.Entry, upload.ByteLength) != FileResidency.Hosted)
             {
                 return Result<PatientFileDto>.Failure(FileResidencyRefusals.BelongsInTheVault());
+            }
+
+            // large-file-transfer Part 4 — and the length used is the MEASURED one, not a client's claim: by
+            // here the body has been parsed, so `ByteLength` is what actually arrived. A quota checked against
+            // a declared size is a quota a client can walk straight through.
+            var room = await _storage.EnsureRoomForAsync(patient.ClinicId, upload.ByteLength, cancellationToken);
+            if (room.IsFailure)
+            {
+                return Result<PatientFileDto>.FailureFrom(room);
             }
 
             // Store the blob first, then persist the record. If the DB save fails we must remove

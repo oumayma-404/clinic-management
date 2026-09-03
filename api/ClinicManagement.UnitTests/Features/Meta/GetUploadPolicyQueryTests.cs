@@ -4,11 +4,16 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Meta.Queries;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Repositories;
+using Moq;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Features.Meta;
@@ -25,13 +30,36 @@ namespace ClinicManagement.UnitTests.Features.Meta;
 /// </summary>
 public class GetUploadPolicyQueryTests
 {
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-0000-4000-8000-000000000001");
+
     private static GetUploadPolicyQueryHandler Handler(string profile)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Deployment:Profile"] = profile })
             .Build();
 
-        return new GetUploadPolicyQueryHandler(new FileResidencyPolicy(DeploymentProfile.Resolve(configuration)));
+        var deployment = DeploymentProfile.Resolve(configuration);
+
+        // ⚠️ The quota half is stubbed as UNENFORCED by default so every existing case keeps asserting what it
+        // was written to assert. The two cases that are about the quota build their own handler.
+        var storagePolicy = new Mock<IClinicStoragePolicy>();
+        storagePolicy.SetupGet(p => p.Enforced).Returns(false);
+
+        return HandlerWith(deployment, storagePolicy.Object, new Mock<IPatientFileRepository>().Object);
+    }
+
+    private static GetUploadPolicyQueryHandler HandlerWith(
+        DeploymentProfile deployment, IClinicStoragePolicy storagePolicy, IPatientFileRepository files)
+    {
+        var resolver = new Mock<ICurrentClinicResolver>();
+        resolver
+            .Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Guid>.Success(ClinicId));
+
+        return new GetUploadPolicyQueryHandler(
+            new FileResidencyPolicy(deployment),
+            new ClinicStorageAllowance(files, storagePolicy),
+            resolver.Object);
     }
 
     private static async Task<ClinicManagement.Application.DTOs.UploadPolicyDto> Read(
@@ -242,6 +270,50 @@ public class GetUploadPolicyQueryTests
         var policy = await Read(profile: profile);
 
         Assert.Equal(0L, policy.ResumableChunkBytes);
+    }
+
+    // ── The storage ceiling (Part 4) ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The picker is told where the cabinet stands, so it can refuse a file that will not fit before a byte
+    /// moves — the same contract every other field on this policy answers to.
+    /// </summary>
+    [Fact]
+    public async Task A_Hosted_Cabinet_Is_Told_Its_Ceiling_And_What_It_Has_Used()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Deployment:Profile"] = "HostedMultiTenant" })
+            .Build();
+
+        var files = new Mock<IPatientFileRepository>();
+        files
+            .Setup(r => r.GetHostedBytesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(3L * 1024 * 1024 * 1024);
+
+        var storagePolicy = new Mock<IClinicStoragePolicy>();
+        storagePolicy.SetupGet(p => p.Enforced).Returns(true);
+        storagePolicy.SetupGet(p => p.QuotaBytes).Returns(10L * 1024 * 1024 * 1024);
+
+        var result = await HandlerWith(DeploymentProfile.Resolve(configuration), storagePolicy.Object, files.Object)
+            .Handle(new GetUploadPolicyQuery(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(10L * 1024 * 1024 * 1024, result.Value!.StorageQuotaBytes);
+        Assert.Equal(3L * 1024 * 1024 * 1024, result.Value!.StorageUsedBytes);
+    }
+
+    /// <summary>
+    /// ⚠️ And <b>zero</b> where nothing is enforced, which is the signal itself: a browser reading a quota of 0
+    /// knows there is no ceiling to render, rather than having to infer one from a deployment kind it is not
+    /// told. A figure served there would be a limit this product does not impose on a disk it does not own.
+    /// </summary>
+    [Fact]
+    public async Task A_Cabinet_That_Owns_Its_Disk_Is_Told_Nothing_About_A_Ceiling()
+    {
+        var policy = await Read(deployment: "SelfHostedLan");
+
+        Assert.Equal(0, policy.StorageQuotaBytes);
+        Assert.Equal(0, policy.StorageUsedBytes);
     }
 
     /// <summary>

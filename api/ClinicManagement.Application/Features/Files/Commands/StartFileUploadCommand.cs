@@ -62,6 +62,7 @@ public class StartFileUploadCommandHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IFileResidencyPolicy _residencyPolicy;
+    private readonly ClinicStorageAllowance _storage;
     private readonly ILogger<StartFileUploadCommandHandler> _logger;
 
     public StartFileUploadCommandHandler(
@@ -72,6 +73,7 @@ public class StartFileUploadCommandHandler
         IUnitOfWork unitOfWork,
         ICurrentClinicResolver clinicResolver,
         IFileResidencyPolicy residencyPolicy,
+        ClinicStorageAllowance storage,
         ILogger<StartFileUploadCommandHandler> logger)
     {
         _patientRepository = patientRepository;
@@ -81,6 +83,7 @@ public class StartFileUploadCommandHandler
         _unitOfWork = unitOfWork;
         _clinicResolver = clinicResolver;
         _residencyPolicy = residencyPolicy;
+        _storage = storage;
         _logger = logger;
     }
 
@@ -139,6 +142,19 @@ public class StartFileUploadCommandHandler
             if (_residencyPolicy.Decide(entry, request.FileSize) != FileResidency.Hosted)
             {
                 return Result<FileUploadSessionDto>.Failure(FileResidencyRefusals.BelongsInTheVault());
+            }
+
+            // large-file-transfer Part 4 — refused HERE, before a byte is sent, which is the whole reason this
+            // door asks for a length up front. « Vous n'avez plus d'espace » discovered after four minutes of a
+            // clinic's uplink is exactly the failure Part 2 exists to end.
+            //
+            // ⚠️ The length is the client's CLAIM at this point, and that is sound in the direction that
+            // matters: it is checked again against the measured total at completion, and a client understating
+            // it only postpones its own refusal. What it buys is an honest « no » in the first request.
+            var room = await _storage.EnsureRoomForAsync(patient.ClinicId, request.FileSize, cancellationToken);
+            if (room.IsFailure)
+            {
+                return Result<FileUploadSessionDto>.FailureFrom(room);
             }
 
             var reference = await _uploadStore.BeginAsync(patient.ClinicId, cancellationToken);

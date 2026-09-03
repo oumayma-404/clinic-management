@@ -72,6 +72,7 @@ import { FileResidencyBadge } from "@/components/patients/files/residency-badge"
 import { RenameFileDialog } from "@/components/patients/files/rename-file-dialog"
 import { UploadQueue, useUploadQueue } from "@/components/patients/files/upload-queue"
 import { ResumeUploadsNotice } from "@/components/patients/files/resume-uploads-notice"
+import { StorageUsageLine } from "@/components/patients/files/storage-usage-line"
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
 
 type FilesView = "grid" | "list"
@@ -631,6 +632,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           )}
         </div>
       )}
+
+      {/* The cabinet's ceiling — a fact about the practice rather than about any one envoi, so it sits above
+          both. Renders nothing where no quota is enforced. */}
+      <StorageUsageLine policy={policy} />
 
       {/* Above the queue, because it is about an envoi that is not in the queue yet — and below the coffre
           notice, which is about what this machine can do at all. */}
