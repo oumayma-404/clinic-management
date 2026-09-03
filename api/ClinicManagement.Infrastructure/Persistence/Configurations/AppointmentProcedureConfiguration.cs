@@ -29,6 +29,14 @@ public class AppointmentProcedureConfiguration : IEntityTypeConfiguration<Appoin
 
         builder.HasIndex(p => p.TreatmentPlanItemId);
 
+        // Which step of that devis act this séance does. Plain column, no FK, for TreatmentPlanItemId's reason.
+        // Indexed and filtered: only a séance of a multi-step act carries one, so the overwhelming majority of
+        // rows are null, and the read that wants it asks « cette étape est-elle déjà planifiée ? ».
+        builder.Property(p => p.TreatmentPlanItemStepId);
+
+        builder.HasIndex(p => p.TreatmentPlanItemStepId)
+            .HasFilter("\"TreatmentPlanItemStepId\" IS NOT NULL");
+
         // SetNull, matching Appointment.ProcedureTypeId: retiring a procedure must leave the booked visit intact.
         // ProcedureName is the snapshot that keeps the row readable once the link is gone.
         builder.HasOne(p => p.ProcedureType)

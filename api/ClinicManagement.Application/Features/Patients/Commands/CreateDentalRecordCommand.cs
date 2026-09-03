@@ -48,6 +48,18 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid? TreatmentPlanId { get; set; }
     /// <summary>Optional plan step this record carries out — marked "réalisé" and linked to this record on save.</summary>
     public Guid? TreatmentPlanItemId { get; set; }
+
+    /// <summary>
+    /// Which <b>step</b> of that devis act this fiche carries out — « le scellement ». Null when the act is
+    /// done in one séance, which is the ordinary case and every fiche written before steps existed.
+    /// <para>
+    /// ⚠️ Supplying it is what lets one devis line be evidenced by several fiches:
+    /// <c>TreatmentPlanItem.MarkDone</c> refuses a second, different record, so without a step the second
+    /// séance of a bridge is refused outright. Omitting it on a stepped act is still safe — the act-level
+    /// path advances that act's next pending step.
+    /// </para>
+    /// </summary>
+    public Guid? TreatmentPlanItemStepId { get; set; }
     /// <summary>Optional appointment this record documents — completing it and dismissing its post-visit review
     /// prompt (finding #10), so recording the dental work (not only a medical document) closes the loop.</summary>
     public Guid? AppointmentId { get; set; }
@@ -215,8 +227,10 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             if (request.TreatmentPlanItemId.HasValue)
             {
                 var link = await DentalRecordLinker.LinkPlanItemAsync(
-                    _treatmentPlanRepository, request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
-                    request.PatientId, clinicResult.Value, record.Id, request.InterventionDate, cancellationToken);
+                    _treatmentPlanRepository, _appointmentRepository,
+                    request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
+                    request.PatientId, clinicResult.Value, record.Id, request.InterventionDate, cancellationToken,
+                    request.TreatmentPlanItemStepId, request.AppointmentId);
                 if (link.IsFailure)
                 {
                     return Result<DentalRecordDto>.Failure(link.Error!);

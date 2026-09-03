@@ -42,10 +42,16 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
-  AppointmentActsPicker, hasInvalidAgreedCost, negotiatedTotalOf, toProcedurePayloads, totalActsDuration,
-  type SelectedAct,
+  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
+  toProcedurePayloads, totalActsDuration,
+  type SelectedAct, type PlanStepOption, type BilledOnPlan,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage } from "@/lib/errors"
+import type { PresetPlanAct } from "@/components/appointment-acts-picker"
+
+// Re-exported for the callers that have always imported it from this module. Its home is now
+// `appointment-acts-picker`, beside `SelectedAct`.
+export type { PresetPlanAct }
 import { formatAmount } from "@/lib/format"
 import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -62,22 +68,6 @@ import { specialtyLabel } from "@/lib/specialties"
  * la même séance » is one dialog opening with two entries, and « séparément » is two openings with one each. The
  * caller decides which — this dialog just books what it is given.</p>
  */
-export interface PresetPlanAct {
-  planItemId: string
-  /** The catalog act it stands for, when the workspace could resolve one. */
-  procedureTypeId?: string
-  /** Désignation, for the « devis » chip and the header summary. */
-  label: string
-  /**
-   * The price the devis put on this step. It seeds « Prix pour ce rendez-vous » so the visit is booked at the
-   * price the patient was quoted, not at the catalogue tarif the devis may well have discounted away from.
-   *
-   * <p>⚠️ Seeded as **typed**, not as an untouched field: a plan step's price is an agreed price, so it is sent
-   * and carried into the fiche. Editing it here changes this visit only — the devis keeps its own figure, and a
-   * price haggled on the telephone cannot rewrite a quote the patient may have signed.</p>
-   */
-  plannedCost?: number | null
-}
 
 /**
  * The three refusals this dialog can talk the user through, and whether they have already said yes to each.
@@ -322,21 +312,8 @@ export function CreateAppointmentDialog({
    */
   useEffect(() => {
     if (!open || !isPlanScheduling || !procedureTypesLoaded || selectedActs.length > 0) return
-    setSelectedActs(
-      planActs.map<SelectedAct>((a) => ({
-        procedureTypeId:
-          a.procedureTypeId && procedureTypes.some((p) => p.id === a.procedureTypeId)
-            ? a.procedureTypeId
-            : null,
-        treatmentPlanItemId: a.planItemId,
-        planLabel: "devis",
-        fallbackName: a.label,
-        // The devis' own figure, seeded as typed — see `PresetPlanAct.plannedCost`. A step priced at 0 is left
-        // alone: the plan has not costed it, so the catalogue tarif is the better answer than a free act.
-        agreedCost:
-          a.plannedCost != null && a.plannedCost > 0 ? formatAmount(a.plannedCost) : undefined,
-      })),
-    )
+    // One mapping, shared with the edit dialog's « Actes du devis » group — see `presetToSelectedAct`.
+    setSelectedActs(planActs.map((a) => presetToSelectedAct(a, procedureTypes)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isPlanScheduling, procedureTypes, procedureTypesLoaded])
 
@@ -509,19 +486,12 @@ export function CreateAppointmentDialog({
   })
 
   /**
-   * The acts' names, resolved against the catalog — the same three cases `AppointmentActsPicker` resolves, so the
-   * recapitulation cannot name an act differently from the list the user is reading beside it.
+   * The acts' names for the récapitulatif, from the picker's own shared resolver — so the pane cannot name an
+   * act differently from the list the user is reading beside it, and a bridge booked across two steps is one
+   * entry naming both (« Couronne / bridge — Préparation, Empreinte ») rather than the act's name twice.
    */
   const actNames = useMemo(
-    () =>
-      selectedActs.map((act) => {
-        if (!act.procedureTypeId) return act.fallbackName ?? "Acte du devis"
-        return (
-          procedureTypes.find((p) => p.id === act.procedureTypeId)?.name ??
-          act.fallbackName ??
-          "Acte indisponible"
-        )
-      }),
+    () => actLabelsOf(selectedActs, procedureTypes),
     [selectedActs, procedureTypes],
   )
 

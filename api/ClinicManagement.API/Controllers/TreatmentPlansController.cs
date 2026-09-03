@@ -187,6 +187,65 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     /// <summary>
+    /// Detach one <b>step</b> of an act from the fiche that evidenced it, returning it to « à venir » and
+    /// reopening the devis if that step had closed it. `AdminOrDoctor`, exactly like its act-level sibling: this
+    /// is the correction path for a clinical assertion, and it is refused once a live invoice bills the work.
+    /// </summary>
+    [HttpPost("{id:guid}/items/{itemId:guid}/steps/{stepId:guid}/undone")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemStep(Guid id, Guid itemId, Guid stepId)
+    {
+        var result = await _mediator.Send(
+            new UnmarkTreatmentPlanItemStepCommand { PlanId = id, ItemId = itemId, StepId = stepId });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Set the clinical steps of one act — « Préparation, Empreinte, Scellement définitif ».
+    /// <para>
+    /// ⚠️ `AdminOrDoctor`, following <see cref="ReorderItems"/> rather than the money reasoning of its other
+    /// neighbours. It moves <b>no</b> money — the act's price, the devis total and the échéancier are untouched,
+    /// and it does not bump the revision — so the fiscal argument does not apply. But this controller already
+    /// decided that case: reordering was moved into this group because « the sequence <i>is</i> the treatment
+    /// sequence — it is what the workspace proposes booking next », and a step list is that same decision one
+    /// level finer. Deciding a bridge is done in three sittings rather than four is a clinical judgement, and
+    /// `TreatmentPlansControllerAuthorizationTests` is where that intent is pinned.
+    /// </para>
+    /// </summary>
+    [HttpPut("{id:guid}/items/{itemId:guid}/steps")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> SetItemSteps(
+        Guid id, Guid itemId, [FromBody] SetTreatmentPlanItemStepsCommand command)
+    {
+        command.TreatmentPlanId = id;
+        command.ItemId = itemId;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Traitements en cours » — the acts this cabinet has started and not finished, with the next step and
+    /// whether a séance is booked for it.
+    /// <para>
+    /// ⚠️ `AnyClinicRole` (the controller's own policy), deliberately <b>not</b> `AdminOrDoctor` and deliberately
+    /// not folded into `GET /api/dashboard`, which is. Reception is exactly who books the next séance — the same
+    /// reasoning that kept the visit-closure worklist off the dashboard endpoint. It carries no money figure at
+    /// all, which is what makes that safe.
+    /// </para>
+    /// <para>
+    /// Ask for page 1 of size 1 and read <c>totalCount</c> to render the journée's chip: the total is exact
+    /// whatever page was requested, so the chip and the list it opens cannot disagree.
+    /// </para>
+    /// </summary>
+    [HttpGet("treatments-in-progress")]
+    public async Task<ActionResult<PagedResult<TreatmentInProgressDto>>> GetTreatmentsInProgress(
+        [FromQuery] int? page, [FromQuery] int? pageSize)
+    {
+        var result = await _mediator.Send(new GetTreatmentsInProgressQuery { Page = page, PageSize = pageSize });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
     /// Amend an accepted devis: add, edit and remove acts, retitle it and revise the échéancier in one call.
     /// `AdminOrDoctor` —
     /// this alters what the patient owes on a numbered document, the same class as cancelling an issued

@@ -63,6 +63,18 @@ export interface AppointmentProcedurePayload {
   /** The devis act this line carries out. Validated against the request's `treatmentPlanId`. */
   treatmentPlanItemId?: string | null;
   /**
+   * Which **step** of that devis act this séance carries out. Omit for an act done in one sitting, which is
+   * every booking the product made before steps existed.
+   *
+   * ⚠️ Requires `treatmentPlanItemId` — the server refuses a step without its act, because four of its reads
+   * key off the act's id and a step-only row would drop out of all of them.
+   *
+   * ⚠️ Two rows may share one `treatmentPlanItemId` **only** when their steps differ: « préparation » and
+   * « empreinte » in one séance is the case this exists for. The same step twice, or one act sent both whole
+   * and by step, is refused.
+   */
+  treatmentPlanItemStepId?: string | null;
+  /**
    * The price agreed for this act at this visit — a **forfait**, not a per-tooth rate. Omit or send `null` to
    * leave the act at its catalogue tarif.
    *

@@ -700,6 +700,18 @@ export function PatientRecordModal({
         acts: parsedActs,
         treatmentPlanId: linkedItem?.planId ?? null,
         treatmentPlanItemId: linkedItem?.itemId ?? null,
+        /*
+         * Which STEP of that act this fiche carried out, read off the séance the fiche documents.
+         *
+         * ⚠️ It is the appointment's row that knows, not the plan: the dentist may legitimately book the
+         * scellement before the essayage, and without this the server would advance the act's *next pending*
+         * step instead — marking « empreinte » done on the day the bridge was actually sealed. Omitting it is
+         * still safe (that fallback is deliberate), which is why an appointment booked before steps existed
+         * needs nothing here.
+         */
+        treatmentPlanItemStepId:
+          appointment?.procedures?.find((p) => p.treatmentPlanItemId === linkedItem?.itemId)
+            ?.treatmentPlanItemStepId ?? null,
         // Only carried on create — links the new record to the appointment it documents (closes the prompt).
         appointmentId: appointmentId ?? null,
       }

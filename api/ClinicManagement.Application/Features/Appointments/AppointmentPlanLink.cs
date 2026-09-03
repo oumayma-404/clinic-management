@@ -38,8 +38,8 @@ public static class AppointmentPlanLink
     }
 
     /// <summary>
-    /// Confirm that <b>every</b> step of a grouped séance belongs to the same plan, clinic and patient — one plan
-    /// load for the whole set.
+    /// Confirm that <b>every</b> act of a grouped séance belongs to the same plan, clinic and patient — and that
+    /// every named step belongs to the act it is named with. One plan load for the whole set.
     /// <para>
     /// A batch rather than a loop over <see cref="ValidateAsync"/> because grouping is the normal case now (« ces
     /// trois actes en une séance »), and per-item validation would re-read the same aggregate once per act. It also
@@ -56,12 +56,12 @@ public static class AppointmentPlanLink
     public static async Task<Result<Dictionary<Guid, string>>> ValidateManyAsync(
         ITreatmentPlanRepository treatmentPlanRepository,
         Guid? treatmentPlanId,
-        IReadOnlyCollection<Guid> treatmentPlanItemIds,
+        IReadOnlyCollection<(Guid ItemId, Guid? StepId)> treatmentPlanLinks,
         Guid clinicId,
         Guid? patientId,
         CancellationToken cancellationToken)
     {
-        if (treatmentPlanItemIds.Count == 0)
+        if (treatmentPlanLinks.Count == 0)
         {
             return Result<Dictionary<Guid, string>>.Success(new Dictionary<Guid, string>());
         }
@@ -81,13 +81,29 @@ public static class AppointmentPlanLink
             return Result<Dictionary<Guid, string>>.Failure("Plan de traitement introuvable.");
         }
 
-        var byId = plan.Items.ToDictionary(i => i.Id, i => i.DesignationFr);
-        if (treatmentPlanItemIds.Any(id => !byId.ContainsKey(id)))
+        var byId = plan.Items.ToDictionary(i => i.Id, i => i);
+        if (treatmentPlanLinks.Any(l => !byId.ContainsKey(l.ItemId)))
         {
             return Result<Dictionary<Guid, string>>.Failure("Acte du plan introuvable.");
         }
 
+        // ⚠️ A step is validated against the step list of ITS OWN act, not against the plan's steps as a set.
+        // Both checks pass for a step id that exists on a different line of the same devis, and that request is
+        // exactly what a stale browser sends after the acts are reordered or amended — it would book « le
+        // scellement » of one act as a séance of another, and every screen would then read the progress of the
+        // wrong bridge. The plan aggregate is already loaded here, so this costs nothing.
+        foreach (var link in treatmentPlanLinks)
+        {
+            if (link.StepId.HasValue && byId[link.ItemId].Steps.All(s => s.Id != link.StepId.Value))
+            {
+                return Result<Dictionary<Guid, string>>.Failure("Étape du devis introuvable.");
+            }
+        }
+
         return Result<Dictionary<Guid, string>>.Success(
-            treatmentPlanItemIds.ToDictionary(id => id, id => byId[id]));
+            treatmentPlanLinks
+                .Select(l => l.ItemId)
+                .Distinct()
+                .ToDictionary(id => id, id => byId[id].DesignationFr));
     }
 }

@@ -76,6 +76,22 @@ public class Appointment : AggregateRoot<Guid>
             .Distinct()
             .ToList();
 
+    /// <summary>
+    /// Every devis <b>step</b> this visit carries out — « la préparation et l'empreinte du bridge ». Empty when
+    /// the séance's acts are each done in one sitting, which is the ordinary case.
+    /// <para>
+    /// Deliberately has no parent scalar twin, unlike <see cref="TreatmentPlanItemId"/>: nothing existing reads
+    /// a lead step, so adding a fifth derived column would be a field to keep in sync for no reader. The set is
+    /// what a read should ask, and <see cref="LinkedTreatmentPlanItemIds"/> stays the answer to « which planned
+    /// acts does this visit touch? » whether or not those acts have steps.
+    /// </para>
+    /// </summary>
+    public IReadOnlyCollection<Guid> LinkedTreatmentPlanItemStepIds =>
+        _procedures.Where(p => p.TreatmentPlanItemStepId.HasValue)
+            .Select(p => p.TreatmentPlanItemStepId!.Value)
+            .Distinct()
+            .ToList();
+
     /// <summary>Sum of the booked acts' own durations — the default a multi-act séance should last.</summary>
     public int TotalProcedureDurationMinutes =>
         _procedures.Sum(p => p.DurationMinutes ?? 0);
@@ -698,21 +714,57 @@ public class Appointment : AggregateRoot<Guid>
         // new acts and a lead-act snapshot describing one of the old ones.
         var rows = new List<AppointmentProcedure>();
         var seenProcedureIds = new HashSet<Guid>();
-        var seenPlanItemIds = new HashSet<Guid>();
+        var wholeActs = new HashSet<Guid>();
+        var seenSteps = new HashSet<(Guid Item, Guid Step)>();
         var index = 0;
         foreach (var input in procedures)
         {
             // Same act twice in one séance is a mis-click, not a quantity: the fiche de soins is what records
             // « deux obturations », per tooth, with its own prices.
-            if (input.ProcedureTypeId.HasValue && !seenProcedureIds.Add(input.ProcedureTypeId.Value))
+            //
+            // ⚠️ Exempt when the row names a devis STEP, and that exemption is the whole point of steps:
+            // « préparation » and « empreinte » are two steps of one bridge, so they resolve to the SAME
+            // catalogue act — and booking them into one séance is the headline case. Keyed on the step below
+            // instead, which is this row's real identity.
+            if (input.ProcedureTypeId.HasValue
+                && !input.TreatmentPlanItemStepId.HasValue
+                && !seenProcedureIds.Add(input.ProcedureTypeId.Value))
             {
                 throw new InvalidOperationException(
                     $"L'acte « {input.ProcedureName ?? input.ProcedureTypeId.ToString()} » est déjà présent dans ce rendez-vous.");
             }
-            if (input.TreatmentPlanItemId.HasValue && !seenPlanItemIds.Add(input.TreatmentPlanItemId.Value))
+
+            if (input.TreatmentPlanItemId is { } itemId)
             {
-                throw new InvalidOperationException(
-                    "Le même acte du devis ne peut pas être planifié deux fois dans le même rendez-vous.");
+                var label = input.ProcedureName ?? "du devis";
+                if (input.TreatmentPlanItemStepId is { } stepId)
+                {
+                    if (!seenSteps.Add((itemId, stepId)))
+                    {
+                        throw new InvalidOperationException(
+                            "La même étape du devis ne peut pas être planifiée deux fois dans le même rendez-vous.");
+                    }
+                    // « tout le bridge » and « le scellement du bridge » in one séance contradict each other:
+                    // the first says the act is finished here, the second that one step of it is.
+                    if (wholeActs.Contains(itemId))
+                    {
+                        throw new InvalidOperationException(
+                            $"L'acte « {label} » est planifié à la fois en entier et par étape dans ce rendez-vous.");
+                    }
+                }
+                else
+                {
+                    if (!wholeActs.Add(itemId))
+                    {
+                        throw new InvalidOperationException(
+                            "Le même acte du devis ne peut pas être planifié deux fois dans le même rendez-vous.");
+                    }
+                    if (seenSteps.Any(s => s.Item == itemId))
+                    {
+                        throw new InvalidOperationException(
+                            $"L'acte « {label} » est planifié à la fois en entier et par étape dans ce rendez-vous.");
+                    }
+                }
             }
 
             rows.Add(new AppointmentProcedure(
@@ -724,7 +776,8 @@ public class Appointment : AggregateRoot<Guid>
                 input.ColorHex,
                 input.AgreedCost,
                 input.TreatmentPlanItemId,
-                index++));
+                index++,
+                input.TreatmentPlanItemStepId));
         }
 
         _procedures.Clear();

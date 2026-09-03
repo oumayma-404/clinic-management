@@ -101,7 +101,7 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
             // The insert and the acceptance share a transaction by construction — there is a single
             // SaveChanges — so a numbering collision can never leave a saved-but-unnumbered plan behind.
             var accepted = await DevisNumbering.AcceptAndSaveAsync(
-                plan, clinicId, _planRepository, _unitOfWork,
+                plan, clinicId, _planRepository, _procedureTypeRepository, _unitOfWork,
                 ct => _planRepository.AddAsync(plan, ct),
                 _logger, cancellationToken);
             if (accepted.IsFailure)

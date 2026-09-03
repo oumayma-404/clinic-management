@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { defaultLabel, type MeshAnnotation } from "@/lib/files/mesh/annotation"
+import type { MeshAnnotation } from "@/lib/files/mesh/annotation"
 import {
   formatExtent,
   inferUnit,
@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils"
 import type { PatientFileDto } from "@/lib/api/types"
 
 import { MeshViewerStage, type MeshTool } from "./mesh-viewer-stage"
+import { useMeshAnnotations } from "./use-mesh-annotations"
 import { SHORT_VIEWPORT_ASIDE, SHORT_VIEWPORT_ROW, SHORT_VIEWPORT_STRIP } from "./short-viewport"
 
 const SHADINGS: readonly { value: MeshShading; label: string }[] = [
@@ -94,8 +95,15 @@ export function MeshViewer({
   const [fitToken, setFitToken] = useState(0)
 
   const [measurement, setMeasurement] = useState<MeshMeasurement | null>(null)
-  const [annotations, setAnnotations] = useState<MeshAnnotation[]>([])
-  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+
+  /**
+   * ⚠️ **The markers are the one thing on this surface that OUTLIVES the dialog**, so they are the one
+   * thing that talks to the server. A measurement is a question asked and answered while looking; a marker is
+   * a note left for whoever opens the model next — including the laboratory. Keeping them in `useState`
+   * beside the measurement would have made « close » mean « discard », which is not what any of the
+   * controls look like they do.
+   */
+  const markers = useMeshAnnotations(file.patientId, file.id, open)
 
   // The model outlives the render that produced it and holds GPU buffers, so the release has to survive a
   // re-render to be callable from the teardown.
@@ -108,8 +116,6 @@ export function MeshViewer({
     setPhase("loading")
     setFailure(null)
     setMeasurement(null)
-    setAnnotations([])
-    setSelectedAnnotationId(null)
     setTool("orbit")
     setView("iso")
 
@@ -153,29 +159,6 @@ export function MeshViewer({
 
   const hint = useMemo(() => (model ? inferUnit(model.bounds) : null), [model])
 
-  const placeAnnotation = useCallback((point: MeshPoint, normal: MeshPoint) => {
-    // ⚠️ **The id and the label are built OUTSIDE the updater, and that is not a style preference.** A
-    // `setState` updater must be pure: React invokes it twice in development, so `crypto.randomUUID()` inside
-    // one produces a different id on each call and the marker the list renders is not the marker the selection
-    // points at. Calling `setSelectedAnnotationId` from inside another component's update is the second half of
-    // the same mistake. Found by placing a marker and getting none.
-    const id = crypto.randomUUID()
-    setAnnotations((current) => [
-      ...current,
-      { id, point, normal, label: defaultLabel(current) },
-    ])
-    setSelectedAnnotationId(id)
-  }, [])
-
-  const renameAnnotation = useCallback((id: string, label: string) => {
-    setAnnotations((current) => current.map((one) => (one.id === id ? { ...one, label } : one)))
-  }, [])
-
-  const removeAnnotation = useCallback((id: string) => {
-    setAnnotations((current) => current.filter((one) => one.id !== id))
-    setSelectedAnnotationId((current) => (current === id ? null : current))
-  }, [])
-
   const onUnavailable = useCallback(() => setPhase("no-webgl"), [])
 
   const measuring = tool === "measure" || measurement !== null
@@ -207,10 +190,10 @@ export function MeshViewer({
               unit={unit}
               measurement={measurement}
               onMeasurementChange={setMeasurement}
-              annotations={annotations}
-              onAnnotationPlaced={placeAnnotation}
-              onAnnotationSelected={setSelectedAnnotationId}
-              selectedAnnotationId={selectedAnnotationId}
+              annotations={markers.annotations}
+              onAnnotationPlaced={markers.place}
+              onAnnotationSelected={markers.select}
+              selectedAnnotationId={markers.selectedId}
               fitToken={fitToken}
               onUnavailable={onUnavailable}
             />
@@ -367,27 +350,27 @@ export function MeshViewer({
                   </p>
                 )}
 
-                {annotations.length > 0 && (
+                {markers.annotations.length > 0 && (
                   <ul className="max-h-32 space-y-1 overflow-y-auto">
-                    {annotations.map((annotation) => (
+                    {markers.annotations.map((annotation) => (
                       <li key={annotation.id} className="flex items-center gap-1.5">
                         <MapPin
                           aria-hidden="true"
                           className={cn(
                             "h-3.5 w-3.5 shrink-0",
-                            annotation.id === selectedAnnotationId ? "text-amber-500" : "text-rose-500",
+                            annotation.id === markers.selectedId ? "text-amber-500" : "text-rose-500",
                           )}
                         />
                         <Input
                           value={annotation.label}
-                          onChange={(event) => renameAnnotation(annotation.id, event.target.value)}
-                          onFocus={() => setSelectedAnnotationId(annotation.id)}
+                          onChange={(event) => markers.rename(annotation.id, event.target.value)}
+                          onFocus={() => markers.select(annotation.id)}
                           aria-label="Nom du repère"
                           className="h-8 min-w-0 flex-1 text-xs coarse:h-11"
                         />
                         <Button
                           variant="ghost"
-                          onClick={() => removeAnnotation(annotation.id)}
+                          onClick={() => markers.remove(annotation.id)}
                           aria-label={`Supprimer le repère ${annotation.label}`}
                           className="size-8 shrink-0 p-0 coarse:size-11"
                         >

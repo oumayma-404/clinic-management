@@ -9,6 +9,7 @@ import {
   FlaskConical,
   FolderOpen,
   LayoutDashboard,
+  ListOrdered,
   Package,
   Pill,
   Receipt,
@@ -54,6 +55,11 @@ export const baseSections: NavSection[] = [
       { name: "Rendez-vous", href: "/appointments", icon: Calendar },
       // Deliberately NOT in SECRETARY_HIDDEN_HREFS: reception is who knows whether the patient came.
       { name: "À clôturer", href: "/a-cloturer", icon: ClipboardCheck },
+      // Multi-séance treatments. Also deliberately NOT hidden from a secretary, and for the same reason one
+      // level along: reception is who telephones the patient and books the next séance. It carries no money
+      // figure at all, which is what makes that safe — and it is why the read behind it is `AnyClinicRole`
+      // while `GET /api/dashboard` is not.
+      { name: "Traitements en cours", href: "/traitements-en-cours", icon: ListOrdered },
       // « RDV récurrents » (/recurring-series) is gone — the screen was withdrawn. Its BACKEND and the screen
       // itself are deliberately intact (`app/recurring-series/page.tsx` keeps the component, unrouted).
       { name: "Liste d'attente", href: "/waiting-list", icon: Clock },

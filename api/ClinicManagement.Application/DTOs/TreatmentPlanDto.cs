@@ -85,6 +85,53 @@ public class TreatmentPlanItemDto
     public Guid? ScheduledAppointmentId { get; set; }
     public DateTime? ScheduledAt { get; set; }
     public string? ScheduledAppointmentStatus { get; set; }
+
+    /// <summary>
+    /// The act's clinical steps in order — « Préparation, Empreinte, Scellement ». <b>Empty for an act done in
+    /// one séance</b>, which is every line written before steps existed and most written after, so a client that
+    /// ignores this field behaves exactly as it did.
+    /// </summary>
+    public List<TreatmentPlanItemStepDto> Steps { get; set; } = new();
+
+    /// <summary>How many of <see cref="Steps"/> are carried out. Derived from the rows, always populated.</summary>
+    public int StepsDone { get; set; }
+
+    /// <summary>
+    /// The next step still to carry out, or null when there is none (or the act has no steps at all) — what the
+    /// row's single primary action names: « Planifier le scellement ».
+    /// </summary>
+    public Guid? NextStepId { get; set; }
+}
+
+/// <summary>One clinical step of a planned act. Carries no money — the fee lives once on the act.</summary>
+public class TreatmentPlanItemStepDto
+{
+    public Guid Id { get; set; }
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>Clinical order within the act (0-based, dense). Steps are returned already sorted.</summary>
+    public int SequenceNumber { get; set; }
+
+    public DateTime? DoneDate { get; set; }
+
+    /// <summary>The fiche de soins that evidences this step. <b>Per step</b> — which is what lets one devis act
+    /// be recorded across several fiches.</summary>
+    public Guid? LinkedDentalRecordId { get; set; }
+
+    public int? EstimatedDurationMinutes { get; set; }
+
+    // ---- Derived (never persisted) -------------------------------------------------------------------
+    /// <summary>
+    /// The appointment that currently speaks for <b>this step</b>, by the same rule the act uses. Null when the
+    /// step is not booked — including when its only linked visit was cancelled, so it becomes bookable again.
+    /// <para>
+    /// Separate from the act's own <c>ScheduledAppointmentId</c> on purpose: an act with one of three séances
+    /// booked is « planifié » as an act and has two unbooked steps, and one field cannot say both.
+    /// </para>
+    /// </summary>
+    public Guid? ScheduledAppointmentId { get; set; }
+    public DateTime? ScheduledAt { get; set; }
+    public string? ScheduledAppointmentStatus { get; set; }
 }
 
 public class InstallmentDto

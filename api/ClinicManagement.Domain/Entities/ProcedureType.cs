@@ -30,6 +30,20 @@ public class ProcedureType : AggregateRoot<Guid>
     public string? Category { get; private set; }
     /// <summary>Odontogram state a dental act of this procedure produces (null = no tooth-state change). Editable.</summary>
     public ToothCondition? ResultingCondition { get; private set; }
+
+    private readonly List<ProcedureStepTemplate> _defaultSteps = new();
+
+    /// <summary>
+    /// The clinical steps this act is <b>proposed</b> as when it is added to a devis — « Préparation, Empreinte,
+    /// Scellement définitif » for a bridge. <b>Empty is the ordinary case</b>: an act done in one séance has
+    /// none, which is every act in the catalogue until somebody fills these in.
+    /// <para>
+    /// A suggestion, never a constraint: <c>TreatmentPlan.SetItemSteps</c> owns the real steps and they are
+    /// edited per case. See <see cref="ProcedureStepTemplate"/> for why the catalogue proposes rather than
+    /// becoming hierarchical itself.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<ProcedureStepTemplate> DefaultSteps => _defaultSteps.AsReadOnly();
     public bool IsActive { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
@@ -56,7 +70,8 @@ public class ProcedureType : AggregateRoot<Guid>
         string? description = null,
         decimal? defaultCost = null,
         ToothCondition? resultingCondition = null,
-        string? category = null)
+        string? category = null,
+        IEnumerable<ProcedureStepTemplate>? defaultSteps = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Name cannot be null or empty", nameof(name));
@@ -84,6 +99,14 @@ public class ProcedureType : AggregateRoot<Guid>
         ResultingCondition = resultingCondition == ToothCondition.Sain ? null : resultingCondition;
         IsActive = true;
         CreatedAt = DateTime.UtcNow;
+
+        // Assigned through the shared validator rather than SetDefaultSteps, so a seeded act does not come into
+        // the world already carrying an UpdatedAt — the catalogue screen would report every starter act as
+        // « modifié » on the day the clinic was created.
+        if (defaultSteps != null)
+        {
+            _defaultSteps.AddRange(ValidateSteps(defaultSteps));
+        }
     }
 
     /// <summary>
@@ -172,6 +195,69 @@ public class ProcedureType : AggregateRoot<Guid>
         }
 
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Replace the act's suggested step list wholesale — the editor posts the list it is showing, matching
+    /// <see cref="SetMaterials"/> and <c>TreatmentPlan.SetItems</c>.
+    /// <para>
+    /// An empty list clears the suggestion, which is a real answer (« cet acte se fait en une séance ») and why
+    /// the update DTO has to distinguish it from « unchanged ». Duplicate labels are allowed on purpose: a
+    /// protocol legitimately repeats « Contrôle ».
+    /// </para>
+    /// </summary>
+    public void SetDefaultSteps(IEnumerable<ProcedureStepTemplate> steps)
+    {
+        var cleaned = ValidateSteps(steps);
+
+        _defaultSteps.Clear();
+        _defaultSteps.AddRange(cleaned);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Validate a whole template list before anything is mutated — a half-applied edit would leave the act
+    /// proposing some of the new steps and some of the old. Shared by <see cref="SetDefaultSteps"/> and the
+    /// constructor, so a seeded act and an edited one are held to one set of rules.
+    /// </summary>
+    private static List<ProcedureStepTemplate> ValidateSteps(IEnumerable<ProcedureStepTemplate> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        var requested = steps.ToList();
+        if (requested.Count > TreatmentPlanItemStep.MaxStepsPerItem)
+        {
+            throw new ArgumentException(
+                $"Un acte ne peut pas proposer plus de {TreatmentPlanItemStep.MaxStepsPerItem} étapes.",
+                nameof(steps));
+        }
+
+        var cleaned = new List<ProcedureStepTemplate>();
+        foreach (var step in requested)
+        {
+            if (string.IsNullOrWhiteSpace(step.Label))
+            {
+                throw new ArgumentException("Le libellé d'une étape est requis.", nameof(steps));
+            }
+
+            var label = step.Label.Trim();
+            if (label.Length > TreatmentPlanItemStep.MaxLabelLength)
+            {
+                throw new ArgumentException(
+                    $"Le libellé d'une étape ne peut pas dépasser {TreatmentPlanItemStep.MaxLabelLength} caractères.",
+                    nameof(steps));
+            }
+            // Same band as DefaultDurationMinutes — a step is one sitting at the chair.
+            if (step.DurationMinutes is <= 0 or >= 480)
+            {
+                throw new ArgumentException(
+                    "La durée d'une étape doit être comprise entre 1 et 479 minutes.", nameof(steps));
+            }
+
+            cleaned.Add(new ProcedureStepTemplate(label, step.DurationMinutes));
+        }
+
+        return cleaned;
     }
 
     public void Deactivate()

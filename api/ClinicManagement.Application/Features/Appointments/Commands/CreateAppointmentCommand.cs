@@ -156,7 +156,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             // acts are resolved because it is also what supplies a link-only act its désignation.
             var linkResult = await AppointmentPlanLink.ValidateManyAsync(
                 _treatmentPlanRepository, request.TreatmentPlanId,
-                AppointmentProcedureSelection.PlanItemIds(requestedProcedures),
+                AppointmentProcedureSelection.PlanLinks(requestedProcedures),
                 clinicId, request.PatientId, cancellationToken);
             if (linkResult.IsFailure)
             {

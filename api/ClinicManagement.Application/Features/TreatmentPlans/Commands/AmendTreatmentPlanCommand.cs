@@ -182,6 +182,17 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                 var items = await TreatmentPlanItemPricing.ResolveAsync(
                     request.AddItems, clinicId, _procedureTypeRepository, cancellationToken);
                 plan.AddItems(items);
+
+                /*
+                 * An act added by amendment reaches a plan that is already Accepted, so it never passes through
+                 * DevisNumbering — the other place the protocol is applied. Without this call, « ajouter une
+                 * couronne » to a live devis produces the one act on the plan with no étape on it, and the
+                 * dentist retypes the protocol by hand for exactly the acts that arrived latest.
+                 * ApplyAsync only fills an act with no steps that is still Planned, so the acts already on the
+                 * plan — including the half-finished bridge this amendment exists to bill — are untouched.
+                 */
+                await TreatmentPlanStepProtocol.ApplyAsync(
+                    plan, clinicId, _procedureTypeRepository, cancellationToken);
             }
 
             // A changed total MUST come with a schedule: leaving the old one would break

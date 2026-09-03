@@ -54,6 +54,14 @@ public static class TreatmentPlanWorkflowProjection
         AppointmentStatus.Completed,
     };
 
+    /// <summary>
+    /// Whether an appointment in this status still represents a standing booking — the <b>single</b> answer to
+    /// that question, exposed because « Traitements en cours » asks it too and works from a projection rather
+    /// than from plan aggregates, so it cannot go through <see cref="BuildAsync"/>. A second copy of the set
+    /// would be free to disagree about whether a no-show still books a step.
+    /// </summary>
+    public static bool IsLive(AppointmentStatus status) => LiveStatuses.Contains(status);
+
     /// <summary>Build the derived lookups for the given plans (already tenant-checked by the caller).</summary>
     public static async Task<TreatmentPlanWorkflow> BuildAsync(
         IReadOnlyCollection<TreatmentPlan> plans,
@@ -73,10 +81,21 @@ public static class TreatmentPlanWorkflowProjection
         // (`LinkedTreatmentPlanItemIds`). A séance deliberately groups several devis acts — « ces deux-là ensemble »
         // — and keying on the scalar would leave the other acts of that same visit reporting « À planifier »,
         // offering to book a visit the patient is already coming to.
-        var scheduledByItemId = appointments
-            .Where(a => LiveStatuses.Contains(a.Status))
+        var live = appointments.Where(a => LiveStatuses.Contains(a.Status)).ToList();
+
+        var scheduledByItemId = live
             .SelectMany(a => a.LinkedTreatmentPlanItemIds.Select(itemId => (ItemId: itemId, Appointment: a)))
             .GroupBy(x => x.ItemId)
+            .ToDictionary(g => g.Key, g => PickRepresentative(g.Select(x => x.Appointment), asOfUtc));
+
+        // Per-STEP, on the same rows and by the same rule. It is a second lookup rather than a refinement of the
+        // one above because the two answer different questions and both are asked: « cet acte est-il planifié ? »
+        // keys the act's état and stays true while any of its steps is booked, while « cette étape est-elle
+        // planifiée ? » is what decides whether the strip offers « Planifier le scellement ». Deriving the second
+        // from the first would make a bridge with one séance booked look entirely scheduled.
+        var scheduledByStepId = live
+            .SelectMany(a => a.LinkedTreatmentPlanItemStepIds.Select(stepId => (StepId: stepId, Appointment: a)))
+            .GroupBy(x => x.StepId)
             .ToDictionary(g => g.Key, g => PickRepresentative(g.Select(x => x.Appointment), asOfUtc));
 
         // A cancelled bridge no longer represents the plan — the plan re-enters the balance and becomes
@@ -99,7 +118,8 @@ public static class TreatmentPlanWorkflowProjection
                 .DefaultIfEmpty(null)
                 .Min());
 
-        return new TreatmentPlanWorkflow(scheduledByItemId, invoiceByPlanId, nextAppointmentAtByPlanId);
+        return new TreatmentPlanWorkflow(
+            scheduledByItemId, invoiceByPlanId, nextAppointmentAtByPlanId, scheduledByStepId);
     }
 
     /// <summary>
@@ -123,10 +143,12 @@ public static class TreatmentPlanWorkflowProjection
 public sealed record TreatmentPlanWorkflow(
     IReadOnlyDictionary<Guid, Appointment> ScheduledByItemId,
     IReadOnlyDictionary<Guid, (Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)> InvoiceByPlanId,
-    IReadOnlyDictionary<Guid, DateTime?> NextAppointmentAtByPlanId)
+    IReadOnlyDictionary<Guid, DateTime?> NextAppointmentAtByPlanId,
+    IReadOnlyDictionary<Guid, Appointment> ScheduledByStepId)
 {
     public static TreatmentPlanWorkflow Empty { get; } = new(
         new Dictionary<Guid, Appointment>(),
         new Dictionary<Guid, (Guid, Guid, string?, InvoiceStatus)>(),
-        new Dictionary<Guid, DateTime?>());
+        new Dictionary<Guid, DateTime?>(),
+        new Dictionary<Guid, Appointment>());
 }

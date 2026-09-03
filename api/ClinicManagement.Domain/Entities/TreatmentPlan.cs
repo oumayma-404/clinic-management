@@ -413,12 +413,111 @@ public class TreatmentPlan : AggregateRoot<Guid>
         // Mirror MarkItemDone exactly: it promotes Accepted → InProgress on the first done act and → Completed
         // when all are done. Completed is therefore only reachable with every act done, so un-marking one always
         // reopens; and with no act done at all the plan is back where acceptance left it.
-        Status = _items.Any(i => i.Status == TreatmentPlanItemStatus.Done)
-            ? TreatmentPlanStatus.InProgress
-            : TreatmentPlanStatus.Accepted;
+        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
 
         Touch();
     }
+
+    /// <summary>
+    /// Record that one <b>step</b> of a planned act was carried out, linking the fiche that evidences it. The
+    /// act reaches « réalisé » on its own once its last step lands, and the plan closes itself once that was
+    /// the last outstanding act — so this is <see cref="MarkItemDone"/>'s promotion chain, entered one step
+    /// lower.
+    /// <para>
+    /// This is the entry point a fiche de soins uses when the séance named a step. A séance that named none
+    /// still goes through <see cref="MarkItemDone"/>, which advances the next step for a stepped act.
+    /// </para>
+    /// </summary>
+    public void MarkItemStepDone(Guid itemId, Guid stepId, DateTime doneOn, Guid? linkedDentalRecordId)
+    {
+        EnsureActive();
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        item.MarkStepDone(stepId, doneOn, linkedDentalRecordId);
+        if (Status == TreatmentPlanStatus.Accepted)
+            Status = TreatmentPlanStatus.InProgress;
+
+        // EnsureActive + the bump above leave the plan InProgress, so Complete() can never throw here.
+        if (_items.Count > 0 && _items.All(i => i.Status == TreatmentPlanItemStatus.Done))
+        {
+            Complete();
+        }
+
+        Touch();
+    }
+
+    /// <summary>
+    /// Undo <see cref="MarkItemStepDone"/> for one step — the correction path, and the implementation of the
+    /// « détachez-la de cette fiche » that <c>TreatmentPlanItemStep.MarkDone</c> tells the user to do.
+    /// <para>
+    /// <see cref="EnsureCorrectable"/> rather than <see cref="EnsureActive"/>, for <see cref="UnmarkItemDone"/>'s
+    /// reason: the last step landing closes the whole devis, so a gate that required an active plan could never
+    /// reach the mistake it exists to fix.
+    /// </para>
+    /// <para>
+    /// Returns <c>false</c> when the step was already « à venir », so the caller can distinguish "nothing to
+    /// undo" from a real correction rather than silently reopening a plan that never closed.
+    /// </para>
+    /// </summary>
+    public bool UnmarkItemStep(Guid itemId, Guid stepId)
+    {
+        EnsureCorrectable();
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        if (!item.UnmarkStep(stepId))
+        {
+            return false;
+        }
+
+        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+        Touch();
+        return true;
+    }
+
+    /// <summary>
+    /// Set the clinical steps of one planned act — « Préparation, Empreinte, Scellement ».
+    /// <para>
+    /// Gated like <see cref="SetItemOrder"/> rather than like <see cref="AddItems"/>, and the difference is the
+    /// point: <b>no money moves</b>. The act's <c>PlannedCost</c>, the devis total and the échéancier are all
+    /// untouched, so this does not bump <see cref="RevisionNumber"/> (nothing the patient signed for changes)
+    /// and it stays available on a plan whose facture is already issued — a dentist must be able to correct the
+    /// protocol of a bridge he is halfway through, and <see cref="EnsureAmendable"/> would refuse exactly that
+    /// on a billed or completed plan.
+    /// </para>
+    /// <para>
+    /// Refused on a cancelled plan only. Editing steps can still change the act's <c>Status</c> (adding a step
+    /// to a finished act reopens it), so the plan's own status is re-derived here the same way
+    /// <see cref="UnmarkItemStep"/> does it.
+    /// </para>
+    /// </summary>
+    public void SetItemSteps(Guid itemId, IEnumerable<TreatmentPlanItemStepInput> steps)
+    {
+        if (Status == TreatmentPlanStatus.Cancelled)
+            throw new InvalidOperationException("Les étapes d'un plan annulé ne peuvent pas être modifiées.");
+        if (Status == TreatmentPlanStatus.Draft)
+            throw new InvalidOperationException("Le devis doit être accepté pour définir les étapes d'un acte.");
+
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        item.SetSteps(steps);
+
+        // A Completed plan that gains a step is no longer finished, and one whose every act is done again is.
+        Status = _items.Count > 0 && _items.All(i => i.Status == TreatmentPlanItemStatus.Done)
+            ? TreatmentPlanStatus.Completed
+            : AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+
+        Touch();
+    }
+
+    /// <summary>
+    /// Whether any clinical work is recorded against this plan — an act « réalisé » <b>or</b> one « en cours »
+    /// because some of its steps are done. Reading only <c>Done</c> here would walk a plan back to
+    /// « Accepté » while a bridge sat half-finished on it.
+    /// </summary>
+    private bool AnyWorkRecorded => _items.Any(i => i.Status != TreatmentPlanItemStatus.Planned);
 
     public void Complete()
     {

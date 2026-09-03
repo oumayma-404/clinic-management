@@ -92,6 +92,7 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   // First, and shown by default: it is the only entry here about work the practice has already DONE, so it is the
   // one whose neglect quietly costs the clinic money and leaves the record incomplete.
   visitsToClose: { section: 'journee', form: 'chip', label: 'Séances à clôturer' },
+  treatmentsInProgress: { section: 'journee', form: 'chip', label: 'Traitements en cours' },
   // Reception's screen, not the practitioner's — and /waiting-list is one nav click away.
   waitingList: { section: 'journee', form: 'chip', label: 'Salle d’attente', hiddenByDefault: true },
   draftPlans: { section: 'journee', form: 'chip', label: 'Devis en attente' },

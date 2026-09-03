@@ -73,6 +73,17 @@ public class TreatmentPlansControllerAuthorizationTests
         nameof(TreatmentPlansController.MarkItemDone),
         // The correction path for that same assertion — it reopens a closed devis, so it cannot be looser.
         nameof(TreatmentPlansController.UnmarkItemDone),
+        // Multi-séance acts. The step-level twin of UnmarkItemDone: detaching one step of a bridge from the fiche
+        // that evidenced it reopens the act, and once it was the last step, the devis with it. It cannot be
+        // looser than the act-level row beside it.
+        nameof(TreatmentPlansController.UnmarkItemStep),
+        // Setting an act's steps moves NO money — the price, the total and the échéancier are all untouched, and
+        // it does not bump the revision — so it is NOT here for the fiscal reason most of this group is. It is
+        // here for ReorderItems' reason, which this controller has already settled: the sequence *is* the
+        // treatment sequence, and « ce bridge se fait en trois séances, pas en quatre » is a clinical judgement
+        // rather than front-desk work. Classifying it as reception's while its coarser sibling is the dentist's
+        // would be exactly the drift this guard exists to catch.
+        nameof(TreatmentPlansController.SetItemSteps),
     };
 
     /// <summary>
@@ -88,6 +99,11 @@ public class TreatmentPlansControllerAuthorizationTests
         nameof(TreatmentPlansController.RecordInstallmentPayment),
         nameof(TreatmentPlansController.GetDevisPdf),
         nameof(TreatmentPlansController.GetInstallmentReceiptPdf),
+        // « Traitements en cours » — the acts started and not finished, with the next step to book. Reception is
+        // exactly who acts on this list, which is the same reasoning that kept the visit-closure worklist off
+        // the AdminOrDoctor dashboard endpoint. It carries no money figure at all, which is what makes the
+        // wider audience safe: a devis total or a « reste à payer » on it would put it in the group above.
+        nameof(TreatmentPlansController.GetTreatmentsInProgress),
     };
 
     [Theory]

@@ -1,5 +1,5 @@
 import { apiGet, apiGetBlob, apiPost, apiPut, apiDelete } from './client';
-import type { TreatmentPlanDto } from './types';
+import type { TreatmentPlanDto, TreatmentInProgressDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -23,6 +23,19 @@ export interface TreatmentPlanItemInput {
   designationFr: string;
   plannedCost: number;
   toothNumbers: number[];
+}
+
+/**
+ * One step as `setItemSteps` takes it.
+ *
+ * Echo `id` back to keep an existing step's identity (its réalisé date, its fiche link, any séance booked for
+ * it); omit it for a new step. The order of the array **is** the clinical order.
+ */
+export interface TreatmentPlanItemStepInput {
+  id?: string | null;
+  label: string;
+  /** Chair time for the step, or null when nobody has estimated it. */
+  estimatedDurationMinutes?: number | null;
 }
 
 export interface TreatmentPlanInstallmentInput {
@@ -162,6 +175,48 @@ export const treatmentPlansApi = {
    */
   markItemUndone: async (id: string, itemId: string): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, {}),
+
+  /**
+   * Detach one **step** of an act from the fiche that evidenced it. The step-level twin of `markItemUndone`,
+   * with the same absence beside it: there is deliberately **no** `markStepDone`, because a step becomes
+   * réalisée by saving the fiche de soins, never by a toggle.
+   */
+  markStepUndone: async (id: string, itemId: string, stepId: string): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps/${stepId}/undone`, {}),
+
+  /**
+   * Set the clinical steps of one act — « Préparation, Empreinte, Scellement définitif ».
+   *
+   * **Replace semantics**, and that is why it is its own call rather than a field on `amend`: an empty list
+   * means « cet acte se fait en une séance », not « unchanged », and replace-semantics inside a
+   * null-means-unchanged patch is how a list gets silently wiped by a partial body.
+   *
+   * Echo an existing step's `id` back and it keeps its identity — its réalisé date, the fiche that evidences
+   * it and any séance already booked for it all survive the edit. Omit the id for a new step.
+   *
+   * ⚠️ Moves **no money** (the act's price, the devis total and the échéancier are untouched) and bumps no
+   * revision, which is why the server allows it on a devis that is already facturé — a dentist has to be able
+   * to correct the protocol of a bridge he is halfway through.
+   */
+  setItemSteps: async (
+    id: string,
+    itemId: string,
+    steps: TreatmentPlanItemStepInput[],
+    version?: number,
+  ): Promise<TreatmentPlanDto> =>
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps`, { steps, version }),
+
+  /**
+   * « Traitements en cours » — the acts this cabinet has started and not finished, with the next step and
+   * whether a séance is booked for it.
+   *
+   * Ask for page 1 of size 1 and read `totalCount` to render the journée's chip: the total is exact whatever
+   * page was requested, so the chip and the list it opens cannot disagree.
+   */
+  treatmentsInProgress: async (
+    params?: PageParams,
+  ): Promise<PagedResponse<TreatmentInProgressDto>> =>
+    apiGet<PagedResponse<TreatmentInProgressDto>>('/treatment-plans/treatments-in-progress', params),
 
   /** Add/edit/remove acts on an accepted devis (+ title, notes and the matching échéancier). AdminOrDoctor. */
   amend: async (id: string, data: AmendTreatmentPlanRequest): Promise<TreatmentPlanDto> =>

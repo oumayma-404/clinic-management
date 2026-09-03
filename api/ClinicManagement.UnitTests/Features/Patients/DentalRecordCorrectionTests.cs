@@ -121,8 +121,16 @@ public class DentalRecordCorrectionTests
             return invoice;
         }
 
+        /// <summary>
+        /// Read only so the linker can answer « which steps did this séance carry out? ». Unstubbed, so
+        /// `GetByIdAsync` returns null and the linker falls through to the named step — which is this
+        /// fixture's case: no record here is linked to an appointment.
+        /// </summary>
+        public Mock<IAppointmentRepository> Appointments { get; } = new();
+
         public UpdateDentalRecordCommandHandler Handler() => new(
-            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Invoices.Object,
+            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Appointments.Object,
+            Invoices.Object,
             CreditNotes.Object, Resolver.Object, Uow.Object, Stock.Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 

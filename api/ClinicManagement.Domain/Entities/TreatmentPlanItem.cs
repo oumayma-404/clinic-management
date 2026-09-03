@@ -49,6 +49,32 @@ public class TreatmentPlanItem : Entity<Guid>
     /// </summary>
     public int SequenceNumber { get; private set; }
 
+    private readonly List<TreatmentPlanItemStep> _steps = new();
+
+    /// <summary>
+    /// The act's clinical steps, in order — « Préparation », « Empreinte », « Scellement ». <b>Empty is the
+    /// ordinary case</b> and means the act is done in one séance; every line written before steps existed has
+    /// none, and behaves exactly as it did.
+    /// <para>
+    /// ⚠️ An unloaded collection navigation is <b>empty, not stale</b>, and there is no lazy loading in this
+    /// solution — so a write path that forgets <c>.ThenInclude(i => i.Steps)</c> would silently treat a stepped
+    /// act as step-less and overwrite its progress. <c>TreatmentStepLoadingCoverageTests</c> is the derived
+    /// guard on that, and it is the reason <see cref="Status"/> is stored rather than computed on read.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<TreatmentPlanItemStep> Steps =>
+        _steps.OrderBy(s => s.SequenceNumber).ToList().AsReadOnly();
+
+    /// <summary>Whether this act is carried out over several steps at all.</summary>
+    public bool HasSteps => _steps.Count > 0;
+
+    public int StepsTotal => _steps.Count;
+    public int StepsDone => _steps.Count(s => s.IsDone);
+
+    /// <summary>The next step still to be carried out, or null when the act has none left (or none at all).</summary>
+    public TreatmentPlanItemStep? NextStep =>
+        _steps.Where(s => !s.IsDone).OrderBy(s => s.SequenceNumber).FirstOrDefault();
+
     private TreatmentPlanItem() { } // For EF Core
 
     public TreatmentPlanItem(
@@ -142,8 +168,23 @@ public class TreatmentPlanItem : Entity<Guid>
     /// the act would claim to have happened at a visit it did not — so that is refused.
     /// </para>
     /// </summary>
+    /// <remarks>
+    /// ⚠️ On an act that <b>has steps</b> this advances the <see cref="NextStep"/> rather than declaring the
+    /// whole act finished, and the act reaches <c>Done</c> on its own when the last step lands. That is the
+    /// truthful reading: the caller is a fiche de soins, and one fiche evidences one sitting. Marking every
+    /// remaining step against a single record would claim the préparation happened at the scellement's visit.
+    /// The step-targeted entry point is <c>TreatmentPlan.MarkItemStepDone</c>; this one is what the existing
+    /// callers keep using when the séance named no particular step.
+    /// </remarks>
     public void MarkDone(DateTime doneOn, Guid? linkedDentalRecordId)
     {
+        var next = NextStep;
+        if (next != null)
+        {
+            MarkStepDone(next.Id, doneOn, linkedDentalRecordId);
+            return;
+        }
+
         if (Status == TreatmentPlanItemStatus.Done)
         {
             // Same evidence (or none supplied now): nothing changes, and re-saving a fiche must not fail.
@@ -174,8 +215,25 @@ public class TreatmentPlanItem : Entity<Guid>
     /// from a real correction rather than silently re-opening a plan that never closed.
     /// </para>
     /// </summary>
+    /// <remarks>
+    /// ⚠️ On an act that <b>has steps</b> this undoes the <b>last</b> step carried out — the exact inverse of
+    /// what <see cref="MarkDone"/> does to such an act. Un-marking the whole act in one call would erase the
+    /// evidence links of steps whose fiches are untouched.
+    /// </remarks>
     public bool Unmark()
     {
+        if (HasSteps)
+        {
+            var lastDone = _steps.Where(s => s.IsDone).OrderBy(s => s.SequenceNumber).LastOrDefault();
+            if (lastDone == null || !lastDone.Unmark())
+            {
+                return false;
+            }
+
+            RecomputeStatusFromSteps();
+            return true;
+        }
+
         if (Status != TreatmentPlanItemStatus.Done)
         {
             return false;
@@ -194,5 +252,145 @@ public class TreatmentPlanItem : Entity<Guid>
             throw new ArgumentException("La position de l'acte ne peut pas être négative.", nameof(sequenceNumber));
 
         SequenceNumber = sequenceNumber;
+    }
+
+    // ---- Steps ------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Replace the act's whole step list, in the order given.
+    /// <para>
+    /// Replace rather than add/remove, for <c>TreatmentPlan.SetItems</c>' reason: the editor posts the list it
+    /// is showing. But unlike that method the rows are <b>reused</b> when the caller echoes an
+    /// <see cref="TreatmentPlanItemStepInput.Id"/> back, because a step accumulates state nothing else holds —
+    /// its <see cref="TreatmentPlanItemStep.DoneDate"/>, its evidence link, and every
+    /// <c>AppointmentProcedure.TreatmentPlanItemStepId</c> already pointing at it.
+    /// </para>
+    /// <para>
+    /// A step already carried out may not be dropped — that is <see cref="Unmark"/>'s job, and silently
+    /// deleting it would discard the only link back to the fiche that evidences it.
+    /// </para>
+    /// </summary>
+    internal void SetSteps(IEnumerable<TreatmentPlanItemStepInput> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        var requested = steps.ToList();
+        if (requested.Count > TreatmentPlanItemStep.MaxStepsPerItem)
+        {
+            throw new InvalidOperationException(
+                $"Un acte ne peut pas comporter plus de {TreatmentPlanItemStep.MaxStepsPerItem} étapes.");
+        }
+
+        // Cutting a finished act into steps would leave the recompute below with nothing to derive « réalisé »
+        // from, so it would reopen the act and drop the fiche link that evidenced it.
+        if (!HasSteps && Status == TreatmentPlanItemStatus.Done && requested.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Un acte déjà réalisé ne peut pas être découpé en étapes. Détachez-le de sa fiche de soins d'abord.");
+        }
+
+        var echoed = requested.Where(s => s.Id.HasValue).Select(s => s.Id!.Value).ToList();
+        if (echoed.Distinct().Count() != echoed.Count)
+        {
+            throw new InvalidOperationException("La même étape ne peut pas figurer deux fois dans la liste.");
+        }
+        if (echoed.Any(id => _steps.All(s => s.Id != id)))
+        {
+            throw new InvalidOperationException("Étape introuvable.");
+        }
+
+        var kept = echoed.ToHashSet();
+        var droppedDone = _steps.Where(s => s.IsDone && !kept.Contains(s.Id)).Select(s => s.Label).ToList();
+        if (droppedDone.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"L'étape « {droppedDone[0]} » est déjà réalisée et ne peut pas être retirée.");
+        }
+
+        // Build the whole list before mutating: a half-applied edit would leave the act with some new steps and
+        // a status derived from the old ones.
+        var rebuilt = new List<TreatmentPlanItemStep>();
+        for (var position = 0; position < requested.Count; position++)
+        {
+            var input = requested[position];
+            if (input.Id.HasValue)
+            {
+                var existing = _steps.First(s => s.Id == input.Id.Value);
+                existing.Revise(input.Label, input.EstimatedDurationMinutes);
+                existing.SetSequenceNumber(position);
+                rebuilt.Add(existing);
+            }
+            else
+            {
+                rebuilt.Add(new TreatmentPlanItemStep(
+                    Guid.NewGuid(), Id, input.Label, position, input.EstimatedDurationMinutes));
+            }
+        }
+
+        _steps.Clear();
+        _steps.AddRange(rebuilt);
+        RecomputeStatusFromSteps();
+    }
+
+    /// <summary>Record that one named step was carried out. Routed through <c>TreatmentPlan.MarkItemStepDone</c>,
+    /// which owns the plan-level promotion this cannot see.</summary>
+    internal void MarkStepDone(Guid stepId, DateTime doneOn, Guid? linkedDentalRecordId)
+    {
+        var step = _steps.FirstOrDefault(s => s.Id == stepId)
+            ?? throw new InvalidOperationException("Étape introuvable.");
+
+        step.MarkDone(doneOn, linkedDentalRecordId);
+        RecomputeStatusFromSteps();
+    }
+
+    /// <summary>Undo one named step. Returns <c>false</c> when it was already « à venir ».</summary>
+    internal bool UnmarkStep(Guid stepId)
+    {
+        var step = _steps.FirstOrDefault(s => s.Id == stepId)
+            ?? throw new InvalidOperationException("Étape introuvable.");
+
+        if (!step.Unmark())
+        {
+            return false;
+        }
+
+        RecomputeStatusFromSteps();
+        return true;
+    }
+
+    /// <summary>
+    /// Bring <see cref="Status"/>, <see cref="DoneDate"/> and <see cref="LinkedDentalRecordId"/> back into
+    /// agreement with the step rows. Same shape as <c>Installment.RecomputeFromLedger</c> and
+    /// <c>Invoice.RecomputeCollected</c>: the scalar is stored so a query can filter on it, and it is only ever
+    /// recomputed from the rows, never incremented.
+    /// <para>
+    /// A step-less act returns immediately — its stored values are authoritative and are what
+    /// <see cref="MarkDone"/> / <see cref="Unmark"/> maintain.
+    /// </para>
+    /// <para>
+    /// The act's own <see cref="LinkedDentalRecordId"/> becomes the <b>last</b> step's, i.e. "the fiche that
+    /// finished it", so every existing reader of that field stays correct with no change.
+    /// </para>
+    /// </summary>
+    private void RecomputeStatusFromSteps()
+    {
+        if (!HasSteps)
+        {
+            return;
+        }
+
+        var done = _steps.Count(s => s.IsDone);
+        if (done == _steps.Count)
+        {
+            var last = _steps.OrderBy(s => s.SequenceNumber).Last();
+            Status = TreatmentPlanItemStatus.Done;
+            DoneDate = last.DoneDate;
+            LinkedDentalRecordId = last.LinkedDentalRecordId;
+            return;
+        }
+
+        Status = done == 0 ? TreatmentPlanItemStatus.Planned : TreatmentPlanItemStatus.InProgress;
+        DoneDate = null;
+        LinkedDentalRecordId = null;
     }
 }

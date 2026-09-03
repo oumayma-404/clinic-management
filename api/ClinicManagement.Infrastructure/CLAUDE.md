@@ -339,6 +339,10 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   would accept and the link would then match ambiguously. Every backfill is gated on « this row does not exist yet »,
   so `Up()` is safe to re-run. The category rewrite mirrors `Domain/Services/StockCategories.LegacyKeys`, which is
   the authority and still folds an English key at runtime.
+- **`20260903112705_AddTreatmentPlanItemSteps`** (`multi-seance-treatment-steps`) — one new `TreatmentPlanItemSteps` table (PK, FK cascade to `TreatmentPlanItems`, an ordering index and a **partial** index on `LinkedDentalRecordId`), plus `ProcedureTypes.DefaultSteps` (JSON `text`) and `AppointmentProcedures.TreatmentPlanItemStepId` (nullable, partially indexed). Purely additive — nothing altered, narrowed or dropped, and **no backfill at all**: an act with no steps is the ordinary case and every existing `TreatmentPlanItems.Status` stays correct untouched, which is what makes the whole feature additive.
+  ⚠️ **EF's differ emitted an `xmin` column in the `CreateTable` block** — `Entity<T>.Version` maps onto the *system* column, which `CREATE TABLE` refuses (« column name "xmin" conflicts with a system column name ») — removed by hand, the same fix `AddClinicSubscriptions` and `AddSuppliers` needed.
+  ⚠️ The scaffolded `defaultValue: ""` on `DefaultSteps` was changed to **`"[]"`** so the column is self-describing JSON; the converter reads blank as an empty list either way, so nothing depends on which.
+  Verified end to end against the live database: applied cleanly, the table has **no** `xmin` column, and the `verify-schema` drift set before and after is **identical** (4 pre-existing, none touching these tables) with the two new `plan-step-*` checks green. `reconcile-money` reports **0 drift** — no money moved.
 - **The `vendor-whatsapp-messaging-quota` batch — four migrations, one per part** (DEV-5/9/12; the plan's own
   « before and after the migration **batch** » wording anticipated more than one). `AddClinicMessagingAllowances`
   (the two tables, three indexes, two FKs, **plus the rollout backfill**), `AddMessagingAllowanceWarningColumns`
@@ -380,7 +384,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IClinicRepository` | `ClinicRepository` |
 | `IDoctorRepository` | `DoctorRepository` |
 | `IInvoiceRepository` | `InvoiceRepository` (billing) |
-| `ITreatmentPlanRepository` | `TreatmentPlanRepository` (devis + installments) |
+| `ITreatmentPlanRepository` | `TreatmentPlanRepository` (devis + installments). ⚠️ **All four plan-returning reads `.ThenInclude(i => i.Steps)`**, and `TreatmentStepLoadingCoverageTests` is the derived guard: `Steps` projects a private backing list with no lazy loading anywhere in the solution, so an unloaded collection is **empty, not stale**, `HasSteps` answers `false`, and a bridge two-thirds finished would be written straight to « réalisé » with no exception. ⚠️ `GetByLinkedDentalRecordAsync` also matches on **step** links, not only the act's: a stepped act takes its own `LinkedDentalRecordId` only once its LAST step lands, so a fiche that carried out step 1 of 3 is recorded on the step alone and deleting it would otherwise strand a step claiming « réalisée » against a row that no longer exists. **`GetTreatmentsInProgressAsync`** is a flat projection (`TreatmentInProgressFact`) paged over *acts* rather than plans — a row of « Traitements en cours » is a (plan, act) pair, so paging the plans would return three unfinished bridges on one devis as one row — ordered oldest-last-séance first with `ItemId` as the unique tie-break |
 | `IClinicReminderSettingsRepository` | `ClinicReminderSettingsRepository` |
 | `ICnamCatalogRepository` | `CnamCatalogRepository` (nomenclature + lettre-clé values) |
 | `IMedicationCatalogRepository` | `MedicationCatalogRepository` |

@@ -43,7 +43,48 @@ public static class ProcedureTypeCatalogSeed
         int DurationMinutes,
         decimal DefaultCost,
         string Category,
-        ToothCondition? ResultingCondition = null);
+        ToothCondition? ResultingCondition = null,
+        ProcedureStepTemplate[]? DefaultSteps = null);
+
+    /// <summary>
+    /// Suggested step protocols for the three acts a cabinet cannot do in one séance.
+    /// <para>
+    /// ⚠️ <b>Deliberately only three.</b> The mechanism handles any act, but a seeded protocol is the vendor
+    /// putting clinical words in a practitioner's mouth, so it ships only where the multi-séance shape is not in
+    /// question: a prosthesis and an implant. <b>Soin de carie is NOT seeded</b> — « curetage, scellement
+    /// définitif » was raised and then set aside (« on ne le propose pas pour le moment »), and a cabinet that
+    /// wants it adds it to its own catalogue in two clicks.
+    /// </para>
+    /// <para>
+    /// Every step is a <i>suggestion</i>: it is copied onto a devis line and owned there, so a bridge that takes
+    /// five séances for this patient is edited on the plan, not here. Durations sum to more than the act's own
+    /// <c>DurationMinutes</c> on purpose — that field is one sitting at the chair, these are several.
+    /// </para>
+    /// </summary>
+    private static readonly ProcedureStepTemplate[] FixedProsthesisSteps =
+    [
+        new("Préparation", 45),
+        new("Empreinte", 30),
+        new("Essayage", 20),
+        new("Scellement définitif", 30),
+    ];
+
+    private static readonly ProcedureStepTemplate[] ImplantSteps =
+    [
+        new("Pose de l'implant", 60),
+        new("Contrôle de cicatrisation", 20),
+        new("Empreinte sur implant", 30),
+        new("Pose de la couronne", 30),
+    ];
+
+    private static readonly ProcedureStepTemplate[] RemovableProsthesisSteps =
+    [
+        new("Empreinte primaire", 30),
+        new("Empreinte secondaire", 30),
+        new("Essai dents en cire", 30),
+        new("Livraison", 30),
+        new("Contrôle d'ajustement", 20),
+    ];
 
     /// <summary>
     /// Category → palette colour (must be a value <see cref="ColorHex"/> accepts; the picker's palette is served
@@ -130,10 +171,13 @@ public static class ProcedureTypeCatalogSeed
         new("Traitement parodontal (surfaçage / curetage)", 45, 120m, "Parodontologie"),
         new("Extraction simple", 30, 60m, "Chirurgie/Extraction"),
         new("Extraction chirurgicale (sagesse / dent incluse)", 60, 200m, "Chirurgie/Extraction"),
-        new("Couronne / bridge (par élément)", 60, 500m, "Prothèse fixe"),
-        new("Prothèse amovible (partielle / complète)", 60, 800m, "Prothèse amovible"),
+        new("Couronne / bridge (par élément)", 60, 500m, "Prothèse fixe",
+            DefaultSteps: FixedProsthesisSteps),
+        new("Prothèse amovible (partielle / complète)", 60, 800m, "Prothèse amovible",
+            DefaultSteps: RemovableProsthesisSteps),
         new("Réparation / rebasage de prothèse", 30, 120m, "Prothèse amovible"),
-        new("Implant dentaire", 60, 1500m, "Implantologie"),
+        new("Implant dentaire", 60, 1500m, "Implantologie",
+            DefaultSteps: ImplantSteps),
         new("Traitement orthodontique (multi-attaches)", 60, 3500m, "Orthodontie"),
         new("Séance orthodontique (contrôle / activation)", 30, 80m, "Orthodontie"),
         new("Blanchiment dentaire", 60, 500m, "Esthétique"),
@@ -217,7 +261,9 @@ public static class ProcedureTypeCatalogSeed
                 // The row's own answer wins; only a row that gives none falls back to its discipline's default.
                 resultingCondition: r.ResultingCondition
                     ?? (CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null),
-                category: r.Category);
+                category: r.Category,
+                // Only three rows carry one — see the protocol arrays above for why the vendor seeds so few.
+                defaultSteps: r.DefaultSteps);
         }
     }
 

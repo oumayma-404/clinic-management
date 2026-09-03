@@ -25,6 +25,17 @@ public class CreateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public string? Category { get; set; }
     /// <summary>Resulting odontogram state (ToothCondition name) for acts of this procedure; null/empty = none.</summary>
     public string? ResultingCondition { get; set; }
+
+    /// <summary>
+    /// The act's suggested clinical steps — « Préparation, Empreinte, Scellement définitif ». Optional and
+    /// empty by default: an act done in one séance has none, which is most of them.
+    /// <para>
+    /// Accepted here as well as on the update command deliberately. The catalogue form posts one body, and an
+    /// act creatable only without its protocol would send every practice through create-then-edit — the kind of
+    /// asymmetry that leaves one door validating what the other does not.
+    /// </para>
+    /// </summary>
+    public List<ProcedureStepTemplateDto>? DefaultSteps { get; set; }
 }
 
 public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedureTypeCommand, Result<ProcedureTypeDto>>
@@ -132,7 +143,9 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
                 description: request.Description,
                 defaultCost: request.DefaultCost,
                 resultingCondition: resultingCondition,
-                category: request.Category);
+                category: request.Category,
+                defaultSteps: request.DefaultSteps?
+                    .Select(x => new ProcedureStepTemplate(x.Label, x.DurationMinutes)));
 
             await _procedureTypeRepository.AddAsync(procedureType, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

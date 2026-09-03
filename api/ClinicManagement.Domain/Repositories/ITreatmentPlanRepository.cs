@@ -64,6 +64,28 @@ public interface ITreatmentPlanRepository
     Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordAsync(
         Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Every planned act of the clinic that is <b>under way</b> — some of its steps carried out and some still to
+    /// come — as a flat projection, one row per act, paged.
+    /// <para>
+    /// This is the read behind « Traitements en cours ». It is a projection rather than the aggregates because a
+    /// row of that list is a <i>(plan, act)</i> pair, so paging the plans would cut the list in the wrong place:
+    /// a devis carrying three unfinished bridges is three rows, and a page of plans would return them as one.
+    /// </para>
+    /// <para>
+    /// ⚠️ Ordered <b>oldest last séance first</b> — the point of the list is the treatment nobody has come back
+    /// for — with <c>ItemId</c> as the final, unique tie-break. Without it <c>OFFSET</c> over a non-unique sort
+    /// shows one act on two pages and skips another, which reads as « un traitement a disparu ».
+    /// </para>
+    /// <para>
+    /// Filtered to plans that still carry work: <c>Accepted</c> and <c>InProgress</c>. A <c>Completed</c> plan has
+    /// no act under way by definition, and a <c>Cancelled</c> one is void — listing either would put treatments
+    /// nobody is expected to finish in front of the practice every morning.
+    /// </para>
+    /// </summary>
+    Task<PagedResult<TreatmentInProgressFact>> GetTreatmentsInProgressAsync(
+        Guid clinicId, PageRequest? paging, CancellationToken cancellationToken = default);
+
     /// <summary>List a clinic's treatment plans, filtered by patient / status / created-date range.</summary>
     /// <param name="acceptedFrom">
     /// Inclusive lower bound on <c>AcceptedDate</c> — a <b>different date</b> from <paramref name="from"/>, which
@@ -236,3 +258,34 @@ public interface ITreatmentPlanRepository
     Task UpdateAsync(TreatmentPlan plan, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// One act under way, as the « Traitements en cours » list needs it: who, what, how far, and what is next.
+/// <para>
+/// A projection, not an entity graph — the list renders these fields and nothing else, and loading each plan with
+/// its items, steps, installments and payments to print a patient's name and « 2 / 3 » would read most of the
+/// clinic's devis history to fill one screen.
+/// </para>
+/// <para>
+/// ⚠️ It deliberately does <b>not</b> say whether the next step is already booked. That is an appointment fact,
+/// it needs the live-status rule <c>TreatmentPlanWorkflowProjection</c> owns, and expressing it here would be a
+/// second copy of that rule in SQL — where no compiler checks it against the first. The reader answers it in one
+/// batched appointment read over the page.
+/// </para>
+/// </summary>
+public sealed record TreatmentInProgressFact(
+    Guid PlanId,
+    string? PlanNumber,
+    Guid PatientId,
+    Guid ItemId,
+    string DesignationFr,
+    int SequenceNumber,
+    int StepsTotal,
+    int StepsDone,
+    Guid? NextStepId,
+    string? NextStepLabel,
+    int? NextStepSequenceNumber,
+    int? NextStepEstimatedDurationMinutes,
+    /// <summary>When the most recent carried-out step happened — « dernière séance il y a 12 j ». Never null in
+    /// practice (an act under way has at least one step done), but nullable so the shape cannot lie if it is.</summary>
+    DateTime? LastStepDoneOn);

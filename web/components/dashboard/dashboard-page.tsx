@@ -56,6 +56,7 @@ import { useAppointments } from "@/lib/hooks/use-appointments"
 import { useAppointmentStatusMix } from "@/lib/hooks/use-appointment-status-mix"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { dashboardLink } from "@/lib/dashboard-links"
 import { blocksInSection, type DashboardBlockKey } from "@/lib/dashboard-blocks"
 import {
@@ -363,6 +364,38 @@ function DashboardContent() {
    * respects the user's own customiser choices — hiding « Stock bas » must hide it here too, not only in a section
    * that no longer exists.</p>
    */
+  /*
+   * « Traitements en cours » — the acts started and not finished.
+   *
+   * ⚠️ Its own small read, and it is the one chip on this zone that costs a request. It cannot ride
+   * `GET /api/dashboard` like its neighbours because that endpoint is `AdminOrDoctor` while this list is open to
+   * the whole team — folding the count into it would make the figure unavailable to precisely the person who
+   * acts on it. `pageSize: 1` fetches one row for its `totalCount`, which is exact whatever page is asked for,
+   * so the chip and the page it opens read the same number by construction.
+   *
+   * A failed read leaves the chip out entirely rather than showing 0: « aucun traitement en cours » and « je
+   * n'ai pas pu lire » are opposite facts, and here the wrong one is the reassuring one (§ 13).
+   */
+  const [treatmentsInProgress, setTreatmentsInProgress] = useState<number | null>(null)
+
+  const loadTreatmentsInProgress = useCallback(async () => {
+    try {
+      const page = await treatmentPlansApi.treatmentsInProgress({ page: 1, pageSize: 1 })
+      setTreatmentsInProgress(page.totalCount)
+    } catch {
+      setTreatmentsInProgress(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadTreatmentsInProgress()
+  }, [loadTreatmentsInProgress])
+
+  useClinicRealtime(
+    [RealtimeResource.TreatmentPlans, RealtimeResource.Appointments],
+    loadTreatmentsInProgress,
+  )
+
   const alerts: DayAlert[] = data
     ? (
         [
@@ -374,6 +407,19 @@ function DashboardContent() {
             label: data.alerts.visitsToClose === 1 ? "séance à clôturer" : "séances à clôturer",
             tone: "hot" as const,
           },
+          // Amber, like « séances à clôturer » above: the same register — work already started that is waiting
+          // on a next step. Never red, which this zone reserves for money sitting still.
+          ...(treatmentsInProgress !== null
+            ? [
+                {
+                  key: "treatmentsInProgress",
+                  count: treatmentsInProgress,
+                  label:
+                    treatmentsInProgress === 1 ? "traitement en cours" : "traitements en cours",
+                  tone: "warm" as const,
+                },
+              ]
+            : []),
           { key: "waitingList", count: data.alerts.waitingList, label: "en salle d’attente", tone: "live" as const },
           { key: "draftPlans", count: data.alerts.draftPlans, label: "devis en attente", tone: "calm" as const },
           {

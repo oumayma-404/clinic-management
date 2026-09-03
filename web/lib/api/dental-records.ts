@@ -25,6 +25,15 @@ export interface CreateDentalRecordRequest {
   // Optional: mark a scheduled treatment-plan step "réalisé" and link it to this record.
   treatmentPlanId?: string | null;
   treatmentPlanItemId?: string | null;
+  /**
+   * Which **step** of that devis act this fiche carries out — « le scellement ». Null for an act done in one
+   * séance, which is every fiche written before steps existed.
+   *
+   * ⚠️ Sending it is what lets one devis line be evidenced by several fiches: the act-level link refuses a
+   * second, different record, so without a step the second séance of a bridge is refused outright. Omitting it
+   * on a stepped act is still safe — the server advances that act's next pending step.
+   */
+  treatmentPlanItemStepId?: string | null;
   // Optional: the appointment this record documents — completes it + dismisses its post-visit prompt.
   appointmentId?: string | null;
 }

@@ -19,6 +19,7 @@ export type DashboardKpiKey =
   | 'expenses'
   | 'net'
   | 'visitsToClose'
+  | 'treatmentsInProgress'
   | 'waitingList'
   | 'draftPlans'
   | 'overdueLabOrders'
@@ -101,6 +102,8 @@ export const DASHBOARD_LINKS: Record<DashboardKpiKey, (period: DashboardPeriodDt
   // filter on — it is the absence of a fiche or a note d'honoraires, which only this screen computes. No date
   // params either; the window is the server's and defaults to the same 7 days the count was taken over.
   visitsToClose: () => '/a-cloturer',
+  // No period in the URL: an unfinished treatment is not period data — it is a standing state.
+  treatmentsInProgress: () => '/traitements-en-cours',
 
   waitingList: () => '/waiting-list',
   draftPlans: () => `/treatment-plans${query({ status: 'Draft' })}`,

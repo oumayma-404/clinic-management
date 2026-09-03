@@ -62,6 +62,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<PatientFile> PatientFiles { get; set; }
 
+    /// <summary>Markers dropped on the surface of a 3D model (<c>mesh-interactive-viewer</c>).</summary>
+    public DbSet<PatientFileAnnotation> PatientFileAnnotations { get; set; }
+
     /// <summary>
     /// Uploads still arriving (<c>large-file-transfer</c> Part 2). A table rather than server memory because the
     /// point is surviving a restart: a 400 Mo study is minutes of a clinic's uplink, and an in-process dictionary
@@ -269,6 +272,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // put a correlated subquery on the hottest reads in the product, and every other filtered entity here
         // states its clinic as a column. Same shape, same rule, one join fewer.
         modelBuilder.Entity<PatientFile>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientFileAnnotation>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
         modelBuilder.Entity<FileUploadSession>().HasQueryFilter(u => IsSystemWide || u.ClinicId == ScopedClinicId);
         modelBuilder.Entity<PatientFolder>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
         modelBuilder.Entity<MedicalDocument>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);

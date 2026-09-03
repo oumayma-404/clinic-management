@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/table"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -41,12 +41,14 @@ import type {
 import { formatDT, formatDateFr, isBeforeToday, quoteFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
-import { isPlanBilled } from "./plan-next-action"
+import { isPlanBilled, planItemToPreset, planWorkProgress } from "./plan-next-action"
 import { PlanProgressBar } from "./plan-progress-bar"
 import {
   PlanActPrimaryAction, PlanActReorderControls, PlanActRow, PlanActSelectionBox, PlanActStateBadge,
-  planActCardFields,
+  PlanActStepsAction, planActCardFields,
 } from "./plan-act-row"
+import { PlanStepStrip } from "./plan-step-strip"
+import { PlanItemStepsDialog } from "./plan-item-steps-dialog"
 import { PlanTimeline } from "./plan-timeline"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
 import { ReviseInstallmentsModal } from "./revise-installments-modal"
@@ -169,6 +171,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [reviseOpen, setReviseOpen] = useState(false)
   /** The act whose « réalisé » state is being corrected (AC-P2.11); null = dialog closed. */
   const [undoTarget, setUndoTarget] = useState<TreatmentPlanItemDto | null>(null)
+  /** The act whose protocol is being edited — same window as `canCorrectActs`, which the server enforces too. */
+  const [stepsTarget, setStepsTarget] = useState<TreatmentPlanItemDto | null>(null)
 
   /*
    * Only needed to resolve an act's procedure when booking it (below). A failure still degrades to the free-text
@@ -219,18 +223,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   )
 
   /** One plan act in the shape the booking dialog takes. */
+  // One builder, shared with the edit dialog's « Actes du devis » group — see `planItemToPreset`.
   const toPresetAct = useCallback(
-    (item: TreatmentPlanItemDto): PresetPlanAct => ({
-      planItemId: item.id,
-      procedureTypeId: resolveProcedureTypeId(item),
-      label:
-        item.toothNumbers.length > 0
-          ? `${item.designationFr} (dents ${item.toothNumbers.join(", ")})`
-          : item.designationFr,
-      plannedCost: item.plannedCost,
-    }),
-    [resolveProcedureTypeId],
+    (item: TreatmentPlanItemDto): PresetPlanAct =>
+      planItemToPreset(plan, item, resolveProcedureTypeId),
+    [plan, resolveProcedureTypeId],
   )
+
+  // Step-weighted progress for the header — see `planWorkProgress`.
+  const work = useMemo(() => planWorkProgress(plan), [plan])
 
   const isDraft = plan.status === "Draft"
   const isActive = plan.status === "Accepted" || plan.status === "InProgress"
@@ -641,7 +642,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <PlanProgressBar done={plan.itemsDone} total={plan.itemsTotal} />
+          <PlanProgressBar done={plan.itemsDone} total={plan.itemsTotal} fraction={work.fraction} />
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Figure label="Total" value={formatDT(plan.totalPlanned)} />
@@ -649,9 +650,22 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             {/* A Draft devis contributes 0 to « Solde patient » by design, so showing a « Reste » here would
                 contradict the balance the rest of the app reports. */}
             {!isDraft && <Figure label="Reste" value={formatDT(plan.outstanding)} />}
+            {/*
+              ⚠️ « 0 / 2 » is true and was not enough: it counts whole acts, so a bridge two séances in read as
+              nothing started. The count stays honest — a bridge is not réalisé until it is scellé — and the
+              work already done is stated on its own line instead, with the étapes when exactly one act is under
+              way. The bar beside it is step-weighted for the same reason.
+            */}
             <Figure
               label="Actes réalisés"
               value={plan.itemsTotal > 0 ? `${plan.itemsDone}/${plan.itemsTotal}` : "—"}
+              hint={
+                work.actsInProgress === 0
+                  ? undefined
+                  : work.soleInProgressSteps
+                    ? `1 en cours · ${work.soleInProgressSteps.done}/${work.soleInProgressSteps.total} étapes`
+                    : `${work.actsInProgress} en cours`
+              }
             />
           </div>
 
@@ -772,7 +786,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   with its status `<select>`. Beside the title they would eat the désignation's only line on a
                   320 px card; as a labelled line they say what they move.
               */}
-              <div className={`${CARDS_ONLY} space-y-3`}>
+              <div className={`${CARDS_ONLY_LG} space-y-3`}>
                 {/* The card list has no header row, so the table's « Sélectionner tous » checkbox has nowhere to
                     live — without this, ticking eight acts on a phone is eight taps and the grouping gesture the
                     whole selection exists for stops being worth making. */}
@@ -822,6 +836,22 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       items={group.acts}
                       getKey={(a) => a.item.id}
                       title={(a) => a.item.designationFr}
+                      /* The strip goes under the act's own name, exactly as it sits in the table — but through
+                         `underTitle`, NOT `subtitle`. `subtitle` renders a `<p class="line-clamp-2">`, and a
+                         `<div>` inside a `<p>` is invalid: React logged a hydration failure and the browser
+                         closed the paragraph early, so the strip left the title column altogether, while the
+                         clamp stood ready to cut a fourth step off with no sign. `divider={false}`: the card's
+                         own gaps already separate it, and a second dashed rule inside a card reads as a divider
+                         between two records. */
+                      underTitle={(a) =>
+                        a.item.steps && a.item.steps.length > 0 ? (
+                          <PlanStepStrip
+                            steps={a.item.steps}
+                            nextStepId={a.item.nextStepId}
+                            divider={false}
+                          />
+                        ) : undefined
+                      }
                       status={(a) => <PlanActStateBadge item={a.item} />}
                       leading={(a) =>
                         canGroup ? (
@@ -854,12 +884,28 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                           ),
                         },
                       ]}
-                      actions={(a) => (
+                      /*
+                       * ⚠️ The labelled action is on its OWN full-width row (`primaryAction`) and only the
+                       * icon-only « Étapes » control stays in the header. Both in the header, the act's name —
+                       * which is the card's identity — got what was left of a ~288 px card after ~200 px of
+                       * controls: measured at 320 px, « Bridge 4 dents (14-17) » rendered **one character per
+                       * line**, a 26-line vertical column of letters. `[overflow-wrap:anywhere]` is what makes
+                       * that possible rather than an overflow, so nothing looks broken from the code's side.
+                       * This is verbatim the case `CardList.primaryAction` documents — « the action a user
+                       * opens the page to perform » — and planning the next étape is why this screen exists.
+                       */
+                      actions={(a) =>
+                        canCorrectActs ? (
+                          <PlanActStepsAction item={a.item} onEditSteps={setStepsTarget} />
+                        ) : undefined
+                      }
+                      primaryAction={(a) => (
                         <PlanActPrimaryAction
                           plan={plan}
                           item={a.item}
                           onSchedule={(target) => startBooking([[target]])}
                           onUndo={canCorrectActs ? setUndoTarget : undefined}
+                          block
                         />
                       )}
                     />
@@ -867,7 +913,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 ))}
               </div>
 
-              <Table containerClassName={`${TABLE_ONLY} rounded-md border`}>
+              <Table containerClassName={`${TABLE_ONLY_LG} rounded-md border`}>
                 <TableHeader>
                   <TableRow>
                     {canGroup && (
@@ -900,6 +946,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       item={item}
                       onSchedule={(target) => startBooking([[target]])}
                       onUndo={canCorrectActs ? setUndoTarget : undefined}
+                      onEditSteps={canCorrectActs ? setStepsTarget : undefined}
                       selection={
                         canGroup
                           ? {
@@ -1002,7 +1049,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 and dropping the extra receipts would remove the only way to reprint a specific payment.
               */}
               <CardList
-                className={CARDS_ONLY}
+                className={CARDS_ONLY_LG}
                 ariaLabel="Échéancier du devis"
                 items={plan.installments}
                 getKey={(inst) => inst.id}
@@ -1085,7 +1132,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 }}
               />
 
-              <Table containerClassName={`${TABLE_ONLY} rounded-md border`}>
+              <Table containerClassName={`${TABLE_ONLY_LG} rounded-md border`}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Échéance</TableHead>
@@ -1383,6 +1430,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         server refuses outright once the plan or the act's own fiche is billed, and that French sentence is
         surfaced by `run()`'s toast — this dialog is a normal action, not one that needs an in-form banner.
       */}
+      <PlanItemStepsDialog
+        plan={plan}
+        item={stepsTarget}
+        open={!!stepsTarget}
+        onOpenChange={(open) => { if (!open) setStepsTarget(null) }}
+        onSaved={onChanged}
+      />
+
       <Dialog open={!!undoTarget} onOpenChange={(open) => { if (!open) setUndoTarget(null) }}>
         <DialogContent className="md:max-w-md">
           <DialogHeader>
@@ -1464,11 +1519,13 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   )
 }
 
-function Figure({ label, value }: { label: string; value: string }) {
+function Figure({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold">{value}</p>
+      {/* A second, quieter line — for the part of the figure the figure itself cannot carry. */}
+      {hint && <p className="text-2xs text-primary">{hint}</p>}
     </div>
   )
 }

@@ -29,6 +29,25 @@ public class AppointmentProcedureRequest
     public Guid? TreatmentPlanItemId { get; set; }
 
     /// <summary>
+    /// Which <b>step</b> of that devis act this séance carries out — « on prépare aujourd'hui, on scellera dans
+    /// trois semaines ». Null when the act is done in one sitting, which is every booking made before steps
+    /// existed and most made after.
+    /// <para>
+    /// ⚠️ Requires <see cref="TreatmentPlanItemId"/>; the domain constructor refuses a step without its act,
+    /// because four existing reads key off the act's id and a step-only row would drop out of all of them.
+    /// Validated against the step list of that act, on the same single plan load
+    /// <c>AppointmentPlanLink.ValidateManyAsync</c> already performs.
+    /// </para>
+    /// <para>
+    /// A step already carried out is deliberately <b>accepted</b>: re-booking one is how a dentist corrects a
+    /// fiche entered against the wrong séance, and <c>TreatmentPlanWorkflowProjection.PickRepresentative</c>
+    /// already handles an act with more than one appointment. The UI does not offer it; the server does not
+    /// forbid it.
+    /// </para>
+    /// </summary>
+    public Guid? TreatmentPlanItemStepId { get; set; }
+
+    /// <summary>
     /// The price agreed for this act at this visit, in dinars — a <b>forfait</b>, not a per-tooth rate. Omit it
     /// (or send null) to leave the act at its catalogue tarif, which is what every booking that does not
     /// negotiate sends and what makes this field additive.
@@ -95,6 +114,8 @@ public static class AppointmentProcedureSelection
                 {
                     ProcedureTypeId = singleProcedureTypeId,
                     TreatmentPlanItemId = singleTreatmentPlanItemId,
+                    // No step: the shorthand's callers (the recurring expansion, the older integrations) book a
+                    // whole act, and inventing « la première étape » for them would silently pick one.
                 },
             };
         }
@@ -160,7 +181,8 @@ public static class AppointmentProcedureSelection
                     null,
                     null,
                     item.AgreedCost,
-                    item.TreatmentPlanItemId));
+                    item.TreatmentPlanItemId,
+                    item.TreatmentPlanItemStepId));
                 continue;
             }
 
@@ -183,7 +205,13 @@ public static class AppointmentProcedureSelection
             // Refused with the act's name rather than deduped silently: the user picked it twice, and quietly
             // dropping one leaves them looking at a séance that does not match what they selected. Quantity per
             // tooth is the fiche de soins' job, not the agenda's.
-            if (!seen.Add(procedureType.Id))
+            //
+            // ⚠️ Exempt when the row names a devis STEP — mirroring Appointment.SetProcedures, and for the same
+            // reason: « préparation » and « empreinte » are two steps of one bridge and therefore the same
+            // catalogue act, and booking them into one séance is the whole point of steps. The domain keys those
+            // rows on (act, step) instead. Keeping this check and relaxing only the domain's would refuse the
+            // feature here and pass it there, which is how one of two guards becomes the real rule by accident.
+            if (!item.TreatmentPlanItemStepId.HasValue && !seen.Add(procedureType.Id))
             {
                 return Result<List<AppointmentProcedureInput>>.Failure(
                     $"L'acte « {procedureType.Name} » est déjà présent dans ce rendez-vous.");
@@ -199,7 +227,8 @@ public static class AppointmentProcedureSelection
                 // catalogue price onto the visit and make a later tarif change invisible to a booking nobody
                 // negotiated.
                 item.AgreedCost,
-                item.TreatmentPlanItemId));
+                item.TreatmentPlanItemId,
+                item.TreatmentPlanItemStepId));
         }
 
         return Result<List<AppointmentProcedureInput>>.Success(inputs);
@@ -212,6 +241,18 @@ public static class AppointmentProcedureSelection
     public static List<Guid> PlanItemIds(IEnumerable<AppointmentProcedureRequest> requested) =>
         requested.Where(i => i.TreatmentPlanItemId.HasValue)
             .Select(i => i.TreatmentPlanItemId!.Value)
+            .Distinct()
+            .ToList();
+
+    /// <summary>
+    /// The (act, step) pairs a requested séance carries out — what <c>AppointmentPlanLink.ValidateManyAsync</c>
+    /// checks. Separate from <see cref="PlanItemIds"/> rather than replacing it, because the two answer different
+    /// questions: that one is « which acts », this one « which acts, and which part of each ».
+    /// </summary>
+    public static List<(Guid ItemId, Guid? StepId)> PlanLinks(
+        IEnumerable<AppointmentProcedureRequest> requested) =>
+        requested.Where(i => i.TreatmentPlanItemId.HasValue)
+            .Select(i => (i.TreatmentPlanItemId!.Value, i.TreatmentPlanItemStepId))
             .Distinct()
             .ToList();
 }

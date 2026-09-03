@@ -44,7 +44,8 @@ import {
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
-  AppointmentActsPicker, hasInvalidAgreedCost, negotiatedTotalOf, toProcedurePayloads, totalActsDuration,
+  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, toProcedurePayloads,
+  totalActsDuration, type PresetPlanAct,
   type SelectedAct,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
@@ -52,6 +53,8 @@ import { formatAmount, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
 import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { treatmentPlansApi } from "@/lib/api/treatment-plans"
+import { planItemToPreset, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
@@ -114,6 +117,21 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    */
   const [durationTouched, setDurationTouched] = useState(true)
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+
+  /**
+   * The patient's outstanding devis acts, offered in the acts picker so a visit booked from the agenda can be
+   * attached to a devis **afterwards**.
+   *
+   * ⚠️ This is the whole of gap #2. A plan link was settable only at creation, from the devis workspace — so a
+   * dentist who books from the agenda (which is how anyone in a hurry books) had no route in, and an act that
+   * turned out to need a second séance could not be brought onto a devis at all.
+   *
+   * ⚠️ `planIdByItem` exists because an appointment carries **one** `treatmentPlanId` while a patient may have
+   * several live devis: the id has to be derived from whatever the user attached, and two devis in one séance
+   * has to be refused *here*, in French, rather than reaching the server as a validation error.
+   */
+  const [planActs, setPlanActs] = useState<PresetPlanAct[]>([])
+  const [planIdByItem, setPlanIdByItem] = useState<Record<string, string>>({})
   // AC-P3.31 — why the acte list is empty (C-4: this dialog swallowed the failure without even a comment).
   const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
 
@@ -169,6 +187,40 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    */
   const [refreshed, setRefreshed] = useState<AppointmentDto | null>(null)
   const source = refreshed ?? appointment
+
+  /*
+   * Loaded once per opening, and only for a real patient: a « créneau occupé » has nobody to have a devis. A
+   * failure is swallowed to an empty group on purpose — the devis shortcut is an accelerator, and taking the
+   * whole edit dialog down because one extra read failed would be a poor trade.
+   */
+  useEffect(() => {
+    if (!open || !source?.patientId) {
+      setPlanActs([])
+      setPlanIdByItem({})
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const plans = await treatmentPlansApi.list({ patientId: source.patientId! })
+        if (cancelled) return
+        const presets: PresetPlanAct[] = []
+        const owner: Record<string, string> = {}
+        for (const plan of plans) {
+          for (const item of schedulablePlanItems(plan)) {
+            presets.push(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined))
+            owner[item.id] = plan.id
+          }
+        }
+        setPlanActs(presets)
+        setPlanIdByItem(owner)
+      } catch {
+        if (!cancelled) { setPlanActs([]); setPlanIdByItem({}) }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [open, source?.patientId])
+
 
   useEffect(() => {
     if (!open || !appointment?.id) return
@@ -233,16 +285,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   })
 
   /** The acts' names, resolved exactly as `AppointmentActsPicker` resolves them — see the create dialog. */
+  /**
+   * The acts' names for the récapitulatif, from the picker's own shared resolver — so the pane cannot name an
+   * act differently from the list the user is reading beside it, and a bridge booked across two steps is one
+   * entry naming both (« Couronne / bridge — Préparation, Empreinte ») rather than the act's name twice.
+   */
   const actNames = useMemo(
-    () =>
-      selectedActs.map((act) => {
-        if (!act.procedureTypeId) return act.fallbackName ?? "Acte du devis"
-        return (
-          procedureTypes.find((p) => p.id === act.procedureTypeId)?.name ??
-          act.fallbackName ??
-          "Acte indisponible"
-        )
-      }),
+    () => actLabelsOf(selectedActs, procedureTypes),
     [selectedActs, procedureTypes],
   )
 
@@ -367,12 +416,26 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 // show the catalogue tarif in the field and the next save — rescheduling, changing the note,
                 // anything — would quietly restore every act to that tarif, since the list replaces the acts.
                 agreedCost: p.agreedCost != null ? formatAmount(p.agreedCost) : undefined,
+                // ⚠️ The step must hydrate for exactly the reason the price must: `SetProcedures` replaces the
+                // whole list, so a save that omitted it would drop « c'est la séance du scellement » from a
+                // booked visit — and, on a séance holding two steps of one act, the server would then see the
+                // same act twice and refuse the save outright.
+                treatmentPlanItemStepId: p.treatmentPlanItemStepId ?? null,
               }))
           : appointment.procedureTypeId
             ? [
                 {
                   procedureTypeId: appointment.procedureTypeId,
                   treatmentPlanItemId: appointment.treatmentPlanItemId ?? null,
+                  /*
+                   * ⚠️ Explicitly null, and it has to be stated rather than left undefined. This is the
+                   * lead-act-scalar fallback, for a response predating the `procedures` collection — and the
+                   * parent's scalars have **no step twin** by design (nothing reads a lead step, so a fifth
+                   * derived column would be one more field to keep in sync for no reader). So a visit hydrated
+                   * through this branch genuinely knows no step, and saying so here is what stops the next
+                   * reader assuming the field was forgotten.
+                   */
+                  treatmentPlanItemStepId: null,
                   planLabel: appointment.treatmentPlanItemId ? "devis" : undefined,
                   fallbackName: appointment.procedureTypeName ?? undefined,
                 },
@@ -494,9 +557,32 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       // explicit null clears it. So these must send `null`, not `undefined` — `JSON.stringify` drops undefined
       // keys entirely, which is why emptying the notes box or unassigning the practitioner used to be a
       // silent no-op.
+      /*
+       * The devis the attached acts belong to. An appointment carries one, so acts from two different devis in
+       * one séance is refused here — in French, before the round trip — rather than surfacing as the server's
+       * own validation error on a save the user thought had worked.
+       */
+      const attachedPlanIds = Array.from(
+        new Set(
+          selectedActs
+            .map((a) => (a.treatmentPlanItemId ? planIdByItem[a.treatmentPlanItemId] : null))
+            .filter((id): id is string => !!id),
+        ),
+      );
+      if (attachedPlanIds.length > 1) {
+        setError(
+          "Les actes de ce rendez-vous appartiennent à deux devis différents. Une séance ne peut être rattachée qu'à un seul devis.",
+        )
+        setLoading(false)
+        return
+      }
+
       await appointmentsApi.update(appointment.id, {
         appointmentDateTime: appointmentDateTime.toISOString(),
         durationMinutes: calculatedDuration,
+        // Omitted when nothing is attached, so a séance that never had a devis link keeps not having one —
+        // every nullable field on this payload is tri-state.
+        treatmentPlanId: attachedPlanIds[0] ?? undefined,
         doctorId: selectedDoctorId || null,
         notes: appointmentNotes || null,
         /*
@@ -912,6 +998,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="edit-appt"
+                planActs={planActs}
               />
 
               <div className="grid grid-cols-1 gap-4">

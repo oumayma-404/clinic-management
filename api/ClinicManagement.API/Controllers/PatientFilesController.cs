@@ -491,6 +491,97 @@ public class PatientFilesController : ApiControllerBase
         return NoContent();
     }
 
+    // ── Repères sur un modèle 3D (mesh-interactive-viewer) ──────────────────────────────────────────────
+
+    // ⚠️ All four stay on the CLASS policy, including the delete — unlike the file deletes below, and the
+    // difference is what is destroyed. Removing a scanned document leaves nothing on any screen to say it was
+    // ever there; removing a marker takes away a pin somebody dropped a minute ago and can drop again. Gating
+    // it behind AdminOrDoctor would mean reception could place a marker and then not tidy it up.
+    [HttpGet("{fileId}/annotations")]
+    public async Task<ActionResult<List<Application.DTOs.PatientFileAnnotationDto>>> GetAnnotations(
+        Guid patientId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new GetFileAnnotationsQuery { PatientId = patientId, FileId = fileId }, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpPost("{fileId}/annotations")]
+    public async Task<ActionResult<Application.DTOs.PatientFileAnnotationDto>> CreateAnnotation(
+        Guid patientId,
+        Guid fileId,
+        [FromBody] CreateFileAnnotationCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        command.PatientId = patientId;
+        command.FileId = fileId;
+        // From the token, never the body — the same source `UploadedBy` takes.
+        command.CreatedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpPut("{fileId}/annotations/{annotationId}")]
+    public async Task<ActionResult<Application.DTOs.PatientFileAnnotationDto>> RenameAnnotation(
+        Guid patientId,
+        Guid fileId,
+        Guid annotationId,
+        [FromBody] RenameFileAnnotationCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        command.PatientId = patientId;
+        command.FileId = fileId;
+        command.AnnotationId = annotationId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpDelete("{fileId}/annotations/{annotationId}")]
+    public async Task<IActionResult> DeleteAnnotation(
+        Guid patientId,
+        Guid fileId,
+        Guid annotationId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new DeleteFileAnnotationCommand
+            {
+                PatientId = patientId,
+                FileId = fileId,
+                AnnotationId = annotationId
+            },
+            cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return NoContent();
+    }
+
     [HttpDelete("folders/{folderId}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteFolder(

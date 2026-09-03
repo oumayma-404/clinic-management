@@ -592,5 +592,32 @@ public sealed record DataMigrationCounts(
     /// How many fournisseurs exist, reported beside the count above so a run that finds no drift still states what
     /// the backfill produced (AC-8). Informational, never asserted — a cabinet legitimately has none.
     /// </summary>
-    int? SuppliersTotal = null
+    int? SuppliersTotal = null,
+    /// <summary>
+    /// Devis acts whose stored <c>Status</c> disagrees with their <c>TreatmentPlanItemSteps</c> rows.
+    /// <para>
+    /// The twin every stored-and-recomputed scalar in this solution needs — <c>invoice-ledgers-agree</c> and
+    /// <c>installment-ledger-agrees</c> are the money equivalents. <c>TreatmentPlanItem.Status</c> is stored
+    /// rather than derived on read because « Traitements en cours » filters on it in SQL, and because a domain
+    /// property over an unloaded collection navigation answers confidently and wrongly. The cost of storing it
+    /// is drift, and this is what sees drift.
+    /// </para>
+    /// <para>
+    /// Its failure mode is silent in both directions: a bridge with two of three steps done but a
+    /// <c>Planned</c> status is invisible to the worklist, and one stuck at <c>InProgress</c> with every step
+    /// done keeps a finished devis open forever. Null before the table exists.
+    /// </para>
+    /// </summary>
+    int? PlanItemsWithStatusDisagreeingWithSteps = null,
+    /// <summary>
+    /// Devis acts whose step <c>SequenceNumber</c>s are not dense <c>0..n-1</c> — a gap, a duplicate, or a run
+    /// that does not start at zero.
+    /// <para>
+    /// Nothing in the schema can express density, and every reader treats the order as positional: the strip
+    /// prints « étape 2 sur 3 » from the rank, and the booking dialog offers « la prochaine » by lowest un-done
+    /// rank. A duplicate rank makes « next » non-deterministic between two steps, which reads as the wrong step
+    /// being proposed rather than as an error. Null before the table exists.
+    /// </para>
+    /// </summary>
+    int? PlanItemsWithNonDenseStepSequence = null
 );

@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 
 namespace ClinicManagement.UnitTests.Common;
 
@@ -65,4 +66,22 @@ internal static class SolutionSources
             }
         }
     }
+
+    /// <summary>
+    /// The source with its comments blanked out, for guards that match on what the code <b>does</b>.
+    ///
+    /// <para>⚠️ Needed because this repository documents its reasoning in prose beside the code it describes, so
+    /// a member name appears in a <c>&lt;summary&gt;</c> far more often than it is called. A guard matching raw
+    /// text reads « see <c>MarkItemDone</c> » in a doc comment as a call site, then demands that the *comment*
+    /// load a collection — which is unfixable, so the guard gets disabled instead of the defect getting fixed.
+    /// <c>CnamClosedSetContractTests</c> learned the same lesson on the frontend side.</para>
+    ///
+    /// <para>Replaces each comment with spaces rather than removing it, so every match index still lines up with
+    /// the original text and a finding can name a real line.</para>
+    /// </summary>
+    public static string WithoutComments(string source) =>
+        CommentPattern.Replace(source, m => new string(' ', m.Length));
+
+    private static readonly Regex CommentPattern = new(
+        @"//[^\r\n]*|/\*.*?\*/", RegexOptions.Compiled | RegexOptions.Singleline);
 }

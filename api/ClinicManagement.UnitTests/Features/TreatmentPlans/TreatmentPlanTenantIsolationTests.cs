@@ -110,7 +110,7 @@ public class TreatmentPlanTenantIsolationTests
         PlanIsLoadable(foreign);
 
         var handler = new AcceptTreatmentPlanCommandHandler(
-            _plans.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            _plans.Object, _patients.Object, _procedureTypes.Object, _clinicResolver.Object, _uow.Object,
             NullLogger<AcceptTreatmentPlanCommandHandler>.Instance);
 
         var result = await handler.Handle(

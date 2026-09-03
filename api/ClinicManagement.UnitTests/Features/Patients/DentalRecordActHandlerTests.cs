@@ -135,7 +135,8 @@ public class DentalRecordActHandlerTests
             Realtime.Object, Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
-            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Invoices.Object,
+            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Appointments.Object,
+            Invoices.Object,
             CreditNotes.Object, Resolver.Object, Uow.Object, StockConsumption.Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 

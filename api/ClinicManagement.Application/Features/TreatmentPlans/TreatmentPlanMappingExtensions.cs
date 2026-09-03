@@ -106,7 +106,28 @@ public static class TreatmentPlanMappingExtensions
             SequenceNumber = item.SequenceNumber,
             ScheduledAppointmentId = hasAppointment ? appointment!.Id : null,
             ScheduledAt = hasAppointment ? appointment!.AppointmentDateTime : null,
-            ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null
+            ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null,
+            Steps = item.Steps.Select(s => ToStepDto(s, workflow)).ToList(),
+            StepsDone = item.StepsDone,
+            NextStepId = item.NextStep?.Id,
+        };
+    }
+
+    private static TreatmentPlanItemStepDto ToStepDto(TreatmentPlanItemStep step, TreatmentPlanWorkflow workflow)
+    {
+        var hasAppointment = workflow.ScheduledByStepId.TryGetValue(step.Id, out var appointment);
+
+        return new TreatmentPlanItemStepDto
+        {
+            Id = step.Id,
+            Label = step.Label,
+            SequenceNumber = step.SequenceNumber,
+            DoneDate = step.DoneDate,
+            LinkedDentalRecordId = step.LinkedDentalRecordId,
+            EstimatedDurationMinutes = step.EstimatedDurationMinutes,
+            ScheduledAppointmentId = hasAppointment ? appointment!.Id : null,
+            ScheduledAt = hasAppointment ? appointment!.AppointmentDateTime : null,
+            ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null,
         };
     }
 }

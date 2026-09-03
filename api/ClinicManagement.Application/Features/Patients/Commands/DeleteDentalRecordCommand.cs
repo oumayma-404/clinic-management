@@ -120,6 +120,27 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
 
         foreach (var plan in plans)
         {
+            var touched = 0;
+
+            // Steps first, and separately: a stepped act only takes its own LinkedDentalRecordId once its LAST
+            // step lands, so a fiche that carried out one step of three is recorded on the step alone and the
+            // act-level loop below would not see it. Left behind, the step would keep claiming « réalisée »
+            // against a fiche that no longer exists.
+            var linkedSteps = plan.Items
+                .SelectMany(i => i.Steps.Select(s => new { ItemId = i.Id, StepId = s.Id, s.LinkedDentalRecordId }))
+                .Where(s => s.LinkedDentalRecordId == recordId)
+                .ToList();
+
+            foreach (var step in linkedSteps)
+            {
+                if (plan.UnmarkItemStep(step.ItemId, step.StepId))
+                {
+                    touched++;
+                }
+            }
+
+            // An act whose steps were just detached no longer carries a record-level link (the recompute cleared
+            // it), so this reads what is genuinely left: step-less acts evidenced by this fiche.
             var linkedItemIds = plan.Items
                 .Where(i => i.LinkedDentalRecordId == recordId)
                 .Select(i => i.Id)
@@ -128,12 +149,13 @@ public class DeleteDentalRecordCommandHandler : IRequestHandler<DeleteDentalReco
             foreach (var itemId in linkedItemIds)
             {
                 plan.UnmarkItemDone(itemId);
-                detached++;
+                touched++;
             }
 
-            if (linkedItemIds.Count > 0)
+            if (touched > 0)
             {
                 await _planRepository.UpdateAsync(plan, cancellationToken);
+                detached += touched;
             }
         }
 

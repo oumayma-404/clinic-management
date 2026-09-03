@@ -163,13 +163,61 @@ both by commenting and by deleting.
   shared `SHORT_VIEWPORT_*` side column — extracted from `dicom-viewer.tsx` rather than copied, since two
   viewers now open over the file dialog and a copied constant is this repo's dominant defect shape.
 
-## Still open
+## 8. Markers persist — the backend slice
 
-⚠️ **Annotations do not persist.** They live as long as the dialog does. The viewer already takes them as data
-with a stable shape (`MeshAnnotation`: a point in the file's own coordinates, a normal, a label), so
-persistence is an entity, a migration, commands, a realtime key and a frontend module — a backend slice, and a
-migration is the one change unit tests structurally cannot verify, so it does not belong in the same commit as
-a viewer.
+A marker is a note left for whoever opens the model next, including the laboratory; a measurement is a question
+asked and answered while looking. That difference is the whole design: measurements stay in `useState` and die
+with the dialog, markers go to a table.
+
+⚠️ **Three endpoints, not one « replace the set », and that is a data-loss decision rather than a style one.**
+Replacing the whole set is markedly less code on both sides and the viewer already edits locally, so it was the
+obvious shape — but two people looking at the same model would then silently overwrite each other's markers,
+last save winning, with nothing anywhere to say a marker had ever existed. Per-marker writes merge on their
+own: two dentists adding pins both keep them, and the only thing either can lose is the label of the one marker
+they were both renaming at once.
+
+⚠️ **The commands live in `Features/Files`, deliberately.** A new `Features/<Area>` folder emits a realtime key
+that `web/lib/realtime/clinic-hub.ts` must declare, and `RealtimeResourceResolverTests` compares the two sets in
+both directions. Markers belong to a file, so filing them under the existing area is both true and free.
+
+⚠️ **The tenant guard is a chain of three** — patient in the caller's clinic, file on that patient, marker on
+that file — and it lives in one place (`FileAnnotationAccess`) because rename and delete both need all three
+links. The middle link is the one nothing else in the suite catches: a file id belonging to **another patient
+of the same clinic** satisfies every database filter and is refused only by that comparison.
+
+⚠️ **The point is stored in the FILE's own coordinates**, never the scene's. The viewer moves the mesh onto the
+origin so it can be orbited; storing the moved position would put every marker in the wrong place the moment
+anything about that centring changed — including a later version of this app that centred differently. And the
+columns carry **no unit**, because the formats do not: a column named `XMillimetres` would be a lie in the
+schema.
+
+⚠️ **The scaffolded migration emitted `xmin` and it had to be deleted by hand.** `Entity<TId>.Version` maps onto
+PostgreSQL's own system column, which every table already has, so the generated `CREATE TABLE` fails outright
+with « column name "xmin" conflicts with a system column name ». This is the trap that made three earlier
+migrations ship a deliberately empty `Up()`; here it is one line removed from a `CreateTable`.
+
+Two smaller decisions worth keeping: an **empty label is accepted and is not a deletion** (clearing the text
+must not mean removing the pin, or the field does something other than it looks like), and the **delete is
+hard** — the record this product refuses to destroy is the clinical one, while a marker is a reader's own
+annotation that they can drop again in a second.
+
+On the browser side `use-mesh-annotations.ts` is **optimistic**: a pin that appears a round trip after the tap
+reads as a tap that missed, so the reader taps again and now there are two. A failure removes it **and says
+so**. Renames are debounced per marker — one shared timer was the obvious shape and would drop the first
+rename when a second began.
+
+### Verified (Part 8)
+
+- 4165 backend tests, 10 of them this slice's: the three-link chain including the same-clinic-other-patient
+  case, the ceiling, « a rename moves the label and nothing else », the empty label, and the read refusing
+  rather than returning an empty list.
+- `verify-schema` before and after: the same **five** pre-existing drift lines (audit chain, overlapping
+  appointments, calendar-import backfill, messaging month, key ring) and no new one.
+- Against the running stack: a marker placed and named reaches the table with its label, its file-unit
+  coordinates and its author; a **full page reload** brings it back on the same spot; deleting it removes the
+  row.
+
+## Still open
 
 ⚠️ **A resize does not re-frame.** Rotating a tablet keeps the camera where it was, which preserves a zoom
 somebody set deliberately and leaves the model poorly framed until they press « Ajuster ». Preserving was
