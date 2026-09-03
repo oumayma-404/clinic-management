@@ -14,13 +14,29 @@
  * can be *misleading* rather than merely approximate — a lesion outside the chosen window is simply not in the
  * picture — so this appears under every DICOM the viewer draws, and the original is always one click away.
  */
-export const DICOM_ADVISORY =
+const BASE =
   'Aperçu non diagnostique : le contraste est approximatif et l’image est réduite. ' +
   'Téléchargez l’original pour l’interpréter.'
 
-/** The same sentence, naming how much of the study is not on screen. */
+/**
+ * What the **fast path** says — the stand-in is on screen and nothing has parsed the file, so the frame count is
+ * genuinely unknown.
+ *
+ * ⚠️ **The hedge is the honest part, and its absence was a real gap.** A study of sixteen slices and a single
+ * radiograph produce the same stand-in, and the fast path is the *normal* path — so saying nothing about frames
+ * left a reader looking at one slice of a CBCT with no reason to suspect there were fifteen more. Stating the
+ * uncertainty is worth more than silence when the consequence is that scale. Found by uploading a real
+ * sixteen-frame study and reading what the strip actually said.
+ */
+export const DICOM_ADVISORY =
+  `${BASE} Si l’étude contient plusieurs images, seule la première est affichée.`
+
+/**
+ * What the **decoder** says, which knows. A single-frame file gets no clause at all: having parsed it, there is
+ * nothing to hedge about and « seule la première » would invent images that do not exist.
+ */
 export function dicomAdvisoryFor(frames: number): string {
   return frames > 1
-    ? `${DICOM_ADVISORY} Cette étude contient ${frames} images ; seule la première est affichée.`
-    : DICOM_ADVISORY
+    ? `${BASE} Cette étude contient ${frames} images ; seule la première est affichée.`
+    : BASE
 }
