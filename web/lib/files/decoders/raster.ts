@@ -15,10 +15,27 @@ export interface DecodedImage {
   height: number
   /** How many images the container held. A full-mouth series arrives as one multi-page TIFF. */
   pages: number
+  /**
+   * A sentence the viewer must show beside the picture, when the decode makes a claim the reader has to know
+   * about. Absent for a format whose rendering is simply the file.
+   *
+   * ⚠️ **It exists for DICOM, where it is not decoration.** Turning sensor readings into 256 greys means
+   * choosing a window, and a picture produced that way can be *misleading* rather than merely approximate — so
+   * every DICOM preview says so, and the original stays one click away.
+   */
+  advisory?: string
 }
 
-/** Comfortably inside every browser's canvas limit, and past any screen this is looked at on. */
-const MAX_EDGE = 8192
+/**
+ * The longest edge a decoded image is drawn at.
+ *
+ * ⚠️ **It was 8192, chosen as « comfortably inside the canvas limit », and that was the wrong question.** The
+ * viewer is a dialog about 1000 px wide; 2560 covers it at 2× on the largest screen anybody opens this on, and
+ * the difference is measurable rather than theoretical — on a 51 Mpx HEIF, encoding at 8192 took **1171 ms and
+ * produced a 8,9 Mo blob**, against **91 ms and 1,4 Mo** at 2560, for a picture nobody can tell apart in a
+ * 1000 px box. The full-resolution original is one click away on every one of these files.
+ */
+const MAX_EDGE = 2560
 
 /** Well inside Chrome's ~268 Mpx area cap, with room for the decode that precedes it. */
 const MAX_PIXELS = 60 * 1000 * 1000

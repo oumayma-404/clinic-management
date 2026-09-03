@@ -7,7 +7,7 @@ namespace ClinicManagement.Infrastructure.Storage;
 /// Local-disk implementation of <see cref="IFileStorage"/> used in Local (offline) mode.
 /// Stores blobs under a configurable base folder and returns an opaque relative storage key.
 /// Mirrors <see cref="MinioFileStorage"/> semantics (unique guid keys, deterministic custom-path
-/// overwrite, seekable download stream, idempotent delete) so the file-consuming handlers behave
+/// overwrite, streamed download, idempotent delete) so the file-consuming handlers behave
 /// identically in both modes.
 /// </summary>
 public class LocalDiskFileStorage : IFileStorage
@@ -62,7 +62,7 @@ public class LocalDiskFileStorage : IFileStorage
         }
     }
 
-    public async Task<Stream> DownloadAsync(string storageKey, CancellationToken cancellationToken = default)
+    public Task<Stream> DownloadAsync(string storageKey, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -73,15 +73,16 @@ public class LocalDiskFileStorage : IFileStorage
                 throw new FileNotFoundException($"File not found for storage key: {storageKey}");
             }
 
-            // Buffer into a seekable MemoryStream (mirrors MinioFileStorage; releases the file handle).
-            var memoryStream = new MemoryStream();
-            await using (var source = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            {
-                await source.CopyToAsync(memoryStream, cancellationToken);
-            }
+            // ⚠️ The handle itself, not a copy of the bytes. This used to buffer the whole file into a
+            // MemoryStream « to release the file handle », which on a clinic PC serving its own LAN meant a
+            // 150 Mo study lived twice — once on disk and once in the server's memory, per concurrent reader.
+            // The caller disposes the stream; `Asynchronous` and `SequentialScan` are what make that cheap.
+            Stream file = new FileStream(
+                fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 64 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-            memoryStream.Position = 0;
-            return memoryStream;
+            return Task.FromResult(file);
         }
         catch (Exception ex)
         {
@@ -126,6 +127,13 @@ public class LocalDiskFileStorage : IFileStorage
     public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(File.Exists(ResolveWithinBase(storageKey)));
+    }
+
+    public Task<long?> GetLengthAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        var info = new FileInfo(ResolveWithinBase(storageKey));
+
+        return Task.FromResult(info.Exists ? info.Length : (long?)null);
     }
 
     public Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default)

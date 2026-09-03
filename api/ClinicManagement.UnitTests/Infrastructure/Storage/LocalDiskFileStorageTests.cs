@@ -205,4 +205,60 @@ public class LocalDiskFileStorageTests : IDisposable
             Directory.Delete(parent, recursive: true);
         }
     }
+
+    // ── Streamed, not buffered ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// ⚠️ <b>The download is a handle on the file, never a copy of its bytes.</b> Both backends used to read
+    /// the whole object into a <c>MemoryStream</c> before returning, so every concurrent download held the
+    /// entire file in the server's memory — three people opening a 50 Mo panoramique was 150 Mo of a small VPS,
+    /// and it gets arithmetically worse with every cap this product raises.
+    ///
+    /// <para>Asserted as « not a <c>MemoryStream</c> » because that is precisely the regression: the buffer
+    /// coming back. A memory measurement would be flaky and a size measurement proves nothing — this cannot
+    /// produce a false positive, and it fails the moment somebody re-adds the copy.</para>
+    /// </summary>
+    [Fact]
+    public async Task Download_Hands_Back_The_File_Rather_Than_A_Copy_Of_Its_Bytes()
+    {
+        var key = await _storage.UploadAsync(Bytes("une radiographie"), "image/png", Clinic, CancellationToken.None);
+
+        await using var downloaded = await _storage.DownloadAsync(key, CancellationToken.None);
+
+        Assert.IsNotType<MemoryStream>(downloaded);
+        Assert.Equal("une radiographie", await ReadAll(downloaded));
+    }
+
+    /// <summary>
+    /// A missing key still throws <b>here</b> rather than on the first read. The handlers around this turn an
+    /// exception into a French <c>Result</c> failure; a stream that fails once the response has begun is a 200
+    /// with a truncated body instead.
+    /// </summary>
+    [Fact]
+    public async Task Download_Of_A_Missing_Key_Throws_Before_Anything_Is_Read()
+    {
+        await Assert.ThrowsAsync<FileNotFoundException>(
+            () => _storage.DownloadAsync("clinics/none/nothing", CancellationToken.None));
+    }
+
+    /// <summary>
+    /// The size the response's <c>Content-Length</c> comes from. Without it a browser downloading a study
+    /// reports « unknown size » and shows no progress — on a clinic's uplink, exactly when somebody is
+    /// watching it — because ASP.NET derives that header from a <i>seekable</i> stream's own length and the
+    /// download is no longer one.
+    /// </summary>
+    [Fact]
+    public async Task GetLength_Reports_The_Stored_Size()
+    {
+        var key = await _storage.UploadAsync(Bytes("douze octets"), "text/plain", Clinic, CancellationToken.None);
+
+        Assert.Equal("douze octets".Length, await _storage.GetLengthAsync(key, CancellationToken.None));
+    }
+
+    /// <summary>Null, not an exception: a caller asking about a key it does not have is an ordinary question.</summary>
+    [Fact]
+    public async Task GetLength_Of_A_Missing_Key_Is_Null()
+    {
+        Assert.Null(await _storage.GetLengthAsync("clinics/none/nothing", CancellationToken.None));
+    }
 }

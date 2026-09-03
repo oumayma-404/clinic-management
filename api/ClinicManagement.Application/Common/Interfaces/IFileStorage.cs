@@ -26,8 +26,30 @@ public interface IFileStorage
     /// <summary>
     /// Reads the blob stored under <paramref name="storageKey"/> — <b>verbatim</b>, with no prefixing.
     /// A row written before US-5 holds a flat key and must keep resolving with no backfill (amendment M2).
+    ///
+    /// <para>⚠️ <b>The stream is forward-only and is read as the caller consumes it.</b> Both backends used to
+    /// copy the whole object into a <c>MemoryStream</c> first, so every concurrent download held the entire file
+    /// in the server's memory — three people opening a 50 Mo panoramique was 150 Mo of a small VPS, and a
+    /// hosted CBCT would be far worse. Nothing in this solution seeks a downloaded blob: every consumer copies
+    /// it forward, and no download action enables range processing.</para>
+    ///
+    /// <para>⚠️ A missing object still throws <b>here</b>, not on the first read. The handlers around this turn
+    /// an exception into a French <c>Result</c> failure, and a stream that fails once the response has begun is
+    /// a 200 with a truncated body instead.</para>
     /// </summary>
     Task<Stream> DownloadAsync(string storageKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many bytes are stored under <paramref name="storageKey"/>, or null when nothing is there.
+    ///
+    /// <para>⚠️ <b>Asked of the store rather than read off the row, deliberately.</b> It is what lets a download
+    /// still carry a <c>Content-Length</c> now that the stream is not seekable — and without it a browser
+    /// downloading a study shows « unknown size » with no progress, which on a slow connection is exactly when
+    /// somebody needs it. <c>PatientFile.FileSize</c> looks like the same number and is not safe to use: for a
+    /// row written before upload validation existed it is the <i>client's claim</i>, and a wrong
+    /// <c>Content-Length</c> truncates or hangs the response rather than merely misreporting.</para>
+    /// </summary>
+    Task<long?> GetLengthAsync(string storageKey, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Writes a blob back at <paramref name="storageKey"/> <b>verbatim</b>, restoring bytes that already had a key

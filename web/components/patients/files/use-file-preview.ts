@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { patientFilesApi } from "@/lib/api/patient-files"
-import { decodeForViewing, type ArchiveListing } from "@/lib/files/decoders"
+import { DICOM_ADVISORY, decodeForViewing, decoderFor, decodesToImage, type ArchiveListing } from "@/lib/files/decoders"
 import { findVerifiedInVault } from "@/lib/vault/path"
 import { showErrorToast } from "@/lib/errors"
 import type { UploadPolicy } from "@/lib/api/upload-policy"
@@ -25,6 +25,17 @@ import { previewMode } from "./file-kind"
  *
  * <p>⚠️ **A format with no decoder never fetches anything.** The gate is `previewMode`, so a 150 Mo STL is not
  * pulled across a clinic's uplink to discover that nothing can paint it.</p>
+ *
+ * <p>⚠️ **A file that needs a decoder shows its stored stand-in FIRST, and this is not an optimisation — it
+ * is the difference between usable and not.** Measured in Chrome on a 51 Mpx HEIF: libheif takes **11 seconds**
+ * to decode it. That is libheif's own work, not the resize or the re-encode (1171 ms and 91 ms respectively),
+ * so no amount of tuning the pipeline touches it — and a dentist opening a photo met eleven seconds of spinner.
+ * The stand-in is a ~200 Ko JPEG the server already holds, painted in about a fifth of a second.</p>
+ *
+ * <p>⚠️ **The original is still reachable, deliberately** (§ 0: no capability removed by a performance
+ * decision). `showFullResolution` runs the decode on demand, and the dialog offers it as a button — rather than
+ * running it automatically in the background, which would spend eleven seconds and several hundred megabytes
+ * per file arrowed past, for a difference nobody asked to see.</p>
  */
 
 /**
@@ -46,6 +57,9 @@ export interface FilePreviewSequence {
 /** What the dialog should draw, once the bytes are in and any decoder has run. */
 export type PreviewRender = "image" | "pdf" | "archive" | "none"
 
+/** Which wait the user is in, so the spinner can say which. */
+export type PreviewStage = "idle" | "fetching" | "decoding"
+
 /** Why nothing is shown — so the dialog can say which, rather than one sentence covering both. */
 export type PreviewUnavailable =
   /** A coffre original, and this machine is not the one holding it. */
@@ -61,7 +75,19 @@ export interface FilePreview {
   archive: ArchiveListing | null
   render: PreviewRender
   unavailable: PreviewUnavailable | null
+  /**
+   * A sentence the viewer is obliged to show beside the picture. Set for DICOM on **both** paths — the stored
+   * stand-in was produced by the same windowing as a fresh decode, so it carries the same caveat.
+   */
+  advisory: string | null
   loading: boolean
+  /** What the spinner should say — a download and an eleven-second decode are not the same wait. */
+  stage: PreviewStage
+  /**
+   * Set when what is on screen is the server's stand-in rather than the original, and the original could be
+   * decoded on request. Null whenever there is nothing better to offer.
+   */
+  showFullResolution: (() => void) | null
   files: PatientFileDto[]
   /** 1-based across the whole set, 0 when the open file is not in the sequence. */
   position: number
@@ -86,7 +112,12 @@ export function useFilePreview(
   const [archive, setArchive] = useState<ArchiveListing | null>(null)
   const [render, setRender] = useState<PreviewRender>("none")
   const [unavailable, setUnavailable] = useState<PreviewUnavailable | null>(null)
+  const [advisory, setAdvisory] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [stage, setStage] = useState<PreviewStage>("idle")
+
+  /** The file whose stand-in is on screen, and whose original could still be decoded on request. */
+  const [standingIn, setStandingIn] = useState<PatientFileDto | null>(null)
 
   // The live URL, for the unmount release — reading it out of state there would capture a stale value and leak
   // the blob for the lifetime of the tab.
@@ -122,8 +153,53 @@ export function useFilePreview(
     setArchive(null)
     setRender("none")
     setUnavailable(null)
+    setAdvisory(null)
     setLoading(false)
+    setStage("idle")
+    setStandingIn(null)
   }, [release])
+
+  /**
+   * Fetches the original and runs the decoder over it. The slow path — on a 51 Mpx HEIF this is about eleven
+   * seconds of libheif, which is why it is not what opening a file does by default.
+   */
+  const decodeOriginal = useCallback(
+    async (target: PatientFileDto, token: number) => {
+      setStage("fetching")
+      const source = await sourceBytes(patientId, target, vaultRef.current ?? null)
+      if (token !== requestId.current) return
+
+      if (!source) {
+        // ⚠️ Not an error, and not « undecodable » either. A coffre original lives on the machine that
+        // recorded it, and a colleague's laptop legitimately has no copy.
+        setUnavailable("elsewhere")
+        return
+      }
+
+      setStage("decoding")
+      const decoded = await decodeForViewing(source, target.fileName)
+      if (token !== requestId.current) return
+
+      if (!decoded) {
+        setUnavailable("undecodable")
+        return
+      }
+
+      if (decoded.kind === "archive") {
+        setArchive(decoded)
+        setRender("archive")
+        return
+      }
+
+      release()
+      liveUrl.current = window.URL.createObjectURL(decoded.blob)
+      setUrl(liveUrl.current)
+      setRender("image")
+      setAdvisory(decoded.advisory ?? null)
+      setStandingIn(null)
+    },
+    [patientId, release],
+  )
 
   const open = useCallback(
     (target: PatientFileDto) => {
@@ -136,64 +212,84 @@ export function useFilePreview(
       setArchive(null)
       setRender("none")
       setUnavailable(null)
+      setAdvisory(null)
+      setStandingIn(null)
 
       const mode = previewMode(target, policyRef.current)
       if (mode === "none") {
         // Nothing to fetch: the dialog opens on its « télécharger pour consulter » branch rather than pulling a
         // 150 MB study nothing in this build can paint.
         setLoading(false)
+        setStage("idle")
         return
       }
 
       setLoading(true)
       void (async () => {
         try {
-          const source = await sourceBytes(patientId, target, vaultRef.current ?? null)
-          if (token !== requestId.current) return
+          // ⚠️ **The fast path, and it is the difference between usable and not.** A format needing a decoder
+          // whose stand-in the server already holds is painted from that stand-in — a ~200 Ko JPEG — instead of
+          // spending eleven seconds decoding the original for a dialog a thousand pixels wide.
+          if (mode === "decode" && decodesToImage(target.fileName) && target.hasPreview) {
+            try {
+              setStage("fetching")
+              const standIn = await patientFilesApi.downloadPreview(patientId, target.id)
+              if (token !== requestId.current) return
 
-          if (!source) {
-            // ⚠️ Not an error, and not « undecodable » either. A coffre original lives on the machine that
-            // recorded it, and a colleague's laptop legitimately has no copy.
-            setUnavailable("elsewhere")
-            return
+              liveUrl.current = window.URL.createObjectURL(standIn)
+              setUrl(liveUrl.current)
+              setRender("image")
+              // ⚠️ The stand-in for a DICOM was built by the SAME windowing as a fresh decode, so it carries
+              // the same caveat — and this path never loads the decoder, so it cannot be told by one. Without
+              // the frame count, which only parsing the file could give.
+              setAdvisory(decoderFor(target.fileName) === "dicom" ? DICOM_ADVISORY : null)
+              setStandingIn(target)
+              return
+            } catch {
+              // The stand-in is a courtesy: a row whose blob is missing, or a server that refused, simply falls
+              // through to the original. Never a toast — nothing has failed from the reader's point of view.
+              if (token !== requestId.current) return
+            }
           }
 
-          if (mode === "decode") {
-            const decoded = await decodeForViewing(source, target.fileName)
-            if (token !== requestId.current) return
-
-            if (!decoded) {
-              setUnavailable("undecodable")
-              return
-            }
-
-            if (decoded.kind === "archive") {
-              setArchive(decoded)
-              setRender("archive")
-              return
-            }
-
-            liveUrl.current = window.URL.createObjectURL(decoded.blob)
-            setUrl(liveUrl.current)
-            setRender("image")
-            return
-          }
-
-          liveUrl.current = window.URL.createObjectURL(source)
-          setUrl(liveUrl.current)
-          setRender(mode === "pdf" ? "pdf" : "image")
+          await decodeOriginal(target, token)
         } catch (error) {
           if (token !== requestId.current) return
           // The dialog used to close itself with no explanation, which reads as « the click did nothing ».
           showErrorToast(error, "Impossible d'afficher l'aperçu de ce fichier. Essayez de le télécharger.")
           setFile(null)
         } finally {
-          if (token === requestId.current) setLoading(false)
+          if (token === requestId.current) {
+            setLoading(false)
+            setStage("idle")
+          }
         }
       })()
     },
-    [patientId, release],
+    [patientId, release, decodeOriginal],
   )
+
+  /** Runs the decode the fast path skipped, for the file currently on screen. */
+  const showFullResolution = useCallback(() => {
+    const target = standingIn
+    if (!target) return
+
+    const token = ++requestId.current
+    setLoading(true)
+    void (async () => {
+      try {
+        await decodeOriginal(target, token)
+      } catch (error) {
+        if (token !== requestId.current) return
+        showErrorToast(error, "Impossible d'afficher cette image en pleine résolution.")
+      } finally {
+        if (token === requestId.current) {
+          setLoading(false)
+          setStage("idle")
+        }
+      }
+    })()
+  }, [standingIn, decodeOriginal])
 
   const step = useCallback(
     (delta: -1 | 1) => {
@@ -222,7 +318,10 @@ export function useFilePreview(
     archive,
     render,
     unavailable,
+    advisory,
     loading,
+    stage,
+    showFullResolution: standingIn ? showFullResolution : null,
     files,
     position: index < 0 ? 0 : (sequence?.offset ?? 0) + index + 1,
     total: sequence?.total ?? files.length,

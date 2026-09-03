@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, File as FileIcon, Loader2, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, File as FileIcon, Loader2, Maximize2, TriangleAlert, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -15,6 +15,7 @@ import {
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
 import { formatDate, formatFileSize } from "@/lib/format"
+import { PREVIEW_EDGE } from "@/lib/files/preview"
 import type { ArchiveListing } from "@/lib/files/decoders"
 import { cn } from "@/lib/utils"
 import type { PatientFileDto } from "@/lib/api/types"
@@ -44,13 +45,27 @@ export function FilePreviewDialog({
   onDownload: (file: PatientFileDto) => void
   onDelete?: (file: PatientFileDto) => void
 }) {
-  const { file, url, archive, render, unavailable, loading, files, position, total, hasPrev, hasNext, close, prev, next } =
-    preview
+  const {
+    file, url, archive, render, unavailable, advisory, loading, stage, showFullResolution,
+    files, position, total, hasPrev, hasNext, close, prev, next,
+  } = preview
   const [renderFailed, setRenderFailed] = useState(false)
+  /**
+   * Whether what is on screen was actually shrunk to become a stand-in.
+   *
+   * ⚠️ **A stand-in of an original smaller than `PREVIEW_EDGE` is the original**, pixel for pixel — measured:
+   * two 640×480 TIFFs offered « Pleine résolution » and produced a byte-identical picture after a full decode.
+   * A control that spends seconds to change nothing is worse than no control, so the offer is gated on the
+   * loaded image really being at the cap.
+   */
+  const [standInWasShrunk, setStandInWasShrunk] = useState(false)
   const swipeStartX = useRef<number | null>(null)
 
   // A new file gets a fresh verdict: one unpaintable image must not turn every later preview into the fallback.
-  useEffect(() => setRenderFailed(false), [file?.id])
+  useEffect(() => {
+    setRenderFailed(false)
+    setStandInWasShrunk(false)
+  }, [file?.id])
 
   useEffect(() => {
     if (!file) return
@@ -114,9 +129,19 @@ export function FilePreviewDialog({
               }}
             >
               {loading ? (
-                <div className="m-auto flex flex-col items-center gap-3" role="status">
+                /* ⚠️ Two different waits, and one sentence for both was the complaint. Fetching a stand-in is a
+                   fifth of a second; decoding a 51 Mpx HEIF is eleven, and a spinner that says nothing for
+                   eleven seconds reads as a hung screen rather than as work in progress. */
+                <div className="m-auto flex flex-col items-center gap-3 px-6 text-center" role="status">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
+                  <p className="text-sm text-muted-foreground">
+                    {stage === "decoding" ? "Décodage de l’image…" : "Chargement de l’aperçu…"}
+                  </p>
+                  {stage === "decoding" && (
+                    <p className="max-w-xs text-xs text-muted-foreground">
+                      Ce format demande un décodage complet ; sur une grande image cela prend quelques secondes.
+                    </p>
+                  )}
                 </div>
               ) : render === "image" && url && !renderFailed ? (
                 /* `m-auto`, not `items-center`: an auto margin resolves to 0 with no free space, so a tall
@@ -125,6 +150,10 @@ export function FilePreviewDialog({
                   src={url}
                   alt={file.fileName}
                   onError={() => setRenderFailed(true)}
+                  onLoad={(event) => {
+                    const { naturalWidth, naturalHeight } = event.currentTarget
+                    setStandInWasShrunk(Math.max(naturalWidth, naturalHeight) >= PREVIEW_EDGE)
+                  }}
                   className="m-auto max-h-full max-w-full rounded-lg object-contain shadow-lg"
                 />
               ) : render === "pdf" && url && !renderFailed ? (
@@ -140,6 +169,19 @@ export function FilePreviewDialog({
               )}
 
             </div>
+
+            {/* ⚠️ Outside the scrolling pane, so it cannot be scrolled away from the picture it qualifies. A
+                DICOM rendered without this is a clinical image that looks authoritative and is not: the window
+                is chosen, so a finding outside it is simply not in the picture. */}
+            {advisory && render === "image" && !loading && (
+              <p
+                role="note"
+                className="flex flex-shrink-0 items-start gap-2 border-t bg-warning-wash px-4 py-2 text-xs text-warning-ink md:px-6"
+              >
+                <TriangleAlert aria-hidden="true" className="mt-px h-3.5 w-3.5 flex-shrink-0" />
+                <span>{advisory}</span>
+              </p>
+            )}
 
             {navigable && (
               /* ⚠️ A real row, not two `absolute` arrows over the document. Overlaid they pinned to the wrong
@@ -166,6 +208,26 @@ export function FilePreviewDialog({
                   Fermer
                 </Button>
                 <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                  {/* ⚠️ What is on screen is the stored stand-in, so the original stays reachable rather than
+                      being quietly withheld (§ 0). It is a BUTTON and not automatic: the decode costs about
+                      eleven seconds and several hundred megabytes on a large image, which is not something to
+                      spend on every file somebody arrows past. */}
+                  {showFullResolution && !loading && standInWasShrunk && (
+                    <Button
+                      variant="ghost"
+                      onClick={showFullResolution}
+                      aria-label="Afficher en pleine résolution"
+                      title="Afficher l’image d’origine plutôt que l’aperçu enregistré"
+                      className="shrink-0 gap-2 coarse:h-11 coarse:min-w-11"
+                    >
+                      <Maximize2 className="h-4 w-4 shrink-0" />
+                      {/* ⚠️ The label goes below `sm:`, exactly as « Supprimer »'s does. Measured at 390 px: with
+                          this label visible the row squeezed « Télécharger » from 221 px to 56 px — a clipped
+                          word on the primary way out, to make room for the secondary control. The `aria-label`
+                          is not optional, because `hidden` removes the span from the accessibility tree too. */}
+                      <span className="hidden sm:inline">Pleine résolution</span>
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={() => onDownload(file)} className="min-w-0 flex-1 gap-2 coarse:h-11 sm:flex-none">
                     <Download className="h-4 w-4 shrink-0" />
                     <span className="truncate">Télécharger</span>
@@ -178,7 +240,7 @@ export function FilePreviewDialog({
                         onDelete(file)
                       }}
                       aria-label={`Supprimer ${file.fileName}`}
-                      className="shrink-0 gap-2 coarse:h-11"
+                      className="shrink-0 gap-2 coarse:h-11 coarse:min-w-11"
                     >
                       <X className="h-4 w-4" />
                       {/* The label is what makes an irreversible action legible; below `sm:` it does not fit

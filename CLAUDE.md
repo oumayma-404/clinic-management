@@ -142,6 +142,7 @@ how it was built, `notes.md` is what shipped.
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
+- [`large-file-transfer`](features/large-file-transfer/notes.md) — A download is read as it is sent, not copied into the server first (Part 1 of four; the other three are named and not started)
 
 **Reads, lists and catalogues**
 
@@ -226,6 +227,11 @@ touching the area.
   the original. Neither is an error anywhere; the row just shows an icon. Its twin: `PatientFileDto.HasPreview`
   decides whether the browser *asks* and `DownloadPatientFilePreviewQuery` decides what to *serve* — they go
   through `PatientFilePreviewPolicy` because a disagreement is silent in both directions.
+- **A format's own signature outranks another format's claim, and the reverse order refused real files.** The
+  DICOM standard leaves its 128-byte preamble unspecified, so an exporter may put a TIFF header there — making
+  `II*\0` at 0 and `DICM` at 128 an ordinary, valid DICOM. `FileUploadValidator`'s advisory branch cross-checked
+  first and refused those with « le fichier a peut-être été renommé ». Advisory means *absence* proves nothing;
+  presence is still affirmative.
 - **A decoder that needs a `blob:` Worker fails only in production.** `worker-src` is inherited from
   `default-src 'self'` unless declared, and a dev server sends no CSP at all — so libheif works on the laptop
   and shows a grey icon on the VPS. The policy exists in **four** byte-identical copies

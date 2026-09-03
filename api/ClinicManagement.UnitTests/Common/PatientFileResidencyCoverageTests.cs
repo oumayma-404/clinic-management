@@ -139,7 +139,10 @@ public class PatientFileResidencyCoverageTests
         Assert.True(application.Exists, $"The Application project is not at {application.FullName}.");
 
         var sources = SolutionSources.CsFiles(application)
-            .ToDictionary(Path.GetFileNameWithoutExtension!, File.ReadAllText, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(
+                path => Path.GetFileNameWithoutExtension(path) ?? path,
+                File.ReadAllText,
+                StringComparer.OrdinalIgnoreCase);
 
         foreach (var decider in Deciders)
         {

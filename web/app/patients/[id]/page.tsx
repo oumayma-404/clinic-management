@@ -74,7 +74,7 @@ import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
-import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto } from "@/lib/api/types"
+import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { ExportButton } from "@/components/ui/export-button"
@@ -98,6 +98,7 @@ import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
 import { invoicesApi } from "@/lib/api/invoices"
+import { billingApi } from "@/lib/api/billing"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import {
@@ -211,6 +212,7 @@ type PatientSection =
   | "invoices"
   | "plans"
   | "documents"
+  | "billing"
 
 /**
  * What a section shows when its read FAILED — deliberately not what it shows when it is empty.
@@ -510,6 +512,22 @@ export default function PatientDetailsPage() {
   // The note d'honoraires that bills each of those records, so the delete confirmation can NAME it
   // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
   const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
+
+  /*
+   * « Solde dû » — the ONE figure, and the count is the whole point.
+   *
+   * ⚠️ **A « Solde patient » card stood on this page and was deliberately removed**, because it put six money
+   * figures across the top and two of them measured different things: `TotalOutstanding` is what is still owed,
+   * `PatientOutOfPocket` is lifetime gross billed minus CNAM's share, so the same patient legitimately read
+   * « 90,000 DT » and « 1 770,000 DT » side by side with nothing saying why. That removal was right and this
+   * does not undo it — only `TotalOutstanding` is read, which the DTO itself calls « the single Solde patient ».
+   *
+   * What changed since is that the removal's stated fallback — « Outstanding debt is still one click away in
+   * « Créances », the patient's Factures tab, and the plan card » — lost a leg: `/creances` has been retired.
+   * And the question is asked with the patient standing at the desk, which is exactly why
+   * `GET /patients/{id}/billing-summary` sits on `AnyClinicRole` rather than behind the clinic-wide money gate.
+   */
+  const [billingSummary, setBillingSummary] = useState<PatientBillingSummaryDto | null>(null)
   const [unarchiving, setUnarchiving] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
@@ -713,6 +731,17 @@ export default function PatientDetailsPage() {
             failed.add(section)
             return [] as T[]
           })
+        /*
+         * The same contract for a read that answers with one object rather than a list. `null` is the "we do not
+         * know" value and it is NOT rendered as zero — see the header, where a failed balance read shows nothing
+         * at all. Telling a dentist a patient owes nothing is the one wrong answer here; saying nothing is
+         * merely unhelpful, and the Factures tab is still a click away.
+         */
+        const attemptOne = <T,>(section: PatientSection, request: Promise<T>): Promise<T | null> =>
+          request.catch(() => {
+            failed.add(section)
+            return null
+          })
 
         const [
           appointmentsData,
@@ -724,6 +753,7 @@ export default function PatientDetailsPage() {
           invoicesData,
           plansData,
           documentsData,
+          billingData,
         ] = await Promise.all([
           attempt("appointments", appointmentsApi.list({ patientId })),
           attempt("medicalHistory", patientMedicalHistoryApi.list(patientId)),
@@ -734,6 +764,7 @@ export default function PatientDetailsPage() {
           attempt("invoices", invoicesApi.list({ patientId })),
           attempt("plans", treatmentPlansApi.list({ patientId })),
           attempt("documents", medicalDocumentsApi.list(patientId)),
+          attemptOne("billing", billingApi.getPatientSummary(patientId)),
         ])
         if (cancelled) return
         setFailedSections(failed)
@@ -745,6 +776,7 @@ export default function PatientDetailsPage() {
         setDentalRecords(dentalRecordsData)
         setFiles(filesData)
         setFolders(foldersData)
+        setBillingSummary(billingData)
         // A dental record counts as "already invoiced" only if a NON-cancelled invoice links to it
         // (a cancelled invoice frees it for re-billing) — via the header link OR any line link (a
         // multi-record note d'honoraires links each billed record at the line level). Safe degradation:
@@ -1149,6 +1181,21 @@ export default function PatientDetailsPage() {
               )}
               {patient.insuranceInfo?.provider && (
                 <span className="text-muted-foreground">{patient.insuranceInfo.provider}</span>
+              )}
+              {/*
+                Rendered only when something is actually owed. A « Solde dû 0,000 DT » on every settled patient
+                is a line that trains the eye to skip the line — and this strip's whole convention is that a
+                fact with no value is omitted rather than printed as « — ». A failed read is `null` and also
+                shows nothing: see `attemptOne`. `text-warning-ink` is the token every other "still owed" figure
+                on this page already uses (`text-amber-600` had no `dark:` pair and measured ~3.2:1).
+              */}
+              {billingSummary !== null && billingSummary.totalOutstanding > 0 && (
+                <span className="text-muted-foreground">
+                  Solde dû{" "}
+                  <span className="font-semibold text-warning-ink">
+                    {formatDT(billingSummary.totalOutstanding)}
+                  </span>
+                </span>
               )}
               {/* « Adressé par » belongs in the strip and not only in the card below: a referred patient owes
                   the referrer a lettre de liaison, and that obligation has to be visible on opening the file

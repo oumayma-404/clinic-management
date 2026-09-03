@@ -89,6 +89,53 @@ public class FileUploadValidatorTests
         Assert.True(result.IsSuccess, result.Error);
     }
 
+    /// <summary>
+    /// ⚠️ <b>A real DICOM refused as a renamed file, and the fix is that a format's own marker outranks
+    /// another format's claim.</b>
+    ///
+    /// <para>The DICOM standard leaves the 128-byte preamble <i>entirely unspecified</i> — an exporter may put
+    /// another format's header there so one file opens in two applications, and some put a TIFF one. So
+    /// <c>II*\0</c> at offset 0 followed by <c>DICM</c> at offset 128 is an ordinary, valid DICOM. The advisory
+    /// branch asked « do these bytes claim to be some other format? » <i>before</i> noticing the entry's own
+    /// marker was sitting right there, so those files were refused with « le fichier a peut-être été renommé »
+    /// about a file nobody had renamed — and the practice has no way to act on that.</para>
+    ///
+    /// <para>Not hypothetical: measured on two of pydicom's own test files, which carry exactly this preamble.
+    /// Both were refused by the running API before this change.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Dicom_Whose_Preamble_Carries_Another_Formats_Magic_Is_Still_A_Dicom()
+    {
+        var bytes = new byte[512];
+        // The TIFF little-endian marker, in the free space the DICOM standard gives the preamble.
+        new byte[] { 0x49, 0x49, 0x2A, 0x00 }.CopyTo(bytes, 0);
+        Encoding.ASCII.GetBytes("DICM").CopyTo(bytes, 128);
+
+        var result = await FileUploadValidator.ValidateAsync(
+            FileUploadProfile.PatientFile, "etude.dcm", bytes.Length, new MemoryStream(bytes));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("application/dicom", result.Value!.ContentType);
+    }
+
+    /// <summary>
+    /// The other side of that fix, so it cannot be read as « advisory means anything goes »: with the entry's
+    /// own marker <b>absent</b>, a positive claim to be another format still refuses.
+    /// </summary>
+    [Fact]
+    public async Task A_Tiff_Renamed_To_Dcm_Is_Still_Refused()
+    {
+        var bytes = new byte[512];
+        new byte[] { 0x49, 0x49, 0x2A, 0x00 }.CopyTo(bytes, 0);
+        // No DICM at 128 — this really is just a TIFF wearing the wrong extension.
+
+        var result = await FileUploadValidator.ValidateAsync(
+            FileUploadProfile.PatientFile, "faux.dcm", bytes.Length, new MemoryStream(bytes));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(FileUploadValidator.SignatureMismatchMessage, result.Error);
+    }
+
     // ── The refusals, each in its own words ───────────────────────────────────────────────────────────────
 
     // The reported bug that started `patient-file-uploads`, and the refusal was CORRECT — what was broken was

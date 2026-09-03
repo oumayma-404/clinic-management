@@ -19,6 +19,21 @@ public class FileDownloadDto
     public Stream FileStream { get; set; } = null!;
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How many bytes the store holds, when it could say — the response's <c>Content-Length</c>.
+    ///
+    /// <para>⚠️ <b>It exists because the download stream stopped being seekable.</b> ASP.NET derives
+    /// <c>Content-Length</c> from a seekable stream's own length, so buffering the whole object in memory used to
+    /// supply it as a side effect; streaming does not, and without this a browser downloading a study reports
+    /// « unknown size » with no progress bar — on a slow connection, exactly when somebody needs one.</para>
+    ///
+    /// <para>⚠️ <b>Asked of the store, never read off <c>PatientFile.FileSize</c>.</b> That column looks like
+    /// the same number and is the <i>client's claim</i> for any row written before upload validation existed; a
+    /// wrong <c>Content-Length</c> truncates or hangs a response rather than merely misreporting it. Null when
+    /// the backend could not say, which is an ordinary answer and simply omits the header.</para>
+    /// </summary>
+    public long? Length { get; set; }
 }
 
 public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFileQuery, Result<FileDownloadDto>>
@@ -105,13 +120,17 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
                     PatientRecordAccessLedger.UnrecordableCode);
             }
 
+            // Before the stream, so a store that cannot answer costs nothing and one that can does not have the
+            // question asked while a read is already open against it.
+            var length = await _fileStorage.GetLengthAsync(file.StorageKey, cancellationToken);
             var fileStream = await _fileStorage.DownloadAsync(file.StorageKey, cancellationToken);
 
             var dto = new FileDownloadDto
             {
                 FileStream = fileStream,
                 FileName = file.FileName,
-                ContentType = file.ContentType
+                ContentType = file.ContentType,
+                Length = length
             };
 
             return Result<FileDownloadDto>.Success(dto);
