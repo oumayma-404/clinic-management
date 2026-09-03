@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Behaviors;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Interfaces;
@@ -41,7 +42,7 @@ public class FileUploadSessionDto
 /// <para>⚠️ <b>The signature cannot be checked yet</b>, because the bytes are not here. It is checked on the
 /// first chunk, which is where the header arrives — see <see cref="UploadFileChunkCommandHandler"/>.</para>
 /// </summary>
-public class StartFileUploadCommand : IRequest<Result<FileUploadSessionDto>>
+public class StartFileUploadCommand : IRequest<Result<FileUploadSessionDto>>, IDoesNotBroadcast
 {
     public Guid PatientId { get; set; }
     public Guid? FolderId { get; set; }

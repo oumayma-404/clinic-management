@@ -189,6 +189,35 @@ public class GetUploadPolicyQueryTests
     }
 
     /// <summary>
+    /// The chunk size is what the browser compares a file against to decide whether to open a resumable session
+    /// at all, so it has to be the size the chunk endpoint will actually demand — a client that guessed low would
+    /// have every part refused as « the wrong length » and every large upload fail on part one.
+    /// </summary>
+    [Fact]
+    public async Task The_Patient_Drawer_Publishes_The_Chunk_Size_The_Endpoint_Enforces()
+    {
+        var policy = await Read(profile: FileUploadProfile.PatientFile.Name);
+
+        Assert.Equal(FileTypeCatalog.UploadChunkBytes, policy.ResumableChunkBytes);
+    }
+
+    /// <summary>
+    /// Zero everywhere else, and that is the whole signal: the five `…/files/uploads` endpoints hang off the
+    /// patient-file controller alone, so a browser told a cachet could be chunked would open a session against a
+    /// route that does not exist — and « 404 » is not a sentence anyone can act on.
+    /// </summary>
+    [Theory]
+    [InlineData("profile-image")]
+    [InlineData("medical-document-pdf")]
+    [InlineData("csv")]
+    public async Task A_Door_Without_Resumable_Endpoints_Publishes_No_Chunk_Size(string profile)
+    {
+        var policy = await Read(profile: profile);
+
+        Assert.Equal(0L, policy.ResumableChunkBytes);
+    }
+
+    /// <summary>
     /// An unknown door is refused rather than quietly answered with the drawer's policy — which would offer DICOM
     /// as a clinic logo and quote a ceiling six times too high.
     /// </summary>

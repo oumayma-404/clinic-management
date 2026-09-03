@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Behaviors;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Interfaces;
@@ -20,7 +21,7 @@ namespace ClinicManagement.Application.Features.Files.Commands;
 /// lost cannot tell « stored » from « never arrived » — and answering « that is where you are » lets it carry on
 /// rather than start again, which is the whole feature.</para>
 /// </summary>
-public class UploadFileChunkCommand : IRequest<Result<FileUploadSessionDto>>
+public class UploadFileChunkCommand : IRequest<Result<FileUploadSessionDto>>, IDoesNotBroadcast
 {
     public Guid PatientId { get; set; }
     public Guid UploadId { get; set; }

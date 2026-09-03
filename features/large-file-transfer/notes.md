@@ -5,12 +5,12 @@ products upload everything and solve the bandwidth with **resumable chunked uplo
 where an on-premises component exists it is a *relay* to the cloud, not a terminus. The arithmetic backs them —
 340 Mo at Tunisia's median 9 Mbps uplink is about five minutes, not an impossibility.
 
-So the plan is four parts, in a deliberately reversible order. **Part 1 has landed; the rest have not.**
+So the plan is four parts, in a deliberately reversible order. **Parts 1 and 2 have landed; 3 and 4 have not.**
 
 | | | |
 |---|---|---|
 | **Part 1** | Downloads stream instead of buffering | ✅ landed |
-| **Part 2** | Resumable chunked upload | ◨ server done, browser half to come |
+| **Part 2** | Resumable chunked upload | ✅ landed |
 | **Part 3** | Raise the coffre threshold | ⬜ |
 | **Part 4** | Per-clinic storage quota | ⬜ |
 
@@ -71,7 +71,7 @@ or hangs a response rather than merely misreporting it.
 
 ---
 
-## Part 2 — resumable chunked upload (server done, browser half to come)
+## Part 2 — resumable chunked upload (landed)
 
 Five endpoints under `…/files/uploads`: open, ask where you got to, put part *n*, complete, abandon.
 
@@ -144,14 +144,117 @@ pre-existing — none new, none on any existing table.
 chunk, so `totalParts` was 1 and the multi-part path — the whole feature — was never entered. The numbers above
 are from a file that genuinely needs four.
 
-### Still to come in Part 2
+### The browser half — what actually calls the endpoints
 
-The browser half: `Blob.slice()`, the resume state in IndexedDB, and `upload-queue.tsx` choosing this path over
-the single-POST one. Until then the endpoints exist and nothing in the app calls them.
+`lib/files/resumable-upload.ts` is the only thing in the app that speaks the five endpoints, and the order they
+go in lives there rather than in the queue component so that « what happens when part 7 fails » has one answer.
 
-⚠️ And **real progress becomes possible for the first time**: `fetch` exposes no upload progress for a single
-POST, which is why the queue deliberately shows none today — chunks are what make an honest progress bar
-something other than an animation.
+⚠️ **The path is chosen on size, and the threshold is the SERVER's chunk size** — published as
+`UploadPolicyDto.ResumableChunkBytes` (0 on the three doors that have no resumable endpoints, which is what stops
+a cachet picker opening a session against a route that would 404). A file that fits in one part keeps the single
+POST: three extra round trips buy nothing, and its « progress bar » would go 0 % → 100 % with nothing between,
+which is an animation rather than a measurement. So « worth chunking? » is exactly « more than one part? », and
+asking the server means the number cannot drift the way a second copy would.
+
+⚠️ **Every count comes back from the server.** The loop is driven by `session.nextPart`, never by a local
+counter: a part whose response was lost is stored there and unknown here, and a browser trusting its own tally
+would skip it and assemble a file that is the right length in its row with a hole in the middle. For the same
+reason a retry **re-reads the session** before re-sending — the likeliest cause of a failed part is a lost
+*response*, so blindly re-sending is eight megabytes to be told « already have it ».
+
+⚠️ **A refusal is not retried, a transport failure is.** The server's 4xx sentences are facts about the file or
+the protocol; re-sending the same bytes reproduces them exactly, at the clinic's expense. Only
+`ApiErrorCode.Network` earns the four attempts and the 1 s / 2 s / 4 s backoff.
+
+⚠️ **A cancellation is not a failure and must not be worded as one.** An aborted `fetch` arrives as the same
+`AbortError` a fired deadline does, which `client.ts` maps to « Vérifiez votre connexion » — true for a timeout
+and a lie for somebody who just pressed « Annuler ». `UploadCancelledError` is what tells them apart. Cancelling
+also *abandons* the session; every other failure leaves it, because the parts already sent are the whole point.
+
+### Resuming across a reload, and the thing deliberately NOT stored
+
+`lib/files/upload-resume-store.ts` remembers an interrupted upload so `ResumeUploadsNotice` can offer it back
+after a closed tab. It stores a **description** — the raw file name, size and `lastModified`, the server's byte
+count, the expiry — and **never the bytes**.
+
+⚠️ That is a decision, not a limitation. A `File` is structured-cloneable, so a 150 Mo radiograph could go into
+IndexedDB and the resume would cost one click instead of two. It would also leave a copy of a patient's imaging
+unencrypted in a shared clinic PC's browser profile, surviving reboots, with no lifecycle beyond our own
+cleanup — a data-at-rest question this product has no answer for. So the user re-picks the file.
+
+⚠️ **The identity check is three properties and lives here**, not in the orchestrator: `lastModified` is what
+catches the case that actually happens — the same study re-exported from the scanner between attempts, same
+name, same size, different bytes. Resuming that assembles a file from two exports with no error anywhere. The
+orchestrator checks only the **declared length**, and deliberately not the name: what a session reports is the
+name after `FileNameSanitizer` (path segments stripped, seven characters removed, whitespace collapsed, dots
+trimmed, length bounded), so comparing it to a raw `file.name` needs a second copy of that sanitiser in
+TypeScript — and a copy that drifts calls ordinary accented filenames « a different file » and silently restarts
+uploads that were perfectly resumable.
+
+⚠️ An **expired** record is deleted on read rather than offered: its staged parts have been reclaimed, so
+« reprendre » would open a new session and start from zero while saying it was continuing.
+
+### Three defects the browser walk found, none of them visible as an error
+
+⚠️ **The file list reloaded between every chunk.** The realtime convention is by *area*: any command under
+`Features/<Area>/Commands` tells every browser in the clinic that `<area>` changed. Correct for an edit, wrong
+for a **step** of a longer operation — so one 29,8 Mo file in four parts made every open tablet in the practice
+refetch the patient's drawer four times before the file existed, and a 300 Mo study is 38 of them. Fixed with
+`IDoesNotBroadcast` on the three step commands; **completion still broadcasts**, which is the direction silence
+would break. `RealtimeResourceResolverTests` pins both, plus a derived guard — proven red — that a marker is only
+worn where it changes something, because a redundant marker in an excluded area reads to the next author as a
+live one.
+
+⚠️ **A live upload was also listed as interrupted.** Found by *looking*, not by a query — the first pass
+checked « 81 % » and the cancel button through the DOM and read as green. On screen, at 390 px, the page showed
+« L'envoi de « panoramique-lourde.png » a été interrompu · 0 o sur 29,8 Mo » directly above that same file's
+progress bar at 54 %: `rememberUpload` writes a record the moment a session opens, so the notice offered to
+resume a file the queue was uploading two centimetres below. Accepting would have opened a second client against
+one session and had its parts refused as out of order. Two changes, and both were needed — `useUploadQueue`
+publishes `activeUploads` (the sessions it is running) and the notice never offers one of those; and the record
+is **not written until a part has actually landed**, since an upload dropped in its first seconds has nothing
+staged to continue from and « 0 o déjà envoyés » is a second hunt through the file system to achieve exactly
+what « Téléverser » does.
+
+⚠️ **A resumed upload finished and the offer to resume it stayed on screen.** `ResumeUploadsNotice` re-read its
+store on the number of queued items, which changes when an upload *starts* and never again. It reads the queue's
+**settled** count now, and the notice drops a record optimistically the moment it hands the file over — two
+surfaces describing one upload, one of them still calling it interrupted, is the app disagreeing with itself
+about what it holds.
+
+### Verified in a real browser, against the running stack
+
+| | |
+|---|---|
+| A 29,8 Mo file through the picker | `POST /uploads` → `PUT chunks/1…4` → `POST /complete` → **201** |
+| Progress mid-flight | **81 %** on the item, from the server's own byte count |
+| Cancel mid-flight | « **Annulé** », not « Échec »; session abandoned, IndexedDB row gone |
+| **Page reloaded at 27 %** | offer returns: « 8 Mo sur 29,8 Mo déjà envoyés » |
+| Resumed from it | `GET /uploads/{id}` → `PUT chunks/2,3,4` → complete. **Part 1 never re-sent** |
+| The stored file | **byte-identical** (SHA-256) on all four runs, each with a preview |
+| Reprendre with the **wrong** file | refused by name, nothing uploaded, the record kept |
+| A 31,6 Mo TIFF | still refused to the coffre — the residency rule is untouched |
+| Between chunks, after the fix | **no** `folders` / `files?page=1` refetch; only after `complete` |
+| **3 uploads running**, 3 records in IndexedDB | **0** offered as interrupted — and 3 offered once they stop running, which is the direction that proves the filter is not simply hiding everything |
+| Dropped **before** any part landed | no record written, nothing offered |
+| Dropped **after** one part landed | one record, « 8 Mo sur 29,8 Mo déjà envoyés » |
+
+Eye pass at **320 / 390 / 820 / 1180 / 1440 and a landscape phone (844×380)**, with the notice and a live upload
+on screen at once: no sideways page scroll at any width, the cancel control in view at all six, the notice
+stacking below `sm:` and becoming a row above it — the coffre notice's own shape, one element up.
+
+⚠️ **Seeing the in-flight state needed the uplink throttled** (CDP `Network.emulateNetworkConditions`, ~400 Ko/s).
+Over loopback a 29,8 Mo upload finishes in about five seconds, which is not enough time to resize and look; the
+first pass therefore only ever *measured* that state, and that is exactly how the third defect above survived it.
+
+### Still owed
+
+- **Nothing sweeps abandoned sessions.** `IFileUploadSessionRepository.GetExpiredAsync` exists and no job calls
+  it, so a tab closed mid-upload leaves its staged parts for the full 24 h. Harmless per upload, unbounded across
+  a year.
+- The two coffre-sized samples (31,6 Mo TIFF, 34 Mo ZIP) are still unwalked end to end — the dev browser has no
+  coffre paired, so that door refuses them before the chunked path is reached. That is the *correct* behaviour,
+  and it is also why this cannot be verified here.
 
 ## Part 3 — raise the threshold (not started)
 

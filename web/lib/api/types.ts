@@ -1088,6 +1088,27 @@ export interface PatientFileDto {
   version: number;
 }
 
+/**
+ * An upload in flight — what a client needs to send the next part, and to find out where it got to.
+ *
+ * ⚠️ **`receivedParts` is the server's count, never the browser's.** The two disagree exactly when it matters:
+ * a part whose response was lost is stored here and unknown there, and a client trusting its own tally would
+ * either re-send eight megabytes or, worse, skip a part and assemble a file with a hole in it.
+ */
+export interface FileUploadSessionDto {
+  uploadId: string;
+  fileName: string;
+  /** The size of every part but the last — the unit all the resume arithmetic is done in. */
+  chunkSize: number;
+  declaredLength: number;
+  totalParts: number;
+  receivedParts: number;
+  receivedBytes: number;
+  /** The only part this upload will accept next. What a resuming client reads. */
+  nextPart: number;
+  expiresAtUtc: string;
+}
+
 export interface PatientFolderDto {
   id: string;
   patientId: string;

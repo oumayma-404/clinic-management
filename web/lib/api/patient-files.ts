@@ -1,7 +1,12 @@
-import { apiGet, apiGetBlob, apiPost, apiPut, apiPostFormData, apiDelete } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPut, apiPostFormData, apiPutBinary, apiDelete } from './client';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 import { PREVIEW_FILE_NAME } from '@/lib/files/preview';
-import type { PatientFileDto, PatientFileSummaryDto, PatientFolderDto } from './types';
+import type {
+  FileUploadSessionDto,
+  PatientFileDto,
+  PatientFileSummaryDto,
+  PatientFolderDto,
+} from './types';
 
 /**
  * How the « Fichiers » directory is ordered. The three keys the server accepts, as a union so a typo is a `tsc`
@@ -104,6 +109,80 @@ export const patientFilesApi = {
     }
 
     return apiPostFormData<PatientFileDto>(`/patients/${patientId}/files/upload`, formData);
+  },
+
+  // ── Resumable upload ──────────────────────────────────────────────────────────────────────────────────
+  //
+  // The same door as `uploadFile`, reached in parts. Five calls, because an upload that survives an interruption
+  // has to be a thing the server remembers between requests rather than one request that either finishes or does
+  // not. See `lib/files/resumable-upload.ts` for the order they go in — nothing else should call them directly.
+
+  /**
+   * Opens an upload and reserves its staging area.
+   *
+   * ⚠️ **This is where a file is refused**, on its name and its declared length, before a byte is sent — an
+   * unsupported format, an oversized one, or one this deployment keeps in the cabinet's coffre instead. The
+   * signature cannot be judged yet and is checked against the first chunk.
+   */
+  startUpload: async (
+    patientId: string,
+    upload: { fileName: string; fileSize: number; folderId?: string; description?: string },
+  ): Promise<FileUploadSessionDto> => {
+    return apiPost<FileUploadSessionDto>(`/patients/${patientId}/files/uploads`, upload);
+  },
+
+  /**
+   * Where an upload got to. ⚠️ **The read that makes resuming honest**: a browser whose connection dropped knows
+   * what it sent and not what arrived — the last part may have been stored and its response lost — so the count
+   * is asked for rather than assumed. A session that expired reads as gone, because its parts have been reclaimed.
+   */
+  getUpload: async (patientId: string, uploadId: string): Promise<FileUploadSessionDto> => {
+    return apiGet<FileUploadSessionDto>(`/patients/${patientId}/files/uploads/${uploadId}`);
+  },
+
+  /**
+   * One part, as raw bytes. Parts are **sequential**: `nextPart` from the session is the only one the server
+   * accepts, and re-sending the last stored part is a success rather than an error, so a client that lost a
+   * response can simply send it again.
+   */
+  uploadChunk: async (
+    patientId: string,
+    uploadId: string,
+    partNumber: number,
+    chunk: Blob,
+    signal?: AbortSignal,
+  ): Promise<FileUploadSessionDto> => {
+    return apiPutBinary<FileUploadSessionDto>(
+      `/patients/${patientId}/files/uploads/${uploadId}/chunks/${partNumber}`,
+      chunk,
+      undefined,
+      signal,
+    );
+  },
+
+  /**
+   * Assembles the parts and records the file. The `preview` is the same optional stand-in `uploadFile` takes and
+   * is just as much never worth failing the upload for — the original is already staged by this point.
+   */
+  completeUpload: async (
+    patientId: string,
+    uploadId: string,
+    preview?: Blob | null,
+  ): Promise<PatientFileDto> => {
+    const formData = new FormData();
+    if (preview) {
+      formData.append('preview', preview, PREVIEW_FILE_NAME);
+    }
+
+    return apiPostFormData<PatientFileDto>(
+      `/patients/${patientId}/files/uploads/${uploadId}/complete`,
+      formData,
+    );
+  },
+
+  /** Gives up an upload and releases its parts. An upload already gone answers success. */
+  abandonUpload: async (patientId: string, uploadId: string): Promise<void> => {
+    return apiDelete<void>(`/patients/${patientId}/files/uploads/${uploadId}`);
   },
 
   /**

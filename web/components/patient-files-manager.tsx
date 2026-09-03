@@ -71,6 +71,7 @@ import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
 import { FileResidencyBadge } from "@/components/patients/files/residency-badge"
 import { RenameFileDialog } from "@/components/patients/files/rename-file-dialog"
 import { UploadQueue, useUploadQueue } from "@/components/patients/files/upload-queue"
+import { ResumeUploadsNotice } from "@/components/patients/files/resume-uploads-notice"
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
 
 type FilesView = "grid" | "list"
@@ -631,7 +632,21 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
         </div>
       )}
 
-      <UploadQueue items={uploads.items} running={uploads.running} onClear={uploads.clear} />
+      {/* Above the queue, because it is about an envoi that is not in the queue yet — and below the coffre
+          notice, which is about what this machine can do at all. */}
+      <ResumeUploadsNotice
+        patientId={patientId}
+        reloadToken={uploads.settledCount}
+        inFlight={uploads.activeUploads}
+        onResume={(record, file) => void uploads.resume(record, file)}
+      />
+
+      <UploadQueue
+        items={uploads.items}
+        running={uploads.running}
+        onCancel={uploads.cancel}
+        onClear={uploads.clear}
+      />
 
       {/* Folders, as chips: four cards in a grid pushed the files themselves off the first screen. */}
       {!currentFolderId && folders.length > 0 && (

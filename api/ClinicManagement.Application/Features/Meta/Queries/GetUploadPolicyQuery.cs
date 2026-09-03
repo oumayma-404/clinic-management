@@ -60,6 +60,8 @@ public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery,
             DeniedExtensions = FileTypeCatalog.DeniedExtensions.OrderBy(e => e, StringComparer.Ordinal).ToList(),
             VaultAvailable = vaultAvailable,
             VaultUnavailableMessage = FileResidencyRefusals.Unavailable(),
+            // Zero on every door but the patient's drawer — see FileUploadProfile.SupportsResumableUpload.
+            ResumableChunkBytes = profile.SupportsResumableUpload ? FileTypeCatalog.UploadChunkBytes : 0,
             Formats = profile.Entries.Select(entry => ToFormat(profile, entry, vaultAvailable)).ToList()
         };
 

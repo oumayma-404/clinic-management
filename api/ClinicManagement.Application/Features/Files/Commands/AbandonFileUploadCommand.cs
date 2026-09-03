@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Behaviors;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -17,7 +18,7 @@ namespace ClinicManagement.Application.Features.Files.Commands;
 /// <para>⚠️ <b>The parts are released before the row.</b> The row is how the sweep finds an orphaned staging
 /// area, so deleting it first and then failing would leave bytes nothing can ever reach.</para>
 /// </summary>
-public class AbandonFileUploadCommand : IRequest<Result<bool>>
+public class AbandonFileUploadCommand : IRequest<Result<bool>>, IDoesNotBroadcast
 {
     public Guid PatientId { get; set; }
     public Guid UploadId { get; set; }

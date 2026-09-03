@@ -43,6 +43,11 @@ export interface UploadPolicy {
   vaultAvailable: boolean;
   /** The server's own wording for « this one belongs at the cabinet and this machine has no coffre ». */
   vaultUnavailableMessage: string;
+  /**
+   * The size of every part but the last for an upload sent in pieces, or **0 where this door has no resumable
+   * endpoints** — see `shouldUploadInParts`.
+   */
+  resumableChunkBytes: number;
 }
 
 /** Which door a file goes through. Decided by the server's policy, never guessed from the extension. */
@@ -117,6 +122,22 @@ export function refusalFor(
 
   // An always-hosted format's hostedMaxBytes IS its maxBytes, so this one comparison covers both shapes.
   return file.size > format.hostedMaxBytes ? format.tooLargeMessage : null;
+}
+
+/**
+ * Whether this file is worth sending in parts.
+ *
+ * ⚠️ **The threshold is the server's chunk size, and deliberately not a constant of our own.** A file that fits
+ * in one part gains nothing from the protocol — three extra round trips, and a « progress bar » that goes from
+ * 0 % to 100 % with nothing in between, which is an animation rather than a measurement. More than one part and
+ * both of the things this exists for become true at once: an interruption costs the last part instead of the
+ * whole file, and the bar moves because something really happened.
+ *
+ * A door that publishes 0 has no resumable endpoints at all, so the single POST is the only way through it.
+ */
+export function shouldUploadInParts(policy: UploadPolicy | null | undefined, file: File): boolean {
+  if (!policy || policy.resumableChunkBytes <= 0) return false;
+  return file.size > policy.resumableChunkBytes;
 }
 
 /**

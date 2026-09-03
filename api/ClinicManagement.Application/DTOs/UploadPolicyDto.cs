@@ -41,6 +41,18 @@ public class UploadPolicyDto
 
     /// <summary>The server's own wording for « this one belongs at the cabinet and you have no coffre here ».</summary>
     public string VaultUnavailableMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The size of every part but the last, for an upload sent in pieces — or <b>zero where this door has no
+    /// resumable endpoints</b>, which is what a browser reads to know the single POST is its only option.
+    ///
+    /// <para>⚠️ It is published rather than agreed by constant because it is the browser's own threshold: a file
+    /// that fits in one part gains nothing from three extra round trips, and its progress bar would go from
+    /// « 0 % » to « 100 % » with nothing in between — an animation, not a measurement. So « is this file worth
+    /// chunking? » is exactly « is it bigger than one part? », and asking the server means the answer cannot
+    /// drift the way a second copy of the number would.</para>
+    /// </summary>
+    public long ResumableChunkBytes { get; set; }
 }
 
 public class UploadPolicyFormatDto

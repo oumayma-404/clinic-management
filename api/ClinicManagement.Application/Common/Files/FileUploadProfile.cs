@@ -13,11 +13,16 @@ public sealed class FileUploadProfile
     private readonly Dictionary<string, FileTypeEntry> _byExtension;
     private readonly long? _maxBytesOverride;
 
-    private FileUploadProfile(string name, IReadOnlyList<FileTypeEntry> entries, long? maxBytesOverride = null)
+    private FileUploadProfile(
+        string name,
+        IReadOnlyList<FileTypeEntry> entries,
+        long? maxBytesOverride = null,
+        bool supportsResumableUpload = false)
     {
         Name = name;
         Entries = entries;
         _maxBytesOverride = maxBytesOverride;
+        SupportsResumableUpload = supportsResumableUpload;
         _byExtension = entries
             .SelectMany(entry => entry.Extensions.Select(extension => (extension, entry)))
             .ToDictionary(pair => pair.extension, pair => pair.entry, StringComparer.Ordinal);
@@ -26,6 +31,18 @@ public sealed class FileUploadProfile
     public string Name { get; }
 
     public IReadOnlyList<FileTypeEntry> Entries { get; }
+
+    /// <summary>
+    /// Whether this door can be sent a file in parts and resumed — i.e. whether the five
+    /// <c>…/files/uploads</c> endpoints stand in front of it.
+    ///
+    /// <para>⚠️ <b>A property of the door and not of the deployment</b>, because it answers a question about which
+    /// endpoints exist. Only the patient's file drawer has them: a cachet is five megabytes and a CSV import is
+    /// read whole by a handler that never touches blob storage, so chunking either would be three round trips
+    /// buying nothing. It is published to the browser so the picker never opens a session against a door that
+    /// would 404 — the honest failure there is « no such route », which is not a sentence anyone can act on.</para>
+    /// </summary>
+    public bool SupportsResumableUpload { get; }
 
     /// <summary>
     /// This door's cap on a single file, which is the entry's own unless the door is tighter.
@@ -39,7 +56,8 @@ public sealed class FileUploadProfile
         _maxBytesOverride is { } cap && cap < entry.MaxBytes ? cap : entry.MaxBytes;
 
     /// <summary>Everything the catalog knows — a patient's file drawer is where a clinic's real formats land.</summary>
-    public static readonly FileUploadProfile PatientFile = new("patient-file", FileTypeCatalog.All);
+    public static readonly FileUploadProfile PatientFile =
+        new("patient-file", FileTypeCatalog.All, supportsResumableUpload: true);
 
     /// <summary>
     /// The practitioner cachet and the clinic logo. Raster only, and small: both are read fully into memory on

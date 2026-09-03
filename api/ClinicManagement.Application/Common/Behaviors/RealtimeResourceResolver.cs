@@ -50,7 +50,23 @@ public static class RealtimeResourceResolver
         "Auth", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Subscriptions"
     };
 
+    /// <summary>
+    /// The key this request broadcasts, or null for one that broadcasts nothing.
+    ///
+    /// <para>Two rules, in order: a command may veto its own broadcast with <see cref="IDoesNotBroadcast"/> — a
+    /// step of a longer operation is not an edit — and otherwise the answer is its area's.</para>
+    /// </summary>
     public static string? Resolve(Type requestType)
+        => typeof(IDoesNotBroadcast).IsAssignableFrom(requestType) ? null : AreaKeyOf(requestType);
+
+    /// <summary>
+    /// What the <b>area</b> alone says, with any per-command veto set aside.
+    ///
+    /// <para>⚠️ Public so that <c>RealtimeResourceResolverTests</c> can ask whether a marker is doing anything at
+    /// all, without re-implementing this walk — a second copy of it in the test would be a second answer to the
+    /// question this class exists to have one answer to. The pipeline calls <see cref="Resolve"/>, never this.</para>
+    /// </summary>
+    public static string? AreaKeyOf(Type requestType)
     {
         var ns = requestType.Namespace;
         if (ns == null || !ns.EndsWith(".Commands", StringComparison.Ordinal))
