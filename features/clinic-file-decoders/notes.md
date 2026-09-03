@@ -218,14 +218,78 @@ pointer, and the offer correct in all six cases.
 
 ---
 
+## 6. DICOM
+
+The format a CBCT and an intraoral sensor actually export, and the one where a decoder can be *wrong* rather
+than merely absent.
+
+⚠️ **A DICOM image is not a picture until somebody chooses a window.** The stored values are 12- or 16-bit
+sensor readings, optionally rescaled into another unit entirely (Hounsfield units, via `RescaleSlope` /
+`RescaleIntercept`); turning them into 256 greys means picking which slice of that range to show. The file
+usually says which; when it does not, `dicom.ts` derives one from the frame's own range. Either way the result
+can be **misleading** rather than approximate — a finding outside the chosen window is simply not in the
+picture — so every DICOM the viewer draws carries an advisory, and the original is one click away.
+
+⚠️ **`MONOCHROME1` is inverted, and forgetting it is this format's famous silent failure.** Rendered as
+MONOCHROME2 a radiograph becomes a photographic negative of itself — bone dark, air bright — which reads as a
+*finding* to anyone who does not know the file's photometric interpretation.
+
+`dicom-parser` (547 Ko, MIT, Cornerstone's own) parses the dataset; the windowing is ours. Compressed pixel
+data is handled **only where the browser itself can decode it**: JPEG Baseline and Extended fragments *are*
+ordinary JPEG files and go to `createImageBitmap` verbatim. JPEG Lossless, JPEG-LS, JPEG 2000 and RLE each need
+their own codec — another megabyte of WebAssembly for formats a dental practice rarely exports — so they return
+null and the viewer says the format cannot be shown, which is true and is not a failure.
+
+### The advisory has its own module, and that is not tidiness
+
+`decoders/advisory.ts`. Two paths need the same sentence and neither may own it: the decoder produces it when
+it decodes, and the **viewer needs it again on the fast path**, where a DICOM's stored stand-in is painted
+without the decoder ever loading. That stand-in was built by exactly the same windowing, so it carries exactly
+the same caveat — and a copy in each place would be two wordings of one clinical warning.
+
+### Two defects the samples caught, one of them the product's
+
+- ⚠️ **The server refused valid DICOMs, and had been doing so all along.** Two of pydicom's own test files
+  begin `II*\0` — the TIFF marker — inside the DICOM preamble, which the standard leaves *entirely
+  unspecified* so that one file can open in two applications. `FileUploadValidator`'s advisory branch asked
+  « do these bytes claim to be another format? » **before** noticing that the entry's own `DICM` marker was
+  sitting at byte 128, so those files were refused with « le fichier a peut-être été renommé » about a file
+  nobody had renamed — and a practice has no way to act on that sentence. **A format's own marker now outranks
+  another format's claim**; with the marker absent, the cross-check is unchanged, which is what
+  `A_Tiff_Renamed_To_Dcm_Is_Still_Refused` holds.
+- ⚠️ **`readEncapsulatedImageFrame` throws when the basic offset table is empty**, which is the *ordinary*
+  case — the table is optional and most encoders write it empty. With no table the fragments have to be walked
+  (`readEncapsulatedPixelDataFromFragments`). Measured: the viewer said « ce format ne s'affiche pas » for a
+  JPEG the browser could decode perfectly well.
+
+### Verified, on five real files, one per branch
+
+Uploaded through the app's own picker to the running API, read back from the database, opened — and **looked
+at**, because « rendered » is not « rendered correctly » for this format.
+
+| sample | branch | result |
+|---|---|---|
+| `radio-jpeg-encapsule.dcm` | JPEG Baseline, empty offset table | image 1200×900, thumbnail painted |
+| `coupe-cbct-hounsfield.dcm` | raw 16-bit signed, rescale −1024, **no window** → derived | a correct CT slice — vertebra, canal, lungs dark, bone bright |
+| `coupe-avec-fenetrage.dcm` | raw 16-bit signed, the file's own 600/1600 window | a correct anatomical slice |
+| `photo-couleur-rgb.dcm` | raw RGB 8-bit | renders |
+| `radio-jpeg-12-bits.dcm` | JPEG Extended 12-bit — no browser decodes it | the placeholder, **as it should** |
+
+Every one carries the advisory; opening takes 0,6–1,0 s; zero page errors. Thumbnails are built at upload for
+all four decodable ones, so a drawer of DICOM studies is a wall of pictures rather than of grey icons.
+
+---
+
 ## Still open (named, not hidden)
 
 - **The coffre's own path is verified only by construction here.** The dev API does not offer `vaultAvailable`,
   so `panoramique-haute-definition.tiff` (31,6 Mo) and `etude-cbct-export.zip` (34 Mo) in the samples folder
   were not walked end to end — they are the two files that cross the 25 Mo line. Needs a deployment with a
   paired coffre.
-- **DICOM** has no decoder. It is the next one worth having, and it needs a « aperçu, non diagnostique » label:
-  a wrongly-windowed X-ray is misleading, not merely ugly.
+- **JPEG Lossless / JPEG-LS / JPEG 2000 / RLE DICOM** are not decoded — each is its own WebAssembly codec.
+  A dental practice rarely exports them; if one does, this is where to look.
+- **Only the first frame** of a multi-frame DICOM is shown, and the advisory says so. A frame chooser is the
+  obvious next step and was not built.
 - **Office formats** deliberately have none. Download and open is the correct answer for a `.docx`.
 - **A large hosted image still has no thumbnail** unless it was uploaded with one — the 2 Mo fallback is
   deliberate, and a real backfill needs a server-side image pipeline.

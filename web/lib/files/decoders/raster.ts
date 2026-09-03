@@ -15,6 +15,15 @@ export interface DecodedImage {
   height: number
   /** How many images the container held. A full-mouth series arrives as one multi-page TIFF. */
   pages: number
+  /**
+   * A sentence the viewer must show beside the picture, when the decode makes a claim the reader has to know
+   * about. Absent for a format whose rendering is simply the file.
+   *
+   * ⚠️ **It exists for DICOM, where it is not decoration.** Turning sensor readings into 256 greys means
+   * choosing a window, and a picture produced that way can be *misleading* rather than merely approximate — so
+   * every DICOM preview says so, and the original stays one click away.
+   */
+  advisory?: string
 }
 
 /**

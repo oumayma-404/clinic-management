@@ -153,7 +153,15 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 - **`files/`** — what the app can show of a file, and the small stand-in image it stores beside one
   (`clinic-file-decoders`). **`decoders/`** is a registry keyed on extension, every decoder behind a dynamic
   `import()` (libheif alone is ~3 Mo, so loading it for everybody would tax every page): `heic-to/csp` for
-  HEIC/HEIF, `utif2` for TIFF, and a **hand-written** central-directory reader for ZIP. **`preview.ts`** builds
+  HEIC/HEIF, `utif2` for TIFF, `dicom-parser` **plus our own windowing** for DICOM, and a **hand-written**
+  central-directory reader for ZIP.
+  ⚠️ **DICOM is the one that can be *wrong* rather than merely absent.** Its values are sensor readings, not
+  brightnesses, so a picture only exists once a window is chosen — and a finding outside that window is not
+  in the image. Every DICOM the viewer draws therefore carries an `advisory`, whose text lives in
+  `decoders/advisory.ts` because the **fast path** needs the same sentence without loading the decoder.
+  `MONOCHROME1` is inverted; rendering it as MONOCHROME2 produces a negative that reads as a finding.
+  Compressed pixel data is handled only where the browser decodes it (JPEG Baseline/Extended fragments are
+  ordinary JPEGs); JPEG Lossless, JPEG-LS, JPEG 2000 and RLE return null. **`preview.ts`** builds
   the downscaled JPEG both upload doors carry.
   ⚠️ **This is NOT a mirror of `FileTypeCatalog`, and the distinction is load-bearing.** The catalog's
   `isBrowserPreviewable` answers « does a *browser* paint this unaided? » — a fact about the format, still the

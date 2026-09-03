@@ -227,6 +227,11 @@ touching the area.
   the original. Neither is an error anywhere; the row just shows an icon. Its twin: `PatientFileDto.HasPreview`
   decides whether the browser *asks* and `DownloadPatientFilePreviewQuery` decides what to *serve* — they go
   through `PatientFilePreviewPolicy` because a disagreement is silent in both directions.
+- **A format's own signature outranks another format's claim, and the reverse order refused real files.** The
+  DICOM standard leaves its 128-byte preamble unspecified, so an exporter may put a TIFF header there — making
+  `II*\0` at 0 and `DICM` at 128 an ordinary, valid DICOM. `FileUploadValidator`'s advisory branch cross-checked
+  first and refused those with « le fichier a peut-être été renommé ». Advisory means *absence* proves nothing;
+  presence is still affirmative.
 - **A decoder that needs a `blob:` Worker fails only in production.** `worker-src` is inherited from
   `default-src 'self'` unless declared, and a dev server sends no CSP at all — so libheif works on the laptop
   and shows a grey icon on the VPS. The policy exists in **four** byte-identical copies

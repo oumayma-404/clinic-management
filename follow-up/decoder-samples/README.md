@@ -14,6 +14,27 @@ Sept fichiers **réels** (téléchargés ou produits ici, jamais des octets bido
 | `panoramique-haute-definition.tiff` | 31,6 Mo | selon le poste : au **coffre** s'il est apparié, sinon un refus qui dit pourquoi | **Au-dessus de la ligne des 25 Mo**, donc le catalogue l'envoie au coffre. C'est le cas qui prouve qu'un original du coffre s'ouvre depuis le disque local plutôt qu'en le redemandant au serveur (qui ne l'a jamais eu). |
 | `etude-cbct-export.zip` | 34 Mo | la liste de ses 3 entrées, **lue depuis le coffre** | Même chose pour une archive : l'index est lu sur place, sans télécharger 34 Mo ni les décompresser. |
 
+## DICOM — cinq fichiers, un par branche du décodeur
+
+| Fichier | Ce qu'il doit produire | Ce qu'il éprouve |
+|---|---|---|
+| `radio-jpeg-encapsule.dcm` | **l'image à l'écran** | Pixels encapsulés en **JPEG Baseline** : le fragment *est* un JPEG, décodé par le navigateur lui-même. ⚠️ Sa table d'offsets est **vide**, ce qui est le cas ordinaire et exige l'autre lecteur de `dicom-parser`. |
+| `coupe-cbct-hounsfield.dcm` | une coupe anatomique correcte | Brut 16 bits **signé**, rescale −1024 (unités Hounsfield), et **aucune fenêtre** dans le fichier → fenêtre dérivée de l'étendue de l'image. ⚠️ Son préambule commence par `II*\0`, le marqueur TIFF — voir plus bas. |
+| `coupe-avec-fenetrage.dcm` | idem | Brut 16 bits signé avec la fenêtre 600/1600 **du fichier**, donc l'autre moitié de la même branche. Préambule TIFF lui aussi. |
+| `photo-couleur-rgb.dcm` | 3×3 pixels de couleur | Brut RGB 8 bits — la branche couleur, qui ne fenêtre rien du tout. |
+| `radio-jpeg-12-bits.dcm` | **« ce format ne s'affiche pas »** | JPEG Extended 12 bits : aucun navigateur ne le décode. C'est le **refus** qui est éprouvé ici, et un décodeur dont on n'essaie jamais les refus est un décodeur à moitié vérifié. |
+
+⚠️ **Les deux `coupe-*` ont révélé un vrai défaut du produit** : leur préambule DICOM porte le marqueur TIFF
+(la norme laisse ces 128 octets libres, et certains exportateurs y logent l'en-tête d'un autre format pour
+qu'un fichier s'ouvre dans deux logiciels). Le validateur d'envoi demandait « ces octets prétendent-ils être un
+autre format ? » **avant** de remarquer que le marqueur `DICM` du fichier était là, à l'octet 128 — donc le
+serveur refusait deux DICOM parfaitement valides en disant « le fichier a peut-être été renommé ».
+
+⚠️ **`radio-jpeg-encapsule.dcm` est FABRIQUÉ ici**, par `build-dicom-sample.mjs`, et pas téléchargé : aucun
+jeu d'essai DICOM public joignable ne porte du JPEG Baseline, et les deux qui l'étaient sont du JPEG Extended
+12 bits — c'est-à-dire la branche d'échec, pas celle du succès. C'est une pièce d'essai : l'image à l'intérieur
+est générée, aucun patient n'y figure.
+
 ## Ce qu'il faut regarder
 
 1. **La liste elle-même.** Avant ce lot, aucun fichier hébergé ne portait de vignette — la vignette
@@ -52,4 +73,15 @@ Puis les trois fabriqués (le gros TIFF et les deux archives) :
 
 ```bash
 node build-samples.mjs
+node build-dicom-sample.mjs
+```
+
+Et les quatre DICOM téléchargés (jeu d'essai de pydicom, MIT) :
+
+```bash
+BASE=https://github.com/pydicom/pydicom/raw/main/src/pydicom/data/test_files
+curl -L -o coupe-cbct-hounsfield.dcm  $BASE/CT_small.dcm
+curl -L -o coupe-avec-fenetrage.dcm   $BASE/MR_small.dcm
+curl -L -o photo-couleur-rgb.dcm      $BASE/SC_rgb_small_odd.dcm
+curl -L -o radio-jpeg-12-bits.dcm     $BASE/JPEG-lossy.dcm
 ```

@@ -18,15 +18,20 @@
  * <p>⚠️ <b>Every decoder is behind a dynamic `import()`.</b> libheif alone is about 3 Mo; loading it for
  * everybody so that the occasional iPhone photo opens would be a tax on every page in the app. Nothing here is
  * fetched until somebody opens a file of that format.</p>
+ *
+ * <p>⚠️ <b>A decoder may return a picture AND a warning about it.</b> DICOM is the reason: a radiograph only
+ * becomes 256 greys once somebody chooses a window, so the result carries an `advisory` the viewer is obliged to
+ * show. A format whose rendering is simply the file carries none.</p>
  */
 import type { DecodedImage } from './raster'
 import type { ArchiveListing } from './zip'
 
 export type { DecodedImage } from './raster'
 export type { ArchiveEntry, ArchiveListing } from './zip'
+export { DICOM_ADVISORY } from './advisory'
 
 /** What kind of answer a format yields. An archive has no picture — its content *is* a list. */
-export type DecoderKind = 'heic' | 'tiff' | 'archive'
+export type DecoderKind = 'heic' | 'tiff' | 'dicom' | 'archive'
 
 export type DecodedContent =
   | ({ kind: 'image' } & DecodedImage)
@@ -44,6 +49,8 @@ const DECODERS: Readonly<Record<string, DecoderKind>> = {
   heif: 'heic',
   tiff: 'tiff',
   tif: 'tiff',
+  dcm: 'dicom',
+  dicom: 'dicom',
   zip: 'archive',
 }
 
@@ -70,7 +77,7 @@ export function hasDecoder(fileName: string): boolean {
 /** Whether the decoder for this file produces a picture (as opposed to a listing, or nothing). */
 export function decodesToImage(fileName: string): boolean {
   const kind = decoderFor(fileName)
-  return kind === 'heic' || kind === 'tiff'
+  return kind === 'heic' || kind === 'tiff' || kind === 'dicom'
 }
 
 /**
@@ -90,6 +97,11 @@ export async function decodeForViewing(source: Blob, fileName: string): Promise<
     case 'tiff': {
       const { decodeTiff } = await import('./tiff')
       const image = await decodeTiff(source)
+      return image ? { kind: 'image', ...image } : null
+    }
+    case 'dicom': {
+      const { decodeDicom } = await import('./dicom')
+      const image = await decodeDicom(source)
       return image ? { kind: 'image', ...image } : null
     }
     case 'archive': {

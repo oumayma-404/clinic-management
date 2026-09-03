@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { patientFilesApi } from "@/lib/api/patient-files"
-import { decodeForViewing, decodesToImage, type ArchiveListing } from "@/lib/files/decoders"
+import { DICOM_ADVISORY, decodeForViewing, decoderFor, decodesToImage, type ArchiveListing } from "@/lib/files/decoders"
 import { findVerifiedInVault } from "@/lib/vault/path"
 import { showErrorToast } from "@/lib/errors"
 import type { UploadPolicy } from "@/lib/api/upload-policy"
@@ -75,6 +75,11 @@ export interface FilePreview {
   archive: ArchiveListing | null
   render: PreviewRender
   unavailable: PreviewUnavailable | null
+  /**
+   * A sentence the viewer is obliged to show beside the picture. Set for DICOM on **both** paths — the stored
+   * stand-in was produced by the same windowing as a fresh decode, so it carries the same caveat.
+   */
+  advisory: string | null
   loading: boolean
   /** What the spinner should say — a download and an eleven-second decode are not the same wait. */
   stage: PreviewStage
@@ -107,6 +112,7 @@ export function useFilePreview(
   const [archive, setArchive] = useState<ArchiveListing | null>(null)
   const [render, setRender] = useState<PreviewRender>("none")
   const [unavailable, setUnavailable] = useState<PreviewUnavailable | null>(null)
+  const [advisory, setAdvisory] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [stage, setStage] = useState<PreviewStage>("idle")
 
@@ -147,6 +153,7 @@ export function useFilePreview(
     setArchive(null)
     setRender("none")
     setUnavailable(null)
+    setAdvisory(null)
     setLoading(false)
     setStage("idle")
     setStandingIn(null)
@@ -188,6 +195,7 @@ export function useFilePreview(
       liveUrl.current = window.URL.createObjectURL(decoded.blob)
       setUrl(liveUrl.current)
       setRender("image")
+      setAdvisory(decoded.advisory ?? null)
       setStandingIn(null)
     },
     [patientId, release],
@@ -204,6 +212,7 @@ export function useFilePreview(
       setArchive(null)
       setRender("none")
       setUnavailable(null)
+      setAdvisory(null)
       setStandingIn(null)
 
       const mode = previewMode(target, policyRef.current)
@@ -230,6 +239,10 @@ export function useFilePreview(
               liveUrl.current = window.URL.createObjectURL(standIn)
               setUrl(liveUrl.current)
               setRender("image")
+              // ⚠️ The stand-in for a DICOM was built by the SAME windowing as a fresh decode, so it carries
+              // the same caveat — and this path never loads the decoder, so it cannot be told by one. Without
+              // the frame count, which only parsing the file could give.
+              setAdvisory(decoderFor(target.fileName) === "dicom" ? DICOM_ADVISORY : null)
               setStandingIn(target)
               return
             } catch {
@@ -305,6 +318,7 @@ export function useFilePreview(
     archive,
     render,
     unavailable,
+    advisory,
     loading,
     stage,
     showFullResolution: standingIn ? showFullResolution : null,

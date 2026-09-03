@@ -145,6 +145,19 @@ public static class FileUploadValidator
             return entry.Signature.Matches(inspected);
         }
 
+        // ⚠️ **The entry's OWN marker outranks any other format's claim, and its absence here was a real
+        // refusal of real files.** DICOM is the only advisory entry, and the standard leaves its 128-byte
+        // preamble entirely unspecified — exporters are free to put another format's header in it, and some put
+        // a TIFF one, so `II*\0` at offset 0 followed by `DICM` at offset 128 is a perfectly ordinary DICOM.
+        // Asking « does this claim to be something else? » first meant those were refused with « le fichier a
+        // peut-être été renommé » about a file nobody had renamed. A marker at the offset its own format
+        // declares is affirmative evidence; another format's marker somewhere the standard says is free space
+        // is not. (Measured on two of pydicom's own test files, which carry exactly that preamble.)
+        if (entry.Signature.Matches(inspected))
+        {
+            return true;
+        }
+
         // AC-2.3: silence proves nothing, but a positive claim to be some other format does — this is what keeps
         // the reported .txt→.pdf refused while accepting an ASCII STL, which has no signature at all.
         var claimed = SignatureIndex.IdentifyOrNull(inspected);

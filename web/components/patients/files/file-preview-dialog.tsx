@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, File as FileIcon, Loader2, Maximize2, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, File as FileIcon, Loader2, Maximize2, TriangleAlert, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -46,7 +46,7 @@ export function FilePreviewDialog({
   onDelete?: (file: PatientFileDto) => void
 }) {
   const {
-    file, url, archive, render, unavailable, loading, stage, showFullResolution,
+    file, url, archive, render, unavailable, advisory, loading, stage, showFullResolution,
     files, position, total, hasPrev, hasNext, close, prev, next,
   } = preview
   const [renderFailed, setRenderFailed] = useState(false)
@@ -169,6 +169,19 @@ export function FilePreviewDialog({
               )}
 
             </div>
+
+            {/* ⚠️ Outside the scrolling pane, so it cannot be scrolled away from the picture it qualifies. A
+                DICOM rendered without this is a clinical image that looks authoritative and is not: the window
+                is chosen, so a finding outside it is simply not in the picture. */}
+            {advisory && render === "image" && !loading && (
+              <p
+                role="note"
+                className="flex flex-shrink-0 items-start gap-2 border-t bg-warning-wash px-4 py-2 text-xs text-warning-ink md:px-6"
+              >
+                <TriangleAlert aria-hidden="true" className="mt-px h-3.5 w-3.5 flex-shrink-0" />
+                <span>{advisory}</span>
+              </p>
+            )}
 
             {navigable && (
               /* ⚠️ A real row, not two `absolute` arrows over the document. Overlaid they pinned to the wrong
