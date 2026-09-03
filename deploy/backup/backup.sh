@@ -1,13 +1,24 @@
 #!/bin/sh
-# Off-server backup (AC-7): pg_dump (custom format, pg_restore-able) + a MinIO data archive,
-# ENCRYPTED (hosted-security-hardening FR-3.6), VERIFIED BY BEING DECRYPTED (FR-3.7), stamped with
-# the key-ring generation in force (FR-3.9), then uploaded to the operator-configured off-server
-# destination. Fails loud on any error and never produces a silent partial (set -e + explicit checks).
+# Off-server backup (AC-7): pg_dump (custom format, pg_restore-able) + an INCREMENTAL mirror of the
+# object store, ENCRYPTED (hosted-security-hardening FR-3.6), the dump VERIFIED BY BEING DECRYPTED
+# (FR-3.7), stamped with the key-ring generation in force (FR-3.9), then uploaded to the
+# operator-configured off-server destination. Fails loud on any error and never produces a silent
+# partial (set -e + explicit checks).
+#
+# ⚠️ The object half was a nightly full `tar czf` until `large-file-transfer` Part 3, which cost about
+# fifteen copies of every hosted byte on this disk. See mirror-objects.sh for the measurement.
 set -eu
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 WORK="/backups/${TS}"
 mkdir -p "${WORK}"
+
+# The object mirror is cumulative and lives OUTSIDE the dated run directories, which the retention prune
+# clears. `attic` holds what has been deleted from the store, dated, so a file removed by mistake is still
+# recoverable for the retention window — the one thing the nightly full archive gave away for free.
+OBJECTS_DIR="/backups/objects"
+ATTIC_DIR="/backups/attic"
+OBJECTS_MANIFEST="/backups/objects.manifest"
 
 echo "[backup] ${TS} starting"
 
@@ -68,10 +79,22 @@ if [ ! -s "${DB_FILE}" ]; then
 fi
 echo "[backup] db dump: $(du -h "${DB_FILE}" | cut -f1) -> $(basename "${DB_FILE}")"
 
-# 2. MinIO data archive — tar the object-store volume (mounted read-only).
-MINIO_FILE="${WORK}/minio-${TS}.tar.gz"
-tar czf "${MINIO_FILE}" -C /minio-data .
-echo "[backup] minio archive: $(du -h "${MINIO_FILE}" | cut -f1) -> $(basename "${MINIO_FILE}")"
+# 2. The object store — an INCREMENTAL encrypted mirror, not a nightly archive.
+#
+# ⚠️ This used to be `tar czf` of the whole volume, age-encrypted, kept BACKUP_RETENTION_DAYS times over on
+# this disk: about FIFTEEN copies of every hosted byte, plus one more off-site every night for ever. On the
+# live VPS (96 Go, 78 Go free) that left room for roughly 5 Go of objects, and a full disk stops every
+# cabinet on the box at once — which is what had the coffre threshold pinned at 25 Mo. Objects here are
+# immutable once written, so a mirror refreshed per object costs what actually changed. See
+# mirror-objects.sh for the rest of the reasoning.
+#
+# ⚠️ It writes into /backups, NOT into ${WORK}: the mirror is cumulative and must survive the retention
+# prune that clears the dated run directories. A mirror inside a run directory would be deleted after two
+# weeks and silently rebuilt from scratch, restoring the very cost this removes.
+/usr/local/bin/mirror-objects.sh \n	/minio-data \n	"${OBJECTS_DIR}" \n	"${ATTIC_DIR}/${TS}" \n	"${OBJECTS_MANIFEST}" \n	"${BACKUP_AGE_RECIPIENT}"
+
+# The manifest travels with the run so a rebuilt server can tell what the mirror is supposed to contain.
+cp "${OBJECTS_MANIFEST}" "${WORK}/objects-${TS}.manifest"
 
 # 3. Stamp the key-ring generation this dump belongs to (FR-3.9).
 #
@@ -91,7 +114,11 @@ else
 fi
 
 # 4. Encrypt everything that leaves this host (FR-3.6).
-for PLAIN in "${DB_FILE}" "${MINIO_FILE}"; do
+#
+# ⚠️ Only the dump and the manifest are encrypted HERE. The objects were encrypted one by one in step 2 —
+# that is what makes the mirror incremental, since `age` output is nondeterministic and re-encrypting an
+# unchanged object would produce different bytes every night and be re-uploaded every night.
+for PLAIN in "${DB_FILE}" "${WORK}/objects-${TS}.manifest"; do
 	age --encrypt --recipient "${BACKUP_AGE_RECIPIENT}" --output "${PLAIN}.age" "${PLAIN}"
 	if [ ! -s "${PLAIN}.age" ]; then
 		echo "[backup] ERROR: age produced an empty file for $(basename "${PLAIN}") — aborting" >&2
@@ -99,7 +126,7 @@ for PLAIN in "${DB_FILE}" "${MINIO_FILE}"; do
 	fi
 	rm -f "${PLAIN}"
 done
-echo "[backup] encrypted with age -> $(basename "${DB_FILE}").age, $(basename "${MINIO_FILE}").age"
+echo "[backup] encrypted with age -> $(basename "${DB_FILE}").age"
 
 # 5. A backup nobody can restore is not a backup (FR-3.7): decrypt what was just written and confirm it PARSES.
 #
@@ -136,15 +163,33 @@ else
 fi
 
 # 6. Upload off-server.
+RETENTION="${BACKUP_RETENTION_DAYS:-14}"
 if [ -n "${BACKUP_REMOTE:-}" ]; then
-	rclone copy "${WORK}" "${BACKUP_REMOTE}/${TS}" --config /config/rclone/rclone.conf
-	echo "[backup] uploaded off-server -> ${BACKUP_REMOTE}/${TS}"
+	RCLONE="rclone --config /config/rclone/rclone.conf"
+
+	# The dated run: the dump, the key-ring stamp and the manifest. Small, and one per night as before.
+	${RCLONE} copy "${WORK}" "${BACKUP_REMOTE}/${TS}"
+
+	# ⚠️ The objects go up with `sync`, not `copy`, and the difference is the whole point: `copy` never
+	# removes, so the remote would grow for ever and a deleted file would silently stay backed up. `sync`
+	# with `--backup-dir` MOVES what is no longer in the mirror into the same dated attic used locally,
+	# rather than deleting it — so a removal is still recoverable for the retention window.
+	#
+	# ⚠️ The attic must be OUTSIDE the destination or rclone refuses the run; `objects/` and `attic/` are
+	# siblings for exactly that reason.
+	${RCLONE} sync "${OBJECTS_DIR}" "${BACKUP_REMOTE}/objects" 		--backup-dir "${BACKUP_REMOTE}/attic/${TS}"
+
+	# Age out the remote attic on the same window as the local one.
+	${RCLONE} delete "${BACKUP_REMOTE}/attic" --min-age "${RETENTION}d" || true
+	${RCLONE} rmdirs "${BACKUP_REMOTE}/attic" --leave-root || true
+
+	echo "[backup] uploaded off-server -> ${BACKUP_REMOTE}/${TS} + objects mirror"
 else
 	echo "[backup] WARNING: BACKUP_REMOTE not set — kept LOCAL ONLY at ${WORK} (not off-server)" >&2
 fi
 
-# 7. Prune local staged copies older than the retention window.
-RETENTION="${BACKUP_RETENTION_DAYS:-14}"
+# 7. Prune the dated run directories and the attic. The MIRROR itself is never pruned — it is the backup.
 find /backups -mindepth 1 -maxdepth 1 -type d -name '20*' -mtime "+${RETENTION}" -exec rm -rf {} + 2>/dev/null || true
+find "${ATTIC_DIR}" -mindepth 1 -maxdepth 1 -type d -name '20*' -mtime "+${RETENTION}" -exec rm -rf {} + 2>/dev/null || true
 
 echo "[backup] ${TS} done"

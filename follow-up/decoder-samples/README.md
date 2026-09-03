@@ -24,6 +24,37 @@ Sept fichiers **réels** (téléchargés ou produits ici, jamais des octets bido
 | `photo-couleur-rgb.dcm` | 3×3 pixels de couleur | Brut RGB 8 bits — la branche couleur, qui ne fenêtre rien du tout. |
 | `radio-jpeg-12-bits.dcm` | **« ce format ne s'affiche pas »** | JPEG Extended 12 bits : aucun navigateur ne le décode. C'est le **refus** qui est éprouvé ici, et un décodeur dont on n'essaie jamais les refus est un décodeur à moitié vérifié. |
 
+### Les cinq VRAIS clichés cliniques — commencez par ceux-là
+
+Les cinq ci-dessus éprouvent les *branches* du décodeur ; ceux-ci sont de vraies images de vrais appareils, et
+c'est avec eux qu'on juge si l'aperçu est bon.
+
+| Fichier | Poids | Ce que c'est |
+|---|---|---|
+| **`radiographie-thorax-mono1.dcm`** | 379 Ko | **Le meilleur essai.** Une vraie radiographie (modalité CR — la même famille qu'un cliché dentaire), 440×440, stockée en **MONOCHROME1**, c'est-à-dire inversée. Un décodeur qui oublie l'inversion la rend en négatif — os sombres, air clair — ce qui se lit comme un CONSTAT et non comme un bogue. Elle doit sortir côtes et rachis **clairs**, champs pulmonaires **sombres**. |
+| `coupe-ct-512.dcm` | 513 Ko | Coupe de scanner 512×512, **VR implicite** (l'autre encodage brut), fenêtre 20/400 du fichier. |
+| `irm-cerebrale-256.dcm` | 206 Ko | IRM 256×256 avec sa propre fenêtre. |
+| `etude-16-images.dcm` | 1 Mo | Une étude de **16 images**. Seule la première s'affiche, et le bandeau le dit. |
+| `coupe-jpeg-2000.dcm` | 98 Ko | **JPEG 2000** — aucun navigateur ne le décode. Doit afficher « ce format ne s'affiche pas », ce qui est vrai et n'est pas une panne. C'est le cas réel le plus probable parmi les formats non pris en charge. |
+
+Provenance : jeu de données d'essai du projet **dwv** (`ivmartel/dwv`, GPL, `tests/data`), lui-même agrégeant des
+échantillons publics GDCM / OsiriX / BBMRI. Aucun patient identifiable.
+
+```bash
+BASE=https://github.com/ivmartel/dwv/raw/master/tests/data
+curl -L -o radiographie-thorax-mono1.dcm $BASE/gdcm-CR-MONO1-10-chest.dcm
+curl -L -o coupe-ct-512.dcm              $BASE/dicompyler-ct.0.dcm
+curl -L -o irm-cerebrale-256.dcm         $BASE/bbmri-53323851.dcm
+curl -L -o etude-16-images.dcm           $BASE/multiframe-test1.dcm
+curl -L -o coupe-jpeg-2000.dcm           $BASE/osirix-toutatix-100.dcm
+```
+
+⚠️ **`etude-16-images.dcm` a fait sortir un manque réel**, et c'est pour cela qu'il est dans la liste : sur le
+**chemin rapide** — celui qui peint l'appoint enregistré, donc le chemin ordinaire — rien n'analyse le fichier,
+donc le nombre d'images est réellement inconnu. Le bandeau ne disait donc rien du tout, et un lecteur devant une
+coupe sur seize n'avait aucune raison de soupçonner les quinze autres. Il dit maintenant « si l'étude contient
+plusieurs images, seule la première est affichée » ; quand le décodeur tourne pour de bon, il donne le compte exact.
+
 ⚠️ **Les deux `coupe-*` ont révélé un vrai défaut du produit** : leur préambule DICOM porte le marqueur TIFF
 (la norme laisse ces 128 octets libres, et certains exportateurs y logent l'en-tête d'un autre format pour
 qu'un fichier s'ouvre dans deux logiciels). Le validateur d'envoi demandait « ces octets prétendent-ils être un

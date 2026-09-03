@@ -954,6 +954,42 @@ export async function apiPut<T>(endpoint: string, data: any, accessToken?: strin
   }));
 }
 
+/**
+ * A PUT whose body is **raw bytes** — one chunk of a resumable upload, and nothing else today.
+ *
+ * ⚠️ **Not multipart, and not JSON.** The chunk endpoint reads `Request.Body` straight through to the object
+ * store, so wrapping the slice in a `FormData` would add a boundary parse over bytes that carry no fields, and
+ * base64 in a JSON body would cost a third more of the clinic's uplink. `Content-Length` is then the browser's
+ * own count of the slice, which is what the server checks its arithmetic against.
+ *
+ * ⚠️ `signal` is the **user's** cancellation, and it is combined with the deadline rather than replacing it: an
+ * upload that can be cancelled but not timed out is the frozen-button defect `REQUEST_TIMEOUT_MS` exists for,
+ * one layer along. Where `AbortSignal.any` is missing the deadline is the one that survives, because a hung
+ * transfer is the failure a user cannot get out of on their own.
+ */
+export async function apiPutBinary<T>(
+  endpoint: string,
+  body: Blob,
+  accessToken?: string | null,
+  signal?: AbortSignal,
+): Promise<T> {
+  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'PUT',
+    headers: apiHeaders(token, 'none'),
+    body,
+    credentials: 'include',
+    signal: withDeadline(signal, TRANSFER_TIMEOUT_MS),
+  }));
+}
+
+/** The caller's signal and the deadline as one, degrading to the deadline where `AbortSignal.any` is missing. */
+function withDeadline(signal: AbortSignal | undefined, ms: number): AbortSignal | undefined {
+  const timeout = deadline(ms);
+  if (!signal) return timeout;
+  if (!timeout) return signal;
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 export async function apiDelete<T>(endpoint: string, accessToken?: string | null): Promise<T> {
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'DELETE',

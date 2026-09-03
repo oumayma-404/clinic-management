@@ -27,13 +27,20 @@ public class GetUploadPolicyQuery : IRequest<Result<UploadPolicyDto>>
 public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery, Result<UploadPolicyDto>>
 {
     private readonly IFileResidencyPolicy _residencyPolicy;
+    private readonly ClinicStorageAllowance _storage;
+    private readonly ICurrentClinicResolver _clinicResolver;
 
-    public GetUploadPolicyQueryHandler(IFileResidencyPolicy residencyPolicy)
+    public GetUploadPolicyQueryHandler(
+        IFileResidencyPolicy residencyPolicy,
+        ClinicStorageAllowance storage,
+        ICurrentClinicResolver clinicResolver)
     {
         _residencyPolicy = residencyPolicy;
+        _storage = storage;
+        _clinicResolver = clinicResolver;
     }
 
-    public Task<Result<UploadPolicyDto>> Handle(GetUploadPolicyQuery request, CancellationToken cancellationToken)
+    public async Task<Result<UploadPolicyDto>> Handle(GetUploadPolicyQuery request, CancellationToken cancellationToken)
     {
         var profile = request.Profile is null
             ? FileUploadProfile.PatientFile
@@ -43,10 +50,19 @@ public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery,
         // picker the drawer's policy would offer DICOM as a clinic logo and quote the wrong ceiling.
         if (profile is null)
         {
-            return Task.FromResult(Result<UploadPolicyDto>.Failure("Ce type d'envoi n'existe pas."));
+            return Result<UploadPolicyDto>.Failure("Ce type d'envoi n'existe pas.");
         }
 
         var vaultAvailable = _residencyPolicy.VaultAvailable;
+
+        // ⚠️ A caller with no clinic in scope reads « unbounded » rather than failing the whole policy. This
+        // endpoint is open to a session that has not joined a cabinet yet, and refusing here would take the
+        // picker's accept string and every refusal sentence with it — over a figure that is decoration on that
+        // screen. The server still enforces the quota at the door, where a clinic always exists.
+        var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+        var storage = clinic.IsSuccess
+            ? await _storage.ReadAsync(clinic.Value, cancellationToken)
+            : ClinicStorageUsage.Unbounded;
 
         var dto = new UploadPolicyDto
         {
@@ -60,10 +76,17 @@ public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery,
             DeniedExtensions = FileTypeCatalog.DeniedExtensions.OrderBy(e => e, StringComparer.Ordinal).ToList(),
             VaultAvailable = vaultAvailable,
             VaultUnavailableMessage = FileResidencyRefusals.Unavailable(),
+            // Zero on every door but the patient's drawer — see FileUploadProfile.SupportsResumableUpload.
+            ResumableChunkBytes = profile.SupportsResumableUpload ? FileTypeCatalog.UploadChunkBytes : 0,
+            StorageQuotaBytes = storage.Enforced ? storage.QuotaBytes : 0,
+            StorageUsedBytes = storage.Enforced ? storage.UsedBytes : 0,
+            StorageFullMessage = storage.Enforced
+                ? ClinicStorageRefusals.Full(storage.UsedBytes, storage.QuotaBytes)
+                : string.Empty,
             Formats = profile.Entries.Select(entry => ToFormat(profile, entry, vaultAvailable)).ToList()
         };
 
-        return Task.FromResult(Result<UploadPolicyDto>.Success(dto));
+        return Result<UploadPolicyDto>.Success(dto);
     }
 
     // Where there is no coffre every format reads as always-hosted at the door's own ceiling, so a client written

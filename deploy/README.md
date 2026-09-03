@@ -534,8 +534,38 @@ old key is exactly what is still needed.
 
 ### Backups leave encrypted, and are verified by being decrypted
 
-The nightly dump and the object-store archive are encrypted with `age` **before** rclone touches them, and the
-PITR stream with libsodium. Each run also stamps the **key-ring generation** it belongs to beside the dump, and
+The nightly dump and every stored object are encrypted with `age` **before** rclone touches them, and the
+PITR stream with libsodium.
+
+⚠️ **The object store is an incremental mirror, not a nightly archive** (`large-file-transfer` Part 3). It
+used to be a full `tar czf` of the whole volume every night, encrypted — so nothing deduped between nights —
+and kept `BACKUP_RETENTION_DAYS` (14) times over on the same disk: about **fifteen** copies of every hosted
+byte, plus one more off-site every night for ever. Measured here on 2026-09-03, that left room for roughly 5 Go
+of objects on a 96 Go disk, and a full disk stops every cabinet on the box at once. `mirror-objects.sh` now
+encrypts each object **once** and refreshes only what changed; deletions move into a dated `attic/` so the
+14-day recovery window the archive gave for free is kept. Cost went from ~15× to ~1×.
+
+### What one cabinet may store
+
+`Deployment:StorageQuotaPerClinicBytes` is the per-cabinet ceiling, **10 Go** by default
+(`large-file-transfer` Part 4). Whether there IS a ceiling is not configurable — it is derived from the
+deployment kind, since where the clinic owns the disk there is nobody to protect it from.
+
+⚠️ **It is a ceiling per cabinet, not a reservation, and the sum is yours to watch.** Eight cabinets at the
+default can promise more than this disk holds. The arithmetic, with the Part 3 backup change in place:
+
+| | |
+|---|---|
+| One cabinet at the ceiling | ~10 Go live **+ ~10 Go** in the encrypted mirror ≈ **20 Go** |
+| This VPS today | 96 Go, 78 Go free |
+| So | roughly **three** cabinets at a full 10 Go ceiling, or many more at real usage |
+
+Before selling the fourth, either raise the disk or lower the ceiling. Nothing in the product checks this — the
+deployment does not know how many cabinets it will sell.
+
+⚠️ **A store that reads as empty is refused**, because an unmounted volume looks exactly like one. Without
+that guard the whole mirror would move into the attic and age out two weeks later. `BACKUP_ALLOW_EMPTY_STORE=1`
+is the deliberate override for a deployment whose files really have all gone. Each run also stamps the **key-ring generation** it belongs to beside the dump, and
 `backup/check-keyring.sh` refuses a restore whose generation this ring cannot read — without that, restoring
 against the wrong ring produces a practice whose every second factor is silently undecryptable.
 

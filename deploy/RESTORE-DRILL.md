@@ -58,12 +58,32 @@ that "mostly worked" is the one that teaches the wrong lesson.
 ### 1. Fetch and decrypt
 
 ```bash
+# The dated run holds the database dump, the key-ring stamp and the object manifest — all small.
 rclone copy "${BACKUP_REMOTE}/<timestamp>" ./drill --config ./rclone/rclone.conf
 cd drill
-age --decrypt --identity backup-identity.txt --output db.dump    db-<timestamp>.dump.age
-age --decrypt --identity backup-identity.txt --output minio.tgz  minio-<timestamp>.tar.gz.age
+age --decrypt --identity backup-identity.txt --output db.dump db-<timestamp>.dump.age
 pg_restore --list db.dump | head -20        # ⚠️ non-empty, or STOP: pass condition 1 failed
+
+# The OBJECTS are a mirror, not a dated archive — one `.age` file per stored object, under `objects/`.
+# Fetch it and decrypt each file back into the shape MinIO expects.
+rclone copy "${BACKUP_REMOTE}/objects" ./objects --config ./rclone/rclone.conf
+mkdir -p ./minio-data
+find ./objects -name '*.age' | while read -r ENC; do
+  REL="${ENC#./objects/}"; REL="${REL%.age}"
+  mkdir -p "./minio-data/$(dirname "${REL}")"
+  age --decrypt --identity backup-identity.txt --output "./minio-data/${REL}" "${ENC}"
+done
+
+# ⚠️ Count what you decrypted against the manifest that travelled with the dump. They must agree — a
+# short mirror restores a practice whose records are all present and whose radiographs are silently missing.
+age --decrypt --identity backup-identity.txt --output objects.manifest objects-<timestamp>.manifest.age
+echo "manifest: $(wc -l < objects.manifest)   restored: $(find ./minio-data -type f | wc -l)"
 ```
+
+⚠️ **The mirror is the CURRENT state, not the state at `<timestamp>`.** A file deleted since that dump was
+taken is not in `objects/` — it is in `attic/<the night it went>/`, kept for `BACKUP_RETENTION_DAYS`. If the
+counts above disagree, that is where the difference is, and a point-in-time restore has to pull the missing
+paths from the attic as well.
 
 ### 2. Check the key-ring generation **before** restoring anything
 
@@ -81,7 +101,7 @@ exists to prevent. Restore the matching key ring first (KEY-CUSTODY.md § 1).
 ```bash
 docker compose -f docker-compose.hosted.yml up -d postgres minio
 pg_restore --clean --if-exists --no-owner --dbname "$PGCONN" db.dump
-tar xzf minio.tgz -C /var/lib/docker/volumes/<drill>_minio_data/_data
+cp -a ./minio-data/. /var/lib/docker/volumes/<drill>_minio_data/_data/
 # Restore the key-ring volume from its own separate copy, and the certificate from its own place.
 docker compose -f docker-compose.hosted.yml up -d
 ```
@@ -103,7 +123,8 @@ psql "$PGCONN" -c 'SELECT
 
 ```bash
 docker compose -f docker-compose.hosted.yml down -v
-shred -u backup-identity.txt db.dump minio.tgz
+shred -u backup-identity.txt db.dump objects.manifest
+rm -rf ./objects ./minio-data          # ⚠️ decrypted radiographs — remove the whole tree, not just the dump
 ```
 
 ⚠️ **`down -v` and `shred`, not `down`.** A drill host that keeps a decrypted copy of every practice's medical

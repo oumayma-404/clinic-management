@@ -63,6 +63,19 @@ public static class FileTypeCatalog
     public const long PreviewBytes = 4L * 1024 * 1024;
 
     /// <summary>
+    /// The size of every chunk of a resumable upload but the last.
+    ///
+    /// <para>⚠️ <b>The server fixes it, not the client.</b> It is the unit the resume arithmetic is done in —
+    /// « you have sent N parts, send part N+1 » only means something if both sides agree what a part weighs — so
+    /// a client choosing its own could resume at a boundary the staged parts do not have.</para>
+    ///
+    /// <para>Eight megabytes is a compromise with a slow uplink at both ends: small enough that a dropped
+    /// connection costs at most one chunk (about seven seconds at Tunisia's median 9 Mbps), large enough that a
+    /// 400 Mo study is fifty round trips rather than four hundred.</para>
+    /// </summary>
+    public const long UploadChunkBytes = 8L * 1024 * 1024;
+
+    /// <summary>
     /// How small a hosted original has to be for the preview route to serve <b>it</b> when no stand-in was ever
     /// stored.
     ///
@@ -79,11 +92,41 @@ public static class FileTypeCatalog
     public const long PreviewFallbackBytes = 2L * 1024 * 1024;
 
     /// <summary>
-    /// Above this, imaging and lab archives are filed in the cabinet's coffre instead of hosted. It is
-    /// <see cref="DocumentBytes"/> and not a number of its own: the line already drawn between « a document » and
-    /// « a study » is the same line, and a second constant beside it would be the one to drift.
+    /// Above this, imaging and lab archives are filed in the cabinet's coffre instead of hosted
+    /// (<c>large-file-transfer</c> Part 3).
+    ///
+    /// <para>It was <see cref="DocumentBytes"/> itself, on the reasoning that « a document » and « a study » are
+    /// one line. They are not: that constant is what a Word file or a PDF may weigh, and this one is <b>what the
+    /// hosted deployment can afford to keep</b>. Sharing them meant the second question could only be answered by
+    /// changing the answer to the first.</para>
+    ///
+    /// <para>⚠️ <b>What actually bounds this number is the BACKUP multiplier, not the upload.</b> Sending is
+    /// solved — a study goes up in resumable chunks (Part 2) and comes back down as a stream (Part 1). But
+    /// <c>deploy/backup/backup.sh</c> takes a <b>full</b> <c>tar czf</c> of the whole object store every night,
+    /// <c>age</c>-encrypts it (so nothing dedupes or compresses across nights) and keeps
+    /// <c>BACKUP_RETENTION_DAYS</c> — <b>14</b> — of them on the same disk. Every hosted megabyte therefore costs
+    /// about <b>fifteen</b> on the server, and one more off-site every night, for ever.</para>
+    ///
+    /// <para>Measured on the live VPS (2026-09-03): 96 Go of disk, 78 Go free, 37 Mo of objects. At 15× that
+    /// left roughly <b>5 Go of blobs</b> before the disk filled — and a full disk is not a billing problem, it
+    /// stops every cabinet on the box at once. <b>So the backup was fixed first</b>: the object store is now an
+    /// incremental per-object mirror (<c>deploy/backup/mirror-objects.sh</c>), which costs about <b>one</b> copy
+    /// instead of fifteen, and only that made this number free to move.</para>
+    ///
+    /// <para>It is <see cref="LargeBytes"/> — the study formats' own ceiling — so on a hosted deployment nothing
+    /// a format itself accepts is pushed to the cabinet any more. The coffre keeps the range above it, which is
+    /// where it was always meant to earn its keep: a raw scanner export, not a panoramique.</para>
+    ///
+    /// <para>⚠️ <b>Going past this means raising <see cref="LargeBytes"/>, and that should wait for a quota.</b>
+    /// The 340 Mo CBCT this feature was named for is still above the line. Nothing counts stored bytes per
+    /// clinic yet (Part 4), so the only thing bounding total consumption today is the per-file cap — and with
+    /// the multiplier gone the disk holds tens of gigabytes rather than five, which buys the room to build that
+    /// counter rather than the right to skip it.</para>
     /// </summary>
-    private static readonly ResidencyRule LargeStaysAtTheCabinet = ResidencyRule.HostedUpTo(DocumentBytes);
+    public const long StudyStaysAtTheCabinetAbove = LargeBytes;
+
+    private static readonly ResidencyRule LargeStaysAtTheCabinet =
+        ResidencyRule.HostedUpTo(StudyStaysAtTheCabinetAbove);
 
     private static readonly byte[] Zip = { 0x50, 0x4B, 0x03, 0x04 };
     private static readonly byte[] ZipEmpty = { 0x50, 0x4B, 0x05, 0x06 };

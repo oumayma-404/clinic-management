@@ -4,11 +4,16 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Meta.Queries;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Repositories;
+using Moq;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Features.Meta;
@@ -25,13 +30,36 @@ namespace ClinicManagement.UnitTests.Features.Meta;
 /// </summary>
 public class GetUploadPolicyQueryTests
 {
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-0000-4000-8000-000000000001");
+
     private static GetUploadPolicyQueryHandler Handler(string profile)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Deployment:Profile"] = profile })
             .Build();
 
-        return new GetUploadPolicyQueryHandler(new FileResidencyPolicy(DeploymentProfile.Resolve(configuration)));
+        var deployment = DeploymentProfile.Resolve(configuration);
+
+        // ⚠️ The quota half is stubbed as UNENFORCED by default so every existing case keeps asserting what it
+        // was written to assert. The two cases that are about the quota build their own handler.
+        var storagePolicy = new Mock<IClinicStoragePolicy>();
+        storagePolicy.SetupGet(p => p.Enforced).Returns(false);
+
+        return HandlerWith(deployment, storagePolicy.Object, new Mock<IPatientFileRepository>().Object);
+    }
+
+    private static GetUploadPolicyQueryHandler HandlerWith(
+        DeploymentProfile deployment, IClinicStoragePolicy storagePolicy, IPatientFileRepository files)
+    {
+        var resolver = new Mock<ICurrentClinicResolver>();
+        resolver
+            .Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Guid>.Success(ClinicId));
+
+        return new GetUploadPolicyQueryHandler(
+            new FileResidencyPolicy(deployment),
+            new ClinicStorageAllowance(files, storagePolicy),
+            resolver.Object);
     }
 
     private static async Task<ClinicManagement.Application.DTOs.UploadPolicyDto> Read(
@@ -127,9 +155,36 @@ public class GetUploadPolicyQueryTests
 
         Assert.True(policy.VaultAvailable);
         Assert.Equal("hostedUpTo", dicom.Residency);
-        Assert.Equal(FileTypeCatalog.DocumentBytes, dicom.HostedMaxBytes);
+        // The residency line, named — it used to read `DocumentBytes`, which was the same value for a different
+        // reason and is what let « what a document may weigh » and « what the deployment can keep » be one knob.
+        Assert.Equal(FileTypeCatalog.StudyStaysAtTheCabinetAbove, dicom.HostedMaxBytes);
         Assert.Equal(FileTypeCatalog.VaultBytes, dicom.VaultMaxBytes);
         Assert.NotEmpty(dicom.VaultTooLargeMessage);
+    }
+
+    /// <summary>
+    /// A study the coffre used to swallow is now hosted (`large-file-transfer` Part 3).
+    ///
+    /// <para>⚠️ The case is a 40 Mo panoramique <b>as a TIFF</b>, and it is worth spelling out because the PNG of
+    /// the same radiograph was already hosted — <c>ImageBytes</c> put it there, on the reasoning that what a
+    /// browser can paint is worth hosting. TIFF took the coffre route for being undecodable, and then the browser
+    /// learned to decode it (`clinic-file-decoders`) while the residency line stayed where it was. So the one
+    /// export a clinic actually produces went to a folder openable on exactly one machine.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Forty_Megabyte_Study_Is_Hosted_Rather_Than_Kept_At_The_Cabinet()
+    {
+        var policy = await Read();
+        var fortyMegabytes = 40L * 1024 * 1024;
+
+        foreach (var extension in new[] { "tiff", "dcm", "stl" })
+        {
+            var format = policy.Formats.Single(f => f.Extensions.Contains(extension));
+
+            Assert.True(
+                fortyMegabytes <= format.HostedMaxBytes,
+                $".{extension} at 40 Mo still routes to the coffre (hosted up to {format.HostedMaxBytes} bytes)");
+        }
     }
 
     /// <summary>
@@ -186,6 +241,79 @@ public class GetUploadPolicyQueryTests
         var policy = await Read(profile: null);
 
         Assert.Equal(FileUploadProfile.PatientFile.Name, policy.Profile);
+    }
+
+    /// <summary>
+    /// The chunk size is what the browser compares a file against to decide whether to open a resumable session
+    /// at all, so it has to be the size the chunk endpoint will actually demand — a client that guessed low would
+    /// have every part refused as « the wrong length » and every large upload fail on part one.
+    /// </summary>
+    [Fact]
+    public async Task The_Patient_Drawer_Publishes_The_Chunk_Size_The_Endpoint_Enforces()
+    {
+        var policy = await Read(profile: FileUploadProfile.PatientFile.Name);
+
+        Assert.Equal(FileTypeCatalog.UploadChunkBytes, policy.ResumableChunkBytes);
+    }
+
+    /// <summary>
+    /// Zero everywhere else, and that is the whole signal: the five `…/files/uploads` endpoints hang off the
+    /// patient-file controller alone, so a browser told a cachet could be chunked would open a session against a
+    /// route that does not exist — and « 404 » is not a sentence anyone can act on.
+    /// </summary>
+    [Theory]
+    [InlineData("profile-image")]
+    [InlineData("medical-document-pdf")]
+    [InlineData("csv")]
+    public async Task A_Door_Without_Resumable_Endpoints_Publishes_No_Chunk_Size(string profile)
+    {
+        var policy = await Read(profile: profile);
+
+        Assert.Equal(0L, policy.ResumableChunkBytes);
+    }
+
+    // ── The storage ceiling (Part 4) ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The picker is told where the cabinet stands, so it can refuse a file that will not fit before a byte
+    /// moves — the same contract every other field on this policy answers to.
+    /// </summary>
+    [Fact]
+    public async Task A_Hosted_Cabinet_Is_Told_Its_Ceiling_And_What_It_Has_Used()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Deployment:Profile"] = "HostedMultiTenant" })
+            .Build();
+
+        var files = new Mock<IPatientFileRepository>();
+        files
+            .Setup(r => r.GetHostedBytesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(3L * 1024 * 1024 * 1024);
+
+        var storagePolicy = new Mock<IClinicStoragePolicy>();
+        storagePolicy.SetupGet(p => p.Enforced).Returns(true);
+        storagePolicy.SetupGet(p => p.QuotaBytes).Returns(10L * 1024 * 1024 * 1024);
+
+        var result = await HandlerWith(DeploymentProfile.Resolve(configuration), storagePolicy.Object, files.Object)
+            .Handle(new GetUploadPolicyQuery(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(10L * 1024 * 1024 * 1024, result.Value!.StorageQuotaBytes);
+        Assert.Equal(3L * 1024 * 1024 * 1024, result.Value!.StorageUsedBytes);
+    }
+
+    /// <summary>
+    /// ⚠️ And <b>zero</b> where nothing is enforced, which is the signal itself: a browser reading a quota of 0
+    /// knows there is no ceiling to render, rather than having to infer one from a deployment kind it is not
+    /// told. A figure served there would be a limit this product does not impose on a disk it does not own.
+    /// </summary>
+    [Fact]
+    public async Task A_Cabinet_That_Owns_Its_Disk_Is_Told_Nothing_About_A_Ceiling()
+    {
+        var policy = await Read(deployment: "SelfHostedLan");
+
+        Assert.Equal(0, policy.StorageQuotaBytes);
+        Assert.Equal(0, policy.StorageUsedBytes);
     }
 
     /// <summary>

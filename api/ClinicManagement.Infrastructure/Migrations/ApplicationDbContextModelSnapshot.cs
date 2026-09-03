@@ -1569,6 +1569,76 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("Expenses", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.FileUploadSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ChunkSize")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DeclaredLength")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)");
+
+                    b.Property<Guid?>("FolderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ReceivedBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ReceivedParts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StorageReference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UploadedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("ClinicId", "PatientId");
+
+                    b.ToTable("FileUploadSessions", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Installment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4260,6 +4330,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("RecurringExpenseId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.FileUploadSession", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Installment", b =>

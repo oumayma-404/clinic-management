@@ -36,17 +36,17 @@ public class FileResidencyTests
     [Fact]
     public void At_The_Threshold_Exactly_A_Study_Is_Still_Hosted()
     {
-        var rule = ResidencyRule.HostedUpTo(FileTypeCatalog.DocumentBytes);
+        var rule = ResidencyRule.HostedUpTo(FileTypeCatalog.StudyStaysAtTheCabinetAbove);
 
-        Assert.Equal(FileResidency.Hosted, rule.Decide(FileTypeCatalog.DocumentBytes));
+        Assert.Equal(FileResidency.Hosted, rule.Decide(FileTypeCatalog.StudyStaysAtTheCabinetAbove));
     }
 
     [Fact]
     public void One_Byte_Over_The_Threshold_It_Goes_To_The_Coffre()
     {
-        var rule = ResidencyRule.HostedUpTo(FileTypeCatalog.DocumentBytes);
+        var rule = ResidencyRule.HostedUpTo(FileTypeCatalog.StudyStaysAtTheCabinetAbove);
 
-        Assert.Equal(FileResidency.Vault, rule.Decide(FileTypeCatalog.DocumentBytes + 1));
+        Assert.Equal(FileResidency.Vault, rule.Decide(FileTypeCatalog.StudyStaysAtTheCabinetAbove + 1));
     }
 
     [Fact]
@@ -95,8 +95,8 @@ public class FileResidencyTests
         var dicom = FileTypeCatalog.TryGet("dcm")!;
 
         Assert.True(policy.VaultAvailable);
-        Assert.Equal(FileResidency.Hosted, policy.Decide(dicom, FileTypeCatalog.DocumentBytes));
-        Assert.Equal(FileResidency.Vault, policy.Decide(dicom, FileTypeCatalog.DocumentBytes + 1));
+        Assert.Equal(FileResidency.Hosted, policy.Decide(dicom, FileTypeCatalog.StudyStaysAtTheCabinetAbove));
+        Assert.Equal(FileResidency.Vault, policy.Decide(dicom, FileTypeCatalog.StudyStaysAtTheCabinetAbove + 1));
     }
 
     /// <summary>
@@ -124,7 +124,7 @@ public class FileResidencyTests
         var policy = PolicyFor("HostedMultiTenant");
         var tiff = FileTypeCatalog.TryGet("tiff")!;
 
-        Assert.Equal(FileResidency.Vault, policy.Decide(tiff, FileTypeCatalog.DocumentBytes + 1));
+        Assert.Equal(FileResidency.Vault, policy.Decide(tiff, FileTypeCatalog.StudyStaysAtTheCabinetAbove + 1));
     }
 
     // ── The path, which both sides derive and neither stores ──────────────────────────────────────────────
@@ -147,5 +147,33 @@ public class FileResidencyTests
 
         Assert.ThrowsAny<Exception>(() => VaultPath.For(Guid.Empty, id, ".dcm"));
         Assert.ThrowsAny<Exception>(() => VaultPath.For(id, Guid.Empty, ".dcm"));
+    }
+
+    /// <summary>
+    /// The coffre line and the document cap are two questions, and this is what keeps them two.
+    ///
+    /// <para>⚠️ They held one value for a long time — <c>HostedUpTo(DocumentBytes)</c> — on the reasoning that
+    /// « a document » and « a study » are the same line. They are not: <c>DocumentBytes</c> is what a PDF or a
+    /// Word file may weigh, while the residency line is <b>what the hosted deployment can afford to keep</b>, and
+    /// what bounds that is the nightly backup rather than anything about the file. While the two were one
+    /// constant the second question could only be answered by changing the answer to the first.</para>
+    ///
+    /// <para>This asserts the <b>shape</b>, not the values: they are free to be equal, as they are today. What it
+    /// refuses is the residency rule going back to reading the document cap, which is why it names each of them
+    /// where it means them and why every case above was re-pointed at the residency constant.</para>
+    /// </summary>
+    [Fact]
+    public void The_Coffre_Line_Is_Its_Own_Number_And_Not_The_Document_Cap()
+    {
+        var dicom = FileTypeCatalog.TryGet("dcm")!;
+
+        // A study format's line is the residency constant — whatever that constant is set to.
+        Assert.Equal(ResidencyKind.HostedUpTo, dicom.Residency.Kind);
+        Assert.Equal(FileTypeCatalog.StudyStaysAtTheCabinetAbove, dicom.Residency.HostedMaxBytes);
+
+        // And a document format has no coffre route at all, so the document cap cannot be a residency line.
+        var pdf = FileTypeCatalog.TryGet("pdf")!;
+        Assert.Equal(ResidencyKind.AlwaysHosted, pdf.Residency.Kind);
+        Assert.Equal(FileTypeCatalog.DocumentBytes, pdf.MaxBytes);
     }
 }

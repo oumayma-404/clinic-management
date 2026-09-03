@@ -1057,6 +1057,110 @@ check(
   },
 );
 
+check(
+  "plan-step-travels-with-the-act",
+  "N16",
+  "A booked devis STEP reaches the wire and survives a re-save, everywhere the act does",
+  "A séance of a multi-step act carries `treatmentPlanItemStepId` beside `treatmentPlanItemId`, and the " +
+    "server keys its duplicate rules on the PAIR. Two consequences, both silent. (1) A payload built without " +
+    "the step sends « préparation » and « empreinte » as the same act twice, which the server refuses outright " +
+    "— the feature rejected by its own client, on the one booking it exists for. (2) `SetProcedures` replaces " +
+    "the whole list, so a hydration that drops the step makes the NEXT save of that visit — rescheduling it, " +
+    "editing its note, anything — quietly forget which step the séance was for; the fiche then advances the " +
+    "act's next pending step instead, marking the wrong one réalisé. This is `agreed-cost-reaches-the-fiche`'s " +
+    "trap one field along, and it fails the same way: no error, plausible screens, wrong record.",
+  () => {
+    const offenders = [];
+
+    // Half one: the single payload builder must emit the field. Every booking dialog goes through it precisely
+    // so this is one fact in one place.
+    const pickerLines = read("components/appointment-acts-picker.tsx").split(/\r?\n/);
+    const pickerMask = commentMask(pickerLines);
+    const picker = pickerLines.map((l, i) => (pickerMask[i] ? "" : l)).join("\n");
+    const builder = /export function toProcedurePayloads\([^)]*\)[^{]*\{[\s\S]*?\n\}/.exec(picker);
+    if (!builder) {
+      offenders.push({
+        file: "components/appointment-acts-picker.tsx",
+        text: "toProcedurePayloads not found — the guard cannot check the payload builder and must not pass",
+      });
+    } else if (!/treatmentPlanItemStepId/.test(builder[0])) {
+      offenders.push({
+        file: "components/appointment-acts-picker.tsx",
+        text:
+          "toProcedurePayloads does not send treatmentPlanItemStepId — two steps of one act will be refused " +
+          "as the same act twice",
+      });
+    }
+
+    /*
+     * Half two: every site that rebuilds a `SelectedAct` from a stored appointment row must carry the step.
+     * Derived from the hydration idiom itself (`treatmentPlanItemId: <row>.treatmentPlanItemId`) rather than
+     * from a list of files, so a third booking surface is covered the day it is written.
+     */
+    /*
+     * The trigger is a `SelectedAct` being built, marked by `planLabel` — the one field only that type has.
+     * An earlier version matched `treatmentPlanItemId: <x>.treatmentPlanItemId` alone and fired on
+     * `lib/api/appointments.ts`'s CREATE payload, where the plan link is a REQUEST-level scalar and there is
+     * deliberately no step twin (the single-act shorthand books a whole act, never one step of one). Keying on
+     * the marker keeps the guard on the rows that get re-sent through `SetProcedures`, which is where dropping
+     * the step actually costs something.
+     */
+    const HYDRATE = /planLabel:/;
+    const NAMES_THE_TYPE = /\bSelectedAct\b/;
+    for (const f of tsx()) {
+      const src = read(f);
+      /*
+       * Scoped to files that NAME the type, not to a list of filenames — `planLabel` alone is not unique
+       * (`lib/api/subscription.ts` has one, about a subscription plan) and an exemption for that file would be
+       * an allow-list, i.e. a check that has begun to stop working. A third booking surface imports
+       * `SelectedAct` like the two that exist, so it is covered the day it is written.
+       */
+      if (!NAMES_THE_TYPE.test(src)) continue;
+      if (!HYDRATE.test(src)) continue;
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      lines.forEach((l, i) => {
+        if (masked[i] || !HYDRATE.test(l)) return;
+        /*
+         * The window is generous — these object literals run to twenty lines because each field carries the
+         * note explaining why it is sent, and the step may sit either side of the marker. A tight window
+         * reported all three real sites as offenders, which is the failure mode that gets a check deleted
+         * rather than a defect fixed.
+         */
+        if (!/treatmentPlanItemStepId/.test(lines.slice(Math.max(0, i - 10), i + 24).join("\n"))) {
+          offenders.push({
+            file: f,
+            line: i + 1,
+            text:
+              "a SelectedAct is built without deciding treatmentPlanItemStepId — the next save of that visit " +
+              "drops which step it was for. Pass the row's step, or an explicit null where there is none.",
+          });
+        }
+      });
+    }
+
+    // Tripwire: no candidates at all means the idiom changed, not that the product is clean.
+    if (!offenders.length) {
+      const hydrationSites = tsx().filter(
+        (f) => {
+          const src = read(f);
+          return NAMES_THE_TYPE.test(src) && HYDRATE.test(src);
+        },
+      ).length;
+      if (hydrationSites < 1) {
+        offenders.push({
+          file: "components/",
+          text:
+            "found no SelectedAct construction site — the scan is broken, and a guard that matches nothing " +
+            "cannot hold anything",
+        });
+      }
+    }
+
+    return offenders;
+  },
+);
+
 /**
  * The text of the JSX opening tag beginning at `i`, plus the index just past its `>`.
  *
@@ -1105,9 +1209,19 @@ check(
         const line = lineAt(src, m.index);
         if (inComment[line - 1]) continue;
         const [tag, end] = openingTag(src, m.index);
-        // The `_LG` hinge is the fix, so only the plain one is judged. `\b` after TABLE_ONLY is what keeps
-        // `{TABLE_ONLY_LG}` out of this check rather than a negative lookahead that would also skip it.
-        if (!/containerClassName=\{TABLE_ONLY\}/.test(tag)) continue;
+        // The `_LG` hinge is the fix, so only the plain one is judged, and `\b` is what keeps
+        // `TABLE_ONLY_LG` out rather than a negative lookahead that would also skip it.
+        /*
+         * ⚠️ It matches the TEMPLATE-LITERAL form too, and that omission made this check silently blind on the
+         * surface it mattered most. It required `containerClassName={TABLE_ONLY}` exactly, while
+         * `plan-workspace.tsx` — the devis workspace — interpolates it to add the card's own border, so BOTH
+         * its tables were skipped. Measured at 820x1024 the actes table rendered 679 px into a 450 px box,
+         * hiding 229 of them: the Etat badge clipped and the whole ACTION column — which is where « Planifier
+         * l'etape » lives — off screen, on the tablet this product is used on most. Found by looking at the
+         * page, not by the check whose entire job it was, which is the failure mode section 14 names: a
+         * too-tight check is noisy and you notice, a too-loose one is indistinguishable from passing.
+         */
+        if (!/containerClassName=\{`?\$?\{?TABLE_ONLY\b/.test(tag)) continue;
         const close = src.indexOf("</Table>", end);
         const body = close === -1 ? src.slice(end) : src.slice(end, close);
         // `<TableHead\b` cannot match `<TableHeader`: between "d" and "e" there is no word boundary.
@@ -1221,6 +1335,109 @@ check(
     }
 
     return hits;
+  }
+);
+
+check(
+  "monochrome1-has-one-owner",
+  "P1",
+  "Exactly one file decides what `MONOCHROME1` means",
+  "A DICOM's `PhotometricInterpretation` says which end of the stored scale is bright, and `MONOCHROME1` runs " +
+    "the opposite way from everything else. Get it wrong and a radiograph renders as a photographic negative of " +
+    "itself — bone dark, air bright — which is not an error anywhere: it looks like a real image, and it reads " +
+    "as a FINDING to anyone who does not know the file's own tag. Apply it twice and you are back to the " +
+    "original, which is correct-looking and wrong beside every MONOCHROME2 file in the same drawer. " +
+    "The flag is therefore decided once, in `lib/files/dicom/study.ts`, and applied once, inside " +
+    "`lib/files/dicom/window.ts`'s unexported lookup-table builder (module privacy holds that half). This " +
+    "check holds the first half: a second file comparing the literal is a second answer to the question. It is " +
+    "also this repo's dominant defect shape — a correct rule wired to one call site — and the DICOM decoder " +
+    "already lived through it once, when the flattened preview owned the whole pixel pipeline and the " +
+    "interactive viewer needed the same bytes unwindowed. Prose mentioning the tag is fine; only a real string " +
+    "literal counts, because only a comparison can disagree.",
+  () => {
+    // Derived, not listed: whichever file holds it, there must be exactly one — and the message names it, so a
+    // deliberate move needs no edit here.
+    const owners = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const hits = [...src.matchAll(/["']MONOCHROME1["']/g)];
+      if (hits.length > 0) owners.push({ file, src, at: hits[0].index });
+    }
+
+    if (owners.length === 0) {
+      return [{ file: "lib/files/dicom/study.ts", text: "nothing compares against a MONOCHROME1 literal any more — the inversion is gone, or the check needs retargeting" }];
+    }
+    if (owners.length === 1) return [];
+
+    return owners.map((owner) => ({
+      file: rel(owner.file),
+      line: lineAt(owner.src, owner.at),
+      text: `"MONOCHROME1" is compared in ${owners.length} files`,
+      full: `the photometric inversion must be decided in ONE place — also compared in ${owners.filter((o) => o !== owner).map((o) => rel(o.file)).join(", ")}`,
+    }));
+  }
+);
+
+check(
+  "webgl-context-is-given-back",
+  "P1",
+  "Every WebGL renderer this build creates is destroyed with `forceContextLoss`",
+  "A browser allows only a small number of live WebGL contexts — sixteen in Chrome — and when the next one is " +
+    "asked for, the OLDEST is killed to make room. That is not an error anywhere: the victim is an " +
+    "already-open viewer somewhere else on the page, which simply goes black. `renderer.dispose()` does NOT " +
+    "release the context; it stays live until garbage collection, which is exactly the non-determinism this " +
+    "must not have. `forceContextLoss()` is the only call that hands it back immediately. It matters most " +
+    "where it is least visible: `lib/files/mesh/thumbnail.ts` builds one renderer PER FILE on the way up, so a " +
+    "dentist dropping a dozen models onto the upload zone reaches the limit inside one gesture.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const created = [...src.matchAll(/new\s+(?:THREE\.)?WebGLRenderer\s*\(/g)];
+      if (created.length === 0) continue;
+      // ⚠️ Comments stripped before the presence test. Without this, commenting the call OUT still leaves the
+      // text in the file and the check reports green over the exact edit it exists to catch — which is how the
+      // first red-proof of this rule passed when it should have failed.
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*/g, "$1");
+      if (/forceContextLoss\s*\(/.test(code)) continue;
+      hits.push({
+        file: rel(file),
+        line: lineAt(src, created[0].index),
+        text: "creates a WebGLRenderer and never calls forceContextLoss()",
+        full: "dispose() alone leaves the context live until garbage collection; the 17th context kills the oldest, blanking an already-open viewer with no error",
+      });
+    }
+    return hits;
+  }
+);
+
+check(
+  "mesh-scene-has-one-owner",
+  "P2",
+  "Exactly one file decides how a 3D model is lit and coloured",
+  "Two things draw these files: the interactive viewer, and the still frame `lib/files/mesh/thumbnail.ts` " +
+    "renders on the way up so a drawer of `.stl` shows the arches rather than grey boxes. If each built its " +
+    "own scene, a tile and the viewer it opens would light the same model differently — which reads as the " +
+    "FILE having changed, not as two code paths disagreeing, and there is no error to find. This is the same " +
+    "shape `monochrome1-has-one-owner` holds for DICOM, and this repo's dominant defect: a correct answer " +
+    "wired to one call site. Prose is fine; only a real `new THREE.Scene()` counts, because only a second " +
+    "construction can disagree.",
+  () => {
+    const owners = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const hits = [...src.matchAll(/new\s+(?:THREE\.)?Scene\s*\(/g)];
+      if (hits.length > 0) owners.push({ file, src, at: hits[0].index });
+    }
+
+    if (owners.length <= 1) return [];
+
+    return owners.map((owner) => ({
+      file: rel(owner.file),
+      line: lineAt(owner.src, owner.at),
+      text: `a three.js Scene is constructed in ${owners.length} files`,
+      full: `how a model is lit belongs in lib/files/mesh/scene.ts alone — also built in ${owners.filter((o) => o !== owner).map((o) => rel(o.file)).join(", ")}`,
+    }));
   }
 );
 

@@ -97,9 +97,18 @@ export function formatFileSize(bytes: number | null | undefined): string {
   if (!Number.isFinite(value) || value < 0) return "0 o";
   if (value < 1024) return `${Math.round(value)} o`;
 
-  const unit = value < 1024 * 1024 ? "Ko" : "Mo";
-  const scaled = value < 1024 * 1024 ? value / 1024 : value / (1024 * 1024);
-  return `${new Intl.NumberFormat("fr-TN", { maximumFractionDigits: 1 }).format(scaled)} ${unit}`;
+  // ⚠️ **The gigabyte step is not decoration, and its absence was a real defect.** Every *file* this product
+  // accepts is under 150 Mo, so stopping at « Mo » was right for years — until a per-clinic storage **quota**
+  // gave the app a figure in the tens of gigabytes to show. The line above the drop zone then read
+  // « 9,1 Mo sur 10 240 Mo » while the server's own refusal sentence said « 10,0 Go »: one number, two units,
+  // on two screens a user meets minutes apart.
+  const steps = [
+    { limit: 1024 * 1024, unit: "Ko", divisor: 1024 },
+    { limit: 1024 * 1024 * 1024, unit: "Mo", divisor: 1024 * 1024 },
+    { limit: Infinity, unit: "Go", divisor: 1024 * 1024 * 1024 },
+  ];
+  const step = steps.find((candidate) => value < candidate.limit)!;
+  return `${new Intl.NumberFormat("fr-TN", { maximumFractionDigits: 1 }).format(value / step.divisor)} ${step.unit}`;
 }
 
 /**

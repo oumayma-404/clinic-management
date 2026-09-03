@@ -209,6 +209,143 @@ public class PatientFilesController : ApiControllerBase
         return CreatedAtAction(nameof(GetFiles), new { patientId }, result.Value);
     }
 
+    // ── Resumable upload (large-file-transfer Part 2) ──────────────────────────────────────────
+
+    /// <summary>
+    /// Opens an upload. ⚠️ <b>No <c>[RequestSizeLimit]</c> sized from the file</b> — the file is not here. What
+    /// crosses the wire is a name and a length, which is precisely what lets this refuse a 200 Mo upload of a
+    /// format the deployment does not take before the clinic spends a minute sending it.
+    /// </summary>
+    [HttpPost("uploads")]
+    public async Task<ActionResult<Application.Features.Files.Commands.FileUploadSessionDto>> StartUpload(
+        Guid patientId,
+        [FromBody] Models.StartFileUploadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var command = new Application.Features.Files.Commands.StartFileUploadCommand
+        {
+            PatientId = patientId,
+            FileName = request.FileName,
+            FileSize = request.FileSize,
+            FolderId = request.FolderId,
+            Description = request.Description,
+            UploadedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")
+        };
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Where an upload got to — the read that makes resuming possible. A browser that was interrupted knows what
+    /// it was sending and nothing about what arrived.
+    /// </summary>
+    [HttpGet("uploads/{uploadId}")]
+    public async Task<ActionResult<Application.Features.Files.Commands.FileUploadSessionDto>> GetUpload(
+        Guid patientId,
+        Guid uploadId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new Application.Features.Files.Queries.GetFileUploadQuery { PatientId = patientId, UploadId = uploadId },
+            cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// One chunk, as a <b>raw body</b> rather than a multipart part.
+    ///
+    /// <para>⚠️ <c>Request.Body</c> is read directly and streamed to the store: buffering it would put one chunk
+    /// per concurrent upload in the server's memory for no benefit, and multipart framing would add a parse over
+    /// bytes that carry no fields. <c>Content-Length</c> is the framework's own count of what it received, never
+    /// a client header this code trusts — and the handler refuses a part whose length is not the one the session's
+    /// arithmetic expects.</para>
+    ///
+    /// <para>⚠️ The limit is one chunk plus a margin, not the file: a body larger than a chunk is not a large
+    /// upload, it is a client that has stopped following the protocol.</para>
+    /// </summary>
+    [HttpPut("uploads/{uploadId}/chunks/{partNumber:int}")]
+    [RequestSizeLimit(FileTypeCatalog.UploadChunkBytes + (64 * 1024))]
+    public async Task<ActionResult<Application.Features.Files.Commands.FileUploadSessionDto>> UploadChunk(
+        Guid patientId,
+        Guid uploadId,
+        int partNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var length = Request.ContentLength;
+        if (length is null or <= 0)
+        {
+            return Failure("Le morceau est vide.");
+        }
+
+        var command = new Application.Features.Files.Commands.UploadFileChunkCommand
+        {
+            PatientId = patientId,
+            UploadId = uploadId,
+            PartNumber = partNumber,
+            Length = length.Value,
+            Content = Request.Body
+        };
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Assembles the parts and records the file. ⚠️ Sized for the <b>preview</b> alone, on the coffre door's
+    /// reasoning: the original is already staged, so the only thing crossing the wire here is a small image, and
+    /// the headroom is what lets the handler drop an oversized one rather than Kestrel 413 the whole request and
+    /// lose an upload that is entirely present.
+    /// </summary>
+    [HttpPost("uploads/{uploadId}/complete")]
+    [RequestSizeLimit(2 * FileTypeCatalog.PreviewBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 2 * FileTypeCatalog.PreviewBytes)]
+    public async Task<ActionResult<Application.DTOs.PatientFileDto>> CompleteUpload(
+        Guid patientId,
+        Guid uploadId,
+        [FromForm] Models.CompleteFileUploadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var command = new Application.Features.Files.Commands.CompleteFileUploadCommand
+        {
+            PatientId = patientId,
+            UploadId = uploadId,
+            PreviewStream = request.Preview?.OpenReadStream(),
+            PreviewFileName = request.Preview?.FileName,
+            PreviewSize = request.Preview?.Length ?? 0
+        };
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return CreatedAtAction(nameof(GetFiles), new { patientId }, result.Value);
+    }
+
+    /// <summary>Gives up an upload and releases its parts. An upload already gone answers success.</summary>
+    [HttpDelete("uploads/{uploadId}")]
+    public async Task<IActionResult> AbandonUpload(
+        Guid patientId,
+        Guid uploadId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new Application.Features.Files.Commands.AbandonFileUploadCommand
+            {
+                PatientId = patientId,
+                UploadId = uploadId
+            },
+            cancellationToken);
+
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
+    }
+
     /// <summary>
     /// The stand-in image for a coffre original. Served <b>inline</b> — unlike a download, this is a derived
     /// thumbnail the app renders itself, and it is a raster the catalog validated on the way in.

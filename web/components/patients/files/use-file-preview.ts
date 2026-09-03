@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { patientFilesApi } from "@/lib/api/patient-files"
-import { DICOM_ADVISORY, decodeForViewing, decoderFor, decodesToImage, type ArchiveListing } from "@/lib/files/decoders"
+import {
+  DICOM_ADVISORY,
+  decodeForViewing,
+  decoderFor,
+  decodesToImage,
+  decodesWithoutAsking,
+  type ArchiveListing,
+} from "@/lib/files/decoders"
 import { findVerifiedInVault } from "@/lib/vault/path"
 import { showErrorToast } from "@/lib/errors"
 import type { UploadPolicy } from "@/lib/api/upload-policy"
@@ -23,8 +30,15 @@ import { previewMode } from "./file-kind"
  * asking the server for it can only fail; it is read from the paired folder instead, and on a machine with no
  * copy the dialog says where it is rather than reporting a failure.</p>
  *
- * <p>⚠️ **A format with no decoder never fetches anything.** The gate is `previewMode`, so a 150 Mo STL is not
+ * <p>⚠️ **A format with no decoder never fetches anything.** The gate is `previewMode`, so a `.docx` is not
  * pulled across a clinic's uplink to discover that nothing can paint it.</p>
+ *
+ * <p>⚠️ **And a format that HAS a decoder still may not fetch, if it has a viewer of its own.** STL, PLY, OBJ
+ * and DICOM can all be turned into a still picture now, but doing it automatically means spending the whole
+ * download for every file somebody arrows past — so above `AUTO_DECODE_MAX_BYTES` the dialog stops at
+ * « viewer-only » and lets the « Visionneuse » button fetch the bytes deliberately. This used to read « a
+ * 150 Mo STL is not pulled across a clinic's uplink to discover that nothing can paint it »; something can
+ * paint it now, and the bandwidth argument survived the reason for it.</p>
  *
  * <p>⚠️ **A file that needs a decoder shows its stored stand-in FIRST, and this is not an optimisation — it
  * is the difference between usable and not.** Measured in Chrome on a 51 Mpx HEIF: libheif takes **11 seconds**
@@ -66,6 +80,12 @@ export type PreviewUnavailable =
   | "elsewhere"
   /** The bytes are here and nothing in this build can turn them into something to look at. */
   | "undecodable"
+  /**
+   * Something CAN show it, but not for free and not unasked: a large model or study with no stored stand-in,
+   * whose own viewer is one tap away. ⚠️ Distinct from `undecodable` because the action is opposite — « open
+   * the viewer », not « download it and use another program ».
+   */
+  | "viewer-only"
 
 export interface FilePreview {
   file: PatientFileDto | null
@@ -88,6 +108,16 @@ export interface FilePreview {
    * decoded on request. Null whenever there is nothing better to offer.
    */
   showFullResolution: (() => void) | null
+  /**
+   * The open file's own bytes, from wherever they actually are — null meaning « not on this machine ».
+   *
+   * ⚠️ **Exposed so a richer viewer can have the original without a second copy of the residency rule.** The
+   * DICOM study viewer needs the whole file, and the fast path deliberately never downloads it, so there is
+   * nothing to hand over — but a caller fetching it itself would be a second place deciding that a coffre
+   * original is read from disk and a hosted one from the server. It is also why the viewer does not take a
+   * `vault` prop: the handle stays here, where it already was.
+   */
+  loadSource: () => Promise<Blob | null>
   files: PatientFileDto[]
   /** 1-based across the whole set, 0 when the open file is not in the sequence. */
   position: number
@@ -252,6 +282,15 @@ export function useFilePreview(
             }
           }
 
+          // ⚠️ Reached with no stand-in in hand — either the file has none, or fetching it failed. A large
+          // model or study is NOT downloaded here just to make a still picture: its own viewer is one tap away
+          // and will fetch the same bytes on purpose. See `decodesWithoutAsking`.
+          if (!decodesWithoutAsking(target.fileName, target.fileSize)) {
+            setUnavailable("viewer-only")
+            setRender("none")
+            return
+          }
+
           await decodeOriginal(target, token)
         } catch (error) {
           if (token !== requestId.current) return
@@ -291,6 +330,11 @@ export function useFilePreview(
     })()
   }, [standingIn, decodeOriginal])
 
+  const loadSource = useCallback(async () => {
+    if (!file) return null
+    return sourceBytes(patientId, file, vaultRef.current ?? null)
+  }, [patientId, file])
+
   const step = useCallback(
     (delta: -1 | 1) => {
       const current = seq.current
@@ -322,6 +366,7 @@ export function useFilePreview(
     loading,
     stage,
     showFullResolution: standingIn ? showFullResolution : null,
+    loadSource,
     files,
     position: index < 0 ? 0 : (sequence?.offset ?? 0) + index + 1,
     total: sequence?.total ?? files.length,

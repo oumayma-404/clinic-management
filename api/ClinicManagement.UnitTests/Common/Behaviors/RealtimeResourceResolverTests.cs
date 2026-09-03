@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Behaviors;
 using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Backup.Commands;
+using ClinicManagement.Application.Features.Files.Commands;
 using MediatR;
 using Xunit;
 
@@ -203,4 +204,55 @@ public class RealtimeResourceResolverTests
     [Fact]
     public void Resolve_Returns_Null_For_Query()
         => Assert.Null(RealtimeResourceResolver.Resolve(typeof(GetAppointmentsQuery)));
+
+    // ---- IDoesNotBroadcast -------------------------------------------------------
+
+    /// <summary>
+    /// A step of a resumable upload changes nothing anybody renders, and the file list is what proves it: sending
+    /// one 29,8 Mo file in four parts made every open tablet in the practice refetch the drawer four times before
+    /// the file existed. A 300 Mo study is 38 of them, and not one is visible as an error.
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(StartFileUploadCommand))]
+    [InlineData(typeof(UploadFileChunkCommand))]
+    [InlineData(typeof(AbandonFileUploadCommand))]
+    public void An_Upload_Step_Emits_Nothing(Type command)
+        => Assert.Null(RealtimeResourceResolver.Resolve(command));
+
+    /// <summary>
+    /// ⚠️ And the completion still does — the direction that matters, and the one silence would break. A marker on
+    /// all four would leave a file appearing on the uploader's screen and on nobody else's until they reloaded,
+    /// which is precisely the defect the realtime bus exists to prevent.
+    /// </summary>
+    [Fact]
+    public void Finishing_An_Upload_Still_Announces_The_File()
+        => Assert.Equal("files", RealtimeResourceResolver.Resolve(typeof(CompleteFileUploadCommand)));
+
+    /// <summary>
+    /// Every marked command sits in an area that otherwise broadcasts.
+    ///
+    /// <para>⚠️ Derived, not a list: it reflects over the whole assembly, so a marker added tomorrow is covered.
+    /// What it catches is a marker that does <b>nothing</b> — on a command in <c>Auth</c>, <c>Backup</c> or any
+    /// other excluded area the interface is already redundant, and a redundant marker reads to the next author as
+    /// a live one, teaching that this is how you keep an area quiet.</para>
+    /// </summary>
+    [Fact]
+    public void A_Marker_Is_Only_Worn_Where_It_Changes_Something()
+    {
+        var pointless = typeof(RealtimeResourceResolver).Assembly
+            .GetTypes()
+            .Where(t => t is { IsClass: true, IsAbstract: false }
+                        && typeof(IBaseRequest).IsAssignableFrom(t)
+                        && typeof(IDoesNotBroadcast).IsAssignableFrom(t))
+            // The area's own answer, with the marker's veto set aside: an area that would have emitted nothing
+            // anyway is one where wearing the marker states something untrue.
+            .Where(t => RealtimeResourceResolver.AreaKeyOf(t) is null)
+            .Select(t => t.FullName)
+            .ToList();
+
+        Assert.True(
+            pointless.Count == 0,
+            "IDoesNotBroadcast has no effect on these — their area already emits nothing, so the marker says "
+            + "something that is not true of it:\n  " + string.Join("\n  ", pointless));
+    }
 }
