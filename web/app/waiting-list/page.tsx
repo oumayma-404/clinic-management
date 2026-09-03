@@ -2,13 +2,16 @@
 
 import type React from "react"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
+import { formatDuration } from "@/lib/dashboard/day-summary"
+import { todayLocalIso } from "@/lib/format"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
@@ -179,6 +182,49 @@ export default function WaitingListPage() {
     if (match) return `${match.firstName} ${match.lastName}`.trim()
     return editingEntry?.patientId === patientId ? (editingEntry?.patientName ?? "") : ""
   })()
+
+  /*
+   * The free stretch the dashboard's day ribbon sent us here to fill, or null when somebody simply opened the
+   * page. « Plages libres à combler » on the ribbon links here with the slot in the query string; this reads it
+   * and « Promouvoir » then opens the booking at that hour instead of at whatever the dialog would have
+   * defaulted to. Both halves already existed and nothing joined them.
+   *
+   * ⚠️ Read ONCE, through `useUrlFilterSeed`, and then held in state — so « Ignorer ce créneau » can drop it
+   * without a navigation, and so a realtime refresh cannot resurrect it. `useUrlFilters` is the write-only
+   * twin: a screen that mounts it has to seed the same keys itself or it manufactures links it discards.
+   *
+   * ⚠️ Every field is validated before it is believed. This is a URL: somebody can hand-edit it, and an
+   * unchecked `slotTime` would travel straight into the booking form's time field.
+   */
+  const seed = useUrlFilterSeed()
+  const [slot, setSlot] = useState<{ date: string; time: string; minutes: number } | null>(() => {
+    const date = seed.get("slotDate")
+    const time = seed.get("slotTime")
+    const minutes = Number(seed.get("slotMinutes"))
+    if (!date || !time) return null
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null
+    if (!Number.isFinite(minutes) || minutes <= 0) return null
+    return { date, time, minutes }
+  })
+
+  /*
+   * The slot as one local instant — **date AND time in a single `Date`, which is the dialog's actual contract**.
+   *
+   * ⚠️ `create-appointment-dialog` reads the clock off `defaultDate` when it is present and only falls back to
+   * `defaultTime` when it is absent (« extract from defaultDate if available, otherwise use defaultTime »). So
+   * passing both — a local midnight plus « 13:00 » — silently books **00:00**: the date wins, and its own hours
+   * are zero. Measured exactly that way before this was written. One prop, carrying both halves.
+   *
+   * Built from parts rather than parsed from a string: `new Date("2026-09-03")` is UTC midnight, which in
+   * Tunisia (UTC+1) is the 3rd at 01:00 — the same class of bug as `toISOString().slice(0, 10)`, one step
+   * further down the pipeline.
+   */
+  const slotDefaultDate = useMemo(() => {
+    if (!slot) return undefined
+    const [year, month, day] = slot.date.split("-").map(Number)
+    const [hour, minute] = slot.time.split(":").map(Number)
+    return new Date(year, month - 1, day, hour, minute)
+  }, [slot])
 
   // Per-row promote state (disable the button while in flight).
   const [promotingId, setPromotingId] = useState<string | null>(null)
@@ -436,6 +482,32 @@ export default function WaitingListPage() {
             </Button>
           }
         />
+
+        {/*
+          Names the slot rather than merely signalling that one exists: « 1 h 45 disponible » is what decides
+          whether the patient with a couronne fits or only the détartrage does. The duration is rendered with the
+          ribbon's own `formatDuration`, so the chip that was tapped and the banner that answers it cannot
+          disagree about the same gap.
+        */}
+        {slot && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-foreground/25 bg-muted/40 p-4">
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                Créneau libre{" "}
+                {slot.date === todayLocalIso()
+                  ? "aujourd'hui"
+                  : `le ${format(slotDefaultDate ?? new Date(), "EEEE d MMMM", { locale: fr })}`}{" "}
+                à {slot.time} — {formatDuration(slot.minutes)} disponible.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                « Promouvoir » ouvrira le rendez-vous à cette heure-là, avec le patient déjà sélectionné.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setSlot(null)}>
+              Ignorer ce créneau
+            </Button>
+          </div>
+        )}
 
         {/* Waiting list table */}
         <Card>
@@ -818,6 +890,11 @@ export default function WaitingListPage() {
           if (!open) setPromoteBookEntry(null)
         }}
         defaultPatientId={promoteBookEntry?.patientId}
+        /* The slot, when we were sent here to fill one — one instant, see `slotDefaultDate`; passing
+           `defaultTime` beside it would be ignored. Deliberately NOT `defaultDurationMinutes`: a 2 h hole is
+           room, not an appointment length, and defaulting it would make every use start by shortening the
+           field. The banner states the room; the dialog keeps its own 30-minute default. */
+        defaultDate={slotDefaultDate}
         onCreated={handlePromoteBooked}
         />
         {/* Remove confirmation */}

@@ -13,6 +13,7 @@ import {
   type DaySummary,
 } from "@/lib/dashboard/day-summary"
 import { appointmentActsSummary } from "@/components/appointment-labels"
+import { todayLocalIso } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 interface DayRibbonProps {
@@ -23,6 +24,14 @@ interface DayRibbonProps {
 /** Below these painted widths a label cannot be read, so it is not drawn. See {@link useTrackWidth}. */
 const INITIALS_MIN_PX = 40
 const TIME_MIN_PX = 62
+
+/**
+ * A gap shorter than this is not offered: `create-appointment-dialog` defaults a new visit to 30 minutes, so a
+ * shorter sliver cannot hold one and proposing it would waste the gesture.
+ */
+const GAP_OFFERABLE_MIN_MINUTES = 30
+/** Largest first, and at most three — this is a prompt, not a list. */
+const GAP_CHIPS_MAX = 3
 const GAP_FULL_MIN_PX = 86
 const GAP_SHORT_MIN_PX = 52
 
@@ -95,11 +104,70 @@ export function DayRibbon({ summary, nowMinutes }: DayRibbonProps) {
 
         <Axis from={summary.windowFrom} to={summary.windowTo} />
 
+        <GapChips gaps={summary.gaps} />
+
         {summary.acts.length > 0 && <Legend summary={summary} />}
 
         <Facts summary={summary} />
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * « Plages libres à combler » — the one place a free stretch stops being an observation and becomes an action.
+ *
+ * <p>The ribbon already answered « ai-je un trou cet après-midi ? ». Nothing answered « et qui pourrais-je y
+ * mettre ? », although both halves shipped: `/waiting-list` holds who is waiting, with a priority and a desired
+ * window, and its « Promouvoir » already books the visit with the patient pre-selected and promotes the entry
+ * in one gesture. The agenda and the ribbon simply had no reference to it. This row is the reference.</p>
+ *
+ * <p>⚠️ <b>It is deliberately OUTSIDE the ribbon track.</b> That track is `role="img"` with an `aria-label`
+ * describing the whole day, which makes its subtree presentational — the existing `SlotBlock` links inside it
+ * are focusable but not exposed to a screen reader, and adding a gap link in there would have deepened that.
+ * Out here a chip is a real link with its own name. It is also the only shape that works on a phone: a gap is
+ * a percentage of the track's width, so a 30-minute hole in an eleven-hour day is a few pixels — untappable as
+ * a target however it is labelled.</p>
+ *
+ * <p>The gap's own length is passed for the banner on the other side, <b>not</b> as the booking's default
+ * duration: a 1 h 45 hole does not mean a 1 h 45 appointment, and defaulting it that way would make the
+ * dentist shorten the field on every use.</p>
+ */
+function GapChips({ gaps }: { gaps: DayGap[] }) {
+  // Copied before sorting: `gaps` belongs to a memoized `DaySummary` and sorting in place would mutate it.
+  const offerable = [...gaps]
+    .filter((gap) => gap.minutes >= GAP_OFFERABLE_MIN_MINUTES)
+    .sort((a, b) => b.minutes - a.minutes)
+    .slice(0, GAP_CHIPS_MAX)
+
+  if (offerable.length === 0) return null
+
+  // The ribbon is built for today by construction (`buildDaySummary(..., now ?? today)`), and the date travels
+  // in the link so it still means the right day if the tab is left open overnight. `todayLocalIso` and never
+  // `toISOString().slice(0, 10)` — for the first hour of every Tunisian day the latter says yesterday.
+  const slotDate = todayLocalIso()
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
+      <span className="text-muted-foreground">Plages libres à combler :</span>
+      {offerable.map((gap) => (
+        <Link
+          key={`gap-chip-${gap.startMinutes}`}
+          href={`/waiting-list?slotDate=${slotDate}&slotTime=${encodeURIComponent(formatClock(gap.startMinutes))}&slotMinutes=${gap.minutes}`}
+          // In a row, so the box grows on a coarse pointer rather than overlaying a hit area that would
+          // overhang its neighbours and steal their taps (§ 2).
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border border-dashed border-foreground/25 px-2.5 py-1",
+            "coarse:min-h-11 coarse:px-3 font-mono text-2xs text-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "hover-hover:hover:border-foreground/50 hover-hover:hover:bg-muted",
+          )}
+          aria-label={`Combler la plage libre de ${formatDuration(gap.minutes)} à partir de ${formatClock(gap.startMinutes)} depuis la liste d'attente`}
+        >
+          {formatClock(gap.startMinutes)} · {formatDuration(gap.minutes)}
+        </Link>
+      ))}
+    </div>
   )
 }
 

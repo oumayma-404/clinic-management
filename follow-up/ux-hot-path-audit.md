@@ -64,6 +64,26 @@ a considered choice, not an oversight. (Was B9.)
 
 # 2 · WINS — verified, and not already built
 
+> **All three shipped.** I12 was B4's fix (`59b5392e`); I2 and I5 followed. `tsc` clean,
+> `check:responsive` 30/30, and walked in a browser at 320 / 390 / 820 / 1180 / 1440.
+>
+> | # | What shipped |
+> |---|---|
+> | **I2** | The day ribbon grows a « Plages libres à combler : » row — one chip per gap, largest first, at most three, and **only gaps of 30 min or more** (the booking dialog's own default length; a shorter sliver cannot hold a visit). Each chip links to `/waiting-list?slotDate=&slotTime=&slotMinutes=`, which names the slot in a dismissible banner and opens « Promouvoir » **at that hour** with the patient already selected. Verified end to end: chip → banner → dialog at **13:00, 03/09/2026, Mehdi Bouazizi**, duration still 30 |
+> | **I5** | « Solde dû » in the patient header — `totalOutstanding` and nothing else. Verified it **reconciles with the rows beneath it** (31,000 DT header = two × 15,500 DT fiches), that a patient with no invoices shows **no line at all** rather than « 0,000 DT », and that a failed read also shows nothing (seen for real when the API went down mid-check) |
+>
+> ⚠️ **A defect found while verifying, in how the booking dialog is called.** It reads the clock off
+> `defaultDate` when present and falls back to `defaultTime` only when it is absent, so passing both — a local
+> midnight plus « 13:00 » — silently books **00:00**. Measured, then fixed by passing one instant. Anything
+> else calling `CreateAppointmentDialog` with a slot must do the same.
+>
+> ⚠️ **Where I2 deliberately did *not* go.** The gap chips sit **under** the ribbon, not on the hatched blocks
+> themselves: that track is `role="img"`, which makes its subtree presentational, so the `SlotBlock` links
+> already inside it are focusable but invisible to a screen reader — a pre-existing defect a gap link would
+> have deepened. A gap is also a percentage of the track's width, so on a phone it is a few pixels: untappable
+> however it is labelled.
+
+
 | # | Add | What we gain | Why it survived |
 |---|---|---|---|
 | **I2** | **Day-gap → waiting list, one tap** | Direct revenue, cheap. Both halves exist and **nothing connects them** | Dashboard computes `1 h 45 libre` as plain text. `/waiting-list` holds priority + `CRÉNEAU SOUHAITÉ` + `Promouvoir en rendez-vous`. `appointment-calendar.tsx` contains **no reference to the waiting list** |
@@ -71,6 +91,8 @@ a considered choice, not an oversight. (Was B9.)
 | **I12** | **All 6 document types from the patient panel** | Fixes B4 — same work item | see B4 |
 
 ## Open questions for the dentist — not wins until he answers
+
+**These are the whole remaining wins list.** Nothing else in §2 is outstanding.
 
 The code says these are absent. **Nothing says he wants them**, and my track record on guessing that is now
 2 for 5 (§3).
