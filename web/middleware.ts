@@ -1,25 +1,11 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { readSessionCookie, readMustChangeCookie } from './lib/auth/session-cookie';
+// ⚠️ The list lives in `lib/auth/public-routes.ts` and is NOT re-stated here. It used to be private to this
+// file, so the client-side session guards carried their own hand-written idea of the same question and only
+// agreed about `/login` — see that module's own note for what that cost on the public signup door.
+import { isPublicRoute } from './lib/auth/public-routes';
 
-// ⚠️ Matched by EXACT path (`includes`), so a route with a child needs both entries — `/signup/verifier` is
-// where the emailed link lands and is reached with no session by definition, which is the whole point of it.
-//
-// ⚠️ **The two password-reset routes belong here for that same reason, and omitting them is a self-cancelling
-// bug**: somebody who has forgotten their password has no session by definition, so gating « mot de passe
-// oublié » on one sends them to the login screen they just failed at — and the reset link in their inbox lands
-// on `/login?returnTo=…` instead of the form, quietly spending nothing and explaining nothing. Neither page
-// reads clinic data and neither issues a session; the emailed single-use token is the only credential either
-// one has.
-const PUBLIC_ROUTES = [
-  '/login',
-  '/setup',
-  '/join',
-  '/signup',
-  '/signup/verifier',
-  '/mot-de-passe-oublie',
-  '/reinitialiser-mot-de-passe',
-];
 const CHANGE_PASSWORD_ROUTE = '/change-password';
 
 // Redirect to the same-origin FRONT DOOR. Behind the reverse proxy the Next server's own request host is
@@ -42,7 +28,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/bff/auth/') ||
-    PUBLIC_ROUTES.includes(pathname)
+    isPublicRoute(pathname)
   ) {
     return NextResponse.next();
   }

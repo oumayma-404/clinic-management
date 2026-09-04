@@ -87,7 +87,16 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
   // The server's own neutral sentence, shown verbatim once a signup is accepted. Non-null IS the success state.
   const [signupAcknowledgement, setSignupAcknowledgement] = useState<string | null>(null)
   const router = useRouter()
-  const policy = useUploadPolicy("profile-image")
+  /*
+   * ⚠️ `null` on the public door, and this is the line that took production down.
+   *
+   * The logo step is dropped for `signup` (see the render below), so this read served nothing there — but
+   * `GET /api/meta/upload-policy` is authenticated, and a visitor at `/signup` has no session by construction.
+   * The 401 went to the token exchange, the exchange reported the session refused, and every attempt to create
+   * a cabinet ended on `/login?returnTo=%2Fsignup` under « Session expirée ». Gated on the same `isSignup` that
+   * decides whether the picker is rendered at all, so the fetch and its only consumer cannot drift apart.
+   */
+  const policy = useUploadPolicy(isSignup ? null : "profile-image")
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

@@ -1927,6 +1927,49 @@ check(
   },
 );
 
+check(
+  "public-routes-have-one-owner",
+  "N24",
+  "One list decides which routes are reached without a session, and every guard asks it",
+  "A door a visitor reaches with no session — `/signup`, `/setup`, `/join`, both password-reset pages — answers " +
+    "401 to anything authenticated, correctly: nobody is signed in yet. The app must not read that as an " +
+    "expiry. It did. `middleware.ts` kept the list privately, so the three redirect guards in " +
+    "`lib/auth/session.tsx` carried their own hand-written test against `/login` and agreed with it about " +
+    "exactly one of the seven doors. On the other six, one authenticated call was enough to show " +
+    "« Session expirée » and eject the visitor to the login screen — which is how public signup broke in " +
+    "production: `SetupWizard` read the profile-image upload policy on mount and every attempt to create a " +
+    "cabinet ended on `/login?returnTo=%2Fsignup`. Nothing else can catch it — both files are correct on " +
+    "their own, the endpoint is right to refuse, the redirect is right for a guarded route, and it " +
+    "type-checks. The list lives in `lib/auth/public-routes.ts`; compare a path against it with " +
+    "`isPublicRoute()` rather than against a literal of your own.",
+  () => {
+    const OWNER = "lib/auth/public-routes.ts";
+    const ownerFile = tsx().find((f) => rel(f) === OWNER);
+    if (!ownerFile) {
+      return [{ file: OWNER, line: 0, text: "the public-route list has no owner — this check cannot run" }];
+    }
+
+    // DERIVED from the owner rather than restated: the routes are read out of the list itself, so a door added
+    // there is covered by this check on the day it is added.
+    const routes = [...read(ownerFile).matchAll(/^\s*'(\/[^']*)',?\s*$/gm)].map((m) => m[1]);
+    if (routes.length === 0) {
+      return [{ file: OWNER, line: 0, text: "could not read the route list — this check cannot run" }];
+    }
+    // Escaped even though today's routes are plain path segments: a door named with a `.` one day must not
+    // quietly widen this into a wildcard.
+    const alternation = routes.map((r) => r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+
+    // `middleware.ts` sits outside SCAN_DIRS and is where the list used to live, so it is read by name.
+    const candidates = [...tsx(), join(WEB_ROOT, "middleware.ts")].filter((f) => rel(f) !== OWNER);
+
+    return scanLines(candidates, new RegExp(`["'](?:${alternation})["']`), (line) =>
+      // A `<Link href="/login">` or a `router.push("/login")` is navigation, not a claim about who may be
+      // there. Only a test *of the current path*, or a second list, is another answer to this question.
+      /pathname|PUBLIC_ROUTE/i.test(line),
+    );
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
