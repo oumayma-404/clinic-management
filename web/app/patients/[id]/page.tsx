@@ -833,6 +833,34 @@ export default function PatientDetailsPage() {
     }
   }, [patientId])
 
+  // Deep-link from « Corriger cette note » on /factures (?editRecord=<ficheId>): open that fiche's editor, which
+  // is the only door where the correction is expressible — the price is changed on the acts, and the note follows.
+  // Two steps because the modal edits the record itself, and the fiches arrive with the page's phase-2 batch.
+  const [pendingEditRecordId, setPendingEditRecordId] = useState<string | null>(null)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("editRecord")
+    if (!id) return
+    setPendingEditRecordId(id)
+    window.history.replaceState({}, "", `/patients/${patientId}?tab=medical-records`)
+  }, [patientId])
+
+  // ⚠️ `detailsLoading`, never `loading`: the latter gates the patient's IDENTITY and goes false at the end of
+  // phase 1, while the fiches arrive with phase 2 — so waiting on it announces « introuvable » over a list that
+  // has not been fetched yet.
+  useEffect(() => {
+    if (!pendingEditRecordId || detailsLoading) return
+    const record = dentalRecords.find((r) => r.id === pendingEditRecordId)
+    setPendingEditRecordId(null)
+    // Cleared either way: a fiche deleted between the two screens must not leave the link armed for ever, and
+    // silence would read as « the button does nothing ».
+    if (!record) {
+      toast.error("Cette fiche de soins est introuvable : elle a peut-être été supprimée.")
+      return
+    }
+    setEditingRecord(record)
+    setRecordModalOpen(true)
+  }, [pendingEditRecordId, detailsLoading, dentalRecords])
+
   // ?tab=… lands the visitor on a specific tab — used by the plan workspace's « Voir la fiche », which needs
   // to open the medical-records tab rather than dumping the user on the default one. Same window.location
   // idiom as above (useSearchParams would force this page out of static prerendering); the param is left in
