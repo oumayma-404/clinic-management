@@ -252,10 +252,15 @@ public class AmendTreatmentPlanCommandHandlerTests
         NothingCommitted();
     }
 
-    // [AC-22] Changing the total without sending a schedule at all is rejected rather than silently leaving
-    // the old échéancier out of sync.
+    // [AC-22] Changing the total without sending a schedule RE-SPREADS the échéancier rather than refusing.
+    //
+    // ⚠️ This test asserted the refusal until the multi-séance redesign, and the refusal was the app fighting
+    // the dentist: a price corrected from the booking dialog or the acts table has no échéancier on screen to
+    // re-send, so « renvoyez l'échéancier » named something the caller could not see. The invariant it
+    // protected — Σ installment.Amount == TotalPlanned, which is what keeps « Solde patient » and
+    // « Créances » agreeing — is now held by the re-spread instead of by the refusal.
     [Fact]
-    public async Task Changing_The_Total_Without_A_Schedule_Is_Rejected()
+    public async Task Changing_The_Total_Without_A_Schedule_Respreads_The_Echeancier()
     {
         var plan = AcceptedPlan();
 
@@ -265,9 +270,9 @@ public class AmendTreatmentPlanCommandHandlerTests
             AddItems = new List<TreatmentPlanItemRequest> { new() { DesignationFr = "Implant", PlannedCost = 500m } },
         }, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Contains("échéancier", result.Error!);
-        NothingCommitted();
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1500m, plan.TotalPlanned);
+        Assert.Equal(1500m, plan.Installments.Sum(i => i.Amount));
     }
 
     // [AC-22] An installment revised below what it has already collected is rejected — collected cash cannot
@@ -426,10 +431,21 @@ public class AmendTreatmentPlanCommandHandlerTests
         Assert.Equal("2026-0014", plan.Number);
     }
 
-    // A Draft is edited outright, not amended — the amend path must not become a second editing route that
-    // skips SetItems' guards.
+    /// <summary>
+    /// An un-numbered treatment is amendable, and it keeps its null <c>Number</c>.
+    ///
+    /// <para>⚠️ This asserted a <b>refusal</b> — « A Draft is edited outright, not amended » — and that was
+    /// true while a Draft meant a form nobody had finished. It does not describe what a Draft is now: « Suivre
+    /// ce traitement » creates one from the booking dialog, carrying séances and recorded work, and it opens
+    /// the same workspace a numbered devis does. Refusing amendment there left that screen with no way to
+    /// correct a total, which is the one thing the practice asked to be possible at any moment.</para>
+    ///
+    /// <para>The guard that matters is still asserted: amending must not <b>number</b> the treatment. Taking a
+    /// devis number is <c>IssueDevisCommand</c>'s alone, because a number is gapless and releasable only by a
+    /// cancellation carrying a motif.</para>
+    /// </summary>
     [Fact]
-    public async Task Amending_A_Draft_Is_Rejected()
+    public async Task Amending_A_Draft_Is_Allowed_And_Does_Not_Number_It()
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Devis");
         plan.SetItems(new[] { ("Couronne", 600m, (IReadOnlyList<int>)new[] { 11 }) });
@@ -442,8 +458,12 @@ public class AmendTreatmentPlanCommandHandlerTests
             Installments = Schedule(1100m),
         }, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        NothingCommitted();
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, plan.Items.Count);
+        Assert.Equal(1100m, plan.TotalPlanned);
+        // Still un-numbered, and still a Draft: amending is not a promotion.
+        Assert.Null(plan.Number);
+        Assert.Equal(TreatmentPlanStatus.Draft, plan.Status);
     }
 
     // An empty request is a client bug, not a no-op that bumps the revision.
@@ -598,10 +618,10 @@ public class AmendTreatmentPlanCommandHandlerTests
         NothingCommitted();
     }
 
-    // The changed-total rule applies to an edit exactly as it does to an add or a remove: a new fee with no
-    // re-spread échéancier would break Σ installment.Amount == TotalPlanned.
+    // The re-spread applies to an EDIT exactly as it does to an add or a remove — and the edit is the path that
+    // matters most, since « corriger le prix d'un acte » is the gesture the whole redesign exists to keep open.
     [Fact]
-    public async Task An_Edit_That_Changes_The_Total_Without_A_Schedule_Is_Rejected()
+    public async Task An_Edit_That_Changes_The_Total_Without_A_Schedule_Respreads_The_Echeancier()
     {
         var plan = AcceptedPlan();
 
@@ -611,9 +631,9 @@ public class AmendTreatmentPlanCommandHandlerTests
             UpdateItems = Edit(plan.Items.First().Id, "Couronne", 750m, 11),
         }, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Contains("échéancier", result.Error!);
-        NothingCommitted();
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1150m, plan.TotalPlanned);
+        Assert.Equal(1150m, plan.Installments.Sum(i => i.Amount));
     }
 
     // A rename that leaves the fee alone changes no total, so it needs no schedule.

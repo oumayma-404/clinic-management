@@ -14,7 +14,7 @@ import {
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import { itemWorkflowLabel, itemWorkflowBadgeClass } from "./treatment-plan-labels"
-import { planItemState, nextStepOf } from "./plan-next-action"
+import { isPlanLive, planItemState, nextStepOf } from "./plan-next-action"
 import { PlanStepStrip } from "./plan-step-strip"
 
 /** Up/down controls for the act's clinical position; omitted when the plan can't be reordered. */
@@ -185,7 +185,14 @@ export function PlanActPrimaryAction({
 }) {
   const router = useRouter()
   const state = planItemState(item)
-  const planIsActive = plan.status === "Accepted" || plan.status === "InProgress"
+  /*
+   * ⚠️ **A Draft counts as live, and this was the third copy of that rule.** « Suivre ce traitement » creates
+   * an un-numbered treatment on purpose, and with `Accepted || InProgress` here its acts rendered « À
+   * planifier » — the right état — beside **no button at all**, so the treatment the dentist had just started
+   * offered no way to book its first séance. `schedulablePlanItems` and `usePatientPlanActs` were the other
+   * two; a status test written out by hand is exactly how the third one is missed.
+   */
+  const planIsActive = isPlanLive(plan.status)
   // Named on the button when the act has steps: « Planifier » on a bridge two-thirds done answers the wrong
   // question, since what is being booked is one séance of it and the dentist has to know which.
   const next = nextStepOf(item)

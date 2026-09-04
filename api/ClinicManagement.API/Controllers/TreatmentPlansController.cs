@@ -151,6 +151,32 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     /// <summary>
+    /// « Suivre ce traitement » — start following a multi-séance act in one press, from the booking dialog or
+    /// from the treatments screen. Creates the treatment as an <b>un-numbered draft</b>: no devis number, no
+    /// échéancier, no créance. See <c>StartTreatmentCommand</c> for why the two were split.
+    /// </summary>
+    [HttpPost("start")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> StartTreatment([FromBody] StartTreatmentCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Éditer le devis » — take the number, because the patient is being handed a document. The only place a
+    /// devis number is consumed; idempotent on a treatment that already has one.
+    /// </summary>
+    [HttpPost("{id:guid}/issue-devis")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> IssueDevis(
+        Guid id, [FromBody] IssueDevisCommand? command)
+    {
+        var result = await _mediator.Send(new IssueDevisCommand { Id = id, Version = command?.Version ?? 0 });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
     /// « Arrêter le traitement »: park the acts with no delivered work, keep the rest, re-spread the échéancier
     /// and close the devis — one call, so a refused clôture can no longer leave the removals behind.
     /// </summary>

@@ -219,7 +219,7 @@ export function planStatusCounts(plans: TreatmentPlanDto[], excludeId?: string):
  */
 export function leadPlan(plans: TreatmentPlanDto[]): TreatmentPlanDto | null {
   const active = plans
-    .filter((p) => p.status === "Accepted" || p.status === "InProgress")
+    .filter((p) => isPlanLive(p.status))
     .sort((a, b) => byDateDesc(a.acceptedDate ?? a.createdAt, b.acceptedDate ?? b.createdAt))
   if (active.length > 0) return active[0]
 
@@ -276,13 +276,36 @@ export function planItemToPreset(
 }
 
 /**
- * The acts of one plan a séance can still be booked for — planned or under way, on a live devis.
+ * Is this treatment still running — may a séance be booked against it and a fiche recorded?
  *
- * <p>⚠️ A `Done` act is excluded and a Draft/Cancelled plan contributes nothing: booking either would produce a
- * visit for work that is finished or for a quote nobody accepted.</p>
+ * <p><b>The one test.</b> It was written out by hand as `status === "Accepted" || status === "InProgress"` in
+ * four places, and when « Suivre ce traitement » made an un-numbered `Draft` a live treatment, three of the
+ * four were updated and the fourth — `PlanActPrimaryAction` — was not. The act then rendered « À planifier »
+ * beside no button, so the treatment the dentist had just started could not be booked. `check:responsive`'s
+ * N23 fails on a fifth hand-written copy.</p>
+ *
+ * <p>⚠️ Phrased as « not finished » rather than « accepted or in progress », deliberately: the states that
+ * refuse work are the closed ones (`Cancelled`, `Completed`), and listing the open ones is what left `Draft`
+ * out when it became one of them.</p>
+ */
+export function isPlanLive(status: TreatmentPlanDto["status"]): boolean {
+  return status !== "Cancelled" && status !== "Completed"
+}
+
+/**
+ * The acts of one plan a séance can still be booked for — planned or under way, on a treatment that is live.
+ *
+ * <p>⚠️ A `Done` act is excluded, and a `Cancelled` plan contributes nothing: booking either would produce a
+ * visit for work that is finished or for a devis nobody is honouring.</p>
+ *
+ * <p>⚠️ <b>A `Draft` DOES contribute, and excluding it was a dead end.</b> « Suivre ce traitement » creates an
+ * un-numbered draft — that is the whole point, so that following an implant costs no financial document — and
+ * with drafts excluded here the treatment it created offered no « Planifier » on any act, and the booking that
+ * created it was refused outright with « Le plan de traitement est requis pour lier l'acte. » because
+ * `resolveAttachedPlanId` could not see the plan its own act belonged to. A draft is un-quoted, not inert.</p>
  */
 export function schedulablePlanItems(plan: TreatmentPlanDto): TreatmentPlanItemDto[] {
-  if (plan.status !== "Accepted" && plan.status !== "InProgress") return []
+  if (!isPlanLive(plan.status)) return []
   // A parked act is excluded for the same reason a Done one is: booking it would produce a visit for work the
   // patient is not coming back for, and the server refuses to record anything against it.
   return activeItems(plan).filter((item) => item.status !== "Done")

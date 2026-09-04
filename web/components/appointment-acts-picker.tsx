@@ -403,6 +403,16 @@ interface AppointmentActsPickerProps {
    * so a visit booked from the agenda could never be attached to a devis afterwards.
    */
   planActs?: PresetPlanAct[]
+
+  /**
+   * Save a new « Total convenu » for one treatment act. Resolve `true` once the server has it.
+   *
+   * <p>⚠️ Without this the total is read-only, which is the defect the locked « Prix pour ce rendez-vous » was
+   * replaced to fix — an act's price must be changeable at any moment, from wherever it is on screen. Absent,
+   * the figure still renders but cannot be edited, so a caller that forgets it degrades to the old behaviour
+   * rather than crashing.</p>
+   */
+  onTotalChange?: (treatmentPlanItemId: string, total: number) => Promise<boolean>
 }
 
 /**
@@ -427,10 +437,57 @@ export function AppointmentActsPicker({
   fallbackDurationMinutes = 30,
   idPrefix = "appt-acts",
   planActs,
+  onTotalChange,
   onStartProtocol,
   startingProtocol = false,
 }: AppointmentActsPickerProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
+  /**
+   * Which act rows have their étape chooser open, keyed on the group's representative index.
+   *
+   * <p>Closed by default: the app has already selected the next étape, and a dentist booking a follow-up wants
+   * that answer, not a checklist. Opening it is « modifier ».</p>
+   */
+  const [openStepEditors, setOpenStepEditors] = useState<Set<number>>(new Set())
+  /** Uncommitted « Total convenu » keystrokes, keyed on the group's representative index. */
+  const [totalDrafts, setTotalDrafts] = useState<Record<number, string>>({})
+  /** The plan item whose total is being saved, so the row can say so instead of looking inert. */
+  const [savingTotal, setSavingTotal] = useState<string | null>(null)
+
+  /**
+   * Commit an edited « Total convenu » to the treatment.
+   *
+   * <p>Blur or Enter, never a Save button: it is one number in a row of a form the dentist is already filling.
+   * A refusal leaves the typed value in place — losing what somebody typed to tell them it was refused is the
+   * worst of both.</p>
+   */
+  const commitTotal = async (row: { group: ActGroup; act: SelectedAct }) => {
+    const index = row.group.indices[0]
+    const typed = totalDrafts[index]
+    const planItemId = row.act.treatmentPlanItemId
+    if (typed === undefined || !planItemId || !onTotalChange) return
+    const parsed = parseAmountInput(typed)
+    if (!Number.isFinite(parsed) || parsed < 0) return
+    if (row.act.billedOnPlan && parsed === row.act.billedOnPlan.actCost) {
+      setTotalDrafts((prev) => { const next = { ...prev }; delete next[index]; return next })
+      return
+    }
+    setSavingTotal(planItemId)
+    try {
+      const saved = await onTotalChange(planItemId, parsed)
+      // Only drop the draft once the server has the value, or the field would snap back to the old figure.
+      if (saved) setTotalDrafts((prev) => { const next = { ...prev }; delete next[index]; return next })
+    } finally {
+      setSavingTotal(null)
+    }
+  }
+  const toggleStepEditor = (index: number) =>
+    setOpenStepEditors((prev) => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
   const [customMode, setCustomMode] = useState(false)
   const [customName, setCustomName] = useState("")
   const [customDuration, setCustomDuration] = useState("")
@@ -736,16 +793,41 @@ export function AppointmentActsPicker({
                 séance is the case this whole feature exists for, and a single-choice control cannot say it.
                 Rendered only for an act that has steps left, which is a small minority of bookings.
               */}
+              {/*
+                ⚠️ **The app chooses the séance; the chooser is one press away.**
+                This block used to render every remaining étape as a tick-chip, always open — six of them for
+                the seeded implant, in a row that wrapped, on the densest surface in the product. A dentist
+                booking the next visit of a bridge does not want to pick from a checklist: the answer is almost
+                always « la suivante », which `planItemToPreset` has already selected.
+                So the line states what will be recorded, and « modifier » reveals the chips for the case the
+                whole feature exists for — two étapes in one séance. Nothing is removed, only folded.
+              */}
               {row.act.stepOptions && row.act.stepOptions.length > 0 && (
                 <div className="mt-2 border-t border-dashed pt-2">
-                  {/* ⚠️ « Étapes de cette séance » headed a list of ALL the act's remaining étapes, one of them
-                      ticked — read cold it claims this appointment covers all six, which is a wrong duration
-                      and a wrong expectation of what today covers. The heading now says what the list IS and
-                      what the ticks MEAN. */}
-                  <p className="mb-1.5 text-2xs font-semibold text-muted-foreground">
-                    Étapes de l&apos;acte — cochez celles de cette séance
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <p className="text-2xs text-muted-foreground">
+                      {row.group.stepIds.length === 0
+                        ? "Aucune étape pour cette séance"
+                        : row.group.stepIds.length === 1
+                          ? `Séance : ${
+                              row.act.stepOptions.find((s) => s.id === row.group.stepIds[0])?.label ?? "étape"
+                            }`
+                          : `${row.group.stepIds.length} étapes dans cette séance`}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => toggleStepEditor(row.group.indices[0])}
+                      className="shrink-0 text-2xs text-primary underline decoration-dotted"
+                      aria-expanded={openStepEditors.has(row.group.indices[0])}
+                    >
+                      {openStepEditors.has(row.group.indices[0]) ? "terminé" : "modifier"}
+                    </button>
+                  </div>
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    hidden={!openStepEditors.has(row.group.indices[0])}
+                  >
                     {row.act.stepOptions.map((step) => {
                       // The GROUP's own steps. Read off `value` for the whole act it was the same answer for
                       // every clone, so both cards of a two-step bridge showed both chips ticked — each card
@@ -790,6 +872,67 @@ export function AppointmentActsPicker({
                 </div>
               )}
 
+              {/*
+                ⚠️ **A séance of a treatment has no price, so it shows no price field.**
+                It showed « Prix pour ce rendez-vous » read-only at 0 with « facturé sur le devis » beside it — a
+                greyed box whose meaning nobody could act on. Worse, the field invited the wrong figure: typing
+                600 on the first séance of a 2 000 DT implant reads as « cette séance vaut 600 », but the value is
+                an `AgreedCost` on the ACT, so it flowed fiche → ligne de facture and charged 2 600.
+                The act is priced ONCE, on the treatment, and what a séance carries is an *encaissement* — typed
+                at the fiche, where the money changes hands. So this row states the total and offers to change it.
+              */}
+              {row.act.billedOnPlan != null ? (
+                /*
+                 * ⚠️ **EDITABLE.** This was a read-only figure, which is the same defect as the locked 0 it
+                 * replaced: the price of an act must be changeable at any moment, from wherever the dentist is
+                 * looking at it. What changed is *which* price the field means — the act's total for the whole
+                 * treatment, not a price for this séance — so editing it saves to the treatment and the
+                 * échéancier re-spreads itself server-side.
+                 */
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Label
+                    htmlFor={`${idPrefix}-total-${row.group.indices[0]}`}
+                    className="shrink-0 text-2xs font-normal text-muted-foreground"
+                  >
+                    Total convenu
+                  </Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
+                      DT
+                    </span>
+                    <Input
+                      id={`${idPrefix}-total-${row.group.indices[0]}`}
+                      type="text"
+                      inputMode="decimal"
+                      className="h-8 w-28 ps-7 text-xs tabular-nums"
+                      // Uncommitted keystrokes live here; the committed value is the treatment's own.
+                      value={totalDrafts[row.group.indices[0]] ?? formatAmount(row.act.billedOnPlan.actCost)}
+                      onChange={(e) =>
+                        setTotalDrafts((prev) => ({ ...prev, [row.group.indices[0]]: e.target.value }))
+                      }
+                      onFocus={(e) => e.currentTarget.select()}
+                      onBlur={() => commitTotal(row)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); commitTotal(row) }
+                        else if (e.key === "Escape") {
+                          setTotalDrafts((prev) => {
+                            const next = { ...prev }
+                            delete next[row.group.indices[0]]
+                            return next
+                          })
+                        }
+                      }}
+                      disabled={disabled || savingTotal === row.act.treatmentPlanItemId}
+                      aria-label={`Total convenu pour ${row.name}, tout le traitement`}
+                    />
+                  </div>
+                  <span className="shrink-0 text-2xs text-muted-foreground">
+                    {savingTotal === row.act.treatmentPlanItemId
+                      ? "enregistrement…"
+                      : "pour tout le traitement — cette séance n'ajoute rien"}
+                  </span>
+                </div>
+              ) : (
               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                 <Label
                   htmlFor={`${idPrefix}-price-${row.group.indices[0]}`}
@@ -846,6 +989,7 @@ export function AppointmentActsPicker({
                   </span>
                 )}
               </div>
+              )}
 
               {/*
                 The sentence that answers the question which stopped the dentist: he had taken 800 DT on a
@@ -875,6 +1019,16 @@ export function AppointmentActsPicker({
                     </span>{" "}
                     {row.protocol.map((step) => step.label).join(" · ")}
                   </p>
+                  {/*
+                    ⚠️ **One press, inline, and nothing irreversible** — no confirmation modal, because there is
+                    nothing to confirm any more. This button used to read « Créer le devis et planifier la 1re
+                    séance » and it did exactly that: a NUMBERED, already-accepted devis carrying the act's whole
+                    total, raised from a dialog whose subject is a visit (measured: 2026-0023 at 800,000 DT), with
+                    a number releasable only by a cancellation with a motif. A confirmation was bolted on, which
+                    interrupted an ordinary booking without making the side effect any smaller.
+                    `startTreatment` creates an un-numbered draft instead: the number is taken later, by
+                    « Éditer le devis », the day the patient is handed paper.
+                  */}
                   {onStartProtocol && (
                     <>
                       <Button
@@ -886,12 +1040,10 @@ export function AppointmentActsPicker({
                         onClick={() => void onStartProtocol(row.act, row.protocol!)}
                       >
                         <Stethoscope className="h-3.5 w-3.5" />
-                        {startingProtocol
-                          ? "Création du devis…"
-                          : "Créer le devis et planifier la 1re séance"}
+                        {startingProtocol ? "Création…" : "Suivre ce traitement"}
                       </Button>
                       <p className="mt-1 text-2xs text-muted-foreground">
-                        Vous pourrez modifier les étapes avant d&apos;enregistrer.
+                        Aucun devis, aucun numéro. Le prix reste modifiable.
                       </p>
                     </>
                   )}
@@ -903,10 +1055,18 @@ export function AppointmentActsPicker({
                   className="mt-2 rounded-md border border-primary bg-primary/[0.07] p-2.5 text-2xs leading-relaxed"
                   role="status"
                 >
-                  <span className="font-semibold text-primary">Déjà facturé.</span>{" "}
+                  {/*
+                    ⚠️ With no number there is no devis yet — « Suivre ce traitement » makes an un-numbered
+                    treatment on purpose — so « porté par le devis » and « Déjà facturé » both name a document
+                    that does not exist. The un-numbered case says « ce traitement » and claims nothing about
+                    billing; only a numbered devis can say « Déjà facturé ».
+                  */}
+                  <span className="font-semibold text-primary">
+                    {row.act.billedOnPlan.planNumber ? "Déjà facturé." : "Suivi comme traitement."}
+                  </span>{" "}
                   {row.act.billedOnPlan.planNumber
                     ? `Cet acte est porté par le devis ${row.act.billedOnPlan.planNumber} à `
-                    : "Cet acte est porté par le devis à "}
+                    : "Cet acte est chiffré une fois, pour tout le traitement, à "}
                   <span className="font-mono tabular-nums">
                     {formatDT(row.act.billedOnPlan.actCost)}
                   </span>
@@ -923,6 +1083,11 @@ export function AppointmentActsPicker({
                       <span className="font-mono">{row.act.billedOnPlan.billedOnInvoiceNumber}</span>.
                     </>
                   ) : (
+                    // ⚠️ And only a NUMBERED devis has an échéancier to owe anything on. An un-numbered
+                    // treatment has no schedule at all, so « Reste à encaisser sur le devis » would quote a
+                    // balance against a document that does not exist — the money is collected séance by
+                    // séance on the fiche, which is where « Encaissé aujourd'hui » states the same figure.
+                    row.act.billedOnPlan.planNumber != null &&
                     row.act.billedOnPlan.outstanding > 0 && (
                       <>
                         {" "}Reste à encaisser sur le devis :{" "}

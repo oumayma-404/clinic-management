@@ -49,6 +49,14 @@ public class TreatmentPlansControllerAuthorizationTests
         // reopening puts every parked act back — so they belong with amend rather than with the till.
         nameof(TreatmentPlansController.StopTreatment),
         nameof(TreatmentPlansController.ReopenTreatment),
+        // « Suivre ce traitement » authors a treatment and sets its total, and « Éditer le devis » consumes a
+        // devis number — both are the plan's own authorship, so they sit with create and amend.
+        //
+        // ⚠️ The consequence is that a secretary pressing « Suivre ce traitement » in the booking dialog would
+        // meet a 403, so the control is hidden for them the way « Exporter » is — the endpoint stays the
+        // authority and the UI does not offer what it will refuse.
+        nameof(TreatmentPlansController.StartTreatment),
+        nameof(TreatmentPlansController.IssueDevis),
         // L5 — the CSV export. A file listing every devis with what each patient owes is the clinic-wide money
         // read in a more portable form than the screen, so it cannot be laxer than the screen: leaving it on the
         // class-level AnyClinicRole would have handed reception the whole receivables book in one click. The

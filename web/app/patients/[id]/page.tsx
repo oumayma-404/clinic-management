@@ -97,7 +97,7 @@ import { PatientPlansStrip } from "@/components/treatment-plans/patient-plans-st
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
-import { schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
+import { isPlanLive, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -1026,7 +1026,7 @@ export default function PatientDetailsPage() {
   // Open (not-yet-done) steps of the patient's active plans — offered in the record modal to close the
   // plan→record loop, and completed automatically when a linked record is saved.
   const openPlanItems: PlanItemOption[] = treatmentPlans
-    .filter((p) => p.status === "Accepted" || p.status === "InProgress")
+    .filter((p) => isPlanLive(p.status))
     .flatMap((p) =>
       schedulablePlanItems(p).map((it) => ({
         itemId: it.id,

@@ -1532,8 +1532,15 @@ export function PatientRecordModal({
 
           <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 p-3">
             <div className="flex min-w-[9rem] flex-1 items-center gap-2">
+              {/*
+                ⚠️ On a séance of a devis this is « **Encaissé aujourd'hui** », not « Payé », and the
+                distinction is the one a dentist got wrong: an act is priced ONCE, on the treatment, so a figure
+                typed here **draws the total down** and never adds to it. Typing 600 on the first séance of a
+                2 000 DT implant means « 600 encaissés, 1 400 restants » — never 2 600. The running line under
+                the row states all three figures so the field cannot be read as a price.
+              */}
               <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
-                Payé
+                {carriedByDevis ? "Encaissé aujourd'hui" : "Payé"}
               </Label>
               {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma
                   this product prints with, and a rejected keystroke returns an EMPTY value — so « Payé » looked
@@ -1610,6 +1617,26 @@ export function PatientRecordModal({
                 Modifier ce total répartit le montant sur les actes de la séance.
               </span>
             </div>
+            {/*
+              THE THREE FIGURES, on a séance the devis carries — the sentence that makes « Encaissé
+              aujourd'hui » unmisreadable. A dentist typing 600 on a 2 000 DT implant must see, in the same
+              glance, that the treatment is 2 000 and that 1 400 remain: an amount with no denominator is what
+              reads as a price. Rendered before the séance-total block so it sits beside the field it explains.
+            */}
+            {carriedByDevis && billedPlanItem?.plannedCost != null && (
+              <p role="status" className="w-full text-2xs text-muted-foreground">
+                <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span> convenus
+                pour tout le traitement
+                {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
+                <span className="font-medium text-foreground">
+                  reste{" "}
+                  <span className="font-mono tabular-nums">
+                    {formatDT(Math.max(0, roundMillimes(billedPlanItem.plannedCost - paidAmount)))}
+                  </span>
+                </span>{" "}
+                après cette séance
+              </p>
+            )}
             {/* Wraps to its own line below `sm:` — three figures do not fit 342px, and « Reste à payer » is the
                 one of the three that is a sentence rather than a number. */}
             <div className="w-full text-xs sm:w-auto">

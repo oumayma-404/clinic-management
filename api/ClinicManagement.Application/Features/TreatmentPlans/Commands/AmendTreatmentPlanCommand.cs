@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -241,13 +242,20 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                     plan, clinicId, _procedureTypeRepository, cancellationToken, confirmed);
             }
 
-            // A changed total MUST come with a schedule: leaving the old one would break
-            // Σ installment.Amount == TotalPlanned, the invariant that keeps « Solde patient » and
-            // « Créances » reporting the same number.
+            /*
+             * A changed total must not leave the échéancier behind — Σ installment.Amount == TotalPlanned is
+             * what keeps « Solde patient » and « Créances » reporting the same number.
+             *
+             * ⚠️ It used to REFUSE when no schedule came with the change, and that was the app fighting the
+             * dentist: correcting a price from the booking dialog or the acts table has no échéancier on
+             * screen to re-send, so the only honest answer there was « renvoyez l'échéancier », which names
+             * something the caller cannot see. It re-spreads instead — every collected row stays at exactly
+             * what it has taken and the balance lands on one row — so a price is editable from anywhere and
+             * the invariant still holds. A plan with no schedule (an un-numbered treatment) is a no-op.
+             */
             if (plan.TotalPlanned != totalBefore && request.Installments.Count == 0)
             {
-                return Result<TreatmentPlanDto>.Failure(
-                    "Le total du devis a changé : renvoyez l'échéancier correspondant au nouveau total.");
+                plan.RespreadScheduleToTotal(ClinicClock.ClinicToday());
             }
 
             if (request.Installments.Count > 0)

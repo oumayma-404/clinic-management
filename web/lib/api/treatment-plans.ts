@@ -286,6 +286,37 @@ export const treatmentPlansApi = {
   reopenTreatment: async (id: string, version?: number): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/reopen`, { version }),
 
+  /**
+   * « Suivre ce traitement » — start following a multi-séance act in one press.
+   *
+   * Creates the treatment as an **un-numbered draft**: no devis number, no échéancier, no créance. Nothing
+   * irreversible happens, which is the whole reason this is not `create`: that one numbers and accepts in the
+   * same save, so picking an implant in the booking dialog used to mint an accepted devis claiming the act's
+   * whole total — measured, 2026-0023 at 800,000 DT.
+   *
+   * ⚠️ `agreedTotal` is the treatment's **only** price. A séance of it has none: what a séance carries is an
+   * encaissement, which draws this figure down and never adds to it.
+   */
+  startTreatment: async (data: {
+    patientId: string
+    procedureTypeId: string
+    agreedTotal?: number | null
+    toothNumbers?: number[]
+  }): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>('/treatment-plans/start', {
+      patientId: data.patientId,
+      procedureTypeId: data.procedureTypeId,
+      agreedTotal: data.agreedTotal ?? null,
+      toothNumbers: data.toothNumbers ?? [],
+    }),
+
+  /**
+   * « Éditer le devis » — take the number, because the patient is being handed a document. The only call that
+   * consumes a devis number, and idempotent on a treatment that already has one.
+   */
+  issueDevis: async (id: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/issue-devis`, { version }),
+
   /** Add/edit/remove acts on an accepted devis (+ title, notes and the matching échéancier). AdminOrDoctor. */
   amend: async (id: string, data: AmendTreatmentPlanRequest): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/amend`, data),

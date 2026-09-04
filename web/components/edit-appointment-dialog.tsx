@@ -219,7 +219,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // derivations — the acts, which devis each belongs to, and the one to suggest — and a second copy of
   // `schedulablePlanItems` + `planItemToPreset` beside this one is the defect shape this repository produces
   // most: two call sites, one of which quietly stops agreeing with the rule.
-  const { plans: patientPlans, planActs, planIdByItem } = usePatientPlanActs(source?.patientId, open)
+  const { plans: patientPlans, planActs, planIdByItem, saveActTotal: saveTreatmentTotal } = usePatientPlanActs(source?.patientId, open)
 
   /**
    * « Ce patient a un traitement en cours » — the same reminder the create dialog gives, for the case the client
@@ -1077,6 +1077,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="edit-appt"
                 planActs={planActs}
+                // An act's price is editable from here too — see `onTotalChange`. It saves to the TREATMENT
+                // (the act is priced once) and the échéancier re-spreads itself server-side.
+                onTotalChange={saveTreatmentTotal}
               />
 
               <div className="grid grid-cols-1 gap-4">

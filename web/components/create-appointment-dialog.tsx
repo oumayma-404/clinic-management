@@ -212,6 +212,7 @@ export function CreateAppointmentDialog({
     planActs: offeredPlanActs,
     planIdByItem,
     register: registerPlan,
+    saveActTotal: saveTreatmentTotal,
   } = usePatientPlanActs(selectedPatientId, !isPlanScheduling && !isBusySlot)
 
   /** « C'est la suite d'une séance précédente ? » — the third door, for work that never had a devis. */
@@ -262,6 +263,52 @@ export function CreateAppointmentDialog({
       )
     },
     [registerPlan, procedureTypes],
+  )
+
+  const [startingProtocol, setStartingProtocol] = useState(false)
+
+  /**
+   * « Suivre ce traitement » — one press, from inside an ordinary booking.
+   *
+   * <p>Creates the treatment as an <b>un-numbered draft</b> (no devis number, no échéancier, no créance) and
+   * rewrites this visit's act row as its first séance. The dentist then presses « Créer le rendez-vous » as
+   * they were going to.</p>
+   *
+   * <p>⚠️ <b>No confirmation, because there is nothing irreversible left to confirm.</b> This used to call
+   * <c>create</c>, which numbers and accepts in the same save — so one press produced an accepted devis
+   * claiming the act's whole total from a dialog about a visit, and abandoning the booking afterwards left it
+   * behind with no appointment. The number is taken later, by « Éditer le devis ».</p>
+   *
+   * <p>⚠️ The price the dentist typed in the row is the treatment's <b>total</b>, not this séance's: an act is
+   * priced once. Once it is a treatment act the row shows that total instead of a price field.</p>
+   */
+  const startProtocol = useCallback(
+    async (act: SelectedAct, _protocol: ProcedureStepTemplateDto[]) => {
+      if (!selectedPatientId || !act.procedureTypeId) return
+      setStartingProtocol(true)
+      try {
+        const plan = await treatmentPlansApi.startTreatment({
+          patientId: selectedPatientId,
+          procedureTypeId: act.procedureTypeId,
+          agreedTotal: agreedCostOf(act),
+          toothNumbers: [],
+        })
+        const item = plan.items[0]
+        if (!item) return
+        attachPlanAct(
+          plan,
+          item,
+          // Rewrite the row this was pressed on rather than appending — it is the same act, now followed.
+          (a) => a === act || (a.procedureTypeId === act.procedureTypeId && !a.treatmentPlanItemId),
+        )
+        toast.success(`Traitement suivi — ${plan.items[0]?.steps?.length ?? 0} séances. Ce RDV est la 1re.`)
+      } catch (err) {
+        showErrorToast(err)
+      } finally {
+        setStartingProtocol(false)
+      }
+    },
+    [selectedPatientId, attachPlanAct],
   )
 
   /** Accepting it: the act (and the step it is waiting on) becomes this séance's act. */
@@ -625,122 +672,6 @@ export function CreateAppointmentDialog({
     [selectedActs, procedureTypes],
   )
 
-  const [startingProtocol, setStartingProtocol] = useState(false)
-
-  /**
-   * « Créer le devis et planifier la 1ʳᵉ séance » — the one press that turns an agenda booking of a
-   * multi-séance act into a real treatment.
-   *
-   * <p>It creates a devis carrying that single act with its protocol, then rewrites this visit's act row as
-   * the devis' first step. The dentist then presses « Créer le rendez-vous » as they were going to: the
-   * appointment they were already booking becomes séance 1, and the remaining séances surface in
-   * « Traitements en cours » as they come due.</p>
-   *
-   * <p>⚠️ <b>Nothing is created silently.</b> A devis consumes a number and is a financial document the patient
-   * may be shown, so it is offered and pressed — never a side effect of picking an act. That was a deliberate
-   * choice over the fewer-clicks alternative.</p>
-   *
-   * <p>⚠️ <b>No échéancier is sent</b>, so the server writes the auto lump-sum one. Guessing a payment schedule
-   * from an agenda booking would be inventing terms nobody agreed; the dentier revises it on the devis.</p>
-   */
-  const startProtocol = useCallback(
-    async (act: SelectedAct, protocol: ProcedureStepTemplateDto[]) => {
-      // No patient yet (a « créneau occupé », or a new patient not yet committed) — the picker hides the
-      // button in that case, so this is a backstop rather than a path.
-      if (!selectedPatientId || !act.procedureTypeId) return
-
-      setStartingProtocol(true)
-      try {
-        const procedure = procedureTypes.find((pt) => pt.id === act.procedureTypeId)
-        const designation = procedure?.name ?? "Acte"
-        /*
-         * ⚠️ **The price typed into « Prix pour ce rendez-vous » wins over the catalogue tarif, and it used to
-         * be discarded.** This path wrote `procedure.defaultCost` and then replaced the act row, so a price
-         * agreed on the telephone one field above the button was silently lost — and the toast then stated the
-         * catalogue figure as the devis amount, confidently. Worse, an act with no `defaultCost` produced a
-         * devis total of **0**, which skips the automatic échéance entirely: an implant devis with no total, no
-         * schedule, and every séance priced 0.
-         */
-        const typed = agreedCostOf(act)
-        const plannedCost = typed != null && typed > 0 ? typed : (procedure?.defaultCost ?? 0)
-        const plan = await treatmentPlansApi.create({
-          patientId: selectedPatientId,
-          title: designation,
-          items: [
-            {
-              procedureTypeId: act.procedureTypeId,
-              designationFr: designation,
-              plannedCost,
-              toothNumbers: [],
-              steps: protocol.map((step) => ({
-                label: step.label,
-                estimatedDurationMinutes: step.durationMinutes,
-                // The clinical interval, carried across with the label: it is what lets the worklist say
-                // « pas encore due » instead of alarming at a flat fortnight on a treatment that is on time.
-                minDaysAfterPrevious: step.minDaysAfterPrevious ?? null,
-              })),
-            },
-          ],
-          installments: [],
-        })
-
-        const item = plan.items[0]
-        if (!item) throw new Error("Le devis a été créé sans acte.")
-
-        /*
-         * The act row becomes the devis' first step, through the one shared path.
-         *
-         * ⚠️ It used to map `setSelectedActs` inline, which meant the freshly minted devis never reached
-         * `planIdByItem` — so the row carried a `treatmentPlanItemId` with no `treatmentPlanId` beside it and the
-         * save was refused with « Le plan de traitement est requis pour lier l'acte. » `attachPlanAct` registers
-         * the plan, which is the half that was missing.
-         */
-        attachPlanAct(
-          plan,
-          item,
-          (a) => a === act || (a.procedureTypeId === act.procedureTypeId && !a.treatmentPlanItemId),
-        )
-        toast.success(
-          `Devis ${plan.number ?? ""} créé — ${protocol.length} séances, ${formatDT(plannedCost)}. Ce rendez-vous est la 1re.`.trim(),
-        )
-      } catch (err) {
-        showErrorToast(err)
-      } finally {
-        setStartingProtocol(false)
-      }
-    },
-    [selectedPatientId, procedureTypes, attachPlanAct],
-  )
-
-  /**
-   * The confirmation « Créer le devis et planifier la 1re séance » did not have.
-   *
-   * <p>⚠️ One press spent a devis number permanently, created an <b>accepted</b> document carrying a money
-   * claim, and fired immediately — inside the still-open booking dialog, so abandoning the booking afterwards
-   * left the devis behind: numbered, accepted, with no appointment. Accepting a legacy *draft*, a far less
-   * consequential act, has always been confirmed. This names the number-to-be, the séances and the amount.</p>
-   */
-  const [protocolOffer, setProtocolOffer] = useState<{
-    act: SelectedAct
-    protocol: ProcedureStepTemplateDto[]
-    designation: string
-    amount: number
-  } | null>(null)
-
-  const offerProtocol = useCallback(
-    async (act: SelectedAct, protocol: ProcedureStepTemplateDto[]) => {
-      if (!selectedPatientId || !act.procedureTypeId) return
-      const procedure = procedureTypes.find((pt) => pt.id === act.procedureTypeId)
-      const typed = agreedCostOf(act)
-      setProtocolOffer({
-        act,
-        protocol,
-        designation: procedure?.name ?? act.fallbackName ?? "Acte",
-        amount: typed != null && typed > 0 ? typed : (procedure?.defaultCost ?? 0),
-      })
-    },
-    [selectedPatientId, procedureTypes],
-  )
 
   /** The lead act's colour — what the agenda will actually paint this block with. */
   const leadColorHex = useMemo(() => {
@@ -1499,12 +1430,16 @@ export function CreateAppointmentDialog({
                 onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="create-appt"
-                // Only with a patient in hand: a devis belongs to somebody.
-                onStartProtocol={selectedPatientId ? offerProtocol : undefined}
+                // « Suivre ce traitement » — one press, no modal, no number. Only with a patient in hand: a
+                // treatment belongs to somebody.
+                onStartProtocol={selectedPatientId ? startProtocol : undefined}
                 startingProtocol={startingProtocol}
                 // « Actes du devis » — the same group the edit dialog offers. It is the un-hurried half of the
                 // suggestion above: the reminder names ONE act, this holds every one the patient has outstanding.
                 planActs={offeredPlanActs}
+                // An act's price is editable from here too — see `onTotalChange`. It saves to the TREATMENT
+                // (the act is priced once) and the échéancier re-spreads itself server-side.
+                onTotalChange={saveTreatmentTotal}
               />
             )}
 
@@ -1785,47 +1720,6 @@ export function CreateAppointmentDialog({
       </AlertDialogContent>
     </AlertDialog>
 
-    {/*
-      « Créer le devis et planifier la 1re séance » — confirmed, because it is irreversible. It spends a devis
-      number permanently, creates an ACCEPTED document carrying a money claim, and does so before the
-      appointment is saved, so abandoning the booking afterwards leaves the devis behind with no visit against
-      it. Accepting a legacy draft, a far smaller act, has always asked.
-    */}
-    <AlertDialog open={protocolOffer != null} onOpenChange={(o) => !o && setProtocolOffer(null)}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Créer le devis pour {protocolOffer?.designation} ?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Un devis numéroté et <b>accepté</b> est créé immédiatement, avec{" "}
-            {protocolOffer?.protocol.length ?? 0} séance
-            {(protocolOffer?.protocol.length ?? 0) > 1 ? "s" : ""} et un total de{" "}
-            {formatDT(protocolOffer?.amount ?? 0)}. Ce rendez-vous en devient la 1re. Un devis ne se supprime
-            pas : il s&apos;annule, avec un motif, et son numéro reste consommé.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        {protocolOffer && protocolOffer.amount <= 0 && (
-          <p role="status" className="text-2xs leading-relaxed text-warning-ink">
-            Cet acte n&apos;a pas de tarif : le devis serait créé à 0,000 DT, sans échéancier. Renseignez
-            « Prix pour ce rendez-vous » avant de continuer.
-          </p>
-        )}
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={startingProtocol}>Retour</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={startingProtocol}
-            onClick={(event) => {
-              event.preventDefault()
-              const offer = protocolOffer
-              if (!offer) return
-              setProtocolOffer(null)
-              void startProtocol(offer.act, offer.protocol)
-            }}
-          >
-            {startingProtocol ? "Création…" : "Créer le devis"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
     <DiscardChangesDialog guard={guard} />
     </>
   )

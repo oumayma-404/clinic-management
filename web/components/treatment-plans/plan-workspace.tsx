@@ -46,6 +46,7 @@ import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
 import {
   activeItems,
   displayedOutstanding,
+  isPlanLive,
   hasDeliveredWork,
   isItemWithdrawn,
   isPlanBilled,
@@ -252,7 +253,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const owed = useMemo(() => displayedOutstanding(plan), [plan])
 
   const isDraft = plan.status === "Draft"
-  const isActive = plan.status === "Accepted" || plan.status === "InProgress"
+  const isActive = isPlanLive(plan.status)
   const billed = isPlanBilled(plan)
   // Reordering is cosmetic, so it stays available on a Completed plan too — only a cancelled devis (and a
   // one-act plan, where there is nothing to move) hides the controls.
@@ -271,7 +272,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * <p>⚠️ Every plan the <b>continuation</b> feature creates is born attached to a note, so under the old rule it
    * was born uncorrectable — a treatment still under way that could never be adjusted.</p>
    */
-  const canAmend = plan.status !== "Draft" && plan.status !== "Cancelled"
+  // ⚠️ A **Draft is included**: an un-numbered treatment is followed work, not an unfinished form, and it
+  // reaches this same workspace. Excluding it left no way to correct a total on the treatments a dentist
+  // starts from the agenda — « the app should never refuse edits ». `EnsureAmendable` was widened to match.
+  const canAmend = plan.status !== "Cancelled"
 
   /**
    * Whether « Facturer le devis » is offered — every live status except a draft, minus a devis a note already
@@ -318,7 +322,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * so requiring an active plan would lock out the exact mistake the correction exists for. The server's
    * `EnsureCorrectable` admits Accepted / InProgress / **Completed** — mirrored here.
    */
-  const canCorrectActs = plan.status !== "Draft" && plan.status !== "Cancelled"
+  // A Draft is clinically live now — its acts book, record and detach like any other. See `canAmend`.
+  const canCorrectActs = plan.status !== "Cancelled"
   /**
    * Whether an échéance of this plan can still take money (J1).
    *
@@ -497,6 +502,35 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       confirmLabel: "Accepter le devis",
       onConfirm: () =>
         run(() => treatmentPlansApi.accept(plan.id), "Devis accepté", "Échec de l'acceptation."),
+    })
+
+  /**
+   * « Éditer le devis » — take the number.
+   *
+   * <p>Confirmed, and this is the one thing in the treatment flow that still is: a number is gapless,
+   * per-clinic-per-year and can only be released by a cancellation carrying a motif. Everything else about a
+   * treatment is now free precisely so that this one press can be deliberate.</p>
+   */
+  const confirmIssueDevis = () =>
+    setConfirmAction({
+      title: "Éditer le devis ?",
+      description: (
+        <>
+          Un numéro de devis sera attribué à {planLabel} et l&apos;échéancier devient exigible — c&apos;est le
+          document que le patient reçoit. Le numéro est définitif : une erreur s&apos;annule avec un motif, elle
+          ne se supprime pas.
+          {plan.totalPlanned > 0 && (
+            <> Total : {formatDT(plan.totalPlanned)}.</>
+          )}
+        </>
+      ),
+      confirmLabel: "Éditer le devis",
+      onConfirm: () =>
+        run(
+          () => treatmentPlansApi.issueDevis(plan.id, plan.version),
+          "Devis édité",
+          "Échec de l'édition du devis.",
+        ),
     })
 
   const confirmBill = () =>
@@ -696,10 +730,19 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               {/* All three plan-level state changes go through a confirmation (see PlanConfirm). They used to
                   fire on the first click, in a row that also holds « Devis PDF » and « Envoyer par e-mail ». */}
+              {/*
+                « Éditer le devis » — the ONLY place a devis number is taken, and the reason a treatment can be
+                started for nothing. A treatment followed from the agenda is an un-numbered draft: no number, no
+                échéancier, no créance. Pressing this is the moment the patient is handed paper, so it is also
+                the moment the money becomes a claim.
+                ⚠️ It replaces « Accepter le devis » on this row rather than sitting beside it: two controls
+                promoting the same draft is the « second door » this file already argues against, and « accepter »
+                described a decision the patient makes, not one the dentist records.
+              */}
               {isDraft && (
-                <Button size="sm" className="gap-2" disabled={busy} onClick={confirmAccept}>
+                <Button size="sm" className="gap-2" disabled={busy} onClick={confirmIssueDevis}>
                   <ClipboardCheck className="h-4 w-4" />
-                  Accepter le devis
+                  Éditer le devis
                 </Button>
               )}
               {/*
@@ -870,13 +913,24 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             />
           </div>
 
+          {/*
+            ⚠️ « À accepter pour démarrer le suivi. » was true when a Draft was an unfinished form. It is false
+            now: a treatment followed from the agenda is un-numbered and already running — its séances book, its
+            fiches record — so telling the dentist to accept something before starting describes a gate that no
+            longer exists. The next séance is the same fact for a draft as for a numbered devis, so it is stated
+            the same way; what the draft adds is one line saying the devis has not been issued.
+          */}
           <p className="text-sm text-foreground">
-            {isDraft
-              ? "À accepter pour démarrer le suivi."
-              : plan.nextAppointmentAt
-                ? `Prochaine séance : ${formatDateFr(plan.nextAppointmentAt)}`
-                : "Aucune séance planifiée"}
+            {plan.nextAppointmentAt
+              ? `Prochaine séance : ${formatDateFr(plan.nextAppointmentAt)}`
+              : "Aucune séance planifiée"}
           </p>
+          {isDraft && (
+            <p className="text-xs text-muted-foreground">
+              Aucun devis édité — le suivi fonctionne sans. « Éditer le devis » lui attribue un numéro, le jour
+              où le patient en demande un.
+            </p>
+          )}
 
           {plan.notes && (
             <p className="whitespace-pre-line rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">

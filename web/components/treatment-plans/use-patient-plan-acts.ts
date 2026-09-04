@@ -1,7 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 import type { SelectedAct, PresetPlanAct } from "@/components/appointment-acts-picker"
+import { showErrorToast } from "@/lib/errors"
+import { formatDT } from "@/lib/format"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { TreatmentPlanDto } from "@/lib/api/types"
 import { planItemToPreset, schedulablePlanItems } from "./plan-next-action"
@@ -25,9 +28,24 @@ export interface PatientPlanActs {
    * this hook did when the patient was picked, so it is handed in instead.
    */
   register: (plan: TreatmentPlanDto) => void
+
+  /**
+   * Re-price one treatment act — the act's total for the whole treatment, not a price for one séance.
+   *
+   * <p><b>Here rather than in each dialog</b> because both booking surfaces offer the edit and this hook is
+   * already the one that holds the plans: two implementations would be two answers to « what does changing a
+   * treatment's price do to its échéancier ».</p>
+   *
+   * <p>⚠️ It sends only the act's own line. The server re-spreads the schedule when a total changes with none
+   * supplied, so a dentist correcting a figure from the agenda — where no échéancier is on screen — is never
+   * asked for one. Resolves `false` on a refusal so the field keeps what was typed.</p>
+   */
+  saveActTotal: (treatmentPlanItemId: string, total: number) => Promise<boolean>
 }
 
-const EMPTY: Omit<PatientPlanActs, "register"> = { plans: [], planActs: [], planIdByItem: {}, loading: false }
+const EMPTY: Omit<PatientPlanActs, "register" | "saveActTotal"> = {
+  plans: [], planActs: [], planIdByItem: {}, loading: false,
+}
 
 /**
  * A patient's outstanding devis acts, for a booking dialog.
@@ -35,7 +53,8 @@ const EMPTY: Omit<PatientPlanActs, "register"> = { plans: [], planActs: [], plan
  * <p><b>One loader for both dialogs.</b> The edit dialog had this as an inline effect and the create dialog had
  * nothing at all — which is why booking from the agenda could not see a devis, the gap this hook closes. A second
  * copy of the derivation is the shape of defect this repository produces most: `schedulablePlanItems` already
- * encodes « a Done act and a Draft plan contribute nothing », and a hand-rolled filter beside it drifts silently.</p>
+ * encodes « a Done act and a Cancelled/Completed plan contribute nothing » — a DRAFT does contribute, since
+ * « Suivre ce traitement » creates one — and a hand-rolled filter beside it drifts silently.</p>
  *
  * <p>⚠️ <b>A failure is swallowed to an empty set, deliberately.</b> The devis shortcut is an accelerator: taking
  * the whole booking dialog down because one extra read failed would be a poor trade, and the picker's catalogue
@@ -58,6 +77,32 @@ export function usePatientPlanActs(
   const register = useCallback((plan: TreatmentPlanDto) => {
     setPlans((prev) => [plan, ...prev.filter((p) => p.id !== plan.id)])
   }, [])
+
+  const saveActTotal = useCallback(async (treatmentPlanItemId: string, total: number) => {
+    const plan = plans.find((p) => p.items.some((i) => i.id === treatmentPlanItemId))
+    const item = plan?.items.find((i) => i.id === treatmentPlanItemId)
+    if (!plan || !item) return false
+    try {
+      const saved = await treatmentPlansApi.amend(plan.id, {
+        updateItems: [
+          {
+            id: item.id,
+            designationFr: item.designationFr,
+            plannedCost: total,
+            procedureTypeId: item.procedureTypeId ?? undefined,
+            toothNumbers: item.toothNumbers,
+          },
+        ],
+        version: plan.version,
+      })
+      register(saved)
+      toast.success(`Total mis à jour — ${formatDT(total)}`)
+      return true
+    } catch (err) {
+      showErrorToast(err, "Le total n'a pas pu être modifié.")
+      return false
+    }
+  }, [plans, register])
 
   useEffect(() => {
     if (!enabled || !patientId) {
@@ -83,7 +128,7 @@ export function usePatientPlanActs(
   }, [enabled, patientId])
 
   return useMemo(() => {
-    if (plans.length === 0) return { ...EMPTY, loading, register }
+    if (plans.length === 0) return { ...EMPTY, loading, register, saveActTotal }
     const planActs: PresetPlanAct[] = []
     const planIdByItem: Record<string, string> = {}
     for (const plan of plans) {
@@ -92,8 +137,8 @@ export function usePatientPlanActs(
         planIdByItem[item.id] = plan.id
       }
     }
-    return { plans, planActs, planIdByItem, loading, register }
-  }, [plans, loading, register])
+    return { plans, planActs, planIdByItem, loading, register, saveActTotal }
+  }, [plans, loading, register, saveActTotal])
 }
 
 /**
