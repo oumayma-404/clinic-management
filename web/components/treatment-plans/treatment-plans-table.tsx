@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { MoreHorizontal, Plus, Loader2, ChevronRight, ClipboardList } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
@@ -106,6 +107,14 @@ interface TreatmentPlansTableProps {
   /** Clears the parent's filters entirely — the action the filtered empty state offers. */
   onClearFilters?: () => void
   showPatientColumn?: boolean
+  /**
+   * A search term the PARENT owns, for a page whose one box has to narrow more than this table. When it is
+   * supplied the table's own search input is not rendered — two boxes over one list is how they disagree, and
+   * the second would silently AND itself with the first.
+   *
+   * <p>Left undefined (the patient page) the table keeps its own box exactly as before.</p>
+   */
+  externalSearch?: string
   /** Bumped by the parent (e.g. after filter change) to force a reload. */
   reloadKey?: number
   /** Called after any mutation so the parent can refresh dependent views. */
@@ -132,10 +141,14 @@ export function TreatmentPlansTable({
   filtered = false,
   onClearFilters,
   showPatientColumn = true,
+  externalSearch,
   reloadKey = 0,
   onChanged,
 }: TreatmentPlansTableProps) {
-  const [search, setSearch] = useState("")
+  const [ownSearch, setOwnSearch] = useState("")
+  // The parent's term wins outright when it is supplied — never merged with the local one.
+  const controlled = externalSearch !== undefined
+  const search = controlled ? externalSearch : ownSearch
   // Bumped by a mutation or a realtime event to refetch the CURRENT page.
   const [localRefresh, setLocalRefresh] = useState(0)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -307,7 +320,14 @@ export function TreatmentPlansTable({
       title={searchTerm ? `Aucun devis pour ${quoteFr(searchTerm)}` : "Aucun devis ne correspond à votre recherche"}
       description="Vérifiez l'orthographe, ou effacez la recherche pour revoir tous les devis."
       action={
-        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+        // Clearing has to reach whoever OWNS the term: our own state when the box is ours, and the parent's
+        // « voir tous les devis » when the page owns it — otherwise the button appears to work and the list
+        // stays empty, because the term it cleared was not the one being applied.
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => (controlled ? onClearFilters?.() : setOwnSearch(""))}
+        >
           Effacer la recherche
         </Button>
       }
@@ -353,17 +373,23 @@ export function TreatmentPlansTable({
         line instead of squeezing the input down to a few characters.
       */}
       <div className="flex flex-wrap items-center gap-2">
-        <Label htmlFor="plans-search" className="sr-only">
-          Rechercher un devis
-        </Label>
-        <Input
-          id="plans-search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher un devis (numéro, titre, patient)…"
-          className="min-w-[200px] flex-1 sm:max-w-sm"
-        />
-        <Button onClick={openCreate} className="gap-2">
+        {!controlled && (
+          <>
+            <Label htmlFor="plans-search" className="sr-only">
+              Rechercher un devis
+            </Label>
+            <Input
+              id="plans-search"
+              value={ownSearch}
+              onChange={(e) => setOwnSearch(e.target.value)}
+              placeholder="Rechercher un devis (numéro, titre, patient)…"
+              className="min-w-[200px] flex-1 sm:max-w-sm"
+            />
+          </>
+        )}
+        {/* `ms-auto` only when the search has gone: without it the lone button would sit at the start of the
+            row, where nothing else on the page puts a primary action. */}
+        <Button onClick={openCreate} className={cn("gap-2", controlled && "ms-auto")}>
           <Plus className="h-4 w-4" /> Nouveau plan
         </Button>
       </div>

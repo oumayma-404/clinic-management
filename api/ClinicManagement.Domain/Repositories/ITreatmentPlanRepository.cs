@@ -73,10 +73,23 @@ public interface ITreatmentPlanRepository
     /// a devis carrying three unfinished bridges is three rows, and a page of plans would return them as one.
     /// </para>
     /// <para>
-    /// ⚠️ Ordered <b>oldest last séance first</b> — the point of the list is the treatment nobody has come back
-    /// for — with <c>ItemId</c> as the final, unique tie-break. Without it <c>OFFSET</c> over a non-unique sort
-    /// shows one act on two pages and skips another, which reads as « un traitement a disparu ».
+    /// ⚠️ Ordered <b>most recent devis first</b> (<c>plan.CreatedAt</c> descending), then the act's own rank
+    /// within its devis so a plan's acts stay in protocol order, with <c>ItemId</c> as the final, unique
+    /// tie-break. Without that last one <c>OFFSET</c> over a non-unique sort shows one act on two pages and
+    /// skips another, which reads as « un traitement a disparu ».
+    /// <para>
+    /// It used to be <i>oldest last séance first</i>, on the argument that the treatment nobody has come back
+    /// for is the one the practice needs to see. That is still true, and it is now carried by the row itself
+    /// rather than by the sort: « Dernière séance » turns amber past 14 days and « pas encore due » separates a
+    /// protocol still waiting from one that has been forgotten. Newest-first is what the practice asked for,
+    /// because the treatment just started is the one being talked about at the desk.
     /// </para>
+    /// </para>
+    /// <param name="searchTerm">
+    /// Free text matched in SQL against the patient's name (both orders) and the devis number — never over the
+    /// page in memory, which would answer a different question: this list is paged, so filtering the rows
+    /// already fetched would search 25 acts and report « aucun résultat » for a patient on page 2.
+    /// </param>
     /// <para>
     /// Filtered to plans that still carry work: <c>Accepted</c> and <c>InProgress</c>. A <c>Completed</c> plan has
     /// no act under way by definition, and a <c>Cancelled</c> one is void — listing either would put treatments
@@ -84,7 +97,7 @@ public interface ITreatmentPlanRepository
     /// </para>
     /// </summary>
     Task<PagedResult<TreatmentInProgressFact>> GetTreatmentsInProgressAsync(
-        Guid clinicId, PageRequest? paging, CancellationToken cancellationToken = default);
+        Guid clinicId, PageRequest? paging, string? searchTerm = null, CancellationToken cancellationToken = default);
 
     /// <summary>List a clinic's treatment plans, filtered by patient / status / created-date range.</summary>
     /// <param name="acceptedFrom">

@@ -22,6 +22,7 @@ import { PLAN_STATUS_LABELS } from "@/components/treatment-plans/treatment-plan-
 import { useSession } from "@/lib/auth/session"
 import { isAdminOrDoctor } from "@/lib/nav"
 import { formatDateFr, toLocalIso } from "@/lib/format"
+import { Search, X } from "lucide-react"
 
 const ALL_STATUSES = "all"
 
@@ -111,6 +112,18 @@ export default function TreatmentPlansPage() {
   // The worklist's own server total, for its section heading. Reported by the list rather than counted here:
   // the read is paged, so the rows in hand are up to 25 of it.
   const [inProgressTotal, setInProgressTotal] = useState<number | null>(null)
+
+  /*
+   * The page-wide patient search. Two pieces of state on purpose: `searchInput` is what the field shows, and
+   * `search` is the debounced term the two lists actually read — each keystroke would otherwise fire two
+   * server reads. 300 ms, matching the patients table.
+   */
+  const [searchInput, setSearchInput] = useState("")
+  const [search, setSearch] = useState("")
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
 
   // L5 — « Exporter » is `AdminOrDoctor` server-side; hidden rather than shown-and-refused, the reasoning
   // `access-denied-card` records. Presentation only, the endpoint is authoritative.
@@ -220,6 +233,10 @@ export default function TreatmentPlansPage() {
     setStatus(ALL_STATUSES)
     setAcceptedFrom("")
     setAcceptedTo("")
+    // The search is one of the things narrowing the list (it is counted in `filtered`), so « voir tous les
+    // devis » has to clear it too — otherwise the empty state offers an action that leaves it empty.
+    setSearchInput("")
+    setSearch("")
     clearUrl()
   }
 
@@ -256,6 +273,40 @@ export default function TreatmentPlansPage() {
         />
 
         {/*
+          ONE search for the whole page, above both sections — « où en est le traitement de M. X ? » is a
+          question about the patient, not about one of the two halves. It used to live inside the devis table,
+          so typing a name narrowed « Devis et échéanciers » while « Traitements en cours » went on showing
+          every other patient in the cabinet, which is the half the desk actually asks about.
+
+          ⚠️ Both halves match it **server-side**, over the whole clinic: each list is paged, so filtering the
+          rows already fetched would search one page and answer « aucun résultat » for a patient on the next.
+          Debounced, because each keystroke is two reads.
+
+          It sits at page level rather than in `PageHeader`'s `actions`, which is for controls that ACT; a
+          control that narrows the list belongs above the lists it narrows (`ui/list-toolbar`'s contract).
+        */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Label htmlFor="treatments-search" className="sr-only">
+            Rechercher un patient
+          </Label>
+          <div className="relative min-w-[200px] flex-1 sm:max-w-md">
+            <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="treatments-search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Rechercher un patient (ou un n° de devis)…"
+              className="ps-8"
+            />
+          </div>
+          {searchInput.trim() !== "" && (
+            <Button variant="ghost" onClick={() => setSearchInput("")} className="gap-1.5">
+              <X className="size-4" /> Effacer
+            </Button>
+          )}
+        </div>
+
+        {/*
           The lead section. Its `hint` carries the SERVER's total, not the rows in hand — the read is paged, so
           « 25 » would be the page size masquerading as a fact about the clinic. Null until the first read
           answers, so the heading never claims « 0 acte » about a list still loading.
@@ -270,7 +321,7 @@ export default function TreatmentPlansPage() {
                 : `${inProgressTotal} acte${inProgressTotal > 1 ? "s" : ""} à terminer`
           }
         >
-          <TreatmentsInProgressList onTotalChange={setInProgressTotal} />
+          <TreatmentsInProgressList onTotalChange={setInProgressTotal} searchTerm={search} />
         </DashboardSection>
 
         {/*
@@ -372,7 +423,9 @@ export default function TreatmentPlansPage() {
               status={statusFilter}
               acceptedFrom={acceptedFromIso}
               acceptedTo={acceptedToIso}
-              filtered={Boolean(fromIso || toIso || statusFilter || acceptedFromIso || acceptedToIso)}
+              // The page owns the search now, so the table renders no box of its own — see `externalSearch`.
+              externalSearch={search}
+              filtered={Boolean(search || fromIso || toIso || statusFilter || acceptedFromIso || acceptedToIso)}
               onClearFilters={showAllPlans}
             />
           </div>

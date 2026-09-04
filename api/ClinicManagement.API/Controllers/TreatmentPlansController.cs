@@ -266,9 +266,10 @@ public class TreatmentPlansController : ApiControllerBase
     /// </summary>
     [HttpGet("treatments-in-progress")]
     public async Task<ActionResult<PagedResult<TreatmentInProgressDto>>> GetTreatmentsInProgress(
-        [FromQuery] int? page, [FromQuery] int? pageSize)
+        [FromQuery] int? page, [FromQuery] int? pageSize, [FromQuery] string? search)
     {
-        var result = await _mediator.Send(new GetTreatmentsInProgressQuery { Page = page, PageSize = pageSize });
+        var result = await _mediator.Send(
+            new GetTreatmentsInProgressQuery { Page = page, PageSize = pageSize, Search = search });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

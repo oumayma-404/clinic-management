@@ -28,6 +28,13 @@ public class GetTreatmentsInProgressQuery : IRequest<Result<PagedResult<Treatmen
 {
     public int? Page { get; set; }
     public int? PageSize { get; set; }
+
+    /// <summary>
+    /// Free text over the patient's name and the devis number, matched in SQL across the whole clinic. Blank
+    /// leaves the list untouched. Deliberately the same field the devis list searches, because « Traitements »
+    /// asks one question of both halves: « where is this patient's treatment, and what did we agree? »
+    /// </summary>
+    public string? Search { get; set; }
 }
 
 public class GetTreatmentsInProgressQueryHandler
@@ -70,7 +77,8 @@ public class GetTreatmentsInProgressQueryHandler
                 _planRepository,
                 _appointmentRepository,
                 _patientRepository,
-                cancellationToken);
+                cancellationToken,
+                request.Search);
 
             return Result<PagedResult<TreatmentInProgressDto>>.Success(page);
         }

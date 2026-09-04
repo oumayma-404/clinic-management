@@ -31,6 +31,14 @@ interface TreatmentsInProgressListProps {
    * <p>Must be referentially stable (a `setState` setter, or a `useCallback`): it is a dependency of the fetch.</p>
    */
   onTotalChange?: (total: number | null) => void
+  /**
+   * Free text over the patient's name and the devis number, applied **server-side** across the whole clinic.
+   *
+   * <p>Owned by the page rather than by this list, because one box has to narrow both halves of
+   * « Traitements » — a search that reached only the devis table answered « qu'a-t-on convenu ? » while
+   * leaving « où en est son traitement ? » showing every other patient in the cabinet.</p>
+   */
+  searchTerm?: string
 }
 
 /**
@@ -51,18 +59,28 @@ interface TreatmentsInProgressListProps {
  * <p>⚠️ <b>No money figure anywhere</b>, which is what lets this screen be open to the whole team: booking the
  * next séance is reception's job. A « reste à payer » here would move it behind the practitioner policy.</p>
  */
-export function TreatmentsInProgressList({ onTotalChange }: TreatmentsInProgressListProps = {}) {
+export function TreatmentsInProgressList({ onTotalChange, searchTerm }: TreatmentsInProgressListProps = {}) {
   const router = useRouter()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [data, setData] = useState<PagedResponse<TreatmentInProgressDto> | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const query = (searchTerm ?? "").trim()
+
+  /*
+   * Back to page 1 whenever the term changes. Without it, narrowing from a clinic-wide list while sitting on
+   * page 3 requests an offset past the end of the filtered set and renders `PageRequest`'s deliberate empty —
+   * « aucun traitement en cours » about a patient who has one.
+   */
+  useEffect(() => {
+    setPage(1)
+  }, [query])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await treatmentPlansApi.treatmentsInProgress({ page, pageSize })
+      const result = await treatmentPlansApi.treatmentsInProgress({ page, pageSize, search: query || undefined })
       setData(result)
       setFailed(false)
       // The SERVER's total, not `result.items.length` — the read is paged, so the rows in hand are at most one
@@ -78,7 +96,7 @@ export function TreatmentsInProgressList({ onTotalChange }: TreatmentsInProgress
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, onTotalChange])
+  }, [page, pageSize, query, onTotalChange])
 
   useEffect(() => {
     void load()
@@ -174,12 +192,27 @@ export function TreatmentsInProgressList({ onTotalChange }: TreatmentsInProgress
   if (isEmpty) {
     return (
       <div className="rounded-md border bg-card p-3">
-        <EmptyState
-          size="compact"
-          icon={Layers}
-          title="Aucun traitement en cours"
-          description="Un acte commencé et non terminé apparaîtra ici avec l'étape qui reste à planifier."
-        />
+        {/*
+          Two empty KINDS, never one (§ 13): « this cabinet has no treatment under way » and « no treatment
+          under way matches what you typed » are opposite facts, and the first is a claim about the records that
+          a search must not be allowed to make. No « Ajouter » on the filtered branch either — the treatment may
+          well exist under a name spelt differently.
+        */}
+        {query ? (
+          <EmptyState
+            size="compact"
+            icon={Layers}
+            title={`Aucun traitement en cours pour ${quoteFr(query)}`}
+            description="Ce patient a peut-être un devis sans séance commencée — regardez « Devis et échéanciers » ci-dessous."
+          />
+        ) : (
+          <EmptyState
+            size="compact"
+            icon={Layers}
+            title="Aucun traitement en cours"
+            description="Un acte commencé et non terminé apparaîtra ici avec l'étape qui reste à planifier."
+          />
+        )}
       </div>
     )
   }

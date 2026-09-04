@@ -48,8 +48,11 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
     }
 
     public async Task<PagedResult<TreatmentInProgressFact>> GetTreatmentsInProgressAsync(
-        Guid clinicId, PageRequest? paging, CancellationToken cancellationToken = default)
+        Guid clinicId, PageRequest? paging, string? searchTerm = null, CancellationToken cancellationToken = default)
     {
+        // Matched in SQL over the whole clinic, never over the page — see the interface. Null/blank leaves the
+        // list untouched rather than matching nothing.
+        var pattern = string.IsNullOrWhiteSpace(searchTerm) ? null : SearchTerm.ToLikePattern(searchTerm);
         // Projected in SQL, one row per act — see the interface for why the list cannot be paged over plans.
         // The status filter is the stored TreatmentPlanItem.Status, which is exactly why that column is stored
         // and recomputed rather than derived on read: a domain property over the step rows has no translation.
@@ -71,11 +74,18 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             where plan.ClinicId == clinicId
                   && (plan.Status == TreatmentPlanStatus.Accepted || plan.Status == TreatmentPlanStatus.InProgress)
                   && item.Status == TreatmentPlanItemStatus.InProgress
-            // Oldest last séance first — the treatment nobody has come back for is the one the practice needs
-            // to see. Nulls sort first in PostgreSQL's ASC by default, which is the right end for a row that
-            // somehow has no done step at all. The act's own id last and unique: without it OFFSET can repeat
-            // one act and skip another, which reads as « un traitement a disparu ».
-            orderby item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate), item.Id
+                  && (pattern == null
+                      || EF.Functions.ILike(SqlSearch.Unaccent(plan.Number)!, pattern, SqlSearch.EscapeString)
+                      || _context.Patients.Any(pa =>
+                          pa.Id == plan.PatientId
+                          && (EF.Functions.ILike(
+                                  SqlSearch.Unaccent(pa.FirstName + " " + pa.LastName)!, pattern, SqlSearch.EscapeString)
+                              || EF.Functions.ILike(
+                                  SqlSearch.Unaccent(pa.LastName + " " + pa.FirstName)!, pattern, SqlSearch.EscapeString))))
+            // Most recent devis first, then the act's rank inside it so a plan's acts stay in protocol order.
+            // The act's own id last and unique: without it OFFSET can repeat one act and skip another, which
+            // reads as « un traitement a disparu ». See the interface for why this is no longer oldest-first.
+            orderby plan.CreatedAt descending, item.SequenceNumber, item.Id
             select new TreatmentInProgressFact(
                 plan.Id,
                 plan.Number,

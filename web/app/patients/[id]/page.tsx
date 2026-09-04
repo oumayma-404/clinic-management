@@ -1377,6 +1377,21 @@ export default function PatientDetailsPage() {
           onEdit={() => setEditDialogOpen(true)}
         />
 
+        {/*
+          ⚠️ **Directly under the notes, above the odontogramme** — on request, and it is the same reasoning the
+          notes strip itself carries: what the dentist must know before touching anything belongs in the first
+          screen. « Où en est le traitement, et qu'est-ce qui reste ? » is that kind of fact, and it used to sit
+          below the odontogramme — a full-width tooth chart further down the page — so on a laptop it was at or
+          past the fold and on a phone it was a scroll away. The band is ~76 px and states the next action, so
+          it earns the position more than the chart does.
+        */}
+        {sectionFailed("plans") && <SectionLoadFailure onRetry={retrySections} />}
+        <PatientPlansStrip
+          plans={treatmentPlans}
+          onOpen={() => openTab("treatment-plans")}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
+
         {/* An archived patient is hidden from every list and search but still reachable by direct URL —
             which makes this page the only place that can say so. */}
         {patient?.isArchived && (
@@ -1467,13 +1482,6 @@ export default function PatientDetailsPage() {
         {/* ⚠️ The band renders NOTHING when `plans` is empty, so a failed `treatmentPlansApi` read is invisible
             and silently asserts « never had a plan » about a patient with three. This is the one section whose
             empty state is "no element at all", which is why the failure has to be reported beside it. */}
-        {sectionFailed("plans") && <SectionLoadFailure onRetry={retrySections} />}
-        <PatientPlansStrip
-          plans={treatmentPlans}
-          onOpen={() => openTab("treatment-plans")}
-          onChanged={() => setRefreshKey((k) => k + 1)}
-        />
-
         <div ref={tabsRef} className="scroll-mt-4" />
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           {/*

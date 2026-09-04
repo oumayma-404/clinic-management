@@ -229,7 +229,10 @@ export const treatmentPlansApi = {
    * page was requested, so the chip and the list it opens cannot disagree.
    */
   treatmentsInProgress: async (
-    params?: PageParams,
+    // `search` matches the patient's name (either order) and the devis number — server-side, whole clinic, the
+    // same field the devis list searches. Filtering the returned page instead would search 25 acts and report
+    // « aucun résultat » for a patient whose treatment sits on page 2.
+    params?: PageParams & { search?: string },
   ): Promise<PagedResponse<TreatmentInProgressDto>> =>
     apiGet<PagedResponse<TreatmentInProgressDto>>('/treatment-plans/treatments-in-progress', params),
 

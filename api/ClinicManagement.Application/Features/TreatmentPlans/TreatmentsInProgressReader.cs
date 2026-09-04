@@ -25,9 +25,13 @@ public static class TreatmentsInProgressReader
         ITreatmentPlanRepository planRepository,
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? searchTerm = null)
     {
-        var page = await planRepository.GetTreatmentsInProgressAsync(clinicId, paging, cancellationToken);
+        // ⚠️ Passed to the repository, never applied to `page.Items`. The patient NAMES are resolved below,
+        // after paging — so a name filter here would search only the 25 acts already fetched and answer
+        // « aucun résultat » for a patient whose treatment sits on page 2.
+        var page = await planRepository.GetTreatmentsInProgressAsync(clinicId, paging, searchTerm, cancellationToken);
         if (page.Items.Count == 0)
         {
             return page.Map(_ => new TreatmentInProgressDto());
