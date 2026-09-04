@@ -87,6 +87,18 @@ public class ProcedureStepTemplateDto
     /// own <c>DefaultDurationMinutes</c> — the steps happen on different days.
     /// </summary>
     public int? DurationMinutes { get; set; }
+
+    /// <summary>
+    /// The soonest this step may follow the one before it, in days, or null when the protocol imposes no wait.
+    /// A different quantity from <see cref="DurationMinutes"/> — chair time versus healing time.
+    /// <para>
+    /// ⚠️ This field carries the whole « pas encore due » distinction, and it was missing here while both ends
+    /// already had it: the editor posted <c>minDaysAfterPrevious</c>, the DTO had no such property so binding
+    /// dropped it, and <c>TreatmentPlanStepProtocol</c> read an interval that was therefore always null. No
+    /// error at any layer — the field simply saved blank and read back blank.
+    /// </para>
+    /// </summary>
+    public int? MinDaysAfterPrevious { get; set; }
 }
 
 /// <summary>
@@ -170,6 +182,7 @@ public static class ProcedureTypeMappingExtensions
                 {
                     Label = s.Label,
                     DurationMinutes = s.DurationMinutes,
+                    MinDaysAfterPrevious = s.MinDaysAfterPrevious,
                 })
                 .ToList(),
             Version = procedureType.Version,

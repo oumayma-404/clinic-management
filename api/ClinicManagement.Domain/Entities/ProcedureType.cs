@@ -254,7 +254,18 @@ public class ProcedureType : AggregateRoot<Guid>
                     "La durée d'une étape doit être comprise entre 1 et 479 minutes.", nameof(steps));
             }
 
-            cleaned.Add(new ProcedureStepTemplate(label, step.DurationMinutes));
+            /*
+             * ⚠️ The interval has to be copied across explicitly, and forgetting it is silent in both
+             * directions: this rebuild dropped `MinDaysAfterPrevious`, so every seeded protocol's rhythm was
+             * discarded on the way into the catalogue *and* a délai typed in the steps editor was accepted,
+             * saved without it, and read back blank. Measured: 50 catalogue rows carried a protocol and 0
+             * carried an interval, which makes the worklist unable to tell « pas encore due » from
+             * « oubliée » — the distinction the interval exists to draw.
+             */
+            cleaned.Add(new ProcedureStepTemplate(
+                label,
+                step.DurationMinutes,
+                TreatmentPlanItemStep.GuardInterval(step.MinDaysAfterPrevious)));
         }
 
         return cleaned;

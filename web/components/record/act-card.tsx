@@ -112,7 +112,14 @@ export function ActCard({
    */
   const tariff = procedure?.defaultCost ?? null
   const typedUnit = parseAmountInput(act.unitCost)
+  /*
+   * ⚠️ **Never on an act the devis carries.** Its price is 0 by rule, so against a 120 DT tariff this read
+   * « Tarif catalogue 120,000 DT — geste de 120,000 DT » with a « remettre au tarif » link beside it: a
+   * discount the dentist never granted, and one press from re-charging an act the devis already bills. The
+   * « Déjà facturé » notice above the cards states the real reason, so nothing is lost by staying silent here.
+   */
   const gesture =
+    !act.billedOnPlan &&
     tariff != null && act.unitCost.trim() !== "" && Number.isFinite(typedUnit) && typedUnit !== tariff
       ? tariff - typedUnit
       : null

@@ -85,6 +85,27 @@ public static class AppointmentProcedureSelection
         "Le prix convenu pour un acte est trop élevé. Saisissez un montant en dinars, par exemple 120,000.";
 
     /// <summary>
+    /// The price of an act this séance carries out <b>on behalf of a devis</b>: always <c>0</c>, because the fee
+    /// lives once on <c>TreatmentPlanItem.PlannedCost</c> and the devis collects it.
+    /// <para>
+    /// ⚠️ <b>This is an invariant, and it had no home on the server at all.</b> It was enforced by exactly one
+    /// client function — the booking picker's <c>agreedCostOf</c> — while this method accepted any
+    /// <c>AgreedCost ≥ 0</c> on a row carrying a <c>TreatmentPlanItemId</c>. Two of the three surfaces that price
+    /// such an act therefore got it wrong: the fiche de soins re-charged the act's whole fee at every séance
+    /// (a 150 DT canal collected twice, in cash, on the default button), and re-opening a booked séance unlocked
+    /// the field and offered « remettre au tarif ». Both wrote through here.
+    /// </para>
+    /// <para>
+    /// Forced rather than refused, on purpose. <c>null</c> means « nobody negotiated », which sends every
+    /// downstream reader to the catalogue tarif — so on a devis act it is not a neutral value but the wrong
+    /// number, and refusing it would break the callers that legitimately send no price at all (the recurring
+    /// expansion, the older integrations). Zero is already a real answer in this model (« an act offered »).
+    /// </para>
+    /// </summary>
+    public static decimal? PriceForPlanLinkedAct(Guid? treatmentPlanItemId, decimal? requested) =>
+        treatmentPlanItemId.HasValue ? 0m : requested;
+
+    /// <summary>
     /// The effective list of acts, reconciling the multi-act field with the single-act one.
     /// <para>
     /// Both are accepted deliberately: <c>procedures</c> is what the booking dialogs now send, while
@@ -180,7 +201,7 @@ public static class AppointmentProcedureSelection
                         : "Acte du devis",
                     null,
                     null,
-                    item.AgreedCost,
+                    PriceForPlanLinkedAct(item.TreatmentPlanItemId, item.AgreedCost),
                     item.TreatmentPlanItemId,
                     item.TreatmentPlanItemStepId));
                 continue;
@@ -225,8 +246,8 @@ public static class AppointmentProcedureSelection
                 // The client's figure, kept as sent — including null, which means « no negotiation » and leaves
                 // the act at its tarif. Substituting `procedureType.DefaultCost` here would freeze today's
                 // catalogue price onto the visit and make a later tarif change invisible to a booking nobody
-                // negotiated.
-                item.AgreedCost,
+                // negotiated. A devis act is the one exception; see `PriceForPlanLinkedAct`.
+                PriceForPlanLinkedAct(item.TreatmentPlanItemId, item.AgreedCost),
                 item.TreatmentPlanItemId,
                 item.TreatmentPlanItemStepId));
         }

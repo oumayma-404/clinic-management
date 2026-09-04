@@ -619,5 +619,19 @@ public sealed record DataMigrationCounts(
     /// being proposed rather than as an error. Null before the table exists.
     /// </para>
     /// </summary>
-    int? PlanItemsWithNonDenseStepSequence = null
+    int? PlanItemsWithNonDenseStepSequence = null,
+
+    /// <summary>
+    /// Starter acts that <b>should</b> carry a protocole de séances and still hold none.
+    ///
+    /// <para>⚠️ Nullable, so a deployment that has not run <c>SeedProcedureStepProtocols</c> reports « not
+    /// applicable » rather than a misleading <c>0</c> — the <c>procedure-type-category-move</c> rule.</para>
+    ///
+    /// <para>Its failure mode is the quiet kind this verb exists for: an act with no protocol is a perfectly
+    /// valid act, so a backfill that missed a row shows up as a dentist retyping « Pose de l'implant » on
+    /// every devis, never as an error. Counted by NAME against the fourteen the seed gives one to, so an act
+    /// a clinic authored itself is not expected to have one and a protocol a clinic deleted on purpose is not
+    /// reported — only a seeded act that never received its own.</para>
+    /// </summary>
+    int? SeededActsWithoutStepProtocol = null
 );

@@ -1105,6 +1105,35 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "StartedAtUtc",
             sql: """SELECT COUNT(*) FROM "CalendarImportRuns" """);
 
+        /*
+         * The fourteen starter acts the seed gives a protocol to, by name. Spelled out here for the reason the
+         * migration spells its own values out: this is a *verification* of a historical backfill, so reading
+         * the list from the live seed would make the check agree with whatever the seed says today rather
+         * than with what the deployment was supposed to have received.
+         */
+        var seededActsWithoutProtocol = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ProcedureTypes",
+            requiredColumn: "DefaultSteps",
+            sql: """
+                SELECT COUNT(*) FROM "ProcedureTypes"
+                WHERE ("DefaultSteps" IS NULL OR "DefaultSteps" IN ('', '[]'))
+                  AND "Name" IN (
+                    'Couronne / bridge (par élément)',
+                    'Inlay-core (reconstitution corono-radiculaire)',
+                    'Facette',
+                    'Prothèse amovible (partielle / complète)',
+                    'Réparation / rebasage de prothèse',
+                    'Gouttière occlusale (bruxisme)',
+                    'Implant dentaire',
+                    'Greffe osseuse / comblement',
+                    'Gingivectomie',
+                    'Frénectomie',
+                    'Incision d''abcès et drainage',
+                    'Traitement parodontal (surfaçage / curetage)',
+                    'Retraitement endodontique',
+                    'Mainteneur d''espace fixe')
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
@@ -1125,7 +1154,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             CalendarImportRowsWithoutARun: calendarImportRowsWithoutARun,
             CalendarImportRunsTotal: calendarImportRunsTotal,
             PlanItemsWithStatusDisagreeingWithSteps: planItemStatusDisagrees,
-            PlanItemsWithNonDenseStepSequence: planItemStepSequenceNotDense);
+            PlanItemsWithNonDenseStepSequence: planItemStepSequenceNotDense,
+            SeededActsWithoutStepProtocol: seededActsWithoutProtocol);
     }
 
     /// <summary>

@@ -36,6 +36,10 @@ public class TreatmentPlanItemStepConfiguration : IEntityTypeConfiguration<Treat
 
         builder.Property(s => s.EstimatedDurationMinutes);
 
+        // Waiting time, not chair time — the two are different quantities and both are nullable, so they are
+        // two columns rather than one with a unit. Null is the ordinary case: most protocols state no interval.
+        builder.Property(s => s.MinDaysAfterPrevious);
+
         // The read order every projection depends on, and the lookup the fiche→step link performs.
         builder.HasIndex(s => new { s.TreatmentPlanItemId, s.SequenceNumber });
 

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -45,6 +46,26 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 public static class TreatmentPlanStepProtocol
 {
     /// <summary>
+    /// The séances the dentist confirmed on the form, by <b>position</b> in the request list — the shape
+    /// <see cref="ApplyAsync"/>'s <c>confirmedByPosition</c> takes. <c>null</c> for a line the client said
+    /// nothing about, which then takes its procedure's catalogue protocol; an empty list is « one séance ».
+    /// <para>
+    /// ⚠️ <b>One projection, because two disagreed.</b> The create path built this and the amend path called
+    /// <see cref="ApplyAsync"/> without it — so unticking every séance on an act added by amendment sent
+    /// <c>steps: []</c>, the server discarded it, and the full catalogue protocol was applied instead, under a
+    /// « Devis modifié » success toast. The tri-state was honoured on creation only.
+    /// </para>
+    /// </summary>
+    public static List<IReadOnlyList<TreatmentPlanItemStepInput>?> ConfirmedByPosition(
+        IEnumerable<TreatmentPlanItemRequest> items) =>
+        items
+            .Select(i => i.Steps?
+                .Select(step => new TreatmentPlanItemStepInput(
+                    step.Id, step.Label, step.EstimatedDurationMinutes, step.MinDaysAfterPrevious))
+                .ToList() as IReadOnlyList<TreatmentPlanItemStepInput>)
+            .ToList();
+
+    /// <summary>
     /// Applies each candidate act's protocol in place. No-op when nothing is a candidate, when the acts name
     /// no procedure, or when the procedures carry no protocol — which is the common case, since only prosthetic
     /// work is seeded with one.
@@ -53,14 +74,17 @@ public static class TreatmentPlanStepProtocol
         TreatmentPlan plan,
         Guid clinicId,
         IProcedureTypeRepository procedureTypeRepository,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<IReadOnlyList<TreatmentPlanItemStepInput>?>? confirmedByPosition = null)
     {
-        // Materialised before the loop: SetItemSteps mutates the act it names, and iterating the live
-        // collection while doing so is the kind of thing that works until a protocol has two acts on one plan.
+        /*
+         * ⚠️ A confirmed act is a candidate even with NO procedure, because the dentist may have cut a
+         * hand-typed devis line into séances — the catalogue path needs a `ProcedureTypeId` to look a protocol
+         * up, the confirmed path does not.
+         */
         var candidates = plan.Items
-            .Where(i => i.ProcedureTypeId.HasValue
-                        && !i.HasSteps
-                        && i.Status == TreatmentPlanItemStatus.Planned)
+            .Where(i => !i.HasSteps && i.Status == TreatmentPlanItemStatus.Planned)
+            .Where(i => i.ProcedureTypeId.HasValue || ConfirmedFor(confirmedByPosition, i) != null)
             .ToList();
 
         if (candidates.Count == 0)
@@ -73,6 +97,21 @@ public static class TreatmentPlanStepProtocol
 
         foreach (var item in candidates)
         {
+            /*
+             * The dentist's own answer wins over the catalogue, and an EMPTY confirmed list is an answer:
+             * « this act is one séance ». Applying the protocol over it would re-propose exactly what they
+             * just unticked.
+             */
+            var confirmed = ConfirmedFor(confirmedByPosition, item);
+            if (confirmed != null)
+            {
+                if (confirmed.Count > 0)
+                {
+                    plan.SetItemSteps(item.Id, confirmed);
+                }
+                continue;
+            }
+
             var procedureTypeId = item.ProcedureTypeId!.Value;
 
             if (!protocols.TryGetValue(procedureTypeId, out var protocol))
@@ -93,7 +132,25 @@ public static class TreatmentPlanStepProtocol
 
             plan.SetItemSteps(
                 item.Id,
-                protocol.Select(s => new TreatmentPlanItemStepInput(null, s.Label, s.DurationMinutes)));
+                protocol.Select(s => new TreatmentPlanItemStepInput(
+                    null, s.Label, s.DurationMinutes, s.MinDaysAfterPrevious)));
         }
+    }
+
+    /// <summary>
+    /// What the caller confirmed for this act, or <c>null</c> when it said nothing about it.
+    ///
+    /// <para>⚠️ Matched on <c>SequenceNumber</c>, which is the act's <b>position in the request list</b>:
+    /// <c>SetItems</c> numbers the rebuilt items 0..n-1 in the order they arrive, so index and sequence are the
+    /// same thing. Matching on the designation instead would break on a devis with two identical lines — two
+    /// « Couronne 26 » is an ordinary devis — and ids do not exist yet on the create path.</para>
+    /// </summary>
+    private static IReadOnlyList<TreatmentPlanItemStepInput>? ConfirmedFor(
+        IReadOnlyList<IReadOnlyList<TreatmentPlanItemStepInput>?>? confirmedByPosition,
+        TreatmentPlanItem item)
+    {
+        if (confirmedByPosition == null) return null;
+        var position = item.SequenceNumber;
+        return position >= 0 && position < confirmedByPosition.Count ? confirmedByPosition[position] : null;
     }
 }

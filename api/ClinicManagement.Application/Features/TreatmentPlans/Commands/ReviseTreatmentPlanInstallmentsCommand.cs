@@ -64,15 +64,19 @@ public class ReviseTreatmentPlanInstallmentsCommandHandler
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
-            // Same billed-plan block as an act amendment: once an invoice represents the plan, the money
-            // reads count that invoice, so re-spreading the plan's schedule would change a balance nothing
-            // reads any more — misleading at best.
-            var links = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
-            if (PlanBillingRules.BilledPlanIds(links).Contains(plan.Id))
-            {
-                return Result<TreatmentPlanDto>.Failure(
-                    "Ce devis est déjà facturé. Annulez la facture (ou émettez un avoir) avant de modifier l'échéancier.");
-            }
+            /*
+             * ⚠️ No blanket « ce devis est facturé » refusal — removed with the one in `AmendTreatmentPlanCommand`
+             * on the owner's decision that a dentist must be able to correct anything. The divergence between a
+             * corrected devis and the note raised from it is surfaced on the workspace (the note's own total
+             * beside the devis') and corrected with an avoir, rather than being pre-empted by a refusal that
+             * asked the dentist to reverse a numbered fiscal document in order to fix a plan.
+             */
+            /*
+             * ⚠️ On a billed plan the échéancier collects nothing anyway — the server refuses a payment on it
+             * and every installment money read drops the plan — so re-spreading one is a documentary edit. That
+             * is precisely why refusing it bought nothing.
+             */
+
 
             plan.ReviseInstallments(request.Installments.Select(i => (i.Id, i.DueDate, i.Amount)));
             plan.RecordAmendment();

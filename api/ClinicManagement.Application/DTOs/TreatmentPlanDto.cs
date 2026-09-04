@@ -50,6 +50,20 @@ public class TreatmentPlanDto
     public string? LinkedInvoiceNumber { get; set; }
     public string? LinkedInvoiceStatus { get; set; }
 
+    /// <summary>
+    /// What the linked note is worth, and what is still owed <b>on it</b> — the figures that replace this plan's
+    /// own <see cref="Outstanding"/> everywhere a balance is printed for a bridged devis.
+    /// <para>
+    /// ⚠️ Once a note holds the money, <see cref="Outstanding"/> is <c>TotalPlanned − Σ this plan's own
+    /// installments</c> over an auto-raised échéance that will never see a payment, so it reports the whole devis
+    /// as unpaid about a patient who owes nothing — measured on 4 of 4 bridged plans, including two fully
+    /// settled, one of them shown in red with an « En retard » badge. Null when no note bills this devis, which
+    /// is what makes « use the plan's own figure » the safe default.
+    /// </para>
+    /// </summary>
+    public decimal? LinkedInvoiceTotal { get; set; }
+    public decimal? LinkedInvoiceOutstanding { get; set; }
+
     public List<TreatmentPlanItemDto> Items { get; set; } = new();
     public List<InstallmentDto> Installments { get; set; } = new();
 }
@@ -101,6 +115,24 @@ public class TreatmentPlanItemDto
     /// row's single primary action names: « Planifier le scellement ».
     /// </summary>
     public Guid? NextStepId { get; set; }
+
+    /// <summary>
+    /// The earliest date the next step should be carried out, from the interval it carries and the date of the
+    /// step before it — null when the act has no next step, states no interval, or has nothing delivered to
+    /// count from (the ordinary case, and « no opinion »).
+    /// <para>
+    /// This is what lets a screen distinguish « pas encore due » from « oubliée ». Without it the worklist had
+    /// only a flat fortnight to alarm on, so an implant waiting the eight to twelve weeks its own protocol
+    /// specifies read exactly like a treatment the practice had forgotten.
+    /// </para>
+    /// </summary>
+    public DateTime? NextStepDueFrom { get; set; }
+
+    /// <summary>
+    /// Parked by « Arrêter le traitement »: no longer part of the treatment, contributing to no total and no
+    /// progress count, and keeping every step, date and fiche link it had. Restored by « Reprendre ».
+    /// </summary>
+    public bool IsWithdrawn { get; set; }
 }
 
 /// <summary>One clinical step of a planned act. Carries no money — the fee lives once on the act.</summary>
@@ -119,6 +151,12 @@ public class TreatmentPlanItemStepDto
     public Guid? LinkedDentalRecordId { get; set; }
 
     public int? EstimatedDurationMinutes { get; set; }
+
+    /// <summary>
+    /// Calendar days to wait after the previous séance, when the protocol states one — chair time and waiting
+    /// time are two different quantities; see <c>TreatmentPlanItemStep.MinDaysAfterPrevious</c>.
+    /// </summary>
+    public int? MinDaysAfterPrevious { get; set; }
 
     // ---- Derived (never persisted) -------------------------------------------------------------------
     /// <summary>
@@ -191,6 +229,45 @@ public class TreatmentPlanItemRequest
     public string DesignationFr { get; set; } = string.Empty;
     public decimal PlannedCost { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
+
+    /// <summary>
+    /// The séances this act will be carried out over, <b>as the dentist confirmed them</b> — the procedure's
+    /// protocol with whatever they unticked or edited before accepting the devis.
+    /// <para>
+    /// ⚠️ <b>Tri-state, and the three states are all real.</b> <c>null</c> means « the client did not decide »
+    /// and the act takes its procedure's catalogue protocol (an older client, an import, the
+    /// <c>InitializeDefaultProcedureTypes</c> path); an <b>empty list</b> means « this act is one séance » and
+    /// is an explicit refusal of that protocol; a non-empty list is the confirmed sequence. Reading an empty
+    /// list as « not supplied » would make unticking every step impossible, which is exactly the flexibility
+    /// the feature is for.
+    /// </para>
+    /// </summary>
+    public List<TreatmentPlanItemStepRequest>? Steps { get; set; }
+}
+
+/// <summary>One séance of an act, as sent when a devis is created or amended.</summary>
+public class TreatmentPlanItemStepRequest
+{
+    /// <summary>
+    /// The existing step this line stands for, echoed back so it keeps its id — and with it its
+    /// <c>DoneDate</c>, its fiche link and any appointment row pointing at it. Null means a new step.
+    /// <para>
+    /// ⚠️ Required for an amendment to be able to <b>edit</b> steps rather than replace them: without it every
+    /// save of a stepped act would be a delete-and-recreate, which the aggregate refuses outright as soon as
+    /// one step is carried out.
+    /// </para>
+    /// </summary>
+    public Guid? Id { get; set; }
+
+    public string Label { get; set; } = string.Empty;
+    /// <summary>Chair time, when the protocol estimates one. Null is « unknown », never « zero minutes ».</summary>
+    public int? EstimatedDurationMinutes { get; set; }
+
+    /// <summary>
+    /// Calendar days to wait after the previous séance, when the protocol states one — a different quantity
+    /// from the chair time above; see <c>TreatmentPlanItemStep.MinDaysAfterPrevious</c>.
+    /// </summary>
+    public int? MinDaysAfterPrevious { get; set; }
 }
 
 /// <summary>One requested installment (échéance) when setting a plan's payment schedule.</summary>

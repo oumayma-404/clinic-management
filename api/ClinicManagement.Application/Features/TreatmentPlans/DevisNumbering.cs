@@ -40,6 +40,7 @@ public static class DevisNumbering
         IProcedureTypeRepository procedureTypeRepository,
         IUnitOfWork unitOfWork,
         Func<CancellationToken, Task> persist,
+        IReadOnlyList<IReadOnlyList<TreatmentPlanItemStepInput>?>? confirmedSteps,
         ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -60,7 +61,7 @@ public static class DevisNumbering
                 // Immediately after Accept() and before the first persist: SetItemSteps refuses a Draft, and
                 // the steps have to be on the aggregate for the retry loop to re-save them with the new number.
                 await TreatmentPlanStepProtocol.ApplyAsync(
-                    plan, clinicId, procedureTypeRepository, cancellationToken);
+                    plan, clinicId, procedureTypeRepository, cancellationToken, confirmedSteps);
             }
             else
             {

@@ -145,7 +145,7 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
                 resultingCondition: resultingCondition,
                 category: request.Category,
                 defaultSteps: request.DefaultSteps?
-                    .Select(x => new ProcedureStepTemplate(x.Label, x.DurationMinutes)));
+                    .Select(x => new ProcedureStepTemplate(x.Label, x.DurationMinutes, x.MinDaysAfterPrevious)));
 
             await _procedureTypeRepository.AddAsync(procedureType, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

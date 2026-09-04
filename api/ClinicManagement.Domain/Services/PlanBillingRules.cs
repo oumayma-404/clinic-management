@@ -83,7 +83,13 @@ public static class PlanBillingRules
     /// de-duplication never has to load invoice lines and payments.
     /// </summary>
     public static HashSet<Guid> BilledPlanIds(
-        IEnumerable<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)> links) =>
+        IEnumerable<(
+            Guid TreatmentPlanId,
+            Guid InvoiceId,
+            string? Number,
+            InvoiceStatus Status,
+            decimal TotalTtc,
+            decimal Outstanding)> links) =>
         links
             .Where(l => RepresentsItsPlan(l.Status))
             .Select(l => l.TreatmentPlanId)

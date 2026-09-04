@@ -101,6 +101,10 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                     .OrderBy(s => s.SequenceNumber)
                     .Select(s => s.EstimatedDurationMinutes)
                     .FirstOrDefault(),
+                item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => s.MinDaysAfterPrevious)
+                    .FirstOrDefault(),
                 item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate));
 
         var totalCount = await query.CountAsync(cancellationToken);

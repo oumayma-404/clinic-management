@@ -92,12 +92,16 @@ export function PlanActReorderControls({
   reorder: PlanActReorder
   orientation?: "vertical" | "horizontal"
 }) {
+  // ⚠️ `size-6 coarse:size-8`, never a bare `h-6 w-6`: stacked, these are the same
+  // `.touch-target`-on-adjacent-siblings trap that made « Monter » move a *step* down in
+  // `plan-item-steps-dialog`. The later sibling paints last, so its 44 px overlay covers its neighbour's
+  // painted box and a tap on the visible up-arrow fires « Descendre ». Grow the boxes; never overlay a stack.
   return (
-    <div className={orientation === "vertical" ? "flex flex-col" : "flex items-center justify-end"}>
+    <div className={orientation === "vertical" ? "flex flex-col" : "flex items-center justify-end gap-1"}>
       <Button
         variant="ghost"
         size="icon"
-        className="h-6 w-6"
+        className="size-6 coarse:size-8"
         aria-label={`Monter ${quoteFr(item.designationFr)}`}
         disabled={reorder.disabled || !reorder.canMoveUp}
         onClick={reorder.onMoveUp}
@@ -107,7 +111,7 @@ export function PlanActReorderControls({
       <Button
         variant="ghost"
         size="icon"
-        className="h-6 w-6"
+        className="size-6 coarse:size-8"
         aria-label={`Descendre ${quoteFr(item.designationFr)}`}
         disabled={reorder.disabled || !reorder.canMoveDown}
         onClick={reorder.onMoveDown}

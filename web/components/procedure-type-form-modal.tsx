@@ -21,11 +21,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { formatAmount, parseAmountInput, quoteFr } from "@/lib/format"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Check, ChevronsUpDown, Loader2, Plus, Trash2 } from "lucide-react"
+import { Check, ChevronsUpDown, ListOrdered, Loader2, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { procedureTypesApi, type ProcedureColorFamily } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { toast } from "sonner"
 import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditions"
 
 // Sentinel for the "no resulting condition" option (Radix Select forbids an empty-string value).
@@ -78,7 +79,6 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
    * <p>⚠️ Durations are kept as typed strings, like the tarif and the duration beside them: a `type="number"`
    * field cannot be left partially typed without fighting the user.</p>
    */
-  const [defaultSteps, setDefaultSteps] = useState<{ label: string; duration: string }[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isConflict, setIsConflict] = useState(false)
@@ -163,19 +163,12 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       setCategory(editingProcedure.category || "")
       setSelectedColor(editingProcedure.colorHex)
       setResultingCondition(editingProcedure.resultingCondition ?? null)
-      setDefaultSteps(
-        (editingProcedure.defaultSteps ?? []).map((step) => ({
-          label: step.label,
-          duration: step.durationMinutes?.toString() ?? "",
-        })),
-      )
     } else {
       // Reset form for new procedure
       setName("")
       setDuration("")
       setDefaultCost("")
       setDescription("")
-      setDefaultSteps([])
       setCategory("")
       // Left blank here; the palette effect below preselects the first server-supplied colour once it lands.
       setSelectedColor("")
@@ -249,26 +242,6 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
       const durationMinutes = Number(duration)
 
-      // The step template, cleaned: a blank row is dropped rather than refused (a user who added a row and
-      // changed their mind has not made a mistake), and a duration is either a whole number of minutes or absent.
-      const cleanedSteps = defaultSteps
-        .map((step) => ({ label: step.label.trim(), duration: step.duration.trim() }))
-        .filter((step) => step.label.length > 0)
-
-      const badStepDuration = cleanedSteps.find(
-        (step) => step.duration !== "" && !/^\d{1,3}$/.test(step.duration),
-      )
-      if (badStepDuration) {
-        setError(`La durée de l'étape ${quoteFr(badStepDuration.label)} doit être un nombre de minutes.`)
-        setLoading(false)
-        return
-      }
-
-      const stepsPayload = cleanedSteps.map((step) => ({
-        label: step.label,
-        durationMinutes: step.duration === "" ? null : Number(step.duration),
-      }))
-
       const defaultCostValue = defaultCost.trim() ? parseAmountInput(defaultCost) : null
       // NaN is checked explicitly, not folded into the negative test: the field is now `type="text"` (J8), so the
       // browser no longer refuses a malformed value on the user's behalf and « 7,,5 » would otherwise be sent as
@@ -304,12 +277,11 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           category: category.trim(),
           resultingCondition,
           /*
-           * Always sent, `[]` included — that empty array is what CLEARS the template (« cet acte se fait en
-           * une séance », a real answer). The command reads an absent key as « unchanged », so `|| undefined`
-           * here would make removing the last step a silent no-op: the same defect the description and the
-           * category above each carry a note about.
+           * ⚠️ `defaultSteps` is deliberately NOT sent, and the omission is the point. The command reads an
+           * absent key as « unchanged », and this form no longer edits the protocol — `ProcedureTypeStepsDialog`
+           * owns it. Sending `[]` from here (which is what this form used to do, correctly, while it WAS the
+           * editor) would now silently clear a protocol whose editor the user never opened.
            */
-          defaultSteps: stepsPayload,
           version: freshProcedure?.version ?? editingProcedure.version,
         })
       } else {
@@ -322,9 +294,20 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           description: description.trim() || undefined,
           category: category.trim() || undefined,
           resultingCondition,
-          // Undefined rather than `[]` on create: there is nothing to clear, and the server's own default is
-          // « aucune étape » for every act.
-          defaultSteps: stepsPayload.length > 0 ? stepsPayload : undefined,
+          // No protocol on create: the steps dialog needs an act that already has an id, exactly like its
+          // « Consommables » twin. The new row lands in the catalogue offering « Découper en étapes ».
+        })
+      }
+
+      /*
+       * The other half of J2: a confirmation that also says where the séances are set. A created act lands in a
+       * 35-row paged catalogue, so « trouvez sa ligne » is the whole cost of the feature being on the row — and
+       * a toast is where the reader is looking at the moment they could act on it.
+       */
+      if (!editingProcedure) {
+        toast.success(`${quoteFr(name.trim())} ajouté`, {
+          description:
+            "Sur sa ligne du catalogue, « Découper en étapes » le partage en séances si l'acte en demande plusieurs.",
         })
       }
 
@@ -350,10 +333,19 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       <DialogContent className="md:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{editingProcedure ? "Modifier le type d'acte" : "Ajouter un type d'acte"}</DialogTitle>
+          {/*
+            ⚠️ **One line naming the séances, because this dialog mentioned them nowhere.** It asks for Nom ·
+            Durée · Coût · Catégorie · Description · État résultant · Couleur, and the words « étape » and
+            « séance » appeared in none of it — so somebody adding « Facette » on the day they start doing
+            veneers had no reason to know the app can cut an act into séances at all. The editor stays on the
+            act's own row (one owner for the list, which is the right call); what was missing was any hint that
+            it exists. The `durée` beside it is one sitting at the chair, which is exactly the value a reader
+            would otherwise take for the whole treatment.
+          */}
           <DialogDescription>
             {editingProcedure
-              ? "Mettez à jour les détails et la couleur du type d'acte"
-              : "Définissez un nouvel acte avec sa durée et sa couleur d'agenda"}
+              ? "Mettez à jour les détails et la couleur du type d'acte. La durée est celle d'une séance."
+              : "Définissez un nouvel acte avec sa durée d'une séance et sa couleur d'agenda. Vous pourrez ensuite le découper en séances depuis sa ligne du catalogue."}
           </DialogDescription>
         </DialogHeader>
 
@@ -541,96 +533,24 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           </div>
 
           {/*
-            The act's suggested protocol — the client's « sous-catégorie », as a TEMPLATE.
+            ⚠️ The protocol is NOT edited here any more. `procedure-type-steps-dialog.tsx` owns it, and the act's
+            own row in the catalogue opens that dialog directly.
 
-            The catalogue proposes and the devis line possesses: these labels are copied onto a plan line when
-            the act is added and owned there afterwards, so a bridge can take three séances for one patient and
-            five for another. Making `ProcedureType` itself hierarchical was the alternative and it cannot say
-            that — nor could its four consumers then tell a bookable act from a priceable one.
+            It used to live here — fifth in this form, behind the coût and the catégorie — while the table drew it
+            as a grey run-on sentence under the act's name. Between the two, a dentist had no reason to think the
+            séances were theirs to change, which is the defect that moved it. Keeping a second editor would be
+            worse than either: `DefaultSteps` is replace-valued, so two surfaces writing it is how one silently
+            clears what the other just wrote — the reason « Consommables » has never been a field here either.
           */}
-          <div className="space-y-1.5">
-            <Label className="text-sm">Étapes par défaut (facultatif)</Label>
-
-            {defaultSteps.length === 0 ? (
-              <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                Aucune étape — cet acte se fait en une séance.
+          {editingProcedure && (
+            <div className="flex items-start gap-2 rounded-md border border-dashed p-3">
+              <ListOrdered className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <p className="text-2xs leading-relaxed text-muted-foreground">
+                Les <span className="font-medium text-foreground">étapes</span> de cet acte se modifient depuis sa
+                ligne dans le catalogue.
               </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {defaultSteps.map((step, index) => (
-                  <li key={index} className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap">
-                    <span className="w-4 shrink-0 text-center font-mono text-2xs text-muted-foreground">
-                      {index + 1}
-                    </span>
-                    <Label htmlFor={`step-label-${index}`} className="sr-only">
-                      Libellé de l&apos;étape {index + 1}
-                    </Label>
-                    <Input
-                      id={`step-label-${index}`}
-                      value={step.label}
-                      placeholder="ex. : Empreinte"
-                      disabled={loading}
-                      className="min-w-0 flex-1 basis-full sm:basis-0 md:text-sm"
-                      onChange={(e) =>
-                        setDefaultSteps((prev) =>
-                          prev.map((r, i) => (i === index ? { ...r, label: e.target.value } : r)),
-                        )
-                      }
-                    />
-                    <Label htmlFor={`step-duration-${index}`} className="sr-only">
-                      Durée de l&apos;étape {index + 1}, en minutes
-                    </Label>
-                    <div className="relative shrink-0">
-                      <Input
-                        id={`step-duration-${index}`}
-                        value={step.duration}
-                        inputMode="numeric"
-                        placeholder="30"
-                        disabled={loading}
-                        className="w-24 pe-9 text-end font-mono tabular-nums md:text-sm"
-                        onChange={(e) =>
-                          setDefaultSteps((prev) =>
-                            prev.map((r, i) => (i === index ? { ...r, duration: e.target.value } : r)),
-                          )
-                        }
-                      />
-                      <span className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
-                        min
-                      </span>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={loading}
-                      className="size-9 shrink-0 text-muted-foreground coarse:size-11"
-                      aria-label={`Supprimer l'étape ${quoteFr(step.label || String(index + 1))}`}
-                      onClick={() => setDefaultSteps((prev) => prev.filter((_, i) => i !== index))}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <Button
-              type="button"
-              variant="outline"
-              disabled={loading}
-              className="w-full border-dashed text-primary coarse:h-11"
-              onClick={() => setDefaultSteps((prev) => [...prev, { label: "", duration: "" }])}
-            >
-              <Plus className="h-4 w-4" />
-              Ajouter une étape
-            </Button>
-
-            <p className="text-2xs text-muted-foreground">
-              Ces étapes sont <span className="font-medium text-foreground">proposées</span> quand l&apos;acte est
-              ajouté à un devis, puis modifiables cas par cas. Elles ne portent jamais de prix, et les modifier
-              ici ne change aucun devis en cours.
-            </p>
-          </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="description" className="text-sm">

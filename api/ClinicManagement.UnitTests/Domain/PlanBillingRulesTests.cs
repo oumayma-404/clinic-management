@@ -116,10 +116,10 @@ public class PlanBillingRulesTests
     [Fact]
     public void BilledPlanIds_From_Links_Applies_The_Same_Status_Rule()
     {
-        var links = new List<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>
+        var links = new List<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status, decimal TotalTtc, decimal Outstanding)>
         {
-            (PlanId, Guid.NewGuid(), "2026-0031", InvoiceStatus.Issued),
-            (OtherPlanId, Guid.NewGuid(), "2026-0030", InvoiceStatus.Cancelled)
+            (PlanId, Guid.NewGuid(), "2026-0031", InvoiceStatus.Issued, 0m, 0m),
+            (OtherPlanId, Guid.NewGuid(), "2026-0030", InvoiceStatus.Cancelled, 0m, 0m)
         };
 
         var ids = PlanBillingRules.BilledPlanIds(links);

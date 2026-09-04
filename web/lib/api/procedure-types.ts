@@ -145,8 +145,11 @@ export const procedureTypesApi = {
   // already present — so it never overwrites a price the clinic has already set. Returns how many rows landed.
   // ⚠️ It claimed « ~42 » until the catalogue was cut from 43 rows to 19 (feef4d8a). The count belongs to the
   // seed, so naming one here is a second copy that goes stale the next time a row is added.
-  initializeDefaults: async (): Promise<{ added: number }> => {
-    return apiPost<{ added: number }>('/procedure-types/initialize-defaults', {});
+  // `protocolsUpdated` counts starter protocols that gained their step intervals — the seed is name-keyed and
+  // insert-only, so a rhythm added to a starter protocol reaches new clinics and no existing one. Both counts
+  // are reported because a run can legitimately add nothing and still change many protocols.
+  initializeDefaults: async (): Promise<{ added: number; protocolsUpdated: number }> => {
+    return apiPost<{ added: number; protocolsUpdated: number }>('/procedure-types/initialize-defaults', {});
   },
 };
 

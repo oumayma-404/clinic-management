@@ -229,13 +229,43 @@ export function PlanItemStepsDialog({
                       <GripVertical className="h-4 w-4" aria-hidden="true" />
                     </span>
                   ) : (
+                    /*
+                      ⚠️ **`size-6 coarse:size-8`, and this pair used to be `h-5 w-8`: on a touch device the
+                      « Monter » chevron moved the step DOWN.**
+
+                      Every `Button` carries `.touch-target`'s 44 px overlay on a coarse pointer, and these two
+                      are stacked with no gap — so the later sibling, painting last, covered most of its
+                      neighbour's box. Measured pixel row by pixel row on step 3 of a 6-step implant: at 820 px
+                      the up-chevron paints y = 410–430 while « Monter » owns only 398–416 and « Descendre »
+                      owns 418–460, so **14 of the arrow's 20 painted pixels fired the opposite action**, and the
+                      band that worked sat mostly *above* the arrow you can see. A real tap at the painted centre
+                      moved the step down at 390 and at 820; at 1440, with no overlay emitted, the same tap moved
+                      it up. Each corrective tap made it worse — and the step order is what the worklist reads as
+                      « prochaine étape » and what the booking dialog pre-ticks, so a wrongly-ordered protocol
+                      proposes the wrong séance from then on.
+
+                      The correct version already existed one dialog over: `procedure-type-steps-dialog.tsx` grows
+                      the boxes instead of overlaying them, and was tap-verified at 390, 820 and 1440. This is the
+                      documented `.touch-target`-on-adjacent-siblings trap; growing is the only fix for a stack.
+
+                      ⚠️ And `title` states WHY a disabled chevron is disabled. Both were `disabled` with
+                      `title=null` on a 2-step act with step 1 done — no tooltip, no message, nothing saying that
+                      a réalisé step cannot be moved.
+                    */
                     <div className="flex flex-col">
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-5 w-8"
+                        className="size-6 coarse:size-8"
                         aria-label={`Monter ${quoteFr(row.label || "cette étape")}`}
                         disabled={saving || index === 0 || rows[index - 1]?.doneDate != null}
+                        title={
+                          rows[index - 1]?.doneDate != null
+                            ? "La séance précédente est déjà réalisée : elle ne peut pas être déplacée."
+                            : index === 0
+                              ? "C'est déjà la première séance."
+                              : undefined
+                        }
                         onClick={() => move(index, -1)}
                       >
                         <ChevronUp className="h-4 w-4" />
@@ -243,9 +273,10 @@ export function PlanItemStepsDialog({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-5 w-8"
+                        className="size-6 coarse:size-8"
                         aria-label={`Descendre ${quoteFr(row.label || "cette étape")}`}
                         disabled={saving || index === rows.length - 1}
+                        title={index === rows.length - 1 ? "C'est déjà la dernière séance." : undefined}
                         onClick={() => move(index, 1)}
                       >
                         <ChevronDown className="h-4 w-4" />
@@ -380,7 +411,17 @@ export function PlanItemStepsDialog({
             </AlertDialogTitle>
             <AlertDialogDescription>
               L&apos;étape redevient « à faire » et son lien vers la fiche de soins est retiré. La fiche
-              elle-même n&apos;est pas supprimée, et aucun montant ne bouge.
+              elle-même n&apos;est pas supprimée, et aucun montant ne bouge.{" "}
+              {/*
+                ⚠️ The one condition, stated before the press. The server refuses when a live note bills this
+                séance, and the fiche→note link is not on the plan DTO — so unlike « Supprimer l'acte », whose
+                blocker arrives pre-emptively, this one can only be foretold. What made it a dead end was not
+                the refusal but its remedy: it said « annulez la facture ou émettez un avoir », the avoir did
+                not lift it and the cancellation was refused on a paid note. Both halves are fixed server-side;
+                this is so the refusal is expected rather than a surprise mid-correction.
+              */}
+              Si sa fiche est facturée sur une note d&apos;honoraires, il faudra d&apos;abord créditer cette
+              note en totalité — le refus vous dira laquelle et combien.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

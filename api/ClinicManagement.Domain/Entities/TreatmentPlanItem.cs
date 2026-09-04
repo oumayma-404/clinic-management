@@ -71,6 +71,51 @@ public class TreatmentPlanItem : Entity<Guid>
     public int StepsTotal => _steps.Count;
     public int StepsDone => _steps.Count(s => s.IsDone);
 
+    /// <summary>
+    /// Whether any of this act's work has actually been delivered — the act is réalisé, or at least one of its
+    /// steps carries a <c>DoneDate</c>.
+    /// <para>
+    /// ⚠️ <b>This, and never the act's derived workflow état, is what decides whether an act may be dropped.</b>
+    /// « Arrêter le traitement » filtered on the état, which answers for the act's <i>next step</i> — so a bridge
+    /// with two of three séances delivered reported « à planifier » and was offered for deletion, with its step
+    /// rows and their fiche links. The one question a removal must ask is « has any of this happened? ».
+    /// </para>
+    /// </summary>
+    public bool HasDeliveredWork =>
+        Status == TreatmentPlanItemStatus.Done || _steps.Any(s => s.IsDone);
+
+    /// <summary>Parked when the patient stopped — see <see cref="TreatmentPlanItemStatus.Withdrawn"/>.</summary>
+    public bool IsWithdrawn => Status == TreatmentPlanItemStatus.Withdrawn;
+
+    /// <summary>
+    /// The date the act's next pending step should not be carried out before, from the interval it carries and
+    /// the previous step's own date — or null when the act has no next step, no interval on it, or no delivered
+    /// step to count from.
+    /// </summary>
+    /// <remarks>
+    /// Lives on the act rather than on the step because only the act can see the pair. This is what lets a
+    /// worklist distinguish « pas encore due » from « oubliée », instead of alarming on a flat fortnight for
+    /// every protocol whatever its clinical rhythm.
+    /// </remarks>
+    public DateTime? NextStepDueFrom
+    {
+        get
+        {
+            var next = NextStep;
+            if (next is null)
+            {
+                return null;
+            }
+
+            var previous = _steps
+                .Where(s => s.IsDone && s.SequenceNumber < next.SequenceNumber)
+                .OrderBy(s => s.SequenceNumber)
+                .LastOrDefault();
+
+            return next.DueFrom(previous?.DoneDate);
+        }
+    }
+
     /// <summary>The next step still to be carried out, or null when the act has none left (or none at all).</summary>
     public TreatmentPlanItemStep? NextStep =>
         _steps.Where(s => !s.IsDone).OrderBy(s => s.SequenceNumber).FirstOrDefault();
@@ -178,6 +223,7 @@ public class TreatmentPlanItem : Entity<Guid>
     /// </remarks>
     public void MarkDone(DateTime doneOn, Guid? linkedDentalRecordId)
     {
+        EnsureNotWithdrawn();
         var next = NextStep;
         if (next != null)
         {
@@ -242,6 +288,49 @@ public class TreatmentPlanItem : Entity<Guid>
         Status = TreatmentPlanItemStatus.Planned;
         DoneDate = null;
         LinkedDentalRecordId = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Park this act because the patient stopped the treatment: it leaves the planned total and every progress
+    /// count, and keeps its steps, their dates and their fiche links.
+    /// <para>
+    /// The alternative was removing it, and that is what destroyed delivered work — see
+    /// <see cref="TreatmentPlanItemStatus.Withdrawn"/>. Idempotent, so a retried stop cannot fail halfway.
+    /// </para>
+    /// </summary>
+    internal void Withdraw()
+    {
+        if (IsWithdrawn)
+        {
+            return;
+        }
+
+        Status = TreatmentPlanItemStatus.Withdrawn;
+    }
+
+    /// <summary>
+    /// Put a parked act back into the treatment, at whatever état its own steps derive — so an act parked with
+    /// two of three séances delivered returns « en cours », not « à planifier ».
+    /// </summary>
+    /// <returns><c>false</c> when the act was not parked, so the caller can tell a restore from a no-op.</returns>
+    internal bool Restore()
+    {
+        if (!IsWithdrawn)
+        {
+            return false;
+        }
+
+        // Deliberately re-derived rather than remembered: the act's stored état before parking is exactly what
+        // `RecomputeStatusFromSteps` computes, so storing it would be a second copy free to disagree.
+        if (HasSteps)
+        {
+            Status = TreatmentPlanItemStatus.Planned;
+            RecomputeStatusFromSteps();
+            return true;
+        }
+
+        Status = DoneDate.HasValue ? TreatmentPlanItemStatus.Done : TreatmentPlanItemStatus.Planned;
         return true;
     }
 
@@ -316,14 +405,19 @@ public class TreatmentPlanItem : Entity<Guid>
             if (input.Id.HasValue)
             {
                 var existing = _steps.First(s => s.Id == input.Id.Value);
-                existing.Revise(input.Label, input.EstimatedDurationMinutes);
+                existing.Revise(input.Label, input.EstimatedDurationMinutes, input.MinDaysAfterPrevious);
                 existing.SetSequenceNumber(position);
                 rebuilt.Add(existing);
             }
             else
             {
                 rebuilt.Add(new TreatmentPlanItemStep(
-                    Guid.NewGuid(), Id, input.Label, position, input.EstimatedDurationMinutes));
+                    Guid.NewGuid(),
+                    Id,
+                    input.Label,
+                    position,
+                    input.EstimatedDurationMinutes,
+                    input.MinDaysAfterPrevious));
             }
         }
 
@@ -336,6 +430,7 @@ public class TreatmentPlanItem : Entity<Guid>
     /// which owns the plan-level promotion this cannot see.</summary>
     internal void MarkStepDone(Guid stepId, DateTime doneOn, Guid? linkedDentalRecordId)
     {
+        EnsureNotWithdrawn();
         var step = _steps.FirstOrDefault(s => s.Id == stepId)
             ?? throw new InvalidOperationException("Étape introuvable.");
 
@@ -372,9 +467,20 @@ public class TreatmentPlanItem : Entity<Guid>
     /// finished it", so every existing reader of that field stays correct with no change.
     /// </para>
     /// </summary>
+    private void EnsureNotWithdrawn()
+    {
+        if (IsWithdrawn)
+        {
+            throw new InvalidOperationException(
+                $"L'acte « {DesignationFr} » a été retiré du traitement. Reprenez le traitement avant d'enregistrer du travail dessus.");
+        }
+    }
+
     private void RecomputeStatusFromSteps()
     {
-        if (!HasSteps)
+        // A parked act derives nothing from its steps — that is what parking means, and letting the recompute
+        // run would promote it back into the treatment the moment anything touched its list.
+        if (!HasSteps || IsWithdrawn)
         {
             return;
         }

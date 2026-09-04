@@ -73,6 +73,19 @@ public class TreatmentPlanConfiguration : IEntityTypeConfiguration<TreatmentPlan
         builder.Navigation(p => p.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(p => p.Installments).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        /*
+         * ⚠️ `ActiveItems` is a DERIVED view over `Items`, not a second relationship — and EF's conventions
+         * cannot tell the difference. A public `IEnumerable<TreatmentPlanItem>` is discovered as a collection
+         * navigation, so EF built a *second* TreatmentPlan→TreatmentPlanItem relationship and invented the shadow
+         * foreign key `TreatmentPlanId1` for it. Nothing failed at startup: every read of a plan then emitted
+         * `SELECT … t2."TreatmentPlanId1"` against a column no migration has ever created, and the workspace
+         * answered « Plan introuvable · Erreur lors du chargement » — a 400 that reads as a missing record.
+         *
+         * Ignored here rather than annotated in Domain, which references nothing and must keep knowing nothing
+         * about EF. Any future derived collection on an aggregate needs the same line.
+         */
+        builder.Ignore(p => p.ActiveItems);
+
         builder.HasIndex(p => new { p.ClinicId, p.PatientId });
 
         // L9 attribution — who earned this. A real FK to `Doctors`, not a bare Guid column: before L9 the only FK

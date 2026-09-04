@@ -55,11 +55,17 @@ export const baseSections: NavSection[] = [
       { name: "Rendez-vous", href: "/appointments", icon: Calendar },
       // Deliberately NOT in SECRETARY_HIDDEN_HREFS: reception is who knows whether the patient came.
       { name: "À clôturer", href: "/a-cloturer", icon: ClipboardCheck },
-      // Multi-séance treatments. Also deliberately NOT hidden from a secretary, and for the same reason one
-      // level along: reception is who telephones the patient and books the next séance. It carries no money
-      // figure at all, which is what makes that safe — and it is why the read behind it is `AnyClinicRole`
-      // while `GET /api/dashboard` is not.
-      { name: "Traitements en cours", href: "/traitements-en-cours", icon: ListOrdered },
+      // Multi-séance treatments AND the devis behind them — ONE destination, and it sits in « Quotidien »
+      // rather than under « Clinique » because the half that leads the page is a worklist somebody reads every
+      // morning. It replaces two rows over one subject: « Traitements en cours » here and « Plans de
+      // traitement » one group down, which answered « qu'est-ce qui reste ? » and « qu'a-t-on convenu ? »
+      // about the same acts with nothing linking them. `/traitements-en-cours` now redirects to this href.
+      //
+      // Deliberately NOT hidden from a secretary, and for the same reason as « À clotúrer » one line up:
+      // reception is who telephones the patient and books the next séance. Both reads behind it are
+      // `AnyClinicRole` — the one `AdminOrDoctor` thing on the page is the devis export, which the page hides
+      // for that role rather than offering a button that answers 403.
+      { name: "Traitements et devis", href: "/treatment-plans", icon: ListOrdered },
       // « RDV récurrents » (/recurring-series) is gone — the screen was withdrawn. Its BACKEND and the screen
       // itself are deliberately intact (`app/recurring-series/page.tsx` keeps the component, unrouted).
       { name: "Liste d'attente", href: "/waiting-list", icon: Clock },
@@ -76,7 +82,8 @@ export const baseSections: NavSection[] = [
     title: "Clinique",
     items: [
       { name: "Documents", href: "/documents", icon: FileCheck },
-      { name: "Plans de traitement", href: "/treatment-plans", icon: ClipboardCheck },
+      // « Plans de traitement » was here. It is « Traitements et devis » in « Quotidien » now — same route,
+      // one entry: the devis list and the multi-séance worklist are two halves of one screen.
       { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
     ],
   },

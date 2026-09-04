@@ -69,6 +69,9 @@ public class AcceptTreatmentPlanCommandHandler : IRequestHandler<AcceptTreatment
             var accepted = await DevisNumbering.AcceptAndSaveAsync(
                 plan, clinicId, _planRepository, _procedureTypeRepository, _unitOfWork,
                 ct => _planRepository.UpdateAsync(plan, ct),
+                // Nothing confirmed: this path accepts a Draft that already exists, so its acts take their
+                // procedures' catalogue protocols and the dentist edits them from the act rows afterwards.
+                confirmedSteps: null,
                 _logger, cancellationToken);
             if (accepted.IsFailure)
             {

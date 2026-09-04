@@ -103,7 +103,10 @@ export const DASHBOARD_LINKS: Record<DashboardKpiKey, (period: DashboardPeriodDt
   // params either; the window is the server's and defaults to the same 7 days the count was taken over.
   visitsToClose: () => '/a-cloturer',
   // No period in the URL: an unfinished treatment is not period data — it is a standing state.
-  treatmentsInProgress: () => '/traitements-en-cours',
+  // The worklist is the LEAD section of /treatment-plans now, so no fragment and no query: the pastille lands
+  // on the page whose first block is what it counted. (/traitements-en-cours still redirects here, so an old
+  // link works — but the product should stop emitting one.)
+  treatmentsInProgress: () => '/treatment-plans',
 
   waitingList: () => '/waiting-list',
   draftPlans: () => `/treatment-plans${query({ status: 'Draft' })}`,

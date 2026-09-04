@@ -62,7 +62,7 @@ public class CaisseLedgerTests
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
 
         _invoices.Setup(r => r.GetPaymentsBetweenAsync(
                 ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
@@ -362,9 +362,9 @@ public class CaisseLedgerTests
         var bridgedPlan = Guid.NewGuid();
         Wire();
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus)>
+            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>
             {
-                (bridgedPlan, InvoiceId, "2026-0031", InvoiceStatus.Issued),
+                (bridgedPlan, InvoiceId, "2026-0031", InvoiceStatus.Issued, 0m, 0m),
             });
 
         await LedgerAsync();

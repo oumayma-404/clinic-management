@@ -41,7 +41,7 @@ public class ProcedureTypeCatalogSeedFloorTests
         ["Implant dentaire"] = 800m,                      // Chirurgie implantaire
         ["Traitement orthodontique (multi-attaches)"] = 3000m, // Traitement orthodontique multi-attache
         ["Blanchiment dentaire"] = 500m,                  // Eclaircissement dentaire (avec ou sans gouttière)
-        ["Facette"] = 600m,                               // Facette céramique
+        ["Facette (par élément)"] = 600m,                 // Facette céramique — priced per veneer, like the crown row
 
         // The distinct acts added after reading the barème.
         ["Coiffage pulpaire"] = 30m,                      // Coiffage pulpaire / pulpectomie coronaire simple

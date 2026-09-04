@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -32,6 +33,7 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UnmarkTreatmentPlanItemDoneCommandHandler> _logger;
@@ -40,6 +42,7 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
         IInvoiceRepository invoiceRepository,
+        ICreditNoteRepository creditNoteRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UnmarkTreatmentPlanItemDoneCommandHandler> logger)
@@ -47,6 +50,7 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
         _planRepository = planRepository;
         _patientRepository = patientRepository;
         _invoiceRepository = invoiceRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -126,27 +130,25 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
     private async Task<Result> EnsureNotBilledAsync(
         TreatmentPlan plan, TreatmentPlanItem item, Guid clinicId, CancellationToken cancellationToken)
     {
-        var planLinks = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
-        if (PlanBillingRules.BilledPlanIds(planLinks).Contains(plan.Id))
-        {
-            return Result.Failure(
-                "Ce devis est déjà facturé. Annulez la facture (ou émettez un avoir) avant de corriger un acte.");
-        }
-
-        // No fiche attached ⇒ nothing an invoice line could be billing for this act.
-        if (item.LinkedDentalRecordId is not { } recordId)
-        {
-            return Result.Success();
-        }
-
-        var recordLinks = await _invoiceRepository.GetDentalRecordLinksAsync(clinicId, cancellationToken);
-        var billing = recordLinks.FirstOrDefault(l =>
-            l.DentalRecordId == recordId && PlanBillingRules.RepresentsItsPlan(l.Status));
-
-        return billing.InvoiceId == Guid.Empty
-            ? Result.Success()
-            : Result.Failure(
-                $"La fiche de soins de cet acte est facturée sur la note d'honoraires {billing.Number}. "
-                + "Annulez la facture (ou émettez un avoir) avant de corriger l'acte.");
+        /*
+         * ⚠️ The blanket « ce devis est facturé » refusal was here and is gone — see `AmendTreatmentPlanCommand`.
+         * What remains is the check that carries weight: whether THIS act's own fiche de soins is billed on a
+         * live note. That one names the note, is about the very work being detached, and is what stops a réalisé
+         * act quietly losing the evidence an invoice line is charging for.
+         *
+         * ⚠️ It is `DentalRecordBillingGuard`'s now, and it was written here — with `RepresentsItsPlan(status)`
+         * over the light link projection, which **cannot see an avoir**. A credit note is a separate aggregate;
+         * issuing one leaves the invoice `Paid`. So the refusal told the dentist to annuler ou émettre un avoir,
+         * they issued the avoir, retried, and got the identical sentence — while « annuler » was refused too,
+         * because a note with a live payment cannot be cancelled. Both named remedies were unreachable and the
+         * wrongly-attached fiche was permanent.
+         */
+        return await DentalRecordBillingGuard.EnsureWorkIsNotBilledAsync(
+            _invoiceRepository,
+            _creditNoteRepository,
+            clinicId,
+            item.LinkedDentalRecordId,
+            "cet acte",
+            cancellationToken);
     }
 }

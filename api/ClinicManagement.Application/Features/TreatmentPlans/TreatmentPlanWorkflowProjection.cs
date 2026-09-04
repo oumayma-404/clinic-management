@@ -100,12 +100,25 @@ public static class TreatmentPlanWorkflowProjection
 
         // A cancelled bridge no longer represents the plan — the plan re-enters the balance and becomes
         // billable (and amendable) again, mirroring how the money reads exclude cancelled invoices.
+        // One row per plan, naming the note the screens should quote — and carrying the **summed** money of
+        // every live bridge, because a devis amended after it was billed raises a supplementary note and « ce
+        // qui reste sur la note » is then the two together.
         var invoiceByPlanId = invoiceLinks
             .Where(l => l.Status != InvoiceStatus.Cancelled)
             .GroupBy(l => l.TreatmentPlanId)
             .ToDictionary(
                 g => g.Key,
-                g => g.OrderBy(l => l.Number ?? string.Empty).First());
+                g =>
+                {
+                    var chosen = g.OrderBy(l => l.Number ?? string.Empty).First();
+                    return (
+                        chosen.TreatmentPlanId,
+                        chosen.InvoiceId,
+                        chosen.Number,
+                        chosen.Status,
+                        TotalTtc: g.Sum(l => l.TotalTtc),
+                        Outstanding: g.Sum(l => l.Outstanding));
+                });
 
         // « Prochaine séance » per plan, evaluated against the same asOfUtc as the act states so a plan can
         // never claim an upcoming visit that its own acts report as past.
@@ -142,13 +155,19 @@ public static class TreatmentPlanWorkflowProjection
 /// </summary>
 public sealed record TreatmentPlanWorkflow(
     IReadOnlyDictionary<Guid, Appointment> ScheduledByItemId,
-    IReadOnlyDictionary<Guid, (Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)> InvoiceByPlanId,
+    IReadOnlyDictionary<Guid, (
+        Guid TreatmentPlanId,
+        Guid InvoiceId,
+        string? Number,
+        InvoiceStatus Status,
+        decimal TotalTtc,
+        decimal Outstanding)> InvoiceByPlanId,
     IReadOnlyDictionary<Guid, DateTime?> NextAppointmentAtByPlanId,
     IReadOnlyDictionary<Guid, Appointment> ScheduledByStepId)
 {
     public static TreatmentPlanWorkflow Empty { get; } = new(
         new Dictionary<Guid, Appointment>(),
-        new Dictionary<Guid, (Guid, Guid, string?, InvoiceStatus)>(),
+        new Dictionary<Guid, (Guid, Guid, string?, InvoiceStatus, decimal, decimal)>(),
         new Dictionary<Guid, DateTime?>(),
         new Dictionary<Guid, Appointment>());
 }

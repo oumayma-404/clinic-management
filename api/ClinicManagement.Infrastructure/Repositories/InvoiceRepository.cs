@@ -185,18 +185,41 @@ public class InvoiceRepository : IInvoiceRepository
             .ToList();
     }
 
-    public async Task<IReadOnlyList<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+    public async Task<IReadOnlyList<(
+        Guid TreatmentPlanId,
+        Guid InvoiceId,
+        string? Number,
+        InvoiceStatus Status,
+        decimal TotalTtc,
+        decimal Outstanding)>>
         GetTreatmentPlanLinksAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
-        // Light projection: a « Facturé » badge and the money-read de-dup need the link + status, never the
-        // lines/payments graph. Cancelled bridges are returned too — the caller decides if they still count.
+        // Light projection: a « Facturé » badge, the money-read de-dup and the note's own figures — never the
+        // lines/payments graph. Cancelled bridges are returned too; the caller decides if they still count.
+        //
+        // `Outstanding` is computed here rather than read: it is a derived property on the aggregate, which EF
+        // cannot translate, and the two columns it derives from are already in the row.
         var rows = await _context.Invoices
             .Where(i => i.ClinicId == clinicId && i.TreatmentPlanId != null)
-            .Select(i => new { TreatmentPlanId = i.TreatmentPlanId!.Value, InvoiceId = i.Id, i.Number, i.Status })
+            .Select(i => new
+            {
+                TreatmentPlanId = i.TreatmentPlanId!.Value,
+                InvoiceId = i.Id,
+                i.Number,
+                i.Status,
+                i.TotalTtc,
+                i.AmountCollected,
+            })
             .ToListAsync(cancellationToken);
 
         return rows
-            .Select(r => (r.TreatmentPlanId, r.InvoiceId, r.Number, r.Status))
+            .Select(r => (
+                r.TreatmentPlanId,
+                r.InvoiceId,
+                r.Number,
+                r.Status,
+                r.TotalTtc,
+                Math.Max(0m, r.TotalTtc - r.AmountCollected)))
             .ToList();
     }
 

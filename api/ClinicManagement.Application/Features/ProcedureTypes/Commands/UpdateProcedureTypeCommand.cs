@@ -214,7 +214,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 try
                 {
                     procedureType.SetDefaultSteps(request.DefaultSteps
-                        .Select(s => new ProcedureStepTemplate(s.Label, s.DurationMinutes)));
+                        .Select(s => new ProcedureStepTemplate(s.Label, s.DurationMinutes, s.MinDaysAfterPrevious)));
                 }
                 catch (ArgumentException ex)
                 {

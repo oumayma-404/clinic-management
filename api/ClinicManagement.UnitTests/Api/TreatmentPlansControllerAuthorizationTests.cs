@@ -44,6 +44,11 @@ public class TreatmentPlansControllerAuthorizationTests
         nameof(TreatmentPlansController.CancelPlan),
         nameof(TreatmentPlansController.AmendPlan),
         nameof(TreatmentPlansController.ReviseInstallments),
+        // « Arrêter le traitement » / « Reprendre le traitement ». Both alter the plan itself — stopping parks
+        // the unstarted acts, re-spreads the échéancier onto the surviving total and closes the devis, and
+        // reopening puts every parked act back — so they belong with amend rather than with the till.
+        nameof(TreatmentPlansController.StopTreatment),
+        nameof(TreatmentPlansController.ReopenTreatment),
         // L5 — the CSV export. A file listing every devis with what each patient owes is the clinic-wide money
         // read in a more portable form than the screen, so it cannot be laxer than the screen: leaving it on the
         // class-level AnyClinicRole would have handed reception the whole receivables book in one click. The
@@ -84,6 +89,12 @@ public class TreatmentPlansControllerAuthorizationTests
         // rather than front-desk work. Classifying it as reception's while its coarser sibling is the dentist's
         // would be exactly the drift this guard exists to catch.
         nameof(TreatmentPlansController.SetItemSteps),
+        // Turning an act already carried out into a treatment. It consumes a gapless devis number in the same
+        // save — CreatePlan's own reason — and it can additionally ATTACH an issued note d'honoraires to the plan
+        // it creates, which decides whether that plan appears in « Solde patient » at all. Nothing else on this
+        // controller reaches across to a numbered note; classifying it as reception's would put the clinic's own
+        // billing arithmetic behind the front desk.
+        nameof(TreatmentPlansController.ContinueRecordedAct),
     };
 
     /// <summary>
@@ -104,6 +115,12 @@ public class TreatmentPlansControllerAuthorizationTests
         // the AdminOrDoctor dashboard endpoint. It carries no money figure at all, which is what makes the
         // wider audience safe: a devis total or a « reste à payer » on it would put it in the group above.
         nameof(TreatmentPlansController.GetTreatmentsInProgress),
+        // The candidate séances behind « C'est la suite d'une séance précédente ? ». A READ, and reception books
+        // the visit that finishes a treatment — the same reasoning as the worklist above. It is deliberately NOT
+        // grouped with its own write one row down: this returns figures from a note the patient has already been
+        // handed (« reste 200 DT sur F-2026-0142 »), which is that patient's own balance rather than the clinic's
+        // — the distinction `GetPatientBillingSummaryQuery` is already open to reception for.
+        nameof(TreatmentPlansController.GetContinuableActs),
     };
 
     [Theory]

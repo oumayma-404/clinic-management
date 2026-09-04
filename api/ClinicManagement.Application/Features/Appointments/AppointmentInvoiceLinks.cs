@@ -1,6 +1,8 @@
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
+using ClinicManagement.Application.Features.Invoices;
+
 namespace ClinicManagement.Application.Features.Appointments;
 
 /// <summary>
@@ -38,18 +40,12 @@ public static class AppointmentInvoiceLinks
 
         var rows = await invoiceRepository.GetAppointmentLinksAsync(clinicId, appointmentIds, cancellationToken);
 
-        return rows
-            .Where(r => r.Status != InvoiceStatus.Cancelled)
-            .GroupBy(r => r.AppointmentId)
-            // A visit should have at most one note, but nothing in the schema enforces it (the link is a soft
-            // one, like DentalRecordId). Prefer the issued invoice over a stray draft so the badge names the
-            // number the patient was actually given.
-            .ToDictionary(
-                g => g.Key,
-                g =>
-                {
-                    var chosen = g.OrderBy(r => r.Number == null ? 1 : 0).ThenBy(r => r.Number).First();
-                    return new Link(chosen.InvoiceId, chosen.Number);
-                });
+        // A visit should have at most one note, but nothing in the schema enforces it (the link is a soft one,
+        // like DentalRecordId). `InvoiceLinkChoice` is where that rule lives now — the continuation feature needs
+        // the same answer keyed on the fiche, and two copies of « which note counts » is how two screens come to
+        // name different numbers for one act.
+        return InvoiceLinkChoice
+            .ByKey(rows.Select(r => (r.AppointmentId, r.InvoiceId, r.Number, r.Status)))
+            .ToDictionary(kv => kv.Key, kv => new Link(kv.Value.InvoiceId, kv.Value.Number));
     }
 }

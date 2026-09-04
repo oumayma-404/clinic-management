@@ -40,7 +40,7 @@ import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON, type CorrectionPreview
 import { ActCard } from "@/components/record/act-card"
 import { RecordSection } from "@/components/record/record-section"
 import {
-  actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs, type BookedActPrefill,
+  actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs, type BookedActPrefill, type PlanItemPrefill,
 } from "@/components/record/use-session-acts"
 import {
   CHEQUE_METHOD,
@@ -87,6 +87,49 @@ export interface PlanItemOption {
   plannedCost?: number
   /** Plan-step teeth — become the chart selection on link. */
   toothNumbers?: number[]
+  /** The devis number, for the « Déjà facturé » notice. */
+  planNumber?: string | null
+  /** The note d'honoraires that holds this devis' money, when one does. */
+  billedOnInvoiceNumber?: string | null
+  /** What is still to collect on the whole devis — meaningless once `billedOnInvoiceNumber` is set. */
+  planOutstanding?: number
+  /**
+   * The catalogue act this devis line is priced on. Carried so a REOPENED fiche can tell which of its acts the
+   * devis pays for — see the `markBilledOnPlan` effect. Absent (a hand-typed devis line) falls back to the
+   * single-act case, which is unambiguous.
+   */
+  procedureTypeId?: string | null
+}
+
+/**
+ * What linking a devis act may carry into the séance — and, crucially, what it may **not**.
+ *
+ * <p>⚠️ <b>This is the fix for the worst defect in the feature: the fiche charged the act's whole fee again at
+ * every séance.</b> `plannedCost` is the fee of the WHOLE act, and the appointment's own row already prices this
+ * visit — at 0, because a devis act adds no honoraires. Both effects ran on an untouched séance and each no-ops
+ * on a non-empty one, so whichever landed first won: with the plan item first, it named the act (making the
+ * session « non-empty »), the appointment prefill bailed, and its correct 0,000 row was demoted to a
+ * « remettre ? » chip while the plan's 150,000 became the active, billed line. Measured end to end: a patient
+ * paid 300,000 DT for a 150,000 DT act, in cash, on the default button, with the duplicate note carrying no plan
+ * link — so none of the de-duplication machinery that protects every aggregate figure could see it. A six-visit
+ * implant at 1 500 DT would have billed six times.</p>
+ *
+ * <p>So when the appointment prices the act, only the <b>teeth</b> travel: the séance's own rows are the
+ * authority on both the act and its price, and `applyAppointment` reads them. With no such row — a fiche
+ * recorded against no visit, or a visit booked before the act joined the devis — the plan is still the best
+ * source and everything is carried, exactly as before.</p>
+ */
+function planItemPrefill(item: PlanItemOption, appointment?: AppointmentDto | null): PlanItemPrefill {
+  const pricedByAppointment = (appointment?.procedures ?? []).some(
+    (row) => row.treatmentPlanItemId === item.itemId,
+  )
+  return pricedByAppointment
+    ? { toothNumbers: item.toothNumbers }
+    : {
+        designationFr: item.designationFr,
+        plannedCost: item.plannedCost,
+        toothNumbers: item.toothNumbers,
+      }
 }
 
 interface PatientRecordModalProps {
@@ -360,14 +403,7 @@ export function PatientRecordModal({
     if (!linked) return
 
     setLinkedPlanItemId(linked.itemId)
-    dispatch({
-      type: "applyPlanItem",
-      item: {
-        designationFr: linked.designationFr,
-        plannedCost: linked.plannedCost,
-        toothNumbers: linked.toothNumbers,
-      },
-    })
+    dispatch({ type: "applyPlanItem", item: planItemPrefill(linked, appointment) })
   }, [open, record, appointment, planItems, dispatch])
 
   /**
@@ -376,22 +412,35 @@ export function PatientRecordModal({
    * <p>⚠️ The booked ROW travels with the catalogue entry, not just its id — the agreed price lives on the row,
    * and resolving to a bare `ProcedureTypeDto` is what would price a negotiated act from the tarif.</p>
    */
-  const bookedActs = useMemo(
-    () =>
-      (appointment?.procedures ?? [])
-        .slice()
-        .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-        .map((row) => ({
-          row,
-          procedure: row.procedureTypeId
-            ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
-            : undefined,
-        }))
-        .filter(
-          (entry): entry is { row: AppointmentProcedureDto; procedure: ProcedureTypeDto } => !!entry.procedure,
-        ),
-    [appointment?.procedures, procedureTypes],
-  )
+  /*
+   * ⚠️ **Two STEPS of one devis act are two rows on the wire and ONE act in the fiche.** The server keys a
+   * séance's duplicate rule on the (act, step) *pair* — that is what makes « préparation + empreinte dans la
+   * même séance » expressible — so a two-step séance arrives here as two rows carrying the same
+   * `procedureTypeId` and the same `treatmentPlanItemId`. Mapped straight through they became two identical
+   * cards: the fiche read « Actes de la séance **2 actes** » for one act, offered the same act back twice in
+   * the « remettre » row (two chips with one React key, hence « two children with the same key »), and on a
+   * non-devis act would have doubled the fee.
+   *
+   * Grouped on `treatmentPlanItemId`, exactly as `groupActs` does in `appointment-acts-picker` — the same rule
+   * because it answers the same question, and grouping on the *procedure* instead would wrongly merge two
+   * distinct devis lines that happen to quote the same act (two teeth, priced separately).
+   */
+  const bookedActs = useMemo(() => {
+    const out: { row: AppointmentProcedureDto; procedure: ProcedureTypeDto }[] = []
+    const seenPlanItem = new Set<string>()
+    for (const row of (appointment?.procedures ?? []).slice().sort((a, b) => a.sequenceNumber - b.sequenceNumber)) {
+      const procedure = row.procedureTypeId
+        ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
+        : undefined
+      if (!procedure) continue
+      if (row.treatmentPlanItemId) {
+        if (seenPlanItem.has(row.treatmentPlanItemId)) continue
+        seenPlanItem.add(row.treatmentPlanItemId)
+      }
+      out.push({ row, procedure })
+    }
+    return out
+  }, [appointment?.procedures, procedureTypes])
 
   // Propose EVERY act booked into the séance. Guarded twice over: `applyAppointment` is a no-op unless the
   // session is a single untouched card, so it can never clobber a saved record or work in progress.
@@ -402,12 +451,15 @@ export function PatientRecordModal({
     const prefill: BookedActPrefill[] = bookedActs.map(({ row, procedure }) => ({
       procedure,
       agreedCost: row.agreedCost ?? null,
+      // The act row's own devis link is the authority: with it, the 0 is a rule and the card must not read it
+      // as a discount or offer to undo it.
+      billedOnPlan: row.treatmentPlanItemId != null,
     }))
     // A response predating `procedures` carries only the lead-act scalar; without this fallback such a visit
     // would propose nothing at all.
     if (prefill.length === 0 && appointment?.procedureTypeId) {
       const lead = procedureTypes.find((p) => p.id === appointment.procedureTypeId)
-      if (lead) prefill.push({ procedure: lead, agreedCost: null })
+      if (lead) prefill.push({ procedure: lead, agreedCost: null, billedOnPlan: appointment.treatmentPlanItemId != null })
     }
     if (prefill.length > 0) dispatch({ type: "applyAppointment", procedures: prefill })
   }, [open, record, appointment?.procedureTypeId, bookedActs, procedureTypes, dispatch])
@@ -565,11 +617,37 @@ export function PatientRecordModal({
     if (value === NO_PLAN_ITEM) return
     const item = planItems.find((p) => p.itemId === value)
     if (!item) return
-    dispatch({
-      type: "applyPlanItem",
-      item: { designationFr: item.designationFr, plannedCost: item.plannedCost, toothNumbers: item.toothNumbers },
-    })
+    dispatch({ type: "applyPlanItem", item: planItemPrefill(item, appointment) })
   }
+
+  /** The devis act this séance is carrying out, when the appointment says so — what A0's notice reads. */
+  const billedPlanItem = useMemo(
+    () => planItems.find((p) => p.itemId === linkedPlanItemId) ?? null,
+    [planItems, linkedPlanItemId],
+  )
+  /**
+   * True when the séance's own act rows carry this devis act — i.e. the fee is on the devis and this visit adds
+   * no honoraires. The one fact the fiche needed and did not have.
+   */
+  const carriedByDevis = useMemo(
+    () =>
+      billedPlanItem != null &&
+      (appointment?.procedures ?? []).some((row) => row.treatmentPlanItemId === billedPlanItem.itemId),
+    [billedPlanItem, appointment?.procedures],
+  )
+
+  /*
+   * Back-fill « this act is carried by the devis » onto a REOPENED fiche. `applyAppointment` carries it per act
+   * for a fresh one, but a saved record is built before any plan data has loaded — and without it the reopened
+   * card reads its stored 0 against the catalogue tarif and announces « geste de 120,000 DT » with a
+   * « remettre au tarif » link, which is a discount nobody granted and one press from re-charging the devis.
+   * The same back-fill shape as `edit-appointment-dialog`'s, and for the same reason: the hydration path is
+   * where this family of defect reappears.
+   */
+  useEffect(() => {
+    if (!open || !carriedByDevis || !billedPlanItem) return
+    dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
+  }, [open, carriedByDevis, billedPlanItem, dispatch])
 
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
@@ -982,6 +1060,50 @@ export function PatientRecordModal({
             <span className="font-mono text-2xs text-muted-foreground">{actsSummary}</span>
           </div>
 
+          {/*
+            ⚠️ The « Déjà facturé » statement the booking dialog makes and this screen did not. The dialog is
+            exemplary about it — read-only 0, « facturé sur le devis », the act's own fee and the devis balance
+            as two separately-labelled figures — and the fiche, the screen that actually creates money, said
+            nothing at all: no « déjà facturé », no « facturé sur le devis », nowhere on the page. The text
+            existed one screen away and never reached this one.
+          */}
+          {carriedByDevis && billedPlanItem && (
+            <p
+              role="status"
+              className="rounded-md border border-primary bg-primary/[0.07] p-2.5 text-2xs leading-relaxed"
+            >
+              <span className="font-semibold text-primary">Déjà facturé.</span>{" "}
+              {billedPlanItem.planNumber
+                ? `Cet acte est porté par le devis ${billedPlanItem.planNumber}`
+                : "Cet acte est porté par le devis"}
+              {billedPlanItem.plannedCost != null && (
+                <>
+                  {" à "}
+                  <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span>
+                </>
+              )}
+              . Cette séance n&apos;ajoute pas d&apos;honoraires — laissez « Payé » à 0.
+              {/* The devis' own balance is unusable once a note holds the money — its auto-échéance will never
+                  see a payment — so the note is named instead. Same rule as the booking dialog's notice. */}
+              {billedPlanItem.billedOnInvoiceNumber ? (
+                <>
+                  {" "}Encaissement sur la note{" "}
+                  <span className="font-mono">{billedPlanItem.billedOnInvoiceNumber}</span>.
+                </>
+              ) : (
+                (billedPlanItem.planOutstanding ?? 0) > 0 && (
+                  <>
+                    {" "}Reste à encaisser sur l&apos;échéancier du devis :{" "}
+                    <span className="font-mono tabular-nums">
+                      {formatDT(billedPlanItem.planOutstanding!)}
+                    </span>
+                    .
+                  </>
+                )
+              )}
+            </p>
+          )}
+
           {/* Above the cards, because that is where the consequence lands: an empty catalogue invites free text. */}
           {catalogFailed && (
             <LoadFailureNotice
@@ -1040,9 +1162,11 @@ export function PatientRecordModal({
               Prévu à ce rendez-vous, retiré de la fiche — remettre :
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {otherBookedActs.map(({ row, procedure }) => (
+              {otherBookedActs.map(({ row, procedure }, i) => (
                 <Button
-                  key={procedure.id}
+                  // Not `procedure.id` alone: two acts of the same type are legitimately two rows (two fillings
+                  // booked separately), and a shared key lets React drop one of the chips.
+                  key={`${procedure.id}-${row.sequenceNumber}-${i}`}
                   type="button"
                   variant="outline"
                   size="sm"
@@ -1491,7 +1615,24 @@ export function PatientRecordModal({
             <div className="w-full text-xs sm:w-auto">
               {overpaid ? (
                 <p role="status" className="font-medium text-destructive">
-                  Le montant payé dépasse le total de la séance ({formatDT(grandTotal)}).
+                  Le montant payé dépasse le total de la séance ({formatDT(grandTotal)}).{" "}
+                  {/*
+                    ⚠️ The generic advice — « Corrigez le montant, ou ajoutez l'acte qui manque » — is actively
+                    wrong on a devis séance: there is no missing act, and a dentist following it literally adds
+                    one, which prices the treatment a second time. The correct action is the échéancier, and it
+                    was named nowhere: not in the refusal, not on the fiche, not in the booking notice.
+                  */}
+                  {carriedByDevis ? (
+                    <span className="font-normal text-muted-foreground">
+                      Cette séance est portée par le devis{" "}
+                      {billedPlanItem?.planNumber ?? ""} : l&apos;argent remis au fauteuil s&apos;encaisse sur
+                      son échéancier, pas ici.
+                    </span>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">
+                      Corrigez le montant, ou ajoutez l&apos;acte qui manque.
+                    </span>
+                  )}
                 </p>
               ) : lowersBilledAmount ? (
                 <p role="status" className="font-medium text-destructive">

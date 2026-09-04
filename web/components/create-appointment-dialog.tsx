@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -34,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format } from "date-fns"
-import { CalendarIcon, Stethoscope, FileText, Check, ChevronsUpDown, ChevronDown } from "lucide-react"
+import { CalendarIcon, Stethoscope, FileText, Check, ChevronsUpDown, ChevronDown, History } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AppointmentRecap, type AppointmentRecapModel } from "@/components/appointment-recap"
 import { ModeSegmented } from "@/components/ui/mode-segmented"
@@ -42,7 +42,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
-  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
+  AppointmentActsPicker, actLabelsOf, agreedCostOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
   toProcedurePayloads, totalActsDuration,
   type SelectedAct, type PlanStepOption, type BilledOnPlan,
 } from "@/components/appointment-acts-picker"
@@ -52,9 +52,19 @@ import type { PresetPlanAct } from "@/components/appointment-acts-picker"
 // Re-exported for the callers that have always imported it from this module. Its home is now
 // `appointment-acts-picker`, beside `SelectedAct`.
 export type { PresetPlanAct }
-import { formatAmount } from "@/lib/format"
-import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
+import { formatAmount, formatDT } from "@/lib/format"
+import type { PatientDto, ProcedureStepTemplateDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { treatmentPlansApi } from "@/lib/api/treatment-plans"
+import { planItemToPreset, suggestedPlanStep } from "@/components/treatment-plans/plan-next-action"
+import {
+  usePatientPlanActs,
+  resolveAttachedPlanId,
+} from "@/components/treatment-plans/use-patient-plan-acts"
+import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
+import { ContinueSessionDialog } from "@/components/treatment-plans/continue-session-dialog"
+import { showErrorToast } from "@/lib/errors"
+import { toast } from "sonner"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
@@ -94,11 +104,38 @@ const NO_OVERRIDES: CreateOverrides = { hours: false, overlap: false, duplicateP
  */
 const DURATION_PRESETS = [15, 30, 45, 60, 90, 120]
 
+/**
+ * The next quarter-hour on the wall clock, as the form's two time fields — the default for a caller that names
+ * no time. Rolls to 00:00 past the last quarter of the day, which is a date the user is choosing anyway.
+ *
+ * <p>The browser's own clock is right for this and `todayLocalIso`'s caveat does not apply: the value is a
+ * *wall-clock time* the user is about to see and correct, not a calendar day derived from an instant.</p>
+ */
+function nextQuarterHour(now: Date = new Date()): { hour: string; minute: string } {
+  const next = new Date(now)
+  next.setSeconds(0, 0)
+  next.setMinutes(Math.ceil((next.getMinutes() + 1) / 15) * 15)
+  return {
+    hour: String(next.getHours()).padStart(2, "0"),
+    minute: String(next.getMinutes()).padStart(2, "0"),
+  }
+}
+
 interface CreateAppointmentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   defaultDate?: Date
   defaultTime?: string
+  /**
+   * A calendar **day** to open on, for a caller that has no opinion about the hour — the step-interval booking,
+   * whose due date is a day and nothing more. The time then defaults exactly as it does on an empty form.
+   *
+   * ⚠️ **Not interchangeable with `defaultDate`, and the difference is invisible in the value.** `defaultDate`
+   * is an *instant*: the dialog reads its hour and minute as the time to book. A day-only value is midnight, so
+   * passing one as `defaultDate` opens the form on **00:00** — a time no clinic books, silently, with no error
+   * until « Créer » is pressed. `defaultDate` wins when both are supplied.
+   */
+  defaultDay?: Date
   /**
    * The visit's length, when the caller already knows it — today only the agenda's drag-across-hours does.
    *
@@ -133,6 +170,7 @@ export function CreateAppointmentDialog({
   onOpenChange,
   defaultDate,
   defaultTime,
+  defaultDay,
   defaultDurationMinutes,
   onSuccess,
   onCreated,
@@ -159,6 +197,80 @@ export function CreateAppointmentDialog({
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   /** The acts of this séance — several are the normal case, not the exception. */
   const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
+
+  /*
+   * The patient's own live devis — loaded HERE, from the patient picked in this dialog, which is the whole of
+   * the gap this closes. Booking from the agenda is how anyone in a hurry books, and that path could not see a
+   * devis at all: the acts were offered from the catalogue only, so a bridge's scellement went in as a loose act
+   * and the devis went on reporting it as unplanned.
+   *
+   * ⚠️ Disabled while `isPlanScheduling` — the devis workspace's own « Planifier » already handed us the acts
+   * (`presetPlanActs`) and the plan they belong to, so re-reading would be a second answer to a settled question.
+   */
+  const {
+    plans: patientPlans,
+    planActs: offeredPlanActs,
+    planIdByItem,
+    register: registerPlan,
+  } = usePatientPlanActs(selectedPatientId, !isPlanScheduling && !isBusySlot)
+
+  /** « C'est la suite d'une séance précédente ? » — the third door, for work that never had a devis. */
+  const [continueOpen, setContinueOpen] = useState(false)
+
+  /**
+   * The act the dialog offers unprompted, or null.
+   *
+   * <p>⚠️ Withdrawn the moment ANY devis act is on the séance — the dentist is plainly dealing with the plan and
+   * a reminder about it becomes an obstacle — and withdrawn for good once dismissed. Dismissal is keyed on the
+   * patient, so choosing a different one asks the question again about a different mouth.</p>
+   */
+  const [dismissedSuggestionFor, setDismissedSuggestionFor] = useState<string | null>(null)
+  const suggestion = useMemo(() => {
+    if (isPlanScheduling || isBusySlot) return null
+    if (!selectedPatientId || dismissedSuggestionFor === selectedPatientId) return null
+    if (selectedActs.some((a) => a.treatmentPlanItemId)) return null
+    return suggestedPlanStep(patientPlans)
+  }, [isPlanScheduling, isBusySlot, selectedPatientId, dismissedSuggestionFor, selectedActs, patientPlans])
+
+  /**
+   * Put one devis act — with the step it is waiting on — onto the séance being booked. The shared tail of all
+   * three doors: the suggestion, « Créer le devis et planifier la 1re séance », and the continuation dialog.
+   *
+   * <p>⚠️ <b>`registerPlan` is not optional.</b> The act carries a `treatmentPlanItemId`, and
+   * `resolveAttachedPlanId` reads `planIdByItem` to fill the appointment's own `treatmentPlanId`; a plan created
+   * seconds ago is in neither, so without this the save is refused outright with « Le plan de traitement est
+   * requis pour lier l'acte. » — the feature turned down by its own client, on the one booking it exists for.
+   * Registering a plan the hook already loaded is a harmless no-op, which is what lets one path serve all three.</p>
+   *
+   * <p>⚠️ <b>The item is a parameter, never `plan.items[0]`.</b> A devis may carry several acts and the
+   * suggestion names one of them; taking the first would book the wrong act with entirely plausible screens.</p>
+   */
+  const attachPlanAct = useCallback(
+    (
+      plan: TreatmentPlanDto,
+      item: TreatmentPlanDto["items"][number],
+      /** Replaces a matching row rather than appending — the protocol offer rewrites the act it was pressed on. */
+      replace?: (previous: SelectedAct) => boolean,
+    ) => {
+      registerPlan(plan)
+      const act = presetToSelectedAct(
+        planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined),
+        procedureTypes,
+      )
+      setSelectedActs((prev) =>
+        replace && prev.some(replace) ? prev.map((a) => (replace(a) ? act : a)) : [...prev, act],
+      )
+    },
+    [registerPlan, procedureTypes],
+  )
+
+  /** Accepting it: the act (and the step it is waiting on) becomes this séance's act. */
+  const acceptSuggestion = useCallback(() => {
+    if (!suggestion) return
+    // Appended, never a replacement: a dentist who has already picked « Consultation » is adding the scellement
+    // to that visit, not booking a different one.
+    attachPlanAct(suggestion.plan, suggestion.item)
+  }, [suggestion, attachPlanAct])
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
   /** Has the catalog fetch SETTLED — loaded or failed? See the plan-act seeding effect. */
   const [procedureTypesLoaded, setProcedureTypesLoaded] = useState(false)
@@ -176,7 +288,7 @@ export function CreateAppointmentDialog({
   const [durationTouched, setDurationTouched] = useState(defaultDurationMinutes !== undefined)
 
   // Appointment details
-  const [date, setDate] = useState<Date | undefined>(defaultDate || new Date())
+  const [date, setDate] = useState<Date | undefined>(defaultDate || defaultDay || new Date())
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   // `appointmentType` removed with the `Type: ` prefix (AC-P1.51). It had no input control of its own — it was
   // only ever set from `presetProcedureName` when scheduling a plan act, purely to build that prefix. The act
@@ -192,7 +304,18 @@ export function CreateAppointmentDialog({
     }
   }, [open, currentUserDoctor, selectedDoctorId])
 
-  // Time state - extract from defaultDate if available, otherwise use defaultTime
+  /**
+   * The time the form opens on: the caller's, else **the next quarter-hour from now**.
+   *
+   * <p>⚠️ The fallback was a hardcoded <b>09:00</b>, and it is what made « Planifier l'étape » — the feature's
+   * own booking entry point, and the action a dentist repeats most — the one place in the app whose time default
+   * is wrong for most of the working day. That path supplies neither a date nor a time, so at 11:43 the sheet
+   * opened on 09:00 and « Créer le rendez-vous » answered « Heure dans le passé », then « Créneau déjà occupé »,
+   * because 09:00 is both past *and* taken: three modals and three POSTs to book one séance. The agenda's
+   * « Nouveau » has always passed the current time, which is why it never showed this. The sharper risk is
+   * habituation — a dentist who taps « Continuer » past « Heure dans le passé » out of habit has just booked the
+   * next séance of an implant into a morning that has gone.</p>
+   */
   const getInitialTime = () => {
     if (defaultDate) {
       return {
@@ -203,11 +326,11 @@ export function CreateAppointmentDialog({
     if (defaultTime) {
       const [hour, minute] = defaultTime.split(":")
       return {
-        hour: hour || "09",
-        minute: minute || "00"
+        hour: hour || nextQuarterHour().hour,
+        minute: minute || nextQuarterHour().minute
       }
     }
-    return { hour: "09", minute: "00" }
+    return nextQuarterHour()
   }
 
   const initialTime = getInitialTime()
@@ -339,24 +462,31 @@ export function CreateAppointmentDialog({
     }
   }, [open, isPlanScheduling, defaultPatientId])
 
-  // Update date and time when defaultDate or defaultTime changes (when dialog is open)
+  // Update date and time when the caller's date/day/time changes (when dialog is open)
   useEffect(() => {
-    if (open && (defaultDate || defaultTime)) {
-      if (defaultDate) {
-        // Set date (without time for the date picker)
-        const dateOnly = new Date(defaultDate)
-        dateOnly.setHours(0, 0, 0, 0)
-        setDate(dateOnly)
-        // Set time from defaultDate
-        setStartHour(String(defaultDate.getHours()).padStart(2, "0"))
-        setStartMinute(String(defaultDate.getMinutes()).padStart(2, "0"))
-      } else if (defaultTime) {
-        const [hour, minute] = defaultTime.split(":")
-        setStartHour(hour || "09")
-        setStartMinute(minute || "00")
-      }
+    if (!open || !(defaultDate || defaultTime || defaultDay)) return
+    if (defaultDate) {
+      // An instant: the day for the picker, and its own hour and minute as the time.
+      const dateOnly = new Date(defaultDate)
+      dateOnly.setHours(0, 0, 0, 0)
+      setDate(dateOnly)
+      setStartHour(String(defaultDate.getHours()).padStart(2, "0"))
+      setStartMinute(String(defaultDate.getMinutes()).padStart(2, "0"))
+      return
     }
-  }, [open, defaultDate, defaultTime])
+    if (defaultDay) {
+      // A day, and nothing about the hour: the time keeps the form's own default.
+      const dayOnly = new Date(defaultDay)
+      dayOnly.setHours(0, 0, 0, 0)
+      setDate(dayOnly)
+    }
+    if (defaultTime) {
+      const [hour, minute] = defaultTime.split(":")
+      const fallback = nextQuarterHour()
+      setStartHour(hour || fallback.hour)
+      setStartMinute(minute || fallback.minute)
+    }
+  }, [open, defaultDate, defaultTime, defaultDay])
 
   /*
    * A dragged span, applied on open. Separate from the date/time effect above because it must also fire for a
@@ -407,8 +537,8 @@ export function CreateAppointmentDialog({
       createdPatientIdRef.current = null
       setCreatedPatientName(null)
       grantedOverridesRef.current = { ...NO_OVERRIDES }
-      // Reset date to defaultDate or new Date
-      setDate(defaultDate || new Date())
+      // Reset date to the caller's instant, else its day, else today
+      setDate(defaultDate || defaultDay || new Date())
     }
   }, [open])
 
@@ -493,6 +623,123 @@ export function CreateAppointmentDialog({
   const actNames = useMemo(
     () => actLabelsOf(selectedActs, procedureTypes),
     [selectedActs, procedureTypes],
+  )
+
+  const [startingProtocol, setStartingProtocol] = useState(false)
+
+  /**
+   * « Créer le devis et planifier la 1ʳᵉ séance » — the one press that turns an agenda booking of a
+   * multi-séance act into a real treatment.
+   *
+   * <p>It creates a devis carrying that single act with its protocol, then rewrites this visit's act row as
+   * the devis' first step. The dentist then presses « Créer le rendez-vous » as they were going to: the
+   * appointment they were already booking becomes séance 1, and the remaining séances surface in
+   * « Traitements en cours » as they come due.</p>
+   *
+   * <p>⚠️ <b>Nothing is created silently.</b> A devis consumes a number and is a financial document the patient
+   * may be shown, so it is offered and pressed — never a side effect of picking an act. That was a deliberate
+   * choice over the fewer-clicks alternative.</p>
+   *
+   * <p>⚠️ <b>No échéancier is sent</b>, so the server writes the auto lump-sum one. Guessing a payment schedule
+   * from an agenda booking would be inventing terms nobody agreed; the dentier revises it on the devis.</p>
+   */
+  const startProtocol = useCallback(
+    async (act: SelectedAct, protocol: ProcedureStepTemplateDto[]) => {
+      // No patient yet (a « créneau occupé », or a new patient not yet committed) — the picker hides the
+      // button in that case, so this is a backstop rather than a path.
+      if (!selectedPatientId || !act.procedureTypeId) return
+
+      setStartingProtocol(true)
+      try {
+        const procedure = procedureTypes.find((pt) => pt.id === act.procedureTypeId)
+        const designation = procedure?.name ?? "Acte"
+        /*
+         * ⚠️ **The price typed into « Prix pour ce rendez-vous » wins over the catalogue tarif, and it used to
+         * be discarded.** This path wrote `procedure.defaultCost` and then replaced the act row, so a price
+         * agreed on the telephone one field above the button was silently lost — and the toast then stated the
+         * catalogue figure as the devis amount, confidently. Worse, an act with no `defaultCost` produced a
+         * devis total of **0**, which skips the automatic échéance entirely: an implant devis with no total, no
+         * schedule, and every séance priced 0.
+         */
+        const typed = agreedCostOf(act)
+        const plannedCost = typed != null && typed > 0 ? typed : (procedure?.defaultCost ?? 0)
+        const plan = await treatmentPlansApi.create({
+          patientId: selectedPatientId,
+          title: designation,
+          items: [
+            {
+              procedureTypeId: act.procedureTypeId,
+              designationFr: designation,
+              plannedCost,
+              toothNumbers: [],
+              steps: protocol.map((step) => ({
+                label: step.label,
+                estimatedDurationMinutes: step.durationMinutes,
+                // The clinical interval, carried across with the label: it is what lets the worklist say
+                // « pas encore due » instead of alarming at a flat fortnight on a treatment that is on time.
+                minDaysAfterPrevious: step.minDaysAfterPrevious ?? null,
+              })),
+            },
+          ],
+          installments: [],
+        })
+
+        const item = plan.items[0]
+        if (!item) throw new Error("Le devis a été créé sans acte.")
+
+        /*
+         * The act row becomes the devis' first step, through the one shared path.
+         *
+         * ⚠️ It used to map `setSelectedActs` inline, which meant the freshly minted devis never reached
+         * `planIdByItem` — so the row carried a `treatmentPlanItemId` with no `treatmentPlanId` beside it and the
+         * save was refused with « Le plan de traitement est requis pour lier l'acte. » `attachPlanAct` registers
+         * the plan, which is the half that was missing.
+         */
+        attachPlanAct(
+          plan,
+          item,
+          (a) => a === act || (a.procedureTypeId === act.procedureTypeId && !a.treatmentPlanItemId),
+        )
+        toast.success(
+          `Devis ${plan.number ?? ""} créé — ${protocol.length} séances, ${formatDT(plannedCost)}. Ce rendez-vous est la 1re.`.trim(),
+        )
+      } catch (err) {
+        showErrorToast(err)
+      } finally {
+        setStartingProtocol(false)
+      }
+    },
+    [selectedPatientId, procedureTypes, attachPlanAct],
+  )
+
+  /**
+   * The confirmation « Créer le devis et planifier la 1re séance » did not have.
+   *
+   * <p>⚠️ One press spent a devis number permanently, created an <b>accepted</b> document carrying a money
+   * claim, and fired immediately — inside the still-open booking dialog, so abandoning the booking afterwards
+   * left the devis behind: numbered, accepted, with no appointment. Accepting a legacy *draft*, a far less
+   * consequential act, has always been confirmed. This names the number-to-be, the séances and the amount.</p>
+   */
+  const [protocolOffer, setProtocolOffer] = useState<{
+    act: SelectedAct
+    protocol: ProcedureStepTemplateDto[]
+    designation: string
+    amount: number
+  } | null>(null)
+
+  const offerProtocol = useCallback(
+    async (act: SelectedAct, protocol: ProcedureStepTemplateDto[]) => {
+      if (!selectedPatientId || !act.procedureTypeId) return
+      const procedure = procedureTypes.find((pt) => pt.id === act.procedureTypeId)
+      const typed = agreedCostOf(act)
+      setProtocolOffer({
+        act,
+        protocol,
+        designation: procedure?.name ?? act.fallbackName ?? "Acte",
+        amount: typed != null && typed > 0 ? typed : (procedure?.defaultCost ?? 0),
+      })
+    },
+    [selectedPatientId, procedureTypes],
   )
 
   /** The lead act's colour — what the agenda will actually paint this block with. */
@@ -676,6 +923,20 @@ export function CreateAppointmentDialog({
       const procedures = isBusySlot ? [] : toProcedurePayloads(selectedActs)
 
       // Create appointment
+      /*
+       * ⚠️ The devis this séance belongs to, derived from the acts the user attached — NOT from `presetPlanId`
+       * alone. That scalar only exists when the dialog was opened from a devis workspace, and an act picked from
+       * « Actes du devis » or accepted from the suggestion belongs to a devis this dialog was never told about:
+       * without deriving it the server refuses the save with « Le plan de traitement est requis pour lier
+       * l'acte. » — the feature turned down by its own client.
+       */
+      const attachedPlan = resolveAttachedPlanId(selectedActs, planIdByItem)
+      if (attachedPlan.error) {
+        setError(attachedPlan.error)
+        setLoading(false)
+        return
+      }
+
       const created = await appointmentsApi.create({
         patientId,
         appointmentDateTime: appointmentDateTime.toISOString(),
@@ -685,7 +946,7 @@ export function CreateAppointmentDialog({
         // The devis links ride on the act rows, so the single-act `treatmentPlanItemId` is deliberately not sent:
         // the server derives that scalar from the list, and sending both risks naming a different lead act.
         procedures,
-        treatmentPlanId: isPlanScheduling ? presetPlanId : undefined,
+        treatmentPlanId: isPlanScheduling ? presetPlanId : attachedPlan.planId,
         allowOutsideWorkingHours: allowOutsideWorkingHours || undefined,
         allowOverlap: allowOverlap || undefined,
       })
@@ -1041,6 +1302,31 @@ export function CreateAppointmentDialog({
                 </p>
               </div>
             )}
+
+            {/*
+              ⚠️ **Directly under the patient field, and it used to sit above the acts picker — two sections
+              lower.** That position read well on paper (« after the field whose value it depends on, where
+              qu'est-ce qu'on fait aujourd'hui is being answered ») and put it **below the fold on a phone**:
+              measured at 390×844 the sheet's scrolling region is y = 126–619 and the notice rendered at
+              y = 612–796, so **7 of its 184 px were on screen** — the dashed top border and nothing else. This
+              is the feature's only proactive reminder, and its own design note says the case it exists for is
+              « the dentist books from the agenda, in a hurry ». In a hurry, on a phone, nobody scrolls a form
+              they have already filled — so on the device where the reminder is most needed it was the one place
+              it was never seen.
+
+              It belongs here on the content, too: the suggestion is derived from the PATIENT and from nothing
+              else on the form. Under the acts it read as a footnote to a decision already made.
+            */}
+            {suggestion && !isBusySlot && (
+              <PlanStepSuggestionNotice
+                suggestion={suggestion}
+                onAccept={acceptSuggestion}
+                onDismiss={() => setDismissedSuggestionFor(selectedPatientId)}
+                // The act it inserts is priced and named from the catalogue, so accepting before it has loaded
+                // would produce a row whose procedure does not resolve.
+                disabled={loadingProcedureTypes}
+              />
+            )}
           </div>
 
           {/* 2 — Quand. */}
@@ -1213,8 +1499,32 @@ export function CreateAppointmentDialog({
                 onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="create-appt"
+                // Only with a patient in hand: a devis belongs to somebody.
+                onStartProtocol={selectedPatientId ? offerProtocol : undefined}
+                startingProtocol={startingProtocol}
+                // « Actes du devis » — the same group the edit dialog offers. It is the un-hurried half of the
+                // suggestion above: the reminder names ONE act, this holds every one the patient has outstanding.
+                planActs={offeredPlanActs}
               />
             )}
+
+            {/*
+              The third door, and it is a plain link rather than a notice: unlike the suggestion above, nothing
+              here knows whether it applies — a fiche records what was done and never what remains — so this
+              asks a question instead of stating a fact. Offered whenever there is a patient to ask about and no
+              devis act on the séance yet; once one is attached the question is answered.
+            */}
+            {!isBusySlot && !isPlanScheduling && selectedPatientId &&
+              !selectedActs.some((a) => a.treatmentPlanItemId) && (
+                <button
+                  type="button"
+                  onClick={() => setContinueOpen(true)}
+                  className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover-hover:hover:text-foreground hover-hover:hover:underline coarse:min-h-11"
+                >
+                  <History className="h-3.5 w-3.5" />
+                  C&apos;est la suite d&apos;une séance précédente&nbsp;?
+                </button>
+              )}
 
             <div className="grid grid-cols-1 gap-4">
               <div className="space-y-2">
@@ -1304,6 +1614,25 @@ export function CreateAppointmentDialog({
         </form>
       </DialogContent>
     </Dialog>
+
+    {/*
+      A SIBLING of the booking dialog, never a child: Radix unmounts a closed dialog's content, and nesting one
+      inside the form would also put two dialogs' focus traps and Escape handlers on top of each other.
+    */}
+    {selectedPatientId && (
+      <ContinueSessionDialog
+        open={continueOpen}
+        onOpenChange={setContinueOpen}
+        patientId={selectedPatientId}
+        onCreated={(plan) => {
+          const item = plan.items[0]
+          if (item) attachPlanAct(plan, item)
+          toast.success(
+            `Traitement créé — devis ${plan.number ?? ""}. Ce rendez-vous en est la 2e séance.`.trim(),
+          )
+        }}
+      />
+    )}
 
     {/* Past-time confirmation (AC-2): blocking; confirming proceeds, cancelling leaves the form intact. */}
     <AlertDialog open={showPastTimeConfirm} onOpenChange={setShowPastTimeConfirm}>
@@ -1451,6 +1780,48 @@ export function CreateAppointmentDialog({
             disabled={loading}
           >
             Créer quand même
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/*
+      « Créer le devis et planifier la 1re séance » — confirmed, because it is irreversible. It spends a devis
+      number permanently, creates an ACCEPTED document carrying a money claim, and does so before the
+      appointment is saved, so abandoning the booking afterwards leaves the devis behind with no visit against
+      it. Accepting a legacy draft, a far smaller act, has always asked.
+    */}
+    <AlertDialog open={protocolOffer != null} onOpenChange={(o) => !o && setProtocolOffer(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Créer le devis pour {protocolOffer?.designation} ?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Un devis numéroté et <b>accepté</b> est créé immédiatement, avec{" "}
+            {protocolOffer?.protocol.length ?? 0} séance
+            {(protocolOffer?.protocol.length ?? 0) > 1 ? "s" : ""} et un total de{" "}
+            {formatDT(protocolOffer?.amount ?? 0)}. Ce rendez-vous en devient la 1re. Un devis ne se supprime
+            pas : il s&apos;annule, avec un motif, et son numéro reste consommé.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {protocolOffer && protocolOffer.amount <= 0 && (
+          <p role="status" className="text-2xs leading-relaxed text-warning-ink">
+            Cet acte n&apos;a pas de tarif : le devis serait créé à 0,000 DT, sans échéancier. Renseignez
+            « Prix pour ce rendez-vous » avant de continuer.
+          </p>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={startingProtocol}>Retour</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={startingProtocol}
+            onClick={(event) => {
+              event.preventDefault()
+              const offer = protocolOffer
+              if (!offer) return
+              setProtocolOffer(null)
+              void startProtocol(offer.act, offer.protocol)
+            }}
+          >
+            {startingProtocol ? "Création…" : "Créer le devis"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

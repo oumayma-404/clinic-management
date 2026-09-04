@@ -6,8 +6,8 @@ import type { Metadata } from "next"
  * template on the root layout.
  */
 export const metadata: Metadata = {
-  title: "Plans de traitement",
-  description: "Les devis et leurs échéanciers.",
+  title: "Traitements",
+  description: "Les traitements en cours, les devis et leurs échéanciers.",
 }
 
 export default function TreatmentPlansLayout({ children }: { children: React.ReactNode }) {

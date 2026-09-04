@@ -139,12 +139,39 @@ public class TreatmentPlansController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
-    /// <summary>Close a fully-treated plan (« Terminer »). 400 if not all acts are done.</summary>
+    /// <summary>
+    /// Close a plan (« Terminer »), leaving any unrealised act unrealised — which is what the confirmation says.
+    /// </summary>
     [HttpPost("{id:guid}/complete")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<TreatmentPlanDto>> CompletePlan(Guid id)
     {
         var result = await _mediator.Send(new CompleteTreatmentPlanCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Arrêter le traitement »: park the acts with no delivered work, keep the rest, re-spread the échéancier
+    /// and close the devis — one call, so a refused clôture can no longer leave the removals behind.
+    /// </summary>
+    [HttpPost("{id:guid}/stop")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> StopTreatment(
+        Guid id, [FromBody] StopTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>« Reprendre le traitement »: reopen a stopped devis and restore the acts it parked.</summary>
+    [HttpPost("{id:guid}/reopen")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> ReopenTreatment(
+        Guid id, [FromBody] ReopenTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
@@ -242,6 +269,38 @@ public class TreatmentPlansController : ApiControllerBase
         [FromQuery] int? page, [FromQuery] int? pageSize)
     {
         var result = await _mediator.Send(new GetTreatmentsInProgressQuery { Page = page, PageSize = pageSize });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The acts of this patient's recent fiches de soins that could turn out to need another séance — what
+    /// « C'est la suite d'une séance précédente ? » offers in the booking dialog.
+    /// <para>
+    /// `AnyClinicRole`, like the plans list itself: it carries the money of a note the patient has already been
+    /// given, and booking the visit that finishes a treatment is reception's job.
+    /// </para>
+    /// </summary>
+    [HttpGet("continuable-acts")]
+    public async Task<ActionResult<List<ContinuableActDto>>> GetContinuableActs([FromQuery] Guid patientId)
+    {
+        var result = await _mediator.Send(new GetContinuableActsQuery { PatientId = patientId });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Turn an act already carried out into a multi-séance treatment — « cette séance est la suite de celle du
+    /// 12 août ».
+    /// <para>
+    /// `AdminOrDoctor`, unlike the read above: it consumes a devis number and can attach an issued note
+    /// d'honoraires to the plan it creates, which is the same class of operation as amending a devis.
+    /// </para>
+    /// </summary>
+    [HttpPost("continue-recorded-act")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> ContinueRecordedAct(
+        [FromBody] ContinueRecordedActCommand command)
+    {
+        var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

@@ -40,7 +40,7 @@ public class TreatmentPlanWorkflowProjectionTests
 
     private void NoInvoiceLinks() =>
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
 
     private void LinkedAppointments(params Appointment[] appointments) =>
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
@@ -232,9 +232,9 @@ public class TreatmentPlanWorkflowProjectionTests
         var invoiceId = Guid.NewGuid();
         LinkedAppointments();
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus)>
+            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>
             {
-                (plan.Id, invoiceId, "2026-0031", InvoiceStatus.Issued)
+                (plan.Id, invoiceId, "2026-0031", InvoiceStatus.Issued, 0m, 0m)
             });
 
         var workflow = await Build(plan);
@@ -251,9 +251,9 @@ public class TreatmentPlanWorkflowProjectionTests
         var plan = PlanWithOneAct();
         LinkedAppointments();
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus)>
+            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>
             {
-                (plan.Id, Guid.NewGuid(), "2026-0030", InvoiceStatus.Cancelled)
+                (plan.Id, Guid.NewGuid(), "2026-0030", InvoiceStatus.Cancelled, 0m, 0m)
             });
 
         var workflow = await Build(plan);

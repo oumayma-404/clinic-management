@@ -35,6 +35,13 @@ public class TreatmentPlanItemStep : Entity<Guid>
     /// <summary>Longest a step label may be. Shorter than the line's own désignation: it is read in a strip.</summary>
     public const int MaxLabelLength = 120;
 
+    /// <summary>
+    /// Longest interval a protocol may impose between two steps — three years, which covers the whole of an
+    /// orthodontic course (the shipped protocol states its active phase as a single 540-day wait) and still
+    /// refuses a mistyped figure. See <see cref="GuardInterval"/> for why it is not one year.
+    /// </summary>
+    public const int MaxDaysBetweenSteps = 1095;
+
     public Guid TreatmentPlanItemId { get; private set; }
 
     /// <summary>What is done at this step, in French, as the dentist words it.</summary>
@@ -63,7 +70,37 @@ public class TreatmentPlanItemStep : Entity<Guid>
     /// </summary>
     public int? EstimatedDurationMinutes { get; private set; }
 
+    /// <summary>
+    /// Calendar days that must elapse after the <b>previous</b> step before this one can be carried out, or null
+    /// when the interval is clinically free.
+    /// <para>
+    /// ⚠️ A different quantity from <see cref="EstimatedDurationMinutes"/>: that one is chair time, this one is
+    /// waiting time. Holding only the first is what let a correctly-progressing implant read as abandoned —
+    /// osseointegration is eight to twelve weeks, and with no interval to compare against the worklist alarmed
+    /// on a flat fortnight.
+    /// </para>
+    /// <para>
+    /// Copied from the catalogue's <c>ProcedureStepTemplate</c> when the act joins a devis and then <b>owned by
+    /// the devis</b>, exactly like the label and the chair time: a protocol improved in the catalogue must not
+    /// move under a quote the patient has signed.
+    /// </para>
+    /// </summary>
+    public int? MinDaysAfterPrevious { get; private set; }
+
     public bool IsDone => DoneDate.HasValue;
+
+    /// <summary>
+    /// The earliest date this step should be carried out, given when the previous one was — or null when either
+    /// the interval or that date is unknown, which is the ordinary case and means « no opinion ».
+    /// </summary>
+    /// <remarks>
+    /// The previous step's date is a <b>parameter</b>: a step cannot see its siblings, and reaching back through
+    /// a navigation to find them is the unloaded-collection trap this solution has already been bitten by.
+    /// </remarks>
+    public DateTime? DueFrom(DateTime? previousStepDoneOn) =>
+        MinDaysAfterPrevious is int days && previousStepDoneOn is DateTime from
+            ? from.Date.AddDays(days)
+            : null;
 
     private TreatmentPlanItemStep() { } // For EF Core
 
@@ -72,13 +109,15 @@ public class TreatmentPlanItemStep : Entity<Guid>
         Guid treatmentPlanItemId,
         string label,
         int sequenceNumber,
-        int? estimatedDurationMinutes = null)
+        int? estimatedDurationMinutes = null,
+        int? minDaysAfterPrevious = null)
     {
         Id = id;
         TreatmentPlanItemId = treatmentPlanItemId;
         Label = NormalizeLabel(label);
         SequenceNumber = GuardSequence(sequenceNumber);
         EstimatedDurationMinutes = GuardDuration(estimatedDurationMinutes);
+        MinDaysAfterPrevious = GuardInterval(minDaysAfterPrevious);
     }
 
     /// <summary>
@@ -92,10 +131,11 @@ public class TreatmentPlanItemStep : Entity<Guid>
     /// already carried out.
     /// </para>
     /// </summary>
-    internal void Revise(string label, int? estimatedDurationMinutes)
+    internal void Revise(string label, int? estimatedDurationMinutes, int? minDaysAfterPrevious)
     {
         Label = NormalizeLabel(label);
         EstimatedDurationMinutes = GuardDuration(estimatedDurationMinutes);
+        MinDaysAfterPrevious = GuardInterval(minDaysAfterPrevious);
     }
 
     /// <summary>
@@ -185,6 +225,44 @@ public class TreatmentPlanItemStep : Entity<Guid>
 
         return minutes;
     }
+
+    /// <summary>
+    /// The one authority for how long an interval may be. 0 is refused because « the same day » is what null
+    /// already says, and the ceiling is three years — wide enough for the longest protocol in dentistry and
+    /// still narrow enough to catch a mistyped figure.
+    /// <para>
+    /// ⚠️ It was a year, on a comment asserting « the longest is twelve weeks », and the shipped catalogue
+    /// already contradicted that: orthodontics states its **active phase** as one 540-day interval rather than
+    /// twenty activation rows, which is what stops the worklist reporting an ortho case running exactly to plan
+    /// as forgotten. The cap therefore made the longest treatment in dentistry unrepresentable — and it went
+    /// unnoticed because <c>ProcedureType.ValidateSteps</c> was silently dropping every interval before this
+    /// guard ever saw one. Carrying the value through turned that into an exception that took the whole
+    /// « Charger les actes courants » run down.
+    /// </para>
+    /// <para>
+    /// Reachable from <c>ProcedureType.ValidateSteps</c> so the catalogue's suggested protocol and the plan's
+    /// own steps are held to the same band — the alternative is two bands that drift, and an interval a
+    /// clinic can type into the catalogue but never into the devis it produces.
+    /// </para>
+    /// </summary>
+    internal static int? GuardInterval(int? days)
+    {
+        if (days is null)
+        {
+            return null;
+        }
+        if (days is <= 0)
+        {
+            throw new ArgumentException("Le délai entre deux étapes doit être supérieur à 0 jour.", nameof(days));
+        }
+        if (days > MaxDaysBetweenSteps)
+        {
+            throw new ArgumentException(
+                $"Le délai entre deux étapes ne peut pas dépasser {MaxDaysBetweenSteps} jours.", nameof(days));
+        }
+
+        return days;
+    }
 }
 
 /// <summary>
@@ -198,7 +276,12 @@ public class TreatmentPlanItemStep : Entity<Guid>
 /// </param>
 /// <param name="Label">What is done at this step. Required.</param>
 /// <param name="EstimatedDurationMinutes">Chair time for the step, or null when nobody has estimated it.</param>
+/// <param name="MinDaysAfterPrevious">
+/// Calendar days to wait after the previous step, or null when the interval is clinically free — a different
+/// quantity from the chair time above, see <see cref="TreatmentPlanItemStep.MinDaysAfterPrevious"/>.
+/// </param>
 public sealed record TreatmentPlanItemStepInput(
     Guid? Id,
     string Label,
-    int? EstimatedDurationMinutes);
+    int? EstimatedDurationMinutes,
+    int? MinDaysAfterPrevious = null);

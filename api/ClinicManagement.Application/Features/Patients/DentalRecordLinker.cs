@@ -91,8 +91,7 @@ public static class DentalRecordLinker
             return Result.Failure("Plan de traitement introuvable.");
         }
 
-        var item = plan.Items.FirstOrDefault(i => i.Id == treatmentPlanItemId);
-        if (item == null)
+        if (plan.Items.All(i => i.Id != treatmentPlanItemId))
         {
             return Result.Failure("Acte du plan introuvable.");
         }
@@ -101,30 +100,59 @@ public static class DentalRecordLinker
             appointmentRepository, appointmentId, treatmentPlanItemId, clinicId,
             treatmentPlanItemStepId, cancellationToken);
 
-        if (stepIds.Count > 0)
+        /*
+         * ⚠️ **The named act, and only the named act.** A séance legitimately carries several devis acts, and it
+         * is tempting to close all of them from the appointment — but a fiche names ONE
+         * `TreatmentPlanItemId`, and the record modal proposes every booked act precisely so the dentist can
+         * *delete* the ones that did not happen. So the booking says what was intended and the fiche says what
+         * was done, and « réalisé » is a claim only the second is entitled to make. Marking the others would
+         * write clinical evidence — and, through `RecomputeStatusFromSteps`, plan completion and the
+         * échéancier — from an intention. Two steps of THIS act in one séance is the case the appointment does
+         * legitimately answer, and that is what `ResolveStepsOfTheSeanceAsync` reads.
+         */
+        var item = plan.Items.First(i => i.Id == treatmentPlanItemId);
+
         {
-            // Checked against THIS act's steps, not the plan's — a step id from another line of the same devis
-            // would otherwise record progress against the wrong bridge. Same rule, same reason, as
-            // AppointmentPlanLink.ValidateManyAsync.
-            foreach (var stepId in stepIds)
+            if (stepIds.Count > 0)
             {
-                if (item.Steps.All(s => s.Id != stepId))
+                // Checked against THIS act's steps, not the plan's — a step id from another line of the same
+                // devis would otherwise record progress against the wrong bridge. Same rule, same reason, as
+                // AppointmentPlanLink.ValidateManyAsync.
+                if (stepIds.Any(stepId => item.Steps.All(s => s.Id != stepId)))
                 {
                     return Result.Failure("Étape du devis introuvable.");
                 }
-            }
 
-            // In the protocol's own order, so a séance covering steps 1 and 2 records them in that order and
-            // the act's stored DoneDate/link end up on the LAST of them — which is what
-            // RecomputeStatusFromSteps reads when the act finishes.
-            foreach (var stepId in item.Steps.Where(s => stepIds.Contains(s.Id)).Select(s => s.Id))
-            {
-                plan.MarkItemStepDone(treatmentPlanItemId, stepId, doneOn, dentalRecordId);
+                /*
+                 * In the protocol's own order, so a séance covering steps 1 and 2 records them in that order
+                 * and the act's stored DoneDate/link end up on the LAST of them — which is what
+                 * RecomputeStatusFromSteps reads when the act finishes.
+                 *
+                 * ⚠️ A step already evidenced by a DIFFERENT fiche is skipped, not re-marked. The appointment is
+                 * the authority on which steps a séance covers, and a séance legitimately outlives one fiche:
+                 * a step detached and re-recorded, or a visit whose steps were charted across two sittings,
+                 * leaves rows here whose evidence is another record. `MarkDone` refuses that re-link — rightly,
+                 * it would claim the step happened at a visit it did not — but the refusal took the WHOLE save
+                 * down and named a step the dentist had not touched, so correcting one mis-attached step made
+                 * the act permanently unrecordable. Skipping leaves the existing evidence exactly as it is and
+                 * closes the steps this fiche really does attest.
+                 */
+                var closable = item.Steps
+                    .Where(s => stepIds.Contains(s.Id))
+                    .Where(s => !s.IsDone || s.LinkedDentalRecordId == null
+                                || s.LinkedDentalRecordId == dentalRecordId)
+                    .Select(s => s.Id)
+                    .ToList();
+
+                foreach (var stepId in closable)
+                {
+                    plan.MarkItemStepDone(treatmentPlanItemId, stepId, doneOn, dentalRecordId);
+                }
             }
-        }
-        else
-        {
-            plan.MarkItemDone(treatmentPlanItemId, doneOn, dentalRecordId);
+            else
+            {
+                plan.MarkItemDone(treatmentPlanItemId, doneOn, dentalRecordId);
+            }
         }
 
         await treatmentPlanRepository.UpdateAsync(plan, cancellationToken);
@@ -132,17 +160,36 @@ public static class DentalRecordLinker
     }
 
     /// <summary>
-    /// Every step of <paramref name="treatmentPlanItemId"/> that the séance behind this fiche was booked for,
-    /// unioned with the one the caller named.
+    /// Every devis <b>act</b> the séance behind this fiche was booked for, each with the steps of it that the
+    /// séance covers — unioned with the act and step the caller named.
     ///
-    /// <para>Returns an empty set when there is no appointment, when the appointment booked the act whole, or
-    /// when the appointment is not this clinic's — and an empty set is what sends the caller down the
-    /// act-level path, which is the correct behaviour in all three cases.</para>
+    /// <para>An act mapping to an empty step set was booked whole, which sends the caller down the act-level
+    /// path; and with no appointment (or one belonging to another clinic) the result is the named act alone,
+    /// exactly as before.</para>
+    ///
+    /// <para>
+    /// ⚠️ <b>Several acts, not one — the workspace invites the grouping and the fiche could not complete it.</b>
+    /// Ticking two « À planifier » acts offers « 2 actes sélectionnés — Planifier ensemble — 1 RDV », and the
+    /// resulting row reads « séance de 2 actes ». But this resolved a single act, so recording the visit left
+    /// the second « À enregistrer » with its appointment already in the past, and the worklist kept listing it.
+    /// The recovery — a second fiche for one visit — is the very dead end this function's step-level half was
+    /// written to remove; the same shape across two <i>acts</i> was simply never applied.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Every step of <paramref name="namedItemId"/> this séance was booked to carry out — the one the caller
+    /// named, plus any other step of the <b>same act</b> attached to the same appointment.
+    /// <para>
+    /// That second half is the multi-step séance, which is the case the feature exists for: « préparation +
+    /// empreinte dans la même séance » arrives as two appointment rows sharing one act, and the fiche can only
+    /// name one of them. Steps of a <i>different</i> act on the same appointment are deliberately not returned —
+    /// see the note at the call site.
+    /// </para>
     /// </summary>
     private static async Task<HashSet<Guid>> ResolveStepsOfTheSeanceAsync(
         IAppointmentRepository appointmentRepository,
         Guid? appointmentId,
-        Guid treatmentPlanItemId,
+        Guid namedItemId,
         Guid clinicId,
         Guid? namedStepId,
         CancellationToken cancellationToken)
@@ -168,8 +215,11 @@ public static class DentalRecordLinker
 
         foreach (var procedure in appointment.Procedures)
         {
-            if (procedure.TreatmentPlanItemId == treatmentPlanItemId
-                && procedure.TreatmentPlanItemStepId.HasValue)
+            if (procedure.TreatmentPlanItemId != namedItemId)
+            {
+                continue;
+            }
+            if (procedure.TreatmentPlanItemStepId.HasValue)
             {
                 stepIds.Add(procedure.TreatmentPlanItemStepId.Value);
             }

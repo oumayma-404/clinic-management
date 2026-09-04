@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useCallback, useState, useEffect, useMemo, useRef } from "react"
 import {
   Dialog,
   DialogContent,
@@ -44,8 +44,10 @@ import {
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
-  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, toProcedurePayloads,
-  totalActsDuration, type PresetPlanAct,
+  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
+  toProcedurePayloads,
+  totalActsDuration,
+  type PresetPlanAct,
   type SelectedAct,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
@@ -53,8 +55,13 @@ import { formatAmount, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
 import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { treatmentPlansApi } from "@/lib/api/treatment-plans"
-import { planItemToPreset, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
+import { suggestedPlanStep } from "@/components/treatment-plans/plan-next-action"
+import {
+  usePatientPlanActs,
+  resolveAttachedPlanId,
+} from "@/components/treatment-plans/use-patient-plan-acts"
+import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
+import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
@@ -75,6 +82,28 @@ const UNASSIGNED_DOCTOR = "__unassigned__"
 
 /** The offered visit lengths — see the create dialog, which asks the same « is this one of them? » question. */
 const DURATION_PRESETS = [15, 30, 45, 60, 90, 120]
+
+/**
+ * The devis-derived half of a stored act row: what makes its price read-only 0 with the « Déjà facturé » notice,
+ * and what makes the « Étapes de cette séance » chips render.
+ *
+ * <p>Resolved through <b>the same builder the add paths use</b> — `presetToSelectedAct` over the preset the
+ * devis read already produced — rather than re-derived here, because a second derivation of « what does a devis
+ * act carry » is exactly how one surface keeps the guard and another loses it. Returns nothing for an act with
+ * no plan link (the ordinary case) and nothing when the devis has not loaded yet, so an act stays merely
+ * un-annotated rather than being silently re-priced.</p>
+ */
+function planFieldsFor(
+  treatmentPlanItemId: string | null | undefined,
+  planActs: readonly PresetPlanAct[],
+  procedureTypes: ProcedureTypeDto[],
+): Partial<SelectedAct> {
+  if (!treatmentPlanItemId) return {}
+  const preset = planActs.find((a) => a.planItemId === treatmentPlanItemId)
+  if (!preset) return {}
+  const resolved = presetToSelectedAct(preset, procedureTypes)
+  return { billedOnPlan: resolved.billedOnPlan, stepOptions: resolved.stepOptions }
+}
 
 interface EditAppointmentDialogProps {
   open: boolean
@@ -130,8 +159,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * several live devis: the id has to be derived from whatever the user attached, and two devis in one séance
    * has to be refused *here*, in French, rather than reaching the server as a validation error.
    */
-  const [planActs, setPlanActs] = useState<PresetPlanAct[]>([])
-  const [planIdByItem, setPlanIdByItem] = useState<Record<string, string>>({})
   // AC-P3.31 — why the acte list is empty (C-4: this dialog swallowed the failure without even a comment).
   const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
 
@@ -188,38 +215,64 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [refreshed, setRefreshed] = useState<AppointmentDto | null>(null)
   const source = refreshed ?? appointment
 
-  /*
-   * Loaded once per opening, and only for a real patient: a « créneau occupé » has nobody to have a devis. A
-   * failure is swallowed to an empty group on purpose — the devis shortcut is an accelerator, and taking the
-   * whole edit dialog down because one extra read failed would be a poor trade.
+  // ⚠️ Loaded through the SHARED hook, not an effect of its own. The create dialog needs the same three
+  // derivations — the acts, which devis each belongs to, and the one to suggest — and a second copy of
+  // `schedulablePlanItems` + `planItemToPreset` beside this one is the defect shape this repository produces
+  // most: two call sites, one of which quietly stops agreeing with the rule.
+  const { plans: patientPlans, planActs, planIdByItem } = usePatientPlanActs(source?.patientId, open)
+
+  /**
+   * « Ce patient a un traitement en cours » — the same reminder the create dialog gives, for the case the client
+   * described: a séance booked as a one-off that turns out to be part of a treatment. Opening the RDV is where
+   * that is realised, so it is where the offer belongs.
+   *
+   * <p>⚠️ Withdrawn as soon as the visit carries any devis act — the question is answered — and once dismissed.</p>
+   */
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false)
+  const suggestion = useMemo(() => {
+    if (suggestionDismissed || !source?.patientId) return null
+    if (selectedActs.some((a) => a.treatmentPlanItemId)) return null
+    return suggestedPlanStep(patientPlans)
+  }, [suggestionDismissed, source?.patientId, selectedActs, patientPlans])
+
+  /** Any act of this séance is priced by a devis, so the visit itself is not what gets billed. */
+  const carriedByDevis = useMemo(
+    () => selectedActs.some((a) => a.billedOnPlan != null),
+    [selectedActs],
+  )
+
+  const acceptSuggestion = useCallback(() => {
+    if (!suggestion) return
+    const preset = planItemToPreset(suggestion.plan, suggestion.item, (i) => i.procedureTypeId ?? undefined)
+    // Appended and `durationTouched` untouched — a booked visit's length is already somebody's decision, which
+    // is the same reason hydration starts that flag true.
+    setSelectedActs((prev) => [...prev, presetToSelectedAct(preset, procedureTypes)])
+  }, [suggestion, procedureTypes])
+
+  /**
+   * Back-fill the devis half of an already-hydrated act row once the patient's devis and the catalogue land.
+   *
+   * <p>⚠️ Hydration runs on open and deliberately does **not** re-run when other data arrives — a re-hydration
+   * would clobber whatever the user has typed since. But `planActs` is an async read, so on the first pass
+   * `planFieldsFor` has nothing to resolve against and every stored devis act would hydrate without
+   * `billedOnPlan`: the price field editable, the « Déjà facturé » notice absent, the step chips gone. This
+   * writes only those two derived fields and only where they are still missing, so it is idempotent and cannot
+   * touch a price, a step or a name the user has changed.</p>
    */
   useEffect(() => {
-    if (!open || !source?.patientId) {
-      setPlanActs([])
-      setPlanIdByItem({})
-      return
-    }
-    let cancelled = false
-    void (async () => {
-      try {
-        const plans = await treatmentPlansApi.list({ patientId: source.patientId! })
-        if (cancelled) return
-        const presets: PresetPlanAct[] = []
-        const owner: Record<string, string> = {}
-        for (const plan of plans) {
-          for (const item of schedulablePlanItems(plan)) {
-            presets.push(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined))
-            owner[item.id] = plan.id
-          }
-        }
-        setPlanActs(presets)
-        setPlanIdByItem(owner)
-      } catch {
-        if (!cancelled) { setPlanActs([]); setPlanIdByItem({}) }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [open, source?.patientId])
+    if (!open || planActs.length === 0 || procedureTypes.length === 0) return
+    setSelectedActs((prev) => {
+      let changed = false
+      const next = prev.map((act) => {
+        if (!act.treatmentPlanItemId || act.billedOnPlan) return act
+        const fields = planFieldsFor(act.treatmentPlanItemId, planActs, procedureTypes)
+        if (!fields.billedOnPlan && !fields.stepOptions) return act
+        changed = true
+        return { ...act, ...fields }
+      })
+      return changed ? next : prev
+    })
+  }, [open, planActs, procedureTypes])
 
 
   useEffect(() => {
@@ -421,6 +474,23 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 // booked visit — and, on a séance holding two steps of one act, the server would then see the
                 // same act twice and refuse the save outright.
                 treatmentPlanItemStepId: p.treatmentPlanItemStepId ?? null,
+                /*
+                 * ⚠️ **`billedOnPlan` and `stepOptions`, the two fields this mapper forgot — and forgetting the
+                 * first removed the only guard against pricing a devis act twice.**
+                 *
+                 * `agreedCostOf` returns a hard 0 for an act carrying `billedOnPlan`, and that single client
+                 * function is what makes « a devis act adds no honoraires » true. Without it here, re-opening a
+                 * booked séance — which is what moving an appointment *is* — made the price field editable
+                 * again, dropped the « Déjà facturé » notice and the « facturé sur le devis » caption, and
+                 * offered « remettre au tarif (60,000 DT) »: the *catalogue* figure, not even the devis' own
+                 * 120,000 for that act. Proven on one act minutes apart: created at 0,000 read-only, re-opened
+                 * editable, typed 120, saved 200, `AgreedCost` 0.000 → 120.000. The fiche then bills whatever it
+                 * finds. `presetToSelectedAct` sets both fields on the two *add* paths; hydration was the third.
+                 *
+                 * `stepOptions` is the same omission one level down: without it the « Étapes de cette séance »
+                 * chips do not render, so which step a booked visit is for cannot be changed at all.
+                 */
+                ...planFieldsFor(p.treatmentPlanItemId, planActs, procedureTypes),
               }))
           : appointment.procedureTypeId
             ? [
@@ -438,6 +508,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   treatmentPlanItemStepId: null,
                   planLabel: appointment.treatmentPlanItemId ? "devis" : undefined,
                   fallbackName: appointment.procedureTypeName ?? undefined,
+                  // Same reason as the branch above: this row's price must stay locked at 0 on a devis act.
+                  ...planFieldsFor(appointment.treatmentPlanItemId, planActs, procedureTypes),
                 },
               ]
             : []
@@ -562,17 +634,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
        * one séance is refused here — in French, before the round trip — rather than surfacing as the server's
        * own validation error on a save the user thought had worked.
        */
-      const attachedPlanIds = Array.from(
-        new Set(
-          selectedActs
-            .map((a) => (a.treatmentPlanItemId ? planIdByItem[a.treatmentPlanItemId] : null))
-            .filter((id): id is string => !!id),
-        ),
-      );
-      if (attachedPlanIds.length > 1) {
-        setError(
-          "Les actes de ce rendez-vous appartiennent à deux devis différents. Une séance ne peut être rattachée qu'à un seul devis.",
-        )
+      const attachedPlan = resolveAttachedPlanId(selectedActs, planIdByItem)
+      if (attachedPlan.error) {
+        setError(attachedPlan.error)
         setLoading(false)
         return
       }
@@ -582,7 +646,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         durationMinutes: calculatedDuration,
         // Omitted when nothing is attached, so a séance that never had a devis link keeps not having one —
         // every nullable field on this payload is tri-state.
-        treatmentPlanId: attachedPlanIds[0] ?? undefined,
+        treatmentPlanId: attachedPlan.planId,
         doctorId: selectedDoctorId || null,
         notes: appointmentNotes || null,
         /*
@@ -861,6 +925,20 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               patient's name is still held in state: the cancellation confirmation names them.
             */}
 
+            {/*
+              ⚠️ Moved up here from above the acts picker, for the create dialog's reason: at 390 px the notice
+              rendered below the sheet's scrolling fold, showing 7 of its 184 px. It is derived from the patient
+              and nothing else on this form, so directly under the identity is where it belongs.
+            */}
+            {suggestion && (
+              <PlanStepSuggestionNotice
+                suggestion={suggestion}
+                onAccept={acceptSuggestion}
+                onDismiss={() => setSuggestionDismissed(true)}
+                disabled={loadingProcedureTypes}
+              />
+            )}
+
             {/* Quand. */}
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1059,6 +1137,16 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       <Link href="/factures">Ouvrir dans « Factures »</Link>
                     </Button>
                   </>
+                ) : carriedByDevis ? (
+                  /*
+                    ⚠️ A séance whose acts are carried by a devis must not offer « Facturer cette consultation ».
+                    The fee is on the devis and is billed once, at the end, through « Facturer le devis » — a
+                    note raised here would be the same money a second time, and the offer appeared precisely on
+                    the re-opened séance where the « Déjà facturé » notice had also gone missing.
+                  */
+                  <span className="text-muted-foreground">
+                    Porté par le devis — facturation sur le devis, pas sur cette séance
+                  </span>
                 ) : (
                   <>
                     <span className="text-muted-foreground">Non facturé</span>

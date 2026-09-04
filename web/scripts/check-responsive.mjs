@@ -1441,6 +1441,387 @@ check(
   }
 );
 
+check(
+  "devis-act-carries-its-plan-id",
+  "N17",
+  "A booking surface offering devis acts resolves the appointment's own `treatmentPlanId` from them",
+  "An appointment records exactly ONE `treatmentPlanId`, and `AppointmentPlanLink.ValidateManyAsync` refuses " +
+    "the whole save with « Le plan de traitement est requis pour lier l'acte. » the moment any act carries a " +
+    "`treatmentPlanItemId` without it. So a dialog that offers a patient's devis acts cannot take that id from " +
+    "whatever it was OPENED with: the create dialog's `presetPlanId` exists only when the devis workspace " +
+    "launched it, and an act picked from « Actes du devis » — or accepted from the suggestion — belongs to a " +
+    "devis the dialog was never told about. It must come from the acts actually attached, through " +
+    "`resolveAttachedPlanId`, which is also the one place « deux devis dans une séance » is refused in French " +
+    "instead of reaching the server as a validation error on a save the user thought had worked. This is the " +
+    "feature turned down by its own client, and the third booking surface will meet it the day it is written.",
+  () => {
+    const offenders = [];
+
+    /*
+     * Derived from the OFFER, not from a list of files: a surface handing `planActs` to the picker is by
+     * definition one where the user can attach an act whose devis the caller was never told about. That prop
+     * name is unique to this, so no scoping by type name is needed.
+     */
+    const OFFERS = /\bplanActs=\{/;
+    const RESOLVES = /\bresolveAttachedPlanId\s*\(/;
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+      if (!OFFERS.test(code)) continue;
+      candidates++;
+      if (RESOLVES.test(code)) continue;
+      offenders.push({
+        file: rel(f),
+        line: lineAt(code, code.search(OFFERS)),
+        text:
+          "offers devis acts but never calls resolveAttachedPlanId — attaching one and saving is refused with " +
+          "« Le plan de traitement est requis pour lier l'acte. »",
+      });
+    }
+
+    // Tripwire: the prop was renamed, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text:
+          "found no surface passing planActs= — the scan is broken, and a guard that matches nothing cannot " +
+          "hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "devis-balance-has-one-reader",
+  "N18",
+  "Every surface that prints a devis' « Reste » reads it through `displayedOutstanding`",
+  "A plan's own `outstanding` is `totalPlanned − Σ its own installments`, and a devis bridged into a note " +
+    "d'honoraires has an auto-raised échéance that will never see a payment, because the money went to the " +
+    "note. So that figure reports the WHOLE devis as unpaid about a patient who owes nothing — measured on " +
+    "4 of 4 bridged plans in a live database, two of them fully settled: one patient's file showed « Solde dû " +
+    "31,000 DT » in its header and « Reste 120,000 DT » in the plan strip on the same page, 89 000 apart, and " +
+    "another showed a red « Reste » with an « En retard » badge on a treatment paid in full. `isPlanBilled()` " +
+    "already existed and was called in three places, none of which printed a balance; seven surfaces printed " +
+    "one and none of them called it. That is this repo's dominant defect shape — a correct rule wired to one " +
+    "consumer — and a reader is only worth extracting if nothing may go round it. `displayedOutstanding` " +
+    "returns null rather than a wrong number, and names the note when the note is what owes.",
+  () => {
+    const offenders = [];
+
+    /*
+     * Derived from the read itself: any `.outstanding` on something plan-shaped. Scoped to the surfaces that
+     * could render one — the treatment-plan components and the pages that mount them — because `outstanding`
+     * is also a legitimate field on an invoice, an échéance and a receivable, and those are not this rule.
+     */
+    const READS = /\b(?:plan|p)\??\.outstanding\b/;
+    const READER = /\bdisplayedOutstanding\s*\(/;
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      const scoped =
+        relPath.includes("treatment-plans") ||
+        relPath.includes("treatments/") ||
+        relPath.includes("plan-next-action");
+      if (!scoped) continue;
+
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+
+      for (let i = 0; i < lines.length; i++) {
+        if (masked[i] || !READS.test(lines[i])) continue;
+        candidates++;
+        // The reader itself is the one place allowed to touch it — that is what makes it the reader.
+        if (READER.test(src) || relPath.endsWith("plan-next-action.ts")) continue;
+        offenders.push({
+          file: relPath,
+          line: i + 1,
+          text:
+            "prints a plan's own `.outstanding` — on a devis billed into a note that figure is the untouched " +
+            "auto-échéance, i.e. the whole devis reported as unpaid. Read `displayedOutstanding(plan)`.",
+        });
+      }
+    }
+
+    // Tripwire: the field was renamed, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/treatment-plans/",
+        text:
+          "found no `.outstanding` read at all — the scan is broken, and a guard that matches nothing cannot " +
+          "hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "billed-plan-act-keeps-its-guard",
+  "N19",
+  "A stored devis act hydrates with `billedOnPlan`, not just `planLabel`",
+  "« A devis act is 0 for this séance » is enforced by exactly one client function — `agreedCostOf`, which " +
+    "returns a hard 0 for any act carrying `billedOnPlan`. So a surface that builds a `SelectedAct` with a " +
+    "`treatmentPlanItemId` and no `billedOnPlan` has silently opted that act out of the only guard against " +
+    "pricing it twice. Measured on one act minutes apart: created through the picker it was read-only 0,000 " +
+    "with « facturé sur le devis » and a « Déjà facturé » notice; re-opened through the edit dialog's " +
+    "hydration — which set `planLabel` and not `billedOnPlan` — the field was editable, the notice was gone, " +
+    "and a link offered « remettre au tarif (60,000 DT) », the CATALOGUE figure rather than the devis' own " +
+    "120,000. Typing 120 saved 200 and `AgreedCost` went 0.000 → 120.000; the fiche then bills whatever it " +
+    "finds. Re-opening a visit to move its time is routine. `presetToSelectedAct` pairs the two fields " +
+    "correctly on the add paths; hydration was the third, and the third will be written again.",
+  () => {
+    const offenders = [];
+
+    /*
+     * Derived from the pairing, per object literal rather than per file: a literal naming `treatmentPlanItemId`
+     * must also name `billedOnPlan` somewhere in the same braces. `presetToSelectedAct` is the shared builder
+     * and satisfies it by construction; a caller that spreads its result satisfies it too.
+     */
+    const PAIR = /treatmentPlanItemId\s*:/;
+    const GUARD = /\bbilledOnPlan\b|\bpresetToSelectedAct\s*\(|\bplanFieldsFor\s*\(/;
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      // The booking surfaces alone: a plan item id appears legitimately in payload builders and in the plan
+      // components, which never construct a `SelectedAct`.
+      if (!/appointment-dialog|acts-picker/.test(relPath)) continue;
+
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      // `planLabel` is the tell: it is set only when building a SelectedAct for a devis act.
+      const builds = [...code.matchAll(/planLabel\s*:/g)];
+      if (builds.length === 0) continue;
+      candidates += builds.length;
+      if (GUARD.test(code)) continue;
+
+      offenders.push({
+        file: relPath,
+        line: lineAt(code, builds[0].index),
+        text:
+          "builds a devis act with `planLabel` and no `billedOnPlan` — `agreedCostOf` then returns the typed " +
+          "price instead of 0, so the séance re-charges an act the devis already carries",
+      });
+    }
+
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text:
+          "found no `planLabel:` construction — the scan is broken, and a guard that matches nothing cannot " +
+          "hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "a-due-date-is-a-day-not-an-instant",
+  "N20",
+  "A day-only value reaches `defaultDay`, never `defaultDate`",
+  "`CreateAppointmentDialog` has two ways to be told when to open, and the difference is invisible in the " +
+    "value: `defaultDate` is an **instant** whose hour and minute become the booked time, `defaultDay` is a " +
+    "**day** whose hour the form supplies itself. A step's due date is a day — `DueFrom` returns " +
+    "`previous.Date.AddDays(n)`, so it is always midnight — and passed as `defaultDate` it opened « Planifier " +
+    "l'étape » on **00:00**. Nothing reports it: the sheet renders, the date is right, and the time field just " +
+    "reads 00:00 until « Créer le rendez-vous » answers « Heure dans le passé ». It is the same defect as the " +
+    "hardcoded 09:00 fallback this feature removed, arriving by the one path that fallback no longer covers — " +
+    "a caller supplying a date short-circuits it entirely.",
+  () => {
+    const offenders = [];
+
+    // Every value that is a calendar day by construction. `nextStepDueFrom` is the DTO field; the rest are the
+    // names a local binding for it plausibly takes.
+    const DAY_VALUED = /nextStepDueFrom|\bdueFrom\b|\bdueDay\b|\bdueDate\b/;
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      const src = read(f);
+      if (!/defaultDate\s*=|defaultDay\s*=/.test(src)) continue;
+
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      const props = [...code.matchAll(/defaultDate\s*=\s*\{([^}]*)\}/g)];
+      candidates += props.length + [...code.matchAll(/defaultDay\s*=/g)].length;
+
+      // Prong 1: the day-valued name is inside the prop's own braces.
+      for (const p of props) {
+        if (!DAY_VALUED.test(p[1])) continue;
+        offenders.push({
+          file: relPath,
+          line: lineAt(code, p.index),
+          text:
+            "passes a day-only value as `defaultDate` — the dialog reads an hour off it, so the form opens on " +
+            "00:00; use `defaultDay`",
+        });
+      }
+
+      /*
+       * Prong 2: the same mistake laundered through a local — the worklist held the due date in a `booking`
+       * object and spread it into the prop, so prong 1 saw only an identifier. A file that both knows a
+       * day-valued name and renders `defaultDate` has to be read; one that renders `defaultDay` has been.
+       */
+      if (props.length > 0 && DAY_VALUED.test(code) && !/defaultDay\s*=/.test(code)) {
+        offenders.push({
+          file: relPath,
+          line: lineAt(code, props[0].index),
+          text:
+            "knows a day-only value (`nextStepDueFrom`) and renders `defaultDate` without `defaultDay` — trace " +
+            "which one reaches the prop",
+        });
+      }
+    }
+
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text:
+          "found no `defaultDate`/`defaultDay` prop — the scan is broken, and a guard that matches nothing " +
+          "cannot hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "a-devis-price-is-not-a-gesture",
+  "N21",
+  "A price set by a devis is never rendered as a discount, nor offered back to the tarif",
+  "Zero on an act a devis carries means « already invoiced on the plan », and the surfaces that price such an " +
+    "act must not read it as anything else. The fiche de soins did: `act-card` derives its « geste » line from " +
+    "tariff-vs-typed alone, so a 120 DT act arriving at 0 announced « Tarif catalogue 120,000 DT — geste de " +
+    "120,000 DT » beside a « remettre au tarif » link. Two defects in one line — it states a discount the " +
+    "dentist never granted, on the screen that creates money, and the link is a single press from re-charging " +
+    "an act the devis already bills. It is the THIRD surface of one rule (the picker's `agreedCostOf` and the " +
+    "edit dialog's `billedOnPlan` are the other two), and the reopen path is where it came back, exactly as " +
+    "N19's hydration half did. Any surface that shows a catalogue tarif beside a devis act's own price has to " +
+    "consult `billedOnPlan` before drawing a conclusion from the difference.",
+  () => {
+    const offenders = [];
+
+    // Derived from the tell: a file that computes a tariff difference must also know about `billedOnPlan`.
+    const DIFFERENCE = /\btariff\s*-\s*\w+|remettre au tarif|geste de/g;
+    const GUARD = /\bbilledOnPlan\b|\bagreedCostOf\s*\(/;
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      const hits = [...code.matchAll(DIFFERENCE)];
+      if (hits.length === 0) continue;
+      candidates += hits.length;
+      if (GUARD.test(code)) continue;
+
+      offenders.push({
+        file: relPath,
+        line: lineAt(code, hits[0].index),
+        text:
+          "prices an act against the catalogue tarif without consulting `billedOnPlan` — a devis act's 0 will " +
+          "be reported as a « geste », and offered back to the tarif",
+      });
+    }
+
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text:
+          "found no tariff-difference rendering — the scan is broken, and a guard that matches nothing cannot " +
+          "hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "seance-rows-group-into-acts",
+  "N22",
+  "A surface turning `appointment.procedures` into acts groups them by `treatmentPlanItemId`",
+  "A séance carrying two STEPS of one devis act arrives as TWO rows — the server keys its duplicate rule on " +
+    "the (act, step) pair, which is what makes « préparation + empreinte dans la même séance » expressible. " +
+    "Any surface that renders those rows as acts must fold them back, or one act is presented as two. The " +
+    "picker learned this (`groupActs`, after one bridge rendered as two identical cards each claiming both " +
+    "steps); the fiche de soins did not, and read « Actes de la séance 2 actes » for a single act, offered the " +
+    "same act back twice in the « remettre » row with one React key between them, and would have doubled the " +
+    "fee on any act the devis was not already paying for. Group on the PLAN ITEM, never on the procedure: two " +
+    "devis lines quoting the same act (two teeth, priced apart) are genuinely two acts.",
+  () => {
+    const offenders = [];
+
+    /*
+     * Scoped to the surfaces that turn those rows into PRICED ACT CARDS — the ones a `BookedActPrefill` feeds.
+     * Two neighbours legitimately do not group and were flagged by a looser version of this check:
+     * `edit-appointment-dialog` hydrates the wire list and hands it to the picker, which groups it downstream
+     * with `groupActs`; and `day-summary`'s `actsOf` aggregates the rows by `procedureTypeId` for the act mix,
+     * where two rows of one act SHOULD contribute their chair time twice. Flagging either is noise, and a check
+     * that cries wolf stops being read.
+     */
+    const READS_ROWS = /BookedActPrefill|applyAppointment/g;
+    // The operative call, not the declaration: matching the bare name `seenPlanItem` passed even with the
+    // `.has(...) continue` removed, i.e. the guard was satisfied by a Set nothing consulted.
+    const GROUPS = /\bgroupActs\s*\(|seenPlanItem\.has\s*\(|byPlanItem\.get\s*\(/;
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      // The reducer that CONSUMES the prefill is not a producer of it, so it has nothing to group.
+      if (/use-session-acts/.test(relPath)) continue;
+      const hits = [...code.matchAll(READS_ROWS)];
+      if (hits.length === 0) continue;
+      candidates += hits.length;
+      if (GROUPS.test(code)) continue;
+
+      offenders.push({
+        file: relPath,
+        line: lineAt(code, hits[0].index),
+        text:
+          "builds act cards from a séance's rows without folding two steps of one act back together — one act " +
+          "will render as two, be offered back twice, and on a non-devis act be charged twice",
+      });
+    }
+
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text:
+          "found no surface building a `BookedActPrefill` — the scan is broken, and a guard that matches " +
+          "nothing cannot hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

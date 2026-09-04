@@ -429,6 +429,23 @@ public class SchemaVerificationService
         // Step order is positional everywhere it is read — « étape 2 sur 3 » is the rank, and the séance the
         // booking dialog offers is the lowest un-done one — so a duplicate rank makes « la prochaine étape »
         // ambiguous between two steps and a gap misprints the count. Neither is expressible in the schema.
+        /*
+         * The protocol backfill. Same quiet failure as the category move one section up: an act with no
+         * protocole de séances is a valid act, so a row the backfill missed never raises anything — it just
+         * makes a dentist retype « Pose de l'implant », « Désenfouissement » and four more by hand on every
+         * devis, which is the whole thing the protocols exist to stop.
+         *
+         * ⚠️ Only the fourteen SEEDED acts are counted, and only where the protocol is entirely absent. An act
+         * a clinic wrote itself is not expected to have one, and a protocol a clinic deliberately emptied is
+         * its own decision — neither is drift.
+         */
+        Add("procedure-step-protocol-backfill", counts.SeededActsWithoutStepProtocol,
+            n => n == 0
+                ? "0 seeded act(s) are missing their protocole de séances"
+                : $"{n} seeded act(s) that should carry a protocole de séances hold none — "
+                  + "SeedProcedureStepProtocols missed them, and a dentist retypes those étapes on every devis",
+            n => n == 0);
+
         Add("plan-step-sequence-dense", counts.PlanItemsWithNonDenseStepSequence,
             n => n == 0
                 ? "0 devis act(s) have a gap, a duplicate or a non-zero start in their step order"

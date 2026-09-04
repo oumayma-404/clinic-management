@@ -3960,6 +3960,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int?>("EstimatedDurationMinutes")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MinDaysAfterPrevious")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Label")
                         .IsRequired()
                         .HasMaxLength(120)

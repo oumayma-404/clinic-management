@@ -25,6 +25,8 @@ import { EmptyState } from "@/components/ui/empty-state"
 import {
   ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
   CalendarClock, CalendarPlus, Layers, ListChecks, MoreHorizontal, X, Mail, Undo2,
+  CircleSlash,
+  RotateCcw,
 } from "lucide-react"
 import { toast } from "sonner"
 import { showErrorToast } from "@/lib/errors"
@@ -41,7 +43,16 @@ import type {
 import { formatDT, formatDateFr, isBeforeToday, quoteFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
-import { isPlanBilled, planItemToPreset, planWorkProgress } from "./plan-next-action"
+import {
+  activeItems,
+  displayedOutstanding,
+  hasDeliveredWork,
+  isItemWithdrawn,
+  isPlanBilled,
+  planItemToPreset,
+  planSeanceProgress,
+  planWorkProgress,
+} from "./plan-next-action"
 import { PlanProgressBar } from "./plan-progress-bar"
 import {
   PlanActPrimaryAction, PlanActReorderControls, PlanActRow, PlanActSelectionBox, PlanActStateBadge,
@@ -169,6 +180,9 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [catalogFailed, setCatalogFailed] = useState(false)
   const [amendOpen, setAmendOpen] = useState(false)
   const [reviseOpen, setReviseOpen] = useState(false)
+  /** « Arrêter le traitement » — see the button's note. */
+  const [stopOpen, setStopOpen] = useState(false)
+  const [stopping, setStopping] = useState(false)
   /** The act whose « réalisé » state is being corrected (AC-P2.11); null = dialog closed. */
   const [undoTarget, setUndoTarget] = useState<TreatmentPlanItemDto | null>(null)
   /** The act whose protocol is being edited — same window as `canCorrectActs`, which the server enforces too. */
@@ -232,6 +246,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
 
   // Step-weighted progress for the header — see `planWorkProgress`.
   const work = useMemo(() => planWorkProgress(plan), [plan])
+  /** Progress in séances — the figure every surface prints, so the bar and the number cannot disagree. */
+  const seances = useMemo(() => planSeanceProgress(plan), [plan])
+  /** What may honestly be printed as « Reste » — null on a draft, and on a billed devis with no note figure. */
+  const owed = useMemo(() => displayedOutstanding(plan), [plan])
 
   const isDraft = plan.status === "Draft"
   const isActive = plan.status === "Accepted" || plan.status === "InProgress"
@@ -240,11 +258,61 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   // one-act plan, where there is nothing to move) hides the controls.
   const canReorder = plan.status !== "Cancelled" && plan.items.length > 1
   /**
-   * Amending (acts or échéancier) needs the same conditions as « Facturer le devis » — an active plan not yet
-   * represented by an invoice (AC-P2.2). Both server handlers apply `EnsureAmendable` (Accepted/InProgress)
-   * plus the billed-plan block, so this mirrors the server rather than inventing a rule.
+   * Amending — the acts, their fees, the échéancier — is open on **everything except a draft and a cancelled
+   * plan**, mirroring the server's widened `EnsureAmendable`.
+   *
+   * <p>⚠️ It used to be `isActive && !billed`, and both halves of that were wrong in practice. <b>Completed</b>
+   * excluded the plan at the exact moment a plan completes — automatically, when the last act is marked réalisé
+   * — so a mistyped fee became uncorrectable precisely when the dentist was most likely to spot it. <b>Billed</b>
+   * excluded it because the note was raised from the devis total; that consequence is real, but the remedy was
+   * to ask the dentist to reverse a numbered fiscal document in order to fix a plan. The consequence is now
+   * <i>stated where the edit is made</i> (see the amend dialog's notice) instead of being pre-empted.</p>
+   *
+   * <p>⚠️ Every plan the <b>continuation</b> feature creates is born attached to a note, so under the old rule it
+   * was born uncorrectable — a treatment still under way that could never be adjusted.</p>
    */
-  const canAmend = isActive && !billed
+  const canAmend = plan.status !== "Draft" && plan.status !== "Cancelled"
+
+  /**
+   * Whether « Facturer le devis » is offered — every live status except a draft, minus a devis a note already
+   * bills. Mirrors what `CreateInvoiceFromTreatmentPlanCommand` actually permits.
+   *
+   * <p>⚠️ It read `isActive && !billed`, and the first half made the feature's own promise unreachable: the
+   * plan auto-completes the instant its last step is recorded, so the button vanished at the exact moment the
+   * treatment became billable. The `!billed` half is correct and stays — the « two notes for one devis » risk
+   * is real — except where an amendment has grown the devis past what its note carries, which the server now
+   * bills as a supplementary note.</p>
+   */
+  const canBill =
+    !isDraft &&
+    plan.status !== "Cancelled" &&
+    (!billed ||
+      (plan.linkedInvoiceTotal != null && plan.totalPlanned - plan.linkedInvoiceTotal > 0.0005))
+
+  /** The acts still part of this treatment — a parked one keeps its history and counts towards nothing. */
+  const liveItems = useMemo(() => activeItems(plan), [plan])
+  const withdrawnItems = useMemo(() => plan.items.filter(isItemWithdrawn), [plan.items])
+
+  /**
+   * The acts « Arrêter le traitement » would park — those with **no delivered work**, which is the only question
+   * a drop may ask.
+   *
+   * <p>⚠️ <b>It used to filter on `planItemState(i) === "to-schedule"`, and that answers a different question.</b>
+   * That function keys on an act's *next step*, deliberately — a bridge with two of three séances done carries
+   * an appointment that already happened, so reading the act would report « À enregistrer » for ever. But it
+   * therefore returns `"to-schedule"` for a two-thirds-delivered bridge whose last séance is unbooked, so this
+   * list offered it for deletion under a dialog promising « ce qui a déjà été fait est conservé » — and on a
+   * purpose-built devis it took 1 000 DT, three step rows and the links to two real fiches with it.</p>
+   *
+   * <p>Now only a display: {@link hasDeliveredWork} is the same test the server's own `StopTreatment` applies,
+   * so the list the dialog shows and the acts the server parks cannot disagree.</p>
+   */
+  const stoppableItems = useMemo(
+    () => liveItems.filter((i) => !hasDeliveredWork(i)),
+    [liveItems],
+  )
+  /** What survives the stop — named in the dialog, so nothing is parked silently. */
+  const keptItems = useMemo(() => liveItems.filter(hasDeliveredWork), [liveItems])
   /**
    * Correcting a réalisé act is *not* gated on `isActive`: marking the last act done auto-completes the plan,
    * so requiring an active plan would lock out the exact mistake the correction exists for. The server's
@@ -463,6 +531,40 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         ),
     })
 
+  /**
+   * Stop the treatment: park the acts with no delivered work, keep the rest, re-spread the échéancier onto the
+   * kept total, and close the devis — **one server call**.
+   *
+   * <p>⚠️ <b>It used to be two calls with the whole decision made here, and every part of that was a defect.</b>
+   * The client chose which acts to drop (on the wrong question — see {@link stoppableItems}), built the new
+   * schedule itself, then sent `amend` followed by `complete`. So: the removals committed and the clôture threw
+   * after them, leaving a half-stopped plan with « Arrêter » no longer on screen and no way to retry; a devis
+   * with nothing collected produced a zero-amount row the aggregate refuses, answering « Le montant de
+   * l'échéance doit être supérieur à 0. (Parameter 'amount') » in a product whose refusals are otherwise
+   * French, over a screen with no way out; the arithmetic used raw floats against a server that checks the
+   * échéancier total with exact equality; and the new due date came from `new Date()`, the browser's clock,
+   * which for the first hour of every Tunisian day dates it to yesterday and makes it « En retard » at birth.
+   * All four are gone with the client-side version of them.</p>
+   */
+  const stopTreatment = async () => {
+    setStopping(true)
+    try {
+      const parked = stoppableItems.length
+      await treatmentPlansApi.stopTreatment(plan.id, plan.version)
+      toast.success(
+        parked > 0
+          ? `Traitement arrêté — ${parked} acte${parked > 1 ? "s" : ""} mis de côté, à reprendre si le patient revient.`
+          : "Traitement arrêté.",
+      )
+      setStopOpen(false)
+      onChanged()
+    } catch (err) {
+      showErrorToast(err)
+    } finally {
+      setStopping(false)
+    }
+  }
+
   const confirmComplete = () =>
     setConfirmAction({
       title: "Terminer ce plan ?",
@@ -474,14 +576,54 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               NOT mark them done, and it does not close the money either — both are stated because both are
               what a user would otherwise assume « Terminé » means. */}
           {actsRemaining > 0
-            ? `Les ${actsRemaining} acte${actsRemaining > 1 ? "s" : ""} non réalisé${actsRemaining > 1 ? "s" : ""} resteront non réalisé${actsRemaining > 1 ? "s" : ""} — la clôture ne les valide pas.`
+            ? `${actsRemaining === 1 ? "L'acte non réalisé restera non réalisé" : `Les ${actsRemaining} actes non réalisés resteront non réalisés`} — la clôture ne les valide pas.`
             : "Tous les actes sont réalisés."}{" "}
-          Les échéances restantes resteront encaissables.
+          {/* ⚠️ « Les échéances restantes resteront encaissables » is false on a billed devis, and it was said
+              there anyway: the échéance has no « Encaisser » action once a note holds the money, and the panel
+              above says so. Same non-propagation as the « Reste » figure. */}
+          {billed
+            ? `L'encaissement se fait sur la note ${plan.linkedInvoiceNumber ?? "d'honoraires"}, pas sur l'échéancier.`
+            : "Les échéances restantes resteront encaissables."}
         </>
       ),
       confirmLabel: "Terminer le plan",
       onConfirm: () =>
         run(() => treatmentPlansApi.complete(plan.id), "Plan terminé", "Échec de la clôture du plan."),
+    })
+
+  /**
+   * « Reprendre le traitement » — the patient came back, which is what patients do.
+   *
+   * <p>⚠️ A stopped plan was a terminal state: `Completed` withdraws « Arrêter », « Terminer », « Facturer » and
+   * « Annuler » alike, and the parked acts were *deleted*, so the only recovery was to re-type them as new ids
+   * — orphaning the fiches, re-quoting the act at the catalogue default rather than the fee it was quoted at,
+   * and walking the header back to « 0 / N » on a treatment several séances in.</p>
+   */
+  const confirmReopen = () =>
+    setConfirmAction({
+      title: "Reprendre ce traitement ?",
+      description: (
+        <>
+          {planLabel} repassera « en cours »
+          {withdrawnItems.length > 0 ? (
+            <>
+              {" "}et {withdrawnItems.length === 1 ? "l'acte mis de côté revient" : `les ${withdrawnItems.length} actes mis de côté reviennent`} au
+              devis, avec les séances déjà réalisées et leurs fiches de soins.
+            </>
+          ) : (
+            "."
+          )}{" "}
+          L&apos;échéancier n&apos;est pas rétabli : ajustez-le avec « Modifier l&apos;échéancier » une fois les
+          séances à venir replanifiées.
+        </>
+      ),
+      confirmLabel: "Reprendre le traitement",
+      onConfirm: () =>
+        run(
+          () => treatmentPlansApi.reopenTreatment(plan.id, plan.version),
+          "Traitement repris",
+          "Échec de la reprise du traitement.",
+        ),
     })
 
   /**
@@ -560,7 +702,17 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   Accepter le devis
                 </Button>
               )}
-              {isActive && !billed && (
+              {/*
+                ⚠️ **`canBill`, not `isActive`, and the difference is the whole point of the feature.** Recording
+                the last step auto-completes the plan, so the moment a treatment is finished — the moment it
+                should be billed — this button, the only caller of that endpoint anywhere in the frontend,
+                disappeared. An unbilled devis whose séances were all correctly recorded at 0 DT reached
+                `Completed` with the full amount outstanding and no route to a note d'honoraires, while the
+                continuation dialog promised precisely that: « sera facturé une fois le traitement terminé ».
+                The server had always permitted it (it refuses only Draft and Cancelled), so this is the gate
+                catching up with what the endpoint already allowed.
+              */}
+              {canBill && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -593,10 +745,38 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   Modifier le devis
                 </Button>
               )}
+              {/*
+                « Arrêter le traitement » — the patient who stops halfway, which is ordinary and had no action at
+                all. What it does is exactly what a dentist would otherwise have to discover: put the acts not
+                yet started aside, keep what was carried out, and close the plan. Cancelling the devis was the
+                only thing on offer and it is the wrong answer — it voids the work that WAS done along with the
+                rest.
+
+                ⚠️ **Offered whenever the treatment is live, and it used to be gated on `stoppableItems.length`.**
+                That hid it in the commonest abandon shape of all: the patient who cancels the next séance and
+                never returns. With that séance still in the agenda the act reads « planifié », nothing was
+                « stoppable », and the button was simply absent — so the dentist had to find and cancel the
+                appointment on another screen with nothing telling them so. The dialog explains the booked
+                séances instead, which is the honest place for it.
+              */}
+              {isActive && (
+                <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={() => setStopOpen(true)}>
+                  <CircleSlash className="h-4 w-4" />
+                  Arrêter le traitement
+                </Button>
+              )}
               {isActive && (
                 <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={confirmComplete}>
                   <CheckCheck className="h-4 w-4" />
                   Terminer
+                </Button>
+              )}
+              {/* The way back from a stopped treatment. Only on a Completed plan, and only worth offering when
+                  something was actually put aside or the patient is resuming a closed course. */}
+              {plan.status === "Completed" && (
+                <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={confirmReopen}>
+                  <RotateCcw className="h-4 w-4" />
+                  Reprendre le traitement
                 </Button>
               )}
               <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={handleDownloadDevis}>
@@ -642,29 +822,50 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <PlanProgressBar done={plan.itemsDone} total={plan.itemsTotal} fraction={work.fraction} />
+          <PlanProgressBar done={seances.done} total={seances.total} fraction={work.fraction} />
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Figure label="Total" value={formatDT(plan.totalPlanned)} />
             <Figure label="Encaissé" value={formatDT(plan.amountPaid)} />
-            {/* A Draft devis contributes 0 to « Solde patient » by design, so showing a « Reste » here would
-                contradict the balance the rest of the app reports. */}
-            {!isDraft && <Figure label="Reste" value={formatDT(plan.outstanding)} />}
             {/*
-              ⚠️ « 0 / 2 » is true and was not enough: it counts whole acts, so a bridge two séances in read as
-              nothing started. The count stays honest — a bridge is not réalisé until it is scellé — and the
-              work already done is stated on its own line instead, with the étapes when exactly one act is under
-              way. The bar beside it is step-weighted for the same reason.
+              ⚠️ **`displayedOutstanding`, never `plan.outstanding`, and the guard used to be `!isDraft` alone.**
+              That exclusion was added with a stated reason — a draft contributes 0 to « Solde patient », so a
+              « Reste » here « would contradict the balance the rest of the app reports » — and the identical
+              argument applies to a devis a note d'honoraires already collects: its auto-raised échéance will
+              never see a payment, so this figure reported the whole devis as unpaid. Measured on 4 of 4 bridged
+              plans, two of them fully settled, one patient shown « Solde dû 31,000 DT » in their file header and
+              « Reste 120,000 DT » here on the same page. The note's own balance is named instead, so the answer
+              is still a figure rather than an absence.
+            */}
+            {owed && (
+              <Figure
+                label="Reste"
+                value={formatDT(owed.amount)}
+                hint={
+                  owed.isBilled
+                    ? `sur la note ${owed.invoiceNumber ?? "d'honoraires"}`
+                    : undefined
+                }
+              />
+            )}
+            {/*
+              ⚠️ **Séances, not acts.** « Actes réalisés 0 / 1 » is what a six-visit implant read from its first
+              appointment to its last, because an act is only Done when every step is — so the feature's whole
+              subject had no progress signal. The bar beside it was already step-weighted, which made the two
+              disagree on one screen. Whole acts stay in the hint: a bridge is not réalisé until it is scellé,
+              and rounding that up would be a claim about a patient's mouth.
             */}
             <Figure
-              label="Actes réalisés"
-              value={plan.itemsTotal > 0 ? `${plan.itemsDone}/${plan.itemsTotal}` : "—"}
+              label="Séances réalisées"
+              value={seances.total > 0 ? seances.label : "—"}
               hint={
-                work.actsInProgress === 0
-                  ? undefined
-                  : work.soleInProgressSteps
-                    ? `1 en cours · ${work.soleInProgressSteps.done}/${work.soleInProgressSteps.total} étapes`
-                    : `${work.actsInProgress} en cours`
+                plan.itemsTotal > 0
+                  ? `${plan.itemsDone} / ${plan.itemsTotal} acte${plan.itemsTotal > 1 ? "s" : ""}${
+                      withdrawnItems.length > 0
+                        ? ` · ${withdrawnItems.length} mis de côté`
+                        : ""
+                    }`
+                  : undefined
               }
             />
           </div>
@@ -980,10 +1181,18 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               </Table>
             </>
           )}
+          {/*
+            ⚠️ The correction sentence names « Détacher la fiche », which renders only on an act that is
+            entirely réalisé — so on a plan whose acts are « en cours » it pointed at a control that is not on
+            the screen. For a stepped act the correction lives in the « Étapes » dialog, per step, which is also
+            the honest place for it: the act-level « Détacher » undoes only the LAST séance recorded.
+          */}
           <p className="mt-2 text-xs text-muted-foreground">
             Un acte passe à « Réalisé » à l&apos;enregistrement de la fiche de soins liée — il n&apos;y a pas de
-            bascule manuelle. Un acte coché par erreur se corrige avec « Détacher la fiche », qui le ramène à
-            « Prévu » et réouvre le devis si celui-ci s&apos;était clos dessus.
+            bascule manuelle.{" "}
+            {liveItems.some((i) => (i.steps?.length ?? 0) > 0)
+              ? "Une séance cochée par erreur se détache de sa fiche depuis « Étapes », sur la ligne de l'acte ; un acte entièrement réalisé porte « Détacher la fiche »."
+              : "Un acte coché par erreur se corrige avec « Détacher la fiche », qui le ramène à « Prévu » et réouvre le devis si celui-ci s'était clos dessus."}
           </p>
         </CardContent>
       </Card>
@@ -1444,7 +1653,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             <DialogTitle>Détacher la fiche de cet acte ?</DialogTitle>
             <DialogDescription>
               {quoteFr(undoTarget?.designationFr ?? "")} repassera à « Prévu » et sa fiche de soins sera détachée. La fiche
-              elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera réouvert.
+              elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera réouvert.{" "}
+              {/* The same forewarning as the step-level dialog — see its note. */}
+              Si sa fiche est facturée sur une note d&apos;honoraires, il faudra d&apos;abord créditer cette
+              note en totalité.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -1512,6 +1724,135 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             >
               {confirmAction?.confirmLabel}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        « Arrêter le traitement ».
+
+        ⚠️ Its own dialog rather than a `PlanConfirm` row, because it is NOT a pure yes/no: it has to name the
+        acts it will drop and the ones it will keep, and « êtes-vous sûr ? » over an irreversible edit to a
+        patient's treatment is exactly what the repo's destructive-confirm rule forbids.
+      */}
+      <AlertDialog open={stopOpen} onOpenChange={(open) => { if (!open && !stopping) setStopOpen(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Arrêter le traitement de {plan.patientName ?? "ce patient"} ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le patient ne poursuit pas. Les actes dont aucune séance n&apos;a été réalisée sont{" "}
+              <b>mis de côté</b> — rien n&apos;est supprimé, et « Reprendre le traitement » les remet au devis si
+              le patient revient. Ce qui a déjà été fait est conservé, et le devis est clôturé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-3 text-sm">
+            {keptItems.length === 0 ? (
+              /*
+                Nothing has been delivered, so there is nothing to keep and this is not the right record: the
+                patient accepted a devis and never came. The server refuses it in these terms — before this it
+                accepted the press, wrote a zero-amount échéance the aggregate refuses, and answered with a .NET
+                parameter name over a dialog with no way out.
+              */
+              <p
+                role="status"
+                className="rounded-md border border-dashed p-2.5 text-2xs leading-relaxed text-muted-foreground"
+              >
+                Aucune séance de ce devis n&apos;a encore été réalisée, donc il n&apos;y a rien à conserver.
+                Annulez le devis (un motif est demandé) plutôt que d&apos;arrêter le traitement.
+              </p>
+            ) : (
+              <>
+                {stoppableItems.length > 0 && (
+                  <div>
+                    <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Mis de côté
+                    </p>
+                    <ul className="mt-1 space-y-0.5">
+                      {stoppableItems.map((i) => (
+                        <li key={i.id} className="flex items-baseline justify-between gap-3">
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                            {i.designationFr}
+                            {/* A booked séance is the commonest abandon shape, and the dialog is where it has
+                                to be said: the appointment is not cancelled by stopping the treatment. */}
+                            {i.scheduledAppointmentId && (
+                              <span className="text-warning-ink"> · un rendez-vous reste à annuler</span>
+                            )}
+                          </span>
+                          <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                            {formatDT(i.plannedCost)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/*
+                  What is kept, stated as plainly as what is put aside. A dentist stopping a treatment is
+                  deciding about a patient's mouth and a patient's bill; « N actes retirés » alone leaves them
+                  to work out what survives.
+                */}
+                <div>
+                  <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Conservés
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {keptItems.map((i) => (
+                      <li key={i.id} className="flex items-baseline justify-between gap-3">
+                        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{i.designationFr}</span>
+                        <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                          {formatDT(i.plannedCost)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <p className="rounded-md bg-muted/50 p-2.5 text-2xs leading-relaxed text-muted-foreground">
+                  L&apos;échéancier est ramené au total conservé (
+                  <span className="font-mono tabular-nums">
+                    {formatDT(keptItems.reduce((sum, i) => sum + i.plannedCost, 0))}
+                  </span>
+                  ). Ce qui a déjà été encaissé est conservé.
+                  {billed && plan.linkedInvoiceNumber && (
+                    <>
+                      {" "}La note {plan.linkedInvoiceNumber} n&apos;est pas modifiée&nbsp;: corrigez-la par un
+                      avoir si elle ne correspond plus.
+                    </>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={stopping}>Retour</AlertDialogCancel>
+            {keptItems.length === 0 ? (
+              /* The route out of the dead end, rather than a live red button that can only fail. */
+              <AlertDialogAction
+                variant="destructive"
+                disabled={stopping}
+                onClick={(event) => {
+                  event.preventDefault()
+                  setStopOpen(false)
+                  setCancelOpen(true)
+                }}
+              >
+                Annuler le devis…
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction
+                variant="destructive"
+                disabled={stopping}
+                onClick={(event) => {
+                  event.preventDefault()
+                  void stopTreatment()
+                }}
+              >
+                {stopping ? "Arrêt…" : "Arrêter le traitement"}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -82,6 +82,11 @@ public static class TreatmentsInProgressReader
                 NextStepNumber = fact.NextStepSequenceNumber + 1,
                 NextStepEstimatedDurationMinutes = fact.NextStepEstimatedDurationMinutes,
                 LastStepDoneOn = fact.LastStepDoneOn,
+                // The protocol's interval applied to the previous séance's date — what lets the screen say
+                // « pas encore due » instead of alarming at a flat fortnight on a treatment that is on time.
+                NextStepDueFrom = fact.NextStepMinDaysAfterPrevious is int days && fact.LastStepDoneOn is DateTime last
+                    ? last.Date.AddDays(days)
+                    : null,
                 NextStepAppointmentId = booking?.Id,
                 NextStepAppointmentAt = booking?.AppointmentDateTime,
             };

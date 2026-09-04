@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
@@ -39,6 +40,7 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UnmarkTreatmentPlanItemStepCommandHandler> _logger;
@@ -47,6 +49,7 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
         IInvoiceRepository invoiceRepository,
+        ICreditNoteRepository creditNoteRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UnmarkTreatmentPlanItemStepCommandHandler> logger)
@@ -54,6 +57,7 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
         _planRepository = planRepository;
         _patientRepository = patientRepository;
         _invoiceRepository = invoiceRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -130,27 +134,20 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
     private async Task<Result> EnsureNotBilledAsync(
         TreatmentPlan plan, TreatmentPlanItemStep step, Guid clinicId, CancellationToken cancellationToken)
     {
-        var planLinks = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
-        if (PlanBillingRules.BilledPlanIds(planLinks).Contains(plan.Id))
-        {
-            return Result.Failure(
-                "Ce devis est déjà facturé. Annulez la facture (ou émettez un avoir) avant de corriger une étape.");
-        }
-
-        // No fiche attached ⇒ nothing an invoice line could be billing for this step.
-        if (step.LinkedDentalRecordId is not { } recordId)
-        {
-            return Result.Success();
-        }
-
-        var recordLinks = await _invoiceRepository.GetDentalRecordLinksAsync(clinicId, cancellationToken);
-        var billing = recordLinks.FirstOrDefault(l =>
-            l.DentalRecordId == recordId && PlanBillingRules.RepresentsItsPlan(l.Status));
-
-        return billing.InvoiceId == Guid.Empty
-            ? Result.Success()
-            : Result.Failure(
-                $"La fiche de soins de cette étape est facturée sur la note d'honoraires {billing.Number}. "
-                + "Annulez la facture (ou émettez un avoir) avant de corriger l'étape.");
+        /*
+         * ⚠️ The blanket « ce devis est facturé » refusal was here and is gone — see `AmendTreatmentPlanCommand`.
+         * What remains is whether THIS step's own fiche de soins is billed on a live note.
+         *
+         * Shared with the act-level twin now, and not merely for tidiness: both wrote the test as
+         * `RepresentsItsPlan(status)` over the light link projection, which **cannot see an avoir** — so both
+         * refused with a remedy that could not lift them. See `DentalRecordBillingGuard.Snapshot.StillBillsTheWork`.
+         */
+        return await DentalRecordBillingGuard.EnsureWorkIsNotBilledAsync(
+            _invoiceRepository,
+            _creditNoteRepository,
+            clinicId,
+            step.LinkedDentalRecordId,
+            "cette étape",
+            cancellationToken);
     }
 }

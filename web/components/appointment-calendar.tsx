@@ -64,6 +64,7 @@ import {
   APPOINTMENT_STATUS_TONE,
   appointmentActsCount,
   appointmentActsSummary,
+  isPlanSeance,
   appointmentStatusLabel,
   isBusySlot,
   normalizeStatus,
@@ -1612,6 +1613,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const colorStyle = appointmentAppearance(appointment)
     const tone = appointmentTone(appointment)
     const statusLabel = appointmentStatusLabel(appointment.status)
+    // ⚠️ A séance that is one étape of a treatment must not look like a loose visit — see `isPlanSeance`.
+    const planSeance = isPlanSeance(appointment)
 
     /*
      * ── Drag-to-move, on the block ────────────────────────────────────────────────────────────────────────
@@ -1657,7 +1660,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     // sighted users only.
     const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")} · ${durationMinutes} min · ${statusLabel}${
       actsSummary ? ` · ${actsSummary}` : ""
-    }`
+    }${planSeance ? " · séance d'un devis" : ""}`
 
     /*
      * The phone block is a different shape, not the desktop block scaled down.
@@ -1731,7 +1734,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               )}
             >
               {format(aptStart, "HH:mm")}
-              {actsSummary ? ` · ${actsSummary}` : ""}
+              {planSeance && " · devis"}
+              {actsSummary ? ` · ` : ""}
             </span>
           )}
         </button>
@@ -1831,6 +1835,21 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             )}
           >
             <span className="shrink-0 font-medium tabular-nums">{format(aptStart, "HH:mm")}</span>
+            {/*
+              ⚠️ **The « devis » mark, which the agenda did not have at any width.** A séance that is one étape
+              of a six-visit treatment rendered exactly like a loose visit, so at 8 a.m. the screen a dentist
+              actually reads could not tell them apart — while the appointment *dialog* one click away shows
+              both this chip and the étape's name. Five characters, before the act name so it survives the
+              truncation that name is subject to.
+            */}
+            {planSeance && (
+              <span
+                className="shrink-0 rounded-sm bg-white/50 px-1 text-2xs font-medium leading-none dark:bg-background/50"
+                title="Cette séance fait partie d'un devis"
+              >
+                devis
+              </span>
+            )}
             {/* Day view has the room to name every act of a séance; Semaine names the lead act, because
                 « Détartrage + Obturation » in 120 px truncates to « Détarta… » — which says less than the badge
                 beside the name already said. */}

@@ -36,6 +36,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ProcedureTypeMaterialsDialog } from "@/components/procedure-type-materials-dialog"
+import {
+  ProcedureTypeStepsDialog,
+  ProcedureStepsCell,
+} from "@/components/procedure-type-steps-dialog"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
@@ -49,9 +53,14 @@ const ALL_CATEGORIES = "__all__"
 interface ProcedureTypesTableProps {
   onEdit: (procedure: ProcedureTypeDto) => void
   onAdd: () => void
+  /**
+   * Bumped by the page to refetch the CURRENT page — never passed as `key`, which would remount this component
+   * and discard the search term, the catégorie filter and the page the user is on.
+   */
+  reloadKey?: number
 }
 
-export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps) {
+export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureTypesTableProps) {
   // Procedure-type WRITES became admin-only (security-hardening AC-7.2) — prices here feed straight into what
   // a patient is charged. Reads stay open to all staff, which is why the page itself is not blocked the way
   // the three admin-only catalog pages are: everyone still needs to see the catalogue. Hiding the write
@@ -71,6 +80,8 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   const [seeding, setSeeding] = useState(false)
   // AC-P4.14 — the act whose material list is being edited (« Consommables »), or null.
   const [materialsTarget, setMaterialsTarget] = useState<ProcedureTypeDto | null>(null)
+  /** The act whose protocol is being edited, or null. Same shape as its materials twin above. */
+  const [stepsTarget, setStepsTarget] = useState<ProcedureTypeDto | null>(null)
 
   // Only active procedures. Search, the category filter, ordering and paging are ALL server-side — filtering an
   // already-cut page in the browser would shrink pages unpredictably (« Endodontie » showing 3 rows of 25).
@@ -100,7 +111,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
     search,
     // Changing the catégorie returns to page 1 (AC-22).
     filters: [category],
-    refreshKey: reloadToken,
+    refreshKey: `${reloadKey}:${reloadToken}`,
   })
 
   const loadProcedures = async () => setReloadToken((t) => t + 1)
@@ -122,7 +133,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
     return () => {
       active = false
     }
-  }, [reloadToken])
+  }, [reloadKey, reloadToken])
 
   /**
    * The two empty facts kept apart (finding #4). The table has a live search box, so one message told an admin
@@ -192,9 +203,16 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
   const handleLoadDefaults = async () => {
     try {
       setSeeding(true)
-      const { added } = await procedureTypesApi.initializeDefaults()
-      if (added > 0) {
-        toast.success(`${added} acte(s) ajouté(s)`)
+      const { added, protocolsUpdated } = await procedureTypesApi.initializeDefaults()
+      // Both counts, because they are independent answers: « 0 ajoutés, 34 protocoles mis à jour » is the
+      // normal result on a clinic that already has the starter menu, and reporting only `added` announced
+      // « Aucun nouvel acte à ajouter » on a run that had just given 34 protocols their délais.
+      const done = [
+        added > 0 ? `${added} acte(s) ajouté(s)` : null,
+        protocolsUpdated > 0 ? `${protocolsUpdated} protocole(s) mis à jour` : null,
+      ].filter(Boolean)
+      if (done.length > 0) {
+        toast.success(done.join(" · "))
       } else {
         toast.info("Aucun nouvel acte à ajouter.")
       }
@@ -352,6 +370,16 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                   </Badge>
                 ) : null
               }
+              // ⚠️ `underTitle`, never `subtitle`: that slot renders a `<p class="line-clamp-2">`, so a block
+              // inside it is invalid HTML (the browser closes the paragraph early) and a third line is silently
+              // clipped. `card-list.tsx` documents the pair.
+              underTitle={(p) => (
+                <ProcedureStepsCell
+                  procedureType={p}
+                  onEdit={isAdmin ? setStepsTarget : undefined}
+                  className="mt-1.5"
+                />
+              )}
               fields={(p) => [
                 { label: "Durée", value: `${p.defaultDurationMinutes} min` },
                 {
@@ -360,13 +388,6 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                   // free follow-up and an act nobody has priced were indistinguishable — and combined with the
                   // clear-the-cost defect that is exactly how an admin concluded a price had been cleared.
                   value: p.defaultCost != null ? formatDT(p.defaultCost) : null,
-                },
-                {
-                  label: "Consommables",
-                  value:
-                    p.materials.length > 0
-                      ? `${p.materials.length} article${p.materials.length === 1 ? "" : "s"}`
-                      : null,
                 },
               ]}
               actions={
@@ -380,6 +401,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onSelect={() => onEdit(p)}>Modifier</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setStepsTarget(p)}>Étapes</DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => setMaterialsTarget(p)}>Consommables</DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
@@ -402,8 +424,14 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                   <TableHead>Catégorie</TableHead>
                   <TableHead>Durée</TableHead>
                   <TableHead>Coût par défaut</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Consommables</TableHead>
+                  {/*
+                    ⚠️ « Description » and « Consommables » were columns here and are not any more, on the
+                    owner's call: both were empty on nearly every row (a dash), and together they cost 217 px of
+                    a table that overflowed its scrollport by 287 px at 1400 px — so what they actually bought
+                    was pushing « Actions » out of view (§ 1). The description is still edited and read in the
+                    act's own form; the material list keeps its « Consommables » action on the row, which is the
+                    only place it can be edited (§ 0 — a column is a display choice, an editor is a capability).
+                  */}
                   {/* Dropped for a read-only role: the cells below are behind `isAdmin`, so a secretary got a
                       column headed « Actions » with 76 px of empty cell on every row. The card tree already
                       rendered no menu at all — the two trees simply disagreed. */}
@@ -414,7 +442,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 {procedures.length === 0 ? (
                   <TableRow>
                     {/* Follows the header count, which is one shorter for a read-only role. */}
-                    <TableCell colSpan={isAdmin ? 8 : 7}>{renderEmpty("default")}</TableCell>
+                    <TableCell colSpan={isAdmin ? 6 : 5}>{renderEmpty("default")}</TableCell>
                   </TableRow>
                 ) : (
                   procedures.map((procedure) => (
@@ -441,7 +469,28 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                           </Badge>
                         </div>
                       </TableCell>
-                      <TableCell className="font-medium text-foreground">{procedure.name}</TableCell>
+                      <TableCell className="font-medium text-foreground">
+                        {procedure.name}
+                        {/*
+                          The act's protocol, under its own name — the same place and the same reading as
+                          `PlanStepStrip` gives it on a devis, so the dentist recognises it in both. It stays
+                          HERE rather than taking a column of its own: this table is already eight wide at the
+                          `lg:` hinge, and the ninth column is what starts pushing « Actions » out of the
+                          scrollport (§ 1).
+
+                          ⚠️ It used to be `steps.map(s => s.label).join(" · ")` in muted 11 px — a grey run-on
+                          sentence that read as a DESCRIPTION of the act, carried neither the count nor the
+                          durations nor the order, and offered nothing to press. A dentist had no reason to think
+                          the protocol was theirs, and the only way to it was « Modifier » then scrolling past
+                          the cost and the category. `ProcedureStepsCell` is that fix: a count, the chair time,
+                          the first two séances numbered, and — for an admin — the whole thing is the button.
+                        */}
+                        <ProcedureStepsCell
+                          procedureType={procedure}
+                          onEdit={isAdmin ? setStepsTarget : undefined}
+                          className="mt-1 font-normal"
+                        />
+                      </TableCell>
                       {/* Rows arrive ordered by catégorie then nom, so the badges read as blocks down the column
                           without needing section headings — which a *paged* list cannot honestly draw anyway
                           (a discipline straddling a page boundary would print its heading twice). */}
@@ -471,21 +520,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{procedure.description || "-"}</TableCell>
-                      <TableCell>
-                        {/* AC-P4.14 — an act that draws down stock says so in the catalogue, so the list is
-                            discoverable rather than hidden behind a dialog nobody knows to open. */}
-                        {procedure.materials.length > 0 ? (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Boxes className="h-4 w-4" aria-hidden="true" />
-                            <span>
-                              {procedure.materials.length} article{procedure.materials.length === 1 ? "" : "s"}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
+
                       {isAdmin && (
                       <TableCell className="text-right">
                         {(
@@ -533,6 +568,12 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
       </Card>
 
       {/* AC-P4.14 — material-list editor for one act. */}
+      <ProcedureTypeStepsDialog
+        procedureType={stepsTarget}
+        onOpenChange={(next) => { if (!next) setStepsTarget(null) }}
+        onSaved={() => { setStepsTarget(null); void loadProcedures() }}
+      />
+
       <ProcedureTypeMaterialsDialog
         procedureType={materialsTarget}
         onOpenChange={(open) => { if (!open) setMaterialsTarget(null) }}

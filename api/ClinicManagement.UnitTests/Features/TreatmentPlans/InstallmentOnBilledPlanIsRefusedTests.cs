@@ -60,7 +60,7 @@ public class InstallmentOnBilledPlanIsRefusedTests
             .ReturnsAsync((Patient?)null);
         // Default: this clinic has no devis→facture bridge at all.
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
     }
 
     /// <summary>An accepted 1 000 DT devis with a single unpaid lump-sum échéance.</summary>
@@ -77,7 +77,7 @@ public class InstallmentOnBilledPlanIsRefusedTests
     private void BridgeExists(TreatmentPlan plan, InvoiceStatus status, string? number = "2026-0031")
     {
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { (plan.Id, Guid.NewGuid(), number, status) });
+            .ReturnsAsync(new[] { (plan.Id, Guid.NewGuid(), number, status, 0m, 0m) });
     }
 
     private RecordInstallmentPaymentCommandHandler Handler() => new(
@@ -206,7 +206,7 @@ public class InstallmentOnBilledPlanIsRefusedTests
         var plan = AcceptedPlan();
         var otherPlanId = Guid.NewGuid();
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { (otherPlanId, Guid.NewGuid(), (string?)"2026-0099", InvoiceStatus.Issued) });
+            .ReturnsAsync(new[] { (otherPlanId, Guid.NewGuid(), (string?)"2026-0099", InvoiceStatus.Issued, 0m, 0m) });
 
         var result = await Collect(plan);
 

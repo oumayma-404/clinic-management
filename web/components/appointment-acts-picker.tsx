@@ -16,7 +16,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import { formatAmount, formatDT, parseAmountInput, quoteFr } from "@/lib/format"
 import type { AppointmentProcedurePayload } from "@/lib/api/appointments"
-import type { ProcedureTypeDto } from "@/lib/api/types"
+import type { ProcedureStepTemplateDto, ProcedureTypeDto } from "@/lib/api/types"
 
 /**
  * One act chosen for a séance. `treatmentPlanItemId` is what makes grouping meaningful: a devis act booked
@@ -137,6 +137,19 @@ export interface BilledOnPlan {
   actCost: number
   /** What is still to collect on the **whole devis**, which is why the sentence says « sur le devis ». */
   outstanding: number
+  /**
+   * The note d'honoraires that holds this devis' money, when one does — a devis created to continue an act that
+   * had already been billed, or one that has since been facturé.
+   *
+   * ⚠️ **Its presence makes {@link outstanding} a figure that must NOT be shown.** A plan's `outstanding` is
+   * `TotalPlanned − Σ its own installments' payments`, and a plan billed into a note has an auto-raised échéance
+   * that will never see a payment — the money went to the note. So the devis reads « reste 120,000 » about an act
+   * the patient has all but paid for: measured, a séance whose real balance was **15,50 DT on note 2026-0087**
+   * announced « Reste à encaisser sur le devis : 120,000 DT ». « Solde patient » is right either way (it drops a
+   * billed plan), which is exactly what makes this one silent — the wrong figure appears only here, on the screen
+   * where somebody is deciding what to collect.
+   */
+  billedOnInvoiceNumber?: string | null
 }
 
 /**
@@ -367,6 +380,22 @@ interface AppointmentActsPickerProps {
   /** Acts that came from a devis and must stay in the séance (removing one is « ne pas le planifier »). */
   idPrefix?: string
   /**
+   * Start this act's protocol: create the devis carrying its séances and make this visit the first of them.
+   *
+   * ⚠️ Supplied by the **create** dialog only. A doctor in a hurry books from the agenda, so the act's
+   * protocol — six séances for an implant — was invisible there: the séances live on a devis, and there was no
+   * devis. Offering it here is what makes the flow two-directional without a silent side effect; the edit
+   * dialog's « Actes du devis » group covers attaching to a devis that already exists.
+   *
+   * Absent (or a row with no patient behind it) renders the protocol as a statement and no button — the
+   * dentist is told what the act involves, which is still better than nothing.
+   */
+  onStartProtocol?: (act: SelectedAct, protocol: ProcedureStepTemplateDto[]) => void | Promise<void>
+
+  /** Set while `onStartProtocol` is in flight, so the offer disables itself against a double press. */
+  startingProtocol?: boolean
+
+  /**
    * The patient's outstanding devis acts, offered as their own group in the picker.
    *
    * ⚠️ Absent on the create dialog, which receives its plan acts pre-selected from the devis workspace. Present
@@ -398,6 +427,8 @@ export function AppointmentActsPicker({
   fallbackDurationMinutes = 30,
   idPrefix = "appt-acts",
   planActs,
+  onStartProtocol,
+  startingProtocol = false,
 }: AppointmentActsPickerProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [customMode, setCustomMode] = useState(false)
@@ -437,6 +468,8 @@ export function AppointmentActsPicker({
           return {
             group,
             act,
+            // A hand-typed devis line has no catalogue act, so no protocol to propose.
+            protocol: undefined as ProcedureStepTemplateDto[] | undefined,
             name: act.fallbackName ?? "Acte du devis",
             durationMinutes: stepMinutes,
             colorHex: "#6C757D",
@@ -450,6 +483,9 @@ export function AppointmentActsPicker({
         return {
           group,
           act,
+          // The act's catalogue protocol, for the offer above. Read from the served catalogue, never a list
+          // kept here — the practice edits these in « Types de procédures » and this must follow.
+          protocol: pt?.defaultSteps,
           name: pt?.name ?? act.fallbackName ?? "Acte indisponible",
           durationMinutes: stepMinutes ?? pt?.defaultDurationMinutes ?? null,
           colorHex: pt?.colorHex ?? "#6C757D",
@@ -615,6 +651,25 @@ export function AppointmentActsPicker({
         )}
       </div>
 
+      {/*
+        ⚠️ **The forward door onto the feature, and there was none.** A cold walk looking for a way to plan a
+        six-visit implant took four wrong turns: the agenda's toolbar names no étape, séance, devis or plan; the
+        booking form offers nothing multi-visit; « Autres actions » holds one item (« Exporter »); and the only
+        étape-shaped control on the whole screen — « C'est la suite d'une séance précédente ? » — works
+        **backwards** and always assumes this visit is the second. The word « étape » appeared on no screen until
+        the reviewer had already decided to create a plan and picked a catalogue act inside it. So the feature was
+        discoverable only as a side-effect of a decision it should have been informing.
+
+        One line, on the empty form, beside the acts — which is where the question is actually asked. The pair is
+        deliberate: this one goes forward, the existing link goes back, and neither is now the only one.
+      */}
+      {rows.length === 0 && onStartProtocol && (
+        <p className="text-2xs leading-relaxed text-muted-foreground">
+          Cet acte se fait en plusieurs séances&nbsp;? Choisissez-le ci-dessous — les actes qui demandent
+          plusieurs séances le disent, et vous pourrez créer le devis d&apos;ici.
+        </p>
+      )}
+
       {rows.length > 0 && (
         <ul className="space-y-1.5">
           {rows.map((row) => (
@@ -640,8 +695,11 @@ export function AppointmentActsPicker({
               >
                 {row.name}
               </span>
+              {/* ⚠️ No `sm:` gate. Below 640 px the « devis » chip disappeared, and on the EDIT dialog it is the
+                  only devis signal a row carries — so at 390 px a plan-billed act read as an ordinary one.
+                  Five characters; there is nothing to save by hiding them. */}
               {row.act.planLabel && (
-                <Badge variant="outline" className="hidden shrink-0 gap-1 text-xs sm:inline-flex">
+                <Badge variant="outline" className="inline-flex shrink-0 gap-1 text-xs">
                   <Stethoscope className="h-3 w-3" />
                   {row.act.planLabel}
                 </Badge>
@@ -680,8 +738,12 @@ export function AppointmentActsPicker({
               */}
               {row.act.stepOptions && row.act.stepOptions.length > 0 && (
                 <div className="mt-2 border-t border-dashed pt-2">
+                  {/* ⚠️ « Étapes de cette séance » headed a list of ALL the act's remaining étapes, one of them
+                      ticked — read cold it claims this appointment covers all six, which is a wrong duration
+                      and a wrong expectation of what today covers. The heading now says what the list IS and
+                      what the ticks MEAN. */}
                   <p className="mb-1.5 text-2xs font-semibold text-muted-foreground">
-                    Étapes de cette séance
+                    Étapes de l&apos;acte — cochez celles de cette séance
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {row.act.stepOptions.map((step) => {
@@ -795,6 +857,47 @@ export function AppointmentActsPicker({
                 acte » and the outstanding says « sur le devis ». Unlabelled, a reader attaches both to the act
                 — which is exactly how this read « à 1 080,000 DT » for a 1 000 DT bridge.
               */}
+              {/*
+                The act has a protocol and this visit is not on a devis yet — so the séances it needs are
+                invisible from here. State them, and offer to start them in one press.
+
+                ⚠️ Shown only for an act **not** already linked to a devis: once it is, the step chips above
+                are the real control and this would be a second, weaker route to the same thing.
+              */}
+              {!row.act.treatmentPlanItemId && row.protocol && row.protocol.length > 0 && (
+                <div
+                  className="mt-2 rounded-md border border-dashed border-primary/60 bg-primary/[0.05] p-2.5"
+                  role="status"
+                >
+                  <p className="text-2xs leading-relaxed">
+                    <span className="font-semibold text-primary">
+                      Cet acte se fait normalement en {row.protocol.length} séances.
+                    </span>{" "}
+                    {row.protocol.map((step) => step.label).join(" · ")}
+                  </p>
+                  {onStartProtocol && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 h-8 w-full gap-1 text-xs coarse:h-11"
+                        disabled={disabled || startingProtocol}
+                        onClick={() => void onStartProtocol(row.act, row.protocol!)}
+                      >
+                        <Stethoscope className="h-3.5 w-3.5" />
+                        {startingProtocol
+                          ? "Création du devis…"
+                          : "Créer le devis et planifier la 1re séance"}
+                      </Button>
+                      <p className="mt-1 text-2xs text-muted-foreground">
+                        Vous pourrez modifier les étapes avant d&apos;enregistrer.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
               {row.act.billedOnPlan && (
                 <p
                   className="mt-2 rounded-md border border-primary bg-primary/[0.07] p-2.5 text-2xs leading-relaxed"
@@ -808,14 +911,27 @@ export function AppointmentActsPicker({
                     {formatDT(row.act.billedOnPlan.actCost)}
                   </span>
                   . Cette séance n&apos;ajoute pas d&apos;honoraires.
-                  {row.act.billedOnPlan.outstanding > 0 && (
+                  {/*
+                    ⚠️ The devis' own « reste » is stated ONLY while the devis is what collects. Once a note
+                    d'honoraires holds the money, that figure is the plan's untouched auto-échéance and is simply
+                    false — see `BilledOnPlan.billedOnInvoiceNumber`. The note is named instead, so whoever is
+                    about to take money knows which document to look at.
+                  */}
+                  {row.act.billedOnPlan.billedOnInvoiceNumber ? (
                     <>
-                      {" "}Reste à encaisser sur le devis :{" "}
-                      <span className="font-mono tabular-nums">
-                        {formatDT(row.act.billedOnPlan.outstanding)}
-                      </span>
-                      .
+                      {" "}Encaissement sur la note{" "}
+                      <span className="font-mono">{row.act.billedOnPlan.billedOnInvoiceNumber}</span>.
                     </>
+                  ) : (
+                    row.act.billedOnPlan.outstanding > 0 && (
+                      <>
+                        {" "}Reste à encaisser sur le devis :{" "}
+                        <span className="font-mono tabular-nums">
+                          {formatDT(row.act.billedOnPlan.outstanding)}
+                        </span>
+                        .
+                      </>
+                    )
                   )}
                 </p>
               )}
@@ -955,6 +1071,19 @@ export function AppointmentActsPicker({
                           aria-hidden
                         />
                         <span className="flex-1 truncate">{pt.name}</span>
+                        {/*
+                          ⚠️ **Which acts are multi-séance, stated in the list where they are chosen.** The picker
+                          was a name and a duration, so « Implant dentaire » sat between « Greffe osseuse » and
+                          « Contention post-orthodontique » with nothing to distinguish the one that will propose
+                          six visits and open a devis. A dentist learned the act was a treatment only after
+                          picking it — which is exactly the wrong order, since the alternative (« Créer le devis
+                          et planifier la 1re séance ») is a decision about a numbered document.
+                        */}
+                        {(pt.defaultSteps?.length ?? 0) > 1 && (
+                          <span className="ml-2 shrink-0 rounded-full bg-primary/10 px-1.5 text-2xs font-medium text-primary">
+                            {pt.defaultSteps!.length} séances
+                          </span>
+                        )}
                         <span className="ml-2 text-xs tabular-nums text-muted-foreground">
                           {pt.defaultDurationMinutes} min
                         </span>

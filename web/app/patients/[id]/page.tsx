@@ -97,6 +97,7 @@ import { PatientPlansStrip } from "@/components/treatment-plans/patient-plans-st
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
+import { schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -1027,16 +1028,22 @@ export default function PatientDetailsPage() {
   const openPlanItems: PlanItemOption[] = treatmentPlans
     .filter((p) => p.status === "Accepted" || p.status === "InProgress")
     .flatMap((p) =>
-      p.items
-        .filter((it) => it.status !== "Done")
-        .map((it) => ({
-          itemId: it.id,
-          planId: p.id,
-          label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
-          designationFr: it.designationFr,
-          plannedCost: it.plannedCost,
-          toothNumbers: it.toothNumbers,
-        })),
+      schedulablePlanItems(p).map((it) => ({
+        itemId: it.id,
+        planId: p.id,
+        label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+        designationFr: it.designationFr,
+        plannedCost: it.plannedCost,
+        toothNumbers: it.toothNumbers,
+        // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
+        // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
+        planNumber: p.number,
+        billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
+        planOutstanding: p.outstanding,
+        // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
+        // already pays for, so that act's 0 is not read back as a discount the dentist granted.
+        procedureTypeId: it.procedureTypeId ?? null,
+      })),
     )
 
   /**

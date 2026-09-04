@@ -286,6 +286,14 @@ public sealed record TreatmentInProgressFact(
     string? NextStepLabel,
     int? NextStepSequenceNumber,
     int? NextStepEstimatedDurationMinutes,
+    /// <summary>
+    /// Calendar days the next step must wait after the previous one, from the protocol. Null where the protocol
+    /// states no interval, which is « no opinion » — see <c>TreatmentPlanItemStep.MinDaysAfterPrevious</c>. The
+    /// reader turns it and <see cref="LastStepDoneOn"/> into the due date the screen grades its alarm against;
+    /// projecting the raw figure keeps the one addition out of SQL, where it is a date-arithmetic translation
+    /// this query does not need.
+    /// </summary>
+    int? NextStepMinDaysAfterPrevious,
     /// <summary>When the most recent carried-out step happened — « dernière séance il y a 12 j ». Never null in
     /// practice (an act under way has at least one step done), but nullable so the shape cannot lie if it is.</summary>
     DateTime? LastStepDoneOn);

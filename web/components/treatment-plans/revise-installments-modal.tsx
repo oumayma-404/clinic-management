@@ -14,6 +14,7 @@ import { toast } from "sonner"
 import { treatmentPlansApi, type TreatmentPlanInstallmentInput } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto } from "@/lib/api/types"
+import { isPlanBilled } from "./plan-next-action"
 import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 
 interface Row {
@@ -153,9 +154,22 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
       <DialogContent mobile="sheet" className="md:max-h-[90dvh] md:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Modifier l&apos;échéancier</DialogTitle>
+          {/*
+            ⚠️ « ce que le patient doit » is false on a billed devis — the note collects, and an encaissement
+            entered here reaches neither la caisse nor les recettes. « Modifier le devis » warns properly and
+            this dialog said nothing, so a dentist hunting for *where do I take the money* landed here and
+            re-split échéances that collect nothing.
+          */}
           <DialogDescription>
-            Re-répartissez ce que le patient doit sans toucher aux actes. Le devis garde son numéro
+            Re-répartissez l&apos;échéancier du devis sans toucher aux actes. Le devis garde son numéro
             {plan.number ? ` (${plan.number})` : ""} et passe en révision {plan.revisionNumber + 1}.
+            {isPlanBilled(plan) && (
+              <>
+                {" "}⚠️ Ce devis est facturé sur la note{" "}
+                {plan.linkedInvoiceNumber ?? "d'honoraires"} : l&apos;encaissement se fait sur cette note, et
+                ces échéances n&apos;encaissent rien.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 

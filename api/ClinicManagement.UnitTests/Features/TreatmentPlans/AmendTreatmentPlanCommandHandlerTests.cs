@@ -49,13 +49,13 @@ public class AmendTreatmentPlanCommandHandlerTests
 
     private void NoBridgeInvoice() =>
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
 
     private void BridgedTo(Guid planId, InvoiceStatus status) =>
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus)>
+            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>
             {
-                (planId, Guid.NewGuid(), "2026-0031", status)
+                (planId, Guid.NewGuid(), "2026-0031", status, 0m, 0m)
             });
 
     private void NoAppointments() =>
@@ -333,7 +333,22 @@ public class AmendTreatmentPlanCommandHandlerTests
     // amendment. The money reads count that invoice, and its lines froze at issue with no re-sync — so an
     // added act would be silently invisible in every balance.
     [Fact]
-    public async Task Amending_A_Billed_Plan_Is_Rejected()
+    /*
+     * ⚠️ This asserted the OPPOSITE until the owner's decision that a dentist must be able to correct anything.
+     *
+     * The old refusal — « annulez la facture (ou émettez un avoir) avant de modifier le plan » — was sound about
+     * the consequence and wrong about the remedy: it asked a dentist to reverse a numbered fiscal document in
+     * order to fix a plan. The divergence between a corrected devis and the note raised from it is now STATED
+     * (the amend dialog names the note and points at an avoir) instead of pre-empted.
+     *
+     * It is also what unblocked every plan the continuation feature creates: those are born attached to a note,
+     * so under the old rule a treatment still under way could never be adjusted.
+     *
+     * ⚠️ The money reads are untouched by this — `GetPatientBillingSummaryQuery` drops a plan billed into an
+     * invoice — so a changed `TotalPlanned` here moves no balance, no caisse figure and no receivable. That is
+     * precisely why the gap is documentary and stating it is the whole fix.
+     */
+    public async Task Amending_A_Billed_Plan_Is_Allowed()
     {
         var plan = AcceptedPlan();
         BridgedTo(plan.Id, InvoiceStatus.Issued);
@@ -345,11 +360,9 @@ public class AmendTreatmentPlanCommandHandlerTests
             Installments = Schedule(1500m),
         }, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Contains("déjà facturé", result.Error!);
-        Assert.Equal(1000m, plan.TotalPlanned);
-        Assert.Equal(0, plan.RevisionNumber);
-        NothingCommitted();
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1500m, plan.TotalPlanned);
+        Assert.Equal(1, plan.RevisionNumber);
     }
 
     // [AC-22a] …and cancelling that invoice releases the block, which is what makes the guard escapable
@@ -624,7 +637,8 @@ public class AmendTreatmentPlanCommandHandlerTests
     // The billed-plan guard covers the new path too — it is the correctness guard for every amendment, not just
     // for additions.
     [Fact]
-    public async Task Editing_An_Act_On_A_Billed_Plan_Is_Rejected()
+    // The in-place twin of the row above: a mistyped fee on a billed devis is corrected, not refused.
+    public async Task Editing_An_Act_On_A_Billed_Plan_Is_Allowed()
     {
         var plan = AcceptedPlan();
         BridgedTo(plan.Id, InvoiceStatus.Issued);
@@ -636,10 +650,9 @@ public class AmendTreatmentPlanCommandHandlerTests
             Installments = Schedule(1150m),
         }, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Contains("déjà facturé", result.Error!);
-        Assert.Equal(600m, plan.Items.First().PlannedCost);
-        NothingCommitted();
+        Assert.True(result.IsSuccess);
+        Assert.Equal(750m, plan.Items.First().PlannedCost);
+        Assert.Equal("Couronne", plan.Items.First().DesignationFr);
     }
 
     // ---- Title / notes ----------------------------------------------------------------------------------

@@ -6,6 +6,7 @@ using ClinicManagement.Application.Features.Recall.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Moq;
+using ClinicManagement.Application.Common;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Features.Recall;
@@ -51,7 +52,7 @@ public class RecallQueryBoundsTests
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, decimal, DateTime?)>());
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, ClinicManagement.Domain.Enums.InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, ClinicManagement.Domain.Enums.InvoiceStatus, decimal, decimal)>());
     }
 
     private void CandidatesAre(params RecallCandidate[] candidates) =>
@@ -198,7 +199,11 @@ public class RecallQueryBoundsTests
 
         var seen = rows.Single(r => r.PatientName.EndsWith("Vu", StringComparison.Ordinal) && r.LastVisitDate != null);
         Assert.Equal(lastVisit.AddMonths(6), seen.DueDate);
-        Assert.Equal(Math.Max(0, (now.Date - lastVisit.AddMonths(6).Date).Days), seen.DaysOverdue);
+        // ⚠️ The CLINIC's today, not `now.Date`. `DaysOverdue` is counted from `ClinicClock.ClinicToday()`, and
+        // Tunisia is UTC+1 — so between 23:00 and 00:00 UTC this assertion was off by one against production
+        // code that was right, and the test went red for that hour every night (caught at 23:07 UTC).
+        Assert.Equal(
+            Math.Max(0, (ClinicClock.ClinicToday() - lastVisit.AddMonths(6).Date).Days), seen.DaysOverdue);
 
         var neverSeen = rows.Single(r => r.LastVisitDate == null);
         Assert.True(neverSeen.DueDate <= now); // still due — the anchor fell back to CreatedAt

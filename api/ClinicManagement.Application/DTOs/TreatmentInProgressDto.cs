@@ -62,4 +62,17 @@ public class TreatmentInProgressDto
     public Guid? NextStepAppointmentId { get; set; }
 
     public DateTime? NextStepAppointmentAt { get; set; }
+
+    /// <summary>
+    /// The earliest day the next séance should happen, from the protocol's own interval and the date of the step
+    /// before it — null when the protocol states no interval, which is « no opinion » and most acts.
+    /// <para>
+    /// ⚠️ <b>This is what makes « pas encore due » sayable, and the list had nothing to say it with.</b> Its
+    /// alarm was a flat fortnight from a constant, with no reference to what the step was — so an implant
+    /// waiting the eight to twelve weeks of ostéointégration its own seeded protocol specifies was amber for ten
+    /// of its twelve weeks, and a list that flags correct clinical waiting as overdue is a list a dentist stops
+    /// reading, which then also stops catching the bridge that really was abandoned.
+    /// </para>
+    /// </summary>
+    public DateTime? NextStepDueFrom { get; set; }
 }

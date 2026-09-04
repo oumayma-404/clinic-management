@@ -28,5 +28,23 @@ public enum TreatmentPlanItemStatus
     /// step rows is held by <c>verify-schema</c>'s <c>plan-step-status-agrees</c>.
     /// </para>
     /// </summary>
-    InProgress = 2
+    InProgress = 2,
+
+    /// <summary>
+    /// The patient stopped the treatment and this act was <b>parked</b> rather than deleted: it is no longer
+    /// planned work, contributes nothing to <c>TotalPlanned</c> or to any progress count, and cannot be booked
+    /// or recorded — but its row, its steps, their <c>DoneDate</c>s and their fiche links all survive.
+    /// <para>
+    /// ⚠️ It exists because deleting was destroying delivered work. « Arrêter le traitement » removed the acts
+    /// it judged unstarted, and that judgement was made on the act's <i>next step</i> — so a bridge with two of
+    /// three séances carried out was dropped, taking its step rows, their evidence links and 1 000 DT of quoted
+    /// work with it, while the two fiches survived pointing at nothing. Parking keeps every one of those facts,
+    /// which is also what makes <c>TreatmentPlan.Reopen</c> possible: patients come back.
+    /// </para>
+    /// <para>
+    /// Reversible through <c>TreatmentPlan.Reopen</c>, which restores every parked act to the status its own
+    /// steps derive. Nothing else may set or clear it.
+    /// </para>
+    /// </summary>
+    Withdrawn = 3
 }

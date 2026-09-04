@@ -1,32 +1,18 @@
-"use client"
-
-import { AppShell } from "@/components/app-shell"
-import { ClinicGuard } from "@/components/clinic-guard"
-import { PageHeader } from "@/components/ui/page-header"
-import { TreatmentsInProgressList } from "@/components/treatments/treatments-in-progress-list"
+import { redirect } from "next/navigation"
 
 /**
- * « Traitements en cours » — the acts a cabinet has started and not finished.
+ * « Traitements en cours » no longer has a page of its own — it is the **lead section** of
+ * `/treatment-plans`, which is now the single treatments screen.
  *
- * <p><b>Its own route, and open to every role</b>, on `/a-cloturer`'s reasoning: `GET /api/dashboard` is
- * `AdminOrDoctor` and `/` sends a secretary to `/appointments`, so a worklist living only on the dashboard
- * would be invisible to reception — the person who telephones the patient and books the next séance. The
- * journée's own « traitements en cours » pastille lands here.</p>
+ * <p>Two screens over one subject was the problem: the worklist answered « qu'est-ce qui reste ? » and the
+ * devis list answered « qu'a-t-on convenu ? » about the same acts, one rail entry apart, and neither linked to
+ * the other. They are one page now, the worklist first.</p>
  *
- * <p><b>Nothing here is stored.</b> An act is on this list because its steps say some are done and some are
- * not, and whether its next step is booked is derived per request from the appointments — so the list cannot
- * drift from reality and there is no worklist table to repair.</p>
+ * <p>⚠️ <b>The route is kept as a redirect, not deleted.</b> It shipped in the rail, in the journée's
+ * « traitements en cours » pastille and in `lib/dashboard-links.ts`, so it is in browser histories and possibly
+ * bookmarked. A 404 on a URL the product itself emitted last week is indistinguishable, to the person meeting
+ * it, from the feature having been withdrawn.</p>
  */
-export default function TreatmentsInProgressPage() {
-  return (
-    <ClinicGuard>
-      <AppShell contentClassName="space-y-6">
-        <PageHeader
-          title="Traitements en cours"
-          subtitle="Les actes commencés et non terminés, avec l'étape qui reste à planifier."
-        />
-        <TreatmentsInProgressList />
-      </AppShell>
-    </ClinicGuard>
-  )
+export default function TreatmentsInProgressRedirect() {
+  redirect("/treatment-plans")
 }
