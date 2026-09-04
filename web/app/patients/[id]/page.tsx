@@ -839,9 +839,7 @@ export default function PatientDetailsPage() {
   const [pendingEditRecordId, setPendingEditRecordId] = useState<string | null>(null)
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("editRecord")
-    if (!id) return
-    setPendingEditRecordId(id)
-    window.history.replaceState({}, "", `/patients/${patientId}?tab=medical-records`)
+    if (id) setPendingEditRecordId(id)
   }, [patientId])
 
   // ⚠️ `detailsLoading`, never `loading`: the latter gates the patient's IDENTITY and goes false at the end of
@@ -851,6 +849,10 @@ export default function PatientDetailsPage() {
     if (!pendingEditRecordId || detailsLoading) return
     const record = dentalRecords.find((r) => r.id === pendingEditRecordId)
     setPendingEditRecordId(null)
+    // ⚠️ Dropped HERE, not when the param was read: `router.push` rewrites the URL *after* the destination
+    // page's effects run, so a `replaceState` on mount is silently overwritten and the param survives — which
+    // reopens the editor on every refresh. By now the navigation has settled.
+    window.history.replaceState({}, "", `/patients/${patientId}?tab=medical-records`)
     // Cleared either way: a fiche deleted between the two screens must not leave the link armed for ever, and
     // silence would read as « the button does nothing ».
     if (!record) {
