@@ -1,5 +1,5 @@
 import { apiGet, apiGetBlob, apiPost, apiPut, apiDelete } from './client';
-import type { TreatmentPlanDto } from './types';
+import type { TreatmentPlanDto, TreatmentInProgressDto, ContinuableActDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -23,6 +23,34 @@ export interface TreatmentPlanItemInput {
   designationFr: string;
   plannedCost: number;
   toothNumbers: number[];
+  /**
+   * The séances this act will be carried out over, **as the dentist confirmed them** before accepting the
+   * devis — the procedure's protocol with whatever they unticked or edited.
+   *
+   * ⚠️ **Tri-state, and all three states are real.** `undefined` means « nothing was decided » and the server
+   * applies the procedure's catalogue protocol; `[]` is an explicit « cet acte se fait en une séance » and
+   * refuses that protocol; a non-empty list is the confirmed sequence. Sending `undefined` where the dentist
+   * unticked every step would silently re-propose the protocol they had just declined.
+   */
+  steps?: TreatmentPlanItemStepInput[];
+}
+
+/**
+ * One step as `setItemSteps` takes it.
+ *
+ * Echo `id` back to keep an existing step's identity (its réalisé date, its fiche link, any séance booked for
+ * it); omit it for a new step. The order of the array **is** the clinical order.
+ */
+export interface TreatmentPlanItemStepInput {
+  id?: string | null;
+  label: string;
+  /** Chair time for the step, or null when nobody has estimated it. */
+  estimatedDurationMinutes?: number | null;
+  /**
+   * Calendar days to wait after the previous séance, or null when the interval is clinically free. A different
+   * quantity from the chair time above: that one sizes the appointment, this one decides when it is due.
+   */
+  minDaysAfterPrevious?: number | null;
 }
 
 export interface TreatmentPlanInstallmentInput {
@@ -162,6 +190,132 @@ export const treatmentPlansApi = {
    */
   markItemUndone: async (id: string, itemId: string): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, {}),
+
+  /**
+   * Detach one **step** of an act from the fiche that evidenced it. The step-level twin of `markItemUndone`,
+   * with the same absence beside it: there is deliberately **no** `markStepDone`, because a step becomes
+   * réalisée by saving the fiche de soins, never by a toggle.
+   */
+  markStepUndone: async (id: string, itemId: string, stepId: string): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps/${stepId}/undone`, {}),
+
+  /**
+   * Set the clinical steps of one act — « Préparation, Empreinte, Scellement définitif ».
+   *
+   * **Replace semantics**, and that is why it is its own call rather than a field on `amend`: an empty list
+   * means « cet acte se fait en une séance », not « unchanged », and replace-semantics inside a
+   * null-means-unchanged patch is how a list gets silently wiped by a partial body.
+   *
+   * Echo an existing step's `id` back and it keeps its identity — its réalisé date, the fiche that evidences
+   * it and any séance already booked for it all survive the edit. Omit the id for a new step.
+   *
+   * ⚠️ Moves **no money** (the act's price, the devis total and the échéancier are untouched) and bumps no
+   * revision, which is why the server allows it on a devis that is already facturé — a dentist has to be able
+   * to correct the protocol of a bridge he is halfway through.
+   */
+  setItemSteps: async (
+    id: string,
+    itemId: string,
+    steps: TreatmentPlanItemStepInput[],
+    version?: number,
+  ): Promise<TreatmentPlanDto> =>
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps`, { steps, version }),
+
+  /**
+   * « Traitements en cours » — the acts this cabinet has started and not finished, with the next step and
+   * whether a séance is booked for it.
+   *
+   * Ask for page 1 of size 1 and read `totalCount` to render the journée's chip: the total is exact whatever
+   * page was requested, so the chip and the list it opens cannot disagree.
+   */
+  treatmentsInProgress: async (
+    // `search` matches the patient's name (either order) and the devis number — server-side, whole clinic, the
+    // same field the devis list searches. Filtering the returned page instead would search 25 acts and report
+    // « aucun résultat » for a patient whose treatment sits on page 2.
+    params?: PageParams & { search?: string },
+  ): Promise<PagedResponse<TreatmentInProgressDto>> =>
+    apiGet<PagedResponse<TreatmentInProgressDto>>('/treatment-plans/treatments-in-progress', params),
+
+  /**
+   * The patient's recent fiches whose acts could turn out to need another séance.
+   *
+   * ⚠️ Candidates, not a diagnosis: a fiche records what was *done* and never what remains, so the dentist
+   * picks. Each row carries the note d'honoraires already billing it, if there is one — which is what decides
+   * whether the devis this creates owns the money or is merely attached to the note that does.
+   */
+  continuableActs: async (patientId: string): Promise<ContinuableActDto[]> =>
+    apiGet<ContinuableActDto[]>('/treatment-plans/continuable-acts', { patientId }),
+
+  /**
+   * Turn an act already carried out into a multi-séance treatment. AdminOrDoctor — it consumes a devis number
+   * and may attach an issued note to the plan.
+   */
+  continueRecordedAct: async (data: {
+    dentalRecordId: string
+    actId: string
+    nextStepLabel?: string
+    /**
+     * What the work still to come is worth, as its own act on the devis. Omit for « rien de plus à facturer ».
+     *
+     * ⚠️ Without it the devis carries the *original* act's fee and nothing else, so every retroactive
+     * continuation under-prices by the value of the work that remains — live data shows « Extraction simple,
+     * 120 DT » whose next séance is « Pose de la prothèse ».
+     */
+    remainingWorkCost?: number
+    remainingWorkLabel?: string
+  }): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>('/treatment-plans/continue-recorded-act', data),
+
+  /**
+   * « Arrêter le traitement » — the patient is not continuing. Parks the acts with no delivered work, keeps the
+   * rest, re-spreads the échéancier onto the kept total and closes the devis. AdminOrDoctor.
+   *
+   * ⚠️ **One call, and it replaces two.** This used to be `amend` (to remove the acts) followed by `complete`,
+   * with the client deciding which acts to drop — and that shape destroyed delivered work three ways: the
+   * filter asked for an act's *next-step* état so a bridge two séances in was offered for deletion; the acts
+   * were deleted rather than parked, taking their step rows and the links to the fiches that evidenced them;
+   * and the clôture threw *after* the removals had committed, leaving the plan half-stopped with no way back.
+   */
+  stopTreatment: async (id: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/stop`, { version }),
+
+  /**
+   * « Reprendre le traitement » — the patient came back. Reopens a stopped devis and restores every parked act
+   * at the état its own steps derive. AdminOrDoctor.
+   */
+  reopenTreatment: async (id: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/reopen`, { version }),
+
+  /**
+   * « Suivre ce traitement » — start following a multi-séance act in one press.
+   *
+   * Creates the treatment as an **un-numbered draft**: no devis number, no échéancier, no créance. Nothing
+   * irreversible happens, which is the whole reason this is not `create`: that one numbers and accepts in the
+   * same save, so picking an implant in the booking dialog used to mint an accepted devis claiming the act's
+   * whole total — measured, 2026-0023 at 800,000 DT.
+   *
+   * ⚠️ `agreedTotal` is the treatment's **only** price. A séance of it has none: what a séance carries is an
+   * encaissement, which draws this figure down and never adds to it.
+   */
+  startTreatment: async (data: {
+    patientId: string
+    procedureTypeId: string
+    agreedTotal?: number | null
+    toothNumbers?: number[]
+  }): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>('/treatment-plans/start', {
+      patientId: data.patientId,
+      procedureTypeId: data.procedureTypeId,
+      agreedTotal: data.agreedTotal ?? null,
+      toothNumbers: data.toothNumbers ?? [],
+    }),
+
+  /**
+   * « Éditer le devis » — take the number, because the patient is being handed a document. The only call that
+   * consumes a devis number, and idempotent on a treatment that already has one.
+   */
+  issueDevis: async (id: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/issue-devis`, { version }),
 
   /** Add/edit/remove acts on an accepted devis (+ title, notes and the matching échéancier). AdminOrDoctor. */
   amend: async (id: string, data: AmendTreatmentPlanRequest): Promise<TreatmentPlanDto> =>

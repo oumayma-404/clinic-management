@@ -43,7 +43,15 @@ export default function ProcedureTypesPage() {
           subtitle="Le catalogue d'actes qui alimente l'agenda, les devis et les fiches de soins."
         />
 
-        <ProcedureTypesTable key={refreshKey} onEdit={handleEdit} onAdd={handleAdd} />
+        {/*
+          ⚠️ **`reloadKey`, never `key`.** A changed `key` REMOUNTS the table, so every refresh threw away its
+          search term, its catégorie filter and its page — measured: searching « B2-Test » (1 row), editing the
+          act's protocol and saving landed back on « 1–25 sur 35 types d'actes » with the box empty, and the
+          refetch went out with no `search=` at all. Setting up a catalogue means doing that fourteen times, so
+          each save cost a re-typed search and a re-scan of a paged table to find where you were. The table
+          already refetches its current page from `reloadKey` and keeps its own state.
+        */}
+        <ProcedureTypesTable reloadKey={refreshKey} onEdit={handleEdit} onAdd={handleAdd} />
 
         <ProcedureTypeFormModal
           open={modalOpen}

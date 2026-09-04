@@ -93,6 +93,18 @@ public class AppointmentProcedureDto
     public Guid? TreatmentPlanItemId { get; set; }
 
     /// <summary>
+    /// Which step of that devis act this séance carries out, when the act is done over several — « la
+    /// préparation », « le scellement ». Null for an act done in one sitting.
+    /// <para>
+    /// The <b>id only</b>, deliberately not the label: the surfaces that show a step (the booking dialog, the
+    /// devis workspace, « Traitements en cours ») all hold the plan already, so a label here would be a second
+    /// copy of a string the client can resolve — and one that would need a batched read on every agenda page to
+    /// serve a screen that does not display it.
+    /// </para>
+    /// </summary>
+    public Guid? TreatmentPlanItemStepId { get; set; }
+
+    /// <summary>
     /// The price agreed for this act at this visit (a forfait), or null when none was negotiated and the
     /// catalogue tarif stands. This is what the fiche de soins prices the act at, so it has to be on the read
     /// as well as the write: without it the edit dialog would reopen a negotiated visit at its catalogue prices

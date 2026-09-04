@@ -552,6 +552,15 @@ export interface AppointmentProcedureDto {
   /** The devis act this line carries out — how a grouped séance reports each of its steps. */
   treatmentPlanItemId?: string | null;
   /**
+   * Which **step** of that devis act this séance carries out — « la préparation », « le scellement ». Null for
+   * an act done in one sitting.
+   *
+   * ⚠️ Never set without `treatmentPlanItemId`; the server refuses the pair. The id only — the surfaces that
+   * show a step (this dialog, the devis workspace, « Traitements en cours ») all hold the plan already, so a
+   * label here would be a second copy of a string the client can resolve.
+   */
+  treatmentPlanItemStepId?: string | null;
+  /**
    * The price agreed for this act at this visit — a **forfait**, not a per-tooth rate — or null when nothing was
    * negotiated and the catalogue tarif stands. What the fiche de soins prices the act at.
    */
@@ -925,6 +934,17 @@ export interface ProcedureTypeDto {
    * and consumes nothing (AC-P4.11), which is the default.
    */
   materials: ProcedureTypeMaterialDto[];
+  /**
+   * The clinical steps this act is **proposed** as when added to a devis — « Préparation, Empreinte,
+   * Scellement définitif » for a bridge. Empty for an act done in one séance, which is the default and sixteen
+   * of the nineteen seeded acts.
+   *
+   * A suggestion the plan line then owns and edits per case, never a constraint: the catalogue *proposes*, the
+   * devis *possesses*. Editing it here touches no devis already under way.
+   *
+   * ⚠️ Absent on an older response — read that as « none proposed ».
+   */
+  defaultSteps?: ProcedureStepTemplateDto[];
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
   version: number;
   createdAt: string;
@@ -935,6 +955,98 @@ export interface ProcedureTypeDto {
 export interface ProcedureTypeMaterialDto {
   stockItemId: string;
   quantityPerAct: number;
+}
+
+/**
+ * One suggested step of a catalogue act. Order is the list's own — there is no rank field, because the template
+ * is read whole and copied whole onto the plan line, which is where ranks become real.
+ */
+export interface ProcedureStepTemplateDto {
+  label: string;
+  /**
+   * Chair time for this step, or null when the practice has not estimated it.
+   *
+   * ⚠️ Never summed into the act's own `defaultDurationMinutes` — the steps happen on different days, so adding
+   * them up would treble a bridge's agenda block.
+   */
+  durationMinutes: number | null;
+  /**
+   * Calendar days that must elapse after the previous step, or null when the interval is clinically free.
+   *
+   * ⚠️ A different quantity from the chair time above: that one sizes the appointment, this one decides when it
+   * is due. Holding only the first is what made the worklist alarm on a flat fortnight whatever the protocol —
+   * osseointegration is eight to twelve weeks, so a correctly-progressing implant read as abandoned.
+   */
+  minDaysAfterPrevious?: number | null;
+}
+
+/**
+ * One act the cabinet has started and not finished — the row of « Traitements en cours ».
+ *
+ * ⚠️ Carries **no money figure at all**, and that is what lets the screen be open to the whole team: booking the
+ * next séance is reception's job. A « reste à payer » here would move it behind the practitioner policy.
+ */
+/**
+ * One act of a past fiche that could turn out to need another séance — the rows behind « C'est la suite d'une
+ * séance précédente ? ».
+ *
+ * ⚠️ The money fields describe **the note that already bills it**, not the devis the continuation will create.
+ * An act invoiced at 1 000 DT with 800 collected leaves 200 owed on that note; the new devis is attached to it
+ * and owes nothing, which is what keeps « Solde patient » from counting the work twice.
+ */
+export interface ContinuableActDto {
+  dentalRecordId: string;
+  actId: string;
+  /** When the séance took place — how the dentist recognises it in the list. */
+  interventionDate: string;
+  procedureName: string;
+  procedureTypeId: string | null;
+  toothNumbers: number[];
+  cost: number;
+  /** The note already billing that fiche, or null when the séance was never billed. THE fork of the feature. */
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  /** Still owed on that note. 0 when there is no note, or when it is settled. */
+  invoiceOutstanding: number;
+}
+
+export interface TreatmentInProgressDto {
+  planId: string;
+  /** The devis number (`AAAA-NNNN`). */
+  planNumber: string | null;
+  patientId: string;
+  /** Resolved server-side in one batched read. Null when the patient record has since been deleted. */
+  patientName: string | null;
+  itemId: string;
+  designationFr: string;
+  stepsTotal: number;
+  stepsDone: number;
+  nextStepId: string | null;
+  nextStepLabel: string | null;
+  /** 1-based for display — « étape 3 sur 3 ». The stored rank is 0-based. */
+  nextStepNumber: number | null;
+  nextStepEstimatedDurationMinutes: number | null;
+  /** When the most recent carried-out step happened — what the list is ordered by, oldest first. */
+  lastStepDoneOn: string | null;
+  /**
+   * The appointment already booked for the **next** step, when there is one — so the row reads « prochaine
+   * séance le 3 octobre » instead of offering to book what is booked.
+   *
+   * ⚠️ Rows are **not** filtered on this: a treatment under way belongs on the list either way, and filtering
+   * after the page was cut would make `totalCount` describe a different set than the rows do.
+   */
+  nextStepAppointmentId: string | null;
+  nextStepAppointmentAt: string | null;
+  /**
+   * The earliest day the next séance should happen, from the protocol's own interval and the previous step's
+   * date. Null where the protocol states no interval — « no opinion », and most acts.
+   *
+   * ⚠️ This is what makes « pas encore due » sayable. Without it the list alarmed on a flat fortnight whatever
+   * the act was, so an implant waiting the eight to twelve weeks of ostéointégration its own protocol specifies
+   * looked exactly like a treatment the practice had forgotten — and a list that flags correct clinical waiting
+   * as overdue stops being read, which is when it also stops catching the bridge that really was abandoned.
+   */
+  nextStepDueFrom: string | null;
 }
 
 // A single act line on a dental record. A record can carry many acts.
@@ -1222,6 +1334,68 @@ export interface TreatmentPlanItemDto {
    * upcoming live one, else the most recent past live one. Null when nothing is booked, *including* when the
    * only linked appointment was cancelled or a no-show, so the act returns to « À planifier » and can be
    * booked again. See `plan-next-action.ts` for the état mapping.
+   */
+  scheduledAppointmentId?: string | null;
+  scheduledAt?: string | null;
+  scheduledAppointmentStatus?: string | null;
+  /**
+   * The act's clinical steps in order — « Préparation, Empreinte, Scellement ». **Empty for an act done in one
+   * séance**, which is every line written before steps existed and most written after, so a surface that
+   * ignores this field behaves exactly as it did.
+   *
+   * ⚠️ Absent on an older response. Treat that as « no steps », never as « unknown »: `plan-next-action` keys
+   * the row's état off `nextStepId`, and an undefined list must read as a one-sitting act.
+   */
+  steps?: TreatmentPlanItemStepDto[];
+  /** How many of `steps` are carried out. Derived server-side from the rows. */
+  stepsDone?: number;
+  /**
+   * The next step still to carry out, or null when there is none (or the act has no steps). This is what the
+   * row's single primary action names — « Planifier le scellement » — and what its badge answers for.
+   */
+  nextStepId?: string | null;
+  /**
+   * The earliest day the next step should be carried out, from the protocol's interval and the previous step's
+   * date. Null when the act has no next step, states no interval, or has nothing delivered to count from —
+   * which is « no opinion » and the ordinary case.
+   */
+  nextStepDueFrom?: string | null;
+  /**
+   * Parked by « Arrêter le traitement »: not part of the treatment any more, contributing to no total and no
+   * progress count, and keeping every step, date and fiche link it had. Restored by « Reprendre ».
+   */
+  isWithdrawn?: boolean;
+}
+
+/**
+ * One clinical step of a planned act. Carries **no money**: the fee lives once on the act's `plannedCost`, and
+ * a step that could be priced would put one act on several invoice lines — which the CNAM ceiling read, applying
+ * no per-line cap, would then count once per line.
+ */
+export interface TreatmentPlanItemStepDto {
+  id: string;
+  label: string;
+  /** Clinical order within the act (0-based, dense). Steps arrive already sorted. */
+  sequenceNumber: number;
+  doneDate: string | null;
+  /**
+   * The fiche de soins that evidences this step. **Per step** — which is the whole point: the act-level link is
+   * refused a second, different record, so before steps a bridge charted across three séances was refused on
+   * the second.
+   */
+  linkedDentalRecordId: string | null;
+  estimatedDurationMinutes: number | null;
+  /**
+   * Calendar days to wait after the previous séance, when the protocol states one — a different quantity from
+   * the chair time above. Null means the interval is clinically free, never zero.
+   */
+  minDaysAfterPrevious?: number | null;
+  /**
+   * Derived read-back: the appointment that currently speaks for **this step**. Null when the step is not
+   * booked, including when its only linked visit was cancelled.
+   *
+   * ⚠️ Deliberately separate from the act's own `scheduledAppointmentId`: an act with one of three séances
+   * booked is « planifié » as an act *and* has two unbooked steps, and one field cannot say both.
    */
   scheduledAppointmentId?: string | null;
   scheduledAt?: string | null;
@@ -1703,6 +1877,36 @@ export interface TreatmentPlanDto {
   linkedInvoiceId?: string | null;
   linkedInvoiceNumber?: string | null;
   linkedInvoiceStatus?: string | null;
+  /**
+   * What the linked note is worth and what is still owed **on it** — the figures that replace this plan's own
+   * `outstanding` wherever a balance is printed for a bridged devis. Null when no note bills it.
+   *
+   * ⚠️ Read them through `displayedOutstanding`, never directly: a bridged plan's own `outstanding` counts an
+   * auto-raised échéance that will never see a payment, so it reports the whole devis as unpaid about a patient
+   * who owes nothing.
+   */
+  linkedInvoiceTotal?: number | null;
+  linkedInvoiceOutstanding?: number | null;
   items: TreatmentPlanItemDto[];
   installments: InstallmentDto[];
+}
+
+/**
+ * A marker dropped on the surface of a 3D model (`mesh-interactive-viewer`).
+ *
+ * ⚠️ **The coordinates are in the FILE's own units, which is to say in no unit at all** — STL, PLY and OBJ
+ * record none. Nothing here is named « millimetres », because the server has no basis for that claim; the
+ * viewer chooses how to read them and says which it chose.
+ */
+export interface PatientFileAnnotationDto {
+  id: string
+  x: number
+  y: number
+  z: number
+  normalX: number
+  normalY: number
+  normalZ: number
+  label: string
+  createdAt: string
+  createdBy?: string | null
 }

@@ -100,9 +100,17 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
             // Numbered, accepted and committed in one go, through the same helper the legacy accept path uses.
             // The insert and the acceptance share a transaction by construction — there is a single
             // SaveChanges — so a numbering collision can never leave a saved-but-unnumbered plan behind.
+            /*
+             * The séances the dentist confirmed on the form, by position — `SetItems` numbers the acts in the
+             * order they arrive, so index i is act i. `null` for a line the client said nothing about, which
+             * then takes its procedure's catalogue protocol.
+             */
+            var confirmedSteps = TreatmentPlanStepProtocol.ConfirmedByPosition(request.Items);
+
             var accepted = await DevisNumbering.AcceptAndSaveAsync(
-                plan, clinicId, _planRepository, _unitOfWork,
+                plan, clinicId, _planRepository, _procedureTypeRepository, _unitOfWork,
                 ct => _planRepository.AddAsync(plan, ct),
+                confirmedSteps,
                 _logger, cancellationToken);
             if (accepted.IsFailure)
             {

@@ -37,6 +37,17 @@ public class ProcedureTypeDto
     /// </summary>
     public List<ProcedureTypeMaterialDto> Materials { get; set; } = new();
 
+    /// <summary>
+    /// The clinical steps this act is <b>proposed</b> as when added to a devis — « Préparation, Empreinte,
+    /// Scellement définitif » for a bridge. Empty for an act done in one séance, which is the default and every
+    /// act in the catalogue until a practice fills these in.
+    /// <para>
+    /// A suggestion the plan line then owns and edits per case, never a constraint — see
+    /// <c>ProcedureStepTemplate</c> for why the catalogue proposes instead of becoming hierarchical.
+    /// </para>
+    /// </summary>
+    public List<ProcedureStepTemplateDto> DefaultSteps { get; set; } = new();
+
     /// <summary>Round-tripped by the edit form so a concurrent change is a 409 rather than a silent overwrite.</summary>
     public uint Version { get; set; }
 
@@ -60,6 +71,34 @@ public class ProcedureTypeMaterialDto
 {
     public Guid StockItemId { get; set; }
     public int QuantityPerAct { get; set; }
+}
+
+/// <summary>
+/// One suggested step of a catalogue act. Order is the list's own — there is no rank field, because the template
+/// is read whole and copied whole onto the plan line, which is where ranks become real
+/// (<c>TreatmentPlanItemStep.SequenceNumber</c>).
+/// </summary>
+public class ProcedureStepTemplateDto
+{
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Chair time for the step, or null when the practice has not estimated it. ⚠️ Never summed into the act's
+    /// own <c>DefaultDurationMinutes</c> — the steps happen on different days.
+    /// </summary>
+    public int? DurationMinutes { get; set; }
+
+    /// <summary>
+    /// The soonest this step may follow the one before it, in days, or null when the protocol imposes no wait.
+    /// A different quantity from <see cref="DurationMinutes"/> — chair time versus healing time.
+    /// <para>
+    /// ⚠️ This field carries the whole « pas encore due » distinction, and it was missing here while both ends
+    /// already had it: the editor posted <c>minDaysAfterPrevious</c>, the DTO had no such property so binding
+    /// dropped it, and <c>TreatmentPlanStepProtocol</c> read an interval that was therefore always null. No
+    /// error at any layer — the field simply saved blank and read back blank.
+    /// </para>
+    /// </summary>
+    public int? MinDaysAfterPrevious { get; set; }
 }
 
 /// <summary>
@@ -136,6 +175,14 @@ public static class ProcedureTypeMappingExtensions
                 {
                     StockItemId = m.StockItemId,
                     QuantityPerAct = m.QuantityPerAct,
+                })
+                .ToList(),
+            DefaultSteps = procedureType.DefaultSteps
+                .Select(s => new ProcedureStepTemplateDto
+                {
+                    Label = s.Label,
+                    DurationMinutes = s.DurationMinutes,
+                    MinDaysAfterPrevious = s.MinDaysAfterPrevious,
                 })
                 .ToList(),
             Version = procedureType.Version,

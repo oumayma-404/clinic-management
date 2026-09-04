@@ -164,6 +164,24 @@ export function appointmentActsSummary(appointment: {
   return appointment.procedureTypeName?.trim() || null
 }
 
+/**
+ * True when this séance carries out an act of a devis — what puts a « devis » mark on an agenda block.
+ *
+ * <p>⚠️ On the agenda a séance that is one étape of a six-visit treatment rendered <b>identically</b> to every
+ * loose visit: patient name + act name, no chip, no « 1/6 », nothing. Measured on one day, two of seven
+ * appointments were plan steps and all seven cards were indistinguishable. The appointment <i>dialog</i> shows
+ * both the devis chip and the étape name — the agenda, which is the screen actually read at 8 a.m., threw that
+ * away. It reads `LinkedTreatmentPlanItemIds`' wire form: the child rows first, the legacy scalar as a
+ * fallback, exactly as the backend's own readers do.</p>
+ */
+export function isPlanSeance(appointment: {
+  procedures?: { treatmentPlanItemId?: string | null }[]
+  treatmentPlanItemId?: string | null
+}): boolean {
+  if ((appointment.procedures ?? []).some((p) => p.treatmentPlanItemId)) return true
+  return appointment.treatmentPlanItemId != null
+}
+
 /** Number of acts booked into a séance — `> 1` is what a « +N » marker keys off on a cramped calendar card. */
 export function appointmentActsCount(appointment: {
   procedures?: unknown[]

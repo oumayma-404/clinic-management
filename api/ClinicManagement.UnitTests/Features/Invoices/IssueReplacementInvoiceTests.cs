@@ -82,11 +82,9 @@ public class IssueReplacementInvoiceTests
     // The whole swap, in one pass: the predecessor's money is marked never-received, it is cancelled with the
     // correction's reason, and the replacement carries the money at its ORIGINAL date.
     //
-    // ⚠️ Collected (150) fits the corrected total (150), which is what makes this a correction rather than a
-    // refund. The fiche path produces exactly this shape: the dentist lowers the tariff AND « Payé » together,
-    // so the note was over-BILLED, never over-collected. When the patient really did hand over more, the money
-    // has to go back and that is an avoir — pinned by
-    // `Collecting_More_Than_The_Correction_Is_Refused_And_Names_The_Avoir` below.
+    // ⚠️ Collected (150) fits the corrected total (150) — the shape the fiche path produces, where the dentist
+    // lowers the tariff AND « Payé » together. A collected figure ABOVE the correction is clamped, not refused:
+    // `Collecting_More_Than_The_Correction_Carries_Only_What_The_Correction_Is_Worth` below.
     [Fact]
     public async Task Issuing_A_Replacement_Retires_The_Note_It_Corrects()
     {
@@ -137,11 +135,11 @@ public class IssueReplacementInvoiceTests
         Assert.Equal(original.Id, replacement.SupersedesInvoiceId);
     }
 
-    // ⚠️ Bounded BEFORE anything is voided. Letting `RecordPayment` throw mid-loop would strand a numbered
-    // invoice whose predecessor is already cancelled and whose money is nowhere. And this is the case where the
-    // patient really IS owed money back, which is an avoir's job — so the message says so rather than clamping.
+    // ⚠️ Correcting says the note was WRONG, so the 60 above the corrected total was never received. This used to
+    // be refused and named an avoir — which states a refund that did not happen, and left the dentist with no way
+    // to correct a note downwards at all.
     [Fact]
-    public async Task Collecting_More_Than_The_Correction_Is_Refused_And_Names_The_Avoir()
+    public async Task Collecting_More_Than_The_Correction_Carries_Only_What_The_Correction_Is_Worth()
     {
         var original = Original(180m, ClinicId);
         var replacement = Replacement(original.Id, 120m);
@@ -149,12 +147,13 @@ public class IssueReplacementInvoiceTests
 
         var result = await Issue(replacement);
 
-        Assert.True(result.IsFailure);
-        Assert.Contains("avoir", result.Error);
-        // Nothing moved: the predecessor is intact and still holds its money.
-        Assert.Equal(InvoiceStatus.Paid, original.Status);
-        Assert.Equal(180m, original.AmountCollected);
-        Assert.False(original.Payments.Single().IsVoided);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(InvoiceStatus.Cancelled, original.Status);
+        Assert.Equal(0m, original.AmountCollected);
+
+        Assert.Equal(120m, replacement.AmountCollected);
+        Assert.Equal(InvoiceStatus.Paid, replacement.Status);
+        Assert.Equal(PaidOn, replacement.Payments.Single().PaidOn);
     }
 
     // Issuing the replacement while the note it replaces stays live would leave the patient holding two

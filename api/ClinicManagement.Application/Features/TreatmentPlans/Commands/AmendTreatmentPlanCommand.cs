@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -139,11 +140,25 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                 return Result<TreatmentPlanDto>.Failure("Aucune modification demandée.");
             }
 
-            var billedGuard = await EnsureNotBilledAsync(plan, clinicId, cancellationToken);
-            if (billedGuard.IsFailure)
-            {
-                return Result<TreatmentPlanDto>.Failure(billedGuard.Error!);
-            }
+            /*
+             * ⚠️ There is NO billed guard here any more, and its removal was a deliberate owner decision:
+             * « le médecin doit pouvoir tout corriger ».
+             *
+             * What it used to refuse was amending a devis already represented by a note d'honoraires, on the
+             * grounds that the note was raised from the devis' total and the two would then disagree. That
+             * reasoning is sound about the *consequence* and wrong about the *remedy*: the dentist who mistyped
+             * a fee is the one person who can fix it, and « annulez la facture d'abord » asks them to reverse a
+             * numbered fiscal document to correct a plan.
+             *
+             * The divergence is therefore <b>surfaced rather than prevented</b>: `TreatmentPlanDto` carries the
+             * linked note's own total, and the workspace states the gap and names the correction (an avoir, or a
+             * corrective note). Nothing here silently re-writes an issued invoice — that is not ours to do.
+             *
+             * ⚠️ The money reads are unaffected either way: `GetPatientBillingSummaryQuery` drops a plan billed
+             * into an invoice, so a changed `TotalPlanned` on such a plan moves no balance, no caisse figure and
+             * no receivable. The gap is a *documentary* one, which is exactly why stating it is the whole fix.
+             */
+
 
             var totalBefore = plan.TotalPlanned;
 
@@ -163,6 +178,25 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                 var edits = await TreatmentPlanItemPricing.ResolveWithIdsAsync(
                     request.UpdateItems, clinicId, _procedureTypeRepository, cancellationToken);
                 plan.UpdateItems(edits);
+
+                /*
+                 * The steps of an edited act, which `UpdateItems` cannot carry: `TreatmentPlanItem.Revise`
+                 * deliberately touches the designation, fee, teeth and catalogue link only. Without this the
+                 * whole step half of « Modifier le devis » was silently inert — a renamed séance, a re-ordered
+                 * protocol or a deleted middle step all answered « Devis modifié » and changed nothing.
+                 *
+                 * Tri-state, like the creation path: a line that sends no `steps` key leaves the act's own
+                 * sequence alone (the ordinary case, and what an older client sends), `[]` means « one séance »
+                 * and a list is the new sequence. Ids are echoed back per step, so a step already carried out
+                 * keeps its DoneDate and its fiche link.
+                 */
+                foreach (var line in request.UpdateItems.Where(i => i.Id.HasValue && i.Steps != null))
+                {
+                    plan.SetItemSteps(
+                        line.Id!.Value,
+                        line.Steps!.Select(s => new TreatmentPlanItemStepInput(
+                            s.Id, s.Label, s.EstimatedDurationMinutes, s.MinDaysAfterPrevious)));
+                }
             }
 
             // Removals next: taking an act out lowers the total, and doing it before the additions keeps
@@ -179,18 +213,49 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
 
             if (request.AddItems.Count > 0)
             {
+                // Captured BEFORE the add, because `ApplyAsync` matches a confirmed list to an act by the act's
+                // `SequenceNumber` — which on this path is its position in the whole plan, not in `AddItems`.
+                var firstAddedPosition = plan.Items.Count == 0 ? 0 : plan.Items.Max(i => i.SequenceNumber) + 1;
+
                 var items = await TreatmentPlanItemPricing.ResolveAsync(
                     request.AddItems, clinicId, _procedureTypeRepository, cancellationToken);
                 plan.AddItems(items);
+
+                /*
+                 * An act added by amendment reaches a plan that is already Accepted, so it never passes through
+                 * DevisNumbering — the other place the protocol is applied. Without this call, « ajouter une
+                 * couronne » to a live devis produces the one act on the plan with no étape on it, and the
+                 * dentist retypes the protocol by hand for exactly the acts that arrived latest.
+                 * ApplyAsync only fills an act with no steps that is still Planned, so the acts already on the
+                 * plan — including the half-finished bridge this amendment exists to bill — are untouched.
+                 *
+                 * ⚠️ The confirmed list is passed, as the creation path does. Omitting it discarded what the
+                 * dentist had ticked: `steps: []` on a newly-added act — « je le fais en une séance » — was
+                 * read as « the client did not decide » and the full catalogue protocol was applied over it.
+                 */
+                var confirmed = new List<IReadOnlyList<TreatmentPlanItemStepInput>?>();
+                confirmed.AddRange(Enumerable.Repeat<IReadOnlyList<TreatmentPlanItemStepInput>?>(
+                    null, firstAddedPosition));
+                confirmed.AddRange(TreatmentPlanStepProtocol.ConfirmedByPosition(request.AddItems));
+
+                await TreatmentPlanStepProtocol.ApplyAsync(
+                    plan, clinicId, _procedureTypeRepository, cancellationToken, confirmed);
             }
 
-            // A changed total MUST come with a schedule: leaving the old one would break
-            // Σ installment.Amount == TotalPlanned, the invariant that keeps « Solde patient » and
-            // « Créances » reporting the same number.
+            /*
+             * A changed total must not leave the échéancier behind — Σ installment.Amount == TotalPlanned is
+             * what keeps « Solde patient » and « Créances » reporting the same number.
+             *
+             * ⚠️ It used to REFUSE when no schedule came with the change, and that was the app fighting the
+             * dentist: correcting a price from the booking dialog or the acts table has no échéancier on
+             * screen to re-send, so the only honest answer there was « renvoyez l'échéancier », which names
+             * something the caller cannot see. It re-spreads instead — every collected row stays at exactly
+             * what it has taken and the balance lands on one row — so a price is editable from anywhere and
+             * the invariant still holds. A plan with no schedule (an un-numbered treatment) is a no-op.
+             */
             if (plan.TotalPlanned != totalBefore && request.Installments.Count == 0)
             {
-                return Result<TreatmentPlanDto>.Failure(
-                    "Le total du devis a changé : renvoyez l'échéancier correspondant au nouveau total.");
+                plan.RespreadScheduleToTotal(ClinicClock.ClinicToday());
             }
 
             if (request.Installments.Count > 0)

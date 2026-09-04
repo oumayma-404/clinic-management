@@ -372,14 +372,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
             ?? throw new InvalidOperationException("Acte introuvable.");
 
         item.MarkDone(doneOn, linkedDentalRecordId);
-        if (Status == TreatmentPlanStatus.Accepted)
-            Status = TreatmentPlanStatus.InProgress;
-
-        // EnsureActive + the bump above leave the plan InProgress, so Complete() can never throw here.
-        if (_items.Count > 0 && _items.All(i => i.Status == TreatmentPlanItemStatus.Done))
-        {
-            Complete();
-        }
+        AdvanceAfterWorkRecorded();
 
         Touch();
     }
@@ -413,22 +406,302 @@ public class TreatmentPlan : AggregateRoot<Guid>
         // Mirror MarkItemDone exactly: it promotes Accepted → InProgress on the first done act and → Completed
         // when all are done. Completed is therefore only reachable with every act done, so un-marking one always
         // reopens; and with no act done at all the plan is back where acceptance left it.
-        Status = _items.Any(i => i.Status == TreatmentPlanItemStatus.Done)
-            ? TreatmentPlanStatus.InProgress
-            : TreatmentPlanStatus.Accepted;
+        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
 
         Touch();
     }
 
-    public void Complete()
+    /// <summary>
+    /// Record that one <b>step</b> of a planned act was carried out, linking the fiche that evidences it. The
+    /// act reaches « réalisé » on its own once its last step lands, and the plan closes itself once that was
+    /// the last outstanding act — so this is <see cref="MarkItemDone"/>'s promotion chain, entered one step
+    /// lower.
+    /// <para>
+    /// This is the entry point a fiche de soins uses when the séance named a step. A séance that named none
+    /// still goes through <see cref="MarkItemDone"/>, which advances the next step for a stepped act.
+    /// </para>
+    /// </summary>
+    public void MarkItemStepDone(Guid itemId, Guid stepId, DateTime doneOn, Guid? linkedDentalRecordId)
     {
-        if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
-            throw new InvalidOperationException("Seul un plan accepté ou en cours peut être clôturé.");
-        if (_items.Any(i => i.Status != TreatmentPlanItemStatus.Done))
+        EnsureActive();
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        item.MarkStepDone(stepId, doneOn, linkedDentalRecordId);
+        AdvanceAfterWorkRecorded();
+
+        Touch();
+    }
+
+    /// <summary>
+    /// Undo <see cref="MarkItemStepDone"/> for one step — the correction path, and the implementation of the
+    /// « détachez-la de cette fiche » that <c>TreatmentPlanItemStep.MarkDone</c> tells the user to do.
+    /// <para>
+    /// <see cref="EnsureCorrectable"/> rather than <see cref="EnsureActive"/>, for <see cref="UnmarkItemDone"/>'s
+    /// reason: the last step landing closes the whole devis, so a gate that required an active plan could never
+    /// reach the mistake it exists to fix.
+    /// </para>
+    /// <para>
+    /// Returns <c>false</c> when the step was already « à venir », so the caller can distinguish "nothing to
+    /// undo" from a real correction rather than silently reopening a plan that never closed.
+    /// </para>
+    /// </summary>
+    public bool UnmarkItemStep(Guid itemId, Guid stepId)
+    {
+        EnsureCorrectable();
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        if (!item.UnmarkStep(stepId))
+        {
+            return false;
+        }
+
+        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+        Touch();
+        return true;
+    }
+
+    /// <summary>
+    /// Set the clinical steps of one planned act — « Préparation, Empreinte, Scellement ».
+    /// <para>
+    /// Gated like <see cref="SetItemOrder"/> rather than like <see cref="AddItems"/>, and the difference is the
+    /// point: <b>no money moves</b>. The act's <c>PlannedCost</c>, the devis total and the échéancier are all
+    /// untouched, so this does not bump <see cref="RevisionNumber"/> (nothing the patient signed for changes)
+    /// and it stays available on a plan whose facture is already issued — a dentist must be able to correct the
+    /// protocol of a bridge he is halfway through, and <see cref="EnsureAmendable"/> would refuse exactly that
+    /// on a billed or completed plan.
+    /// </para>
+    /// <para>
+    /// Refused on a cancelled plan only. Editing steps can still change the act's <c>Status</c> (adding a step
+    /// to a finished act reopens it), so the plan's own status is re-derived here the same way
+    /// <see cref="UnmarkItemStep"/> does it.
+    /// </para>
+    /// </summary>
+    public void SetItemSteps(Guid itemId, IEnumerable<TreatmentPlanItemStepInput> steps)
+    {
+        if (Status == TreatmentPlanStatus.Cancelled)
+            throw new InvalidOperationException("Les étapes d'un plan annulé ne peuvent pas être modifiées.");
+
+        /*
+         * ⚠️ **A Draft may carry steps, and lifting that refusal is what makes a treatment cheap to start.**
+         *
+         * This used to throw « Le devis doit être accepté pour définir les étapes d'un acte. », and that one
+         * line forced every road through a financial document: a séance is bookable only if the step row
+         * exists, the step row needed an accepted plan, and `Accept` numbers the devis (gapless, cancellable
+         * only, with a motif) *and* raises a lump-sum échéance for the whole total. So « cet acte prend
+         * plusieurs séances » cost a numbered, accepted, money-bearing devis — measured on a real booking as
+         * 2026-0023 at 800,000 DT, minted from the appointment dialog.
+         *
+         * A Draft is already safe to hold them: `Number` is nullable with the unique index filtered to
+         * non-null (several drafts coexist), and `PlanBillingRules.CarriesDebt` excludes Draft from every
+         * money read — so a draft treatment carries no claim *by construction*, not by convention.
+         */
+
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        item.SetSteps(steps);
+
+        // ⚠️ A Draft stays a Draft. Without this guard the recompute below would promote it to `Accepted`
+        // merely for having been cut into séances — quietly turning an un-numbered treatment into a devis that
+        // `CarriesDebt` says is real, with no number on it.
+        if (Status != TreatmentPlanStatus.Draft)
+        {
+            // A Completed plan that gains a step is no longer finished, and one whose every act is done again is.
+            Status = ActiveItems.Any() && ActiveItems.All(i => i.Status == TreatmentPlanItemStatus.Done)
+                ? TreatmentPlanStatus.Completed
+                : AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+        }
+
+        Touch();
+    }
+
+    /// <summary>
+    /// Whether any clinical work is recorded against this plan — an act « réalisé » <b>or</b> one « en cours »
+    /// because some of its steps are done. Reading only <c>Done</c> here would walk a plan back to
+    /// « Accepté » while a bridge sat half-finished on it.
+    /// </summary>
+    private bool AnyWorkRecorded => _items.Any(i => i.HasDeliveredWork);
+
+    /// <summary>
+    /// The acts that still count as this plan's treatment — everything except the ones parked by
+    /// <see cref="StopTreatment"/>. Every total, progress count and « is it finished » test reads this rather
+    /// than <see cref="Items"/>, so a parked act contributes nothing while keeping its history.
+    /// </summary>
+    public IEnumerable<TreatmentPlanItem> ActiveItems => _items.Where(i => !i.IsWithdrawn);
+
+    /// <summary>
+    /// Close the clinical side of the devis. Money is unaffected: « Terminé » means the work is over, not that
+    /// the patient has paid, so the échéancier stays collectable (see <see cref="EnsurePayable"/>).
+    /// </summary>
+    /// <param name="leaveUnrealisedActs">
+    /// Close even though acts are still « non réalisé », leaving them so — the promise the « Terminer » dialog
+    /// has always made in words (« la clôture ne les valide pas ») and that this method used to refuse, making
+    /// the button fail in precisely the case the dialog bothered to explain. Off by default, so the automatic
+    /// clôture fired when the last step lands still asserts that everything really is done.
+    /// </param>
+    public void Complete(bool leaveUnrealisedActs = false)
+    {
+        // A Draft closes too: « terminé » is a statement about the WORK, and an un-quoted treatment that is
+        // finished is finished. It keeps its null `Number` — closing a treatment never mints a devis.
+        if (Status != TreatmentPlanStatus.Draft
+            && Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress)
+        {
+            throw new InvalidOperationException("Ce traitement est déjà clôturé.");
+        }
+        if (!leaveUnrealisedActs && ActiveItems.Any(i => i.Status != TreatmentPlanItemStatus.Done))
             throw new InvalidOperationException("Tous les actes doivent être réalisés avant de clôturer le plan.");
 
         Status = TreatmentPlanStatus.Completed;
         Touch();
+    }
+
+    /// <summary>
+    /// The patient is not continuing: park every act that has no delivered work, keep the rest, re-spread the
+    /// échéancier onto the kept total, and close the devis — <b>in one transition</b>.
+    /// <para>
+    /// ⚠️ <b>Three separate defects live in the shape this replaces</b>, which was two client calls (amend, then
+    /// complete) driving <see cref="RemoveItem"/> off a client-side filter:
+    /// </para>
+    /// <list type="number">
+    /// <item>The filter asked for the act's derived état, which answers for its <i>next step</i>, so a bridge
+    /// with two of three séances delivered was offered for deletion. <see cref="TreatmentPlanItem.HasDeliveredWork"/>
+    /// is the only question a drop may ask, and it is asked here rather than in a caller.</item>
+    /// <item>The acts were <b>deleted</b>, taking their step rows and the links to the fiches that evidenced
+    /// them, so two real séances survived attached to nothing and the treatment could never be resumed. They are
+    /// parked now — see <see cref="TreatmentPlanItemStatus.Withdrawn"/> and <see cref="Reopen"/>.</item>
+    /// <item>The two calls were not atomic: the clôture threw <i>after</i> the removals committed, leaving the
+    /// acts gone, the échéancier rewritten and the plan still open, with no way to retry or finish.</item>
+    /// </list>
+    /// <para>
+    /// A kept total of 0 clears the échéancier instead of writing a zero row — the aggregate refuses one
+    /// (« Le montant de l'échéance doit être supérieur à 0 »), which is what made stopping an unpaid treatment a
+    /// screen with no way out.
+    /// </para>
+    /// </summary>
+    /// <param name="dueDate">When the re-spread balance is due. The caller supplies it from the clinic clock.</param>
+    /// <returns>The acts parked, in clinical order — what the caller reports back.</returns>
+    public IReadOnlyList<TreatmentPlanItem> StopTreatment(DateTime dueDate)
+    {
+        // A Draft is stoppable too — « le patient ne revient plus » happens just as often before anyone
+        // asked for a quote, and it must not be the one state with no way out.
+        if (Status != TreatmentPlanStatus.Draft
+            && Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress)
+        {
+            throw new InvalidOperationException("Ce traitement est déjà clôturé.");
+        }
+
+        var parked = _items
+            .Where(i => !i.IsWithdrawn && !i.HasDeliveredWork)
+            .OrderBy(i => i.SequenceNumber)
+            .ToList();
+        var kept = _items.Where(i => !i.IsWithdrawn && i.HasDeliveredWork).ToList();
+
+        /*
+         * Nothing delivered. On a NUMBERED devis that is a cancellation — the number is spent and the document
+         * may be in the patient's hands, so it needs a motif. On an un-numbered Draft there is no document and
+         * nothing to explain: the treatment simply never started, and refusing here would leave the dentist on
+         * a dead end for the most ordinary outcome of all.
+         */
+        if (kept.Count == 0 && Number != null)
+        {
+            throw new InvalidOperationException(
+                "Aucun acte de ce devis n'a été réalisé : annulez-le (un motif est requis) plutôt que d'arrêter le traitement.");
+        }
+
+        foreach (var item in parked)
+        {
+            item.Withdraw();
+        }
+
+        RecomputeTotal();
+
+        if (TotalPlanned < AmountPaid)
+        {
+            throw new InvalidOperationException(
+                $"{AmountPaid:0.000} DT ont déjà été encaissés sur ce devis, pour {TotalPlanned:0.000} DT d'actes conservés. "
+                + "Remboursez la différence par un avoir avant d'arrêter le traitement.");
+        }
+
+        RespreadSchedule(dueDate);
+        RevisionNumber++;
+        Complete(leaveUnrealisedActs: true);
+        return parked;
+    }
+
+    /// <summary>
+    /// Put a stopped treatment back into service: the devis reopens and every parked act returns at the état its
+    /// own steps derive, so a bridge parked two séances in comes back « en cours » rather than « à planifier ».
+    /// <para>
+    /// ⚠️ It exists because a stopped plan was a terminal state. « Arrêter » left it <c>Completed</c>, which
+    /// withdraws « Arrêter », « Terminer », « Facturer » and « Annuler » alike — and the dropped acts had been
+    /// deleted, so « Modifier le devis » could only re-type them as new ids, orphaning the fiches. Patients come
+    /// back; the model has to expect it.
+    /// </para>
+    /// <para>
+    /// The échéancier is <b>not</b> restored, deliberately: the parked acts return unrealised and re-pricing them
+    /// is the amendment that follows, which re-spreads the schedule with the dentist looking at it.
+    /// </para>
+    /// </summary>
+    public void Reopen()
+    {
+        if (Status != TreatmentPlanStatus.Completed)
+        {
+            throw new InvalidOperationException("Seul un devis terminé peut être repris.");
+        }
+
+        // `ToList()` first: `Restore` mutates, and counting a lazy sequence would restore only what is enumerated.
+        var restored = _items.Select(i => i.Restore()).ToList().Count(r => r);
+        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+        if (restored > 0)
+        {
+            RecomputeTotal();
+            RevisionNumber++;
+        }
+        Touch();
+    }
+
+    /// <summary>
+    /// Re-spread the balance onto one échéance after the total changed, keeping the rows that collected money.
+    /// <para>
+    /// Each collected row is trimmed to exactly what it took, so <c>Σ Amount == TotalPlanned</c> still holds —
+    /// the invariant « Solde patient » and « Créances » agree only while it does (see
+    /// <see cref="ReviseInstallments"/>). Nothing outstanding means <b>no row at all</b>: <c>Installment</c>
+    /// refuses a zero amount, and writing one is what left « Arrêter le traitement » on an unpaid devis as a
+    /// dialog answering « Le montant de l'échéance doit être supérieur à 0 » with no way forward.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Bring the échéancier back into step with <see cref="TotalPlanned"/>, keeping every collected row at
+    /// what it has actually taken and putting the balance on one row due <paramref name="dueDate"/>.
+    /// <para>
+    /// ⚠️ Public so a caller that changed the total <b>without</b> sending a schedule can be re-spread instead
+    /// of refused. « Le total du devis a changé : renvoyez l'échéancier correspondant » is a correct statement
+    /// about the invariant and a useless one to a dentist correcting a price from the booking dialog, which
+    /// has no échéancier on screen to re-send. A plan with no schedule at all (an un-numbered treatment) needs
+    /// nothing done, and this is a no-op there.
+    /// </para>
+    /// </summary>
+    public void RespreadScheduleToTotal(DateTime dueDate) => RespreadSchedule(dueDate);
+
+    private void RespreadSchedule(DateTime dueDate)
+    {
+        var outstanding = Outstanding;
+        var collected = _installments.Where(i => i.AmountPaid > 0m).ToList();
+        foreach (var row in collected)
+        {
+            row.Revise(row.DueDate, row.AmountPaid);
+        }
+
+        _installments.Clear();
+        _installments.AddRange(collected);
+        if (outstanding > 0m)
+        {
+            _installments.Add(new Installment(Guid.NewGuid(), Id, dueDate, outstanding));
+        }
     }
 
     // ---- Amendment (post-acceptance) ---------------------------------------------------------------
@@ -565,6 +838,16 @@ public class TreatmentPlan : AggregateRoot<Guid>
         {
             throw new InvalidOperationException("Cet acte est déjà réalisé et ne peut plus être retiré du devis.");
         }
+        // ⚠️ An act part-way through is `InProgress`, not `Done`, so the test above let a bridge with two of
+        // three séances delivered be deleted — with its step rows and the links to the two fiches that
+        // evidenced them. Step-level removal has always refused this (« L'étape « X » est déjà réalisée et ne
+        // peut pas être retirée »); the act level was the hole.
+        if (item.HasDeliveredWork)
+        {
+            throw new InvalidOperationException(
+                $"L'acte « {item.DesignationFr} » a déjà {item.StepsDone} séance(s) réalisée(s) et ne peut pas être retiré du devis. "
+                + "Arrêtez le traitement pour le mettre de côté sans perdre ce qui a été fait.");
+        }
         if (liveAppointmentAt.HasValue)
         {
             throw new InvalidOperationException(
@@ -680,11 +963,37 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
     /// <summary>An amendment only makes sense on a live devis: a Draft is edited outright, a Cancelled one is
     /// void, and a Completed one has no remaining treatment to change.</summary>
+    /// <summary>
+    /// The window in which a devis may still be corrected: <b>everything except a draft and a cancelled one</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ <b>It used to exclude <c>Completed</c>, and that was wrong on the owner's own terms</b>: a plan
+    /// completes automatically the moment its last act is marked réalisé, so a fee typed wrong on a bridge
+    /// became uncorrectable at the exact instant the work finished — the one moment a dentist is most likely to
+    /// notice it. `EnsureCorrectable` already admitted Completed for the act-level corrections, so the two
+    /// windows disagreed about the same plan.
+    /// </para>
+    /// <para>
+    /// A <b>Draft</b> is refused because `SetItems` is its editor, and a <b>Cancelled</b> plan because it is a
+    /// closed record kept for its number — correcting one would be rewriting history rather than fixing it.
+    /// </para>
+    /// </remarks>
     private void EnsureAmendable()
     {
-        if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
+        /*
+         * ⚠️ A **Draft is amendable now**, and the old refusal (« un brouillon se modifie directement, pas par
+         * révision ») described a world where a Draft was a form somebody had not finished. It is a *followed
+         * treatment* today — un-numbered, but carrying séances and recorded work — and it reaches the same
+         * workspace as a numbered devis. Refusing here left that screen with no way to correct a total, which
+         * is the one thing the dentist asked to be able to do at any moment.
+         *
+         * Nothing is bypassed: `RevisionNumber` on a Draft is meaningless but harmless (the devis prints no
+         * revision mention at 0 and it is not yet printable at all), and the money invariants below still hold.
+         */
+        if (Status == TreatmentPlanStatus.Cancelled)
         {
-            throw new InvalidOperationException("Seul un devis accepté ou en cours peut être modifié.");
+            throw new InvalidOperationException("Un devis annulé ne peut plus être modifié.");
         }
     }
 
@@ -703,7 +1012,10 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Touch();
     }
 
-    private void RecomputeTotal() => TotalPlanned = InvoiceCalculator.RoundMoney(_items.Sum(i => i.PlannedCost));
+    // Parked acts are excluded: they are no longer planned work, and leaving them in would keep a stopped
+    // treatment claiming the money for the séances the patient is not coming back for.
+    private void RecomputeTotal() =>
+        TotalPlanned = InvoiceCalculator.RoundMoney(ActiveItems.Sum(i => i.PlannedCost));
 
     private void EnsureDraft()
     {
@@ -711,10 +1023,47 @@ public class TreatmentPlan : AggregateRoot<Guid>
             throw new InvalidOperationException("Seul un plan au statut brouillon peut être modifié.");
     }
 
+    /// <summary>
+    /// The plan is open for clinical work — a séance may be booked against it and a fiche recorded.
+    /// <para>
+    /// ⚠️ <b>A Draft counts.</b> An un-numbered treatment is real work in progress; what it lacks is a
+    /// <i>quote</i>, not a patient. Refusing it here is what forced « suivre ce traitement » to mint a
+    /// numbered devis before the first séance could be recorded. Draft is still excluded from every money
+    /// read by <c>PlanBillingRules.CarriesDebt</c>, so admitting it here adds clinical reach and no claim.
+    /// </para>
+    /// </summary>
     private void EnsureActive()
     {
-        if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
-            throw new InvalidOperationException("Le plan doit être accepté pour cette opération.");
+        if (Status != TreatmentPlanStatus.Draft
+            && Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress)
+        {
+            throw new InvalidOperationException("Ce devis est clôturé : il ne peut plus recevoir de séance.");
+        }
+    }
+
+    /// <summary>
+    /// Advance the plan's own status after work landed on one of its acts — and <b>leave a Draft alone</b>.
+    /// <para>
+    /// A treatment with no number is not « accepté », « en cours » or « terminé »: those words describe a
+    /// devis, and this one has not been quoted. Promoting it on the first recorded séance would give it a
+    /// status `CarriesDebt` reads as real while `Number` is still null.
+    /// </para>
+    /// </summary>
+    private void AdvanceAfterWorkRecorded()
+    {
+        if (Status == TreatmentPlanStatus.Draft)
+        {
+            return;
+        }
+        if (Status == TreatmentPlanStatus.Accepted)
+        {
+            Status = TreatmentPlanStatus.InProgress;
+        }
+        if (ActiveItems.Any() && ActiveItems.All(i => i.Status == TreatmentPlanItemStatus.Done))
+        {
+            Complete();
+        }
     }
 
     /// <summary>

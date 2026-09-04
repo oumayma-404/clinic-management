@@ -9,8 +9,19 @@ using ClinicManagement.Domain.Repositories;
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 
 /// <summary>
-/// Close an accepted/in-progress plan — the manual "Terminer" action (finding #5). The domain requires every
-/// act to be marked done; otherwise this returns a French failure (mapped to 400 by the controller).
+/// Close an accepted/in-progress plan — the manual « Terminer » action.
+/// <para>
+/// ⚠️ It closes a plan whose acts are <b>not all réalisé</b>, leaving them so. That is what the confirmation has
+/// always said in words — « Les N actes non réalisés resteront non réalisés — la clôture ne les valide pas » —
+/// and what the aggregate used to refuse, making this endpoint fail in exactly the case the dialog bothered to
+/// explain. No case could be built from the UI in which it succeeded: with any act unrealised the server
+/// refused, and once every act was realised the plan had already auto-completed and the button was not rendered.
+/// </para>
+/// <para>
+/// The automatic clôture fired when the last step lands still asserts that everything really is done — see
+/// <c>TreatmentPlan.Complete</c>'s parameter. Money is untouched either way: « Terminé » means the work is over,
+/// not that the patient has paid.
+/// </para>
 /// </summary>
 public class CompleteTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 {
@@ -56,7 +67,7 @@ public class CompleteTreatmentPlanCommandHandler : IRequestHandler<CompleteTreat
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
-            plan.Complete();
+            plan.Complete(leaveUnrealisedActs: true);
 
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

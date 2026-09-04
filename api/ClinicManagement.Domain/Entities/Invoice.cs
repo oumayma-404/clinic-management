@@ -248,6 +248,73 @@ public class Invoice : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Attach an already-issued note to a treatment plan created <b>after</b> it — the retroactive-continuation
+    /// path, where an act billed as a one-off turns out to need a second séance.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ <b>This is what stops the money being counted twice.</b> « Solde patient » is invoice outstanding +
+    /// installment outstanding, and <c>GetPatientBillingSummaryQuery</c> drops any plan that is billed into an
+    /// invoice (<c>!billedPlanIds.Contains(p.Id)</c>) precisely so the pair cannot both claim the same work. A
+    /// devis minted over an act this note already bills — and whose <c>Accept</c> therefore raised a lump-sum
+    /// échéance for the full total — would otherwise add its total to a balance the note is already carrying.
+    /// With the link in place the plan carries the steps and the note carries the money, which is the same
+    /// division « Facturer le devis » produces in the ordinary direction.
+    /// </para>
+    /// <para>
+    /// ⚠️ Deliberately <b>not</b> part of <see cref="UpdateLinks"/>, which is Draft-only: the note being attached
+    /// here is issued and usually part-paid, and that is the whole point. It is also <b>write-once</b> — an
+    /// invoice already representing one plan cannot be re-pointed at another, or the first plan silently
+    /// re-enters the balance carrying a total nobody re-quoted.
+    /// </para>
+    /// <para>
+    /// Idempotent for the same plan, because the caller runs inside <c>DevisNumbering</c>'s retry loop and a
+    /// numbering collision replays it.
+    /// </para>
+    /// </remarks>
+    public void AttachToTreatmentPlan(Guid treatmentPlanId)
+    {
+        if (treatmentPlanId == Guid.Empty)
+            throw new ArgumentException("Le plan de traitement est requis.", nameof(treatmentPlanId));
+        if (TreatmentPlanId == treatmentPlanId)
+            return;
+        if (TreatmentPlanId.HasValue)
+            throw new InvalidOperationException("Cette note d'honoraires est déjà rattachée à un devis.");
+        if (Status == InvoiceStatus.Cancelled)
+            throw new InvalidOperationException("Une note annulée ne peut pas être rattachée à un devis.");
+
+        TreatmentPlanId = treatmentPlanId;
+        Touch();
+    }
+
+    /// <summary>
+    /// Release the note from the devis named by <paramref name="treatmentPlanId"/> — the inverse of
+    /// <see cref="AttachToTreatmentPlan"/>, which had none anywhere in the product.
+    /// <para>
+    /// ⚠️ <b>Its absence made a wrong retroactive continuation permanent.</b> Picking the wrong previous séance
+    /// created an accepted devis and pointed the note at it in one save; the devis could then only be cancelled,
+    /// and the note went on naming a cancelled devis for ever. Worse, the fiche itself became undeletable —
+    /// deleting it un-marks a step on that cancelled plan, which the aggregate refuses — so the dentist read
+    /// « Erreur lors de la suppression de l'acte dentaire. Veuillez réessayer. » and retrying never helped.
+    /// </para>
+    /// <para>
+    /// It takes the plan id rather than clearing whatever is there, so a caller cannot detach a note from a devis
+    /// it was not talking about — the write-once rule on the way in deserves the same care on the way out.
+    /// Idempotent: a note already free of that plan is left alone.
+    /// </para>
+    /// </summary>
+    public void DetachFromTreatmentPlan(Guid treatmentPlanId)
+    {
+        if (TreatmentPlanId != treatmentPlanId)
+        {
+            return;
+        }
+
+        TreatmentPlanId = null;
+        Touch();
+    }
+
+    /// <summary>
     /// Emit the draft: assign its (externally computed, unique) sequential number, recompute the totals, and
     /// move it to Issued. Requires at least one line.
     /// </summary>

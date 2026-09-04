@@ -7,6 +7,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Invoices.Commands;
 
@@ -72,21 +73,37 @@ public class CreateInvoiceFromTreatmentPlanCommandHandler
             {
                 return Result<InvoiceDto>.Failure("Un devis annulé ne peut pas être facturé.");
             }
-            if (plan.Items.Count == 0)
+            if (!plan.ActiveItems.Any())
             {
                 return Result<InvoiceDto>.Failure("Le devis ne comporte aucun acte à facturer.");
             }
 
-            // Refuse a second bridge invoice for the same plan (edge case) — the existing non-cancelled one
-            // already represents this work.
-            //
-            // Read through the light bridge projection (AC-P6.22). This used to be `GetFilteredAsync`, which
-            // loads every invoice of the patient **with its lines and payments** in order to test one
-            // `TreatmentPlanId` — the § 9.7 over-fetch. `GetTreatmentPlanLinksAsync` exists for exactly this
-            // question and is already the shared authority the money reads de-duplicate through, so the guard
-            // and those reads can no longer disagree about what « déjà facturé » means.
+            // The notes already bridging this plan, through the light projection (AC-P6.22) rather than
+            // `GetFilteredAsync`, which loads every invoice of the patient with its lines and payments to test
+            // one `TreatmentPlanId` — the § 9.7 over-fetch. It is also the shared authority the money reads
+            // de-duplicate through, so this and those reads cannot disagree about what « déjà facturé » means.
             var planLinks = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
-            if (planLinks.Any(l => l.TreatmentPlanId == plan.Id && l.Status != InvoiceStatus.Cancelled))
+            var live = planLinks
+                .Where(l => l.TreatmentPlanId == plan.Id && l.Status != InvoiceStatus.Cancelled)
+                .ToList();
+
+            /*
+             * ⚠️ A SUPPLEMENTARY note, not a refusal, when the devis has grown since it was billed.
+             *
+             * Amending a billed devis is deliberately allowed — a fee typed wrong is usually noticed once the
+             * work is finished — and the reasoning recorded for that was that the divergence is documentary and
+             * stating it is the whole fix. True of a *changed* fee, false of an **added act**: the money reads
+             * drop a plan an invoice represents, so 500 DT of delivered work added afterwards reached no
+             * balance, no receivable and no caisse, the échéancier refused to collect it, and this guard
+             * refused to bill it. The notice even named the wrong remedy — an avoir does not make a plan
+             * billable again.
+             *
+             * So what is refused is billing the SAME money twice; what is allowed is billing the difference.
+             * The lines below are the acts, and the supplementary note carries only the amount not yet on one.
+             */
+            var alreadyBilled = InvoiceCalculator.RoundMoney(live.Sum(l => l.TotalTtc));
+            var toBill = InvoiceCalculator.RoundMoney(plan.TotalPlanned - alreadyBilled);
+            if (live.Count > 0 && toBill <= 0m)
             {
                 return Result<InvoiceDto>.Failure("Ce devis a déjà été facturé.");
             }
@@ -111,11 +128,32 @@ public class CreateInvoiceFromTreatmentPlanCommandHandler
             // invoice are two aggregates and nothing else copies anything between them.
             invoice.SetDoctor(plan.DoctorId);
 
-            // Map each planned act to an invoice line (quantity 1, PlannedCost as unit HT, carry the CNAM/DCH link).
-            invoice.SetLines(plan.Items.Select(i =>
-                // ⚠️ No DCH code travels from a devis any more — a devis line carries only a ProcedureType,
-                // so there is nothing to carry and the invoice's own CNAM split is empty for this path.
-                (i.DesignationFr, 1, i.PlannedCost, (Guid?)null, (Guid?)null, (string?)null)));
+            if (live.Count > 0)
+            {
+                /*
+                 * A supplementary note: one line for the amount the devis has grown by since it was billed.
+                 *
+                 * Deliberately not « the acts that are not on the first note »: that note's lines are frozen
+                 * désignation snapshots, so matching them back to today's acts would be prose-matching — the
+                 * failure this repository has already deleted once. The difference between the two totals is a
+                 * figure, and it is the figure that is actually owed.
+                 */
+                invoice.SetLines(new[]
+                {
+                    ($"Complément au devis {plan.Number ?? string.Empty}".TrimEnd(),
+                        1, toBill, (Guid?)null, (Guid?)null, (string?)null),
+                });
+            }
+            else
+            {
+                // Map each planned act to an invoice line (quantity 1, PlannedCost as unit HT).
+                //
+                // ⚠️ No DCH code travels from a devis any more — a devis line carries only a ProcedureType, so
+                // there is nothing to carry and the invoice's own CNAM split is empty for this path.
+                // Parked acts are excluded: they are not treatment any more and their fee left the total.
+                invoice.SetLines(plan.ActiveItems.Select(i =>
+                    (i.DesignationFr, 1, i.PlannedCost, (Guid?)null, (Guid?)null, (string?)null)));
+            }
 
             await _invoiceRepository.AddAsync(invoice, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

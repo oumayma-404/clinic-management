@@ -19,13 +19,14 @@ import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { formatAmount, parseAmountInput } from "@/lib/format"
+import { formatAmount, parseAmountInput, quoteFr } from "@/lib/format"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
+import { Check, ChevronsUpDown, ListOrdered, Loader2, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { procedureTypesApi, type ProcedureColorFamily } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { toast } from "sonner"
 import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditions"
 
 // Sentinel for the "no resulting condition" option (Radix Select forbids an empty-string value).
@@ -67,6 +68,17 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
   const [categorySuggestions, setCategorySuggestions] = useState<string[]>([])
   const [selectedColor, setSelectedColor] = useState("")
   const [resultingCondition, setResultingCondition] = useState<string | null>(null)
+  /**
+   * The act's suggested clinical steps — the client's « sous-catégorie », as a template.
+   *
+   * <p>The catalogue <i>proposes</i> and the devis line <i>possesses</i>: these labels are copied onto a plan
+   * line when the act is added and owned there from then on, so editing them touches no devis under way. That
+   * split is what gives a bridge three séances for one patient and five for another, which making
+   * `ProcedureType` itself hierarchical could not express.</p>
+   *
+   * <p>⚠️ Durations are kept as typed strings, like the tarif and the duration beside them: a `type="number"`
+   * field cannot be left partially typed without fighting the user.</p>
+   */
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isConflict, setIsConflict] = useState(false)
@@ -264,6 +276,12 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           // Same tri-state, same reason — this one was already right.
           category: category.trim(),
           resultingCondition,
+          /*
+           * ⚠️ `defaultSteps` is deliberately NOT sent, and the omission is the point. The command reads an
+           * absent key as « unchanged », and this form no longer edits the protocol — `ProcedureTypeStepsDialog`
+           * owns it. Sending `[]` from here (which is what this form used to do, correctly, while it WAS the
+           * editor) would now silently clear a protocol whose editor the user never opened.
+           */
           version: freshProcedure?.version ?? editingProcedure.version,
         })
       } else {
@@ -276,6 +294,20 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           description: description.trim() || undefined,
           category: category.trim() || undefined,
           resultingCondition,
+          // No protocol on create: the steps dialog needs an act that already has an id, exactly like its
+          // « Consommables » twin. The new row lands in the catalogue offering « Découper en étapes ».
+        })
+      }
+
+      /*
+       * The other half of J2: a confirmation that also says where the séances are set. A created act lands in a
+       * 35-row paged catalogue, so « trouvez sa ligne » is the whole cost of the feature being on the row — and
+       * a toast is where the reader is looking at the moment they could act on it.
+       */
+      if (!editingProcedure) {
+        toast.success(`${quoteFr(name.trim())} ajouté`, {
+          description:
+            "Sur sa ligne du catalogue, « Découper en étapes » le partage en séances si l'acte en demande plusieurs.",
         })
       }
 
@@ -301,10 +333,19 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       <DialogContent className="md:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{editingProcedure ? "Modifier le type d'acte" : "Ajouter un type d'acte"}</DialogTitle>
+          {/*
+            ⚠️ **One line naming the séances, because this dialog mentioned them nowhere.** It asks for Nom ·
+            Durée · Coût · Catégorie · Description · État résultant · Couleur, and the words « étape » and
+            « séance » appeared in none of it — so somebody adding « Facette » on the day they start doing
+            veneers had no reason to know the app can cut an act into séances at all. The editor stays on the
+            act's own row (one owner for the list, which is the right call); what was missing was any hint that
+            it exists. The `durée` beside it is one sitting at the chair, which is exactly the value a reader
+            would otherwise take for the whole treatment.
+          */}
           <DialogDescription>
             {editingProcedure
-              ? "Mettez à jour les détails et la couleur du type d'acte"
-              : "Définissez un nouvel acte avec sa durée et sa couleur d'agenda"}
+              ? "Mettez à jour les détails et la couleur du type d'acte. La durée est celle d'une séance."
+              : "Définissez un nouvel acte avec sa durée d'une séance et sa couleur d'agenda. Vous pourrez ensuite le découper en séances depuis sa ligne du catalogue."}
           </DialogDescription>
         </DialogHeader>
 
@@ -490,6 +531,26 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
               catalogue et dans les listes de sélection.
             </p>
           </div>
+
+          {/*
+            ⚠️ The protocol is NOT edited here any more. `procedure-type-steps-dialog.tsx` owns it, and the act's
+            own row in the catalogue opens that dialog directly.
+
+            It used to live here — fifth in this form, behind the coût and the catégorie — while the table drew it
+            as a grey run-on sentence under the act's name. Between the two, a dentist had no reason to think the
+            séances were theirs to change, which is the defect that moved it. Keeping a second editor would be
+            worse than either: `DefaultSteps` is replace-valued, so two surfaces writing it is how one silently
+            clears what the other just wrote — the reason « Consommables » has never been a field here either.
+          */}
+          {editingProcedure && (
+            <div className="flex items-start gap-2 rounded-md border border-dashed p-3">
+              <ListOrdered className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <p className="text-2xs leading-relaxed text-muted-foreground">
+                Les <span className="font-medium text-foreground">étapes</span> de cet acte se modifient depuis sa
+                ligne dans le catalogue.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="description" className="text-sm">

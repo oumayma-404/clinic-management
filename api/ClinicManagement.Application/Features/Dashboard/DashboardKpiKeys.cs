@@ -70,6 +70,19 @@ public static class DashboardKpiKeys
     /// </summary>
     public const string VisitsToClose = "visitsToClose";
 
+    /// <summary>
+    /// « Traitements en cours » — the acts the cabinet has started and not finished, with the étape still to
+    /// plan. The journée's other chip, and hideable for the same reason: a practice that does no multi-séance
+    /// prosthetic work has a permanently-empty chip, and the dashboard is read every morning.
+    ///
+    /// <para>⚠️ It is on this list even though the figure does <b>not</b> come from
+    /// <c>GetDashboardQuery</c> — the chip issues its own <c>treatments-in-progress</c> read for page 1 of size
+    /// 1 and shows the total. This set governs the <b>customiser</b>, not the composed read, and a block the
+    /// customiser offers whose key the server refuses is a switch whose save fails.
+    /// <c>DashboardKpiKeysTests</c> is what says so out loud, and it is what caught this one.</para>
+    /// </summary>
+    public const string TreatmentsInProgress = "treatmentsInProgress";
+
     /// <summary>The trend chart is hideable too — it is a section, but from the user's side it is one more block.</summary>
     public const string Trend = "trend";
 
@@ -104,6 +117,7 @@ public static class DashboardKpiKeys
         Expenses,
         Net,
         VisitsToClose,
+        TreatmentsInProgress,
         WaitingList,
         DraftPlans,
         OverdueLabOrders,

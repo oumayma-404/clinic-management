@@ -733,6 +733,48 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                     'Orthodontie', 'Esthétique', 'Pédodontie')
                 """);
 
+        // The stored-status twin. TreatmentPlanItem.Status is recomputed from the step rows on every write, so
+        // the two agreeing is an invariant and not a backfill outcome — which is why the status arithmetic is
+        // spelled out here rather than a row count being compared. The int literals are the enum's own stored
+        // values (Planned = 0, Done = 1, InProgress = 2); the enum is append-only for exactly this reason.
+        var planItemStatusDisagrees = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "TreatmentPlanItemSteps",
+            requiredColumn: "SequenceNumber",
+            sql: """
+                SELECT COUNT(*)
+                FROM "TreatmentPlanItems" i
+                JOIN (
+                    SELECT "TreatmentPlanItemId" AS iid,
+                           COUNT(*) AS total,
+                           COUNT("DoneDate") AS done
+                    FROM "TreatmentPlanItemSteps"
+                    GROUP BY "TreatmentPlanItemId"
+                ) s ON s.iid = i."Id"
+                WHERE i."Status" <> CASE
+                        WHEN s.done = 0 THEN 0
+                        WHEN s.done < s.total THEN 2
+                        ELSE 1
+                    END
+                """);
+
+        // Step ranks must be dense 0..n-1: every reader treats them as positional (« étape 2 sur 3 » is the
+        // rank, and « la prochaine » is the lowest un-done one), so a duplicate makes "next" ambiguous between
+        // two steps and a gap misprints the count. Nothing in the schema can say this.
+        var planItemStepSequenceNotDense = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "TreatmentPlanItemSteps",
+            requiredColumn: "SequenceNumber",
+            sql: """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT "TreatmentPlanItemId"
+                    FROM "TreatmentPlanItemSteps"
+                    GROUP BY "TreatmentPlanItemId"
+                    HAVING MIN("SequenceNumber") <> 0
+                        OR MAX("SequenceNumber") <> COUNT(*) - 1
+                        OR COUNT(DISTINCT "SequenceNumber") <> COUNT(*)
+                ) d
+                """);
+
         // L4a's backfill. Guarded on `BackupRetentionCount`, so before the migration runs this reads « not
         // applicable » rather than counting rows nothing was going to touch. It measures the *outcome* rather than
         // the row count, which is what makes it durable: whatever the migration did, no clinic may be left with a
@@ -1063,6 +1105,35 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "StartedAtUtc",
             sql: """SELECT COUNT(*) FROM "CalendarImportRuns" """);
 
+        /*
+         * The fourteen starter acts the seed gives a protocol to, by name. Spelled out here for the reason the
+         * migration spells its own values out: this is a *verification* of a historical backfill, so reading
+         * the list from the live seed would make the check agree with whatever the seed says today rather
+         * than with what the deployment was supposed to have received.
+         */
+        var seededActsWithoutProtocol = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ProcedureTypes",
+            requiredColumn: "DefaultSteps",
+            sql: """
+                SELECT COUNT(*) FROM "ProcedureTypes"
+                WHERE ("DefaultSteps" IS NULL OR "DefaultSteps" IN ('', '[]'))
+                  AND "Name" IN (
+                    'Couronne / bridge (par élément)',
+                    'Inlay-core (reconstitution corono-radiculaire)',
+                    'Facette',
+                    'Prothèse amovible (partielle / complète)',
+                    'Réparation / rebasage de prothèse',
+                    'Gouttière occlusale (bruxisme)',
+                    'Implant dentaire',
+                    'Greffe osseuse / comblement',
+                    'Gingivectomie',
+                    'Frénectomie',
+                    'Incision d''abcès et drainage',
+                    'Traitement parodontal (surfaçage / curetage)',
+                    'Retraitement endodontique',
+                    'Mainteneur d''espace fixe')
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
@@ -1081,7 +1152,10 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             LabOrdersResolvableToASupplierStillUnlinked: labOrdersResolvableStillUnlinked,
             SuppliersTotal: suppliersTotal,
             CalendarImportRowsWithoutARun: calendarImportRowsWithoutARun,
-            CalendarImportRunsTotal: calendarImportRunsTotal);
+            CalendarImportRunsTotal: calendarImportRunsTotal,
+            PlanItemsWithStatusDisagreeingWithSteps: planItemStatusDisagrees,
+            PlanItemsWithNonDenseStepSequence: planItemStepSequenceNotDense,
+            SeededActsWithoutStepProtocol: seededActsWithoutProtocol);
     }
 
     /// <summary>

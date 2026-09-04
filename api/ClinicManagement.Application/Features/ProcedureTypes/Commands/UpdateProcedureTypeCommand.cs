@@ -45,6 +45,19 @@ public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public string? Category { get; set; }
     /// <summary>When provided, sets the resulting odontogram state ("" clears it).</summary>
     public string? ResultingCondition { get; set; }
+
+    /// <summary>
+    /// The act's suggested clinical steps. <b>Tri-state, and a list gets the distinction for free</b>: omit the
+    /// key to leave the template alone, send <c>[]</c> to clear it (« cet acte se fait en une séance », a real
+    /// answer), send a list to replace it. No <c>Specified</c> companion is needed here, unlike
+    /// <see cref="DefaultCost"/> — <c>null</c> and <c>[]</c> are already different JSON values.
+    /// <para>
+    /// Order is the list's own. Editing this touches <b>no</b> devis: a template is copied onto a plan line when
+    /// the act is added, and the line owns its steps from then on — so re-wording a template can never rewrite
+    /// the protocol of a bridge already under way.
+    /// </para>
+    /// </summary>
+    public List<ProcedureStepTemplateDto>? DefaultSteps { get; set; }
     /// <summary>
     /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
     /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
@@ -191,6 +204,22 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                     rc = parsedRc;
                 }
                 procedureType.UpdateResultingCondition(rc);
+            }
+
+            // The step template — null leaves it alone, [] clears it. The entity validates label, length,
+            // duration band and count; its ArgumentException carries the French sentence, so it is translated
+            // here rather than duplicated.
+            if (request.DefaultSteps != null)
+            {
+                try
+                {
+                    procedureType.SetDefaultSteps(request.DefaultSteps
+                        .Select(s => new ProcedureStepTemplate(s.Label, s.DurationMinutes, s.MinDaysAfterPrevious)));
+                }
+                catch (ArgumentException ex)
+                {
+                    return Result<ProcedureTypeDto>.Failure(ex.Message);
+                }
             }
 
             // Update all appointments that use this procedure type if name or color changed

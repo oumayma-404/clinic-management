@@ -116,3 +116,33 @@ curl -L -o coupe-avec-fenetrage.dcm   $BASE/MR_small.dcm
 curl -L -o photo-couleur-rgb.dcm      $BASE/SC_rgb_small_odd.dcm
 curl -L -o radio-jpeg-12-bits.dcm     $BASE/JPEG-lossy.dcm
 ```
+
+---
+
+## Modèles 3D — quatre fichiers, un par branche du lecteur de maillage
+
+`mesh-interactive-viewer`. Déposez-les dans le tiroir d'un patient : chacun doit porter une **vignette**
+(l'arcade rendue, pas une icône grise), s'ouvrir sur « Aperçu » comme image fixe, et proposer
+« **Visionneuse** » — qui ouvre la 3D interactive : rotation, déplacement, zoom, sept cadrages, une mesure et
+des repères.
+
+| Fichier | Poids | Ce qu'il doit produire | Ce qu'il éprouve |
+|---|---|---|---|
+| `arcade-superieure.stl` | 188 Ko | l'arcade, en plâtre mat | **STL binaire** — le format que tout scanner intra-oral écrit. En-tête de 80 octets, 50 octets par triangle, aucune signature à vérifier. |
+| `arcade-ascii.stl` | 1,2 Mo | idem, à l'identique | **STL ASCII** : le *même* maillage en texte. `SignatureRule.None` existe pour lui — un STL ASCII *est* un fichier texte, donc un contrôle de signature l'aurait refusé. Six fois plus lourd pour la même géométrie, ce qui est normal. |
+| `arcade-couleur.ply` | 834 Ko | l'arcade **en couleur** (rose gencive → blanc émail) | **PLY avec couleur par sommet**, ce qu'un scanner couleur produit. Doit aussi déclencher la note « ce fichier ne portait pas de normales : l'ombrage est lissé » — le fichier n'en contient pas, et le lecteur le dit au lieu de faire comme si. |
+| `arcade-deux-objets.obj` | 721 Ko | l'arcade, et l'en-tête doit lire « **2 objets** » | **OBJ à plusieurs objets** : le lecteur fusionne les maillages et *annonce* le nombre. C'est le seul des trois formats qui peut contenir plusieurs pièces, et aussi le seul sans marqueur d'en-tête. |
+
+⚠️ **L'encombrement affiché doit être `63,0 × 34,1 × 11,8 mm` pour les quatre.** C'est la vérification qui
+compte le plus : aucun de ces formats n'enregistre d'unité, donc la visionneuse *choisit* de les lire en
+millimètres et le dit. Si ce chiffre change d'un fichier à l'autre, l'analyse est fausse quelque part.
+
+⚠️ **Essayez « Dessus » et « Dessous ».** Ces deux vues regardent le long de l'axe vertical, et c'est le cas
+qui rendait une scène **vide** sans erreur avant qu'il ne soit corrigé. Elles doivent montrer l'arcade de
+champ — les vues sont géométriques, pas anatomiques : « Dessus », c'est le dessus du *fichier*.
+
+Fabriqués ici, comme le gros TIFF et les archives :
+
+```bash
+node build-mesh-samples.mjs .
+```

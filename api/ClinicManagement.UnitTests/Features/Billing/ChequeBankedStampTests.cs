@@ -388,7 +388,7 @@ public class ChequeBankedStampTests
         var invoices = new Mock<IInvoiceRepository>();
         invoices
             .Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
         invoices
             .Setup(r => r.GetChequePaymentsAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))

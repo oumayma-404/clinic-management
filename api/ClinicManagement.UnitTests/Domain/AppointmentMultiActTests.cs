@@ -318,7 +318,7 @@ public class AppointmentMultiActTests
         var invoices = new Mock<IInvoiceRepository>();
         invoices
             .Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
 
         var workflow = await TreatmentPlanWorkflowProjection.BuildAsync(
             new[] { plan }, ClinicId, appointments.Object, invoices.Object,

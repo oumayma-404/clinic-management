@@ -177,10 +177,16 @@ public class MoneyReadConsistencyTests
         // Mirrors InvoiceRepository.GetTreatmentPlanLinksAsync (cancelled bridges included — the caller decides).
         var links = invoices
             .Where(i => i.TreatmentPlanId.HasValue)
-            .Select(i => (TreatmentPlanId: i.TreatmentPlanId!.Value, InvoiceId: i.Id, i.Number, i.Status))
+            .Select(i => (
+                TreatmentPlanId: i.TreatmentPlanId!.Value,
+                InvoiceId: i.Id,
+                i.Number,
+                i.Status,
+                i.TotalTtc,
+                i.Outstanding))
             .ToList();
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<(Guid, Guid, string?, InvoiceStatus)>)links);
+            .ReturnsAsync((IReadOnlyList<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>)links);
 
         // Cash defaults. The outstanding-balance tests below are unaffected by these; the caisse-agreement test
         // overrides them with real figures so both reads have something non-trivial to disagree about.

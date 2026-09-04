@@ -3,6 +3,7 @@ import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 import { PREVIEW_FILE_NAME } from '@/lib/files/preview';
 import type {
   FileUploadSessionDto,
+  PatientFileAnnotationDto,
   PatientFileDto,
   PatientFileSummaryDto,
   PatientFolderDto,
@@ -261,5 +262,47 @@ export const patientFilesApi = {
   // Delete a folder
   deleteFolder: async (patientId: string, folderId: string): Promise<void> => {
     return apiDelete<void>(`/patients/${patientId}/files/folders/${folderId}`);
+  },
+
+  // ── Repères sur un modèle 3D (mesh-interactive-viewer) ──────────────────────────────────────────────
+  //
+  // Four calls rather than one « replace the set ». The set-shaped API is less code on both sides, but two
+  // people looking at the same model would overwrite each other's markers with the last save winning and
+  // nothing anywhere to say a marker had existed. Per-marker writes merge on their own.
+
+  getAnnotations: async (patientId: string, fileId: string): Promise<PatientFileAnnotationDto[]> => {
+    return apiGet<PatientFileAnnotationDto[]>(`/patients/${patientId}/files/${fileId}/annotations`);
+  },
+
+  createAnnotation: async (
+    patientId: string,
+    fileId: string,
+    marker: {
+      x: number
+      y: number
+      z: number
+      normalX: number
+      normalY: number
+      normalZ: number
+      label: string
+    }
+  ): Promise<PatientFileAnnotationDto> => {
+    return apiPost<PatientFileAnnotationDto>(`/patients/${patientId}/files/${fileId}/annotations`, marker);
+  },
+
+  renameAnnotation: async (
+    patientId: string,
+    fileId: string,
+    annotationId: string,
+    label: string
+  ): Promise<PatientFileAnnotationDto> => {
+    return apiPut<PatientFileAnnotationDto>(
+      `/patients/${patientId}/files/${fileId}/annotations/${annotationId}`,
+      { label }
+    );
+  },
+
+  deleteAnnotation: async (patientId: string, fileId: string, annotationId: string): Promise<void> => {
+    return apiDelete<void>(`/patients/${patientId}/files/${fileId}/annotations/${annotationId}`);
   },
 };

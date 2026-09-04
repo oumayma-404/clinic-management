@@ -42,7 +42,7 @@ public class DashboardTrendReaderTests
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
         _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))

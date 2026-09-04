@@ -4,13 +4,9 @@ import { useMemo, useState } from "react"
 import { addDays, addMonths, isSameDay, isSameMonth, startOfMonth, startOfWeek } from "date-fns"
 import { fr } from "date-fns/locale"
 import { format } from "date-fns"
-import { ChevronDown, ChevronRight, ChevronLeft, Filter, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronLeft } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-import { ActiveFilterChip } from "@/components/ui/list-toolbar"
 import type { AppointmentDto } from "@/lib/api/types"
 
 type CalendarView = "day" | "week" | "month"
@@ -20,25 +16,18 @@ interface AgendaPhoneHeaderProps {
   onViewChange: (view: CalendarView) => void
   selectedDate: Date
   onDateChange: (date: Date) => void
+  /**
+   * One period back / forward, in whatever unit the current view counts in — a day, a week, a month.
+   *
+   * ⚠️ Passed in rather than computed here, and that is the point: the calendar already owns
+   * `handlePrevious`/`handleNext`, the swipe gesture calls the same two, and the desktop bar's ‹ › are the same
+   * two again. A fourth copy of « what does « suivant » mean in this view » is a fourth chance for one of them
+   * to disagree — which is exactly how Semaine ended up with no way forward at all while Mois had one.
+   */
+  onPrevious: () => void
+  onNext: () => void
   /** The appointments already loaded by the calendar for the visible window — never re-fetched here. */
   appointments: AppointmentDto[]
-  /**
-   * The two status filters. They exist on the desktop toolbar and in the page's `hidden md:flex` chip row, and
-   * **nowhere below `md:`** — which matters because two of the fifteen entries in `lib/dashboard-links.ts` land
-   * here with `?status=…` and flip them on. A phone user arriving from « Taux d'absence » saw a filtered agenda
-   * with nothing saying why and no way back to the normal one.
-   */
-  showCancelled?: boolean
-  showCompleted?: boolean
-  onShowCancelledChange?: (show: boolean) => void
-  onShowCompletedChange?: (show: boolean) => void
-  /**
-   * « Nouveau RDV ». It used to be a floating pill fixed above the bottom nav, which cost every phone scroller
-   * 56 px of clearance padding plus the home inset — *and* still covered the last hour of the grid it floated
-   * over. Here it occupies the empty right-hand half of a row that exists regardless, so the create action
-   * costs no vertical space at all.
-   */
-  onNewAppointment?: () => void
   /**
    * Predicate: is the cabinet open that day, per the hours in force? Supplied by the calendar, which already
    * resolves practitioner-then-clinic hours for the grid's shading.
@@ -63,40 +52,40 @@ const MAX_DOTS = 3
  * The agenda's header **below `md:`** — the phone surface, mounted by `appointment-calendar.tsx` (which owns the
  * appointment data this needs). Design: `features/agenda-phone-ux/design.md`.
  *
- * Three navigation affordances at three different scales, which is why they coexist rather than duplicate:
- * a 7-day strip (this week), a collapsible mini-month (this month), and the calendar's own Jour-only swipe
- * (adjacent day).
+ * ⚠️ **‹ › are on this row in EVERY view now, and their absence was the defect.** They used to render in Mois
+ * alone, on the argument that Jour has a swipe and Semaine's day strip is its own navigation — but a strip only
+ * ever moves *within* the week it is showing, so Semaine on a phone had no way to reach next week at all, and
+ * Jour's only way to tomorrow was a gesture nothing on screen advertised. A button that says which direction it
+ * goes is what a calendar owes its reader; the swipe (still there, and now in all three views) is the shortcut on
+ * top of it, never the only route.
+ *
+ * ⚠️ **There are no status filters here any anywhere else.** « Terminés » and « Annulés » both defaulted to
+ * *shown*, so the disclosure and its two permanent chips were 72 px of a 390 px screen stating that nothing was
+ * filtered. An agenda shows the practice's day — all of it — and the two toggles are gone from the phone, the
+ * desktop popover and the URL alike.
+ *
+ * ⚠️ **The 7-day strip renders in Jour only.** In Semaine the grid below now draws its own sticky day header —
+ * seven dates over the columns they belong to — so a second row of seven dates above it said the same thing
+ * twice and cost the grid 58 px. In Mois the screen below *is* a month of days.
  *
  * ⚠️ View switching is a **segmented control in this header, not a bottom bar** (design D11): `bottom-nav.tsx`
  * is already the app's global bottom navigation, rendered from `app-shell.tsx`, and a second bottom bar on one
  * screen would regress Phase 02.
  *
- * ⚠️ **In Mois this header is title + ‹ › + the view switch, and nothing else.** The mini-month and the 7-day
- * strip are both hidden there, because the screen below them *is* a month of days — three month/week pickers
- * stacked above one month grid was most of what made Mois feel crowded, and the two extra ones each said less
- * than the grid did. What they leave behind is the ability to go *back*: the phone's Mois scrolls forward into
- * the following months, so the ‹ › pair is the only way to reach a past month, which is why it replaces the
- * disclosure chevron rather than sitting beside it.
- *
- * ⚠️ There was also a « Prochains RDV » card here — the day's first three appointments, listed above a grid that
- * was already showing them. It is gone: a summary of what is visibly on screen is not a summary, and on a 390px
- * phone it cost ~90px of the day grid to repeat it.
+ * ⚠️ **« Nouveau » is not on this row.** It is the floating `+` the calendar paints over the bottom-end corner of
+ * the grid — Google Agenda's own placement, and the user's — which is what freed this row for the ‹ › pair.
  */
 export function AgendaPhoneHeader({
   view,
   onViewChange,
   selectedDate,
   onDateChange,
+  onPrevious,
+  onNext,
   appointments,
-  showCancelled = false,
-  showCompleted = false,
-  onShowCancelledChange,
-  onShowCompletedChange,
-  onNewAppointment,
   isDayOpen,
 }: AgendaPhoneHeaderProps) {
   const [monthOpen, setMonthOpen] = useState(false)
-  const [filtersOpen, setFiltersOpen] = useState(false)
 
   // How many appointments each visible day holds — drives the density dots in both the strip and the mini-month.
   const countsByDay = useMemo(() => {
@@ -124,71 +113,52 @@ export function AgendaPhoneHeader({
 
   const today = new Date()
   const isMonthView = view === "month"
+  const isDayView = view === "day"
   // The disclosure can only be open in a view that offers it, so switching to Mois cannot leave a mini-month
   // stranded under the month grid — derived rather than reset in an effect.
   const monthPickerOpen = monthOpen && !isMonthView
   // In Mois the pill's job is to return to *this month*, not to this day: it must not linger all month because
   // the user is reading a date other than today.
   const showTodayPill = isMonthView ? !isSameMonth(selectedDate, today) : !isSameDay(selectedDate, today)
+  /** What ‹ › move by, in words — the label is the one thing that tells a screen reader which unit this is. */
+  const stepLabel = isDayView ? "Jour" : isMonthView ? "Mois" : "Semaine"
 
   return (
-    // The bottom padding is on the container, not on each branch: with « Prochains RDV » gone the last child
-    // differs per view (the strip in Jour/Semaine, the mini-month when open, the view switch in Mois), and three
-    // separate bottom paddings is three chances for one of them to sit flush against the border.
+    // The bottom padding is on the container, not on each branch: the last child differs per view (the strip in
+    // Jour, the mini-month when open, the view switch in Semaine/Mois), and three separate bottom paddings is
+    // three chances for one of them to sit flush against the border.
     <div className="md:hidden border-b bg-card pb-1.5">
-      {/* Title + Aujourd'hui. The title names the MONTH in Semaine/Mois and the DAY in Jour, because when you
-          are reading one day's grid the day is what you need to confirm. */}
-      <div className="flex items-center gap-1 px-3 pt-1.5">
+      {/* Title + ‹ › + Aujourd'hui. The title names the MONTH in Semaine/Mois and the DAY in Jour, because when
+          you are reading one day's grid the day is what you need to confirm. */}
+      <div className="flex items-center gap-0.5 px-2 pt-1.5">
         {isMonthView ? (
-          <>
-            <span className="px-1.5 text-base font-semibold capitalize">
-              {format(selectedDate, "MMMM yyyy", { locale: fr })}
-            </span>
-            {/* `touch-target`: 44 px tall already, but only 36 px wide — and in Mois these two are the *only*
-                way to reach a past month (the grid below scrolls forward), so a mis-tap on the one control that
-                goes back is the worst one to leave under-sized. The overlay squares them off without widening
-                the painted button, which would push the title. */}
-            <button
-              type="button"
-              aria-label="Mois précédent"
-              onClick={() => onDateChange(addMonths(selectedDate, -1))}
-              className="touch-target grid h-11 w-9 place-items-center rounded-lg text-muted-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              aria-label="Mois suivant"
-              onClick={() => onDateChange(addMonths(selectedDate, 1))}
-              className="touch-target grid h-11 w-9 place-items-center rounded-lg text-muted-foreground"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </>
+          /* Mois has no mini-month to disclose (the screen below is one), so its title is a plain label. */
+          <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold capitalize">
+            {format(selectedDate, "MMMM yyyy", { locale: fr })}
+          </span>
         ) : (
           <button
             type="button"
             onClick={() => setMonthOpen((open) => !open)}
             aria-expanded={monthPickerOpen}
-            /* `min-w-0` + `truncate`: with « Aujourd'hui » and « Nouveau » to its right, the date is the one
-               item on this row that may give up width — at 320 px the three together are wider than the row,
-               and a title that pushes instead of shortening would drive the create action off screen.
+            /* `min-w-0` + `truncate`: with ‹ › and « Aujourd'hui » to its right, the date is the one item on
+               this row that may give up width — at 320 px the four together are wider than the row, and a title
+               that pushes instead of shortening would drive the arrows off screen.
 
                ⚠️ Painted **36 px** with a `touch-target` overlay, not `min-h-11`: it was the tallest thing in
                this header and so it set the row's height, and this header's height is the day grid's. The
-               overlay is safe *here* — its 4 px overhang meets a 4 px gap and then the empty `flex-1` spacer,
-               so there is no later sibling for it to steal a tap from (§ 2). */
-            className="touch-target flex min-h-9 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-base font-semibold"
+               overlay is safe *here* — its 4 px overhang meets the arrows' own 44 px areas, and a title
+               overhanging a « previous » arrow costs a re-tap, never a wrong action (§ 2). */
+            className="touch-target flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 text-base font-semibold"
           >
             <span className="truncate">
-              {view === "day"
+              {isDayView
                 ? format(selectedDate, "EEE d MMMM", { locale: fr })
                 : format(selectedDate, "MMMM yyyy", { locale: fr })}
             </span>
             <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", monthPickerOpen && "rotate-180")} />
           </button>
         )}
-        <div className="flex-1" />
         {showTodayPill && (
           <button
             type="button"
@@ -197,33 +167,31 @@ export function AgendaPhoneHeader({
                pointer without repainting a single pixel, which is the whole reason `globals.css` declares it —
                a 44 px-tall lozenge next to a 32 px title would be a density regression to fix an ergonomics
                one. Painted 32 px, hit 44 px. */
-            className="touch-target h-8 rounded-full border border-primary px-3 text-xs font-semibold text-primary"
+            className="touch-target h-8 shrink-0 rounded-full border border-primary px-2.5 text-xs font-semibold text-primary"
           >
             Aujourd&apos;hui
           </button>
         )}
-        {/*
-          The create action, in the row's own empty right-hand half — the user's placement, and it is also the
-          one that costs nothing: this row exists regardless.
-
-          ⚠️ **Still labelled.** « Nouveau », not a bare `+` circle: an icon-only primary action on the busiest
-          screen in the app is the unlabelled-ghost-icon problem P3 spent a whole part removing, and that
-          argument does not change with the button's address.
-
-          ⚠️ It **grows its own box** (`coarse:h-11`) rather than carrying `.touch-target`: « Aujourd'hui » sits
-          4 px away and already overlays a 44 px area, and two overlapping overlays hand every shared pixel to
-          whichever paints last — which is this one, the primary action (§ 2).
-        */}
-        {onNewAppointment && (
-          <Button
-            onClick={onNewAppointment}
-            size="sm"
-            className="h-9 shrink-0 gap-1.5 rounded-full px-3 coarse:h-11"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Nouveau
-          </Button>
-        )}
+        {/* ⚠️ The two arrows **grow their own 44 px box** (`h-11 w-10`) rather than carrying `.touch-target`:
+            they are adjacent, and two overlapping overlays hand every shared pixel to whichever paints last —
+            which would make « précédent » sometimes mean « suivant » (§ 2). Ten pixels wide is enough for a
+            16 px glyph and keeps both inside a 320 px row beside a truncating title. */}
+        <button
+          type="button"
+          aria-label={`${stepLabel} précédent`}
+          onClick={onPrevious}
+          className="grid h-11 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground active:bg-accent/50"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          aria-label={`${stepLabel} suivant`}
+          onClick={onNext}
+          className="grid h-11 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground active:bg-accent/50"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
       </div>
 
       {/*
@@ -273,66 +241,6 @@ export function AgendaPhoneHeader({
         ))}
       </div>
 
-      {/*
-        Status filters — « Filtres » plus a chip per active filter.
-
-        The chips are the load-bearing half: a filter the user did not choose has to be visible and removable
-        (AC-29), and the desktop already says so in `app/appointments/page.tsx`'s `hidden md:flex` chip row. The
-        disclosure is what makes them reachable in the first place — a phone had no surface for these switches at
-        all. Collapsed it costs one ~28 px row (with a 44 px hit area via `touch-target`), which is why it is a
-        disclosure rather than two permanently-mounted switches on the smallest screen in the app.
-      */}
-      {(onShowCancelledChange || onShowCompletedChange) && (
-        <div className="mt-1.5 px-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setFiltersOpen((open) => !open)}
-              aria-expanded={filtersOpen}
-              className="touch-target inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground"
-            >
-              <Filter className="h-3.5 w-3.5" aria-hidden="true" />
-              Filtres
-              <ChevronDown
-                className={cn("h-3 w-3 transition-transform", filtersOpen && "rotate-180")}
-                aria-hidden="true"
-              />
-            </button>
-            {showCancelled && (
-              <ActiveFilterChip label="Annulés affichés" onRemove={() => onShowCancelledChange?.(false)} />
-            )}
-            {showCompleted && (
-              <ActiveFilterChip label="Terminés affichés" onRemove={() => onShowCompletedChange?.(false)} />
-            )}
-          </div>
-
-          {filtersOpen && (
-            <div className="mt-1 flex flex-col gap-2 pb-1">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="phone-show-completed"
-                  checked={showCompleted}
-                  onCheckedChange={(checked) => onShowCompletedChange?.(checked)}
-                />
-                <Label htmlFor="phone-show-completed" className="cursor-pointer text-sm">
-                  Terminés affichés
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="phone-show-cancelled"
-                  checked={showCancelled}
-                  onCheckedChange={(checked) => onShowCancelledChange?.(checked)}
-                />
-                <Label htmlFor="phone-show-cancelled" className="cursor-pointer text-sm">
-                  Annulés affichés
-                </Label>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Collapsible mini-month. Density dots, never chips — a 390/7 ≈ 55 px column cannot hold a chip. */}
       {monthPickerOpen && (
         <div className="mt-2 border-t px-3 pb-3 pt-2">
@@ -340,6 +248,9 @@ export function AgendaPhoneHeader({
             <span className="flex-1 text-sm font-medium capitalize">
               {format(selectedDate, "MMMM yyyy", { locale: fr })}
             </span>
+            {/* These page the PICKER by a month whatever the view is, which is why they do not reuse
+                `onPrevious`/`onNext`: in Jour those move by a day, and a month grid that advances one square is
+                not a month picker. */}
             <button
               type="button"
               aria-label="Mois précédent"
@@ -392,9 +303,10 @@ export function AgendaPhoneHeader({
         </div>
       )}
 
-      {/* 7-day strip — tap a day to go to it. Hidden while the mini-month is open (it would say the same thing),
-          and in Mois, where the grid below already shows this week among all the others. */}
-      {!monthPickerOpen && !isMonthView && (
+      {/* 7-day strip — tap a day to go to it. Jour only: Semaine's grid draws its own dates over its own
+          columns, and Mois is a month of days. Hidden while the mini-month is open (it would say the same
+          thing). */}
+      {!monthPickerOpen && isDayView && (
         /* At 320 px the seven cells measured ~37 px wide — under the § 2 floor, on the control this header
             exists for. The height floor above was reasoned about; the width never was.
 

@@ -9,6 +9,7 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using ClinicManagement.Application.Common;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Features.Billing;
@@ -93,11 +94,22 @@ public class InstallmentOverdueBoundaryTests
         return result.Value!.OldestOverdueDate;
     }
 
+    /*
+     * ⚠️ « Today » is the CLINIC's day, never `DateTime.UtcNow.Date`.
+     *
+     * The query under test compares against `ClinicClock.ClinicToday()`, and Tunisia is UTC+1 — so between
+     * 23:00 and 00:00 UTC the two disagree by a day and these tests went red for that hour, every night,
+     * against production code that was right. Caught at 23:07 UTC; the assertions were the only thing wrong.
+     *
+     * This is the repository's own documented trap (« Never `DateTime.UtcNow` or `DateTime.Today` ») showing up
+     * in the tests that exist to protect the boundary. A suite that fails for an hour a day is a suite people
+     * learn to re-run instead of read.
+     */
     // The regression: due TODAY at midnight. The patient still has the whole day, so nothing is overdue.
     [Fact]
     public async Task An_Installment_Due_Today_Is_Not_Overdue()
     {
-        var today = DateTime.UtcNow.Date;
+        var today = ClinicClock.ClinicToday();
 
         Assert.Null(await OldestOverdueFor(today));
     }
@@ -105,7 +117,7 @@ public class InstallmentOverdueBoundaryTests
     [Fact]
     public async Task An_Installment_Due_Yesterday_Is_Overdue()
     {
-        var yesterday = DateTime.UtcNow.Date.AddDays(-1);
+        var yesterday = ClinicClock.ClinicToday().AddDays(-1);
 
         Assert.Equal(yesterday, await OldestOverdueFor(yesterday));
     }
@@ -113,7 +125,7 @@ public class InstallmentOverdueBoundaryTests
     [Fact]
     public async Task An_Installment_Due_Tomorrow_Is_Not_Overdue()
     {
-        Assert.Null(await OldestOverdueFor(DateTime.UtcNow.Date.AddDays(1)));
+        Assert.Null(await OldestOverdueFor(ClinicClock.ClinicToday().AddDays(1)));
     }
 
     /// <summary>
@@ -124,8 +136,8 @@ public class InstallmentOverdueBoundaryTests
     [Fact]
     public async Task Todays_Installment_Is_Not_Overdue_Regardless_Of_The_Time_Of_Day()
     {
-        // Same calendar day as "now", but explicitly late in it.
-        var todayLate = DateTime.UtcNow.Date.AddHours(23).AddMinutes(59);
+        // Same CLINIC calendar day as "now", but explicitly late in it.
+        var todayLate = ClinicClock.ClinicToday().AddHours(23).AddMinutes(59);
 
         Assert.Null(await OldestOverdueFor(todayLate));
     }

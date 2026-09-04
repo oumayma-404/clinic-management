@@ -28,6 +28,7 @@ public class AcceptTreatmentPlanCommandHandler : IRequestHandler<AcceptTreatment
 {
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<AcceptTreatmentPlanCommandHandler> _logger;
@@ -35,12 +36,14 @@ public class AcceptTreatmentPlanCommandHandler : IRequestHandler<AcceptTreatment
     public AcceptTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<AcceptTreatmentPlanCommandHandler> logger)
     {
         _planRepository = planRepository;
         _patientRepository = patientRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -64,8 +67,11 @@ public class AcceptTreatmentPlanCommandHandler : IRequestHandler<AcceptTreatment
             }
 
             var accepted = await DevisNumbering.AcceptAndSaveAsync(
-                plan, clinicId, _planRepository, _unitOfWork,
+                plan, clinicId, _planRepository, _procedureTypeRepository, _unitOfWork,
                 ct => _planRepository.UpdateAsync(plan, ct),
+                // Nothing confirmed: this path accepts a Draft that already exists, so its acts take their
+                // procedures' catalogue protocols and the dentist edits them from the act rows afterwards.
+                confirmedSteps: null,
                 _logger, cancellationToken);
             if (accepted.IsFailure)
             {

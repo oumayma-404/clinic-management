@@ -110,7 +110,7 @@ public class TreatmentPlanTenantIsolationTests
         PlanIsLoadable(foreign);
 
         var handler = new AcceptTreatmentPlanCommandHandler(
-            _plans.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            _plans.Object, _patients.Object, _procedureTypes.Object, _clinicResolver.Object, _uow.Object,
             NullLogger<AcceptTreatmentPlanCommandHandler>.Instance);
 
         var result = await handler.Handle(
@@ -147,8 +147,11 @@ public class TreatmentPlanTenantIsolationTests
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
 
+        // Cancelling now also releases any note d'honoraires the devis was attached to, so the handler takes the
+        // invoice repository. The mock answers no links, which is this test's own case: a foreign plan is
+        // refused before anything is read.
         var handler = new CancelTreatmentPlanCommandHandler(
-            _plans.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            _plans.Object, _invoices.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
             NullLogger<CancelTreatmentPlanCommandHandler>.Instance);
 
         var result = await handler.Handle(
@@ -318,7 +321,7 @@ public class TreatmentPlanTenantIsolationTests
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
 
         var handler = new GetTreatmentPlansQueryHandler(
             _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _clinicResolver.Object,

@@ -82,20 +82,31 @@ public class TreatmentPlanItemUnmarkTests
         Assert.Equal(TreatmentPlanStatus.InProgress, plan.Status);
     }
 
-    // [AC-P2.9] Reopening restores amendability — without this the un-mark would be cosmetic, because
-    // EnsureAmendable refuses a Completed plan and every amendment would still be blocked.
+    /*
+     * [AC-P2.9] Reopening puts the plan back to InProgress.
+     *
+     * ⚠️ This used to assert that un-marking RESTORED amendability, because `EnsureAmendable` refused a
+     * Completed plan. It no longer does — a completed plan is correctable, which is the whole point of the
+     * widened window — so what is left to pin is the status transition itself, and that the amendment stamp
+     * works either side of it. The old assertion would now be vacuous rather than wrong.
+     */
     [Fact]
-    public void Unmark_Restores_The_Ability_To_Amend_The_Devis()
+    public void Unmark_Reopens_A_Completed_Plan_And_Amendment_Works_Either_Side()
     {
         var plan = AcceptedPlan(1);
         var item = plan.Items.Single();
         plan.MarkItemDone(item.Id, DoneOn, RecordId);
-        Assert.Throws<InvalidOperationException>(() => plan.RecordAmendment());
+        Assert.Equal(TreatmentPlanStatus.Completed, plan.Status);
+        plan.RecordAmendment(); // a completed plan is correctable now
 
         plan.UnmarkItemDone(item.Id);
 
-        plan.RecordAmendment(); // must not throw
-        Assert.Equal(1, plan.RevisionNumber);
+        // ⚠️ `Accepted`, not `InProgress`: this plan has ONE act, so un-marking it leaves no work recorded at
+        // all and the status re-derives to « accepté, rien de commencé ». A two-act plan with one still done
+        // would land on InProgress — see `Unmark_Is_A_No_Op_On_An_Act_That_Was_Never_Done`.
+        Assert.Equal(TreatmentPlanStatus.Accepted, plan.Status);
+        plan.RecordAmendment();
+        Assert.Equal(2, plan.RevisionNumber);
     }
 
     // [AC-P2.8] Un-marking an act that was never done changes nothing — and must not reopen a plan.

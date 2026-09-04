@@ -192,20 +192,6 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         var live = original.Payments.Where(p => !p.IsVoided).OrderBy(p => p.PaidOn).ThenBy(p => p.CreatedAt).ToList();
         var collected = InvoiceCalculator.RoundMoney(live.Sum(p => p.Amount));
 
-        if (collected > replacement.TotalTtc)
-        {
-            // Bounded BEFORE anything is voided, for the same reason the devis carry-over is: letting
-            // `RecordPayment` throw mid-loop would strand a numbered invoice whose predecessor is already
-            // cancelled and whose money is nowhere.
-            //
-            // This is the case where the patient really is owed money back, and that is an avoir's job — the
-            // message says so rather than silently clamping.
-            return Result.Failure(
-                $"La note {original.Number} a encaissé {collected:0.000} DT, soit plus que cette correction "
-                + $"({replacement.TotalTtc:0.000} DT). Le patient récupère la différence : établissez un avoir sur "
-                + $"la note {original.Number} plutôt qu'une correction.");
-        }
-
         foreach (var payment in live)
         {
             original.VoidPayment(payment.Id, reason, creditedTotal: 0m);
@@ -214,20 +200,33 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         original.Cancel(reason);
         original.MarkSupersededBy(replacement.Id);
 
+        // Correcting says the note was WRONG, so a figure above the corrected total was never received: the carry
+        // stops at what the séance is now worth. Refusing here instead sent the dentist to an avoir, which states
+        // a refund that did not happen — and the fiche path (`UpdateDentalRecordCommand`) has never refused it.
+        var remaining = replacement.TotalTtc;
         foreach (var payment in live)
         {
             // Cheque identity and the banked stamp travel with the money, for the reason the devis bridge spells
             // out one method down: a cheque left behind would vanish from « chèques à encaisser » entirely.
+            var carried = InvoiceCalculator.RoundMoney(Math.Min(payment.Amount, remaining));
+            if (carried <= 0m)
+            {
+                break;
+            }
+
             replacement.RecordPayment(
-                payment.Amount, payment.Method, payment.PaidOn, payment.SourceInstallmentPaymentId,
+                carried, payment.Method, payment.PaidOn, payment.SourceInstallmentPaymentId,
                 payment.ToChequeDetails(), payment.ToBankedStamp());
+            remaining = InvoiceCalculator.RoundMoney(remaining - carried);
         }
 
         await _invoiceRepository.UpdateAsync(original, cancellationToken);
 
+        var dropped = InvoiceCalculator.RoundMoney(collected - replacement.AmountCollected);
         _logger.LogInformation(
-            "Invoice {Number} cancelled and superseded by {ReplacementId}; carried {Amount} DT across {Count} payments",
-            original.Number, replacement.Id, collected, live.Count);
+            "Invoice {Number} cancelled and superseded by {ReplacementId}; carried {Amount} DT across {Count} "
+            + "payments, {Dropped} DT written off as never received",
+            original.Number, replacement.Id, replacement.AmountCollected, live.Count, dropped);
 
         return Result.Success();
     }

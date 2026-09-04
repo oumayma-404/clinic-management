@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { ProcedureTypeDto } from './types';
+import type { ProcedureTypeDto, ProcedureStepTemplateDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 /** One selectable agenda colour: the value that is stored, and what the server calls it. */
@@ -50,6 +50,11 @@ export const procedureTypesApi = {
     description?: string;
     category?: string;
     resultingCondition?: string | null;
+    /**
+     * The act's suggested clinical steps. Accepted on create as well as update deliberately: the form posts one
+     * body, and an act creatable only without its protocol sends every practice through create-then-edit.
+     */
+    defaultSteps?: ProcedureStepTemplateDto[];
   }): Promise<ProcedureTypeDto> => {
     return apiPost<ProcedureTypeDto>('/procedure-types', {
       name: data.name,
@@ -59,6 +64,7 @@ export const procedureTypesApi = {
       description: data.description,
       category: data.category,
       resultingCondition: data.resultingCondition,
+      defaultSteps: data.defaultSteps,
     });
   },
 
@@ -71,6 +77,16 @@ export const procedureTypesApi = {
     /** Tri-state, like every field here: omit = unchanged, `""` = unfile the act, a label = file it. */
     category?: string;
     resultingCondition?: string | null;
+    /**
+     * The act's suggested clinical steps. **Tri-state, and a list gets the distinction for free**: omit the key
+     * to leave the template alone, send `[]` to clear it (« cet acte se fait en une séance », a real answer),
+     * send a list to replace it. No `Specified` companion is needed, unlike `defaultCost` — `null` and `[]` are
+     * already different JSON values.
+     *
+     * Editing it touches **no** devis: a template is copied onto a plan line when the act is added, and the line
+     * owns its steps from then on, so re-wording one can never rewrite the protocol of a bridge under way.
+     */
+    defaultSteps?: ProcedureStepTemplateDto[];
     /** The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`. */
     version?: number;
   }): Promise<ProcedureTypeDto> => {
@@ -129,8 +145,11 @@ export const procedureTypesApi = {
   // already present — so it never overwrites a price the clinic has already set. Returns how many rows landed.
   // ⚠️ It claimed « ~42 » until the catalogue was cut from 43 rows to 19 (feef4d8a). The count belongs to the
   // seed, so naming one here is a second copy that goes stale the next time a row is added.
-  initializeDefaults: async (): Promise<{ added: number }> => {
-    return apiPost<{ added: number }>('/procedure-types/initialize-defaults', {});
+  // `protocolsUpdated` counts starter protocols that gained their step intervals — the seed is name-keyed and
+  // insert-only, so a rhythm added to a starter protocol reaches new clinics and no existing one. Both counts
+  // are reported because a run can legitimately add nothing and still change many protocols.
+  initializeDefaults: async (): Promise<{ added: number; protocolsUpdated: number }> => {
+    return apiPost<{ added: number; protocolsUpdated: number }>('/procedure-types/initialize-defaults', {});
   },
 };
 

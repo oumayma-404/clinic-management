@@ -45,12 +45,16 @@ public static class TreatmentPlanMappingExtensions
         Version = plan.Version,
             UpdatedAt = plan.UpdatedAt,
             RevisionNumber = plan.RevisionNumber,
-            ItemsDone = plan.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done),
-            ItemsTotal = plan.Items.Count,
+            // Parked acts count in neither: a stopped treatment reading « 0 / 2 actes » would be counting the
+            // séances the patient is not coming back for.
+            ItemsDone = plan.ActiveItems.Count(i => i.Status == TreatmentPlanItemStatus.Done),
+            ItemsTotal = plan.ActiveItems.Count(),
             NextAppointmentAt = nextAppointmentAt,
             LinkedInvoiceId = hasInvoice ? invoice.InvoiceId : null,
             LinkedInvoiceNumber = hasInvoice ? invoice.Number : null,
             LinkedInvoiceStatus = hasInvoice ? invoice.Status.ToString() : null,
+            LinkedInvoiceTotal = hasInvoice ? invoice.TotalTtc : null,
+            LinkedInvoiceOutstanding = hasInvoice ? invoice.Outstanding : null,
             Items = plan.Items
                 .Select(i => ToItemDto(i, workflow))
                 .ToList(),
@@ -106,7 +110,31 @@ public static class TreatmentPlanMappingExtensions
             SequenceNumber = item.SequenceNumber,
             ScheduledAppointmentId = hasAppointment ? appointment!.Id : null,
             ScheduledAt = hasAppointment ? appointment!.AppointmentDateTime : null,
-            ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null
+            ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null,
+            Steps = item.Steps.Select(s => ToStepDto(s, workflow)).ToList(),
+            StepsDone = item.StepsDone,
+            NextStepId = item.NextStep?.Id,
+            NextStepDueFrom = item.NextStepDueFrom,
+            IsWithdrawn = item.IsWithdrawn,
+        };
+    }
+
+    private static TreatmentPlanItemStepDto ToStepDto(TreatmentPlanItemStep step, TreatmentPlanWorkflow workflow)
+    {
+        var hasAppointment = workflow.ScheduledByStepId.TryGetValue(step.Id, out var appointment);
+
+        return new TreatmentPlanItemStepDto
+        {
+            Id = step.Id,
+            Label = step.Label,
+            SequenceNumber = step.SequenceNumber,
+            DoneDate = step.DoneDate,
+            LinkedDentalRecordId = step.LinkedDentalRecordId,
+            EstimatedDurationMinutes = step.EstimatedDurationMinutes,
+            MinDaysAfterPrevious = step.MinDaysAfterPrevious,
+            ScheduledAppointmentId = hasAppointment ? appointment!.Id : null,
+            ScheduledAt = hasAppointment ? appointment!.AppointmentDateTime : null,
+            ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null,
         };
     }
 }

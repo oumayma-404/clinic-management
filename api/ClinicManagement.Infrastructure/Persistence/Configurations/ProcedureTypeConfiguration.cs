@@ -52,6 +52,23 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
         builder.Property(pt => pt.Category)
             .HasMaxLength(100);
 
+        // The act's proposed clinical steps, stored as a JSON array — same mechanism as
+        // TreatmentPlanItem.ToothNumbers, one element type richer. A separate table was the alternative and is
+        // the wrong shape: nothing ever queries a template, joins to one, or points a foreign key at one; it is
+        // read whole, exactly once, when the act is added to a devis. The real steps that DO get queried are
+        // TreatmentPlanItemStep rows.
+        builder.Property(pt => pt.DefaultSteps)
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null!),
+                v => string.IsNullOrWhiteSpace(v)
+                    ? new List<ProcedureStepTemplate>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<ProcedureStepTemplate>>(v, (System.Text.Json.JsonSerializerOptions?)null!) ?? new List<ProcedureStepTemplate>(),
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<IReadOnlyList<ProcedureStepTemplate>>(
+                    (c1, c2) => c1 != null && c2 != null && c1.SequenceEqual(c2),
+                    c => c != null ? c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())) : 0,
+                    c => c != null ? c.ToList() : new List<ProcedureStepTemplate>()))
+            .HasColumnType("text");
+
         // The catalogue list orders by category then name and filters by category, always inside one clinic — so
         // the index carries all three, and the leading ClinicId is what lets the same index serve the unfiltered
         // list. Declared here rather than hand-written in the migration so `verify-schema` picks it up from the

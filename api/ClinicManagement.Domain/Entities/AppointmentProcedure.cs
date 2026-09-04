@@ -57,6 +57,24 @@ public class AppointmentProcedure : Entity<Guid>
     /// </summary>
     public Guid? TreatmentPlanItemId { get; private set; }
 
+    /// <summary>
+    /// The <b>step</b> of that devis act this séance carries out — « on prépare aujourd'hui, on scellera dans
+    /// trois semaines ». Null when the act is done in one sitting, which is the ordinary case and what every row
+    /// written before steps existed means.
+    /// <para>
+    /// ⚠️ <b>Never set without <see cref="TreatmentPlanItemId"/></b>, enforced in the constructor. Four existing
+    /// reads key off <c>Appointment.LinkedTreatmentPlanItemIds</c> — the devis read-back, the plan projection,
+    /// <c>VisitClosure</c>'s « couvert par le devis » via <c>GetDebtBearingItemIdsAsync</c>, and the plan
+    /// timeline — and a step-only row would silently drop out of all of them, so a séance carrying real planned
+    /// work would read as unbilled and as « À planifier » at the same time.
+    /// </para>
+    /// <para>
+    /// A plain indexed column, no FK — matching <see cref="TreatmentPlanItemId"/>, and for its reason: a devis
+    /// amendment that drops a step must never block or cascade into a booked visit.
+    /// </para>
+    /// </summary>
+    public Guid? TreatmentPlanItemStepId { get; private set; }
+
     /// <summary>Order within the séance (0-based) — the order the dentist listed the acts in.</summary>
     public int SequenceNumber { get; private set; }
 
@@ -74,12 +92,21 @@ public class AppointmentProcedure : Entity<Guid>
         string? colorHex,
         decimal? agreedCost,
         Guid? treatmentPlanItemId,
-        int sequenceNumber)
+        int sequenceNumber,
+        Guid? treatmentPlanItemStepId = null)
     {
         if (procedureTypeId == null && string.IsNullOrWhiteSpace(procedureName))
         {
             throw new ArgumentException(
                 "Un acte du rendez-vous doit référencer une procédure ou porter un libellé.", nameof(procedureName));
+        }
+        // A step names which part of a devis act this séance does, so the act itself must be named too. Without
+        // this the row would carry planned work that LinkedTreatmentPlanItemIds cannot see — see the property.
+        if (treatmentPlanItemStepId.HasValue && !treatmentPlanItemId.HasValue)
+        {
+            throw new ArgumentException(
+                "Une étape ne peut pas être planifiée sans l'acte du devis auquel elle appartient.",
+                nameof(treatmentPlanItemStepId));
         }
         if (durationMinutes is <= 0)
         {
@@ -103,6 +130,7 @@ public class AppointmentProcedure : Entity<Guid>
         ColorHex = string.IsNullOrWhiteSpace(colorHex) ? null : colorHex.Trim();
         AgreedCost = agreedCost;
         TreatmentPlanItemId = treatmentPlanItemId;
+        TreatmentPlanItemStepId = treatmentPlanItemStepId;
         SequenceNumber = sequenceNumber;
     }
 
@@ -134,4 +162,5 @@ public record AppointmentProcedureInput(
     int? DurationMinutes,
     string? ColorHex,
     decimal? AgreedCost,
-    Guid? TreatmentPlanItemId);
+    Guid? TreatmentPlanItemId,
+    Guid? TreatmentPlanItemStepId = null);

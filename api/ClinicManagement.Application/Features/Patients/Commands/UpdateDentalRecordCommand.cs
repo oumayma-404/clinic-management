@@ -59,6 +59,18 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid? TreatmentPlanId { get; set; }
     /// <summary>Optional plan step this record carries out — marked "réalisé" and linked to this record on save.</summary>
     public Guid? TreatmentPlanItemId { get; set; }
+
+    /// <summary>
+    /// Which <b>step</b> of that devis act this fiche carries out — « le scellement ». Null when the act is
+    /// done in one séance, which is the ordinary case and every fiche written before steps existed.
+    /// <para>
+    /// ⚠️ Supplying it is what lets one devis line be evidenced by several fiches:
+    /// <c>TreatmentPlanItem.MarkDone</c> refuses a second, different record, so without a step the second
+    /// séance of a bridge is refused outright. Omitting it on a stepped act is still safe — the act-level
+    /// path advances that act's next pending step.
+    /// </para>
+    /// </summary>
+    public Guid? TreatmentPlanItemStepId { get; set; }
 }
 
 public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalRecordCommand, Result<DentalRecordDto>>
@@ -67,6 +79,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly IPatientRepository _patientRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    // Read only to answer « which steps did this séance carry out? » — see DentalRecordLinker.
+    private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -80,6 +94,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         IPatientRepository patientRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         ICreditNoteRepository creditNoteRepository,
         ICurrentClinicResolver clinicResolver,
@@ -92,6 +107,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _patientRepository = patientRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _creditNoteRepository = creditNoteRepository;
         _clinicResolver = clinicResolver;
@@ -264,8 +280,12 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             if (request.TreatmentPlanItemId.HasValue)
             {
                 var link = await DentalRecordLinker.LinkPlanItemAsync(
-                    _treatmentPlanRepository, request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
-                    dentalRecord.PatientId, clinicResult.Value, dentalRecord.Id, request.InterventionDate, cancellationToken);
+                    _treatmentPlanRepository, _appointmentRepository,
+                    request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
+                    dentalRecord.PatientId, clinicResult.Value, dentalRecord.Id, request.InterventionDate,
+                    // The record's OWN appointment, not the request's: a re-save must resolve the same séance
+                    // it was recorded against, and this command's payload does not carry the visit.
+                    cancellationToken, request.TreatmentPlanItemStepId, dentalRecord.AppointmentId);
                 if (link.IsFailure)
                 {
                     return Result<DentalRecordDto>.Failure(link.Error!);

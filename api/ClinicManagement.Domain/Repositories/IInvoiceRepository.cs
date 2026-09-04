@@ -130,11 +130,26 @@ public interface IInvoiceRepository
 
     /// <summary>
     /// One row per devis→facture bridge in the clinic: the plan it was generated from, the invoice's id,
-    /// number and status. A light projection (no lines/payments loaded) so a plan can show « Facturé » and
-    /// the money reads can count the invoice instead of the plan without over-fetching. Cancelled invoices
-    /// are included — the caller decides whether a cancelled bridge still represents the plan.
+    /// number and status, and <b>what that invoice is worth and still owes</b>. A light projection (no
+    /// lines/payments loaded) so a plan can show « Facturé » and the money reads can count the invoice instead
+    /// of the plan without over-fetching. Cancelled invoices are included — the caller decides whether a
+    /// cancelled bridge still represents the plan.
+    /// <para>
+    /// ⚠️ The two amounts are what makes « Reste » sayable on a billed devis. A bridged plan's own
+    /// <c>Outstanding</c> is <c>TotalPlanned − Σ its own installments</c>, and its auto-raised échéance will
+    /// never see a payment because the money went to the note — so six surfaces printed a « Reste » of the
+    /// whole devis about patients who owed nothing, one of them in red. Two source comments already claimed the
+    /// DTO carried the note's total so the workspace could state the gap; it did not, which is why that fix was
+    /// never implemented.
+    /// </para>
     /// </summary>
-    Task<IReadOnlyList<(Guid TreatmentPlanId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
+    Task<IReadOnlyList<(
+        Guid TreatmentPlanId,
+        Guid InvoiceId,
+        string? Number,
+        InvoiceStatus Status,
+        decimal TotalTtc,
+        decimal Outstanding)>>
         GetTreatmentPlanLinksAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>

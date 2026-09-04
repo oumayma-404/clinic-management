@@ -314,7 +314,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
                 var linkResult = await AppointmentPlanLink.ValidateManyAsync(
                     _treatmentPlanRepository, request.TreatmentPlanId,
-                    AppointmentProcedureSelection.PlanItemIds(requestedProcedures),
+                    AppointmentProcedureSelection.PlanLinks(requestedProcedures),
                     clinicResult.Value, appointment.PatientId, cancellationToken);
                 if (linkResult.IsFailure)
                 {

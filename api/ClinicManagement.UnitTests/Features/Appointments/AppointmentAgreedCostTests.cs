@@ -247,8 +247,19 @@ public class AppointmentAgreedCostTests
         Assert.Equal(AppointmentProcedureSelection.AgreedCostNegative, result.Error);
     }
 
+    /// <summary>
+    /// A link-only act keeps the plan line's <b>name</b> and is priced at <c>0</c>, whatever price the caller
+    /// sent — see <see cref="AppointmentProcedureSelection.PriceForPlanLinkedAct"/>.
+    /// <para>
+    /// ⚠️ This asserted <c>400</c> until the invariant grew a home on the server. It was not wrong about the
+    /// mechanism — the price really was carried through — but carrying it is the defect: the fee of an act a
+    /// séance performs for a devis lives once on <c>TreatmentPlanItem.PlannedCost</c>, so a copy of it on the
+    /// appointment is what let the fiche de soins re-charge a 150 DT canal at every séance and let a reopened
+    /// booking offer « remettre au tarif ». Zero here is not « free »; it is « already accounted for ».
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task Resolve_Carries_A_Link_Only_Acts_Price()
+    public async Task Resolve_Prices_A_Link_Only_Devis_Act_At_Zero()
     {
         var result = await Resolve(new AppointmentProcedureRequest
         {
@@ -259,7 +270,7 @@ public class AppointmentAgreedCostTests
 
         Assert.True(result.IsSuccess);
         var only = Assert.Single(result.Value!);
-        Assert.Equal(400m, only.AgreedCost);
+        Assert.Equal(0m, only.AgreedCost);
         Assert.Equal("Facette céramique", only.ProcedureName);
     }
 

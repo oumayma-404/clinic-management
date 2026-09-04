@@ -106,6 +106,10 @@ The **dependency direction** in `api/` is strict Clean Architecture: `API → Ap
   copy of them.
 - **Frontend → backend calls** → `web/lib/api/` (per-resource modules over `client.ts`).
 - **A backend test** → `api/ClinicManagement.UnitTests/` (xUnit + Moq, one folder per layer).
+- **How to verify a change** → [`.claude/rules/verification.md`](.claude/rules/verification.md) — one full pass
+  over every affected area, collect *all* failures, fix them together, re-run. The unfiltered suite is the gate
+  (a `--filter` once hid 21 failures for a whole feature), a failing check is a probe bug until excluded, and
+  « no error string » is not « loaded ». `frontend-web.md` is its rendering-side twin.
 
 ## Running locally
 

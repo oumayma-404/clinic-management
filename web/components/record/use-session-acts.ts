@@ -40,6 +40,20 @@ export interface SessionAct {
   note: string
   /** The act's own teeth. Empty is legitimate — a détartrage or a panoramique is a séance-level act. */
   toothNumbers: number[]
+  /**
+   * This act is carried by an accepted devis, so its fee lives once on the plan and this séance adds nothing.
+   * ⚠️ **It is not the same fact as `unitCostLocked`**, which is merely « somebody has set this price » and is
+   * true of a hand-typed figure too — so it cannot stand in for this.
+   * <para>
+   * It exists because the card derives its « geste » line from tariff-vs-typed alone: on a devis act at 0
+   * against a 120 DT tariff it announced « Tarif catalogue 120,000 DT — **geste de 120,000 DT** » and offered
+   * « remettre au tarif ». Both are wrong. The 0 is not a discount the dentist granted, it is « already
+   * invoiced elsewhere » — and the restore link is one press from re-charging an act the devis already bills,
+   * which is the double-charge this whole feature exists to prevent. Third surface of one rule, after the
+   * picker's `agreedCostOf` and the edit dialog's `billedOnPlan`.
+   * </para>
+   */
+  billedOnPlan: boolean
   /** The card is showing the catalogue instead of its act. */
   picking: boolean
 }
@@ -57,6 +71,7 @@ const emptyAct = (key: string): SessionAct => ({
   resultingCondition: null,
   surfaces: new Set<string>(),
   note: "",
+  billedOnPlan: false,
   toothNumbers: [],
   picking: true,
 })
@@ -96,6 +111,11 @@ function derivePerTooth(act: SessionAct, toothCount: number): boolean {
 export interface BookedActPrefill {
   procedure: ProcedureTypeDto
   agreedCost: number | null
+  /**
+   * The booked act is a devis act, so `agreedCost` is a rule (0) and not a negotiation. Required, like
+   * `agreedCost`, so a caller cannot omit it and silently get the « geste » treatment on a plan act.
+   */
+  billedOnPlan: boolean
 }
 
 /** A treatment-plan step's values carried into the first act when the step is linked. */
@@ -265,6 +285,14 @@ export type SessionAction =
   | { type: "applyPlanItem"; item: PlanItemPrefill }
   /** The dentist typed the séance total; the acts follow. See {@link distributeSessionTotal}. */
   | { type: "setTotal"; total: number }
+  /**
+   * Mark the act(s) this fiche performs for a devis, once the modal has resolved which devis act that is.
+   * Needed for a **reopened** fiche: `applyAppointment` carries the flag per act at creation, but a saved
+   * record is built by `initialState` before any plan data has loaded, so without this the reopened card falls
+   * back to reading its 0 as a « geste de 120,000 DT » with a « remettre au tarif » link — the same defect on
+   * the hydration path, which is where this family of bug always reappears.
+   */
+  | { type: "markBilledOnPlan"; procedureTypeId: string | null }
 
 /**
  * Load a persisted act back into the editor. The pricing intent is read from the stored provenance and is
@@ -293,6 +321,10 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     resultingCondition: a.resultingCondition ?? null,
     surfaces: parseSurfaces(a.surfaces),
     note: a.note ?? "",
+    // Not inferable from the stored row — a cost of 0 is also how a courtesy act is recorded, and this file's
+    // rule is that pricing intent is read, never guessed. `markBilledOnPlan` back-fills it once the modal knows
+    // which devis act the fiche is for; see the effect in `patient-record-modal.tsx`.
+    billedOnPlan: false,
     picking: false,
   }
 }
@@ -489,7 +521,12 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const first = state.acts[0]
       if (state.acts.length !== 1 || isActNamed(first) || action.procedures.length === 0) return state
       const acts = action.procedures.map((p, i) =>
-        applyProcedure(i === 0 ? first : emptyAct(makeKey(state.nextKey + i - 1)), p.procedure, p.agreedCost),
+        // `billedOnPlan` travels with the price, because it is what the price MEANS: 0 on a devis act is a rule,
+        // not a gesture. Applied after `applyProcedure` so it survives the branch that rebuilds the act.
+        ({
+          ...applyProcedure(i === 0 ? first : emptyAct(makeKey(state.nextKey + i - 1)), p.procedure, p.agreedCost),
+          billedOnPlan: p.billedOnPlan,
+        }),
       )
       return { acts, focusKey: acts[0].key, nextKey: state.nextKey + action.procedures.length - 1 }
     }
@@ -513,6 +550,17 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
 
     case "setTotal":
       return { ...state, acts: distributeSessionTotal(state.acts, action.total) }
+
+    case "markBilledOnPlan": {
+      // Matched on the procedure, so a mixed fiche — one devis act plus a filling done the same day — marks
+      // only the act the devis actually carries. With no procedure to match on, a single-act fiche is
+      // unambiguous and anything larger is left alone rather than marked on a guess.
+      const target = action.procedureTypeId
+      const match = (a: SessionAct) =>
+        target != null ? a.procedureTypeId === target : state.acts.filter(isActNamed).length === 1
+      if (!state.acts.some((a) => match(a) && !a.billedOnPlan)) return state
+      return { ...state, acts: state.acts.map((a) => (match(a) ? { ...a, billedOnPlan: true } : a)) }
+    }
 
     default:
       return state

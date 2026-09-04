@@ -38,6 +38,22 @@ interface CardListProps<T> {
   title: (item: T) => React.ReactNode
   /** A second identifying line, when the title alone repeats across the list (lab orders' « Travail »). */
   subtitle?: (item: T) => React.ReactNode
+
+  /**
+   * A **block** under the title — a progress strip, a meter, anything that is not a sentence. Rendered after
+   * `subtitle`, inside the title column, full width.
+   *
+   * ⚠️ It exists because `subtitle` renders a `<p>` with `line-clamp-2`, and neither half of that can carry
+   * one. The markup half is a hard error: a `<div>` inside a `<p>` is invalid, so React logs a hydration
+   * failure and the **browser closes the paragraph early** — the block becomes a *sibling* of the `<p>` and
+   * silently leaves the `min-w-0` column it was supposed to sit in. The style half is worse because it is not
+   * an error at all: `line-clamp-2` is `display: -webkit-box` with `overflow: hidden`, so a strip that grows
+   * to a third line is simply cut off, with nothing to say so. Found by the devis workspace passing
+   * `PlanStepStrip` as a subtitle — it rendered plausibly at 1440 px and was invalid at every width.
+   *
+   * Use `subtitle` for prose and this for structure; a caller may pass both.
+   */
+  underTitle?: (item: T) => React.ReactNode
   /** Badges. Rendered beside the title, because a status is read with the identity, not among the fields. */
   status?: (item: T) => React.ReactNode
 
@@ -115,6 +131,7 @@ export function CardList<T>({
   getKey,
   title,
   subtitle,
+  underTitle,
   status,
   fields,
   actions,
@@ -165,6 +182,7 @@ export function CardList<T>({
         const rowLeading = leading?.(item)
         const rowStatus = status?.(item)
         const rowSubtitle = subtitle?.(item)
+        const rowUnderTitle = underTitle?.(item)
         const rowHref = href?.(item)
 
         // An empty value is dropped here rather than at 22 call sites (AC-17).
@@ -252,6 +270,7 @@ export function CardList<T>({
                     {rowSubtitle}
                   </p>
                 )}
+                {rowUnderTitle}
               </div>
 
               {rowActions && <div className="relative z-10 shrink-0">{rowActions}</div>}

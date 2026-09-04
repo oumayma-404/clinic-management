@@ -43,6 +43,36 @@ public static class DentalRecordBillingGuard
         public bool IsSpent =>
             Status == InvoiceStatus.Cancelled
             || (AmountCollected > 0m && CreditedTotal >= AmountCollected);
+
+        /// <summary>
+        /// Does this note still bill the work — i.e. must a correction to that work be refused?
+        /// <para>
+        /// ⚠️ <b>This is {@link IsSpent}'s inverse and it is exposed because two other guards were asking the
+        /// question with `RepresentsItsPlan(Status)` alone, which cannot see an avoir.</b> A credit note is a
+        /// separate aggregate keyed on the invoice; issuing one leaves the invoice `Paid`. So « Détacher la
+        /// fiche » refused with « Annulez la facture (ou émettez un avoir) avant de corriger », the dentist
+        /// issued the avoir, retried — and got the identical refusal, telling them again to do the thing they
+        /// had just done. And « Annulez » was not available either: <c>Invoice.CanCancel</c> refuses a note
+        /// carrying a live payment. Both remedies the message named were unreachable, so a fiche attached to the
+        /// wrong step was permanent and the act could never be re-recorded.
+        /// </para>
+        /// </summary>
+        public bool StillBillsTheWork => !IsSpent && PlanBillingRules.RepresentsItsPlan(Status);
+
+        /// <summary>
+        /// What the dentist must actually do before this note will let the work be corrected — the remedy that
+        /// exists, with its figure, rather than a choice between two that do not.
+        /// </summary>
+        /// <remarks>
+        /// The branch is <c>CanCancel</c>'s own rule: a note with no live payment is cancelled outright, and one
+        /// that has collected money can only be credited — for the <b>whole</b> collected amount, because a
+        /// partial avoir leaves the note still billing (see <see cref="IsSpent"/>).
+        /// </remarks>
+        public string Remedy =>
+            AmountCollected > 0m
+                ? $"Établissez un avoir pour la totalité des {InvoiceCalculator.RoundMoney(AmountCollected - CreditedTotal):0.000} DT "
+                  + "restant à créditer sur cette note ; un avoir partiel ne suffit pas."
+                : "Annulez cette note d'honoraires.";
     }
 
     /// <summary>
@@ -96,6 +126,47 @@ public static class DentalRecordBillingGuard
                 invoice.Lines.Where(l => l.DentalRecordId == dentalRecordId).Sum(l => l.LineTotalHt)),
             invoice.AmountCollected,
             InvoiceCalculator.RoundMoney(creditedTotal));
+    }
+
+    /// <summary>
+    /// Refuse a correction to the clinical work a live note is billing — the shared answer for « Détacher la
+    /// fiche » at act level and at step level.
+    ///
+    /// <para>⚠️ It exists because both of those handlers asked the question themselves with
+    /// <c>RepresentsItsPlan(link.Status)</c> over the light link projection, which cannot see an avoir — so the
+    /// refusal survived the remedy it named. See <see cref="Snapshot.StillBillsTheWork"/>. Returning success for
+    /// a spent note is the whole fix: a fully-credited or cancelled note bills nothing, so there is nothing left
+    /// to protect.</para>
+    ///
+    /// <para><paramref name="what"/> is « cet acte » or « cette étape » — the only difference between the two
+    /// call sites, and the reason this takes a word rather than being written twice.</para>
+    /// </summary>
+    public static async Task<Result> EnsureWorkIsNotBilledAsync(
+        IInvoiceRepository invoiceRepository,
+        ICreditNoteRepository creditNoteRepository,
+        Guid clinicId,
+        Guid? linkedDentalRecordId,
+        string what,
+        CancellationToken cancellationToken)
+    {
+        // No fiche attached ⇒ nothing an invoice line could be billing for it.
+        if (linkedDentalRecordId is not { } recordId)
+        {
+            return Result.Success();
+        }
+
+        var note = await LoadAsync(
+            invoiceRepository, creditNoteRepository, clinicId, recordId, cancellationToken);
+
+        if (note is null || !note.StillBillsTheWork)
+        {
+            return Result.Success();
+        }
+
+        var document = note.Number is null ? "un brouillon de note d'honoraires" : $"la note n° {note.Number}";
+        return Result.Failure(
+            $"La fiche de soins de {what} est facturée sur {document}. {note.Remedy} "
+            + $"Vous pourrez ensuite détacher {what} et refacturer la séance.");
     }
 
     /// <summary>

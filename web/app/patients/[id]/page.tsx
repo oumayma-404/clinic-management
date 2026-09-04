@@ -97,6 +97,7 @@ import { PatientPlansStrip } from "@/components/treatment-plans/patient-plans-st
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
+import { isPlanLive, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -833,6 +834,36 @@ export default function PatientDetailsPage() {
     }
   }, [patientId])
 
+  // Deep-link from « Corriger cette note » on /factures (?editRecord=<ficheId>): open that fiche's editor, which
+  // is the only door where the correction is expressible — the price is changed on the acts, and the note follows.
+  // Two steps because the modal edits the record itself, and the fiches arrive with the page's phase-2 batch.
+  const [pendingEditRecordId, setPendingEditRecordId] = useState<string | null>(null)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("editRecord")
+    if (id) setPendingEditRecordId(id)
+  }, [patientId])
+
+  // ⚠️ `detailsLoading`, never `loading`: the latter gates the patient's IDENTITY and goes false at the end of
+  // phase 1, while the fiches arrive with phase 2 — so waiting on it announces « introuvable » over a list that
+  // has not been fetched yet.
+  useEffect(() => {
+    if (!pendingEditRecordId || detailsLoading) return
+    const record = dentalRecords.find((r) => r.id === pendingEditRecordId)
+    setPendingEditRecordId(null)
+    // ⚠️ Dropped HERE, not when the param was read: `router.push` rewrites the URL *after* the destination
+    // page's effects run, so a `replaceState` on mount is silently overwritten and the param survives — which
+    // reopens the editor on every refresh. By now the navigation has settled.
+    window.history.replaceState({}, "", `/patients/${patientId}?tab=medical-records`)
+    // Cleared either way: a fiche deleted between the two screens must not leave the link armed for ever, and
+    // silence would read as « the button does nothing ».
+    if (!record) {
+      toast.error("Cette fiche de soins est introuvable : elle a peut-être été supprimée.")
+      return
+    }
+    setEditingRecord(record)
+    setRecordModalOpen(true)
+  }, [pendingEditRecordId, detailsLoading, dentalRecords])
+
   // ?tab=… lands the visitor on a specific tab — used by the plan workspace's « Voir la fiche », which needs
   // to open the medical-records tab rather than dumping the user on the default one. Same window.location
   // idiom as above (useSearchParams would force this page out of static prerendering); the param is left in
@@ -995,18 +1026,24 @@ export default function PatientDetailsPage() {
   // Open (not-yet-done) steps of the patient's active plans — offered in the record modal to close the
   // plan→record loop, and completed automatically when a linked record is saved.
   const openPlanItems: PlanItemOption[] = treatmentPlans
-    .filter((p) => p.status === "Accepted" || p.status === "InProgress")
+    .filter((p) => isPlanLive(p.status))
     .flatMap((p) =>
-      p.items
-        .filter((it) => it.status !== "Done")
-        .map((it) => ({
-          itemId: it.id,
-          planId: p.id,
-          label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
-          designationFr: it.designationFr,
-          plannedCost: it.plannedCost,
-          toothNumbers: it.toothNumbers,
-        })),
+      schedulablePlanItems(p).map((it) => ({
+        itemId: it.id,
+        planId: p.id,
+        label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+        designationFr: it.designationFr,
+        plannedCost: it.plannedCost,
+        toothNumbers: it.toothNumbers,
+        // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
+        // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
+        planNumber: p.number,
+        billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
+        planOutstanding: p.outstanding,
+        // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
+        // already pays for, so that act's 0 is not read back as a discount the dentist granted.
+        procedureTypeId: it.procedureTypeId ?? null,
+      })),
     )
 
   /**
@@ -1340,6 +1377,21 @@ export default function PatientDetailsPage() {
           onEdit={() => setEditDialogOpen(true)}
         />
 
+        {/*
+          ⚠️ **Directly under the notes, above the odontogramme** — on request, and it is the same reasoning the
+          notes strip itself carries: what the dentist must know before touching anything belongs in the first
+          screen. « Où en est le traitement, et qu'est-ce qui reste ? » is that kind of fact, and it used to sit
+          below the odontogramme — a full-width tooth chart further down the page — so on a laptop it was at or
+          past the fold and on a phone it was a scroll away. The band is ~76 px and states the next action, so
+          it earns the position more than the chart does.
+        */}
+        {sectionFailed("plans") && <SectionLoadFailure onRetry={retrySections} />}
+        <PatientPlansStrip
+          plans={treatmentPlans}
+          onOpen={() => openTab("treatment-plans")}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
+
         {/* An archived patient is hidden from every list and search but still reachable by direct URL —
             which makes this page the only place that can say so. */}
         {patient?.isArchived && (
@@ -1430,13 +1482,6 @@ export default function PatientDetailsPage() {
         {/* ⚠️ The band renders NOTHING when `plans` is empty, so a failed `treatmentPlansApi` read is invisible
             and silently asserts « never had a plan » about a patient with three. This is the one section whose
             empty state is "no element at all", which is why the failure has to be reported beside it. */}
-        {sectionFailed("plans") && <SectionLoadFailure onRetry={retrySections} />}
-        <PatientPlansStrip
-          plans={treatmentPlans}
-          onOpen={() => openTab("treatment-plans")}
-          onChanged={() => setRefreshKey((k) => k + 1)}
-        />
-
         <div ref={tabsRef} className="scroll-mt-4" />
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           {/*

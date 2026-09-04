@@ -139,12 +139,65 @@ public class TreatmentPlansController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
-    /// <summary>Close a fully-treated plan (« Terminer »). 400 if not all acts are done.</summary>
+    /// <summary>
+    /// Close a plan (« Terminer »), leaving any unrealised act unrealised — which is what the confirmation says.
+    /// </summary>
     [HttpPost("{id:guid}/complete")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<TreatmentPlanDto>> CompletePlan(Guid id)
     {
         var result = await _mediator.Send(new CompleteTreatmentPlanCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Suivre ce traitement » — start following a multi-séance act in one press, from the booking dialog or
+    /// from the treatments screen. Creates the treatment as an <b>un-numbered draft</b>: no devis number, no
+    /// échéancier, no créance. See <c>StartTreatmentCommand</c> for why the two were split.
+    /// </summary>
+    [HttpPost("start")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> StartTreatment([FromBody] StartTreatmentCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Éditer le devis » — take the number, because the patient is being handed a document. The only place a
+    /// devis number is consumed; idempotent on a treatment that already has one.
+    /// </summary>
+    [HttpPost("{id:guid}/issue-devis")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> IssueDevis(
+        Guid id, [FromBody] IssueDevisCommand? command)
+    {
+        var result = await _mediator.Send(new IssueDevisCommand { Id = id, Version = command?.Version ?? 0 });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Arrêter le traitement »: park the acts with no delivered work, keep the rest, re-spread the échéancier
+    /// and close the devis — one call, so a refused clôture can no longer leave the removals behind.
+    /// </summary>
+    [HttpPost("{id:guid}/stop")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> StopTreatment(
+        Guid id, [FromBody] StopTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>« Reprendre le traitement »: reopen a stopped devis and restore the acts it parked.</summary>
+    [HttpPost("{id:guid}/reopen")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> ReopenTreatment(
+        Guid id, [FromBody] ReopenTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
@@ -183,6 +236,98 @@ public class TreatmentPlansController : ApiControllerBase
     public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemDone(Guid id, Guid itemId)
     {
         var result = await _mediator.Send(new UnmarkTreatmentPlanItemDoneCommand { PlanId = id, ItemId = itemId });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Detach one <b>step</b> of an act from the fiche that evidenced it, returning it to « à venir » and
+    /// reopening the devis if that step had closed it. `AdminOrDoctor`, exactly like its act-level sibling: this
+    /// is the correction path for a clinical assertion, and it is refused once a live invoice bills the work.
+    /// </summary>
+    [HttpPost("{id:guid}/items/{itemId:guid}/steps/{stepId:guid}/undone")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemStep(Guid id, Guid itemId, Guid stepId)
+    {
+        var result = await _mediator.Send(
+            new UnmarkTreatmentPlanItemStepCommand { PlanId = id, ItemId = itemId, StepId = stepId });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Set the clinical steps of one act — « Préparation, Empreinte, Scellement définitif ».
+    /// <para>
+    /// ⚠️ `AdminOrDoctor`, following <see cref="ReorderItems"/> rather than the money reasoning of its other
+    /// neighbours. It moves <b>no</b> money — the act's price, the devis total and the échéancier are untouched,
+    /// and it does not bump the revision — so the fiscal argument does not apply. But this controller already
+    /// decided that case: reordering was moved into this group because « the sequence <i>is</i> the treatment
+    /// sequence — it is what the workspace proposes booking next », and a step list is that same decision one
+    /// level finer. Deciding a bridge is done in three sittings rather than four is a clinical judgement, and
+    /// `TreatmentPlansControllerAuthorizationTests` is where that intent is pinned.
+    /// </para>
+    /// </summary>
+    [HttpPut("{id:guid}/items/{itemId:guid}/steps")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> SetItemSteps(
+        Guid id, Guid itemId, [FromBody] SetTreatmentPlanItemStepsCommand command)
+    {
+        command.TreatmentPlanId = id;
+        command.ItemId = itemId;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Traitements en cours » — the acts this cabinet has started and not finished, with the next step and
+    /// whether a séance is booked for it.
+    /// <para>
+    /// ⚠️ `AnyClinicRole` (the controller's own policy), deliberately <b>not</b> `AdminOrDoctor` and deliberately
+    /// not folded into `GET /api/dashboard`, which is. Reception is exactly who books the next séance — the same
+    /// reasoning that kept the visit-closure worklist off the dashboard endpoint. It carries no money figure at
+    /// all, which is what makes that safe.
+    /// </para>
+    /// <para>
+    /// Ask for page 1 of size 1 and read <c>totalCount</c> to render the journée's chip: the total is exact
+    /// whatever page was requested, so the chip and the list it opens cannot disagree.
+    /// </para>
+    /// </summary>
+    [HttpGet("treatments-in-progress")]
+    public async Task<ActionResult<PagedResult<TreatmentInProgressDto>>> GetTreatmentsInProgress(
+        [FromQuery] int? page, [FromQuery] int? pageSize, [FromQuery] string? search)
+    {
+        var result = await _mediator.Send(
+            new GetTreatmentsInProgressQuery { Page = page, PageSize = pageSize, Search = search });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The acts of this patient's recent fiches de soins that could turn out to need another séance — what
+    /// « C'est la suite d'une séance précédente ? » offers in the booking dialog.
+    /// <para>
+    /// `AnyClinicRole`, like the plans list itself: it carries the money of a note the patient has already been
+    /// given, and booking the visit that finishes a treatment is reception's job.
+    /// </para>
+    /// </summary>
+    [HttpGet("continuable-acts")]
+    public async Task<ActionResult<List<ContinuableActDto>>> GetContinuableActs([FromQuery] Guid patientId)
+    {
+        var result = await _mediator.Send(new GetContinuableActsQuery { PatientId = patientId });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Turn an act already carried out into a multi-séance treatment — « cette séance est la suite de celle du
+    /// 12 août ».
+    /// <para>
+    /// `AdminOrDoctor`, unlike the read above: it consumes a devis number and can attach an issued note
+    /// d'honoraires to the plan it creates, which is the same class of operation as amending a devis.
+    /// </para>
+    /// </summary>
+    [HttpPost("continue-recorded-act")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> ContinueRecordedAct(
+        [FromBody] ContinueRecordedActCommand command)
+    {
+        var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

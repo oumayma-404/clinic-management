@@ -136,19 +136,19 @@ export default function AppointmentsPage() {
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   /*
-   * ⚠️ **Both default to SHOWN, and they used to default to hidden.**
+   * ⚠️ **There is no status filter on this screen any more, and that is the point.**
    *
-   * An agenda is a record of the practice's day, and « Terminé » is what every honoured visit becomes — so the
-   * old default emptied the morning as it was worked, and a dentist looking back at last Tuesday saw the visits
-   * that fell through and none of the ones that happened. « Annulé » is the same argument one step weaker: a
-   * cancelled slot is why that hour is free, which is information about the day, not noise.
+   * There were two — « Annulés » and « Terminés » — and they had already been flipped to default *shown*,
+   * because an agenda is the record of the practice's day: « Terminé » is what every honoured visit becomes, so
+   * hiding it emptied the morning as it was worked, and a cancelled slot is why that hour is free. What was left
+   * was a pair of toggles whose only sensible position was the one they arrived in, paid for in a popover row on
+   * the desktop and — on the phone, where the desk actually stands — a « Filtres » disclosure plus two permanent
+   * « affichés » chips over two lines of a 390 px screen, all announcing that nothing was filtered.
    *
-   * They stay *toggles* — a desk that wants only what is still to come can still say so — but hiding is now the
-   * explicit choice rather than the state you arrive in. See the chips and the URL writer below: both had to
-   * invert with this, or the page would advertise a filter nobody applied and write it into every link.
+   * So they are gone rather than defaulted: the state, the chips, the switches in both toolbars, the `hidden=`
+   * URL key and the `?status=` deep link that used to set them. The praticien filter stays — it is the one
+   * control here that actually narrows the day.
    */
-  const [showCancelled, setShowCancelled] = useState(true)
-  const [showCompleted, setShowCompleted] = useState(true)
   // Google Calendar needs the server's internet egress; gate its controls in Local offline mode
   // (AC-6.2). Cloud always reports online (R-3).
   const { internetReachable } = useConnectivity()
@@ -164,10 +164,7 @@ export default function AppointmentsPage() {
   )
   const doctorFilterId = selectedDoctorId === "all" ? undefined : selectedDoctorId
   /** Is there anything for the chip row to say? See the row itself for why it must not render otherwise. */
-  // ⚠️ Inverted with the defaults above: a chip states what has been *narrowed*, so it now appears when one of
-  // the two is hidden. Left as-is it would have put « Annulés affichés » on screen on every ordinary visit —
-  // § 13 asks that an unrequested filter be visible and removable, and the default is not a filter.
-  const hasActiveFilterChips = !showCancelled || !showCompleted || Boolean(doctorFilterId)
+  const hasActiveFilterChips = Boolean(doctorFilterId)
 
   /**
    * The length a dragged span asked for, or `undefined` for every other way into the create dialog.
@@ -321,19 +318,17 @@ export default function AppointmentsPage() {
   }, [])
 
   /**
-   * Dashboard drill-through (« Rendez-vous honorés » / « Taux d'absence »): `?from=&to=&status=`.
+   * Dashboard drill-through (« Rendez-vous honorés » / « Taux d'absence »): `?from=&to=`.
    *
    * <p>The calendar has no arbitrary-range view, so the window is honoured by focusing its FIRST day and switching to
-   * the widest view — month — which is the closest honest rendering of "the period the card counted". The status list
-   * is comma-separated because the absence rate's numerator is NoShow **and** Cancelled; landing on no-shows alone
-   * would show a fraction of what the card counted.</p>
+   * the widest view — month — which is the closest honest rendering of "the period the card counted".</p>
    *
-   * <p>Only `Cancelled` and `Completed` need a toggle switched on: the calendar hides exactly those two by default and
-   * already shows no-shows. Turning on `showCancelled` for a `NoShow`-only link would surface appointments the card
-   * never counted, so the two are matched individually rather than as one "unusual statuses" group.</p>
+   * <p>⚠️ Those links used to carry `?status=` too, and both halves of that are gone: `lib/dashboard-links.ts` no
+   * longer emits it and there is no status filter left here to set. What the reader gets is the period the card
+   * counted with every visit in it, which is what the grid now always shows.</p>
    *
-   * <p>Nothing here refuses a bad value: an unparseable date or an unknown status simply leaves the calendar as it
-   * was, matching the graceful-deep-link rule the rest of this page follows.</p>
+   * <p>Nothing here refuses a bad value: an unparseable date simply leaves the calendar as it was, matching the
+   * graceful-deep-link rule the rest of this page follows.</p>
    *
    * <p>⚠️ <b><c>?date=</c> is handled in THIS effect rather than its own, and that is not tidiness.</b> The last
    * statement here wipes the query string, so a sibling effect declared after this one would read an empty
@@ -354,12 +349,8 @@ export default function AppointmentsPage() {
     const params = new URLSearchParams(window.location.search)
     const from = params.get("from")
     const date = params.get("date")
-    const statuses = (params.get("status") ?? "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
 
-    if (!from && !date && statuses.length === 0 && !params.get("hidden")) return
+    if (!from && !date) return
 
     /*
      * `?date=AAAA-MM-JJ` — land ON that day, in Jour.
@@ -389,35 +380,11 @@ export default function AppointmentsPage() {
     }
 
     /*
-     * ⚠️ `?status=` names EXACTLY what the card counted, so it sets both toggles rather than only turning things
-     * on. That is a consequence of the two now defaulting to shown: « Taux d'absence » lands with
-     * `status=noshow,cancelled`, and a NoShow-only link must be able to take Annulé back *off* — the old comment
-     * here worried about exactly that case and could only avoid it by leaving the default hidden.
+     * ⚠️ `?status=` and `?hidden=` are **read by nothing now**, and `lib/dashboard-links.ts` no longer emits
+     * either: the agenda has no status filter to set. An old bookmark carrying one simply lands on the right
+     * window with everything shown, which is the graceful-deep-link rule the rest of this page follows — and it
+     * is also the honest outcome, since there is no narrowing left for the parameter to name.
      */
-    if (statuses.length > 0) {
-      setShowCancelled(statuses.includes("cancelled"))
-      setShowCompleted(statuses.includes("completed"))
-    }
-
-    /*
-     * ⚠️ And the durable half, written by `useUrlFilters` below as `hidden=`. It must be READ here or the page
-     * emits a key it throws away on reload — `useUrlFilters` writes and never reads, so a screen that does not
-     * seed the same keys produces links that do not survive being followed.
-     *
-     * A separate key from `status=` deliberately: that one means « show exactly these », and with both shown by
-     * default the set a user has *hidden* cannot be expressed by an empty list — `status=` with nothing in it is
-     * indistinguishable from no parameter at all.
-     */
-    const hidden = (params.get("hidden") ?? "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-
-    if (hidden.length > 0) {
-      if (hidden.includes("cancelled")) setShowCancelled(false)
-      if (hidden.includes("completed")) setShowCompleted(false)
-    }
-
     window.history.replaceState({}, "", "/appointments")
   }, [selectView])
 
@@ -437,12 +404,8 @@ export default function AppointmentsPage() {
     date: toLocalIso(selectedDate),
     // Only when it is not the default, so an ordinary visit keeps a clean URL.
     view: view === "week" ? undefined : view,
-    // ⚠️ The HIDDEN set now, inverted with the defaults: emitting the shown one would put
-    // `status=completed,cancelled` on every ordinary visit, which is the opposite of « only when it is not the
-    // default ». Read back as `hidden=` in the deep-link effect above.
-    hidden: [!showCompleted ? "completed" : null, !showCancelled ? "cancelled" : null]
-      .filter(Boolean)
-      .join(",") || undefined,
+    // ⚠️ No status key of any kind. There is nothing to persist — the grid shows every visit — and a screen
+    // that writes a key it does not read back is the `useUrlFilters` trap this page already documents.
     doctorId: doctorFilterId,
   })
 
@@ -541,36 +504,28 @@ export default function AppointmentsPage() {
             render inside the one agenda bar the calendar owns, which is the component that also owns the window,
             the appointment index and the date arithmetic that bar is made of.
 
-            The chips stay here deliberately. They are a statement about the page's own URL state — two of the
-            fifteen entries in `lib/dashboard-links.ts` arrive with `?status=` and flip these on — and § 13
-            requires an unrequested filter to be visible and removable *at every width*, so they must not be
-            folded into the popover that holds the switches themselves.
+            The chip stays here deliberately: it is a statement about the page's own URL state, and § 13 requires
+            an unrequested filter to be visible and removable at every width, so it must not be folded into the
+            popover that holds the control itself.
           */}
           {/*
             AC-29 — a filter the user did not choose has to be visible and removable.
 
-            Two of the fifteen entries in `lib/dashboard-links.ts` arrive here with `?status=`, which flips
-            these toggles on. Without a chip the calendar simply shows more than usual with nothing on
-            screen saying why, and « Taux d'absence » lands on a list the user cannot un-filter without
-            hunting for a switch inside the calendar's own toolbar.
+            ⚠️ **One chip now, and it renders at EVERY width.** It used to be three — « Annulés masqués »,
+            « Terminés masqués » and the praticien — behind `hidden md:flex`, which was safe only because
+            `AgendaPhoneHeader` carried its own copies below `md:`. The two status chips are gone with the
+            filters, and the phone header no longer renders any chips at all, so leaving this `md:`-only would
+            put a praticien filter on a phone with nothing on screen saying why and no way to clear it — the
+            exact defect the phone chips were added to fix, arriving from the other direction.
 
             ⚠️ **Rendered only when there is a chip to show, and that is a real fix rather than tidying.** This
-            used to be an outer `<div className="mb-3 …">` wrapping a `hidden md:flex` row, so in the ordinary
-            state — no filter, which is what the desk sees all day — the page still paid a zero-height flex
-            container plus **12 px of margin**: a phantom band above the agenda bar that read as a rendering gap
-            because that is exactly what it was. One element, one condition.
-
-            It stays `hidden md:flex`: `AgendaPhoneHeader` renders its own copies below `md:`, inside the band
-            that holds the phone's other controls.
+            used to be an outer `<div className="mb-3 …">` wrapping the row, so in the ordinary state — no
+            filter, which is what the desk sees all day — the page still paid a zero-height flex container plus
+            **12 px of margin**: a phantom band above the agenda bar that read as a rendering gap because that is
+            exactly what it was. One element, one condition.
           */}
           {hasActiveFilterChips && (
-            <div className="mb-3 hidden flex-shrink-0 flex-wrap items-center gap-2 md:flex">
-              {!showCancelled && (
-                <ActiveFilterChip label="Annulés masqués" onRemove={() => setShowCancelled(true)} />
-              )}
-              {!showCompleted && (
-                <ActiveFilterChip label="Terminés masqués" onRemove={() => setShowCompleted(true)} />
-              )}
+            <div className="mb-3 flex flex-shrink-0 flex-wrap items-center gap-2">
               {doctorFilterId && (
                 <ActiveFilterChip
                   label={`Praticien : ${doctors.find((doc) => doc.id === doctorFilterId)?.name ?? "sélectionné"}`}
@@ -618,10 +573,6 @@ export default function AppointmentsPage() {
                * one instance is one fewer place to forget it.
                */
               onSelectDay={handleSelectDay}
-              showCancelled={showCancelled}
-              showCompleted={showCompleted}
-              onShowCancelledChange={setShowCancelled}
-              onShowCompletedChange={setShowCompleted}
               onChanged={handleAppointmentUpdated}
               onViewChange={selectView}
               doctorId={doctorFilterId}

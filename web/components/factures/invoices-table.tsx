@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { ApiError } from "@/lib/api/client"
@@ -90,6 +91,7 @@ export function InvoicesTable({
   reloadKey = 0,
   onChanged,
 }: InvoicesTableProps) {
+  const router = useRouter()
   const [search, setSearch] = useState("")
   // Bumped by a mutation or a realtime event to refetch the CURRENT page (rather than reset to page 1 — a
   // colleague recording a payment should not move the page you are reading).
@@ -98,7 +100,7 @@ export function InvoicesTable({
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InvoiceDto | null>(null)
-  /** The issued note « Corriger cette note » was chosen on. */
+  /** The issued note « Corriger cette note » was chosen on. Only ever a note with no fiche — see `startCorrection`. */
   const [correctTarget, setCorrectTarget] = useState<InvoiceDto | null>(null)
   const [paymentTarget, setPaymentTarget] = useState<InvoiceDto | null>(null)
   // The invoice detail modal — the app's first invoice detail surface, and the only place a specific
@@ -251,6 +253,25 @@ export function InvoicesTable({
     }
   }
 
+  /*
+   * « Corriger cette note » has two destinations, and which one is right is decided by the note, not by the user.
+   *
+   * A note raised from a fiche de soins is corrected ON the fiche: `UpdateDentalRecordCommand` edits the acts,
+   * retires the note and re-bills at the new figure in one pre-commit save, so the séance and the document cannot
+   * end up disagreeing. Raising a draft copy here instead left the fiche still saying 1200 while its note said
+   * 1100 — and made the dentist issue the draft by hand afterwards.
+   *
+   * The draft copy survives for a note nobody's fiche produced, where editing the lines is the only way to say
+   * what was wrong.
+   */
+  const startCorrection = (invoice: InvoiceDto) => {
+    if (invoice.dentalRecordId) {
+      router.push(`/patients/${invoice.patientId}?tab=medical-records&editRecord=${invoice.dentalRecordId}`)
+      return
+    }
+    setCorrectTarget(invoice)
+  }
+
   const handleDownloadPdf = async (invoice: InvoiceDto) => {
     setBusyId(invoice.id)
     try {
@@ -354,7 +375,7 @@ export function InvoicesTable({
               and replaced. « Établir un avoir » says money went BACK to the patient. Offering only the second —
               which is what every refusal used to name — made the product record refunds that never happened. */}
           {inv.canBeCorrected && (
-            <DropdownMenuItem onSelect={() => setCorrectTarget(inv)}>Corriger cette note</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => startCorrection(inv)}>Corriger cette note</DropdownMenuItem>
           )}
           {inv.canCreateAvoir && (
             <DropdownMenuItem onSelect={() => openAvoir(inv)}>Établir un avoir</DropdownMenuItem>
@@ -686,7 +707,8 @@ export function InvoicesTable({
           preview={{
             invoiceNumber: correctTarget.number,
             previousTotal: correctTarget.totalTtc,
-            nextTotal: correctTarget.totalTtc,
+            // Unknown, and said so: nothing has been corrected yet. See `CorrectionPreview.nextTotal`.
+            nextTotal: null,
           }}
           onConfirm={async () => {
             const draft = await invoicesApi.correct(correctTarget.id, DEFAULT_CORRECTION_REASON)
@@ -695,10 +717,6 @@ export function InvoicesTable({
             // to go and find it in the list is how a two-step flow loses its second step.
             setEditing(draft)
             setFormOpen(true)
-            toast.success(
-              `Correction ouverte en brouillon${correctTarget.number ? ` pour la note n° ${correctTarget.number}` : ""}.`,
-              { description: "Modifiez-la puis émettez-la : la note d'origine sera annulée à ce moment-là, et son paiement repris." },
-            )
           }}
         />
       )}

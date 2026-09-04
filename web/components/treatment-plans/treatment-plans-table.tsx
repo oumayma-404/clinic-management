@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { MoreHorizontal, Plus, Loader2, ChevronRight, ClipboardList } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
@@ -27,15 +28,59 @@ import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { ZONES, zoneChipClass } from "@/lib/zones"
-import type { TreatmentPlanDto } from "@/lib/api/types"
+import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
+import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
-import { isPlanBilled } from "./plan-next-action"
+import {
+  displayedOutstanding,
+  isPlanBilled,
+  planItemState,
+  planItemToPreset,
+  planSeanceProgress,
+  schedulablePlanItems,
+} from "./plan-next-action"
 import { PatientNameLink } from "@/components/patient-name-link"
+
+/**
+ * What « Reste » may honestly say about one devis, in both trees.
+ *
+ * <p>⚠️ It printed `plan.outstanding` on the card and again in the table cell, and on a devis a note
+ * d'honoraires already collects that figure is the untouched auto-échéance — so both surfaces reported the whole
+ * devis as unpaid about patients who owed nothing. The note's own balance is named instead, and the label says
+ * which document it belongs to, because « reste sur la note 2026-0087 » is a different statement from « reste
+ * sur le devis ».</p>
+ */
+function resteLabel(plan: TreatmentPlanDto): string {
+  return isPlanBilled(plan) ? "Reste sur la note" : "Reste"
+}
+
+function resteValue(plan: TreatmentPlanDto): string | null {
+  const owed = displayedOutstanding(plan)
+  return owed ? formatDT(owed.amount) : null
+}
+
+/**
+ * Progress in **séances**, because a stepped act is only Done when every step is: a bridge with two of three
+ * carried out read « 0/2 actes » here, and a six-visit implant read « 0/1 actes » from its first appointment to
+ * its last — on the list a dentist scans daily.
+ */
+function avancement(plan: TreatmentPlanDto): string | null {
+  const seances = planSeanceProgress(plan)
+  return seances.total > 0 ? seances.label : null
+}
+
+/**
+ * The act whose next séance can be booked right now, or null. Keyed on {@link planItemState}, the same test the
+ * workspace's own row action uses, so the menu item and that button can never disagree about what is bookable.
+ */
+function bookableItemOf(plan: TreatmentPlanDto): TreatmentPlanItemDto | null {
+  return schedulablePlanItems(plan).find((i) => planItemState(i) === "to-schedule") ?? null
+}
 
 interface TreatmentPlansTableProps {
   patientId?: string
@@ -62,6 +107,14 @@ interface TreatmentPlansTableProps {
   /** Clears the parent's filters entirely — the action the filtered empty state offers. */
   onClearFilters?: () => void
   showPatientColumn?: boolean
+  /**
+   * A search term the PARENT owns, for a page whose one box has to narrow more than this table. When it is
+   * supplied the table's own search input is not rendered — two boxes over one list is how they disagree, and
+   * the second would silently AND itself with the first.
+   *
+   * <p>Left undefined (the patient page) the table keeps its own box exactly as before.</p>
+   */
+  externalSearch?: string
   /** Bumped by the parent (e.g. after filter change) to force a reload. */
   reloadKey?: number
   /** Called after any mutation so the parent can refresh dependent views. */
@@ -88,10 +141,14 @@ export function TreatmentPlansTable({
   filtered = false,
   onClearFilters,
   showPatientColumn = true,
+  externalSearch,
   reloadKey = 0,
   onChanged,
 }: TreatmentPlansTableProps) {
-  const [search, setSearch] = useState("")
+  const [ownSearch, setOwnSearch] = useState("")
+  // The parent's term wins outright when it is supplied — never merged with the local one.
+  const controlled = externalSearch !== undefined
+  const search = controlled ? externalSearch : ownSearch
   // Bumped by a mutation or a realtime event to refetch the CURRENT page.
   const [localRefresh, setLocalRefresh] = useState(0)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -152,6 +209,17 @@ export function TreatmentPlansTable({
   }
 
   const openWorkspace = (plan: TreatmentPlanDto) => router.push(`/treatment-plans/${plan.id}`)
+
+  /** The devis' next bookable act, or null — what makes « Planifier la prochaine séance » worth offering. */
+  const [booking, setBooking] = useState<{ plan: TreatmentPlanDto; presets: PresetPlanAct[] } | null>(null)
+  const startBooking = (plan: TreatmentPlanDto) => {
+    const item = bookableItemOf(plan)
+    if (!item) return
+    setBooking({
+      plan,
+      presets: [planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined)],
+    })
+  }
 
   const handleDownloadPdf = async (plan: TreatmentPlanDto) => {
     setBusyId(plan.id)
@@ -252,7 +320,14 @@ export function TreatmentPlansTable({
       title={searchTerm ? `Aucun devis pour ${quoteFr(searchTerm)}` : "Aucun devis ne correspond à votre recherche"}
       description="Vérifiez l'orthographe, ou effacez la recherche pour revoir tous les devis."
       action={
-        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+        // Clearing has to reach whoever OWNS the term: our own state when the box is ours, and the parent's
+        // « voir tous les devis » when the page owns it — otherwise the button appears to work and the list
+        // stays empty, because the term it cleared was not the one being applied.
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => (controlled ? onClearFilters?.() : setOwnSearch(""))}
+        >
           Effacer la recherche
         </Button>
       }
@@ -298,17 +373,23 @@ export function TreatmentPlansTable({
         line instead of squeezing the input down to a few characters.
       */}
       <div className="flex flex-wrap items-center gap-2">
-        <Label htmlFor="plans-search" className="sr-only">
-          Rechercher un devis
-        </Label>
-        <Input
-          id="plans-search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher un devis (numéro, titre, patient)…"
-          className="min-w-[200px] flex-1 sm:max-w-sm"
-        />
-        <Button onClick={openCreate} className="gap-2">
+        {!controlled && (
+          <>
+            <Label htmlFor="plans-search" className="sr-only">
+              Rechercher un devis
+            </Label>
+            <Input
+              id="plans-search"
+              value={ownSearch}
+              onChange={(e) => setOwnSearch(e.target.value)}
+              placeholder="Rechercher un devis (numéro, titre, patient)…"
+              className="min-w-[200px] flex-1 sm:max-w-sm"
+            />
+          </>
+        )}
+        {/* `ms-auto` only when the search has gone: without it the lone button would sit at the start of the
+            row, where nothing else on the page puts a primary action. */}
+        <Button onClick={openCreate} className={cn("gap-2", controlled && "ms-auto")}>
           <Plus className="h-4 w-4" /> Nouveau plan
         </Button>
       </div>
@@ -344,8 +425,8 @@ export function TreatmentPlansTable({
           fields={(p) => [
             { label: "Total", value: formatDT(p.totalPlanned) },
             { label: "Encaissé", value: formatDT(p.amountPaid) },
-            { label: "Reste", value: formatDT(p.outstanding) },
-            { label: "Avancement", value: p.itemsTotal > 0 ? `${p.itemsDone}/${p.itemsTotal} actes` : null },
+            { label: resteLabel(p), value: resteValue(p) },
+            { label: "Avancement", value: avancement(p) },
             {
               label: "Prochaine séance",
               value: p.nextAppointmentAt ? formatDateFr(p.nextAppointmentAt) : null,
@@ -362,6 +443,18 @@ export function TreatmentPlansTable({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onSelect={() => openWorkspace(p)}>Ouvrir le plan</DropdownMenuItem>
+                  {/*
+                    ⚠️ The action immediately after accepting a devis, and the page did not offer it. A freshly
+                    accepted plan whose treatment has not started is absent from « Traitements en cours » — that
+                    list holds acts *begun and unfinished* — and appeared here as « 0/1 actes » with no
+                    next-séance link and no scheduling action at all, so booking visit 1 meant going back
+                    through the agenda.
+                  */}
+                  {bookableItemOf(p) && (
+                    <DropdownMenuItem onSelect={() => startBooking(p)}>
+                      Planifier la prochaine séance
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onSelect={() => handleDownloadPdf(p)}>
                     Télécharger le devis (PDF)
                   </DropdownMenuItem>
@@ -449,7 +542,7 @@ export function TreatmentPlansTable({
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {plan.itemsTotal > 0 ? `${plan.itemsDone}/${plan.itemsTotal} actes` : "—"}
+                      {avancement(plan) ?? "—"}
                       {plan.nextAppointmentAt && (
                         <span className="block text-xs">
                           Prochaine séance : {formatDateFr(plan.nextAppointmentAt)}
@@ -458,7 +551,14 @@ export function TreatmentPlansTable({
                     </TableCell>
                     <TableCell className="text-right">{formatDT(plan.totalPlanned)}</TableCell>
                     <TableCell className="text-right">{formatDT(plan.amountPaid)}</TableCell>
-                    <TableCell className="text-right">{formatDT(plan.outstanding)}</TableCell>
+                    <TableCell className="text-right">
+                      {resteValue(plan) ?? "—"}
+                      {isPlanBilled(plan) && (
+                        <span className="block text-2xs font-normal text-muted-foreground">
+                          sur la note {plan.linkedInvoiceNumber ?? "d'honoraires"}
+                        </span>
+                      )}
+                    </TableCell>
                     {/* stopPropagation so opening the menu doesn't also navigate the row. */}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
@@ -521,6 +621,22 @@ export function TreatmentPlansTable({
         presetPatientName={patientName}
         onSuccess={afterMutation}
       />
+
+      {/* Booking the next séance from the list, so a freshly accepted devis has a route to visit 1. */}
+      {booking && (
+        <CreateAppointmentDialog
+          open
+          onOpenChange={(o) => !o && setBooking(null)}
+          presetPatientId={booking.plan.patientId}
+          presetPatientName={booking.plan.patientName ?? undefined}
+          presetPlanId={booking.plan.id}
+          presetPlanActs={booking.presets}
+          onSuccess={() => {
+            setBooking(null)
+            afterMutation()
+          }}
+        />
+      )}
 
       {/*
         ⚠️ The confirmation **names the devis it is about to destroy**.

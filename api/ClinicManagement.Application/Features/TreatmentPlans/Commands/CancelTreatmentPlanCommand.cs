@@ -18,6 +18,7 @@ public class CancelTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 public class CancelTreatmentPlanCommandHandler : IRequestHandler<CancelTreatmentPlanCommand, Result<TreatmentPlanDto>>
 {
     private readonly ITreatmentPlanRepository _planRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
@@ -25,12 +26,14 @@ public class CancelTreatmentPlanCommandHandler : IRequestHandler<CancelTreatment
 
     public CancelTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
+        IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CancelTreatmentPlanCommandHandler> logger)
     {
         _planRepository = planRepository;
+        _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
@@ -54,6 +57,31 @@ public class CancelTreatmentPlanCommandHandler : IRequestHandler<CancelTreatment
             }
 
             plan.Cancel(request.Reason);
+
+            /*
+             * Release any note d'honoraires this devis was attached to — the retroactive-continuation link.
+             *
+             * ⚠️ Without it a wrong continuation was a permanent dead end. The link is write-once, so the note
+             * went on naming a cancelled devis for ever; the continuation could never be re-run for that fiche
+             * (its acts still matched the « already tracked » query); and the fiche itself became undeletable,
+             * because deleting it un-marks a step on a cancelled plan, which the aggregate refuses — presented
+             * to the dentist as « Erreur lors de la suppression. Veuillez réessayer. »
+             *
+             * Detached in the SAME save as the cancellation, so the two facts can never disagree. The note's own
+             * money is untouched: it keeps its lines, its number and its payments, and it simply stops speaking
+             * for a devis that no longer exists.
+             */
+            var links = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicResult.Value, cancellationToken);
+            foreach (var link in links.Where(l => l.TreatmentPlanId == plan.Id))
+            {
+                var invoice = await _invoiceRepository.GetByIdAsync(link.InvoiceId, cancellationToken);
+                if (invoice == null || invoice.ClinicId != clinicResult.Value)
+                {
+                    continue;
+                }
+                invoice.DetachFromTreatmentPlan(plan.Id);
+                await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
+            }
 
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

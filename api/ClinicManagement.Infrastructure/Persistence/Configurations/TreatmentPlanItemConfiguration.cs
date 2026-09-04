@@ -53,5 +53,14 @@ public class TreatmentPlanItemConfiguration : IEntityTypeConfiguration<Treatment
         builder.Property(i => i.SequenceNumber)
             .IsRequired()
             .HasDefaultValue(0);
+
+        // The act's clinical steps — cascade-deleted with the act, like the plan's own children. An act with no
+        // steps is the ordinary case and is what every line written before they existed holds.
+        builder.HasMany(i => i.Steps)
+            .WithOne()
+            .HasForeignKey(s => s.TreatmentPlanItemId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(i => i.Steps).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

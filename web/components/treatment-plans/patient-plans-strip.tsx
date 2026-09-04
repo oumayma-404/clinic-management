@@ -13,7 +13,13 @@ import { showErrorToast } from "@/lib/errors"
 import type { TreatmentPlanDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { planStatusLabel, planStatusBadgeClass, planNextActionLabel } from "./treatment-plan-labels"
-import { leadPlan, planHeadline, planNextAction, planStatusCounts } from "./plan-next-action"
+import {
+  displayedOutstanding,
+  leadPlan,
+  planHeadline,
+  planNextAction,
+  planStatusCounts,
+} from "./plan-next-action"
 import { PlanActPips } from "./plan-act-pips"
 
 interface PatientPlansStripProps {
@@ -88,6 +94,7 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
 
   const isDraft = plan.status === "Draft"
   const next = planNextAction(plan)
+  const owed = displayedOutstanding(plan)
   const otherCounts = planStatusCounts(plans, plan.id)
   const openWorkspace = () => router.push(`/treatment-plans/${plan.id}`)
 
@@ -160,15 +167,25 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
             <PlanActPips items={plan.items} done={plan.itemsDone} total={plan.itemsTotal} />
             <Separator />
             {/*
-              Red once the clinical work is finished but the money is not: at that point the outstanding balance is
-              the only thing left holding the plan open, so it stops being a neutral figure.
+              ⚠️ **`displayedOutstanding`, and the red is what made this the worst of the seven sites.** On a
+              devis a note d'honoraires already collects, `plan.outstanding` is the plan's own untouched
+              auto-échéance — so a finished, fully-paid treatment showed the whole devis in alert red, directly
+              under the patient's name, while the header above it read « Solde dû 0,000 DT ». Withheld rather
+              than guessed when the note's own figure is not on the wire: a missing number is recoverable, a
+              wrong one in red is not.
             */}
-            <Fact
-              label="Reste"
-              value={formatDT(plan.outstanding)}
-              tone={plan.outstanding > 0 && plan.itemsDone === plan.itemsTotal ? "alert" : "default"}
-            />
-            <Separator />
+            {owed && (
+              <>
+                <Fact
+                  label={owed.isBilled ? `Reste (note ${owed.invoiceNumber ?? ""})`.trim() : "Reste"}
+                  value={formatDT(owed.amount)}
+                  tone={
+                    owed.amount > 0 && plan.itemsDone === plan.itemsTotal ? "alert" : "default"
+                  }
+                />
+                <Separator />
+              </>
+            )}
             {plan.nextAppointmentAt ? (
               <Fact label="Prochaine séance" value={formatDateFr(plan.nextAppointmentAt)} />
             ) : (

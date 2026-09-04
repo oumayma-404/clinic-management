@@ -37,8 +37,15 @@ export interface CorrectionPreview {
   invoiceNumber?: string | null
   /** What that note billed and collected. */
   previousTotal: number
-  /** What the corrected séance comes to. */
-  nextTotal: number
+  /**
+   * What the corrected séance comes to — `null` when the correction has not been written yet.
+   *
+   * ⚠️ Null is a real case, not a missing value. The fiche path knows the new total (the dentist has already
+   * retyped it, which is what got the save refused); /factures opens an empty draft copy, so the only figure it
+   * could pass is the old one — and passing that rendered « annulée 190 DT / nouvelle 190 DT », a preview of
+   * nothing that read as a bug.
+   */
+  nextTotal?: number | null
 }
 
 interface CorrectInvoiceDialogProps {
@@ -73,7 +80,8 @@ export function CorrectInvoiceDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const difference = Math.round((preview.previousTotal - preview.nextTotal) * 1000) / 1000
+  const nextTotal = preview.nextTotal ?? null
+  const difference = nextTotal === null ? 0 : Math.round((preview.previousTotal - nextTotal) * 1000) / 1000
   const label = preview.invoiceNumber ? `n° ${preview.invoiceNumber}` : "de cette séance"
 
   const handleConfirm = async () => {
@@ -106,11 +114,13 @@ export function CorrectInvoiceDialog({
           <AlertDialogDescription>
             {blockedReason
               ? blockedReason
-              : "Rien n'est remboursé : l'argent est resté au cabinet. La note fautive est annulée et remplacée par une note corrigée, qui reprend le paiement à sa date d'origine."}
+              : nextTotal === null
+                ? `La note ${label} est recopiée en brouillon modifiable. Rien ne bouge pour l'instant : elle garde son numéro et son paiement jusqu'à ce que la correction soit émise.`
+                : "Rien n'est remboursé : l'argent est resté au cabinet. La note fautive est annulée et remplacée par une note corrigée, qui reprend le paiement à sa date d'origine."}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        {!blockedReason && (
+        {!blockedReason && nextTotal !== null && (
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2">
               <span className="min-w-0 flex-1">Note {label} annulée</span>
@@ -118,20 +128,16 @@ export function CorrectInvoiceDialog({
             </div>
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/50 bg-primary/5 px-3 py-2">
               <span className="min-w-0 flex-1">Nouvelle note, séance corrigée</span>
-              <span className="shrink-0 font-medium tabular-nums">{formatDT(preview.nextTotal)}</span>
+              <span className="shrink-0 font-medium tabular-nums">{formatDT(nextTotal)}</span>
             </div>
-            {/*
-              ⚠️ States what the correction DOES, not what it might mean. Only two people know whether the patient
-              physically handed over the old figure: the one at the chair and the one who paid. If they did, the
-              difference has to go back and that is an avoir's job — so the message points there instead of
-              asserting a refund this action does not perform.
-            */}
+            {/* ⚠️ States what the correction DOES, then names the other door — only the person at the chair knows
+                whether the old figure was really handed over, and this action does not perform a refund. */}
             {difference > 0 && (
               <p className="text-xs text-warning-ink">
                 L&apos;encaissement enregistré passe de {formatDT(preview.previousTotal)} à{" "}
-                {formatDT(preview.nextTotal)}. Si le patient a réellement versé{" "}
-                {formatDT(preview.previousTotal)} et récupère la différence, établissez un avoir plutôt qu&apos;une
-                correction.
+                {formatDT(nextTotal)} : la différence est traitée comme jamais reçue. Si le patient a réellement
+                versé {formatDT(preview.previousTotal)} et récupère les {formatDT(difference)}, c&apos;est un
+                remboursement — établissez un avoir.
               </p>
             )}
             {difference < 0 && (

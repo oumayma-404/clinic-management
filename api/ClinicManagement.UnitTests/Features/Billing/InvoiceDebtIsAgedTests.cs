@@ -57,7 +57,7 @@ public class InvoiceDebtIsAgedTests
         _invoices.Setup(r => r.GetOutstandingByPatientAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, decimal, DateTime?)>());
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
         _plans.Setup(r => r.GetInstallmentOutstandingByPatientAsync(
                 ClinicId, It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, decimal, DateTime?)>());

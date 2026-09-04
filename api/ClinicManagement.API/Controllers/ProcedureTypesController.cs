@@ -164,8 +164,9 @@ public class ProcedureTypesController : ApiControllerBase
     }
 
     /// <summary>
-    /// Backfill the clinic's procedure menu with the common Tunisian dental procedures (idempotent —
-    /// skips any whose name already exists). Returns the number added.
+    /// Backfill the clinic's procedure menu with the common Tunisian dental procedures (idempotent — skips any
+    /// whose name already exists), and give the starter protocols the clinic has not edited their step
+    /// intervals. Returns both counts: a run can legitimately add nothing and update many protocols.
     /// </summary>
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPost("initialize-defaults")]
@@ -177,7 +178,7 @@ public class ProcedureTypesController : ApiControllerBase
             return HandleFailure(result);
         }
 
-        return Ok(new { added = result.Value });
+        return Ok(new { added = result.Value.Added, protocolsUpdated = result.Value.ProtocolsUpdated });
     }
 
     /// <summary>

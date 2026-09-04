@@ -22,6 +22,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
     {
         return await _context.TreatmentPlans
             .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
             .Include(p => p.Installments)
             .ThenInclude(i => i.Payments)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
@@ -32,10 +33,98 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
     {
         // Items are included because the caller un-marks the matching act through the aggregate root; the
         // échéancier is not, since detaching an act never touches money.
+        //
+        // ⚠️ The steps are matched too, and that is not an optimisation. A stepped act only takes its own
+        // LinkedDentalRecordId once its LAST step lands, so a fiche that carried out step 1 of 3 is recorded
+        // on the step alone. Matching the act's link only would leave that fiche undiscoverable here, and
+        // deleting it would strand a step marked « réalisée » against a record that no longer exists.
         return await _context.TreatmentPlans
             .Include(p => p.Items)
-            .Where(p => p.ClinicId == clinicId && p.Items.Any(i => i.LinkedDentalRecordId == dentalRecordId))
+                .ThenInclude(i => i.Steps)
+            .Where(p => p.ClinicId == clinicId && p.Items.Any(i =>
+                i.LinkedDentalRecordId == dentalRecordId
+                || i.Steps.Any(s => s.LinkedDentalRecordId == dentalRecordId)))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<PagedResult<TreatmentInProgressFact>> GetTreatmentsInProgressAsync(
+        Guid clinicId, PageRequest? paging, string? searchTerm = null, CancellationToken cancellationToken = default)
+    {
+        // Matched in SQL over the whole clinic, never over the page — see the interface. Null/blank leaves the
+        // list untouched rather than matching nothing.
+        var pattern = string.IsNullOrWhiteSpace(searchTerm) ? null : SearchTerm.ToLikePattern(searchTerm);
+        // Projected in SQL, one row per act — see the interface for why the list cannot be paged over plans.
+        // The status filter is the stored TreatmentPlanItem.Status, which is exactly why that column is stored
+        // and recomputed rather than derived on read: a domain property over the step rows has no translation.
+        /*
+         * ⚠ The ORDER BY is expressed HERE, before `select`, and it must stay here.
+         *
+         * A query-expression `orderby` clause sorts the joined rows — `item` and `plan` — which is what
+         * PostgreSQL can sort. Written after the projection (`query.OrderBy(f => f.LastStepDoneOn)`) it sorts
+         * a `TreatmentInProgressFact`, and EF cannot see through a record's constructor to the argument that
+         * fed one property: it lifts the WHOLE `new TreatmentInProgressFact(...)` call — every Count and
+         * FirstOrDefault subquery with it — into the ORDER BY and throws « The LINQ expression could not be
+         * translated ». The handler's catch-all then reports « Erreur lors du chargement des traitements en
+         * cours. » as a 400, so the screen shows a load failure and the log holds a 40-line expression tree.
+         * Nothing in UnitTests touches a database, so no test can see this: the page is the only witness.
+         */
+        var query =
+            from item in _context.Set<TreatmentPlanItem>()
+            join plan in _context.TreatmentPlans on item.TreatmentPlanId equals plan.Id
+            where plan.ClinicId == clinicId
+                  && (plan.Status == TreatmentPlanStatus.Accepted || plan.Status == TreatmentPlanStatus.InProgress)
+                  && item.Status == TreatmentPlanItemStatus.InProgress
+                  && (pattern == null
+                      || EF.Functions.ILike(SqlSearch.Unaccent(plan.Number)!, pattern, SqlSearch.EscapeString)
+                      || _context.Patients.Any(pa =>
+                          pa.Id == plan.PatientId
+                          && (EF.Functions.ILike(
+                                  SqlSearch.Unaccent(pa.FirstName + " " + pa.LastName)!, pattern, SqlSearch.EscapeString)
+                              || EF.Functions.ILike(
+                                  SqlSearch.Unaccent(pa.LastName + " " + pa.FirstName)!, pattern, SqlSearch.EscapeString))))
+            // Most recent devis first, then the act's rank inside it so a plan's acts stay in protocol order.
+            // The act's own id last and unique: without it OFFSET can repeat one act and skip another, which
+            // reads as « un traitement a disparu ». See the interface for why this is no longer oldest-first.
+            orderby plan.CreatedAt descending, item.SequenceNumber, item.Id
+            select new TreatmentInProgressFact(
+                plan.Id,
+                plan.Number,
+                plan.PatientId,
+                item.Id,
+                item.DesignationFr,
+                item.SequenceNumber,
+                item.Steps.Count,
+                item.Steps.Count(s => s.DoneDate != null),
+                item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => (Guid?)s.Id)
+                    .FirstOrDefault(),
+                item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => s.Label)
+                    .FirstOrDefault(),
+                item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => (int?)s.SequenceNumber)
+                    .FirstOrDefault(),
+                item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => s.EstimatedDurationMinutes)
+                    .FirstOrDefault(),
+                item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => s.MinDaysAfterPrevious)
+                    .FirstOrDefault(),
+                item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate));
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        if (paging is not { } page)
+        {
+            return PagedResult<TreatmentInProgressFact>.Unpaged(await query.ToListAsync(cancellationToken));
+        }
+
+        var items = await query.Skip(page.Skip).Take(page.Take).ToListAsync(cancellationToken);
+        return new PagedResult<TreatmentInProgressFact>(items, page.Page, page.PageSize, totalCount);
     }
 
     public async Task<PagedResult<TreatmentPlan>> GetFilteredAsync(
@@ -52,6 +141,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
     {
         var query = _context.TreatmentPlans
             .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
             .Include(p => p.Installments)
             .ThenInclude(i => i.Payments)
             .Where(p => p.ClinicId == clinicId);
@@ -459,6 +549,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
     {
         var plan = await _context.TreatmentPlans
             .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
             .Include(p => p.Installments)
             .ThenInclude(i => i.Payments)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);

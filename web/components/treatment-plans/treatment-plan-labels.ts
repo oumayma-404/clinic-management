@@ -2,7 +2,14 @@
 import { statusToneClass, type StatusTone } from "@/components/ui/status-tone";
 
 export const PLAN_STATUS_LABELS: Record<string, string> = {
-  Draft: "Brouillon",
+  /*
+   * ⚠️ « Brouillon » described a form somebody had not finished, and that is no longer what this status is.
+   * « Suivre ce traitement » creates one deliberately: real work, séances, recorded fiches — everything except
+   * a devis number. « Brouillon » on a treatment under way reads as unfinished paperwork and invites a dentist
+   * to think it is not counting; « Sans devis » says the one thing that is actually true of it, and names what
+   * « Éditer le devis » would change.
+   */
+  Draft: "Sans devis",
   Accepted: "Accepté",
   InProgress: "En cours",
   Completed: "Terminé",

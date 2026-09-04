@@ -140,6 +140,12 @@ export function InvoiceFormModal({
   )
 
   const isEditing = !!editingInvoice
+  /**
+   * This draft is a correction: a copy of an issued note, raised by `CorrectInvoiceCommand` and pointed at the
+   * note it replaces. It is not ordinary work in progress — nothing happens until it is issued, and the swap
+   * (void, cancel, carry the money across) is that one transaction. So it saves and issues together.
+   */
+  const isCorrection = !!editingInvoice?.supersedesInvoiceId
   const selectedPatient = patients.find((p) => p.id === patientId)
   /*
    * Falls back to the invoice's own `patientName` when the id is not in the loaded page — the list is capped at
@@ -330,7 +336,18 @@ export function InvoiceFormModal({
           lines: parsedLines,
           version: freshInvoice?.version ?? editingInvoice.version,
         })
-        toast.success("Brouillon mis à jour")
+        if (isCorrection) {
+          // One action, because a correction is not finished until it is issued. Leaving it as a draft is what
+          // sent the user hunting for « Émettre et encaisser » in a row menu, on a line that looked like
+          // ordinary work in progress and said nothing about the note still waiting to be retired.
+          const issued = await invoicesApi.issue(editingInvoice.id)
+          toast.success(
+            issued.number ? `Correction émise — nouvelle note n° ${issued.number}` : "Correction émise",
+            { description: "La note précédente est annulée et reste consultable." },
+          )
+        } else {
+          toast.success("Brouillon mis à jour")
+        }
       } else {
         const payload: CreateInvoiceRequest = { patientId, lines: parsedLines }
         // Persist the source dental-record link on the new draft (spec AC-2).
@@ -357,9 +374,13 @@ export function InvoiceFormModal({
     <Dialog open={open} onOpenChange={guard.onOpenChange}>
       <DialogContent mobile="sheet" className="md:max-h-[90dvh] md:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Modifier le brouillon" : "Nouvelle facture"}</DialogTitle>
+          <DialogTitle>
+            {isCorrection ? "Corriger la note" : isEditing ? "Modifier le brouillon" : "Nouvelle facture"}
+          </DialogTitle>
           <DialogDescription>
-            Un brouillon ne consomme aucun numéro. Le numéro est attribué à l'émission.
+            {isCorrection
+              ? "Corrigez les lignes, puis enregistrez : la note d'origine sera annulée et son paiement repris sur la nouvelle, à sa date."
+              : "Un brouillon ne consomme aucun numéro. Le numéro est attribué à l'émission."}
           </DialogDescription>
         </DialogHeader>
 
@@ -622,7 +643,15 @@ export function InvoiceFormModal({
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement…" : isEditing ? "Enregistrer" : "Créer le brouillon"}
+              {/* Kept short because `Button` is `whitespace-nowrap`: a 320 px footer stacks its actions
+                  full-width, so a long label overflows the dialog rather than wrapping inside it. */}
+              {loading
+                ? "Enregistrement…"
+                : isCorrection
+                  ? "Émettre la correction"
+                  : isEditing
+                    ? "Enregistrer"
+                    : "Créer le brouillon"}
             </Button>
           </DialogFooter>
         </form>

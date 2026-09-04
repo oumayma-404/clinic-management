@@ -412,6 +412,47 @@ public class SchemaVerificationService
                 : $"{n} procedure type(s) still carry a discipline in Description — the backfill missed them",
             n => n == 0);
 
+        // Multi-séance acts. TreatmentPlanItem.Status is STORED and recomputed from the step rows, the same shape
+        // as Invoice.AmountCollected and Installment.AmountPaid — because the « Traitements en cours » worklist
+        // filters on it in SQL, and because a property derived over a collection navigation that a write path
+        // forgot to Include would answer « Planned » for a finished bridge with no exception anywhere. Storing it
+        // buys that safety at the price of drift, and this is the check that sees the drift. It is silent in both
+        // directions: too low and the worklist cannot see a half-finished bridge, too high and a completed devis
+        // never closes.
+        Add("plan-step-status-agrees", counts.PlanItemsWithStatusDisagreeingWithSteps,
+            n => n == 0
+                ? "0 devis act(s) disagree with their own step rows"
+                : $"{n} devis act(s) carry a Status that disagrees with their step rows — a write path recomputed "
+                  + "from an unloaded Steps collection, or bypassed the aggregate",
+            n => n == 0);
+
+        // Step order is positional everywhere it is read — « étape 2 sur 3 » is the rank, and the séance the
+        // booking dialog offers is the lowest un-done one — so a duplicate rank makes « la prochaine étape »
+        // ambiguous between two steps and a gap misprints the count. Neither is expressible in the schema.
+        /*
+         * The protocol backfill. Same quiet failure as the category move one section up: an act with no
+         * protocole de séances is a valid act, so a row the backfill missed never raises anything — it just
+         * makes a dentist retype « Pose de l'implant », « Désenfouissement » and four more by hand on every
+         * devis, which is the whole thing the protocols exist to stop.
+         *
+         * ⚠️ Only the fourteen SEEDED acts are counted, and only where the protocol is entirely absent. An act
+         * a clinic wrote itself is not expected to have one, and a protocol a clinic deliberately emptied is
+         * its own decision — neither is drift.
+         */
+        Add("procedure-step-protocol-backfill", counts.SeededActsWithoutStepProtocol,
+            n => n == 0
+                ? "0 seeded act(s) are missing their protocole de séances"
+                : $"{n} seeded act(s) that should carry a protocole de séances hold none — "
+                  + "SeedProcedureStepProtocols missed them, and a dentist retypes those étapes on every devis",
+            n => n == 0);
+
+        Add("plan-step-sequence-dense", counts.PlanItemsWithNonDenseStepSequence,
+            n => n == 0
+                ? "0 devis act(s) have a gap, a duplicate or a non-zero start in their step order"
+                : $"{n} devis act(s) have step ranks that are not dense 0..n-1 — « la prochaine étape » is "
+                  + "ambiguous for them",
+            n => n == 0);
+
         // L4a's backfill, and the same kind of quiet failure: EF's differ scaffolds `defaultValue: 0` for a new
         // non-nullable int, so a clinic left at zero has a retention policy of « keep nothing » and a staleness
         // threshold that fires immediately — while the columns, the endpoint and the settings screen are all

@@ -338,13 +338,26 @@ public class TreatmentPlanTests
         Assert.Equal(1, plan.RevisionNumber);
     }
 
-    // [AC-22c] A closed plan cannot be stamped either — the guard is on the amendment, not just its parts.
+    // [AC-22c] The stamp follows the amendment window — a CANCELLED plan cannot be stamped, a completed one
+    // can, since it can now be corrected. See `Amending_A_Cancelled_Plan_Is_Rejected`.
     [Fact]
-    public void RecordAmendment_Is_Rejected_On_A_Closed_Plan()
+    public void RecordAmendment_Is_Rejected_On_A_Cancelled_Plan()
     {
-        var plan = CompletedPlan();
+        var plan = AcceptedPlan();
+        plan.Cancel("Patient parti");
 
         Assert.Throws<InvalidOperationException>(() => plan.RecordAmendment());
+    }
+
+    [Fact]
+    public void RecordAmendment_Is_Allowed_On_A_Completed_Plan()
+    {
+        var plan = CompletedPlan();
+        var before = plan.RevisionNumber;
+
+        plan.RecordAmendment();
+
+        Assert.Equal(before + 1, plan.RevisionNumber);
     }
 
     // [AC-21] The domain half of the removal guards: a Done act is refused outright, and a booked one is
@@ -428,17 +441,32 @@ public class TreatmentPlanTests
         }));
     }
 
-    // A Completed or Cancelled plan has no remaining treatment to amend.
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Amending_A_Closed_Plan_Is_Rejected(bool completed)
+    /*
+     * ⚠️ The amendment window is « everything but a draft and a cancelled plan ». It used to exclude Completed
+     * too, and that was wrong on its own terms: a plan completes AUTOMATICALLY when its last act is marked
+     * réalisé, so a mistyped fee became uncorrectable at the exact moment the dentist was most likely to notice
+     * it — while `EnsureCorrectable` already admitted Completed for the act-level corrections, so the two
+     * windows disagreed about one plan. A CANCELLED plan is still refused: it is a closed record kept for its
+     * number, and editing it would be rewriting history rather than correcting it.
+     */
+    [Fact]
+    public void Amending_A_Cancelled_Plan_Is_Rejected()
     {
-        var plan = completed ? CompletedPlan() : AcceptedPlan();
-        if (!completed) plan.Cancel("Patient parti");
+        var plan = AcceptedPlan();
+        plan.Cancel("Patient parti");
 
         Assert.Throws<InvalidOperationException>(() =>
             plan.AddItems(new[] { ("Implant", 800m, (IReadOnlyList<int>)new[] { 21 }) }));
+    }
+
+    [Fact]
+    public void Amending_A_Completed_Plan_Is_Allowed()
+    {
+        var plan = CompletedPlan();
+
+        plan.AddItems(new[] { ("Implant", 800m, (IReadOnlyList<int>)new[] { 21 }) });
+
+        Assert.Contains(plan.Items, i => i.DesignationFr == "Implant");
     }
 
     // ---- In-place act edits (UpdateItems / TreatmentPlanItem.Revise) ------------------------------------
@@ -540,17 +568,30 @@ public class TreatmentPlanTests
         Assert.Equal(1000m, plan.TotalPlanned);
     }
 
-    // Same window as every other amendment verb.
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void UpdateItems_Is_Rejected_On_A_Closed_Plan(bool completed)
+    // Same window as every other amendment verb: a cancelled plan refuses, a completed one corrects.
+    [Fact]
+    public void UpdateItems_Is_Rejected_On_A_Cancelled_Plan()
     {
-        var plan = completed ? CompletedPlan() : AcceptedPlan();
+        var plan = AcceptedPlan();
         var itemId = plan.Items.First().Id;
-        if (!completed) plan.Cancel("Patient parti");
+        plan.Cancel("Patient parti");
 
         Assert.Throws<InvalidOperationException>(() => plan.UpdateItems(OneEdit(itemId, "Corrigé", 400m, 11)));
+    }
+
+    // The case the widened window exists for: a plan completes the moment its last act is marked réalisé, so
+    // this is a fee corrected at exactly the point the dentist notices it.
+    [Fact]
+    public void UpdateItems_Corrects_A_Fee_On_A_Completed_Plan()
+    {
+        var plan = CompletedPlan();
+        var itemId = plan.Items.First().Id;
+
+        plan.UpdateItems(OneEdit(itemId, "Corrigé", 400m, 11));
+
+        var item = plan.Items.Single(i => i.Id == itemId);
+        Assert.Equal("Corrigé", item.DesignationFr);
+        Assert.Equal(400m, item.PlannedCost);
     }
 
     // An invalid revision is refused whole — the act must not keep the new teeth and the old designation.

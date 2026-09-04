@@ -64,6 +64,7 @@ import {
   APPOINTMENT_STATUS_TONE,
   appointmentActsCount,
   appointmentActsSummary,
+  isPlanSeance,
   appointmentStatusLabel,
   isBusySlot,
   normalizeStatus,
@@ -194,6 +195,28 @@ const MIN_APPT_HEIGHT_PHONE = 28
  * 900 px intrinsic width is unchanged.
  */
 const WEEK_COLS = "grid-cols-[60px_repeat(7,minmax(120px,1fr))] lg:grid-cols-[60px_repeat(7,minmax(0,1fr))]"
+/**
+ * The week grid's columns **below `md:`** — seven fluid tracks that fit the phone, never the 900 px canvas.
+ *
+ * ⚠️ This is the whole of « make Semaine on a phone look like the laptop's, optimised the way Google Agenda does
+ * it ». The phone used to get `renderWeekStrip` instead — seven *rows*, a list of days with dot counts — which
+ * answered « which day do I need? » and refused to answer « when in the day? ». It is gone. The scrolling
+ * 900 px grid could not simply be reused either: read through a 390 px window it is navigation rather than
+ * reading, and a horizontal scroller would also eat the sideways swipe that now changes the week.
+ *
+ * So the columns go fluid at the *bottom* end as well: `(390 − 16×2 gutter − 44 time column) / 7 ≈ 45 px` a day,
+ * which is what Google Agenda's own phone week view gives a column. A block that narrow says a colour, a name
+ * clipped to a word and nothing else — and that is the honest trade, because the alternative was a view that
+ * could not show a time at all.
+ *
+ * ⚠️ The `44px` is an **arithmetic contract with `gutterPx`**, exactly as the 120/60 pair above is with
+ * `weekBandWidthExpr`: the appointment overlay resolves `(100% - {gutter}px) / 7` against a `w-full` wrapper, so
+ * the number here and the number `gutterPx` returns on a phone must be the same one.
+ * `check:responsive`'s `agenda-phone-week-gutter` reads both out of this file and fails if they drift.
+ */
+const WEEK_COLS_PHONE = "grid-cols-[44px_repeat(7,minmax(0,1fr))]"
+/** The phone's time gutter — one number for Jour and Semaine alike; see {@link WEEK_COLS_PHONE}. */
+const GUTTER_PHONE = 44
 // Month view: max appointment chips shown per day cell before collapsing the rest into "+N more" (AC-2).
 const MONTH_CELL_MAX_CHIPS = 3
 
@@ -553,8 +576,6 @@ interface AppointmentCalendarProps {
   onAppointmentClick?: (appointment: AppointmentDto) => void
   /** Month view only: clicking a day cell's empty area / "+N more" focuses that date in Day view (AC-4). */
   onSelectDay?: (date: Date) => void
-  showCancelled?: boolean
-  showCompleted?: boolean
   /**
    * Lets the phone header switch view (< md:). Optional: when omitted the phone header is not rendered at all,
    * so an embedding that has no view switcher keeps its current behaviour. Pass the page's `selectView`, never a
@@ -562,8 +583,6 @@ interface AppointmentCalendarProps {
    * discarding the view the user just chose.
    */
   onViewChange?: (view: "day" | "week" | "month") => void
-  onShowCancelledChange?: (show: boolean) => void
-  onShowCompletedChange?: (show: boolean) => void
   /** Called after a per-card "Push to Google" succeeds so the parent can refetch (clears the badge). */
   onChanged?: () => void
   /** Optional per-practitioner filter (AC-3.2) — only appointments assigned to this doctor. */
@@ -604,7 +623,7 @@ interface AppointmentCalendarProps {
   reloadToken?: unknown
 }
 
-export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, showCancelled = false, showCompleted = false, onShowCancelledChange, onShowCompletedChange, onChanged, doctorId, reloadToken, onViewChange, onNewAppointment, doctorFilter, googleControls }: AppointmentCalendarProps) {
+export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, onChanged, doctorId, reloadToken, onViewChange, onNewAppointment, doctorFilter, googleControls }: AppointmentCalendarProps) {
   const { internetReachable } = useConnectivity()
   // `md:` — the same boundary the rest of this feature splits devices at. Declared here rather than beside the
   // scroll refs because the fetch window below reads it: Mois on a phone spans several months, not one grid.
@@ -822,7 +841,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
    * the grid (which keeps whatever rows were already loaded) with a Réessayer, following the same pattern
    * `dashboard-section.tsx` uses and the same lesson the procedure-type list in the create dialog documents.
    */
-  const { appointments: allAppointments, loading, refetching, error, refetch } = useAppointments(
+  /**
+   * ⚠️ **Every appointment in the window, with no status filter of any kind — and the two that used to be here
+   * are gone rather than defaulted on.**
+   *
+   * They were « Terminés » and « Annulés », and by the end they both defaulted to *shown*: an agenda is the
+   * record of the practice's day, « Terminé » is what every honoured visit becomes, and a cancelled slot is why
+   * that hour is free. So the controls cost a popover row on the desktop and — on the phone, where the desk
+   * actually stands — a disclosure plus two permanent « affichés » chips over two lines of a 390 px screen, all
+   * to state that nothing was being filtered. A toggle whose only reachable useful position is the default is
+   * chrome. What survives is the paint: a cancelled visit is struck through and a completed one is ringed, which
+   * is how a reader tells them apart without a control that empties the morning as it is worked.
+   */
+  const { appointments, loading, refetching, error, refetch } = useAppointments(
     startDate,
     endDate,
     undefined,
@@ -830,28 +861,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     doctorId,
     reloadToken,
   )
-
-  // Filter appointments based on status filters
-  const appointments = useMemo(() => {
-    return allAppointments.filter(apt => {
-      // A « créneau occupé » is exempt from both switches. `AppointmentProgressJob` closes a blocked hour once
-      // its slot has ended, so honouring « Terminés » here would make every past block disappear from the
-      // agenda — and a blocked hour is nobody's appointment, so an appointment-lifecycle filter is not about it
-      // (`f441d1d`'s rule: figures about PEOPLE count appointments, figures about TIME count every slot).
-      if (isBusySlot(apt)) {
-        return true
-      }
-      const status = apt.status.toLowerCase()
-      if (status === 'cancelled') {
-        return showCancelled
-      }
-      if (status === 'completed') {
-        return showCompleted
-      }
-      // By default, show scheduled, confirmed, inprogress, awaitingclosure, noshow
-      return true
-    })
-  }, [allAppointments, showCancelled, showCompleted])
 
   /**
    * The visible appointments indexed by their day, earliest first within a day.
@@ -919,8 +928,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
    */
   // The floor, not the rendered height: on a wide screen `hourHeight` below stretches it to fill the scrollport.
   const baseHourHeight = isNarrow ? HOUR_HEIGHT_PHONE : HOUR_HEIGHT
-  const gutterPx = isNarrow ? 48 : 60
-  const dayGridCols = isNarrow ? "grid-cols-[48px_1fr]" : "grid-cols-[60px_1fr]"
+  const gutterPx = isNarrow ? GUTTER_PHONE : 60
+  const dayGridCols = isNarrow ? "grid-cols-[44px_1fr]" : "grid-cols-[60px_1fr]"
+  /** The time grid's column template for the view on screen — one expression, read by the header, the hour grid
+   *  and the loading skeleton, because three copies is three chances for the dates to sit over the wrong day. */
+  const timeGridCols = view === "week" ? (isNarrow ? WEEK_COLS_PHONE : WEEK_COLS) : dayGridCols
 
   /**
    * The days the time grid is currently showing — one in Jour, seven in Semaine. Shared by the window below and
@@ -1251,8 +1263,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // left every block overhanging its own column by the difference.
   const dayBandLeftExpr = `${gutterPx + 4}px`
   const dayBandWidthExpr = `100% - ${gutterPx + 10}px`
-  const weekBandLeftExpr = (dayIndex: number) => `60px + ((100% - 60px) / 7) * ${dayIndex} + 2px`
-  const weekBandWidthExpr = `(100% - 60px) / 7 - 4px`
+  /*
+   * ⚠️ `gutterPx`, not the literal `60` these two carried, and that is the week grid's half of the same rule the
+   * day band already followed. A phone's week gutter is 44 px (`GUTTER_PHONE`/`WEEK_COLS_PHONE`), so with 60
+   * hardcoded here every block on the phone's Semaine would sit 16 px right of its own column and the last day
+   * would overhang the grid — the arithmetic-error-shaped rendering glitch the `WEEK_COLS` note describes.
+   *
+   * The inset shrinks with the column: 2 px a side on a ~45 px phone track instead of the desktop's 2/4, or a
+   * quarter-hour block loses a fifth of its width to breathing room it has nowhere to take from.
+   */
+  const weekBandInset = isNarrow ? 1 : 2
+  const weekBandLeftExpr = (dayIndex: number) =>
+    `${gutterPx}px + ((100% - ${gutterPx}px) / 7) * ${dayIndex} + ${weekBandInset}px`
+  const weekBandWidthExpr = `(100% - ${gutterPx}px) / 7 - ${weekBandInset * 2}px`
 
   // Split a day's column band into `colCount` equal side-by-side lanes; `colCount === 1` fills the band.
   const laneStyle = (leftExpr: string, widthExpr: string, colIndex: number, colCount: number): CSSProperties => {
@@ -1437,9 +1460,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   )
 
   const gridDrag = useAgendaGridDrag({
-    // Mois has no hour cells and the phone's Semaine renders the strip instead, so there is nothing to drag
-    // across in either; `loading` is in here because the cells this measures do not exist yet.
-    enabled: mounted && !loading && view !== "month" && !(view === "week" && isNarrow),
+    // Mois has no hour cells, so there is nothing to drag across there; `loading` is in here because the cells
+    // this measures do not exist yet.
+    //
+    // ⚠️ The phone's Semaine is **in** now — it used to be excluded because it rendered a list of days rather
+    // than a grid. It has real hour cells, so a tap on one books that hour exactly as Jour's does; the sideways
+    // swipe cannot be confused with it, because on a coarse pointer the gesture arms on a ~350 ms press with
+    // under 10 px of travel and a swipe abandons it outright.
+    enabled: mounted && !loading && view !== "month",
     coarsePointer,
     containerRef: scrollContainerRef,
     // The rendered window and the row height are what every cell's position is made of — see the hook's note on
@@ -1612,6 +1640,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const colorStyle = appointmentAppearance(appointment)
     const tone = appointmentTone(appointment)
     const statusLabel = appointmentStatusLabel(appointment.status)
+    // ⚠️ A séance that is one étape of a treatment must not look like a loose visit — see `isPlanSeance`.
+    const planSeance = isPlanSeance(appointment)
 
     /*
      * ── Drag-to-move, on the block ────────────────────────────────────────────────────────────────────────
@@ -1657,7 +1687,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     // sighted users only.
     const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")} · ${durationMinutes} min · ${statusLabel}${
       actsSummary ? ` · ${actsSummary}` : ""
-    }`
+    }${planSeance ? " · séance d'un devis" : ""}`
 
     /*
      * The phone block is a different shape, not the desktop block scaled down.
@@ -1685,6 +1715,15 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       // measures ~30 px inside a 32 px block and the second line is clipped — which is how a 30-minute visit
       // ended up showing only a name on a row height that was doubled to give it two.
       const tightLines = height < 40
+      /*
+       * ⚠️ **A phone's Semaine column is ~45 px wide, so the block is a colour and a word.**
+       *
+       * The second line ("09:30 · devis") is dropped there and the padding halves: at 45 px minus 3 px of statut
+       * strip and 2×6 px of `px-1.5`, « 09:30 » alone measures wider than the box, so it would render as a
+       * clipped time under a clipped name and say less than either does alone. Jour keeps both lines — it has
+       * the whole width of the screen — which is exactly the split Google Agenda's own two phone views make.
+       */
+      const narrowColumn = view === "week"
       return (
         <button
           key={appointment.id}
@@ -1692,10 +1731,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           className={cn(
             "pointer-events-auto absolute z-20 flex cursor-pointer flex-col overflow-hidden rounded-md text-start transition-[box-shadow,transform] duration-[160ms] ease-snap active:scale-[0.99]",
             colorStyle.className,
-            tightLines ? "px-1.5 py-0" : "px-1.5 py-0.5",
+            narrowColumn ? "px-1 py-0" : tightLines ? "px-1.5 py-0" : "px-1.5 py-0.5",
             // Clearance for the 3px statut strip. After the padding shorthand, so tailwind-merge lets it win on
             // the inline-end side only.
-            "pe-2",
+            narrowColumn ? "pe-1.5" : "pe-2",
             dragClasses,
           )}
           style={{ top: `${top}px`, height: `${height}px`, ...positionStyle, ...colorStyle.style }}
@@ -1710,11 +1749,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               `aria-hidden` decoration. */}
           {renderStatusEdge(appointment)}
           <span className="flex min-w-0 items-center gap-1">
-            {tone === "negative" && <UserX className="h-3 w-3 shrink-0" aria-hidden="true" />}
+            {tone === "negative" && !narrowColumn && <UserX className="h-3 w-3 shrink-0" aria-hidden="true" />}
             <span
               className={cn(
                 "min-w-0 truncate font-semibold",
-                isVerySmall || tightLines ? "text-2xs leading-[1.15]" : "text-xs leading-[1.3]",
+                narrowColumn || isVerySmall || tightLines ? "text-2xs leading-[1.15]" : "text-xs leading-[1.3]",
               )}
             >
               {appointment.patientName}
@@ -1723,7 +1762,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           {/* 30, not 40. A 30-minute visit — the default — is exactly 32 px at `HOUR_HEIGHT_PHONE`, so a 40 px
               gate excluded the single most common appointment in the app from ever showing its start time, and
               the taller phone row bought the standard case nothing at all. */}
-          {height >= 30 && (
+          {!narrowColumn && height >= 30 && (
             <span
               className={cn(
                 "truncate text-2xs opacity-75",
@@ -1731,7 +1770,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               )}
             >
               {format(aptStart, "HH:mm")}
-              {actsSummary ? ` · ${actsSummary}` : ""}
+              {planSeance && " · devis"}
+              {actsSummary ? ` · ` : ""}
             </span>
           )}
         </button>
@@ -1831,6 +1871,21 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             )}
           >
             <span className="shrink-0 font-medium tabular-nums">{format(aptStart, "HH:mm")}</span>
+            {/*
+              ⚠️ **The « devis » mark, which the agenda did not have at any width.** A séance that is one étape
+              of a six-visit treatment rendered exactly like a loose visit, so at 8 a.m. the screen a dentist
+              actually reads could not tell them apart — while the appointment *dialog* one click away shows
+              both this chip and the étape's name. Five characters, before the act name so it survives the
+              truncation that name is subject to.
+            */}
+            {planSeance && (
+              <span
+                className="shrink-0 rounded-sm bg-white/50 px-1 text-2xs font-medium leading-none dark:bg-background/50"
+                title="Cette séance fait partie d'un devis"
+              >
+                devis
+              </span>
+            )}
             {/* Day view has the room to name every act of a séance; Semaine names the lead act, because
                 « Détartrage + Obturation » in 120 px truncates to « Détarta… » — which says less than the badge
                 beside the name already said. */}
@@ -1875,21 +1930,27 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   }
 
   /**
-   * Horizontal swipe to change day — **Jour only**, deliberately.
+   * Horizontal swipe to change period — **every view, on a phone**, which is what Google Agenda does and what
+   * this had in one view out of three.
    *
-   * ⚠️ In Semaine the same container scrolls horizontally (AC-30 removed its `overflow-x-hidden` precisely so it
-   * would). A swipe handler on that axis in that view would fight the scroll the user is performing, so the
-   * gesture is scoped to the one view where the axis is free rather than dropped entirely.
+   * ⚠️ It used to be Jour-only, and the reason was real at the time: in Semaine the same container scrolled
+   * horizontally through a 900 px grid (AC-30 removed its `overflow-x-hidden` precisely so it would), and a
+   * swipe handler on that axis would have fought the scroll the user was performing. That is no longer true
+   * below `md:` — the phone's week grid is `w-full` and fits, so the horizontal axis is free in all three views
+   * and the gesture means one thing everywhere: a day, a week or a month, whichever this view counts in.
    *
-   * The direction test requires the horizontal travel to clearly dominate the vertical, because this container
-   * also scrolls vertically through 24 hours — a diagonal thumb drag must scroll, not jump a day.
+   * ⚠️ **Still `isNarrow`-gated.** From `md:` up Semaine is back to the 900 px scrolling canvas, so the axis is
+   * spoken for again — and a desk machine has the ‹ › pair permanently on its bar anyway.
+   *
+   * The direction test requires the horizontal travel to clearly dominate the vertical, because these containers
+   * also scroll vertically through 24 hours (or through months) — a diagonal thumb drag must scroll, not jump.
    */
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null)
   const SWIPE_MIN_PX = 60
   const SWIPE_AXIS_RATIO = 1.5
 
   const handleTouchStart = (event: React.TouchEvent) => {
-    if (view !== "day" || event.touches.length !== 1) {
+    if (!isNarrow || event.touches.length !== 1) {
       swipeStartRef.current = null
       return
     }
@@ -1899,7 +1960,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const handleTouchEnd = (event: React.TouchEvent) => {
     const start = swipeStartRef.current
     swipeStartRef.current = null
-    if (!start || view !== "day") return
+    if (!start || !isNarrow) return
     /*
      * ⚠️ A drag has already consumed this touch. `touchend` fires *after* `pointerup`, so by the time we get here
      * the gesture is finished and invisible — without this, carrying an appointment leftwards across the grid in
@@ -1914,7 +1975,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const dy = touch.clientY - start.y
     if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * SWIPE_AXIS_RATIO) return
 
-    // Swiping left reveals the NEXT day, matching every calendar app's direction convention.
+    // Swiping left reveals the NEXT period, matching every calendar app's direction convention.
     if (dx < 0) {
       handleNext()
     } else {
@@ -2007,118 +2068,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // dimmed, today is highlighted, each cell lists its appointments as chips with a "+N more" overflow,
   // and clicking a cell's empty area / "+N more" navigates to Day view for that date. No time-of-day
   // layout, current-time line, or scroll-centering (day/week only).
-  /**
-   * Semaine below `md:` — seven tappable days with their density, instead of the time grid (AC-28).
-   *
-   * The scrolling week grid built for AC-30 is honest from `lg:` up: seven 120px columns, a sticky gutter and
-   * a sticky header. On a 320–390px phone the same grid is a 900px canvas you read through a 320px window,
-   * which is navigation, not reading. This answers the question a phone actually asks of a week — *which day
-   * do I need?* — and hands off to Jour, where the hours are legible.
-   *
-   * ⚠️ **Seven rows, not seven columns.** « Strip » in the plan implies a horizontal band, and that was tried
-   * on paper first: seven cells across 320px is ~45px each, which fits dots and nothing else — the same
-   * unreadable sliver the month chips became — and it would leave the rest of the screen blank, since the
-   * time grid is exactly what it replaces. Rows use the width the phone has, so each day can carry its count
-   * and its first appointment time as well as the colour dots. Logged as DEV-8.
-   *
-   * Accessibility follows the month cells: **dots are `aria-hidden` decoration, the count is the fact.**
-   */
-  const renderWeekStrip = () => {
-    /*
-     * ⚠️ A skeleton, because this view had **no loading branch at all**. It read `appointments` directly and was
-     * invoked without consulting `loading`, so during the very first fetch the phone's Semaine rendered seven
-     * rows of « Aucun rendez-vous » — not a blank waiting state but a *positive statement* that the week is
-     * free, which in a clinic is the one wrong answer that matters. The other three views all had this branch;
-     * this one was written without it and nothing could see the difference.
-     */
-    if (loading) {
-      return (
-        <ul className="divide-y" role="status" aria-label="Chargement des rendez-vous">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <li key={i} className="flex items-center gap-3 px-3 py-3">
-              <span className="flex w-10 shrink-0 flex-col items-center gap-1">
-                <span className="h-2 w-6 animate-pulse rounded bg-muted" />
-                <span className="h-8 w-8 animate-pulse rounded-full bg-muted" />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <span className="h-2 w-10 animate-pulse rounded bg-muted" />
-                <span className="h-3 w-32 animate-pulse rounded bg-muted" />
-              </span>
-            </li>
-          ))}
-        </ul>
-      )
-    }
-
-    return (
-    <ul
-      className={cn(
-        "divide-y overflow-y-auto transition-opacity duration-200 ease-snap",
-        refetching && "opacity-60",
-      )}
-      aria-label="Semaine — choisissez un jour"
-    >
-      {weekDays.map((day) => {
-        const dayAppointments = getAppointmentsForDay(day)
-        const visible = dayAppointments.slice(0, MONTH_CELL_MAX_CHIPS)
-        const overflow = dayAppointments.length - visible.length
-        const first = dayAppointments[0]
-
-        return (
-          <li key={day.toISOString()}>
-            <button
-              type="button"
-              onClick={() => onSelectDay?.(day)}
-              className="flex w-full items-center gap-3 px-3 py-3 text-start transition-colors hover-hover:hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
-              <span className="flex w-10 shrink-0 flex-col items-center gap-0.5">
-                <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {format(day, "EEE", { locale: fr })}
-                </span>
-                <span
-                  className={cn(
-                    "inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold",
-                    isToday(day) ? TODAY_PILL : "text-foreground",
-                  )}
-                >
-                  {format(day, "d")}
-                </span>
-              </span>
-
-              <span className="min-w-0 flex-1">
-                {dayAppointments.length === 0 ? (
-                  <span className="text-sm text-muted-foreground">Aucun rendez-vous</span>
-                ) : (
-                  <>
-                    <span className="flex flex-wrap items-center gap-1" aria-hidden="true">
-                      {visible.map((appointment) => (
-                        <span
-                          key={appointment.id}
-                          className="h-2 w-2 rounded-full"
-                          style={{
-                            backgroundColor:
-                              parseProcedureHex(appointment.procedureColorHex) ?? "var(--muted-foreground)",
-                          }}
-                        />
-                      ))}
-                      {overflow > 0 && <span className="text-2xs text-muted-foreground">+{overflow}</span>}
-                    </span>
-                    <span className="mt-0.5 block truncate text-sm text-foreground">
-                      {dayAppointments.length} rendez-vous
-                      {first && ` · dès ${format(new Date(first.appointmentDateTime), "HH:mm")}`}
-                    </span>
-                  </>
-                )}
-              </span>
-
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            </button>
-          </li>
-        )
-      })}
-    </ul>
-    )
-  }
 
   /**
    * Mois **below `md:`** — a sticky weekday header over a continuous vertical scroll of weeks, with a heading
@@ -2367,9 +2316,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
    * How many non-default filters are on, for the « Filtres » badge.
    *
    * It is what makes folding the controls into a popover safe: the trigger says *how many* rather than the state
-   * being silent. The page renders the removable chips too (§ 13) — this is the count, not a substitute for them.
+   * being silent. The page renders the removable chip too (§ 13) — this is the count, not a substitute for it.
+   *
+   * ⚠️ Down to one term now that the two status toggles are gone: the praticien is the only thing on this screen
+   * that still narrows what the grid shows.
    */
-  const activeFilterCount = (showCancelled ? 1 : 0) + (showCompleted ? 1 : 0) + (doctorFilter && doctorFilter.value !== "all" ? 1 : 0)
+  const activeFilterCount = doctorFilter && doctorFilter.value !== "all" ? 1 : 0
 
   /**
    * The acts on screen and the colour each of them paints — **derived from the window, never a list kept here.**
@@ -2543,11 +2495,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   )
 
   return (
-    <div className="flex h-full flex-col">
+    /* `relative`: the phone's floating « + » is positioned against this box, so it clears the bottom bar without
+       a hand-written offset — `<main>` already shrinks around `BottomNav`, which is a flex sibling rather than a
+       fixed element (§ 7). */
+    <div className="relative flex h-full flex-col">
       {/*
         The phone header (< md:). Mounted here rather than in the page because it needs the appointment data this
-        component owns — the density dots and the « Prochains RDV » summary both read it, and lifting the fetch to
-        the page to feed a header would be a much larger change for no gain.
+        component owns — the density dots read it — and lifting the fetch to the page to feed a header would be a
+        much larger change for no gain.
         Design + rationale: features/agenda-phone-ux/design.md.
       */}
       {onViewChange && (
@@ -2556,21 +2511,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           onViewChange={onViewChange}
           selectedDate={selectedDate}
           onDateChange={onDateChange}
+          /* The SAME two functions the desktop bar's ‹ › call and the swipe calls, so « suivant » cannot mean
+             one thing on a phone and another on a desk machine. */
+          onPrevious={handlePrevious}
+          onNext={handleNext}
           appointments={appointments}
-          /*
-           * The two status filters, on the phone at last. They lived only in the `md:flex` toolbar below and in
-           * the `hidden md:flex` chip row on the page, so `lib/dashboard-links.ts`' « Taux d'absence » link —
-           * `/appointments?status=NoShow,Cancelled` — landed a phone user on a *filtered* agenda with nothing on
-           * screen saying why and no way to clear it. The chips and the « Filtres » disclosure now live in the
-           * header, which is the phone's only toolbar.
-           */
-          /* The create action's phone home. It was a floating pill fixed above the bottom nav, which cost every
-             scroller below 56 px of clearance padding and covered the last hour of the grid. */
-          onNewAppointment={onNewAppointment}
-          showCancelled={showCancelled}
-          showCompleted={showCompleted}
-          onShowCancelledChange={onShowCancelledChange}
-          onShowCompletedChange={onShowCompletedChange}
           /* The same resolution the grid shades with, so the phone strip and the desktop grid cannot disagree
              about which days the cabinet is open. */
           isDayOpen={isDayOpenOnAgenda}
@@ -2723,31 +2668,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               gutter. This one only ever opens at `md:` and up, but the rule is cheap to keep and the popover is
               one copy-paste away from a narrower home. */}
           <PopoverContent align="end" className="w-[min(20rem,calc(100vw-2rem))] p-4">
+            {/* ⚠️ « Afficher » — the two status switches — is **gone**, not defaulted on. Both showed everything
+                by default, so the section was a control panel whose only useful position was the one it already
+                had; what is left in here is the praticien (a real narrowing) and the legend that explains the
+                paint. */}
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3">
-                <p className="text-sm font-semibold">Afficher</p>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="show-completed"
-                    checked={showCompleted}
-                    onCheckedChange={(checked) => onShowCompletedChange?.(checked)}
-                  />
-                  <Label htmlFor="show-completed" className="cursor-pointer text-sm">
-                    Rendez-vous terminés
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="show-cancelled"
-                    checked={showCancelled}
-                    onCheckedChange={(checked) => onShowCancelledChange?.(checked)}
-                  />
-                  <Label htmlFor="show-cancelled" className="cursor-pointer text-sm">
-                    Rendez-vous annulés
-                  </Label>
-                </div>
-              </div>
-
               {doctorFilter && (
                 <div className="flex flex-col gap-2 xl:hidden">
                   <Label htmlFor="agenda-doctor-filter" className="text-sm font-semibold">
@@ -2758,14 +2683,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               )}
 
               {/*
-                The legend, beside the switches it belongs with — and now naming **both** colour axes.
+                The legend — reference rather than a control, and it names **both** colour axes.
 
                 The note that used to sit here said the act colours were a deferred second pass and that writing
                 a half-true legend into a nicer home would be the same defect in a nicer place. It was right, and
                 `renderLegend` is that second pass: the statut swatches are the real edge paint and the act
                 swatches are derived from the window (`actLegend`), so neither can describe the grid wrongly.
+
+                ⚠️ The separator is conditional on there being something above it to separate. With the two
+                status switches gone, the praticien is the popover's only other section and it is `xl:hidden` —
+                so an unconditional `border-t` would draw a rule across the top of the popover at `xl:`.
               */}
-              <div className="flex flex-col gap-2 border-t pt-3">
+              <div className={cn("flex flex-col gap-2", doctorFilter && "border-t pt-3 xl:border-t-0 xl:pt-0")}>
                 <p className="text-sm font-semibold">Légende</p>
                 {renderLegend()}
               </div>
@@ -2969,17 +2898,22 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         gutter with `-mx-4`) is the other coherent answer and would buy 32 px of width; drawing the edge is the
         smaller one, and it is what « lacks definition » asks for.
       */}
-      <Card className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border py-0 shadow-sm">
+      {/*
+        ⚠️ The swipe listens **here**, on the card, not on the time grid's scroller — and that is what makes it
+        work in Mois. Each view mounts a different scroller (Jour and Semaine share one, the phone's Mois has its
+        own continuous month scroll), so a handler on any of them covers a subset of the views; the card is the
+        one element all three render inside. Touch events bubble, so a gesture started anywhere on the grid,
+        including on an appointment block, still reaches it.
+      */}
+      <Card
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border py-0 shadow-sm"
+      >
         {!mounted ? (
           renderGeometrySkeleton()
         ) : view === "month" ? (
           isNarrow ? renderPhoneMonthView() : renderMonthView()
-        ) : view === "week" && isNarrow ? (
-          /* ⚠️ A real branch, not `md:hidden` on the grid. A hidden (`display:none`) scroll container reports
-             `offsetTop: 0` for every row, so the opening-hour positioning and the current-time line would both
-             compute against a zero-height layout and be wrong the moment the viewport crossed back to `md:`. Not
-             rendering it means there is nothing to mis-measure, and the scroll effect re-runs on `isNarrow`. */
-          renderWeekStrip()
         ) : (
         <div className="relative flex h-full flex-col min-h-0">
           {/*
@@ -3005,8 +2939,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           */}
           <div
             ref={scrollContainerRef}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
             className={cn(
               "relative min-h-0 flex-1 overflow-auto transition-opacity duration-200 ease-snap",
               refetching && "opacity-60",
@@ -3033,16 +2965,24 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           <div
             className={cn(
               "relative",
-              view === "week" ? "w-max min-w-full lg:w-full" : "w-full",
+              /* ⚠️ Below `md:` Semaine is **`w-full`**, not the scrolling canvas: seven fluid tracks
+                 (`WEEK_COLS_PHONE`) fit the phone, which is what makes the sideways swipe available — a
+                 horizontal scroller would eat the gesture that changes the week. From `md:` up the wrapper is
+                 unchanged, and the literal below is read verbatim by `check:responsive`'s `agenda-scroll`. */
+              view === "week" ? (isNarrow ? "w-full" : "w-max min-w-full lg:w-full") : "w-full",
             )}
           >
           {/*
-            Not rendered on a phone: below `md:` this branch is only ever Jour, and the phone header directly
-            above already names the day — « mer. 12 novembre » in its title and the same date circled in its week
-            strip. A third statement of it costs ~46 px of the only screen the grid has to itself. Google Agenda's
-            phone day view has no in-grid date header for exactly this reason.
+            Not rendered on a phone **in Jour**: the phone header directly above already names the day — « mer.
+            12 novembre » in its title and the same date circled in its week strip — and a third statement of it
+            costs ~46 px of the only screen the grid has to itself. Google Agenda's phone day view has no in-grid
+            date header for exactly this reason.
+
+            ⚠️ **Semaine is the exception, and it is the whole point of the phone week grid.** Seven columns with
+            no dates over them is unreadable, so this header IS the phone's week navigation — which is also why
+            `AgendaPhoneHeader` drops its own 7-day strip in that view rather than saying it twice.
           */}
-          {!isNarrow && (
+          {(!isNarrow || view === "week") && (
           <div
             className={cn(
               // z-50: above the sticky gutter (z-30) and the current-time overlay (z-40), both of which
@@ -3053,11 +2993,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               // strip across the top of a lighter surface, which reads as a seam. One token, correct in both
               // themes, and it is the third of the pass's three "rendering gaps".
               "sticky top-0 z-50 grid border-b bg-card",
-              view === "week" ? WEEK_COLS : dayGridCols,
+              timeGridCols,
             )}
           >
-            {/* The corner cell is sticky on BOTH axes, so it stays over the time gutter as it scrolls. */}
-            <div className="sticky left-0 z-10 border-r bg-muted/60" />
+            {/* The corner cell is sticky on BOTH axes, so it stays over the time gutter as it scrolls. It
+                follows the gutter's own paint: a bare column of times on a phone, a shaded panel above it. */}
+            <div className={cn("sticky left-0 z-10", isNarrow ? "bg-card" : "border-r bg-muted/60")} />
             {view === "week" ? (
               /*
                * A **button**, so Semaine's day header opens that day the way a Mois cell does.
@@ -3091,7 +3032,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                       dayIsOpen ? `${dayCount} rendez-vous` : "cabinet fermé"
                     }`}
                     className={cn(
-                      "min-w-0 border-r py-2 text-center transition-colors last:border-r-0 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring dark:hover:bg-muted/50",
+                      "min-w-0 border-r text-center transition-colors last:border-r-0 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring dark:hover:bg-muted/50",
+                      // 44 px tall on a phone (§ 2's floor: this header is the phone's only week navigation, so
+                      // its seven cells are real targets), against the desktop's content-sized `py-2`.
+                      isNarrow ? "py-1.5" : "py-2",
                       // The header half of the today band the columns below carry, through the SAME token
                       // (`--agenda-today`) rather than a second pair of hand-tuned opacities — so the marked
                       // column reads as one continuous band from its date down through its last hour, and the
@@ -3099,25 +3043,34 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                       isToday(day) && "bg-[var(--agenda-today)]",
                     )}
                   >
-                    <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      {format(day, "EEE", { locale: fr })}
+                    {/* One letter on a ~45 px phone column: « MER. » does not fit and truncating a three-letter
+                        weekday leaves « ME… », which is not a shorter word, it is a broken one. The full
+                        weekday is in the button's `aria-label` either way. */}
+                    <div className="mb-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground md:mb-1 md:text-xs">
+                      {format(day, isNarrow ? "EEEEE" : "EEE", { locale: fr })}
                     </div>
                     <div
                       className={cn(
-                        "mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                        "mx-auto inline-flex items-center justify-center rounded-full font-semibold transition-colors",
+                        isNarrow ? "h-6 w-6 text-2xs" : "h-8 w-8 text-xs",
                         isToday(day) ? TODAY_PILL : "text-foreground",
                       )}
                     >
                       {format(day, "d")}
                     </div>
-                    <div
-                      className={cn(
-                        "mt-0.5 text-2xs tabular-nums",
-                        isToday(day) ? "font-semibold text-primary" : "text-muted-foreground",
-                      )}
-                    >
-                      {!dayIsOpen ? "fermé" : dayCount === 0 ? "—" : `${dayCount} RDV`}
-                    </div>
+                    {/* ⚠️ The count is **desktop-only**. A ~45 px column cannot hold « 12 RDV » and the phone's
+                        week grid states the load far better than a number does — by drawing it. « fermé » goes
+                        with it, since the closed-hour hatch runs the whole column. */}
+                    {!isNarrow && (
+                      <div
+                        className={cn(
+                          "mt-0.5 text-2xs tabular-nums",
+                          isToday(day) ? "font-semibold text-primary" : "text-muted-foreground",
+                        )}
+                      >
+                        {!dayIsOpen ? "fermé" : dayCount === 0 ? "—" : `${dayCount} RDV`}
+                      </div>
+                    )}
                   </button>
                 )
               })
@@ -3146,7 +3099,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               {Array.from({ length: visibleHours.length }).map((_, i) => (
                 <div
                   key={i}
-                  className={cn("grid border-b", view === "week" ? WEEK_COLS : dayGridCols)}
+                  className={cn("grid border-b", timeGridCols)}
                   style={{ height: hourHeight }}
                 >
                   <div
@@ -3222,7 +3175,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 </>
               )}
               {/* Hour grid: time labels + empty clickable cells (gridlines + click-to-create). */}
-              <div ref={hourGridRef} className={cn("grid", view === "week" ? WEEK_COLS : dayGridCols)}>
+              <div ref={hourGridRef} className={cn("grid", timeGridCols)}>
                 {visibleHours.map((time) => {
                   const hour = Number.parseInt(time.split(":")[0])
                   // The label column has no single day in week view, so it reflects the focused date; each day
@@ -3540,6 +3493,36 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/*
+        ══ « + » — the create action's phone home, on the owner's request and on Google Agenda's placement ══
+
+        ⚠️ It was a labelled « Nouveau » on the phone header's title row, which is where it went after an earlier
+        pass removed a floating pill for costing every scroller 56 px of clearance padding. **This is not that
+        pill.** The old one was `fixed` and forced a `pb-14` runway on the grid *and* still covered the last hour;
+        this is `absolute` inside the calendar's own box, so it takes no layout space at all — `<main>` already
+        shrinks around `BottomNav`, which is a flex sibling rather than a fixed element (§ 7). What it does cost
+        is ~56 px of the grid's bottom-end corner, and that is the trade the placement buys: the title row it
+        vacated is what now carries ‹ ›, i.e. the navigation the phone had no button for in two views out of
+        three.
+
+        ⚠️ **Icon-only, and § 13's no-unlabelled-primary rule is met by `aria-label` rather than by visible
+        text.** A round « + » in the bottom-end corner is the single most established control in mobile UI —
+        this is the one place where the glyph *is* the label — and the desktop bar keeps the worded « Nouveau ».
+
+        56 px painted, so no `.touch-target` overlay and nothing to steal a tap from: the nearest control is the
+        grid's own footer strip, which sits below it.
+      */}
+      {onNewAppointment && (
+        <Button
+          onClick={onNewAppointment}
+          size="icon"
+          aria-label="Nouveau rendez-vous"
+          className="absolute bottom-4 end-4 z-30 size-14 rounded-full shadow-lg md:hidden"
+        >
+          <Plus className="size-6" />
+        </Button>
+      )}
     </div>
   )
 }

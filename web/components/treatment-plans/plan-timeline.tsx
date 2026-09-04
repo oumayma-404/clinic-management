@@ -67,7 +67,10 @@ export function PlanTimeline({ plan }: { plan: TreatmentPlanDto }) {
                 <span className="mt-0.5 block text-sm text-muted-foreground">{entry.detail}</span>
               )}
               <span className="mt-1 block text-xs text-muted-foreground">
-                {entry.at ? formatDateFr(entry.at) : "Date non disponible"}
+                {/* ⚠️ A missing value rendered as a sentence inside a timeline read as an error — « Devis facturé ·
+                    Note 2026-0087 · Date non disponible ». An em dash says « we do not have this » without
+                    claiming anything went wrong. */}
+                {entry.at ? formatDateFr(entry.at) : "—"}
               </span>
             </span>
           </li>
