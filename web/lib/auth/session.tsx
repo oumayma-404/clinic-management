@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/client"
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 import { idleLimitMinutes } from "@/lib/auth/idle-limit"
+import { isPublicRoute } from "@/lib/auth/public-routes"
 
 /**
  * ⚠️ One member, and that is the point.
@@ -165,6 +166,10 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     return onMustChangePassword(() => {
       if (window.location.pathname.startsWith("/change-password")) return
+      // Same reason as the two below: a public door has no signed-in account, so a refusal there cannot be
+      // « your password must change » — and bouncing a visitor mid-signup onto that screen is the same defect
+      // wearing a different destination.
+      if (isPublicRoute(window.location.pathname)) return
       window.location.href = "/change-password"
     })
   }, [])
@@ -181,13 +186,24 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
    * fiche that was open is the difference between an interruption and lost work — the same reasoning the
    * inactivity timeout already applies.
    *
-   * ⚠️ Guarded on `/login` like the two above: that screen makes calls of its own, and a redirect to the page you
-   * are already on is a reload loop. And `onSessionExpired` deliberately never fires for a 429 or a transport
-   * blip — see its own note — so one rate-limited minute cannot eject a whole practice.
+   * ⚠️ **Guarded on every PUBLIC route, not just `/login`, and the difference is a production outage.** The
+   * guard used to read `startsWith("/login")`, which is true of exactly one of the seven doors a visitor reaches
+   * with no session. On the other six a 401 from the token exchange is not an expiry at all — it is the API
+   * correctly refusing a request that carries no cookie, because nobody is signed in yet — and treating it as
+   * one told a visitor three fields into creating their cabinet that their session had expired, then dropped
+   * them on the login screen. Public signup was unusable: `SetupWizard` read the profile-image upload policy
+   * (an authenticated endpoint) on mount, and every attempt ended on `/login?returnTo=%2Fsignup`.
+   *
+   * The list is `lib/auth/public-routes.ts`, shared with `middleware.ts` — the server gate and this one now
+   * answer « does a session belong here? » from the same place, which is what stops the next door added to one
+   * from being missed by the other.
+   *
+   * And `onSessionExpired` deliberately never fires for a 429 or a transport blip — see its own note — so one
+   * rate-limited minute cannot eject a whole practice.
    */
   useEffect(() => {
     return onSessionExpired(() => {
-      if (window.location.pathname.startsWith("/login")) return
+      if (isPublicRoute(window.location.pathname)) return
       toast.error("Session expirée", {
         description: "Votre session a expiré. Reconnectez-vous pour continuer.",
         duration: 6000,
@@ -208,11 +224,12 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
    * It carries the address so the enrolment step opens with it already filled: the user has just been told
    * they cannot proceed, and asking them to retype what the app already knows is where people give up.
    *
-   * Guarded against a redirect loop exactly as the one above is — `/login` itself makes calls.
+   * Guarded on the public routes exactly as the one above is, and for both of its reasons: `/login` itself makes
+   * calls, and on a door reached without a session a refusal says nothing about anybody's second factor.
    */
   useEffect(() => {
     return onSecondFactorRequired(() => {
-      if (window.location.pathname.startsWith("/login")) return
+      if (isPublicRoute(window.location.pathname)) return
       const address = user?.email ? `&email=${encodeURIComponent(user.email)}` : ""
       window.location.href = `/login?enrol=1${address}`
     })

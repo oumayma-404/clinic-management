@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
+import { isPublicRoute } from "@/lib/auth/public-routes"
 import { Button } from "@/components/ui/button"
 import UnauthorizedPage from "./unauthorized-page"
 
@@ -30,10 +31,15 @@ const LOGIN_PATH: Record<"cloud" | "local", string> = {
  * Routes with no page of their own must never be a `returnTo` target (AC-P3.20): signing in would land the
  * user on a 404 immediately after authenticating. `/auth/*` is Auth0 plumbing and `/bff/*` is the frontend's
  * own token/session API — neither renders anything.
+ *
+ * ⚠️ **Every public door is refused, not just `/login`.** The rule was written when `/login` was the only one,
+ * and the others are the same mistake wearing a different path: sending somebody who has just signed in back to
+ * « créer un cabinet » or « mot de passe oublié » is the identical loop the `/login` clause exists to prevent.
+ * `isPublicRoute` is the one list, shared with `middleware.ts` and `lib/auth/session.tsx`.
  */
 function safeReturnTo(pathname: string): string {
   if (!pathname || !pathname.startsWith("/")) return "/"
-  if (pathname === "/login" || pathname.startsWith("/auth/") || pathname.startsWith("/bff/")) return "/"
+  if (isPublicRoute(pathname) || pathname.startsWith("/auth/") || pathname.startsWith("/bff/")) return "/"
   return pathname
 }
 
@@ -51,8 +57,16 @@ export function ClinicGuard({
   const { mode } = useSession()
   const { hasAccess, isLoading: clinicLoading, error, refresh } = useClinicAccess(false) // Don't auto-redirect
 
-  // Don't show guard on setup/join/login pages
-  const isSetupPage = pathname === "/setup" || pathname === "/join" || pathname === "/login"
+  /*
+   * The guard stands down on any door reached without a session.
+   *
+   * ⚠️ It used to name three of them — `/setup`, `/join`, `/login` — and that list was already two doors short
+   * when public signup and password recovery shipped. Nothing failed, because those pages do not wrap
+   * themselves in this guard; it was a partial copy of the middleware's list waiting for the first one that
+   * did. It asks `isPublicRoute` now, so the answer arrives from the same place the route gate and the session
+   * provider read it from.
+   */
+  const isPublicPage = isPublicRoute(pathname)
 
   // Redirect to login if not authenticated — to the login page that exists in THIS mode (AC-P3.19/3.21),
   // carrying a returnTo that actually renders (AC-P3.20).
@@ -62,13 +76,13 @@ export function ClinicGuard({
   // the user to /login, which still saw a session and pushed straight back here — the redirect loop. Those
   // get the retry screen below instead.
   useEffect(() => {
-    if (!authLoading && !accessToken && tokenError !== 'unavailable' && !isSetupPage) {
+    if (!authLoading && !accessToken && tokenError !== 'unavailable' && !isPublicPage) {
       const returnTo = safeReturnTo(pathname)
       window.location.href = `${LOGIN_PATH[mode]}?returnTo=${encodeURIComponent(returnTo)}`
     }
-  }, [authLoading, accessToken, tokenError, isSetupPage, pathname, mode])
+  }, [authLoading, accessToken, tokenError, isPublicPage, pathname, mode])
 
-  if (isSetupPage) {
+  if (isPublicPage) {
     return <>{children}</>
   }
 

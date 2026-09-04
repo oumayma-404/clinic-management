@@ -32,11 +32,25 @@ function load(profile: UploadProfile): Promise<UploadPolicy> {
  * `.txt`, and a « 2 Mo maximum » the server did not enforce — so a policy shared across doors would simply move
  * the disagreement one level up and quote the patient drawer's 150 Mo on a logo field.
  */
-export function useUploadPolicy(profile: UploadProfile = "patient-file"): UploadPolicy | null {
+/**
+ * ⚠️ **`null` means « do not ask », and it exists because this endpoint is authenticated.**
+ * `GET /api/meta/upload-policy` is `[Authorize(AnyClinicRole)]`, so on a door reached with no session it 401s —
+ * and a 401 on the token exchange behind it is what the app reads as « session expirée ». `SetupWizard` is the
+ * case: one component serves `/setup` and the public `/signup`, and it called this on mount for a logo step that
+ * `/signup` does not even render. Passing `null` where the picker is not on screen is the fix at the source; the
+ * public-route guard in `lib/auth/session.tsx` is the one that stops the same shape ejecting a visitor again.
+ */
+export function useUploadPolicy(profile: UploadProfile | null = "patient-file"): UploadPolicy | null {
   const [policy, setPolicy] = useState<UploadPolicy | null>(null)
 
   useEffect(() => {
     let active = true
+    if (!profile) {
+      // Not merely « skip the fetch »: a consumer that turns the door off must not keep quoting the answer for
+      // the one it had open before.
+      setPolicy(null)
+      return
+    }
     load(profile)
       .then((value) => { if (active) setPolicy(value) })
       .catch(() => { /* the picker stays open; the server still checks */ })
