@@ -71,14 +71,16 @@ function query(params: Record<string, string | undefined>): string {
  */
 export const DASHBOARD_LINKS: Record<DashboardKpiKey, (period: DashboardPeriodDto) => string> = {
   // Honoured visits over the window.
-  completedAppointments: (p) => `/appointments${query({ ...range(p), status: 'Completed' })}`,
+  // ⚠️ No `status=`: the agenda has no status filter any more — it shows every visit, always — so a status
+  // parameter here would name a narrowing the destination cannot perform, which is the drift this module exists
+  // to prevent. The window is honoured; the reader finds the honoured visits in it by their own paint.
+  completedAppointments: (p) => `/appointments${query(range(p))}`,
 
   // Registered in the window. /patients filters on the same inclusive created-date bounds the KPI counted.
   newPatients: (p) => `/patients${query({ createdFrom: range(p).from, createdTo: range(p).to })}`,
 
-  // BOTH statuses, comma-separated: the rate's numerator is NoShow + Cancelled, so landing on no-shows alone would
-  // show a fraction of what the card counted.
-  absenceRate: (p) => `/appointments${query({ ...range(p), status: 'NoShow,Cancelled' })}`,
+  // The window alone — see `completedAppointments` for why no `status=` travels to the agenda any more.
+  absenceRate: (p) => `/appointments${query(range(p))}`,
 
   // acceptedFrom/acceptedTo, NOT from/to — the card counts by the date the patient said yes, while /treatment-plans'
   // from/to bound the creation date. Filtering on the wrong one lists a different set of devis.

@@ -380,6 +380,52 @@ check(
 );
 
 check(
+  "agenda-phone-week-gutter",
+  "P5",
+  "The phone week grid's time column and the overlay's arithmetic still agree",
+  "`agenda-scroll` above holds the DESKTOP half of the same contract (60 + 7x120 against `(100% - 60px) / 7`). " +
+    "Below `md:` Semaine is a different grid — seven fluid tracks in a `w-full` wrapper — so `WEEK_COLS_PHONE`'s " +
+    "leading track and the phone value of `gutterPx` are one number written twice, and the appointment overlay " +
+    "resolves `(100% - {gutter}px) / 7` against it. Change either alone and every block on the phone's week sits " +
+    "a fixed number of pixels right of its own column, with the last day overhanging the grid — an arithmetic " +
+    "error shaped exactly like a rendering glitch, and one no type and no desktop eye pass can see. Both numbers " +
+    "are read out of the source, and the band expressions are checked for the literal `60` the desktop pair used " +
+    "to hardcode.",
+  () => {
+    const file = ALL_FILES.find((f) => rel(f) === "components/appointment-calendar.tsx");
+    if (!file) {
+      return [{ file: "components/appointment-calendar.tsx", line: 0, text: "missing", full: "the agenda component this check guards is gone — retarget or retire the check" }];
+    }
+
+    const src = read(file);
+    const hits = [];
+
+    const phoneCol = src.match(/const WEEK_COLS_PHONE = "grid-cols-\[(\d+)px_repeat\(7,minmax\(0,1fr\)\)\]"/)?.[1];
+    const phoneGutter = src.match(/const GUTTER_PHONE = (\d+)/)?.[1];
+    if (!phoneCol || !phoneGutter) {
+      hits.push({ file: rel(file), line: 0, text: `WEEK_COLS_PHONE=${phoneCol ?? "?"} GUTTER_PHONE=${phoneGutter ?? "?"}`, full: "both constants must exist and keep their shape — the phone week grid's contract is unreadable without them" });
+    } else if (phoneCol !== phoneGutter) {
+      hits.push({ file: rel(file), line: 0, text: `${phoneCol}px column vs ${phoneGutter}px gutter`, full: "WEEK_COLS_PHONE's leading track must equal GUTTER_PHONE — the overlay resolves `(100% - GUTTER_PHONE) / 7` against that column" });
+    }
+
+    // `gutterPx` must BE the constant, not a second literal beside it.
+    if (!/const gutterPx = isNarrow \? GUTTER_PHONE : 60/.test(src)) {
+      hits.push({ file: rel(file), line: 0, text: "gutterPx", full: "must read `isNarrow ? GUTTER_PHONE : 60` — a literal here is the second copy this check exists to prevent" });
+    }
+    // And the week band expressions must be derived from it rather than hardcoding the desktop 60.
+    const lines = src.split(/\r?\n/);
+    const inComment = commentMask(lines);
+    lines.forEach((line, i) => {
+      if (inComment[i]) return;
+      if (/const weekBand(Left|Width)Expr/.test(line) && /100% - 60px/.test(line)) {
+        hits.push({ file: rel(file), line: i + 1, text: "100% - 60px", full: "must be `100% - ${gutterPx}px` — the phone's week gutter is not 60, so a literal puts every block in the wrong column below `md:`" });
+      }
+    });
+    return hits;
+  }
+);
+
+check(
   "agenda-gestures",
   "G1",
   "The agenda's drag gestures can still identify the cells they act on",
@@ -1815,6 +1861,65 @@ check(
         text:
           "found no surface building a `BookedActPrefill` — the scan is broken, and a guard that matches " +
           "nothing cannot hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "a-live-treatment-has-one-test",
+  "N23",
+  "« Is this treatment still running? » is asked through `isPlanLive`, never written out",
+  "The test was written by hand as `status === \"Accepted\" || status === \"InProgress\"` in four places. When " +
+    "« Suivre ce traitement » made an un-numbered `Draft` a live treatment — that is the whole point, so that " +
+    "following an implant costs no numbered devis — three of the four were updated and the fourth was not: " +
+    "`PlanActPrimaryAction` rendered « À planifier » on the act beside **no button at all**, so the treatment " +
+    "the dentist had just created could not be booked. No error, no console line; the état was even correct. " +
+    "It is the repository's signature defect (a rule wired to some of its call sites) on a status set that is " +
+    "no longer closed, so the guard is the set of *writers*, not a list of files.",
+  () => {
+    const offenders = [];
+
+    // The hand-written shape, in either order and with either operand spelling.
+    const HAND_WRITTEN = /===\s*"(Accepted|InProgress)"\s*\|\|[^\n]*===\s*"(Accepted|InProgress)"/g;
+    let candidates = 0;
+
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      // The helper itself is where the answer lives.
+      if (/plan-next-action\.ts$/.test(relPath)) continue;
+
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      const hits = [...code.matchAll(HAND_WRITTEN)];
+      if (hits.length === 0) continue;
+      candidates += hits.length;
+      offenders.push({
+        file: relPath,
+        line: lineAt(code, hits[0].index),
+        text:
+          "writes the live-treatment test out by hand — call `isPlanLive(plan.status)` instead, or an " +
+          "un-numbered treatment silently loses its actions here",
+      });
+    }
+
+    /*
+     * ⚠️ No `candidates === 0` tripwire here, unlike its neighbours: zero is the CORRECT steady state for this
+     * one — every writer has been routed through the helper. The scan is instead proved by the helper's own
+     * presence, so a rename that orphaned it would fail the build at `tsc` rather than pass silently here.
+     */
+    const helper = read(
+      [...tsx()].find((f) => /plan-next-action\.ts$/.test(rel(f))) ?? "",
+    );
+    if (!/export function isPlanLive/.test(helper)) {
+      offenders.push({
+        file: "components/treatment-plans/plan-next-action.ts",
+        text: "`isPlanLive` is gone — the guard has nothing to point callers at",
       });
     }
 
