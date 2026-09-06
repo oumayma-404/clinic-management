@@ -189,7 +189,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * so « Recharger » can be offered, and escalates the wording once reloading has already been tried.</p>
    */
   const conflict = useConflict()
-  const { error, setError, reset: resetConflict } = conflict
+  const { error, setError, clearMessage: clearBanner, reset: resetConflict } = conflict
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   /**
    * « Supprimer (créé par erreur) » — deliberately NOT a second door to « Annulé ». A séance nobody ever booked
@@ -316,14 +316,19 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     try {
       setRefreshed(await appointmentsApi.get(appointment.id))
       resetConflict()
-      // The agenda behind the dialog is showing the same stale row.
-      onSuccess?.()
     } catch {
       setError("Impossible de recharger ce rendez-vous. Vérifiez votre connexion.")
     } finally {
       setLoading(false)
     }
-  }, [appointment?.id, resetConflict, onSuccess, setError])
+    /*
+     * ⚠️ It deliberately does NOT call `onSuccess` — and calling it was a real defect, caught in the browser:
+     * that is the parent's *saved* callback, and on this page it bumps `refreshKey`, which took the dialog down
+     * with it. So « Recharger » closed the form and returned to the agenda — after a refusal, and looking
+     * exactly like a save that had worked. Nothing succeeded here; the row was re-read, which is this dialog's
+     * own business. The agenda behind refreshes on the realtime broadcast and again when the form closes.
+     */
+  }, [appointment?.id, resetConflict, setError])
 
 
   // Calculate duration from end time
@@ -650,7 +655,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     grantedOverridesRef.current = { hours: allowOutsideWorkingHours, overlap: allowOverlap }
     const appointment = source
     if (!appointment) return
-    setError(null)
+    // `clearBanner`, never `setError(null)`: that one zeroes the consecutive-conflict counter, so the escalated
+    // wording on a second 409 in a row could never be reached — which is precisely the situation the client was in.
+    clearBanner()
     setLoading(true)
 
     try {
@@ -736,7 +743,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
+    clearBanner()
 
     if (!validateForm()) return
 

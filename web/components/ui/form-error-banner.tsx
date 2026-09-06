@@ -87,7 +87,13 @@ export function FormErrorBanner({ message, action, className }: FormErrorBannerP
           type="button"
           onClick={action.onClick}
           disabled={action.disabled}
-          className="font-medium underline underline-offset-2 hover:no-underline disabled:opacity-60"
+          /*
+           * ⚠️ `coarse:` grows the box; never `.touch-target`. Measured at 20 px tall on a tablet — this is the
+           * only recovery a conflict offers, on a surface used at the chair with gloved hands, so it was the § 2
+           * floor being missed by 24 px on the one control that matters. An overlay was not the fix: the banner
+           * clips its own children, and the message sits directly above.
+           */
+          className="inline-flex items-center font-medium underline underline-offset-2 hover:no-underline disabled:opacity-60 coarse:min-h-11"
         >
           {action.label}
         </button>
