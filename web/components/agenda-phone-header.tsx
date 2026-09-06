@@ -234,22 +234,15 @@ export function AgendaPhoneHeader({
       </div>
 
       {/*
-        ══ The disclosure panel — everything that is not the date, the arrows or the day strip ══
-
-        ⚠️ **The view switch used to be a permanent row here, and moving it into this panel is the point of the
-        pass.** Measured at 390 × 844, the agenda's own chrome took 278 px before the first gridline while Google
-        Agenda's takes ~132 — and the segmented control (52 px), the legend disclosure (28 px) and the grid's
-        footer strip (40 px) were most of the difference. All three are *reference or re-scoping*, none is read
-        while the desk is looking at the day, and Google puts its own Day/Week/Month behind a menu for exactly
-        that reason. The grid goes from 464 px of an 844 px screen to ~584.
-
-        The cost is honest and was accepted deliberately: switching view is two taps rather than one. What it
-        buys is that the calendar surface is a calendar, all the way to the bottom edge.
-      */}
-      {panelOpen && (
-        <div className="border-t px-3 pb-3 pt-2">
-      {/*
         View switch — a segmented control, NOT a bottom bar (D11).
+
+        ⚠️ **It stays a PERMANENT row, on the owner's instruction, and it was briefly folded into the disclosure
+        panel below.** The argument for folding was arithmetic and it was real — 52 px of a 390 px screen, on a
+        page whose chrome measured 278 px against Google Agenda's ~132 — and Google does put its own
+        Day/Week/Month behind a menu. It is still the wrong trade *here*: Jour ⇄ Semaine is the most-used control
+        on this screen and a desk switches between them dozens of times a day, so two taps each is a worse tax
+        than the row it saves. The other three savings stand (the legend and the 24-hour hatch went into the
+        panel, the footer strip is desktop-only, the card is full-bleed), which is what pays for keeping it.
 
         ⚠️ `role="group"` + `aria-pressed`, deliberately downgraded from `role="tablist"`/`role="tab"`. The tab
         pattern is a **contract**: each tab needs `aria-controls` pointing at a real `role="tabpanel"`, and the
@@ -271,7 +264,7 @@ export function AgendaPhoneHeader({
            36 px on a mouse. ⚠️ **`coarse:min-h-11` is a floor, not a preference**: three adjacent targets cannot
            use a `.touch-target` overlay (each would overhang its neighbour, and the later sibling wins the tap),
            so on a finger the painted height *is* the tap height and 44 px is where § 2 stops it. */
-        className="grid grid-cols-3 gap-0.5 rounded-lg border border-border bg-muted p-0.5"
+        className="mx-3 mt-1.5 grid grid-cols-3 gap-0.5 rounded-lg border border-border bg-muted p-0.5"
       >
         {VIEWS.map((v) => (
           <button
@@ -295,10 +288,20 @@ export function AgendaPhoneHeader({
         ))}
       </div>
 
-      {/* Mini-month. Density dots, never chips — a 390/7 ≈ 55 px column cannot hold a chip. Absent in Mois,
-          where the screen below the panel is already a month of days. */}
+      {/*
+        ══ The disclosure panel — the mini-month, plus what the calendar handed over ══
+
+        ⚠️ It opens in **every** view, including Mois, and that is what changed when the legend and the 24-hour
+        hatch moved in. It used to be a mini-month alone, so gating it on `!isMonthView` cost nothing; now Mois
+        would be the one view with no route to either. The *mini-month* is what stays month-view-only
+        (`showMiniMonth`) — the screen below it is already a month of days.
+      */}
+      {panelOpen && (
+        <div className="mt-2 border-t px-3 pb-3 pt-2">
+
+      {/* Mini-month. Density dots, never chips — a 390/7 ≈ 55 px column cannot hold a chip. */}
       {showMiniMonth && (
-        <div className="mt-3">
+        <div>
           <div className="flex items-center gap-1">
             <span className="flex-1 text-sm font-medium capitalize">
               {format(selectedDate, "MMMM yyyy", { locale: fr })}
@@ -358,8 +361,10 @@ export function AgendaPhoneHeader({
         </div>
       )}
 
-          {/* The legend and « Afficher les 24 heures », handed over by the calendar — see `panelExtra`. */}
-          {panelExtra && <div className="mt-3 border-t pt-3">{panelExtra}</div>}
+          {/* The legend and « Afficher les 24 heures », handed over by the calendar — see `panelExtra`. The
+              separator is conditional: in Mois there is no mini-month above it, so an unconditional `border-t`
+              would sit one padding step under the panel's own and read as a double rule. */}
+          {panelExtra && <div className={cn(showMiniMonth && "mt-3 border-t pt-3")}>{panelExtra}</div>}
         </div>
       )}
 
