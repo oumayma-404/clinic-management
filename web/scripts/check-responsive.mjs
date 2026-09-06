@@ -1988,6 +1988,79 @@ check(
     ),
 );
 
+check(
+  "shared-class-cannot-outrank-a-position-utility",
+  "P2",
+  "A `position` a shared primitive applies to every instance is declared at zero specificity",
+  "`buttonVariants` puts `touch-target` at the head of EVERY `<Button>`, and globals.css gives that class a " +
+    "`position`. So a button that also carries `absolute`/`fixed`/`sticky` declares `position` twice, in the " +
+    "same `@layer utilities`, at the same specificity — and CSS settles it by SOURCE ORDER in the stylesheet, " +
+    "which is neither the order of the class attribute nor anything `cn()` can see (tailwind-merge does not " +
+    "know a hand-written class conflicts with a utility). That order is not stable across builds: measured on " +
+    "a shipped bundle, `.absolute` sat at byte 14288 and `.touch-target` at 150882, so `relative` won and the " +
+    "agenda's floating « + » was never positioned — it fell to its static place at the START of the flex " +
+    "column and KEPT ITS SPACE IN THE FLOW, which also held the grid off the bottom of the screen. `next dev` " +
+    "emits the two in the opposite order, so it renders correctly on a laptop and is wrong on the device; and " +
+    "the whole rule is behind `@media (pointer: coarse)`, which a desktop browser never matches — so no " +
+    "amount of resizing a desktop window can see it. Wrap the selector in `:where()`: specificity 0 still " +
+    "gives `::after` its containing block when nothing else sets `position`, and loses to every explicit " +
+    "utility. Two device reports, invisible to tsc, to this gate, and to every browser check that preceded it.",
+  () => {
+    const globals = ALL_FILES.find((f) => rel(f) === "app/globals.css");
+    if (!globals) {
+      return [{ file: "app/globals.css", line: 0, text: "missing", full: "the stylesheet this check guards is gone — retarget or retire the check" }];
+    }
+    const button = ALL_FILES.find((f) => rel(f) === "components/ui/button.tsx");
+
+    /*
+     * ⚠️ Comments are blanked, not stripped, and both halves of that mattered — this check shipped green
+     * against the very defect it was written for until they were fixed. A CSS rule's "selector" here is
+     * everything since the last `}`, so it swallows the preceding comment block — and that block *names*
+     * `:where()`, which is exactly what the check looks for to clear a rule. And `cva(` is followed by a `//`
+     * line comment before its base string, so a `\s*` between them matched nothing and the stamped set came
+     * back empty, short-circuiting to a pass. Blanking preserves every offset, so `lineAt` still reports the
+     * real line.
+     */
+    const blank = (s, re) => s.replace(re, (m) => m.replace(/[^\n]/g, " "));
+    const src = blank(read(globals), /\/\*[\s\S]*?\*\//g);
+
+    // Derived both ways: which classes a shared primitive stamps on every instance, and which of those
+    // globals.css gives a `position`. A class the primitive stops applying drops out of the check by itself.
+    const stamped = new Set();
+    if (button) {
+      // The base string is `cva(<comment?> "<base>", …)` — the first string literal is what lands on every Button.
+      const base = blank(read(button), /\/\/[^\n]*/g).match(/cva\(\s*(["'`])([\s\S]*?)\1/);
+      for (const cls of (base?.[2] ?? "").split(/\s+/)) {
+        if (/^[a-z][a-z0-9-]*$/.test(cls)) stamped.add(cls);
+      }
+    }
+    if (stamped.size === 0) {
+      return [{ file: "components/ui/button.tsx", line: 0, text: "no base class string found", full: "this check derives the stamped classes from `cva`'s first string literal — if that shape changed, retarget it rather than letting it pass vacuously" }];
+    }
+
+    const hits = [];
+    for (const rule of src.matchAll(/([^{}\n][^{}]*?)\{([^{}]*)\}/g)) {
+      const [, selector, body] = rule;
+      if (!/(^|[\s;])position\s*:/.test(body)) continue;
+      if (selector.includes("::")) continue; // a pseudo-element competes with nothing
+      for (const cls of stamped) {
+        // The bare class, not already neutralised by `:where()`.
+        const at = selector.search(new RegExp(`\\.${cls}(?![\\w-])`));
+        if (at < 0) continue;
+        if (/:where\(/.test(selector)) continue;
+        hits.push({
+          file: rel(globals),
+          // The class's own line, not the start of the match — a "selector" here runs back to the previous `}`.
+          line: lineAt(src, rule.index + at),
+          text: `\`.${cls}\` sets \`position\` at class specificity`,
+          full: `every <Button> carries \`${cls}\`, so this outranks or is outranked by \`absolute\`/\`fixed\`/\`sticky\` purely by stylesheet order — wrap the selector in \`:where()\``,
+        });
+      }
+    }
+    return hits;
+  }
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
