@@ -345,6 +345,57 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
     }
 
+    public async Task<IReadOnlyList<DentalRecordCollectedRow>> GetCollectedByDentalRecordAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> dentalRecordIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (dentalRecordIds.Count == 0)
+        {
+            return Array.Empty<DentalRecordCollectedRow>();
+        }
+
+        var ids = dentalRecordIds as ICollection<Guid> ?? dentalRecordIds.ToList();
+
+        /*
+         * ⚠️ Rooted at the clinic-filtered TreatmentPlans set and reached by SelectMany — that traversal IS the
+         * tenant scoping for a great-grandchild with no ClinicId and no DbSet of its own, the same shape as
+         * `GetInstallmentPaymentsBetweenAsync` above.
+         *
+         * ⚠️ **No `DebtBearingPlanStatuses` filter here, deliberately**, unlike its caisse neighbours. Those
+         * answer « how much money did the practice take », where a plan represented by a note d'honoraires must
+         * be de-duplicated. This answers « what did THIS séance collect », which is a fact about one visit and
+         * stays true whatever the plan's status later becomes — and a Draft cannot appear anyway, since
+         * collecting on one mints its devis.
+         */
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId)
+            .SelectMany(plan => plan.Installments
+                .SelectMany(i => i.Payments
+                    .Where(pay => !pay.IsVoided
+                                  && pay.DentalRecordId != null
+                                  && ids.Contains(pay.DentalRecordId!.Value))
+                    .Select(pay => new
+                    {
+                        DentalRecordId = pay.DentalRecordId!.Value,
+                        TreatmentPlanId = plan.Id,
+                        PlanNumber = plan.Number,
+                        pay.Amount,
+                    })))
+            .ToListAsync(cancellationToken);
+
+        // Grouped in memory: the set is bounded by the page's fiches, and a `GROUP BY` over a projection with a
+        // string carried along would have to re-state the key twice.
+        return rows
+            .GroupBy(r => r.DentalRecordId)
+            .Select(g => new DentalRecordCollectedRow(
+                g.Key,
+                g.First().TreatmentPlanId,
+                g.First().PlanNumber,
+                InvoiceCalculator.RoundMoney(g.Sum(r => r.Amount))))
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentPaymentsBetweenAsync(
         Guid clinicId,
         DateTime from,

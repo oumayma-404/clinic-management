@@ -74,6 +74,31 @@ public class DentalRecordDto
     /// </para>
     /// </summary>
     public TreatmentCollectionDto? TreatmentCollection { get; set; }
+
+    /// <summary>
+    /// What this séance actually collected onto the treatment it carries out — <b>read back from the échéancier
+    /// ledger</b>, present on every read, unlike <see cref="TreatmentCollection"/> which reports one save.
+    ///
+    /// <para>
+    /// ⚠️ <b>Derived, never stored.</b> A second copy of the figure on the fiche is exactly the trap
+    /// <c>DentalRecord.AmountPaid</c> was: a field shaped like a receipt that no money read touches, free to
+    /// disagree with the ledger the moment a payment is voided. The authority is
+    /// <c>InstallmentPayment.DentalRecordId</c>, summed over the live rows.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>Why it has to exist at all.</b> A séance of a multi-séance act is priced 0 on the fiche — the act is
+    /// chiffré once, on the treatment — so <c>Cost</c> and <c>AmountPaid</c> are both 0 and the patient's fiche
+    /// history printed « 0,000 DT » for three séances that had taken 1 000 DT between them. The money was
+    /// correct on the treatment and invisible on the list of the visits that produced it.
+    /// </para>
+    /// </summary>
+    public decimal? CollectedOnTreatment { get; set; }
+
+    /// <summary>The treatment that money went to, so the row can name it. Null when the fiche collected none.</summary>
+    public Guid? TreatmentPlanId { get; set; }
+
+    /// <inheritdoc cref="TreatmentPlanId"/>
+    public string? TreatmentPlanNumber { get; set; }
 }
 
 /// <summary>

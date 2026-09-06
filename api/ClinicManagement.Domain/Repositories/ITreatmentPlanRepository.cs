@@ -25,6 +25,16 @@ public sealed record RecallPlanFact(
 /// One échéance-collection row behind the caisse statement — the plan side of <see cref="CaissePaymentRow"/>.
 /// Keyed on the devis's own number, not an invoice's: an échéancier is collected against the devis.
 /// </summary>
+/// <summary>
+/// What one fiche de soins collected onto a treatment, and which treatment that was — the read-back behind the
+/// patient's fiche history.
+/// </summary>
+public sealed record DentalRecordCollectedRow(
+    Guid DentalRecordId,
+    Guid TreatmentPlanId,
+    string? PlanNumber,
+    decimal Amount);
+
 public sealed record CaisseInstallmentPaymentRow(
     Guid PaymentId,
     Guid TreatmentPlanId,
@@ -202,6 +212,26 @@ public interface ITreatmentPlanRepository
     /// the totals. Voided rows are returned (the caller strikes them through and excludes them from the balance).
     /// </para>
     /// </summary>
+    /// <summary>
+    /// How much each of <paramref name="dentalRecordIds"/> collected onto a treatment, summed over the
+    /// <b>live</b> payments only — a voided one stops counting here exactly as it does everywhere else.
+    ///
+    /// <para>
+    /// ⚠️ <b>Batched over the whole page, never one query per fiche.</b> This feeds the patient's fiche history,
+    /// which lists every séance the patient has ever had; a per-row read there is the § 9.7 over-fetch that
+    /// « Créances » was already corrected for.
+    /// </para>
+    /// <para>
+    /// ⚠️ It is the only honest source for the figure. A séance of a multi-séance act is priced 0 on its fiche —
+    /// the act is chiffré once, on the treatment — so the fiche's own <c>AmountPaid</c> is 0 and storing a copy
+    /// of this figure beside it would be a second money field free to disagree with the ledger.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<DentalRecordCollectedRow>> GetCollectedByDentalRecordAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> dentalRecordIds,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentPaymentsBetweenAsync(
         Guid clinicId,
         DateTime from,

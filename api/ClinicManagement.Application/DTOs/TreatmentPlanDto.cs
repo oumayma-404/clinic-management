@@ -204,6 +204,19 @@ public class InstallmentPaymentDto
     public DateTime? VoidedAt { get; set; }
     public string? VoidReason { get; set; }
     public string? VoidedByName { get; set; }
+
+    /// <summary>
+    /// The fiche de soins this money was handed over at, when it was collected chairside — null for the till
+    /// and échéancier routes, and for every row written before the column existed.
+    ///
+    /// <para>
+    /// ⚠️ It is what lets the échéancier say <b>which séance</b> a payment came from. Since a treatment is
+    /// collected a visit at a time, one lump-sum échéance now routinely holds several payments, and a column of
+    /// identical « 500,000 DT » lines that cannot be told apart is the state a dentist has to reconcile against
+    /// the patient's fiche history by hand.
+    /// </para>
+    /// </summary>
+    public Guid? DentalRecordId { get; set; }
 }
 
 /// <summary>One requested act line when creating/updating a treatment plan (catalog act or free-text).</summary>
