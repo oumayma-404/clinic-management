@@ -18,15 +18,18 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
 {
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
 
     public GetDentalRecordsQueryHandler(
         IDentalRecordRepository dentalRecordRepository,
         IPatientRepository patientRepository,
+        ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
+        _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
     }
 
@@ -52,6 +55,29 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
             var records = await _dentalRecordRepository.GetByPatientIdAsync(request.PatientId, cancellationToken);
 
             var dtos = records.Select(dr => dr.ToDto()).ToList();
+
+            /*
+             * What each séance collected onto a treatment — ONE batched read over the page's fiches, never one
+             * per row (§ 9.7).
+             *
+             * ⚠️ Without it the history printed « 0,000 DT » for every séance of a multi-séance act, because such
+             * an act is priced 0 on its fiche: the money is real, it is on the treatment's échéancier, and the
+             * one list of the visits that produced it could not see any of it. Read back rather than stored, so
+             * voiding a payment corrects the history with it.
+             */
+            var collected = await _treatmentPlanRepository.GetCollectedByDentalRecordAsync(
+                clinicResult.Value, dtos.Select(d => d.Id).ToList(), cancellationToken);
+            var byRecord = collected.ToDictionary(c => c.DentalRecordId);
+            foreach (var dto in dtos)
+            {
+                if (!byRecord.TryGetValue(dto.Id, out var row))
+                {
+                    continue;
+                }
+                dto.CollectedOnTreatment = row.Amount;
+                dto.TreatmentPlanId = row.TreatmentPlanId;
+                dto.TreatmentPlanNumber = row.PlanNumber;
+            }
 
             return Result<IEnumerable<DentalRecordDto>>.Success(dtos);
         }

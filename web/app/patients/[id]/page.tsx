@@ -183,6 +183,29 @@ function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber
   )
 }
 
+/**
+ * The « Montant payé » of a séance whose money went onto its TREATMENT rather than onto a note d’honoraires.
+ *
+ * <p>⚠️ <b>Without it this column read « 0,000 DT » on every séance of a multi-séance act.</b> Such an act is
+ * priced once, on the treatment, so its fiche is 0 by rule and both money columns are derived from that 0 — a
+ * patient’s history showed three visits that had taken 1 000 DT between them as three empty rows, while the
+ * treatment page reported the money correctly. The figure and the plan it went to are read back from the
+ * échéancier ledger, so a voided payment corrects this row with it.</p>
+ *
+ * <p>Shaped after {@link BilledAmount}: the amount, then a badge saying <i>where the money lives</i>. Not
+ * muted, unlike that one — this figure IS the authority for the séance, it simply sits on another document.</p>
+ */
+function CollectedOnTreatment({ amount, planNumber }: { amount: number; planNumber?: string | null }) {
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-1.5">
+      <span>{formatDT(amount)}</span>
+      <Badge variant="outline" className="text-2xs font-normal">
+        {planNumber ? `traitement ${planNumber}` : "sur le traitement"}
+      </Badge>
+    </span>
+  )
+}
+
 function SectionSkeleton() {
   return (
     <div className="space-y-2 py-6" role="status" aria-label="Chargement…">
@@ -1616,6 +1639,8 @@ export default function PatientDetailsPage() {
                       subtitle={(record) => formatDate(record.interventionDate)}
                       fields={(record) => {
                         const invoiced = invoicedDentalRecordIds.has(record.id)
+                        // Money that went onto the treatment instead of onto a note — see `CollectedOnTreatment`.
+                        const onTreatment = !invoiced && (record.collectedOnTreatment ?? 0) > 0
                         const reste = Math.max(0, record.balance ?? record.cost - record.amountPaid)
                         // ⚠️ Tested here, not by letting the component return null: `CardList` drops a field on an
                         // empty *value*, and a React element is never empty — the row would keep an « NOTES »
@@ -1639,20 +1664,30 @@ export default function PatientDetailsPage() {
                                 amount={record.amountPaid}
                                 invoiceNumber={invoicingNumberByRecordId.get(record.id)}
                               />
+                            ) : onTreatment ? (
+                              <CollectedOnTreatment
+                                amount={record.collectedOnTreatment!}
+                                planNumber={record.treatmentPlanNumber}
+                              />
                             ) : (
                               formatDT(record.amountPaid)
                             ),
                           },
                           {
                             label: "Reste",
-                            value:
-                              reste > 0 ? (
-                                // `--warning-ink`: `text-amber-600` had no `dark:` pair and measures ~3.2:1 on
-                                // the card — on the figure that says money is still owed.
-                                <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
-                              ) : (
-                                <span className="text-muted-foreground">{formatDT(0)}</span>
-                              ),
+                            value: onTreatment ? (
+                              // ⚠️ A séance of a treatment has no « reste » of its OWN — the act is priced once
+                              // and what remains is the treatment’s, not this visit’s. Printing 0,000 here read
+                              // as « rien à payer » beside a patient owing 500 on the devis; repeating the
+                              // treatment’s own balance on every séance row would be the same lie multiplied.
+                              <span className="text-muted-foreground">—</span>
+                            ) : reste > 0 ? (
+                              // `--warning-ink`: `text-amber-600` had no `dark:` pair and measures ~3.2:1 on
+                              // the card — on the figure that says money is still owed.
+                              <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">{formatDT(0)}</span>
+                            ),
                           },
                           hasNotes && {
                             label: "Notes",
@@ -1729,6 +1764,11 @@ export default function PatientDetailsPage() {
                                   amount={record.amountPaid}
                                   invoiceNumber={invoicingNumberByRecordId.get(record.id)}
                                 />
+                              ) : (record.collectedOnTreatment ?? 0) > 0 ? (
+                                <CollectedOnTreatment
+                                  amount={record.collectedOnTreatment!}
+                                  planNumber={record.treatmentPlanNumber}
+                                />
                               ) : (
                                 formatDT(record.amountPaid)
                               )}
@@ -1738,6 +1778,11 @@ export default function PatientDetailsPage() {
                                 three places the same row said it. */}
                             <TableCell>
                               {(() => {
+                                // A séance of a treatment has no reste of its own — see the card list above.
+                                if (!invoicedDentalRecordIds.has(record.id)
+                                    && (record.collectedOnTreatment ?? 0) > 0) {
+                                  return <span className="text-muted-foreground">—</span>
+                                }
                                 const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                                 return reste > 0
                                   // `--warning-ink` — same fix as the card list above.

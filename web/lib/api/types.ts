@@ -1125,6 +1125,19 @@ export interface DentalRecordDto {
    * both. Undefined when the séance carries no treatment act at all, which is not the same as « collected 0 ».
    */
   treatmentCollection?: TreatmentCollectionDto | null;
+  /**
+   * What this séance actually collected onto the treatment it carries out — read back from the échéancier
+   * ledger, present on every read (unlike `treatmentCollection`, which reports one save).
+   *
+   * ⚠️ A séance of a multi-séance act is priced 0 on its fiche, so `cost` and `amountPaid` are both 0 and the
+   * history printed « 0,000 DT » for three séances that had taken 1 000 DT between them. Derived from the
+   * ledger, never stored beside it, so voiding a payment corrects the history with it.
+   */
+  collectedOnTreatment?: number | null;
+  /** The treatment that money went to, so the row can name it. */
+  treatmentPlanId?: string | null;
+  /** @see treatmentPlanId */
+  treatmentPlanNumber?: string | null;
 }
 
 /** What saving a fiche did about the treatment it carries out. Mirrors the backend `TreatmentCollectionOutcome`. */
@@ -1470,6 +1483,15 @@ export interface InstallmentPaymentDto {
   voidedAt?: string | null;
   voidReason?: string | null;
   voidedByName?: string | null;
+  /**
+   * The fiche this money was handed over at, when it was collected chairside. Null for the till and échéancier
+   * routes, and for every row written before the column existed.
+   *
+   * ⚠️ It is what lets the échéancier say WHICH séance a payment came from. A treatment is collected a visit at
+   * a time, so one lump-sum échéance now routinely holds several payments, and a column of identical amounts
+   * that cannot be told apart is what a dentist has to reconcile against the fiche history by hand.
+   */
+  dentalRecordId?: string | null;
 }
 
 // ---- Clinical-workflow-depth DTOs ----------------------------------------------------------------

@@ -85,7 +85,8 @@ public static class TreatmentPlanMappingExtensions
                             IsVoided = p.IsVoided,
                             VoidedAt = p.VoidedAt,
                             VoidReason = p.VoidReason,
-                            VoidedByName = p.VoidedByName
+                            VoidedByName = p.VoidedByName,
+                            DentalRecordId = p.DentalRecordId
                         })
                         .ToList()
                 })

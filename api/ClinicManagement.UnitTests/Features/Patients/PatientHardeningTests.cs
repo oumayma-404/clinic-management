@@ -169,9 +169,19 @@ public class GetDentalRecordsQueryHandlerTests
     private readonly Mock<IDentalRecordRepository> _dentalRecords = new();
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
+    // The fiche history's « encaissé sur le traitement » read-back. Stubbed to an empty set: this class is about
+    // the tenant guard, and an unstubbed collection-returning mock hands back NULL, which the handler's
+    // catch-all would convert into a French business failure — the success assertion would then fail with a
+    // message pointing nowhere near the missing stub.
+    private readonly Mock<ITreatmentPlanRepository> _plans = new();
 
-    private GetDentalRecordsQueryHandler Handler() =>
-        new(_dentalRecords.Object, _patients.Object, _clinicResolver.Object);
+    private GetDentalRecordsQueryHandler Handler()
+    {
+        _plans.Setup(r => r.GetCollectedByDentalRecordAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<DentalRecordCollectedRow>());
+        return new(_dentalRecords.Object, _patients.Object, _plans.Object, _clinicResolver.Object);
+    }
 
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))

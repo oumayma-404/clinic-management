@@ -1,7 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { paymentMethodLabel } from "@/components/factures/invoice-labels"
+import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -1411,30 +1413,22 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                     // Late only once the due DAY has passed — an échéance due today still has the day to run.
                     const isOverdue = !inst.isPaid && isBeforeToday(inst.dueDate)
                     return (
-                      <TableRow key={inst.id}>
-                        <TableCell>{formatDateFr(inst.dueDate)}</TableCell>
-                        <TableCell className="text-right">{formatDT(inst.amount)}</TableCell>
-                        <TableCell className="text-right">
-                          {formatDT(inst.amountPaid)}
-                          {/* A voided encaissement is *kept and shown*, struck through with its motif and its
-                              actor — § 1's rule, and the only way « Encaissé 0,000 » on an échéance that clearly
-                              took money is explicable rather than alarming. */}
-                          {inst.payments.length > 0 && (
-                            <InstallmentPaymentLines payments={inst.payments} className="mt-1 text-right" />
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">{formatDT(inst.outstanding)}</TableCell>
-                        <TableCell>
-                          {inst.isPaid ? (
-                            <Badge variant="secondary">Payée</Badge>
-                          ) : isOverdue ? (
-                            <Badge variant="destructive">En retard</Badge>
-                          ) : (
-                            <Badge variant="outline">En attente</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
+                      <Fragment key={inst.id}>
+                        <TableRow>
+                          <TableCell>{formatDateFr(inst.dueDate)}</TableCell>
+                          <TableCell className="text-right">{formatDT(inst.amount)}</TableCell>
+                          <TableCell className="text-right">{formatDT(inst.amountPaid)}</TableCell>
+                          <TableCell className="text-right">{formatDT(inst.outstanding)}</TableCell>
+                          <TableCell>
+                            {inst.isPaid ? (
+                              <Badge variant="secondary">Payée</Badge>
+                            ) : isOverdue ? (
+                              <Badge variant="destructive">En retard</Badge>
+                            ) : (
+                              <Badge variant="outline">En attente</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
                             {/* See `canCollectInstallments` — one derived rule shared with the card list. */}
                             {!inst.isPaid && canCollectInstallments && (
                               <Button
@@ -1448,68 +1442,97 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                 Encaisser
                               </Button>
                             )}
-                            {/* One receipt per PAYMENT — an échéance can hold several, and the receipt used
-                                to print the cumulative total instead of the money handed over. */}
-                            {inst.payments
-                              .filter((p) => !p.isVoided)
-                              .map((payment) => (
-                                <Button
-                                  key={payment.id}
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  disabled={busy}
-                                  title={`Reçu du paiement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
-                                  onClick={() => handleDownloadReceipt(inst.id, payment.id)}
-                                >
-                                  <ReceiptText className="h-4 w-4" />
-                                  Reçu
-                                </Button>
-                              ))}
-                            {inst.payments
-                              .filter((p) => !p.isVoided)
-                              .map((payment) => (
-                                <Button
-                                  key={`email-${payment.id}`}
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  disabled={busy}
-                                  title={`Envoyer par e-mail le reçu du paiement de ${formatDT(payment.amount)}`}
-                                  onClick={() => setEmailTarget({
-                                    kind: DOCUMENT_EMAIL_KINDS.InstallmentPaymentReceipt,
-                                    documentId: plan.id,
-                                    installmentId: inst.id,
-                                    paymentId: payment.id,
-                                    label: `Reçu d'échéance ${formatDT(payment.amount)}`,
-                                  })}
-                                >
-                                  <Mail className="h-4 w-4" />
-                                  Email
-                                </Button>
-                              ))}
-                            {/* AC-5. `text-destructive` rather than a `destructive` variant: it sits in a row of
-                                ghost/outline buttons and a filled red block there reads as the row's primary
-                                action, which annuler is not. */}
-                            {inst.payments
-                              .filter((p) => !p.isVoided)
-                              .map((payment) => (
-                                <Button
-                                  key={`void-${payment.id}`}
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1 text-destructive hover:text-destructive"
-                                  disabled={busy}
-                                  title={`Annuler l'encaissement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
-                                  onClick={() => setVoidTarget({ installment: inst, payment })}
-                                >
-                                  <Undo2 className="h-4 w-4" />
-                                  Annuler
-                                </Button>
-                              ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                          </TableCell>
+                        </TableRow>
+
+                        {/*
+                          ⚠️ **ONE ROW PER ENCAISSEMENT, and it replaced three loops that grouped the actions by
+                          BUTTON rather than by payment.** « Reçu » was mapped over the payments, then « Email »
+                          over them again, then « Annuler » — so two payments rendered
+                          « Reçu Reçu · Email Email · Annuler Annuler » in one cell, with nothing but a hover
+                          `title` to say which belonged to which. A finger cannot reach a title (§ 9.2).
+
+                          It became the ordinary case rather than an edge one when a treatment started being
+                          collected séance by séance: `Accept` raises a SINGLE lump-sum échéance for the whole
+                          total, so an implant paid across six visits puts six payments on one row.
+                        */}
+                        {inst.payments.map((payment) => (
+                          <TableRow key={payment.id} className="border-0 bg-muted/30 hover:bg-muted/40">
+                            <TableCell className="py-1.5 ps-8 text-xs text-muted-foreground">
+                              {formatDateFr(payment.paidOn)}
+                              <span className="ms-1.5 opacity-80">
+                                · {paymentMethodLabel(payment.method)}
+                              </span>
+                            </TableCell>
+                            <TableCell className="py-1.5" />
+                            <TableCell
+                              className={cn(
+                                "py-1.5 text-right text-xs tabular-nums",
+                                payment.isVoided && "text-muted-foreground line-through",
+                              )}
+                            >
+                              {formatDT(payment.amount)}
+                            </TableCell>
+                            {/* The séance it came from, when it was collected at the chair — the fact that makes
+                                the échéancier and the patient's fiche history reconcile without arithmetic. */}
+                            <TableCell className="py-1.5 text-xs text-muted-foreground" colSpan={2}>
+                              {payment.isVoided ? (
+                                <span>
+                                  annulé{payment.voidReason ? ` — ${payment.voidReason}` : ""}
+                                  {payment.voidedByName ? ` (${payment.voidedByName})` : ""}
+                                </span>
+                              ) : payment.dentalRecordId ? (
+                                <span>encaissé en séance</span>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="py-1.5 text-right">
+                              {!payment.isVoided && (
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    disabled={busy}
+                                    onClick={() => handleDownloadReceipt(inst.id, payment.id)}
+                                  >
+                                    <ReceiptText className="h-4 w-4" />
+                                    Reçu
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    disabled={busy}
+                                    onClick={() => setEmailTarget({
+                                      kind: DOCUMENT_EMAIL_KINDS.InstallmentPaymentReceipt,
+                                      documentId: plan.id,
+                                      installmentId: inst.id,
+                                      paymentId: payment.id,
+                                      label: `Reçu d'échéance ${formatDT(payment.amount)}`,
+                                    })}
+                                  >
+                                    <Mail className="h-4 w-4" />
+                                    Email
+                                  </Button>
+                                  {/* AC-5. `text-destructive` rather than a `destructive` variant: it sits in a
+                                      row of ghost/outline buttons and a filled red block there reads as the
+                                      row's primary action, which annuler is not. */}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 gap-1 text-destructive"
+                                    disabled={busy}
+                                    onClick={() => setVoidTarget({ installment: inst, payment })}
+                                  >
+                                    <Undo2 className="h-4 w-4" />
+                                    Annuler
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </Fragment>
                     )
                   })}
                 </TableBody>

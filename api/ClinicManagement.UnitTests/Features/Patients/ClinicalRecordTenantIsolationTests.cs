@@ -63,7 +63,10 @@ public class ClinicalRecordTenantIsolationTests
     {
         var records = new Mock<IDentalRecordRepository>();
 
-        var handler = new GetDentalRecordsQueryHandler(records.Object, _patients.Object, _clinicResolver.Object);
+        // The plan read is never reached — the tenant guard refuses before it — so an unstubbed mock is right
+        // here and its absence is itself part of what this asserts.
+        var handler = new GetDentalRecordsQueryHandler(
+            records.Object, _patients.Object, new Mock<ITreatmentPlanRepository>().Object, _clinicResolver.Object);
 
         var result = await handler.Handle(
             new GetDentalRecordsQuery { PatientId = _foreignPatient.Id }, CancellationToken.None);
