@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -948,6 +947,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
   /** Has the user asked for the whole twenty-four hours? A per-session escape hatch, never persisted. */
   const [showFullDay, setShowFullDay] = useState(false)
+  /** Whether `AgendaPhoneHeader`'s disclosure panel is open — the floating « + » stands down while it is. */
+  const [phonePanelOpen, setPhonePanelOpen] = useState(false)
 
   /**
    * The wall clock, reduced to the two facts the grid window needs — see the `⚠️ nowHour` note in `gridWindow`.
@@ -2519,6 +2520,43 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           /* The same resolution the grid shades with, so the phone strip and the desktop grid cannot disagree
              about which days the cabinet is open. */
           isDayOpen={isDayOpenOnAgenda}
+          /* The two things that used to cost the grid a permanent row each: the legend (a `<details>` above the
+             card) and the 24-hour escape hatch (the footer strip below it). Both are reference or re-scoping,
+             neither is read while the desk is looking at the day. `renderLegend` and the toggle are still the
+             single copies the desktop uses — see `panelExtra`. */
+          panelExtra={
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setShowFullDay((full) => !full)}
+                aria-expanded={showFullDay}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground"
+              >
+                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showFullDay && "rotate-180")} aria-hidden="true" />
+                {showFullDay ? "Réduire aux horaires d'ouverture" : "Afficher les 24 heures"}
+                <span className="text-2xs font-normal">
+                  {showFullDay
+                    ? "(00:00 – 24:00)"
+                    : `(${hourSlot(gridWindow.fromHour)} – ${hourSlot(gridWindow.toHour === 24 ? 0 : gridWindow.toHour)})`}
+                </span>
+              </button>
+              {renderLegend()}
+            </div>
+          }
+          /* The empty sentence, moved out of the footer and into the band above the ruler — Google's own
+             « Nothing planned ». Suppressed while loading or in error for the same reason the footer was: the
+             banner already says the fetch failed, and « aucun rendez-vous » beside it is the false statement
+             that banner exists to prevent. */
+          note={
+            /* ⚠️ The « touchez une heure, ou faites glisser sur plusieurs » half does **not** come along. In the
+               footer it was one line beside the sentence; in this band it wrapped to a second row, i.e. it cost
+               the grid the very pixels this move was made to give back. It is also the least necessary sentence
+               on the screen now that the « + » sits over the grid's own corner. */
+            !loading && !error && emptyRange ? (
+              view === "week" ? "Aucun rendez-vous cette semaine" : "Aucun rendez-vous ce jour-là"
+            ) : null
+          }
+          onPanelOpenChange={setPhonePanelOpen}
         />
       )}
 
@@ -2868,10 +2906,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         folds into a disclosure rather than being deleted. Hiding it outright would have been simpler and wrong:
         the grey « hors horaires » shading has no other explanation anywhere.
       */}
-      <details className="mb-2 px-3 md:hidden">
-        <summary className="touch-target cursor-pointer text-sm text-muted-foreground">Légende</summary>
-        <div className="mt-2">{renderLegend()}</div>
-      </details>
+      {/*
+        ⚠️ **The phone's `<details>` is gone, and the legend moved into `AgendaPhoneHeader`'s panel.** It was a
+        28 px row above the grid — a collapsed disclosure, i.e. 28 px spent saying that a legend exists — on the
+        one screen measured at 278 px of chrome over a 464 px grid. It is still reachable, still the same
+        `renderLegend()` the desktop popover calls, and now one tap deeper in the panel the view switch is in.
+        Deleting it outright would have been simpler and wrong: the hatched « hors horaires » shading has no
+        other explanation anywhere.
+      */}
 
       {/*
         ⚠️ **`py-0` at every width, not `md:py-6`.** That padding was 24 px of dead white *inside* the card, above
@@ -2908,7 +2950,26 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       <Card
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border py-0 shadow-sm"
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden py-0",
+          /*
+            ⚠️ **Below `md:` the card is not a card: it bleeds through `<main>`'s gutter and drops its frame.**
+            The note below argues for drawing the edge « at every width », and that was the smaller of the two
+            coherent answers it names — the other being to go actually edge-to-edge. This is that other one, and
+            it is the one the owner asked for twice: on an iPhone 13 the agenda stopped 16 px short of the screen
+            on both sides and under the bottom gutter, while Google Agenda's grid runs to all three edges. A
+            ruler that terminates against a rounded corner in the middle of the page is chrome; a ruler that runs
+            off the screen is an instrument.
+
+            `-mb-4` is the third edge and the one that was actually reported. `<main>`'s `p-4` put 16 px of page
+            ground under the last hour row, so the grid ended above the bottom bar rather than at it.
+
+            The border survives as a single `border-t` — the seam against the phone header — because without it
+            the sticky day header and the header above it are one undifferentiated white band.
+          */
+          "-mx-4 -mb-4 rounded-none border-x-0 border-b-0 border-t border-border shadow-none",
+          "md:mx-0 md:mb-0 md:rounded-xl md:border md:border-border md:shadow-sm",
+        )}
       >
         {!mounted ? (
           renderGeometrySkeleton()
@@ -3401,7 +3462,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             if (!showWindowDisclosure && !showEmptySentence) return null
 
             return (
-              <div className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-1.5">
+              /* ⚠️ **`hidden md:flex` — this strip is the desktop's now.** Both of its halves have a phone home
+                 that costs the grid nothing: the 24-hour toggle is in `AgendaPhoneHeader`'s panel and the empty
+                 sentence is its `note`, in the band above the ruler where Google puts « Nothing planned ». It
+                 stays here unchanged from `md:` up, where 40 px of a 900 px-tall window is affordable and the
+                 grid has no header band to put a sentence in. */
+              <div className="hidden flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-1.5 md:flex">
                 {showWindowDisclosure && (
                   <>
                     <button
@@ -3475,7 +3541,25 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction
+            {/*
+              ⚠️ **A plain `Button`, never `AlertDialogAction`** — and that is the whole of the two-refusal fix.
+
+              Radix's `AlertDialogAction` is a `Close`, so confirming *also* fires `onOpenChange(false)`, i.e. the
+              **cancel** path above, which clears `pendingMoveRef`. One refusal survived that by accident:
+              `submitMove` reads the ref synchronously, before Radix's own handler runs. A drop that trips **two**
+              did not. Dropping onto a Sunday that has already passed asks « Heure dans le passé » first;
+              confirming it re-sends, meets « le cabinet est fermé le dimanche » and re-opens this dialog — with
+              the ref already null. The second « Déplacer quand même » then read nothing, returned, and closed:
+              no request, no toast, no error, and the appointment still where it started. Verified end to end on
+              2026-09-06 — one PUT (400 `outside_working_hours`) and no second attempt.
+
+              Nothing is lost by not going through `Close`: `open` is controlled by `movePrompt`, so
+              `setMovePrompt(null)` closes the dialog on its own — while leaving the cancel path (Annuler,
+              Escape, a click on the overlay) as the only thing that discards the pending move, which is what it
+              is for. Same reasoning as `ui/confirm-by-typing-dialog.tsx`, which is a plain `Button` for the
+              sibling reason that a failure must leave the dialog standing.
+            */}
+            <Button
               onClick={() => {
                 const kind = movePrompt?.kind
                 setMovePrompt(null)
@@ -3489,7 +3573,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               }}
             >
               Déplacer quand même
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -3518,7 +3602,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           onClick={onNewAppointment}
           size="icon"
           aria-label="Nouveau rendez-vous"
-          className="absolute bottom-4 end-4 z-30 size-14 rounded-full shadow-lg md:hidden"
+          /* ⚠️ The offset is `env(safe-area-inset-bottom)` past 16 px, not a flat 16 px. The card now bleeds
+             through `<main>`'s bottom gutter (`-mb-4`), so this button's containing block ends at the bottom bar
+             rather than 16 px above it — and on a notched phone the bar itself sits on top of the home
+             indicator. Without the inset the « + » landed under it, which is the « position bizarre » reported
+             from an iPhone 13. `0px` fallback because `env()` resolves to *nothing* where it is unknown. */
+          style={{ bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+          className={cn(
+            "absolute end-4 z-30 size-14 rounded-full shadow-lg md:hidden",
+            /* Hidden, not moved, while the header's panel is open: it is positioned against this whole box, so
+               an open panel puts it over the legend's last row — and the panel is a menu, where the only thing
+               a thumb should be able to hit is the menu. */
+            phonePanelOpen && "hidden",
+          )}
         >
           <Plus className="size-6" />
         </Button>
