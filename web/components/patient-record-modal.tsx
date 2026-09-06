@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Trash2, Plus, Stethoscope, ChevronDown, ChevronRight } from "lucide-react"
@@ -220,6 +221,13 @@ export function PatientRecordModal({
   )
   const dentitionView = chosenView ?? seededView
   const [amountPaid, setAmountPaid] = useState("")
+  /*
+   * The séance's OTHER money: what the patient handed over towards a multi-séance act priced once on its
+   * treatment. Its own field, never folded into « Payé », because they settle two different things — see
+   * `CreateDentalRecordCommand.AmountCollectedOnPlan`. Cumulative for the séance, like « Payé », so re-saving a
+   * fiche adds the difference or nothing.
+   */
+  const [collectedOnPlan, setCollectedOnPlan] = useState("")
   /** Set when a save was refused for a reason a correction can get past — drives the confirm dialog. */
   const [correction, setCorrection] = useState<CorrectionPreview | null>(null)
   const [paidDirty, setPaidDirty] = useState(false)
@@ -363,6 +371,14 @@ export function PatientRecordModal({
       setInterventionDate(toLocalIso(new Date(record.interventionDate)))
       // `formatAmount`, never `String(...)` (J8) — the field accepts the comma form the product prints with.
       setAmountPaid(formatAmount(record.amountPaid))
+      /*
+       * ⚠️ Deliberately NOT hydrated from the record: what a fiche collected onto a treatment lives on the plan's
+       * échéancier (`InstallmentPayment.DentalRecordId`), not on the fiche, and the modal does not read the plan's
+       * payments. Re-opening therefore shows an empty field, and that is safe rather than lossy — the server
+       * derives the increment from what this fiche has already collected, so leaving it blank collects nothing
+       * and typing the same figure again collects nothing either.
+       */
+      setCollectedOnPlan("")
       setPaidDirty(true) // a saved amount is the user's, never re-mirrored from the total
       // A fiche with no method recorded is cash — that is what every row written before the field existed is,
       // and the server reads a null the same way.
@@ -380,6 +396,7 @@ export function PatientRecordModal({
     } else {
       setInterventionDate(todayLocalIso())
       setAmountPaid("")
+      setCollectedOnPlan("")
       setPaidDirty(false)
       setPaymentMethod(CASH_METHOD)
       setCheque(EMPTY_CHEQUE_FIELDS)
@@ -652,6 +669,57 @@ export function PatientRecordModal({
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
 
+  /**
+   * What the patient owes on the treatment **before** this séance — the plan's own outstanding, read from the
+   * server, never derived here.
+   *
+   * <p>⚠️ <b>This replaced `plannedCost − paidAmount`, which was wrong from the second séance onwards.</b> That
+   * expression subtracted only what is being typed *now*, so a 250 DT treatment with 150 already collected read
+   * « 250 convenus · reste 250 » at the next visit — the figure a dentist would quote to the patient in front of
+   * them. `planOutstanding` is `TotalPlanned − Σ collected` on the aggregate, so it already knows.</p>
+   *
+   * <p>⚠️ Falls back to the act's whole fee only when the server sent no outstanding at all — an un-numbered
+   * treatment has no échéancier, so nothing has been collected on it and its full price *is* what remains.</p>
+   */
+  /**
+   * Does the TREATMENT still collect its own money, or has a note d'honoraires taken it over?
+   *
+   * <p>⚠️ Once a note holds it (`billedOnInvoiceNumber`), the plan's `outstanding` is its untouched auto-échéance
+   * and is simply false — the same trap `displayedOutstanding` and the acts picker both document. Offering to
+   * collect against that figure would quote a balance the patient has already paid down elsewhere, so the field
+   * is withdrawn and the banner's « Encaissement sur la note … » stands alone.</p>
+   */
+  const collectsOnTreatment = carriedByDevis && !billedPlanItem?.billedOnInvoiceNumber
+
+  const treatmentOutstandingBefore = billedPlanItem
+    ? roundMillimes(billedPlanItem.planOutstanding ?? billedPlanItem.plannedCost ?? 0)
+    : 0
+  const collectedOnPlanAmount = parseAmountInput(collectedOnPlan) || 0
+  /** What will remain on the treatment once this séance's collection is recorded. */
+  const treatmentRemaining = Math.max(
+    0,
+    roundMillimes(treatmentOutstandingBefore - collectedOnPlanAmount),
+  )
+  /**
+   * More than the treatment is worth. Refused server-side (`treatment_collection_exceeds_outstanding`), so the
+   * field says so before the round trip — the same shape as `overpaid` one field over.
+   */
+  const overCollectedOnPlan =
+    collectsOnTreatment && roundMillimes(collectedOnPlanAmount) > treatmentOutstandingBefore
+  /**
+   * Every act of this séance belongs to the devis, so « Payé » has nothing left to settle and is withdrawn.
+   * Rendering it beside a 0 total is what sent a dentist to overtype the act's price: the only reachable money
+   * field refused every amount they typed, and the act's tarif looked like the mistake.
+   */
+  const seanceIsWhollyOnTreatment = collectsOnTreatment && roundMillimes(grandTotal) === 0
+  /**
+   * Collecting will mint the devis number — <c>CollectOnTreatmentCommand</c> issues one when the treatment has
+   * none. A gapless number can only be released by a cancellation carrying a motif, so this is said on the
+   * button before it is pressed rather than reported in a toast afterwards.
+   */
+  const collectionWillIssueDevis =
+    collectsOnTreatment && !billedPlanItem?.planNumber && collectedOnPlanAmount > 0
+
   // « Reste » clamps at 0, so an amount above the total was invisible here while the server refused it post-commit
   // and the fiche saved anyway. Stated inline and the save disabled, matching the avoir dialog's own pattern.
   //
@@ -778,6 +846,9 @@ export function PatientRecordModal({
         acts: parsedActs,
         treatmentPlanId: linkedItem?.planId ?? null,
         treatmentPlanItemId: linkedItem?.itemId ?? null,
+        // Only ever sent with a plan: the server ignores it otherwise, and sending a stray figure would be a
+        // number with nowhere to land. `|| 0` rather than `?? 0` — an unparseable field means « nothing typed ».
+        amountCollectedOnPlan: collectsOnTreatment ? parseAmountInput(collectedOnPlan) || 0 : 0,
         /*
          * Which STEP of that act this fiche carried out, read off the séance the fiche documents.
          *
@@ -856,7 +927,44 @@ export function PatientRecordModal({
           break
         // NotCollected — a fiche with no payment. Not news: nothing was supposed to move.
         default:
-          toast.success(base)
+          // ⚠️ Only when the treatment took nothing either, or a séance whose only money went to the devis would
+          // report a bare « enregistrée » — the silence this whole feature exists to end.
+          if (saved.treatmentCollection?.outcome !== "Collected") {
+            toast.success(base)
+          }
+      }
+
+      /*
+       * The treatment's own money, reported separately and always — for `billing`'s reason, one quantity over. A
+       * mixed séance legitimately produces both toasts: a note d'honoraires for the filling and an échéance
+       * receipt for the bridge.
+       */
+      switch (saved.treatmentCollection?.outcome) {
+        case "Collected": {
+          const collection = saved.treatmentCollection
+          const devis = collection.planNumber ? ` sur le devis ${collection.planNumber}` : ""
+          toast.success(base, {
+            description:
+              `${formatDT(collection.amountCollected ?? 0)} encaissé${devis}` +
+              // The number this save minted, named. It cannot be released except by a cancellation with a motif,
+              // so the dentist has to see that it happened even though they were warned before pressing.
+              (collection.devisIssued ? " — devis établi" : "") +
+              ` · reste ${formatDT(collection.outstanding ?? 0)} sur le traitement`,
+          })
+          break
+        }
+        case "Refused":
+          // A rule said no. The record is saved; the money is not — both halves have to be said.
+          toast.warning(base, {
+            description:
+              saved.treatmentCollection.message ??
+              "L'encaissement sur le traitement a été refusé.",
+            duration: 10000,
+          })
+          break
+        // NotCollected / AlreadyCollected — nothing was supposed to move, or nothing moved on a re-save.
+        default:
+          break
       }
       onSuccess?.()
       onOpenChange(false)
@@ -1072,34 +1180,41 @@ export function PatientRecordModal({
               role="status"
               className="rounded-md border border-primary bg-primary/[0.07] p-2.5 text-2xs leading-relaxed"
             >
-              <span className="font-semibold text-primary">Déjà facturé.</span>{" "}
+              {/*
+                ⚠️ « Déjà facturé » and « le devis » both name a DOCUMENT, and an un-numbered followed treatment
+                has none — so on one this banner asserted a devis that does not exist. `appointment-acts-picker`
+                was given the un-numbered wording and this screen was not: the same non-propagation, one surface
+                apart. Only a numbered devis may say « facturé ».
+              */}
+              <span className="font-semibold text-primary">
+                {billedPlanItem.planNumber ? "Déjà facturé." : "Suivi comme traitement."}
+              </span>{" "}
               {billedPlanItem.planNumber
                 ? `Cet acte est porté par le devis ${billedPlanItem.planNumber}`
-                : "Cet acte est porté par le devis"}
+                : "Cet acte est chiffré une fois, pour tout le traitement,"}
               {billedPlanItem.plannedCost != null && (
                 <>
                   {" à "}
                   <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span>
                 </>
               )}
-              . Cette séance n&apos;ajoute pas d&apos;honoraires — laissez « Payé » à 0.
+              {/*
+                ⚠️ It used to end « laissez « Payé » à 0 », which was half of a contradiction the same dialog
+                carried: this banner said the séance takes no money while the footer labelled its payment field
+                « Encaissé aujourd'hui » and offered to state what would remain. The instruction is now the true
+                one — the séance adds no honoraires, and money for the treatment has its own field.
+              */}
+              . Cette séance n&apos;ajoute pas d&apos;honoraires
+              {billedPlanItem.billedOnInvoiceNumber
+                ? "."
+                : " : ce qu'il règle aujourd'hui se saisit dans « Encaissé sur le traitement », en bas."}
               {/* The devis' own balance is unusable once a note holds the money — its auto-échéance will never
                   see a payment — so the note is named instead. Same rule as the booking dialog's notice. */}
-              {billedPlanItem.billedOnInvoiceNumber ? (
+              {billedPlanItem.billedOnInvoiceNumber && (
                 <>
                   {" "}Encaissement sur la note{" "}
                   <span className="font-mono">{billedPlanItem.billedOnInvoiceNumber}</span>.
                 </>
-              ) : (
-                (billedPlanItem.planOutstanding ?? 0) > 0 && (
-                  <>
-                    {" "}Reste à encaisser sur l&apos;échéancier du devis :{" "}
-                    <span className="font-mono tabular-nums">
-                      {formatDT(billedPlanItem.planOutstanding!)}
-                    </span>
-                    .
-                  </>
-                )
               )}
             </p>
           )}
@@ -1531,16 +1646,20 @@ export function PatientRecordModal({
           )}
 
           <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 p-3">
+            {/*
+              ⚠️ « Payé » settles THIS SÉANCE'S OWN ACTS and produces a note d'honoraires. It is withdrawn when
+              every act belongs to the devis, because there is then nothing for it to settle: those acts are 0 by
+              rule, so the field would refuse every amount typed into it — which is exactly how a dentist came to
+              overtype an act's tarif to get money in, raising a second claim for work the treatment already
+              prices. The treatment's own field sits below.
+
+              It used to be relabelled « Encaissé aujourd'hui » here and left in place, which promised a
+              mechanism that did not exist: nothing on this path could put that money anywhere.
+            */}
+            {!seanceIsWhollyOnTreatment && (
             <div className="flex min-w-[9rem] flex-1 items-center gap-2">
-              {/*
-                ⚠️ On a séance of a devis this is « **Encaissé aujourd'hui** », not « Payé », and the
-                distinction is the one a dentist got wrong: an act is priced ONCE, on the treatment, so a figure
-                typed here **draws the total down** and never adds to it. Typing 600 on the first séance of a
-                2 000 DT implant means « 600 encaissés, 1 400 restants » — never 2 600. The running line under
-                the row states all three figures so the field cannot be read as a price.
-              */}
               <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
-                {carriedByDevis ? "Encaissé aujourd'hui" : "Payé"}
+                Payé
               </Label>
               {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma
                   this product prints with, and a rejected keystroke returns an EMPTY value — so « Payé » looked
@@ -1559,6 +1678,7 @@ export function PatientRecordModal({
                 disabled={loading}
               />
             </div>
+            )}
             {/* Beside the amount, because « combien » and « comment » are one answer. `min-w` + `flex-1` so it
                 wraps to its own full-width line below ~360 px instead of squeezing the amount field. */}
             <div className="flex min-w-[9rem] flex-1 items-center gap-2">
@@ -1618,27 +1738,101 @@ export function PatientRecordModal({
               </span>
             </div>
             {/*
-              THE THREE FIGURES, on a séance the devis carries — the sentence that makes « Encaissé
-              aujourd'hui » unmisreadable. A dentist typing 600 on a 2 000 DT implant must see, in the same
-              glance, that the treatment is 2 000 and that 1 400 remain: an amount with no denominator is what
-              reads as a price. Rendered before the séance-total block so it sits beside the field it explains.
+              THE TREATMENT'S OWN MONEY — its own field, on its own row, because it is a different quantity from
+              « Payé » and no arithmetic is ever done between them. A multi-séance act is priced ONCE on its
+              devis; each visit collects part of that one figure, and the amount typed here goes onto the
+              treatment's échéancier rather than onto a note d'honoraires for this séance.
+
+              ⚠️ It replaced a *label change* on « Payé » that promised exactly this and delivered nothing: there
+              was no path from that field to a treatment, the save was disabled for any amount typed (a devis act
+              is 0, so the séance's total is 0), and the only way through was to overtype the act's tarif — which
+              raises a second, unlinked claim for work the treatment already prices.
             */}
-            {carriedByDevis && billedPlanItem?.plannedCost != null && (
-              <p role="status" className="w-full text-2xs text-muted-foreground">
-                <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span> convenus
-                pour tout le traitement
-                {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
-                <span className="font-medium text-foreground">
-                  reste{" "}
-                  <span className="font-mono tabular-nums">
-                    {formatDT(Math.max(0, roundMillimes(billedPlanItem.plannedCost - paidAmount)))}
-                  </span>
-                </span>{" "}
-                après cette séance
-              </p>
+            {collectsOnTreatment && (
+              <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="flex min-w-[11rem] flex-1 items-center gap-2">
+                  <Label
+                    htmlFor="collected-on-plan"
+                    className="shrink-0 text-xs text-muted-foreground"
+                  >
+                    Encaissé sur le traitement
+                  </Label>
+                  {/* `text` + `inputMode="decimal"`, never `type="number"` (J8) — same reason as « Payé »: a
+                      number input refuses the comma this product prints with and hands back an EMPTY value. */}
+                  <Input
+                    id="collected-on-plan"
+                    type="text"
+                    inputMode="decimal"
+                    className={cn(
+                      "h-8 w-full text-right tabular-nums",
+                      overCollectedOnPlan && "border-destructive",
+                    )}
+                    value={collectedOnPlan}
+                    onChange={(e) => setCollectedOnPlan(e.target.value)}
+                    placeholder="0,000"
+                    disabled={loading}
+                    aria-invalid={overCollectedOnPlan}
+                    aria-describedby="collected-on-plan-hint"
+                  />
+                </div>
+                {/*
+                  THE THREE FIGURES, so the amount can never be read as a price: what the whole treatment costs,
+                  and what is left after this séance. `planOutstanding` — the plan's own figure — not
+                  `plannedCost − typed`, which ignored every earlier séance and quoted the full price again at
+                  every visit.
+                */}
+                <p
+                  id="collected-on-plan-hint"
+                  role="status"
+                  className="w-full text-2xs text-muted-foreground"
+                >
+                  {billedPlanItem?.plannedCost != null && (
+                    <>
+                      <span className="font-mono tabular-nums">
+                        {formatDT(billedPlanItem.plannedCost)}
+                      </span>{" "}
+                      convenus pour tout le traitement
+                      {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
+                    </>
+                  )}
+                  {overCollectedOnPlan ? (
+                    <span className="font-medium text-destructive">
+                      il ne reste que{" "}
+                      <span className="font-mono tabular-nums">
+                        {formatDT(treatmentOutstandingBefore)}
+                      </span>{" "}
+                      à encaisser sur ce traitement
+                    </span>
+                  ) : (
+                    <span className="font-medium text-foreground">
+                      reste{" "}
+                      <span className="font-mono tabular-nums">{formatDT(treatmentRemaining)}</span>{" "}
+                      après cette séance
+                    </span>
+                  )}
+                </p>
+                {/*
+                  ⚠️ Said BEFORE the press, never in a toast afterwards. Collecting on a treatment that has no
+                  devis gives it one, and a gapless number can only be released by a cancellation carrying a
+                  motif — so the one thing this must not do is happen quietly.
+                */}
+                {collectionWillIssueDevis && (
+                  <p role="status" className="w-full text-2xs text-warning-ink">
+                    Ce traitement n&apos;a pas encore de devis : l&apos;encaisser lui en attribuera un.
+                  </p>
+                )}
+              </div>
             )}
-            {/* Wraps to its own line below `sm:` — three figures do not fit 342px, and « Reste à payer » is the
-                one of the three that is a sentence rather than a number. */}
+            {/*
+              Wraps to its own line below `sm:` — three figures do not fit 342px, and « Reste à payer » is the
+              one of the three that is a sentence rather than a number.
+
+              ⚠️ Withdrawn entirely when every act is the treatment's, because it describes « Payé », which is
+              itself withdrawn there. Left in, it rendered « Reste à payer : 0,000 DT » under a séance where the
+              patient owes 100 on the treatment — a true statement about the séance read as a false one about
+              the patient, directly beneath the field that says otherwise.
+            */}
+            {!seanceIsWhollyOnTreatment && (
             <div className="w-full text-xs sm:w-auto">
               {overpaid ? (
                 <p role="status" className="font-medium text-destructive">
@@ -1682,6 +1876,7 @@ export function PatientRecordModal({
                 </p>
               )}
             </div>
+            )}
           </div>
 
           {/*
@@ -1727,7 +1922,12 @@ export function PatientRecordModal({
                   }
                   void handleSave()
                 }}
-                disabled={loading || (!contradictsNote && (overpaid || lowersBilledAmount))}
+                // ⚠️ `overCollectedOnPlan` DISABLES rather than becoming « Corriger » — unlike `overpaid` on a
+                // billed fiche, there is no document to correct here: the server would simply refuse more than
+                // the treatment is worth, and the figure to fix is on screen beside the field.
+                disabled={
+                  loading || overCollectedOnPlan || (!contradictsNote && (overpaid || lowersBilledAmount))
+                }
                 className="w-full sm:w-auto sm:min-w-[150px]"
               >
                 {loading

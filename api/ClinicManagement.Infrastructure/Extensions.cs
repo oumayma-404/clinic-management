@@ -99,10 +99,19 @@ public static class Extensions
         // (beside TransportAssurance) and the refusal lands there, loud and named.
         services.AddSingleton<IAuditChainKeyProvider>(_ => new AuditChainKeyProvider(configuration));
 
+        // Keeps `Appointment.VersionBeforeAutoAdvance` true, so the minutely status pass stops spending the
+        // concurrency token an open edit form is holding. Scoped and resolved from the provider for the audit
+        // interceptor's reason above — it reads that same request's actor to tell an automatic write from a
+        // person's.
+        services.AddScoped(provider => new AutomaticWriteInterceptor(
+            provider.GetRequiredService<IAuditActorProvider>()));
+
         services.AddDbContext<ApplicationDbContext>((provider, options) =>
             options
                 .UseNpgsql(connectionString)
-                .AddInterceptors(provider.GetRequiredService<AuditSaveChangesInterceptor>()));
+                .AddInterceptors(
+                    provider.GetRequiredService<AuditSaveChangesInterceptor>(),
+                    provider.GetRequiredService<AutomaticWriteInterceptor>()));
 
         // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();

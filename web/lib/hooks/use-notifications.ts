@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { notificationsApi } from "@/lib/api/notifications"
 import type { NotificationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { showErrorToast } from "@/lib/errors"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
@@ -19,6 +20,11 @@ export function useNotifications(isOpen: boolean) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The list as it stands right now, for the two dismiss callbacks: they must be able to put the previous list
+  // back when the write fails, and reading `notifications` from the closure would either capture a stale array
+  // or force the callbacks to change identity on every feed update.
+  const notificationsRef = useRef<NotificationDto[]>([])
+  notificationsRef.current = notifications
 
   // DashboardHeader is rendered per-page, so navigating between routes unmounts this hook mid-fetch.
   // Skip post-await setState once unmounted so we never touch a dead component.
@@ -95,5 +101,46 @@ export function useNotifications(isOpen: boolean) {
     }
   }, [refetchCount])
 
-  return { notifications, unreadCount, loading, error, refetchCount, refetchList, markRead, markAllRead }
+  /**
+   * Clears one row from this user's bell.
+   *
+   * ⚠️ **Optimistic, and it reconciles on failure rather than swallowing it.** `markRead` above may safely ignore
+   * a failed write — the row stays, merely still bold. Here the row has already left the list, so an ignored
+   * failure would show an empty bell over a notification the server still holds, and the next refetch would put
+   * it back with no explanation. A failure therefore restores the list and re-reads.
+   */
+  const dismiss = useCallback(async (id: string) => {
+    const previous = notificationsRef.current
+    setNotifications((prev) => prev.filter((n) => n.id !== id))
+    try {
+      await notificationsApi.dismiss(id)
+    } catch (err) {
+      if (mountedRef.current) setNotifications(previous)
+      showErrorToast(err)
+      void refetchList()
+    } finally {
+      void refetchCount()
+    }
+  }, [refetchCount, refetchList])
+
+  /** Empties this user's bell. Same optimistic-then-reconcile shape as {@link dismiss}. */
+  const dismissAll = useCallback(async () => {
+    const previous = notificationsRef.current
+    setNotifications([])
+    setUnreadCount(0)
+    try {
+      await notificationsApi.dismissAll()
+    } catch (err) {
+      if (mountedRef.current) setNotifications(previous)
+      showErrorToast(err)
+      void refetchList()
+    } finally {
+      void refetchCount()
+    }
+  }, [refetchCount, refetchList])
+
+  return {
+    notifications, unreadCount, loading, error,
+    refetchCount, refetchList, markRead, markAllRead, dismiss, dismissAll,
+  }
 }

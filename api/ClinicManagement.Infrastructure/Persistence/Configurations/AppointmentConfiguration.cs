@@ -47,6 +47,13 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.Property(a => a.GoogleCalendarEventId)
             .HasMaxLength(500);
 
+        // `bigint` and an explicit conversion, not a bare `uint?`: PostgreSQL has no unsigned integer, and the one
+        // provider mapping that does accept `uint` is `xid` — the type `Version` itself uses for `xmin`. Letting
+        // the differ choose here is how this column would silently become a second system-column mapping.
+        builder.Property(a => a.VersionBeforeAutoAdvance)
+            .HasConversion<long?>()
+            .HasColumnType("bigint");
+
         builder.Property(a => a.ProcedureTypeId);
 
         builder.Property(a => a.ProcedureDurationMinutes);

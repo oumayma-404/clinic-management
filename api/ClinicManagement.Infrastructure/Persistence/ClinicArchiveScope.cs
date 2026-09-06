@@ -73,6 +73,10 @@ public static class ClinicArchiveScope
         nameof(DocumentEmail),
         nameof(StaffNotification),
         nameof(NotificationRead),
+        // Travels with the feed it annotates: a dismissal is one reader's « je ne veux plus voir cette ligne »
+        // about a StaffNotification the archive already excludes, and it is keyed on a User the archive
+        // deliberately does not carry.
+        nameof(NotificationDismissal),
         nameof(DeviceRegistration),
         nameof(BackupRun),
         // ⚠️ Beside BackupRun, but for a sharper reason than transience: a ClinicRecoveryPoint names a STORAGE KEY.

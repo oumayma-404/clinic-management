@@ -21,6 +21,15 @@ export interface ConflictState {
   capture: (err: unknown, fallback?: string) => boolean
   /** Set a plain (non-conflict) message, e.g. a client-side validation failure. */
   setError: (message: string | null) => void
+  /**
+   * Take the banner down for a retry that is about to start, **keeping** the consecutive-conflict count.
+   *
+   * <p>⚠️ Not `setError(null)`, and the difference is the whole escalation. That one resets the counter — rightly,
+   * because a plain error breaks a run of conflicts — so a form that cleared its banner at the top of every submit
+   * could never reach a second consecutive 409 and the escalated wording was unreachable. Verified in the browser:
+   * two 409s in a row on `edit-appointment-dialog`, second message byte-identical to the first.</p>
+   */
+  clearMessage: () => void
   /** Clear everything, including the consecutive-conflict counter. Call when the dialog opens. */
   reset: () => void
 }
@@ -65,11 +74,17 @@ export function useConflict(): ConflictState {
     setErrorState(message)
   }, [])
 
+  // Deliberately does NOT touch `consecutive` — see the interface.
+  const clearMessage = useCallback(() => {
+    setIsConflict(false)
+    setErrorState(null)
+  }, [])
+
   const reset = useCallback(() => {
     consecutive.current = 0
     setIsConflict(false)
     setErrorState(null)
   }, [])
 
-  return { error, isConflict, capture, setError, reset }
+  return { error, isConflict, capture, setError, clearMessage, reset }
 }

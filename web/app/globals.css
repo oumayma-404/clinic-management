@@ -748,7 +748,30 @@
    */
 
   @media (pointer: coarse) {
-    .touch-target {
+    /*
+     * ⚠️ **`:where()` — zero specificity — and that is a bug fix, not tidiness.**
+     *
+     * `buttonVariants` puts `touch-target` at the head of EVERY `<Button>`, so any button that also carries a
+     * position utility (`absolute`, `fixed`, `sticky`) declares `position` twice, in the same `@layer utilities`,
+     * at the same specificity. CSS then settles it by **source order in the stylesheet**, which is not the order
+     * of the class attribute and is not something `cn()`/tailwind-merge can see — `touch-target` is not a
+     * Tailwind utility, so twMerge does not know it conflicts with one.
+     *
+     * That order is not stable across builds. Measured on the shipped bundle: `.absolute` at byte 14 288,
+     * `.touch-target` at byte 150 882 — so `relative` won and the agenda's floating « + » was never positioned
+     * at all. It sat at its static place at the **start** of the flex column (left edge, and an
+     * `inset-inline-end` on a *relative* box shifts it further left), and — the half that is not about the
+     * button — it kept its space in the flow, which is what held the agenda grid off the bottom of the screen.
+     * `next dev` emits the two in the opposite order, so the whole thing renders correctly on a laptop and is
+     * wrong on the device. Two reports from an iPhone 13, invisible in every browser check.
+     *
+     * `:where()` makes this rule specificity 0, so it applies when nothing else sets `position` — which is the
+     * only case it was ever written for, giving `::after` a containing block — and loses to every explicit
+     * utility. An `absolute` button is already a containing block, so nothing is lost.
+     *
+     * ⚠️ The `::after` below deliberately keeps its own specificity: it is not competing with anything.
+     */
+    :where(.touch-target) {
       position: relative;
     }
     .touch-target::after {

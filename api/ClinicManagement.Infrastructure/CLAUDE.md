@@ -94,7 +94,7 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
     `RecurringAppointment`, **`Doctor`**, **`StockItem`** (the last two were the only clinic-owned roots left unfiltered - and `StockItem`'s own child `StockMovement` was filtered while its *parent* was not). **`User`/`Clinic` are deliberately unfiltered** (auth/join flows resolve them
     before a clinic context exists). Child entities (`InvoiceLine`, `Payment`, `Installment`,
     `TreatmentPlanItem`, `MedicationActiveIngredient`, `DentalRecordTooth/Act`, `ToothState`,
-    `NotificationRead`, **`StockBatch`**, **`ProcedureTypeMaterial`**) carry no filter — reached only through a filtered parent / scoped by `UserId`.
+    `NotificationRead`, `NotificationDismissal`, **`StockBatch`**, **`ProcedureTypeMaterial`**) carry no filter — reached only through a filtered parent / scoped by `UserId`.
     ⚠️ **`AuditEntries` carries no filter either, and that one is not an omission**: its `ClinicId` is
     *nullable* (a job or console verb can mutate a row with no clinic derivable from it), so a filter comparing it
     to the scoped id would silently hide exactly the unattributed rows an owner most needs — and the interceptor
@@ -222,7 +222,9 @@ Conventions: `Id` `ValueGeneratedNever()` (GUIDs from domain ctors); enums `HasC
 objects (Email, PhoneNumber) owned/converted. `AppointmentConfiguration` stores `Duration` as ticks, makes
 `PatientId` nullable (busy slots, `SetNull`), `ProcedureTypeId`/`DoctorId` FKs `SetNull`. Files: Appointment,
 Patient, PatientFlag, PatientFile, PatientFolder, PatientMedicalHistory, PatientFamilyHistory, Notification,
-StaffNotification (indexes `(ClinicId, EffectiveFeedTime)` + `AppointmentId`), NotificationRead (PK
+StaffNotification (indexes `(ClinicId, EffectiveFeedTime)` + `AppointmentId`), NotificationDismissal (PK
+`(NotificationId, UserId)`, index on `UserId`, cascade from the notification — the per-user « je ne veux plus
+voir cette ligne », added by `AddNotificationDismissals`), NotificationRead (PK
 `(NotificationId, UserId)`), StockItem, ProcedureType, RecurringAppointment, DentalRecord, DentalRecordTooth,
 DentalRecordAct, ToothState, MedicalDocument, Clinic, User, Doctor, Invoice, InvoiceLine, Payment,
 Installment, TreatmentPlan, TreatmentPlanItem, ClinicReminderSettings, CnamLetterValue,

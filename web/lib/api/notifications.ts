@@ -1,4 +1,4 @@
-import { apiGet, apiPut } from './client';
+import { apiDelete, apiGet, apiPut } from './client';
 import type { NotificationDto, PendingReviewDto } from './types';
 
 /**
@@ -24,5 +24,21 @@ export const notificationsApi = {
 
   markAllRead: async (): Promise<void> => {
     return apiPut<void>('/notifications/read-all', {});
+  },
+
+  /**
+   * Removes one notification from the caller's own bell.
+   *
+   * ⚠️ It clears it for **this user only** — the server writes a per-user dismissal rather than deleting the row,
+   * because a notification with no named target is one row shown to every colleague. So this is not an undo of
+   * whatever produced it, and a colleague's bell is untouched.
+   */
+  dismiss: async (id: string): Promise<void> => {
+    return apiDelete<void>(`/notifications/${id}`);
+  },
+
+  /** Empties the caller's own bell — everything currently visible to them, not merely the unread rows. */
+  dismissAll: async (): Promise<void> => {
+    return apiDelete<void>('/notifications');
   },
 };

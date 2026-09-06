@@ -34,6 +34,20 @@ export interface CreateDentalRecordRequest {
    * on a stepped act is still safe — the server advances that act's next pending step.
    */
   treatmentPlanItemStepId?: string | null;
+  /**
+   * What the patient handed over towards the **treatment** this séance carries out — the cumulative figure for
+   * this séance, not an increment. Requires `treatmentPlanId`.
+   *
+   * ⚠️ **A second money field, never folded into `amountPaid`.** They settle two different things: « Payé »
+   * covers this séance's own acts and produces a note d'honoraires, while this draws down a multi-séance act
+   * priced *once* on its devis and produces an échéance payment. A devis act sits on the fiche at 0 by rule, so
+   * putting its money through `amountPaid` is refused (a payment may not exceed the séance total) — and
+   * overtyping that 0 to get around it raises a second, unlinked claim for work the treatment already prices.
+   *
+   * ⚠️ Collecting on a treatment with no devis number **issues one**. That spends a gapless number, so the UI
+   * says so before saving.
+   */
+  amountCollectedOnPlan?: number;
   // Optional: the appointment this record documents — completes it + dismisses its post-visit prompt.
   appointmentId?: string | null;
 }

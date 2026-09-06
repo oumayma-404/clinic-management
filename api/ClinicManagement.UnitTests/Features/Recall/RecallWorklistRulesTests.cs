@@ -103,12 +103,59 @@ public class RecallWorklistRulesTests
 
     // ---- unanswered devis -------------------------------------------------------------------------------
 
+    // ⚠️ This case used to assert `UnansweredDevis` and it was rewritten rather than deleted, because the fixture
+    // it describes changed meaning underneath it. « Suivre ce traitement » makes an un-numbered `Draft` a LIVE
+    // treatment, so a Draft with acts left is a treatment somebody stopped coming to — « au point mort » — and
+    // not a quote awaiting an answer. The old assertion froze the reading that made the worklist chase a patient
+    // about a devis they were never shown.
     [Fact]
-    public void A_Draft_Devis_Older_Than_The_Grace_Period_Is_Unanswered()
+    public void A_Followed_Treatment_With_Acts_Left_Is_Stalled_Rather_Than_Unanswered()
+    {
+        var created = Now.AddDays(-(RecallWorklistRules.StalledPlanGraceDays + 1));
+
+        var reasons = Reasons(
+            Now.AddDays(-1),
+            new[] { Plan(TreatmentPlanStatus.Draft, created, number: null) });
+
+        var reason = Assert.Single(reasons);
+        Assert.Equal(RecallReasonKind.StalledPlan, reason.Kind);
+        Assert.Equal(created, reason.DueSince);
+        // With no devis number the row still has to say something useful — the progress stands in for it.
+        Assert.Equal("2/6", reason.Detail);
+    }
+
+    // The gap this closes, stated as the patient rather than as the rule: a bridge followed without a devis, two
+    // séances in, nobody coming back. `AdvanceAfterWorkRecorded` keeps such a plan a `Draft` however much work it
+    // records, so the old `Accepted || InProgress` test never saw it — and the recall worklist exists precisely
+    // for this patient.
+    [Fact]
+    public void A_Half_Finished_Followed_Treatment_Reaches_The_Worklist()
+    {
+        var reasons = Reasons(
+            Now.AddDays(-1),
+            new[]
+            {
+                Plan(
+                    TreatmentPlanStatus.Draft,
+                    Now.AddDays(-90),
+                    total: 3,
+                    done: 2,
+                    number: null),
+            });
+
+        Assert.Equal(RecallReasonKind.StalledPlan, Assert.Single(reasons).Kind);
+    }
+
+    // The other half of the exclusivity: a Draft with nothing left to do is not stalled, so the unanswered-devis
+    // reason is still reachable and a plan is never reported under two contradictory reasons at once.
+    [Fact]
+    public void A_Draft_With_No_Acts_Left_Is_Unanswered_And_Not_Also_Stalled()
     {
         var created = Now.AddDays(-(RecallWorklistRules.UnansweredDevisGraceDays + 1));
 
-        var reasons = Reasons(Now.AddDays(-1), new[] { Plan(TreatmentPlanStatus.Draft, created) });
+        var reasons = Reasons(
+            Now.AddDays(-1),
+            new[] { Plan(TreatmentPlanStatus.Draft, created, total: 6, done: 6) });
 
         var reason = Assert.Single(reasons);
         Assert.Equal(RecallReasonKind.UnansweredDevis, reason.Kind);
@@ -150,7 +197,9 @@ public class RecallWorklistRulesTests
             plans: new[]
             {
                 Plan(TreatmentPlanStatus.Accepted, old, old),
-                Plan(TreatmentPlanStatus.Draft, old, number: "2026-0009")
+                // `done == total`, so this one is unanswered rather than stalled — the two reasons are mutually
+                // exclusive now, and composing them needs a plan genuinely in each state.
+                Plan(TreatmentPlanStatus.Draft, old, total: 6, done: 6, number: "2026-0009")
             },
             oldestOverdue: Now.AddDays(-10),
             outstanding: 500m);

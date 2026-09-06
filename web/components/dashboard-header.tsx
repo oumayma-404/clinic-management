@@ -47,7 +47,7 @@ export function DashboardHeader() {
   // no longer touches sidebar state at all.
 
   const [notifOpen, setNotifOpen] = useState(false)
-  const { notifications, unreadCount, loading, error, refetchList, markRead, markAllRead } =
+  const { notifications, unreadCount, loading, error, refetchList, markRead, markAllRead, dismiss, dismissAll } =
     useNotifications(notifOpen)
 
   // Global patient search (AC-6): type → debounced patient lookup → navigate to the selected patient.
@@ -442,6 +442,8 @@ export function DashboardHeader() {
               hasUnread={unreadCount > 0}
               onMarkAllRead={markAllRead}
               onRowClick={handleNotificationClick}
+              onDismiss={dismiss}
+              onDismissAll={dismissAll}
             />
           </PopoverContent>
         </Popover>

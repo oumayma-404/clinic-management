@@ -59,6 +59,52 @@ public class DentalRecordDto
     /// </para>
     /// </summary>
     public DentalRecordBillingDto? Billing { get; set; }
+
+    /// <summary>
+    /// What happened to money collected for the <b>treatment</b> this séance carries out — the second, separate
+    /// figure, present on the create/update responses only for <see cref="Billing"/>'s reason.
+    ///
+    /// <para>
+    /// ⚠️ <b>Two fields because they are two quantities, and no arithmetic is ever done between them.</b>
+    /// « Payé » settles this séance's own acts and produces a note d'honoraires; « Encaissé sur le traitement »
+    /// draws down a multi-séance act priced once on its devis, and produces an échéance payment. A mixed fiche —
+    /// one devis act plus a filling done the same day — legitimately has both, and folding them into one number
+    /// would put a share of the treatment's money on the note, which is the double-billing the devis act's 0 fee
+    /// exists to prevent.
+    /// </para>
+    /// </summary>
+    public TreatmentCollectionDto? TreatmentCollection { get; set; }
+}
+
+/// <summary>
+/// The outcome of collecting on the treatment a séance carries out (see
+/// <see cref="DentalRecordDto.TreatmentCollection"/>). Mirrors <see cref="DentalRecordBillingDto"/>'s shape,
+/// deliberately: the fiche reports both the same way, and a caller handling one can handle the other.
+/// </summary>
+public class TreatmentCollectionDto
+{
+    /// <summary>A <c>TreatmentCollectionOutcome</c> name.</summary>
+    public string Outcome { get; set; } = string.Empty;
+
+    public Guid? TreatmentPlanId { get; set; }
+
+    /// <summary>The devis number — possibly minted by this very save. See below.</summary>
+    public string? PlanNumber { get; set; }
+
+    /// <summary>What this save actually put on the échéancier — the increment, never the cumulative figure.</summary>
+    public decimal? AmountCollected { get; set; }
+
+    /// <summary>What the patient still owes on the treatment afterwards — what the next séance prefills from.</summary>
+    public decimal? Outstanding { get; set; }
+
+    /// <summary>
+    /// True when this save is what gave the treatment its devis number. The UI must say so: a gapless number was
+    /// consumed, and it can only be released by a cancellation carrying a motif.
+    /// </summary>
+    public bool DevisIssued { get; set; }
+
+    /// <summary>The French reason, for <c>Refused</c>.</summary>
+    public string? Message { get; set; }
 }
 
 /// <summary>What saving a fiche did about its « Montant payé ».</summary>

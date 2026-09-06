@@ -100,6 +100,14 @@ public class SubscriptionWarningTests
             throw new NotSupportedException();
         public Task AddReadMarkerAsync(NotificationRead read, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+        public Task<bool> DismissalExistsAsync(
+            Guid notificationId, string userId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task AddDismissalAsync(NotificationDismissal dismissal, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<IReadOnlyCollection<Guid>> GetVisibleIdsForUserAsync(
+            Guid clinicId, string userId, DateTime nowUtc, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
         public Task<StaffNotification?> GetReminderByAppointmentAsync(
             Guid appointmentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<StaffNotification?> GetPostVisitReviewByAppointmentAsync(

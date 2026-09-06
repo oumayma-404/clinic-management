@@ -1115,6 +1115,45 @@ export interface DentalRecordDto {
    * would leave the user believing money was recorded when it was not, which is the very defect this replaced.
    */
   billing?: DentalRecordBillingDto | null;
+  /**
+   * What saving this fiche did about money collected for the **treatment** it carries out — the second, separate
+   * figure, present on the create/update responses only for `billing`'s reason.
+   *
+   * ⚠️ Two fields because they are two quantities, and no arithmetic is ever done between them: « Payé » settles
+   * this séance's own acts on a note d'honoraires, « Encaissé sur le traitement » draws down a multi-séance act
+   * priced once on its devis. A mixed fiche — a devis act plus a filling done the same day — legitimately has
+   * both. Undefined when the séance carries no treatment act at all, which is not the same as « collected 0 ».
+   */
+  treatmentCollection?: TreatmentCollectionDto | null;
+}
+
+/** What saving a fiche did about the treatment it carries out. Mirrors the backend `TreatmentCollectionOutcome`. */
+export type TreatmentCollectionOutcome =
+  /** Nothing was offered towards the treatment — the ordinary séance where the patient pays nothing today. */
+  | 'NotCollected'
+  /** Money went onto the treatment's échéancier. */
+  | 'Collected'
+  /** The séance's figure was already on the échéancier — an ordinary re-save. */
+  | 'AlreadyCollected'
+  /** A rule said no, and `message` names it. */
+  | 'Refused';
+
+export interface TreatmentCollectionDto {
+  outcome: TreatmentCollectionOutcome;
+  treatmentPlanId?: string | null;
+  /** The devis number — possibly minted by this very save; see `devisIssued`. */
+  planNumber?: string | null;
+  /** What this save put on the échéancier — the increment, never the cumulative figure. */
+  amountCollected?: number | null;
+  /** What the patient still owes on the treatment afterwards — what the next séance prefills from. */
+  outstanding?: number | null;
+  /**
+   * True when this save is what gave the treatment its devis number. The UI must say so: a gapless number was
+   * consumed and can only be released by a cancellation carrying a motif.
+   */
+  devisIssued: boolean;
+  /** The French reason, for `Refused`. */
+  message?: string | null;
 }
 
 /** The money outcome of a fiche save. Mirrors the backend `DentalRecordBillingOutcome`. */

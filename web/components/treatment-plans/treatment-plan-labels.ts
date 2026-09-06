@@ -86,11 +86,47 @@ export const PLAN_NEXT_ACTION_LABELS: Record<string, string> = {
   open: "Voir le plan",
 };
 
-export function planStatusLabel(status: string): string {
+/**
+ * Has any work actually been carried out on this treatment?
+ *
+ * <p>Read off the ACTS, not off `itemsDone` or `amountPaid`. `itemsDone` counts acts that are entirely
+ * finished, so a bridge two séances into three reads 0 — the very case this question exists for; and an
+ * un-numbered treatment's `amountPaid` is always 0, because collecting anything on one mints its devis.</p>
+ */
+export function planHasRecordedWork(plan: { items?: { status?: string }[] }): boolean {
+  return (plan.items ?? []).some((i) => i.status === "InProgress" || i.status === "Done");
+}
+
+/**
+ * The badge's words for a plan's status.
+ *
+ * <p>⚠️ <b>« Sans devis » alone was half the truth, and the missing half is the one a dentist acts on.</b> The
+ * status column answers two different questions at once — <i>has a quote been issued</i> and <i>is work under
+ * way</i> — because `PlanBillingRules.CarriesDebt` reads it, so an un-numbered treatment must never be
+ * promoted to `InProgress`: it would owe its whole total on a devis nobody wrote. The stored status therefore
+ * keeps answering the financial question, and the badge answers both — « En cours · sans devis » on a
+ * treatment that has séances recorded, plain « Sans devis » on one where nothing has been done yet.</p>
+ *
+ * <p>The deeper fix is to make debt key on the devis <i>number</i> rather than on the status, which would let
+ * the status itself tell the clinical truth. That changes every money read (`DebtBearingPlanStatuses` is a SQL
+ * filter in four of them), so it is a decision of its own and not a consequence of this wording.</p>
+ */
+export function planStatusLabel(status: string, hasRecordedWork = false): string {
+  if (status === "Draft" && hasRecordedWork) {
+    return `${PLAN_STATUS_LABELS.InProgress} · ${PLAN_STATUS_LABELS.Draft.toLowerCase()}`;
+  }
   return PLAN_STATUS_LABELS[status] ?? status;
 }
 
-export function planStatusBadgeClass(status: string): string {
+/**
+ * ⚠️ Takes the same second argument as {@link planStatusLabel} and must always be passed the same value: a
+ * badge reading « En cours · sans devis » in the neutral grey of a dormant plan, beside a real « En cours » in
+ * amber, tells the reader the two are different kinds of thing when they are the same kind of thing.
+ */
+export function planStatusBadgeClass(status: string, hasRecordedWork = false): string {
+  if (status === "Draft" && hasRecordedWork) {
+    return statusToneClass(PLAN_STATUS_TONE.InProgress);
+  }
   return statusToneClass(PLAN_STATUS_TONE[status]);
 }
 

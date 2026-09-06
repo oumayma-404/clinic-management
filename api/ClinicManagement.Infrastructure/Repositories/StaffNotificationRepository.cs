@@ -35,16 +35,37 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public async Task<IReadOnlyList<StaffNotification>> GetRecentForUserAsync(
         Guid clinicId, string userId, DateTime nowUtc, int take, CancellationToken cancellationToken = default)
     {
-        // Due, in this clinic, NOT actor-excluded (the viewer never sees their own action's notification),
-        // and targeted at everyone or at this viewer. Newest first, capped.
-        return await _context.StaffNotifications
-            .Where(n => n.ClinicId == clinicId
-                        && n.EffectiveFeedTime <= nowUtc
-                        && (n.ActorUserId == null || n.ActorUserId != userId)
-                        && (n.TargetUserId == null || n.TargetUserId == userId))
+        return await VisibleQuery(clinicId, userId, nowUtc)
             .OrderByDescending(n => n.EffectiveFeedTime)
             .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<Guid>> GetVisibleIdsForUserAsync(
+        Guid clinicId, string userId, DateTime nowUtc, CancellationToken cancellationToken = default)
+    {
+        return await VisibleQuery(clinicId, userId, nowUtc)
+            .Select(n => n.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The single definition of « what this viewer's bell shows »: due, in this clinic, NOT actor-excluded (the
+    /// viewer never sees their own action's notification), targeted at everyone or at this viewer, and not
+    /// dismissed by them.
+    ///
+    /// <para>⚠️ Extracted so the list and « Tout effacer » cannot disagree about what is on screen. A second
+    /// hand-written copy of this predicate is how « effacer tout » leaves rows behind — the failure is silent,
+    /// since both halves look right in isolation.</para>
+    /// </summary>
+    private IQueryable<StaffNotification> VisibleQuery(Guid clinicId, string userId, DateTime nowUtc)
+    {
+        return _context.StaffNotifications
+            .Where(n => n.ClinicId == clinicId
+                        && n.EffectiveFeedTime <= nowUtc
+                        && (n.ActorUserId == null || n.ActorUserId != userId)
+                        && (n.TargetUserId == null || n.TargetUserId == userId)
+                        && !_context.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId));
     }
 
     public async Task<int> CountUnreadAsync(
@@ -70,8 +91,13 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     }
 
     // The single definition of "unread for this viewer": due, in-clinic, not actor-excluded, targeted at
-    // everyone or this viewer, effective at/after the viewer's join time (late-joiner baseline), and with
-    // no read marker.
+    // everyone or this viewer, effective at/after the viewer's join time (late-joiner baseline), not dismissed
+    // by them, and with no read marker.
+    //
+    // ⚠️ The dismissal clause is load-bearing rather than tidy: this predicate drives the bell's BADGE and the
+    // post-visit popup's queue. Without it, clearing the bell would leave the badge counting rows the reader
+    // can no longer reach — an unread count with nothing behind it — and the popup would go on prompting for a
+    // review whose row the same person had just cleared.
     private IQueryable<StaffNotification> UnreadQuery(Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc)
     {
         return _context.StaffNotifications
@@ -80,6 +106,7 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                         && n.EffectiveFeedTime >= userCreatedAtUtc
                         && (n.ActorUserId == null || n.ActorUserId != userId)
                         && (n.TargetUserId == null || n.TargetUserId == userId)
+                        && !_context.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId)
                         && !_context.NotificationReads.Any(r => r.NotificationId == n.Id && r.UserId == userId));
     }
 
@@ -106,6 +133,17 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public async Task AddReadMarkerAsync(NotificationRead read, CancellationToken cancellationToken = default)
     {
         await _context.NotificationReads.AddAsync(read, cancellationToken);
+    }
+
+    public async Task<bool> DismissalExistsAsync(Guid notificationId, string userId, CancellationToken cancellationToken = default)
+    {
+        return await _context.NotificationDismissals
+            .AnyAsync(d => d.NotificationId == notificationId && d.UserId == userId, cancellationToken);
+    }
+
+    public async Task AddDismissalAsync(NotificationDismissal dismissal, CancellationToken cancellationToken = default)
+    {
+        await _context.NotificationDismissals.AddAsync(dismissal, cancellationToken);
     }
 
     public async Task<StaffNotification?> GetReminderByAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default)

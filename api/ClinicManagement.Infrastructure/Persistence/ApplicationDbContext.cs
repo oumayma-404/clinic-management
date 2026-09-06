@@ -99,6 +99,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<MedicalDocument> MedicalDocuments { get; set; }
     public DbSet<StaffNotification> StaffNotifications { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
+    // « Je ne veux plus voir cette ligne » — the per-user twin of NotificationReads, and for the same reason it
+    // is a marker rather than a delete: a StaffNotification row is shared with every colleague it targets.
+    public DbSet<NotificationDismissal> NotificationDismissals { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
     // Avoirs (credit notes) — clinic-scoped aggregate root offsetting a paid invoice's collected amount.
     public DbSet<CreditNote> CreditNotes { get; set; }
@@ -288,9 +291,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // declares `UseSystemWide` and is unaffected.
         modelBuilder.Entity<CalendarImportRun>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => IsSystemWide || pt.ClinicId == ScopedClinicId);
-        // StaffNotification is directly clinic-owned → filtered like the others. NotificationRead has no
-        // ClinicId; it is always queried scoped by UserId and joined to its clinic-filtered notification
-        // (a user belongs to one clinic), so it needs no filter of its own (plan R-5).
+        // StaffNotification is directly clinic-owned → filtered like the others. NotificationRead and
+        // NotificationDismissal have no ClinicId; both are always queried scoped by UserId and joined to their
+        // clinic-filtered notification (a user belongs to one clinic), so neither needs a filter of its own
+        // (plan R-5).
         modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => IsSystemWide || n.ClinicId == ScopedClinicId);
         // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
@@ -373,8 +377,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         //  * Owned types and shared-CLR-type entities are skipped. An owned type has no row of its own, and
         //    PhoneNumber is owned TWICE by Patient (PhoneNumber + EmergencyContactPhone), so it arrives as a
         //    shared-CLR-type entity that must not be configured by CLR type at all.
-        //  * Anything not deriving from Entity<> is skipped — NotificationRead is a plain composite-key class
-        //    and has no Version property to map.
+        //  * Anything not deriving from Entity<> is skipped — NotificationRead and NotificationDismissal are
+        //    plain composite-key classes and have no Version property to map.
         foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
         {
             if (entityType.IsOwned() || entityType.HasSharedClrType)

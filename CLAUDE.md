@@ -197,6 +197,18 @@ touching the area.
   failure. Only catches that *return a `Result`* are filtered; a log-only post-commit catch must still swallow.
 - **`Version == 0` means "not supplied" and skips the concurrency check.** That is what keeps the jobs and the
   Google→App sync working — and what leaves a forgotten round-trip silently unprotected.
+- **A write NOBODY MADE still spends the concurrency token somebody is holding, and the 409 it produces names a
+  person.** `xmin` is per-**row**, so any write ages every open form's version whoever made it — and
+  `AppointmentProgressJob` writes an appointment **every minute** (« En cours » at its slot's start minute,
+  « Séance passée » at its end). Production, 2026-09-05: the edit dialog read the row at 15:50:04, the job wrote
+  it at 15:50:05, the user pressed Enregistrer at 15:50:32 and was told « cet enregistrement a été modifié par
+  quelqu'un d'autre pendant votre saisie » — one clinic, one user, one session. `Appointment.VersionBeforeAutoAdvance`
+  + `AutomaticWriteInterceptor` (which decides from the **audit actor**, so a new writer cannot forget to
+  participate) make the job's own comment true at last: « a user's concurrent edit legitimately wins ». ⚠️ Its
+  amplifier is the frontend half and it cost far more than the one refused save: a dialog that catches a 409 into
+  a plain `setError` is **poisoned for good** — the version it holds never moves, so every later click repeats the
+  refusal (six of them over 81 minutes, until the user reloaded the page). Any form that round-trips a version
+  goes through `useConflict`, which offers the « Recharger » that the server's own sentence tells the user to do.
 - **Never `DateTime.UtcNow` or `DateTime.Today`.** `ClinicClock` is the only thing that knows Tunisia is UTC+1.
   `EndOfLocalDayUtc` is the *next* midnight (exclusive) while every money read is inclusive at both ends — use
   `LastTickOfLocalDayUtc`, or a midnight payment lands in two adjacent periods.
@@ -220,6 +232,28 @@ touching the area.
   `UseClinic(id)`.
 - **A new `Features/<Area>` folder emits a realtime key** that `web/lib/realtime/clinic-hub.ts` must declare;
   `RealtimeResourceResolverTests` compares the two sets in both directions and fails either way.
+- **A followed treatment is a `Draft`, and « Draft » now means two opposite things depending on who is asking.**
+  « Suivre ce traitement » creates an un-numbered plan that is **clinically live and financially inert**, and
+  `AdvanceAfterWorkRecorded` keeps it a Draft however many séances it records. Ask
+  `TreatmentPlanLifecycle.IsLive` (C#) or `isPlanLive` (TS) — never a hand-written
+  `Status == Accepted || Status == InProgress`, which excluded it in **seven** places: four `.tsx` writers that
+  N23 caught, the SQL behind « Traitements en cours » that N23's `.tsx`-only scan structurally could not reach,
+  and both halves of the recall worklist (a stalled followed treatment was never chased, while every followed
+  treatment older than 14 days was reported as « devis présenté, jamais répondu » — a quote that cannot exist,
+  since `Accept` is the only writer of `Number`). ⚠️ Its financial twin is the **opposite** rule:
+  `PlanBillingRules.CarriesDebt(Draft)` is false, both installment reads filter on `DebtBearingPlanStatuses`,
+  and **an un-numbered plan must never wear a status that carries debt** — `OpenStatusFromWork` keys on
+  `Number is null` for that reason, after the guard was applied to one of four status writers and
+  « Arrêter le traitement » → « Reprendre le traitement » turned a followed treatment into an `Accepted` devis
+  with a null number and a live créance for a total nobody had quoted.
+- **Money for a multi-séance act goes on the TREATMENT, never on the séance's note d'honoraires.** The act is
+  priced once, so it sits on the fiche at **0** — imposed server-side by `PlanCarriedActPricing`, not merely
+  offered — and what the patient hands over at the chair is `AmountCollectedOnPlan`, a **second** money field that
+  is never folded into « Payé ». Collecting on a treatment with no devis **mints its number**
+  (`CollectOnTreatmentCommand`), because a `Draft` has no échéancier and la caisse cannot see one. Overtyping
+  that 0 is how a 250 DT act with 150 collected left the patient owing 250 on the devis **and** 100 on an
+  unlinked note: an invoice raised from a fiche carries `dentalRecordId` and **no `TreatmentPlanId`**, so
+  `PlanBillingRules.BilledPlanIds` cannot de-duplicate it.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill

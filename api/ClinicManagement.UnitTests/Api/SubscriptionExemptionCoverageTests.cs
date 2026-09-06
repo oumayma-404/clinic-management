@@ -92,6 +92,12 @@ public class SubscriptionExemptionCoverageTests
         // --- Experienced as reading, but issuing a write to do it (AC-4.11).
         "Notifications.MarkRead",                        // else AC-3.4's own expiry notice can never be dismissed
         "Notifications.MarkAllRead",
+        // Same class as the two above, and the same reason: clearing your own bell records a fact about one
+        // READER, never about the cabinet's work. It writes a per-user dismissal marker and touches no clinical
+        // or money record — and an expired cabinet whose bell it is must still be able to tidy the notice that
+        // told them they were expired.
+        "Notifications.Dismiss",
+        "Notifications.DismissAll",
         "PushDevices.Register",                          // fired at every mobile sign-in (AC-4.7)
         "PushDevices.Deregister",
         "PatientFiles.InitializeDefaultFolders",         // fired on the first visit to the Files tab; a READ fails

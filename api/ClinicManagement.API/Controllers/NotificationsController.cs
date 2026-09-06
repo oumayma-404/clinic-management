@@ -105,4 +105,44 @@ public class NotificationsController : ApiControllerBase
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Remove a single notification from the current user's own bell.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <c>DELETE</c> is the verb the caller sees, and it is honest about the effect on <i>their</i> feed — but
+    /// nothing is deleted for the cabinet: a notification row is shared with every colleague it targets, so this
+    /// writes a per-user dismissal marker. See <c>DismissNotificationCommand</c>.
+    /// </remarks>
+    [HttpDelete("{id}")]
+    [AllowsWithoutSubscription("FR-3 — same reasoning as MarkRead: the expiry notice arrives here too.")]
+    public async Task<IActionResult> Dismiss(Guid id)
+    {
+        var result = await _mediator.Send(new DismissNotificationCommand { Id = id });
+
+        if (result.IsFailure)
+        {
+            // As with MarkRead, the only non-auth failure is the tenant-mismatch/missing case.
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Empty the current user's own bell.
+    /// </summary>
+    [HttpDelete]
+    [AllowsWithoutSubscription("FR-3 — same reasoning as MarkAllRead.")]
+    public async Task<IActionResult> DismissAll()
+    {
+        var result = await _mediator.Send(new DismissAllNotificationsCommand());
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return NoContent();
+    }
 }

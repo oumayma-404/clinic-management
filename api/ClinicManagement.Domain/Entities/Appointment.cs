@@ -22,6 +22,41 @@ public class Appointment : AggregateRoot<Guid>
     public string? GoogleCalendarEventId { get; private set; }
 
     /// <summary>
+    /// The <see cref="Common.Entity{TId}.Version"/> this row carried before the run of <b>automatic</b> writes
+    /// that has touched it since the last time a person did — or null when the most recent writer was a person.
+    ///
+    /// <para><b>Why it exists.</b> The concurrency token is PostgreSQL's <c>xmin</c>, which is per-<i>row</i>: any
+    /// write ages every version anybody is holding, whoever made it. <c>AppointmentProgressJob</c> writes this row
+    /// <b>every minute</b> — it advances a visit to « En cours » at its own start minute and to « Séance passée » at
+    /// its end minute — so a form opened at 15:50:04 on a 15:50 visit was already stale at 15:50:05, and its save
+    /// was refused with « cet enregistrement a été modifié par quelqu'un d'autre » naming nobody, because nobody is
+    /// who did it. Observed in production on 2026-09-05: one clinic, one user, one session, six refusals over
+    /// eighty-one minutes on a visit whose only other writer was the job.
+    ///
+    /// <para>The job already believes it yields to the user — « a user's concurrent edit legitimately wins », says
+    /// the comment above its save, which skips <c>SetExpectedVersion</c> for that reason. It does not: it writes
+    /// first, so the user's edit is the one refused. This is what makes that intent true.</para>
+    ///
+    /// <para><b>Why it stays exact.</b> It records the version a person last saw, not « recently ». It is set by
+    /// the first automatic write after a human one and left alone by the automatic writes that follow (two are
+    /// routine: <c>Scheduled → InProgress → AwaitingClosure</c>), so a chain of them is forgiven as one. Any human
+    /// write clears it, which is the whole guarantee — a colleague's edit puts the token back and the next stale
+    /// save is refused exactly as before. Neither half is a call-site obligation: <c>AutomaticWriteInterceptor</c>
+    /// decides from the audit actor, so a new writer cannot forget to participate.</para>
+    /// </summary>
+    public uint? VersionBeforeAutoAdvance { get; private set; }
+
+    /// <summary>
+    /// Is <paramref name="expected"/> a version this row may still be saved against?
+    ///
+    /// <para>True for the current one, and for the one an unbroken run of automatic writes superseded — see
+    /// <see cref="VersionBeforeAutoAdvance"/>. <c>0</c> is « not supplied » and is not this method's business; the
+    /// caller decides whether an unsupplied version skips the check.</para>
+    /// </summary>
+    public bool AcceptsExpectedVersion(uint expected) =>
+        expected == Version || (VersionBeforeAutoAdvance is { } superseded && expected == superseded);
+
+    /// <summary>
     /// The <see cref="CalendarImportRun"/> that <b>created</b> this appointment, or null.
     ///
     /// <para>Set only on a row the Google→App pass conjured — never on one it merely updated or linked, which

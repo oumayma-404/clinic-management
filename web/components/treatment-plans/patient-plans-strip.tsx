@@ -6,17 +6,28 @@ import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowRight, Loader2 } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { ArrowRight, ChevronRight, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { showErrorToast } from "@/lib/errors"
-import type { TreatmentPlanDto } from "@/lib/api/types"
+import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
-import { planStatusLabel, planStatusBadgeClass, planNextActionLabel } from "./treatment-plan-labels"
 import {
+  planStatusLabel,
+  planStatusBadgeClass,
+  planNextActionLabel,
+  planHasRecordedWork,
+  itemWorkflowLabel,
+  itemWorkflowBadgeClass,
+} from "./treatment-plan-labels"
+import {
+  activeItems,
   displayedOutstanding,
   leadPlan,
+  nextStepOf,
   planHeadline,
+  planItemState,
   planNextAction,
   planStatusCounts,
 } from "./plan-next-action"
@@ -105,8 +116,8 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
         <span className="text-sm font-semibold">
           {isDraft ? "Devis — brouillon" : `Plan ${plan.number ?? ""}`.trim()}
         </span>
-        <Badge variant="secondary" className={planStatusBadgeClass(plan.status)}>
-          {planStatusLabel(plan.status)}
+        <Badge variant="secondary" className={planStatusBadgeClass(plan.status, planHasRecordedWork(plan))}>
+          {planStatusLabel(plan.status, planHasRecordedWork(plan))}
         </Badge>
         {/* « · révision N » only once amended, so a patient holding an earlier printout can tell which they signed. */}
         {plan.revisionNumber > 0 && (
@@ -164,7 +175,7 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
           </>
         ) : (
           <>
-            <PlanActPips items={plan.items} done={plan.itemsDone} total={plan.itemsTotal} />
+            <PlanActPips items={plan.items} done={plan.itemsDone} total={plan.itemsTotal} plan={plan} />
             <Separator />
             {/*
               ⚠️ **`displayedOutstanding`, and the red is what made this the worst of the seven sites.** On a
@@ -213,7 +224,106 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
           </Button>
         )}
       </div>
+
+      <PlanActsFold plan={plan} />
     </section>
+  )
+}
+
+/**
+ * The plan's acts, act by act — « Traitements en cours »' three columns, on the patient's own page and folded shut.
+ *
+ * <p><b>Folded, and that is the whole design constraint.</b> This band sits above a patient's fiches, their
+ * odontogramme and their files; a treatment listing six séances open by default would push all of it below the
+ * fold to answer a question nobody asked yet. Line 1 already says what to do next, so the detail is the *second*
+ * question and is one press away — the native `&lt;details&gt;` this repo already uses in three components, so
+ * the fold works with no JavaScript, no state and full keyboard support for free.</p>
+ *
+ * <p>⚠️ Every état, label and next-step here is <b>derived by the same helpers the workspace and the worklist
+ * use</b> — `planItemState`, `nextStepOf`, `itemWorkflowLabel`. Nothing about an act is decided in this file. The
+ * worklist's own row components could not be reused directly: they take the server's `TreatmentInProgressDto`
+ * projection, while a patient page holds the plan aggregate — so the rules are shared and only the markup is
+ * new.</p>
+ *
+ * <p>⚠️ Rendered as stacked rows, never a `&lt;table&gt;`: at 320 px three columns of French act names cannot be
+ * a grid, and the device contract's answer to a narrow table is a card. Each row is its own block that grows
+ * downward instead of scrolling sideways.</p>
+ *
+ * <p>Withdrawn acts are excluded (`activeItems`) for the reason the counters exclude them: a stopped treatment
+ * listing the séances the patient is not coming back for reads as outstanding work.</p>
+ */
+function PlanActsFold({ plan }: { plan: TreatmentPlanDto }) {
+  const items = activeItems(plan)
+  // Nothing to unfold for a single act with no protocol — line 2 already says everything the fold would.
+  if (items.length === 0) return null
+  if (items.length === 1 && (items[0].steps?.length ?? 0) === 0) return null
+
+  return (
+    <details className="group">
+      {/* `list-none` + the marker rule: Safari paints its own triangle from `::-webkit-details-marker`, which
+          `list-none` alone does not remove, so the chevron below would sit beside a second one. */}
+      <summary className="flex w-full cursor-pointer list-none items-center gap-1.5 py-1 text-xs text-muted-foreground touch-target hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+        Détail des séances
+        <span className="text-2xs opacity-70">
+          ({items.length} acte{items.length > 1 ? "s" : ""})
+        </span>
+      </summary>
+
+      <ul className="mt-1 flex flex-col gap-1.5">
+        {items.map((item) => (
+          <PlanActLine key={item.id} item={item} />
+        ))}
+      </ul>
+    </details>
+  )
+}
+
+/** One act: what it is, where it has got to, and the séance that is waiting. */
+function PlanActLine({ item }: { item: TreatmentPlanItemDto }) {
+  const state = planItemState(item)
+  const steps = item.steps ?? []
+  const step = nextStepOf(item)
+  const doneSteps = steps.filter((s) => s.doneDate).length
+  // The most recent séance actually carried out — the act's own date when it has no protocol.
+  const lastDone = steps.length > 0
+    ? steps.filter((s) => s.doneDate).map((s) => s.doneDate!).sort().at(-1) ?? null
+    : item.doneDate
+
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
+      <span className="font-medium text-foreground">
+        {item.designationFr}
+        {item.toothNumbers.length > 0 && (
+          <span className="font-normal text-muted-foreground"> · {item.toothNumbers.join(", ")}</span>
+        )}
+      </span>
+      <Badge variant="secondary" className={cn("shrink-0 text-2xs", itemWorkflowBadgeClass(state))}>
+        {itemWorkflowLabel(state)}
+      </Badge>
+
+      {/* ⚠️ « étape » and « à faire » are both VISIBLE words, copied from the worklist deliberately: « 2 / 6 »
+          alone was read as « two of six done » by three reviewers on a treatment with one séance behind it. */}
+      {step && (
+        <span className="text-muted-foreground">
+          {step.label}
+          <span className="ms-1 tabular-nums opacity-80">
+            · étape {step.sequenceNumber + 1} / {steps.length} à faire
+          </span>
+        </span>
+      )}
+      {!step && steps.length > 0 && (
+        <span className="tabular-nums text-muted-foreground">
+          {doneSteps} / {steps.length} séances faites
+        </span>
+      )}
+
+      {lastDone && (
+        <span className="ms-auto shrink-0 text-muted-foreground">
+          dernière séance {formatDateFr(lastDone)}
+        </span>
+      )}
+    </li>
   )
 }
 

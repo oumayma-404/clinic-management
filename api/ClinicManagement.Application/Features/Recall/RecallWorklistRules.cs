@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
@@ -101,14 +102,42 @@ public static class RecallWorklistRules
             .ToList();
     }
 
-    /// <summary>An accepted or in-progress devis with unfinished acts, past its grace period.</summary>
+    /// <summary>
+    /// A treatment still running, with unfinished acts, past its grace period.
+    ///
+    /// <para>
+    /// ⚠️ <b>« Still running » is <see cref="TreatmentPlanLifecycle.IsLive"/> and used to be a hand-written
+    /// <c>Accepted || InProgress</c>.</b> « Suivre ce traitement » makes an un-numbered <c>Draft</c> a live
+    /// treatment, and <c>AdvanceAfterWorkRecorded</c> deliberately keeps it one however many séances it records —
+    /// so a patient who stopped coming halfway through a bridge followed this way was in the exact state this
+    /// worklist exists to catch and was never listed. Silently: the plan is real, the acts are unfinished, and no
+    /// screen said anything.
+    /// </para>
+    /// </summary>
     public static bool IsStalled(RecallPlanFact plan, DateTime nowUtc) =>
-        (plan.Status == TreatmentPlanStatus.Accepted || plan.Status == TreatmentPlanStatus.InProgress)
+        TreatmentPlanLifecycle.IsLive(plan.Status)
         && plan.DoneItems < plan.TotalItems
         && (plan.AcceptedDate ?? plan.CreatedAt).AddDays(StalledPlanGraceDays) <= nowUtc;
 
-    /// <summary>A Draft devis older than the grace period — presented, never answered.</summary>
+    /// <summary>
+    /// A devis presented to a patient and never answered, past its grace period.
+    ///
+    /// <para>
+    /// ⚠️ <b>It yields to <see cref="IsStalled"/>, which now claims most of what it used to.</b> Both tests match
+    /// a <c>Draft</c> past fourteen days, so without this a followed treatment would be reported twice, under two
+    /// reasons that contradict each other — « au point mort » and « jamais répondu » about one plan.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>Its premise is doubtful and deliberately left in place rather than quietly retired.</b> « Presented »
+    /// meant « a numbered quote the patient is holding » — and <c>Accept</c> is the only writer of
+    /// <c>Number</c>, so a Draft has never carried one, and since « Suivre ce traitement » a Draft is a treatment
+    /// nobody was quoted for at all (the label is « Sans devis »). Whether this reason should survive at all is a
+    /// product decision about the recall taxonomy, not a consequence of the multi-séance work, so the false half
+    /// is removed by the yield above and the kind is left reachable.
+    /// </para>
+    /// </summary>
     public static bool IsUnanswered(RecallPlanFact plan, DateTime nowUtc) =>
         plan.Status == TreatmentPlanStatus.Draft
+        && !IsStalled(plan, nowUtc)
         && plan.CreatedAt.AddDays(UnansweredDevisGraceDays) <= nowUtc;
 }
