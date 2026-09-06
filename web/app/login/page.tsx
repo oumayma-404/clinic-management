@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/auth/session'
 import { Button } from '@/components/ui/button'
+import { AppLoader } from '@/components/ui/app-loader'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
@@ -50,7 +51,7 @@ export default function LoginPage() {
   if (isLoading) {
     return (
       <div className="flex h-dvh items-center justify-center">
-        <p className="text-muted-foreground">Chargement…</p>
+        <AppLoader />
       </div>
     )
   }

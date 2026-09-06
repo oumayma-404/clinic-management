@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
+import { AppLoader } from "@/components/ui/app-loader"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import { getErrorMessage, isNetworkError } from "@/lib/errors"
@@ -68,7 +69,7 @@ export default function TreatmentPlanWorkspacePage() {
   if (loading) {
     return (
       <AppShell width="none" gutter={false} mainClassName="flex items-center justify-center">
-        <p className="text-muted-foreground">Chargement du plan de traitement…</p>
+        <AppLoader label="Chargement du plan de traitement…" />
       </AppShell>
     )
   }

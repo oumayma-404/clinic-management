@@ -3,6 +3,7 @@ import Link from "next/link"
 import { DocumentEditorContent } from "@/components/document-editor-content"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { AppLoader } from "@/components/ui/app-loader"
 
 export default async function DocumentEditorPage({ params }: { params: Promise<{ type: string }> }) {
   const { type } = await params
@@ -34,12 +35,7 @@ export default async function DocumentEditorPage({ params }: { params: Promise<{
         ) : (
           <Suspense
             fallback={
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-                  <p className="mt-4 text-muted-foreground">Chargement...</p>
-                </div>
-              </div>
+              <AppLoader className="flex-1" />
             }
           >
             <DocumentEditorContent />

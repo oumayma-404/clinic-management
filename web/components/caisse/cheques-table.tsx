@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { AlertTriangle, CalendarClock, CalendarOff, CalendarRange, CheckCircle2, Landmark, Loader2, ReceiptText, SearchX } from "lucide-react"
+import { AlertTriangle, CalendarClock, CalendarOff, CalendarRange, CheckCircle2, Landmark, ReceiptText, SearchX } from "lucide-react"
 import { billingApi } from "@/lib/api/billing"
 import { invoicesApi } from "@/lib/api/invoices"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
@@ -24,6 +24,7 @@ import { ZONES, zoneChipClass } from "@/lib/zones"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { Badge } from "@/components/ui/badge"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
@@ -243,9 +244,7 @@ export function ChequesTable() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="me-2 size-5 animate-spin" /> Chargement…
-            </div>
+            <AppLoader />
           ) : error ? (
             // The strip above already carries the failure and the retry; here it would be the same message twice.
             null

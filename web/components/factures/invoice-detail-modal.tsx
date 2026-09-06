@@ -5,13 +5,14 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { Loader2, FileDown, Undo2, CalendarClock, Mail } from "lucide-react"
+import { FileDown, Undo2, CalendarClock, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -197,9 +198,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
         </DialogHeader>
 
         {loading && (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Chargement…
-          </div>
+          <AppLoader />
         )}
 
         {loadError && !loading && (

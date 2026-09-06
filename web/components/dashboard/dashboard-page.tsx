@@ -71,6 +71,7 @@ import { formatDT, todayLocalIso } from "@/lib/format"
 import type { DashboardPeriodKey, PeriodComparison } from "@/lib/api/types"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { Label } from "@/components/ui/label"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const PERIOD_PARAM = "period"
@@ -124,7 +125,7 @@ export function DashboardPage() {
     return (
       <ClinicGuard>
         <AppShell width="none" gutter={false}>
-          <p className="p-8 text-center text-muted-foreground">Chargement…</p>
+          <AppLoader />
         </AppShell>
       </ClinicGuard>
     )

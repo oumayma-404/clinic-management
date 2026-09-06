@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { SubscriptionHistoryTable } from "@/components/subscription/subscription-history-table"
 import { Badge } from "@/components/ui/badge"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -163,7 +164,7 @@ export default function AbonnementPage() {
                 Historique des paiements
               </h2>
               {sessionLoading ? (
-                <p className="text-sm text-muted-foreground">Chargement…</p>
+                <AppLoader className="py-6" />
               ) : isAdmin ? (
                 <SubscriptionHistoryTable
                   data={history}

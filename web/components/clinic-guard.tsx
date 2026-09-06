@@ -7,6 +7,7 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { isPublicRoute } from "@/lib/auth/public-routes"
 import { Button } from "@/components/ui/button"
+import { AppLoader } from "@/components/ui/app-loader"
 import UnauthorizedPage from "./unauthorized-page"
 
 interface ClinicGuardProps {
@@ -91,10 +92,7 @@ export function ClinicGuard({
     return (
       fallback || (
         <div className="min-h-dvh flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Chargement…</p>
-          </div>
+          <AppLoader />
         </div>
       )
     )

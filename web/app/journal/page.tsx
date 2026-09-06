@@ -6,6 +6,7 @@ import { AlertTriangle, FileClock, Cpu } from "lucide-react"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
+import { AppLoader } from "@/components/ui/app-loader"
 import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -151,7 +152,7 @@ export default function JournalPage() {
         contentClassName={isAdmin ? "space-y-6" : undefined}
       >
         {sessionLoading ? (
-          <p className="p-8 text-center text-muted-foreground">Chargement…</p>
+          <AppLoader />
         ) : !isAdmin ? (
           <AccessDeniedCard
             title="Réservé aux administrateurs"

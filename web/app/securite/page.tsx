@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AppShell } from '@/components/app-shell'
 import { ClinicGuard } from '@/components/clinic-guard'
 import { PageHeader } from '@/components/ui/page-header'
+import { AppLoader } from '@/components/ui/app-loader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -108,7 +109,7 @@ function SecurityContent() {
         }
       />
 
-      {loading && <Card><CardContent className="py-8"><p className="text-muted-foreground">Chargement…</p></CardContent></Card>}
+      {loading && <Card><CardContent className="p-0"><AppLoader /></CardContent></Card>}
 
       {!loading && failed && (
         <Card>

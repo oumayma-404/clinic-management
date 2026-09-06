@@ -7,6 +7,7 @@ import { ClinicGuard } from "@/components/clinic-guard"
 import { MedicationCatalogTable } from "@/components/medication-catalog-table"
 import { MedicationFormModal } from "@/components/medication-form-modal"
 import { PageHeader } from "@/components/ui/page-header"
+import { AppLoader } from "@/components/ui/app-loader"
 import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -48,7 +49,7 @@ export default function MedicationsPage() {
       */}
       <AppShell width={isAdmin ? "7xl" : "none"} gutter={isAdmin} contentClassName={isAdmin ? "space-y-6" : undefined}>
         {isLoading ? (
-          <p className="p-8 text-center text-muted-foreground">Chargement…</p>
+          <AppLoader />
         ) : isAdmin ? (
           <>
             {/* The route had no page title at all. No `zone` prop — derived from the route. */}
