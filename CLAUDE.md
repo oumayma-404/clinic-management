@@ -197,6 +197,18 @@ touching the area.
   failure. Only catches that *return a `Result`* are filtered; a log-only post-commit catch must still swallow.
 - **`Version == 0` means "not supplied" and skips the concurrency check.** That is what keeps the jobs and the
   Google→App sync working — and what leaves a forgotten round-trip silently unprotected.
+- **A write NOBODY MADE still spends the concurrency token somebody is holding, and the 409 it produces names a
+  person.** `xmin` is per-**row**, so any write ages every open form's version whoever made it — and
+  `AppointmentProgressJob` writes an appointment **every minute** (« En cours » at its slot's start minute,
+  « Séance passée » at its end). Production, 2026-09-05: the edit dialog read the row at 15:50:04, the job wrote
+  it at 15:50:05, the user pressed Enregistrer at 15:50:32 and was told « cet enregistrement a été modifié par
+  quelqu'un d'autre pendant votre saisie » — one clinic, one user, one session. `Appointment.VersionBeforeAutoAdvance`
+  + `AutomaticWriteInterceptor` (which decides from the **audit actor**, so a new writer cannot forget to
+  participate) make the job's own comment true at last: « a user's concurrent edit legitimately wins ». ⚠️ Its
+  amplifier is the frontend half and it cost far more than the one refused save: a dialog that catches a 409 into
+  a plain `setError` is **poisoned for good** — the version it holds never moves, so every later click repeats the
+  refusal (six of them over 81 minutes, until the user reloaded the page). Any form that round-trips a version
+  goes through `useConflict`, which offers the « Recharger » that the server's own sentence tells the user to do.
 - **Never `DateTime.UtcNow` or `DateTime.Today`.** `ClinicClock` is the only thing that knows Tunisia is UTC+1.
   `EndOfLocalDayUtc` is the *next* midnight (exclusive) while every money read is inclusive at both ends — use
   `LastTickOfLocalDayUtc`, or a midnight payment lands in two adjacent periods.

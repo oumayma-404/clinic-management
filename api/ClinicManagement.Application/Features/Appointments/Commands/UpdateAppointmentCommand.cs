@@ -524,7 +524,22 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
             // Validate the save against the version the USER was editing, not the one this
             // handler just loaded — that one always matches and would detect nothing.
-            _unitOfWork.SetExpectedVersion(appointment, request.Version);
+            //
+            // ⚠️ …but « the version the user was editing » is stale for a reason that is not a conflict. The token
+            // is `xmin`, which is per-ROW, and `AppointmentProgressJob` writes this row every minute — « En cours »
+            // at the slot's start minute, « Séance passée » at its end. A form opened seconds before either of
+            // those was refused with « modifié par quelqu'un d'autre » naming nobody, because nobody is who did it.
+            // `AcceptsExpectedVersion` also accepts the version an unbroken run of automatic writes superseded, and
+            // a human write clears that marker — so a colleague's edit is still the 409 it has always been. See
+            // `Appointment.VersionBeforeAutoAdvance` and `AutomaticWriteInterceptor`.
+            //
+            // Deliberately narrowed to the round-tripped case: `0` means « not supplied » and skips the check
+            // entirely, which is a different decision made elsewhere and must not be widened here.
+            var expectedVersion = request.Version != 0 && appointment.AcceptsExpectedVersion(request.Version)
+                ? appointment.Version
+                : request.Version;
+
+            _unitOfWork.SetExpectedVersion(appointment, expectedVersion);
             await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

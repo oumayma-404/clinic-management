@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useConflict } from "@/lib/hooks/use-conflict"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
@@ -177,7 +178,18 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    */
   const [showNotes, setShowNotes] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  /**
+   * The form's error state, which knows about 409s.
+   *
+   * <p>⚠️ Not a plain `useState` any more, and the difference is what a client hit in production on 2026-09-05:
+   * a refused save wrote its sentence here and left the dialog with **no way out**. `source` is read once when
+   * the dialog opens and never again, so every further click re-sent the same version and was refused
+   * identically — six times over eighty-one minutes, three of them on « Annuler le rendez-vous », before the
+   * user gave up and reloaded the page. `useConflict` keeps the sentence on screen, distinguishes the conflict
+   * so « Recharger » can be offered, and escalates the wording once reloading has already been tried.</p>
+   */
+  const conflict = useConflict()
+  const { error, setError, reset: resetConflict } = conflict
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   /**
    * « Supprimer (créé par erreur) » — deliberately NOT a second door to « Annulé ». A séance nobody ever booked
@@ -284,6 +296,34 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       .catch(() => { /* keep the prop — see above */ })
     return () => { cancelled = true }
   }, [open, appointment?.id])
+
+  /**
+   * « Recharger » — the way out of a real conflict, and the only one this dialog had been missing.
+   *
+   * <p>Re-reads the row and lets the hydration effect run again (it depends on `refreshed?.version`), so the
+   * form shows the server's current state and the user re-applies their change deliberately. That costs what
+   * they had typed, which is exactly what the server's own sentence promises — « Rechargez pour voir la
+   * version à jour, puis appliquez à nouveau votre modification » — and it is the only recovery that cannot
+   * silently overwrite the colleague whose save caused the conflict.</p>
+   *
+   * <p>⚠️ Deliberately a BUTTON and never automatic on a 409. Refreshing the version behind the user's back
+   * would turn their next click into precisely the lost update the token exists to stop — see
+   * `use-fresh-version.ts`, which says the same thing about `resync`.</p>
+   */
+  const reloadFromServer = useCallback(async () => {
+    if (!appointment?.id) return
+    setLoading(true)
+    try {
+      setRefreshed(await appointmentsApi.get(appointment.id))
+      resetConflict()
+      // The agenda behind the dialog is showing the same stale row.
+      onSuccess?.()
+    } catch {
+      setError("Impossible de recharger ce rendez-vous. Vérifiez votre connexion.")
+    } finally {
+      setLoading(false)
+    }
+  }, [appointment?.id, resetConflict, onSuccess, setError])
 
 
   // Calculate duration from end time
@@ -556,7 +596,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
-      setError(null)
+      // `reset`, not `setError(null)`: it also clears the consecutive-conflict counter, so a fresh dialog on a
+      // different visit cannot open already escalated to « quelqu'un travaille probablement dessus ».
+      resetConflict()
       setUseEndTime(false)
       setShowCancelDialog(false)
       setShowPastTimeConfirm(false)
@@ -681,10 +723,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         } else if (err.code === ApiErrorCode.OutsideWorkingHours && !allowOutsideWorkingHours) {
           setOutsideHoursPrompt(err.message)
         } else {
-          setError(err.message)
+          // `capture`, not `setError`: a 409 has a recovery this form can offer and a plain string does not.
+          conflict.capture(err, "Échec de la mise à jour du rendez-vous")
         }
       } else {
-        setError("Échec de la mise à jour du rendez-vous")
+        conflict.capture(err, "Échec de la mise à jour du rendez-vous")
       }
     } finally {
       setLoading(false)
@@ -735,11 +778,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError("Échec de l'annulation du rendez-vous")
-      }
+      // Three of the six refusals the client hit on 2026-09-05 were this button, on a visit the progress job
+      // had advanced under them — so this path needs the recovery just as much as the save above.
+      conflict.capture(err, "Échec de l'annulation du rendez-vous")
+      setShowCancelDialog(false)
     } finally {
       setLoading(false)
     }
@@ -1207,7 +1249,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               this scroller, so the banner is still below the fold unless you happen to be scrolled to the
               bottom. `FormErrorBanner` therefore scrolls itself into view — do not re-solve it by hand here.
             */}
-            <FormErrorBanner message={error} />
+            <FormErrorBanner
+              message={error}
+              action={
+                conflict.isConflict
+                  ? { label: "Recharger", onClick: () => void reloadFromServer(), disabled: loading }
+                  : undefined
+              }
+            />
 
             </div>
 
