@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260906215738_AddNotificationDismissals")]
+    partial class AddNotificationDismissals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -114,6 +117,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
+
+                    b.Property<long?>("VersionBeforeAutoAdvance")
+                        .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
@@ -1719,6 +1725,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("DentalRecordId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("InstallmentId")
                         .HasColumnType("uuid");
 
@@ -1758,6 +1767,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasIndex("ChequeDueDate")
                         .HasFilter("\"ChequeDueDate\" IS NOT NULL AND NOT \"IsVoided\"");
+
+                    b.HasIndex("DentalRecordId")
+                        .HasFilter("\"DentalRecordId\" IS NOT NULL");
 
                     b.HasIndex("InstallmentId");
 
@@ -3979,9 +3991,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int?>("EstimatedDurationMinutes")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("MinDaysAfterPrevious")
-                        .HasColumnType("integer");
-
                     b.Property<string>("Label")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -3989,6 +3998,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid?>("LinkedDentalRecordId")
                         .HasColumnType("uuid");
+
+                    b.Property<int?>("MinDaysAfterPrevious")
+                        .HasColumnType("integer");
 
                     b.Property<int>("SequenceNumber")
                         .HasColumnType("integer");

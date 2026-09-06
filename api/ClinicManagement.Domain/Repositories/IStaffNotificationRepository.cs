@@ -46,6 +46,20 @@ public interface IStaffNotificationRepository
     Task<bool> ReadMarkerExistsAsync(Guid notificationId, string userId, CancellationToken cancellationToken = default);
     Task AddReadMarkerAsync(NotificationRead read, CancellationToken cancellationToken = default);
 
+    Task<bool> DismissalExistsAsync(Guid notificationId, string userId, CancellationToken cancellationToken = default);
+    Task AddDismissalAsync(NotificationDismissal dismissal, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The ids of everything currently <b>visible</b> to this viewer — the exact set
+    /// <see cref="GetRecentForUserAsync"/> would return, without the display cap and projected to ids alone.
+    ///
+    /// <para>Backs « Tout effacer », which must clear what the reader can actually see. It is deliberately not
+    /// the <i>unread</i> set: the bell lists read rows too, and clearing a list while leaving the rows the user
+    /// has already read behind is the one outcome that would make the action look broken.</para>
+    /// </summary>
+    Task<IReadOnlyCollection<Guid>> GetVisibleIdsForUserAsync(
+        Guid clinicId, string userId, DateTime nowUtc, CancellationToken cancellationToken = default);
+
     /// <summary>The (single) reminder notification for an appointment, if one exists.</summary>
     Task<StaffNotification?> GetReminderByAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default);
 

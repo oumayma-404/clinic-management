@@ -17,8 +17,10 @@ import {
   type LucideIcon,
   DatabaseBackup,
   UserPlus,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { quoteFr } from "@/lib/format"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { lowStockOrderMessageFromAlert } from "@/lib/whatsapp"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -34,6 +36,14 @@ interface NotificationPanelProps {
   hasUnread: boolean
   onMarkAllRead: () => void
   onRowClick: (notification: NotificationDto) => void
+  /**
+   * Clears one row from **this user's** bell. Not an undo of whatever produced it, and a colleague's bell is
+   * untouched — the server writes a per-user dismissal, because one notification row is shown to everyone it
+   * targets.
+   */
+  onDismiss: (id: string) => void
+  /** Empties this user's bell. */
+  onDismissAll: () => void
 }
 
 const CATEGORY_ICON: Record<string, LucideIcon> = {
@@ -115,23 +125,56 @@ export function NotificationPanel({
   onMarkAllRead,
   onRowClick,
   onRetry,
+  onDismiss,
+  onDismissAll,
 }: NotificationPanelProps) {
+  // « Tout effacer » is about the rows on screen, so it is gated on there being rows — never on `hasUnread`,
+  // which is a different question and false for exactly the long read-through list this action exists for.
+  const hasRows = !loading && !error && notifications.length > 0
   return (
     <div className="flex max-h-[28rem] w-80 flex-col sm:w-96">
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between gap-1 border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold text-foreground">Notifications</h2>
-        {hasUnread && (
-          <button
-            type="button"
-            onClick={onMarkAllRead}
-            // `touch-target` + padding: a bare inline button around 12px text is a ~16px tall target, in a
-            // panel whose own rows are 60px, and it is the feed's only bulk action. The negative margin keeps
-            // the enlarged hit area from pushing the header taller.
-            className="touch-target -me-2 rounded px-2 py-1 text-xs font-medium text-primary hover:underline"
-          >
-            Tout marquer comme lu
-          </button>
-        )}
+        {/*
+          ⚠️ **Two bulk actions, and they are not the same action.** « Tout marquer comme lu » silences the badge
+          and keeps the list; « Tout effacer » empties the list. The bell is where a cabinet's whole year of
+          rappels, alertes de stock and comptes rendus accumulates, so without the second one the panel only ever
+          grows — every row read, none removable — which is what the request behind this named.
+
+          Each appears only when it has something to do: « Tout lire » with unread rows, « Tout effacer » with
+          any rows at all. `min-h-9` rather than `.touch-target`, because these two sit a few pixels apart in one
+          row and an overlaid 44 px hit area would overhang its neighbour — the later sibling paints last, so a
+          thumb aimed at « Tout lire » would fire « Tout effacer », which is the more destructive of the two
+          (§ 2 of the device contract).
+
+          ⚠️ **« Tout lire » is the shortened VISIBLE half of « Tout marquer comme lu », which stays as the
+          accessible name** (§ 10.1's rule, and `odontogram.tsx`'s « Créer un plan » is the precedent). This row
+          was built for one action and now holds two, and the panel is `w-80 sm:w-96` — it barely widens — so the
+          title and the two labels filled the row edge to edge at *every* width: measured at 390 px and at 820 px,
+          « Notifications » sat against the first button and « Tout effacer » against the panel's own edge.
+          Nothing overflowed, which is exactly why no check saw it and only looking did.
+        */}
+        <span className="-me-2 flex shrink-0 items-center gap-1">
+          {hasUnread && (
+            <button
+              type="button"
+              onClick={onMarkAllRead}
+              aria-label="Tout marquer comme lu"
+              className="inline-flex min-h-9 items-center rounded px-2 text-xs font-medium text-primary hover:underline coarse:min-h-11"
+            >
+              Tout lire
+            </button>
+          )}
+          {hasRows && (
+            <button
+              type="button"
+              onClick={onDismissAll}
+              className="inline-flex min-h-9 items-center rounded px-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:underline coarse:min-h-11"
+            >
+              Tout effacer
+            </button>
+          )}
+        </span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -199,17 +242,38 @@ export function NotificationPanel({
                       <span className="mt-1 block text-xs text-muted-foreground">{relativeTime(n.createdAt)}</span>
                     </span>
                   </button>
-                  {n.supplierName ? (
-                    <span className="flex items-center self-center pe-2">
-                      {/* No « Ajouter un numéro » fallback: the bell cannot open the fournisseur's form, and a
-                          dead control in a notification is worse than a row that simply names the contact. */}
+                  {/*
+                    Both trailing controls are SIBLINGS of the row button for the reason stated above — a button
+                    inside a button is invalid markup and the inner click would not survive the outer handler.
+
+                    ⚠️ **Always rendered, never `opacity-0 group-hover:`.** § 9.2: an affordance reachable only
+                    by hover has no touch path at all, and this panel is opened with a thumb on the device this
+                    product is used on most. It is a real 36 px control (44 px on a coarse pointer) sized by its
+                    own box rather than by `.touch-target`, because on a low-stock row it stands beside the
+                    WhatsApp action and an overlay would steal that neighbour's taps.
+
+                    ⚠️ The `aria-label` names the notification, not just the verb: a panel of ten rows would
+                    otherwise announce « Supprimer » ten times (§ 13).
+                  */}
+                  <span className="flex items-center gap-0.5 self-center pe-2">
+                    {n.supplierName ? (
+                      /* No « Ajouter un numéro » fallback: the bell cannot open the fournisseur's form, and a
+                         dead control in a notification is worse than a row that simply names the contact. */
                       <WhatsAppAction
                         phoneE164={n.supplierPhoneE164}
                         contactName={n.supplierName}
                         message={lowStockOrderMessageFromAlert(n.message)}
                       />
-                    </span>
-                  ) : null}
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => onDismiss(n.id)}
+                      aria-label={`Supprimer la notification ${quoteFr(n.title)}`}
+                      className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring coarse:size-11"
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                    </button>
+                  </span>
                 </li>
               )
             })}
