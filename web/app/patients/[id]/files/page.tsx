@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Button } from "@/components/ui/button"
+import { AppLoader } from "@/components/ui/app-loader"
 import { ArrowLeft } from "lucide-react"
 import { PatientFilesManager } from "@/components/patient-files-manager"
 import { patientsApi } from "@/lib/api/patients"
@@ -50,7 +51,7 @@ export default function PatientFilesPage() {
     return (
       <ClinicGuard>
         <AppShell width="none" mainClassName="flex items-center justify-center">
-        <p className="text-muted-foreground">Chargement…</p>
+        <AppLoader />
         </AppShell>
       </ClinicGuard>
     )

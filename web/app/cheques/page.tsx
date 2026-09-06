@@ -3,6 +3,7 @@
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
+import { AppLoader } from "@/components/ui/app-loader"
 import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { ChequesTable } from "@/components/caisse/cheques-table"
 import { useSession } from "@/lib/auth/session"
@@ -25,7 +26,7 @@ export default function ChequesPage() {
       {/* `7xl`, the default — the table is eight columns wide and the `5xl` /creances uses would crush it. */}
       <AppShell width={denied ? "none" : "7xl"} gutter={!denied} contentClassName={denied ? undefined : "space-y-6"}>
         {isLoading ? (
-          <p className="p-8 text-center text-muted-foreground">Chargement…</p>
+          <AppLoader />
         ) : denied ? (
           <AccessDeniedCard description="Les chèques détenus par le cabinet sont réservés au praticien et à l'administrateur. Un paiement par chèque reste enregistrable depuis la facture ou l'échéancier du patient." />
         ) : (

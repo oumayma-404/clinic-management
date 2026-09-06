@@ -37,6 +37,25 @@ interface AgendaPhoneHeaderProps {
    * « cabinet fermé ». The phone is the surface where the desk actually stands.
    */
   isDayOpen?: (day: Date) => boolean
+  /**
+   * Rendered at the bottom of the disclosure panel, under the view switch and the mini-month — the legend and
+   * the « Afficher les 24 heures » escape hatch, both owned by the calendar (they read `gridWindow`).
+   *
+   * ⚠️ They are passed in rather than rebuilt here for the usual reason, and one specific one: the 24-hour
+   * toggle is the *only* route to an out-of-hours slot, so a second copy of it that drifted from `gridWindow`
+   * would silently offer hours the grid does not draw.
+   */
+  panelExtra?: React.ReactNode
+  /** Google's « Nothing planned » line: one quiet row under the strip, shown only when the range is empty. */
+  note?: React.ReactNode
+  /**
+   * Told to the calendar so its floating « + » can stand down while the panel is open.
+   *
+   * ⚠️ The button is `absolute` against the calendar's whole box — header included — so an open panel puts it
+   * squarely over the legend's last row. It is the panel's own state that has to travel, not the button: moving
+   * the « + » out of the corner would give up the placement the owner asked for to fix a transient overlap.
+   */
+  onPanelOpenChange?: (open: boolean) => void
 }
 
 const VIEWS: { value: CalendarView; label: string }[] = [
@@ -68,9 +87,10 @@ const MAX_DOTS = 3
  * seven dates over the columns they belong to — so a second row of seven dates above it said the same thing
  * twice and cost the grid 58 px. In Mois the screen below *is* a month of days.
  *
- * ⚠️ View switching is a **segmented control in this header, not a bottom bar** (design D11): `bottom-nav.tsx`
- * is already the app's global bottom navigation, rendered from `app-shell.tsx`, and a second bottom bar on one
- * screen would regress Phase 02.
+ * ⚠️ View switching is a **segmented control inside the disclosure panel, not a permanent row and not a bottom
+ * bar** (design D11): `bottom-nav.tsx` is already the app's global bottom navigation, rendered from
+ * `app-shell.tsx`, and a second bottom bar on one screen would regress Phase 02. Why it left the header's own
+ * row — and what the two-tap switch bought — is on the panel itself, below.
  *
  * ⚠️ **« Nouveau » is not on this row.** It is the floating `+` the calendar paints over the bottom-end corner of
  * the grid — Google Agenda's own placement, and the user's — which is what freed this row for the ‹ › pair.
@@ -84,8 +104,24 @@ export function AgendaPhoneHeader({
   onNext,
   appointments,
   isDayOpen,
+  panelExtra,
+  note,
+  onPanelOpenChange,
 }: AgendaPhoneHeaderProps) {
   const [monthOpen, setMonthOpen] = useState(false)
+  /**
+   * ⚠️ The parent is told **outside** the updater, not inside it. A `setState` updater is expected to be pure and
+   * React may run it during a render, so calling `onPanelOpenChange` from within one updated `AppointmentCalendar`
+   * while `AgendaPhoneHeader` was rendering — « Cannot update a component while rendering a different component »
+   * in the console, and a warning is the *lenient* outcome. Both callers are click handlers, so reading `monthOpen`
+   * directly is safe and the updater form buys nothing.
+   */
+  const setPanel = (open: boolean) => {
+    setMonthOpen(open)
+    onPanelOpenChange?.(open)
+  }
+  const togglePanel = () => setPanel(!monthOpen)
+  const closePanel = () => setPanel(false)
 
   // How many appointments each visible day holds — drives the density dots in both the strip and the mini-month.
   const countsByDay = useMemo(() => {
@@ -114,9 +150,15 @@ export function AgendaPhoneHeader({
   const today = new Date()
   const isMonthView = view === "month"
   const isDayView = view === "day"
-  // The disclosure can only be open in a view that offers it, so switching to Mois cannot leave a mini-month
-  // stranded under the month grid — derived rather than reset in an effect.
-  const monthPickerOpen = monthOpen && !isMonthView
+  /**
+   * The disclosure is open in **every** view now, and that is the whole shape of this header.
+   *
+   * ⚠️ It used to be gated on `!isMonthView`, because all it held was a mini-month and the screen below Mois is
+   * one. It now holds the *view switch* as well, so gating it there would leave Mois with no way out of Mois.
+   * The mini-month is what stays month-view-only (see `showMiniMonth`), not the panel.
+   */
+  const panelOpen = monthOpen
+  const showMiniMonth = !isMonthView
   // In Mois the pill's job is to return to *this month*, not to this day: it must not linger all month because
   // the user is reading a date other than today.
   const showTodayPill = isMonthView ? !isSameMonth(selectedDate, today) : !isSameDay(selectedDate, today)
@@ -127,20 +169,18 @@ export function AgendaPhoneHeader({
     // The bottom padding is on the container, not on each branch: the last child differs per view (the strip in
     // Jour, the mini-month when open, the view switch in Semaine/Mois), and three separate bottom paddings is
     // three chances for one of them to sit flush against the border.
-    <div className="md:hidden border-b bg-card pb-1.5">
+    /* ⚠️ **Full-bleed (`-mx-4`), because the grid below it is.** `AppShell` gutters `<main>` with `p-4`, so the
+       agenda used to be a 358 px-wide slab inset in a 390 px screen — the « ça ne va pas jusqu'au bord » the
+       owner reported from an iPhone 13. Header and card bleed back through that gutter *together*: a header that
+       stopped 16 px short of a full-bleed grid would draw the day strip out of line with its own columns. */
+    <div className="-mx-4 md:hidden border-b bg-card pb-1.5">
       {/* Title + ‹ › + Aujourd'hui. The title names the MONTH in Semaine/Mois and the DAY in Jour, because when
           you are reading one day's grid the day is what you need to confirm. */}
       <div className="flex items-center gap-0.5 px-2 pt-1.5">
-        {isMonthView ? (
-          /* Mois has no mini-month to disclose (the screen below is one), so its title is a plain label. */
-          <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold capitalize">
-            {format(selectedDate, "MMMM yyyy", { locale: fr })}
-          </span>
-        ) : (
-          <button
+        <button
             type="button"
-            onClick={() => setMonthOpen((open) => !open)}
-            aria-expanded={monthPickerOpen}
+            onClick={togglePanel}
+            aria-expanded={panelOpen}
             /* `min-w-0` + `truncate`: with ‹ › and « Aujourd'hui » to its right, the date is the one item on
                this row that may give up width — at 320 px the four together are wider than the row, and a title
                that pushes instead of shortening would drive the arrows off screen.
@@ -156,9 +196,8 @@ export function AgendaPhoneHeader({
                 ? format(selectedDate, "EEE d MMMM", { locale: fr })
                 : format(selectedDate, "MMMM yyyy", { locale: fr })}
             </span>
-            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", monthPickerOpen && "rotate-180")} />
+            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", panelOpen && "rotate-180")} />
           </button>
-        )}
         {showTodayPill && (
           <button
             type="button"
@@ -196,6 +235,14 @@ export function AgendaPhoneHeader({
 
       {/*
         View switch — a segmented control, NOT a bottom bar (D11).
+
+        ⚠️ **It stays a PERMANENT row, on the owner's instruction, and it was briefly folded into the disclosure
+        panel below.** The argument for folding was arithmetic and it was real — 52 px of a 390 px screen, on a
+        page whose chrome measured 278 px against Google Agenda's ~132 — and Google does put its own
+        Day/Week/Month behind a menu. It is still the wrong trade *here*: Jour ⇄ Semaine is the most-used control
+        on this screen and a desk switches between them dozens of times a day, so two taps each is a worse tax
+        than the row it saves. The other three savings stand (the legend and the 24-hour hatch went into the
+        panel, the footer strip is desktop-only, the card is full-bleed), which is what pays for keeping it.
 
         ⚠️ `role="group"` + `aria-pressed`, deliberately downgraded from `role="tablist"`/`role="tab"`. The tab
         pattern is a **contract**: each tab needs `aria-controls` pointing at a real `role="tabpanel"`, and the
@@ -241,9 +288,20 @@ export function AgendaPhoneHeader({
         ))}
       </div>
 
-      {/* Collapsible mini-month. Density dots, never chips — a 390/7 ≈ 55 px column cannot hold a chip. */}
-      {monthPickerOpen && (
+      {/*
+        ══ The disclosure panel — the mini-month, plus what the calendar handed over ══
+
+        ⚠️ It opens in **every** view, including Mois, and that is what changed when the legend and the 24-hour
+        hatch moved in. It used to be a mini-month alone, so gating it on `!isMonthView` cost nothing; now Mois
+        would be the one view with no route to either. The *mini-month* is what stays month-view-only
+        (`showMiniMonth`) — the screen below it is already a month of days.
+      */}
+      {panelOpen && (
         <div className="mt-2 border-t px-3 pb-3 pt-2">
+
+      {/* Mini-month. Density dots, never chips — a 390/7 ≈ 55 px column cannot hold a chip. */}
+      {showMiniMonth && (
+        <div>
           <div className="flex items-center gap-1">
             <span className="flex-1 text-sm font-medium capitalize">
               {format(selectedDate, "MMMM yyyy", { locale: fr })}
@@ -283,7 +341,7 @@ export function AgendaPhoneHeader({
                   type="button"
                   onClick={() => {
                     onDateChange(day)
-                    setMonthOpen(false)
+                    closePanel()
                   }}
                   aria-current={selected ? "date" : undefined}
                   className={cn(
@@ -303,19 +361,24 @@ export function AgendaPhoneHeader({
         </div>
       )}
 
+          {/* The legend and « Afficher les 24 heures », handed over by the calendar — see `panelExtra`. The
+              separator is conditional: in Mois there is no mini-month above it, so an unconditional `border-t`
+              would sit one padding step under the panel's own and read as a double rule. */}
+          {panelExtra && <div className={cn(showMiniMonth && "mt-3 border-t pt-3")}>{panelExtra}</div>}
+        </div>
+      )}
+
       {/* 7-day strip — tap a day to go to it. Jour only: Semaine's grid draws its own dates over its own
-          columns, and Mois is a month of days. Hidden while the mini-month is open (it would say the same
+          columns, and Mois is a month of days. Hidden while the panel is open (its mini-month says the same
           thing). */}
-      {!monthPickerOpen && isDayView && (
+      {!panelOpen && isDayView && (
         /* At 320 px the seven cells measured ~37 px wide — under the § 2 floor, on the control this header
             exists for. The height floor above was reasoned about; the width never was.
 
-            ⚠️ Trimming the padding and the gap is NOT enough, and that is arithmetic rather than taste:
-            `AppShell`'s `<main>` gutter is 16 px a side, so the strip gets 288 px and seven cells cap at
-            41 px even edge to edge. Meeting 44 means reclaiming the gutter, so below 360 px the strip goes
-            full-bleed (`-mx-4`) — the one place in the app that does. Above 360 px there is room and it
-            returns to the normal gutter, so the bleed is invisible on every ordinary phone. */
-        <div className="-mx-4 mt-1.5 grid grid-cols-7 gap-0 px-1 min-[360px]:mx-0 min-[360px]:gap-0.5 min-[360px]:px-2">
+            ⚠️ The strip no longer carries its own `-mx-4`: the **header** bleeds now, so a second bleed here
+            would push it 16 px past the screen on each side. It gets the full 390 px either way — seven cells
+            of ~55 px, comfortably past the § 2 floor — and the padding only shrinks below 360 px. */
+        <div className="mt-1.5 grid grid-cols-7 gap-0 px-1 min-[360px]:gap-0.5 min-[360px]:px-2">
           {weekDays.map((day) => {
             const selected = isSameDay(day, selectedDate)
             const count = countFor(day)
@@ -362,6 +425,12 @@ export function AgendaPhoneHeader({
             )
           })}
         </div>
+      )}
+
+      {/* Google's « Nothing planned », in the band above the ruler rather than in a strip below it — which is
+          where the sentence used to live, costing the grid a 40 px footer to say that it was empty. */}
+      {!panelOpen && note && (
+        <p className="px-3 pt-1 text-xs leading-snug text-muted-foreground">{note}</p>
       )}
     </div>
   )

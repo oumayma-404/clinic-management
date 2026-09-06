@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -122,7 +123,7 @@ export function DoctorWorkingHoursCard({
       <FormErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Chargement des horaires…</p>
+        <AppLoader label="Chargement des horaires…" className="py-6" />
       ) : (
         <>
           {/* AC-P1.26: say it, rather than showing an ambiguous empty editor. */}

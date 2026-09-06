@@ -6,6 +6,7 @@ import { useState, useEffect } from "react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { Button } from "@/components/ui/button"
+import { AppLoader } from "@/components/ui/app-loader"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -593,10 +594,7 @@ export default function ClinicSettings() {
   if (isLoading) {
     return (
       <div className="min-h-full flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Chargement des paramètres du cabinet…</p>
-        </div>
+        <AppLoader label="Chargement des paramètres du cabinet…" />
       </div>
     )
   }

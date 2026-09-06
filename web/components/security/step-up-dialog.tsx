@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { FormErrorBanner } from '@/components/ui/form-error-banner'
 import { TotpCodeField } from '@/components/security/totp-code-field'
@@ -92,10 +92,9 @@ export function StepUpDialog({
       ) : (
         <div className="space-y-2">
           <Label htmlFor="stepup-password">Mot de passe</Label>
-          <Input
+          <PasswordInput
             id="stepup-password"
             ref={fieldRef}
-            type="password"
             autoComplete="current-password"
             autoFocus
             required

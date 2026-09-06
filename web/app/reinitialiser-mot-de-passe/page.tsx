@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { authApi } from "@/lib/api/auth"
@@ -163,9 +163,8 @@ export default function ResetPasswordPage() {
 
                   <div className="space-y-2">
                     <Label htmlFor="new-password">Nouveau mot de passe</Label>
-                    <Input
+                    <PasswordInput
                       id="new-password"
-                      type="password"
                       autoComplete="new-password"
                       value={password}
                       disabled={isSubmitting}
@@ -184,9 +183,8 @@ export default function ResetPasswordPage() {
 
                   <div className="space-y-2">
                     <Label htmlFor="confirm-password">Confirmer le mot de passe</Label>
-                    <Input
+                    <PasswordInput
                       id="confirm-password"
-                      type="password"
                       autoComplete="new-password"
                       value={confirmation}
                       disabled={isSubmitting}

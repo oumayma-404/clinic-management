@@ -11,6 +11,7 @@ import { toast } from "sonner"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { AccessDeniedCard } from "@/components/ui/access-denied-card"
+import { AppLoader } from "@/components/ui/app-loader"
 import { useSession } from "@/lib/auth/session"
 import { hidesClinicWideMoney } from "@/lib/nav"
 import { PageHeader } from "@/components/ui/page-header"
@@ -102,7 +103,7 @@ export default function CaissePage() {
     return (
       <ClinicGuard>
         <AppShell width="none" gutter={false}>
-          <p className="p-8 text-center text-muted-foreground">Chargement…</p>
+          <AppLoader />
         </AppShell>
       </ClinicGuard>
     )

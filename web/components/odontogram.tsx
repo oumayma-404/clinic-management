@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react
 import { toast } from "sonner"
 import { Plus, Trash2, Stethoscope, ClipboardList, CheckSquare, Check, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
@@ -336,7 +337,7 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
       )}
 
       {loading ? (
-        <p className="py-8 text-center text-muted-foreground">Chargement de l'odontogramme…</p>
+        <AppLoader label="Chargement de l'odontogramme…" />
       ) : mustAskDentition ? (
         <div
           role="status"

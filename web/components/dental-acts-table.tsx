@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -179,8 +180,8 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
   if (loading) {
     return (
       <Card>
-        <CardContent className="p-6">
-          <p className="text-center text-muted-foreground">Chargement du catalogue…</p>
+        <CardContent className="p-0">
+          <AppLoader label="Chargement du catalogue…" />
         </CardContent>
       </Card>
     )

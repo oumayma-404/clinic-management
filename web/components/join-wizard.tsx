@@ -6,6 +6,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Building2, ChevronRight, CheckCircle2 } from "lucide-react"
@@ -280,9 +281,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                           <Label htmlFor="reg-password" className="text-sm font-medium">
                             Mot de passe <span className="text-destructive">*</span>
                           </Label>
-                          <Input
+                          <PasswordInput
                             id="reg-password"
-                            type="password"
                             // The floor was hardcoded here too, so the placeholder went on promising 8 while the
                             // server refused at 12. Falls back to a sentence with no number when it is unknown.
                             placeholder={
@@ -297,9 +297,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                           <Label htmlFor="reg-password-confirm" className="text-sm font-medium">
                             Confirmer le mot de passe <span className="text-destructive">*</span>
                           </Label>
-                          <Input
+                          <PasswordInput
                             id="reg-password-confirm"
-                            type="password"
                             placeholder="Ressaisir le mot de passe"
                             value={regPasswordConfirm}
                             onChange={(e) => setRegPasswordConfirm(e.target.value)}

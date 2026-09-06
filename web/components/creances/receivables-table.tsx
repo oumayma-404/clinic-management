@@ -5,13 +5,14 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Loader2, HandCoins, SearchX } from "lucide-react"
+import { HandCoins, SearchX } from "lucide-react"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { ReceivableDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -124,9 +125,7 @@ export function ReceivablesTable() {
       </CardHeader>
       <CardContent>
         {loading ? (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Chargement…
-          </div>
+          <AppLoader />
         ) : error ? (
           <div className="py-12 text-center text-sm text-destructive">{error}</div>
         ) : (

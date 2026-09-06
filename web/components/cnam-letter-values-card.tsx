@@ -2,6 +2,7 @@
 
 import { Fragment, useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -184,9 +185,7 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
           action={{ label: "Réessayer", onClick: () => setRetryToken((t) => t + 1) }}
         />
         {loading ? (
-          <p role="status" className="text-center text-muted-foreground">
-            Chargement des valeurs…
-          </p>
+          <AppLoader label="Chargement des valeurs…" className="py-6" />
         ) : values.length === 0 ? (
           <EmptyState
             icon={Coins}

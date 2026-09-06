@@ -1096,7 +1096,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="firstName"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Mohamed"
                     autoComplete="given-name"
                     aria-invalid={!!errors.firstName}
                     className={cn(errors.firstName && "border-destructive")}
@@ -1113,7 +1112,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="lastName"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Ben Salah"
                     autoComplete="family-name"
                     aria-invalid={!!errors.lastName}
                     className={cn(errors.lastName && "border-destructive")}
@@ -1223,7 +1221,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="Ex. 20 123 456 (ou +216…)"
                     autoComplete="tel"
                     aria-invalid={!!errors.phone}
                     className={cn(errors.phone && "border-destructive")}
@@ -1342,7 +1339,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="mohamed.bensalah@email.tn"
                     autoComplete="email"
                     aria-invalid={!!errors.email}
                     className={cn(errors.email && "border-destructive")}
@@ -1495,7 +1491,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="addressStreet"
                     value={addressStreet}
                     onChange={(e) => setAddressStreet(e.target.value)}
-                    placeholder="12 rue de Carthage, Lafayette"
                     autoComplete="street-address"
                   />
                 </div>
@@ -1524,7 +1519,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     id="addressCity"
                     value={addressCity}
                     onChange={(e) => setAddressCity(e.target.value)}
-                    placeholder="Tunis"
                     autoComplete="address-level2"
                   />
                 </div>

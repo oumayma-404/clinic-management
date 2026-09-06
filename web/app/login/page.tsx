@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/auth/session'
 import { Button } from '@/components/ui/button'
+import { AppLoader } from '@/components/ui/app-loader'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { deviceName } from '@/lib/auth/device-name'
@@ -49,7 +51,7 @@ export default function LoginPage() {
   if (isLoading) {
     return (
       <div className="flex h-dvh items-center justify-center">
-        <p className="text-muted-foreground">Chargement…</p>
+        <AppLoader />
       </div>
     )
   }
@@ -846,9 +848,8 @@ function PasswordField({
   return (
     <div className="space-y-2">
       <Label htmlFor="password">Mot de passe</Label>
-      <Input
+      <PasswordInput
         id="password"
-        type="password"
         autoComplete="current-password"
         value={value}
         disabled={disabled}

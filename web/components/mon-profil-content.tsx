@@ -5,6 +5,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import Image from "next/image"
 import { Card } from "@/components/ui/card"
+import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -167,7 +168,7 @@ export function MonProfilContent() {
   }
 
   if (loading) {
-    return <Card className="p-6"><p className="text-center text-muted-foreground">Chargement du profil...</p></Card>
+    return <Card><AppLoader label="Chargement du profil…" /></Card>
   }
 
   if (loadError || !profile) {
