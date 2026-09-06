@@ -35,7 +35,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
-import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
+import { planStatusLabel, planStatusBadgeClass, planHasRecordedWork } from "./treatment-plan-labels"
 import {
   displayedOutstanding,
   isPlanBilled,
@@ -412,8 +412,8 @@ export function TreatmentPlansTable({
           loading={loading}
           status={(p) => (
             <>
-              <Badge variant="secondary" className={planStatusBadgeClass(p.status)}>
-                {planStatusLabel(p.status)}
+              <Badge variant="secondary" className={planStatusBadgeClass(p.status, planHasRecordedWork(p))}>
+                {planStatusLabel(p.status, planHasRecordedWork(p))}
               </Badge>
               {isPlanBilled(p) && (
                 <Badge variant="outline" className="whitespace-nowrap">
@@ -531,8 +531,8 @@ export function TreatmentPlansTable({
                     )}
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant="secondary" className={planStatusBadgeClass(plan.status)}>
-                          {planStatusLabel(plan.status)}
+                        <Badge variant="secondary" className={planStatusBadgeClass(plan.status, planHasRecordedWork(plan))}>
+                          {planStatusLabel(plan.status, planHasRecordedWork(plan))}
                         </Badge>
                         {isPlanBilled(plan) && (
                           <Badge variant="outline" className="whitespace-nowrap">

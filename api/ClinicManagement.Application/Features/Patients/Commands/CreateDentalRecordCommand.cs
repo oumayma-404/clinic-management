@@ -44,6 +44,25 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public List<DentalActInput> Acts { get; set; } = new();
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
+    /// <summary>
+    /// What the patient handed over towards the <b>treatment</b> this séance carries out — the cumulative figure
+    /// for this séance, not an increment. Requires <see cref="TreatmentPlanId"/>.
+    ///
+    /// <para>
+    /// ⚠️ <b>A second money field, and it must never be folded into <see cref="AmountPaid"/>.</b> They settle two
+    /// different things: « Payé » covers this séance's own acts and produces a note d'honoraires, while this draws
+    /// down a multi-séance act priced <i>once</i> on its devis and produces an échéance payment. A devis act sits
+    /// on the fiche at 0 by rule, so putting its money through « Payé » would either be refused (the payment may
+    /// not exceed the séance's total) or, if the 0 were overtyped, raise a second claim for work the treatment
+    /// already prices. See <c>DentalRecordTreatmentCollection</c>.
+    /// </para>
+    /// <para>
+    /// ⚠️ Collecting on a treatment that has no devis number <b>issues one</b> — see
+    /// <c>CollectOnTreatmentCommand</c>. That spends a gapless number, so the UI must say so before saving.
+    /// </para>
+    /// </summary>
+    public decimal AmountCollectedOnPlan { get; set; }
+
     /// <summary>Optional treatment plan whose step this record completes (required when <see cref="TreatmentPlanItemId"/> is set).</summary>
     public Guid? TreatmentPlanId { get; set; }
     /// <summary>Optional plan step this record carries out — marked "réalisé" and linked to this record on save.</summary>
@@ -147,6 +166,13 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
+            // « Un acte porté par un devis est à 0 », imposed here rather than trusted from the client — the same
+            // rule `PriceForPlanLinkedAct` already imposes when the séance is booked. Overtyping that 0 on the
+            // fiche is what raised a note d'honoraires for work the treatment already prices.
+            var acts = await PlanCarriedActPricing.ImposeAsync(
+                _treatmentPlanRepository, parsed.Value!, request.TreatmentPlanId, request.TreatmentPlanItemId,
+                clinicResult.Value, _logger, cancellationToken);
+
             // Which visit does this fiche document? The client's id when it sent one — the post-visit deep link
             // knows more than we can infer — otherwise the patient's single visit that day, and nothing when
             // there are none or several.
@@ -183,7 +209,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure("Mode de paiement invalide.");
             }
 
-            record.SetActs(parsed.Value!);
+            record.SetActs(acts);
 
             // Only now is `Cost` known — it is derived in `SetActs`, not passed to the ctor.
             var withinCost = DentalRecordBillingGuard.CheckPaymentWithinCost(record.Cost, record.AmountPaid);
@@ -211,7 +237,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
             var toothStates = DentalRecordActParser
-                .BuildToothStates(parsed.Value!, request.PatientId, patient.ClinicId, request.InterventionDate, record.Id)
+                .BuildToothStates(acts, request.PatientId, patient.ClinicId, request.InterventionDate, record.Id)
                 .ToList();
 
             // Treating a tooth closes any open diagnosis charted on it (AC-5).
@@ -267,6 +293,13 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             var dto = record.ToDto();
             dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
                 _sender, record, request.AmountPaid, _logger, cancellationToken);
+
+            // The séance's OTHER money: what the patient paid towards a multi-séance act, which is priced once on
+            // its treatment and collected a visit at a time. Post-commit and best-effort on the same contract, and
+            // deliberately a second call rather than a branch inside the first — the two produce different
+            // documents (a note d'honoraires, an échéance receipt) and a séance can legitimately do both.
+            dto.TreatmentCollection = await DentalRecordTreatmentCollection.CollectIfPaidAsync(
+                _sender, record, request.TreatmentPlanId, request.AmountCollectedOnPlan, _logger, cancellationToken);
 
             return Result<DentalRecordDto>.Success(dto);
         }

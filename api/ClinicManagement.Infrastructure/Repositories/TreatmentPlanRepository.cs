@@ -68,11 +68,24 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
          * cours. » as a 400, so the screen shows a load failure and the log holds a 40-line expression tree.
          * Nothing in UnitTests touches a database, so no test can see this: the page is the only witness.
          */
+        /*
+         * ⚠️ `TreatmentPlanLifecycle.LiveStatuses`, never a hand-written
+         * `Status == Accepted || Status == InProgress`. That literal stood here and it is what made « Suivre ce
+         * traitement » look broken: the command creates an un-numbered `Draft` on purpose, `AdvanceAfterWorkRecorded`
+         * deliberately leaves it one, and this filter then excluded the treatment from the very list it belongs
+         * to — silently, with the act's own status correctly `InProgress` all along. Pressing « Éditer le devis »
+         * promoted the plan to `Accepted` and appeared to fix it, which hid the cause behind a workaround.
+         *
+         * The same test was written out in four .tsx files and `check:responsive`'s N23 was built to hold them —
+         * but N23 scans `.tsx()` only, so this fifth writer was structurally beyond its reach. That is why the
+         * rule now lives in Domain and why `TreatmentPlanLifecycleTests` scans C# sources for the literal.
+         */
+        var liveStatuses = TreatmentPlanLifecycle.LiveStatuses;
         var query =
             from item in _context.Set<TreatmentPlanItem>()
             join plan in _context.TreatmentPlans on item.TreatmentPlanId equals plan.Id
             where plan.ClinicId == clinicId
-                  && (plan.Status == TreatmentPlanStatus.Accepted || plan.Status == TreatmentPlanStatus.InProgress)
+                  && liveStatuses.Contains(plan.Status)
                   && item.Status == TreatmentPlanItemStatus.InProgress
                   && (pattern == null
                       || EF.Functions.ILike(SqlSearch.Unaccent(plan.Number)!, pattern, SqlSearch.EscapeString)

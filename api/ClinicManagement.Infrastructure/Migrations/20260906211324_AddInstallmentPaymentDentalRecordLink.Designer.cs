@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260906211324_AddInstallmentPaymentDentalRecordLink")]
+    partial class AddInstallmentPaymentDentalRecordLink
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -114,9 +117,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
-
-                    b.Property<long?>("VersionBeforeAutoAdvance")
-                        .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
@@ -2319,25 +2319,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("Status", "ScheduledFor");
 
                     b.ToTable("Notifications", (string)null);
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.NotificationDismissal", b =>
-                {
-                    b.Property<Guid>("NotificationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("UserId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<DateTime>("DismissedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("NotificationId", "UserId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("NotificationDismissals", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.NotificationRead", b =>
@@ -4606,15 +4587,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Appointment");
 
                     b.Navigation("Patient");
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.NotificationDismissal", b =>
-                {
-                    b.HasOne("ClinicManagement.Domain.Entities.StaffNotification", null)
-                        .WithMany()
-                        .HasForeignKey("NotificationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.NotificationRead", b =>

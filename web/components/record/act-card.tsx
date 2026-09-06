@@ -256,17 +256,45 @@ export function ActCard({
                   down, so the dentist looked straight at the number they wanted to change and could not touch
                   it — and lowered « Payé » instead, recording a debt on a patient who owed nothing. */}
               <div className="flex flex-wrap items-center gap-2">
+                {/*
+                  ⚠️ **Read-only on an act the devis carries, and that is the hole the tarif override went
+                  through.** Such an act is 0 by rule — it is priced once, on the treatment — and the field was
+                  freely editable, so a dentist meeting a « Tarif 0,000 » they had no other way to act on typed
+                  the real fee over it. That raises a note d'honoraires for work the treatment already prices,
+                  carrying no plan link, so nothing de-duplicates it and the patient owes the same act twice.
+                  Measured: a 250 DT act with 150 collected left 250 owed on the devis and 100 on the note.
+
+                  `readOnly` rather than `disabled`: a disabled input is skipped by the keyboard and reads to a
+                  screen reader as unavailable, while this one has a value worth reaching and a reason worth
+                  hearing. The server imposes the same 0 (`PlanCarriedActPricing`), so this is the explanation,
+                  never the enforcement.
+                */}
                 <Input
                   type="text"
                   inputMode="decimal"
                   value={act.unitCost}
                   onChange={(e) => dispatch({ type: "patchAct", key: act.key, patch: { unitCost: e.target.value } })}
-                  className={cn("h-9 w-28 text-right font-semibold tabular-nums", priceInvalid && "border-destructive")}
+                  className={cn(
+                    "h-9 w-28 text-right font-semibold tabular-nums",
+                    priceInvalid && "border-destructive",
+                    act.billedOnPlan && "bg-muted text-muted-foreground",
+                  )}
                   placeholder="0,000"
                   disabled={disabled}
+                  readOnly={act.billedOnPlan}
+                  aria-readonly={act.billedOnPlan || undefined}
                   aria-label={act.perTooth ? "Prix par dent (DT)" : "Montant forfaitaire (DT)"}
+                  aria-describedby={act.billedOnPlan ? `${act.key}-plan-price` : undefined}
                   aria-invalid={priceInvalid}
                 />
+                {act.billedOnPlan && (
+                  <span
+                    id={`${act.key}-plan-price`}
+                    className="text-2xs text-muted-foreground"
+                  >
+                    Chiffré sur le traitement
+                  </span>
+                )}
                 {/* ⚠️ `coarse:h-11` on both, not the inherited `.touch-target`. `buttonVariants` centres a 44 px
                     overlay on every Button, so two 32 px ones 4 px apart overhang each other and the later
                     sibling paints last — tapping the right of « / dent » would set « forfait », i.e. silently

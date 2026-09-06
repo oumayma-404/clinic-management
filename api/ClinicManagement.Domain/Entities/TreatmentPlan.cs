@@ -296,17 +296,103 @@ public class TreatmentPlan : AggregateRoot<Guid>
         decimal amount,
         PaymentMethod method,
         DateTime paidOn,
-        ChequeDetails? cheque = null)
+        ChequeDetails? cheque = null,
+        Guid? dentalRecordId = null)
     {
         EnsurePayable();
         var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
             ?? throw new InvalidOperationException("Échéance introuvable.");
 
-        var payment = installment.RecordPayment(amount, method, paidOn, cheque);
+        var payment = installment.RecordPayment(amount, method, paidOn, cheque, dentalRecordId);
         if (Status == TreatmentPlanStatus.Accepted)
             Status = TreatmentPlanStatus.InProgress;
         Touch();
         return payment;
+    }
+
+    /// <summary>
+    /// What one fiche de soins has already collected onto this treatment — the live rows only, so a voided
+    /// payment stops counting exactly as it does everywhere else.
+    ///
+    /// <para>
+    /// ⚠️ <b>This is what makes re-saving a fiche safe.</b> « Encaissé sur le traitement » carries the séance's
+    /// <b>cumulative</b> figure, exactly as « Payé » does for a note d'honoraires, so the collector posts the
+    /// difference rather than the amount — the shape <c>BillDentalRecordCommand.TopUpAsync</c> already uses.
+    /// Without it, re-opening a fiche and pressing « Enregistrer » would take the money a second time, silently,
+    /// on the most ordinary edit there is.
+    /// </para>
+    /// </summary>
+    public decimal CollectedOnRecord(Guid dentalRecordId) =>
+        InvoiceCalculator.RoundMoney(
+            _installments
+                .SelectMany(i => i.Payments)
+                .Where(p => !p.IsVoided && p.DentalRecordId == dentalRecordId)
+                .Sum(p => p.Amount));
+
+    /// <summary>
+    /// Take money at the chair for this treatment, spreading it over the échéancier from the earliest unpaid
+    /// échéance onwards, and return the rows written.
+    ///
+    /// <para>
+    /// ⚠️ <b>It spreads rather than requiring an échéance id, and that is the whole difference from
+    /// <see cref="RecordInstallmentPayment"/>.</b> The dentist collecting 150 DT at the end of a séance is not
+    /// looking at an échéancier and must not be asked which line to put it against — while a treatment quoted in
+    /// three instalments has three lines, and a payment large enough to close the first legitimately runs into
+    /// the second. <see cref="Installment.RecordPayment"/> refuses an over-payment per row, so posting the whole
+    /// amount against the first line would fail on a schedule the patient is simply paying ahead of.
+    /// </para>
+    /// <para>
+    /// ⚠️ The caller must bound the amount by <see cref="Outstanding"/> first: this throws once the schedule is
+    /// full, which is correct as an invariant and useless as a message. <c>CollectOnTreatmentCommand</c> owns the
+    /// French refusal.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<InstallmentPayment> CollectChairside(
+        decimal amount,
+        PaymentMethod method,
+        DateTime paidOn,
+        ChequeDetails? cheque,
+        Guid dentalRecordId)
+    {
+        EnsurePayable();
+
+        var remaining = InvoiceCalculator.RoundMoney(amount);
+        if (remaining <= 0m)
+        {
+            throw new ArgumentException("Le montant encaissé doit être supérieur à 0.", nameof(amount));
+        }
+
+        var written = new List<InstallmentPayment>();
+        foreach (var installment in _installments.OrderBy(i => i.DueDate).ThenBy(i => i.Id))
+        {
+            if (remaining <= 0m)
+            {
+                break;
+            }
+
+            var room = installment.Outstanding;
+            if (room <= 0m)
+            {
+                continue;
+            }
+
+            var slice = Math.Min(room, remaining);
+            written.Add(installment.RecordPayment(slice, method, paidOn, cheque, dentalRecordId));
+            remaining = InvoiceCalculator.RoundMoney(remaining - slice);
+        }
+
+        if (remaining > 0m)
+        {
+            throw new InvalidOperationException(
+                "Le montant encaissé dépasse ce qui reste dû sur ce traitement.");
+        }
+
+        if (Status == TreatmentPlanStatus.Accepted)
+        {
+            Status = TreatmentPlanStatus.InProgress;
+        }
+        Touch();
+        return written;
     }
 
     /// <summary>
@@ -406,7 +492,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
         // Mirror MarkItemDone exactly: it promotes Accepted → InProgress on the first done act and → Completed
         // when all are done. Completed is therefore only reachable with every act done, so un-marking one always
         // reopens; and with no act done at all the plan is back where acceptance left it.
-        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+        Status = OpenStatusFromWork;
 
         Touch();
     }
@@ -457,7 +543,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
             return false;
         }
 
-        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+        Status = OpenStatusFromWork;
         Touch();
         return true;
     }
@@ -523,6 +609,34 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// « Accepté » while a bridge sat half-finished on it.
     /// </summary>
     private bool AnyWorkRecorded => _items.Any(i => i.HasDeliveredWork);
+
+    /// <summary>
+    /// What this plan's status is while it is open, derived from the work its acts carry — and, above all,
+    /// <b>never a promotion of an un-numbered treatment</b>.
+    ///
+    /// <para>
+    /// ⚠️ <b>Keyed on <see cref="Number"/>, not on the current <see cref="Status"/>, and that is the point.</b>
+    /// The three callers reset the status from scratch, and one of them (<see cref="Reopen"/>) runs while the
+    /// plan is <c>Completed</c>, so it cannot ask « was this a draft before? ». The number can: <see cref="Accept"/>
+    /// is the only writer of it, so <b>no number means never quoted</b> — which is precisely the invariant at
+    /// stake. <c>PlanBillingRules.CarriesDebt</c> reads <c>Accepted</c>/<c>InProgress</c> as real money owed, so
+    /// an un-numbered plan wearing either would claim a total from a patient against a devis that does not exist.
+    /// </para>
+    ///
+    /// <para>
+    /// It exists because the expression was written out three times — in <see cref="UnmarkItemDone"/>,
+    /// <see cref="UnmarkItemStep"/> and <see cref="Reopen"/> — while only <see cref="AdvanceAfterWorkRecorded"/>
+    /// was given the draft guard when « Suivre ce traitement » made an un-numbered plan a live treatment. The
+    /// <see cref="Reopen"/> copy was reachable in the product: <see cref="StopTreatment"/> admits a Draft and
+    /// leaves it <c>Completed</c>, so « Arrêter le traitement » followed by « Reprendre le traitement » turned a
+    /// followed treatment into an <c>Accepted</c> devis with a null number and a live créance for its full total.
+    /// No error, and nothing on screen said so.
+    /// </para>
+    /// </summary>
+    private TreatmentPlanStatus OpenStatusFromWork =>
+        Number is null
+            ? TreatmentPlanStatus.Draft
+            : AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
 
     /// <summary>
     /// The acts that still count as this plan's treatment — everything except the ones parked by
@@ -655,7 +769,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         // `ToList()` first: `Restore` mutates, and counting a lazy sequence would restore only what is enumerated.
         var restored = _items.Select(i => i.Restore()).ToList().Count(r => r);
-        Status = AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+        Status = OpenStatusFromWork;
         if (restored > 0)
         {
             RecomputeTotal();
@@ -1069,16 +1183,30 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// <summary>
     /// A correction to what was already recorded may be applied to a <c>Completed</c> plan — unlike
     /// <see cref="EnsureActive"/>, which guards *doing* work. Marking the last act done closes the plan, so a
-    /// correction gate that excluded <c>Completed</c> would lock out the exact mistake it needs to fix. A
-    /// <c>Draft</c> has no realised act to undo and a <c>Cancelled</c> plan is void.
+    /// correction gate that excluded <c>Completed</c> would lock out the exact mistake it needs to fix. Only a
+    /// <c>Cancelled</c> plan is void.
+    ///
+    /// <para>
+    /// ⚠️ <b>A <c>Draft</c> is correctable, and the note that said otherwise — « a Draft has no realised act to
+    /// undo » — stopped being true the moment <see cref="EnsureActive"/> admitted one.</b> A followed treatment
+    /// records séances while un-numbered, so it accumulates exactly the realised steps this gate exists to undo;
+    /// excluding it meant a step attached to the wrong fiche could never be detached, and the refusal named
+    /// « un devis accepté, en cours ou terminé » — three states the dentist had deliberately not put the
+    /// treatment in, and could not reach without minting a devis nobody had asked for.
+    /// </para>
+    /// <para>
+    /// Admitting it is only safe because <see cref="OpenStatusFromWork"/> keeps an un-numbered plan a Draft when
+    /// the callers reset the status; the two changes belong together and must not be separated.
+    /// </para>
     /// </summary>
     private void EnsureCorrectable()
     {
-        if (Status != TreatmentPlanStatus.Accepted
+        if (Status != TreatmentPlanStatus.Draft
+            && Status != TreatmentPlanStatus.Accepted
             && Status != TreatmentPlanStatus.InProgress
             && Status != TreatmentPlanStatus.Completed)
         {
-            throw new InvalidOperationException("Seul un devis accepté, en cours ou terminé peut être corrigé.");
+            throw new InvalidOperationException("Ce devis est annulé : il ne peut plus être corrigé.");
         }
     }
 

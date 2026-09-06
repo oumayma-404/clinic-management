@@ -55,6 +55,25 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public List<DentalActInput> Acts { get; set; } = new();
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
+    /// <summary>
+    /// What the patient handed over towards the <b>treatment</b> this séance carries out — the cumulative figure
+    /// for this séance, not an increment. Requires <see cref="TreatmentPlanId"/>.
+    ///
+    /// <para>
+    /// ⚠️ <b>A second money field, and it must never be folded into <see cref="AmountPaid"/>.</b> They settle two
+    /// different things: « Payé » covers this séance's own acts and produces a note d'honoraires, while this draws
+    /// down a multi-séance act priced <i>once</i> on its devis and produces an échéance payment. A devis act sits
+    /// on the fiche at 0 by rule, so putting its money through « Payé » would either be refused (the payment may
+    /// not exceed the séance's total) or, if the 0 were overtyped, raise a second claim for work the treatment
+    /// already prices. See <c>DentalRecordTreatmentCollection</c>.
+    /// </para>
+    /// <para>
+    /// ⚠️ Collecting on a treatment that has no devis number <b>issues one</b> — see
+    /// <c>CollectOnTreatmentCommand</c>. That spends a gapless number, so the UI must say so before saving.
+    /// </para>
+    /// </summary>
+    public decimal AmountCollectedOnPlan { get; set; }
+
     /// <summary>Optional treatment plan whose step this record completes (required when <see cref="TreatmentPlanItemId"/> is set).</summary>
     public Guid? TreatmentPlanId { get; set; }
     /// <summary>Optional plan step this record carries out — marked "réalisé" and linked to this record on save.</summary>
@@ -150,6 +169,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
+            // « Un acte porté par un devis est à 0 », imposed here rather than trusted from the client — the same
+            // rule `PriceForPlanLinkedAct` already imposes when the séance is booked. Overtyping that 0 on the
+            // fiche is what raised a note d'honoraires for work the treatment already prices.
+            var acts = await PlanCarriedActPricing.ImposeAsync(
+                _treatmentPlanRepository, parsed.Value!, request.TreatmentPlanId, request.TreatmentPlanItemId,
+                clinicResult.Value, _logger, cancellationToken);
+
             // AC-P4.10 on the EDIT path: consume only what this edit ADDS. A fiche is re-saved routinely (a
             // corrected note, one more tooth), and consuming the whole list again each time would draw stock for
             // materials already used — strictly worse than the under-consumption it replaces. Acts are counted
@@ -167,7 +193,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             var previousDate = dentalRecord.InterventionDate;
 
             dentalRecord.Update(request.InterventionDate, request.AmountPaid, request.Notes, request.ImportantNotes);
-            dentalRecord.SetActs(parsed.Value!);
+            dentalRecord.SetActs(acts);
             // Null stays null — « non renseigné », which every read takes as cash. Storing an explicit `Cash` for a
             // request that named no method would make a historical row and a deliberately-cash one indistinguishable.
             dentalRecord.SetPayment(
@@ -264,7 +290,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 
             var toothStates = DentalRecordActParser
                 .BuildToothStates(
-                    parsed.Value!, dentalRecord.PatientId, dentalRecord.ClinicId, request.InterventionDate, dentalRecord.Id)
+                    acts, dentalRecord.PatientId, dentalRecord.ClinicId, request.InterventionDate, dentalRecord.Id)
                 .ToList();
 
             // Treating a tooth closes any open diagnosis charted on it (AC-5).
@@ -314,6 +340,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
                 _sender, dentalRecord, request.AmountPaid, _logger, cancellationToken,
                 supersedesInvoiceId: supersedes);
+
+            // The séance's OTHER money — see the create path for why it is a second call and not a branch. The
+            // re-save case is the one that matters here: the command derives the increment from what THIS fiche
+            // has already put on the treatment, so pressing « Enregistrer » again adds the difference or nothing.
+            dto.TreatmentCollection = await DentalRecordTreatmentCollection.CollectIfPaidAsync(
+                _sender, dentalRecord, request.TreatmentPlanId, request.AmountCollectedOnPlan,
+                _logger, cancellationToken);
 
             return Result<DentalRecordDto>.Success(dto);
         }

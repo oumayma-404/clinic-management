@@ -62,6 +62,24 @@ public class InstallmentPayment : Entity<Guid>
     /// <inheritdoc cref="Payment.ChequeBankedByName"/>
     public string? ChequeBankedByName { get; private set; }
 
+    /// <summary>
+    /// The fiche de soins this money was handed over at, when it was collected chairside — a soft reference, no FK.
+    ///
+    /// <para>
+    /// ⚠️ <b>It is what makes a séance-by-séance treatment traceable, and it is not decoration.</b> Money on a
+    /// multi-séance act arrives a visit at a time, and without this the échéancier holds a column of amounts that
+    /// cannot be attributed to a session: re-saving a fiche would collect its amount a second time (there is
+    /// nothing to compare against), « le patient avait donné combien la dernière fois ? » has no answer, and a
+    /// mis-keyed amount can only be found by date.
+    /// </para>
+    /// <para>
+    /// Null for every payment taken at the till or on an échéance — the ordinary route — and for every row
+    /// written before the column existed. Null therefore means « not collected on a fiche », never « unknown »,
+    /// so nothing may backfill it.
+    /// </para>
+    /// </summary>
+    public Guid? DentalRecordId { get; private set; }
+
     private InstallmentPayment() { } // For EF Core
 
     public InstallmentPayment(
@@ -70,7 +88,8 @@ public class InstallmentPayment : Entity<Guid>
         decimal amount,
         PaymentMethod method,
         DateTime paidOn,
-        ChequeDetails? cheque = null)
+        ChequeDetails? cheque = null,
+        Guid? dentalRecordId = null)
     {
         if (amount <= 0)
             throw new ArgumentException("Le montant du paiement doit être supérieur à 0.", nameof(amount));
@@ -83,6 +102,7 @@ public class InstallmentPayment : Entity<Guid>
         ChequeNumber = cheque?.Number;
         ChequeBankName = cheque?.BankName;
         ChequeDueDate = cheque?.DueDate;
+        DentalRecordId = dentalRecordId == Guid.Empty ? null : dentalRecordId;
         CreatedAt = DateTime.UtcNow;
     }
 

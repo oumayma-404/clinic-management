@@ -232,6 +232,28 @@ touching the area.
   `UseClinic(id)`.
 - **A new `Features/<Area>` folder emits a realtime key** that `web/lib/realtime/clinic-hub.ts` must declare;
   `RealtimeResourceResolverTests` compares the two sets in both directions and fails either way.
+- **A followed treatment is a `Draft`, and « Draft » now means two opposite things depending on who is asking.**
+  « Suivre ce traitement » creates an un-numbered plan that is **clinically live and financially inert**, and
+  `AdvanceAfterWorkRecorded` keeps it a Draft however many séances it records. Ask
+  `TreatmentPlanLifecycle.IsLive` (C#) or `isPlanLive` (TS) — never a hand-written
+  `Status == Accepted || Status == InProgress`, which excluded it in **seven** places: four `.tsx` writers that
+  N23 caught, the SQL behind « Traitements en cours » that N23's `.tsx`-only scan structurally could not reach,
+  and both halves of the recall worklist (a stalled followed treatment was never chased, while every followed
+  treatment older than 14 days was reported as « devis présenté, jamais répondu » — a quote that cannot exist,
+  since `Accept` is the only writer of `Number`). ⚠️ Its financial twin is the **opposite** rule:
+  `PlanBillingRules.CarriesDebt(Draft)` is false, both installment reads filter on `DebtBearingPlanStatuses`,
+  and **an un-numbered plan must never wear a status that carries debt** — `OpenStatusFromWork` keys on
+  `Number is null` for that reason, after the guard was applied to one of four status writers and
+  « Arrêter le traitement » → « Reprendre le traitement » turned a followed treatment into an `Accepted` devis
+  with a null number and a live créance for a total nobody had quoted.
+- **Money for a multi-séance act goes on the TREATMENT, never on the séance's note d'honoraires.** The act is
+  priced once, so it sits on the fiche at **0** — imposed server-side by `PlanCarriedActPricing`, not merely
+  offered — and what the patient hands over at the chair is `AmountCollectedOnPlan`, a **second** money field that
+  is never folded into « Payé ». Collecting on a treatment with no devis **mints its number**
+  (`CollectOnTreatmentCommand`), because a `Draft` has no échéancier and la caisse cannot see one. Overtyping
+  that 0 is how a 250 DT act with 150 collected left the patient owing 250 on the devis **and** 100 on an
+  unlinked note: an invoice raised from a fiche carries `dentalRecordId` and **no `TreatmentPlanId`**, so
+  `PlanBillingRules.BilledPlanIds` cannot de-duplicate it.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill

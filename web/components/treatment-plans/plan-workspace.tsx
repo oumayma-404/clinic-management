@@ -42,7 +42,7 @@ import type {
 } from "@/lib/api/types"
 import { formatDT, formatDateFr, isBeforeToday, quoteFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
-import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
+import { planStatusLabel, planStatusBadgeClass, planHasRecordedWork } from "./treatment-plan-labels"
 import {
   activeItems,
   displayedOutstanding,
@@ -717,8 +717,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   · révision {plan.revisionNumber}
                 </span>
               )}
-              <Badge variant="secondary" className={planStatusBadgeClass(plan.status)}>
-                {planStatusLabel(plan.status)}
+              <Badge variant="secondary" className={planStatusBadgeClass(plan.status, planHasRecordedWork(plan))}>
+                {planStatusLabel(plan.status, planHasRecordedWork(plan))}
               </Badge>
               {billed && (
                 <Badge variant="outline">

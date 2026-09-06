@@ -78,8 +78,14 @@ export function PlanStepSuggestionNotice({
             </p>
           )}
           <p className="text-2xs text-muted-foreground">
-            {/* See the class note: the point of the figure is that it must NOT be collected again. */}
-            {formatDT(item.plannedCost)} — déjà facturé sur le devis, rien à encaisser pour cette séance.
+            {/*
+              ⚠️ It used to end « rien à encaisser pour cette séance », and that became false the day the fiche
+              gained « Encaissé sur le traitement »: a multi-séance act is priced once and collected a visit at a
+              time, so there is very often something to take — just not a second fee. The figure's point is
+              unchanged (it must not be charged again); what was wrong was the claim about the money.
+            */}
+            {formatDT(item.plannedCost)} pour tout le traitement — cette séance n&apos;ajoute pas
+            d&apos;honoraires.
           </p>
         </div>
         {/* Icon-only, so it carries its own name (P2). It puts the reminder away; it decides nothing. */}

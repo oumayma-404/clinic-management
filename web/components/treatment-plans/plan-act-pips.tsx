@@ -1,8 +1,8 @@
 "use client"
 
-import type { TreatmentPlanItemDto } from "@/lib/api/types"
+import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
-import { planItemState, type PlanItemState } from "./plan-next-action"
+import { planItemState, planSeanceProgress, type PlanItemState } from "./plan-next-action"
 import { itemWorkflowInk } from "./treatment-plan-labels"
 import { PlanProgressBar } from "./plan-progress-bar"
 
@@ -18,6 +18,21 @@ interface PlanActPipsProps {
   /** Acts done / total, from the DTO's own derived counters rather than recounted here. */
   done: number
   total: number
+  /**
+   * The plan the acts belong to, so the figure can lead with **séances**.
+   *
+   * <p>⚠️ <b>Without it this printed « 0 / 1 acte » for the whole life of a six-visit treatment</b>, because an
+   * act only becomes `Done` when its last step lands — so the one surface a patient's own page gives their
+   * treatment had no progress signal at all, on exactly the acts the feature exists for. The workspace and the
+   * treatments table had already been given `planSeanceProgress`; this was the third of three and was missed.</p>
+   *
+   * <p>Acts are kept as the secondary figure rather than dropped: a bridge is not réalisé until it is scellé,
+   * and rounding that up would be a claim about a patient's mouth. Same split, same wording, as the workspace's
+   * « Séances réalisées » figure and its « N / M actes » hint.</p>
+   *
+   * <p>Optional, so a caller with only the items renders exactly as before.</p>
+   */
+  plan?: TreatmentPlanDto
   className?: string
 }
 
@@ -37,8 +52,12 @@ interface PlanActPipsProps {
  * is deliberate: the `role="progressbar"` this replaces had to special-case an empty plan because `aria-valuemax`
  * of 0 announces as undefined progress. A text fraction has no such edge.</p>
  */
-export function PlanActPips({ items, done, total, className }: PlanActPipsProps) {
+export function PlanActPips({ items, done, total, plan, className }: PlanActPipsProps) {
   if (total <= 0) return null
+
+  // Séances lead when the plan is in hand; acts stay beside them. See the `plan` prop.
+  const seances = plan ? planSeanceProgress(plan) : null
+  const actsLabel = `${done}/${total} acte${total > 1 ? "s" : ""}`
 
   // A long plan: hand over to the bar, which stays legible at any act count.
   if (items.length > MAX_PIPS) {
@@ -46,7 +65,7 @@ export function PlanActPips({ items, done, total, className }: PlanActPipsProps)
       <span className={cn("flex items-center gap-2", className)}>
         <PlanProgressBar done={done} total={total} className="w-24" />
         <span className="text-sm tabular-nums text-muted-foreground">
-          {done}/{total} actes
+          {seances && seances.total > 0 ? `${seances.done}/${seances.total} séances` : actsLabel}
         </span>
       </span>
     )
@@ -64,11 +83,23 @@ export function PlanActPips({ items, done, total, className }: PlanActPipsProps)
         ))}
       </span>
       <span className="text-sm tabular-nums text-muted-foreground">
-        {/* « actes » agrees with the noun. The card this replaces pluralised « réalisé » on `itemsDone`, so a
-            plan at 0/2 printed « 0/2 actes réalisé ». The word is dropped here for width; the full phrase is
+        {/* The noun agrees with the count. The card this replaces pluralised « réalisé » on `itemsDone`, so a
+            plan at 0/2 printed « 0/2 actes réalisé ». The participle is dropped here for width and restored
             below, for screen readers. */}
-        {done}/{total} acte{total > 1 ? "s" : ""}
-        <span className="sr-only"> réalisé{total > 1 ? "s" : ""}</span>
+        {seances && seances.total > 0 ? (
+          <>
+            {seances.done}/{seances.total} séance{seances.total > 1 ? "s" : ""}
+            <span className="sr-only"> réalisée{seances.total > 1 ? "s" : ""}</span>
+            {/* The act count survives as the hint, never as the headline — a treatment is finished when its
+                acts are, and a séance count alone would let « 5/6 » read as almost-done work that is not. */}
+            <span className="ms-1.5 text-2xs opacity-80">· {actsLabel}</span>
+          </>
+        ) : (
+          <>
+            {actsLabel}
+            <span className="sr-only"> réalisé{total > 1 ? "s" : ""}</span>
+          </>
+        )}
       </span>
     </span>
   )

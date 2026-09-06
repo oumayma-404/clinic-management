@@ -72,7 +72,24 @@ public class InstallmentPaymentConfiguration : IEntityTypeConfiguration<Installm
         builder.Property(p => p.ChequeBankedByName)
             .HasMaxLength(200);
 
+        /*
+         * The fiche this money was handed over at — a SOFT reference, with no FK, deliberately.
+         *
+         * `TreatmentPlanItemStep.LinkedDentalRecordId` is the same shape for the same reason: a fiche and a
+         * treatment are separate aggregates, and a cascade either way would be wrong in both directions — a
+         * deleted fiche must not take a receipt with it, and a collected payment must not stop a clinical record
+         * from being corrected. Nullable, and null means « not collected on a fiche » rather than « unknown »,
+         * so no backfill: every row that predates the column really was taken at the till or on the échéancier.
+         */
+        builder.Property(p => p.DentalRecordId);
+
         builder.HasIndex(p => p.InstallmentId);
+
+        // What `TreatmentPlan.CollectedOnRecord` reads on every re-save of a fiche carrying a treatment act, to
+        // post the difference rather than the amount. Filtered to the rows that have one: chairside collection is
+        // a minority of receipts, and an unfiltered index over mostly-NULL is the larger, less useful one.
+        builder.HasIndex(p => p.DentalRecordId)
+            .HasFilter("\"DentalRecordId\" IS NOT NULL");
 
         // The index that makes the fixed monthly cash read cheap. Installments previously had no date index
         // at all, so the old (wrong) LastPaidOn query already scanned — this must not repeat that.
