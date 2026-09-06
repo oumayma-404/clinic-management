@@ -1970,6 +1970,24 @@ check(
   },
 );
 
+check(
+  "password-has-a-reveal",
+  "P2",
+  'Every password field is `<PasswordInput>` — no raw `type="password"` outside the primitive',
+  "A password box you cannot read is where « mot de passe incorrect » comes from on a phone keyboard, and this " +
+    "app asks for one at the front door, at the forced first change, at every step-up, in the join and setup " +
+    "wizards and on three secret fields in `reminder-settings`. Adding the eye to the login screen and stopping " +
+    "there is this repository's dominant defect shape, so the reveal lives in `ui/password-input.tsx` and this " +
+    "check is what keeps the ninth field from being written without it. " +
+    "⚠️ The primitive is the only exemption, and it is not a screen-shaped one: a field that must stay legible " +
+    "— the recovery code copied off paper — is `type=\"text\"` and matches nothing here.",
+  () =>
+    scanLines(
+      tsx().filter((f) => !/components[\\/]ui[\\/]password-input\.tsx$/.test(rel(f))),
+      /type=\{?["']password["']\}?/,
+    ),
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -739,9 +740,8 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                         <Label htmlFor="admin-password" className="text-sm font-medium">
                           Mot de passe <span className="text-destructive">*</span>
                         </Label>
-                        <Input
+                        <PasswordInput
                           id="admin-password"
-                          type="password"
                           // The floor was hardcoded here too, so the placeholder went on promising 8 while the
                           // server refused at 12. Falls back to a sentence with no number when it is unknown.
                           placeholder={
@@ -756,9 +756,8 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                         <Label htmlFor="admin-password-confirm" className="text-sm font-medium">
                           Confirmer le mot de passe <span className="text-destructive">*</span>
                         </Label>
-                        <Input
+                        <PasswordInput
                           id="admin-password-confirm"
-                          type="password"
                           placeholder="Ressaisir le mot de passe"
                           value={adminPasswordConfirm}
                           onChange={(e) => setAdminPasswordConfirm(e.target.value)}

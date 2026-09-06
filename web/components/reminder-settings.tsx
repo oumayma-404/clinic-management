@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
@@ -464,9 +465,8 @@ export function ReminderSettings() {
                   </Label>
                   {secretBadge(smsApiKeyConfigured)}
                 </div>
-                <Input
+                <PasswordInput
                   id="sms-api-key"
-                  type="password"
                   autoComplete="new-password"
                   placeholder={smsApiKeyConfigured ? "•••••••• (inchangée)" : "Saisir la clé API"}
                   value={smsApiKey}
@@ -601,9 +601,8 @@ export function ReminderSettings() {
                   </Label>
                   {secretBadge(whatsAppAccessTokenConfigured)}
                 </div>
-                <Input
+                <PasswordInput
                   id="wa-access-token"
-                  type="password"
                   autoComplete="new-password"
                   placeholder={whatsAppAccessTokenConfigured ? "•••••••• (inchangé)" : "Saisir le jeton d'accès"}
                   value={whatsAppAccessToken}
@@ -787,9 +786,8 @@ export function ReminderSettings() {
                   </Label>
                   {secretBadge(smtpPasswordConfigured)}
                 </div>
-                <Input
+                <PasswordInput
                   id="smtp-password"
-                  type="password"
                   placeholder={smtpPasswordConfigured ? "•••••••• (inchangé)" : "Mot de passe SMTP"}
                   value={smtpPassword}
                   onChange={(e) => setSmtpPassword(e.target.value)}

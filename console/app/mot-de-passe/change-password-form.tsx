@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { readRefusal } from "@/lib/refusal";
 
@@ -62,9 +62,8 @@ export function ChangePasswordForm({ passwordMinLength }: ChangePasswordFormProp
 
       <div className="space-y-2">
         <Label htmlFor="currentPassword">Mot de passe actuel</Label>
-        <Input
+        <PasswordInput
           id="currentPassword"
-          type="password"
           autoComplete="current-password"
           required
           value={currentPassword}
@@ -74,9 +73,8 @@ export function ChangePasswordForm({ passwordMinLength }: ChangePasswordFormProp
 
       <div className="space-y-2">
         <Label htmlFor="newPassword">Nouveau mot de passe</Label>
-        <Input
+        <PasswordInput
           id="newPassword"
-          type="password"
           autoComplete="new-password"
           required
           value={newPassword}
