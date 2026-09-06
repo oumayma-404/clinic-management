@@ -54,7 +54,21 @@ public static class SmtpConfig
         return username != null && username.Contains('@') ? username : null;
     }
 
-    public static string? FromName(IConfiguration configuration) => Trimmed(configuration["Notification:Smtp:FromName"]);
+    /// <summary>
+    /// The display name on the envelope, falling back to the product's own name.
+    ///
+    /// <para>⚠️ <b>The fallback is not cosmetic.</b> The base <c>appsettings.json</c> ships no <c>FromName</c> and
+    /// the hosted compose passes <c>SMTP_FROM_NAME</c> through empty by default, so an install that never sets it
+    /// used to send its verification and password-reset mails from a bare <c>no-reply@…</c> address — the shape
+    /// a mail client files under « unknown sender ». It is also the fallback a clinic that has not named itself
+    /// inherits for patient document mails (<c>ReminderSettingsProvider</c>), which is why the value is the
+    /// product and never a clinic-flavoured string.</para>
+    /// </summary>
+    public static string FromName(IConfiguration configuration) =>
+        Trimmed(configuration["Notification:Smtp:FromName"]) ?? ProductName;
+
+    /// <summary>The name the product goes by to anyone outside it. One literal, so a rename is one edit.</summary>
+    private const string ProductName = "Apexa";
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
