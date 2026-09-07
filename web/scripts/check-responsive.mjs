@@ -1782,6 +1782,64 @@ check(
 );
 
 check(
+  "booked-plan-act-is-schedulable",
+  "N28",
+  "A plan minted inside a booking dialog is booked through `schedulablePlanItems`, never `plan.items[0]`",
+  "`planIdByItem` — the map `resolveAttachedPlanId` reads to fill the appointment's own `treatmentPlanId` — is " +
+    "built from `schedulablePlanItems`. So any surface that picks an act off a freshly created plan by another " +
+    "rule is picking one the map may not contain, and the save is then refused outright with « Le plan de " +
+    "traitement est requis pour lier l'acte. » `plan.items[0]` is that other rule, and it is not hypothetical: " +
+    "« Montant du travail restant » makes `ContinueRecordedActCommand` build TWO acts — the one already carried " +
+    "out, whose single « 1re séance » step is marked done on creation, and the remaining work, which is where " +
+    "the séance still to book lives. items[0] is therefore `Done`, `schedulablePlanItems` drops it, and the " +
+    "booking was refused on the one flow the continuation door exists for. The two symptoms before the refusal " +
+    "were just as wrong and looked ordinary: the card showed the 30 DT act already on a note instead of the " +
+    "10 DT being booked, and `planItemToPreset` offers only steps still to carry out — that act has none left — " +
+    "so the séance carried no step at all. `attachPlanAct`'s own doc had said « never `plan.items[0]` » since " +
+    "the day it was written; a sentence in a comment is not a guard.",
+  () => {
+    const offenders = [];
+
+    // Derived from participation in the plan-link contract, not from a file list: a surface that names
+    // `planIdByItem` or `attachPlanAct` is one that puts a devis act on a seance, whatever it is called.
+    const PARTICIPATES = /\bplanIdByItem\b|\battachPlanAct\b/;
+    const FIRST_ITEM = /\.items\[0\]/;
+    let candidates = 0;
+
+    for (const f of tsx()) {
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+      if (!PARTICIPATES.test(code)) continue;
+      candidates++;
+      const at = code.search(FIRST_ITEM);
+      if (at < 0) continue;
+      offenders.push({
+        file: rel(f),
+        line: lineAt(code, at),
+        text:
+          "picks a plan act with `.items[0]` \u2014 take `schedulablePlanItems(plan)[0]`, the same gate " +
+          "`planIdByItem` is built from, or the booking is refused with \u00ab Le plan de traitement est requis " +
+          "pour lier l'acte. \u00bb the moment the first act is Done",
+      });
+    }
+
+    // Tripwire: both markers were renamed, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/treatment-plans/",
+        text:
+          "found no surface naming `planIdByItem` or `attachPlanAct` \u2014 the scan is broken, and a guard " +
+          "that matches nothing cannot hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
   "devis-balance-has-one-reader",
   "N18",
   "Every surface that prints a devis' « Reste » reads it through `displayedOutstanding`",

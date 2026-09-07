@@ -249,7 +249,12 @@ export async function materialisePlannedProtocols(
       })
       created.set(act.procedureTypeId, plan)
     }
-    const item = plan.items[0]
+    // ⚠️ The same reader `planIdByItem` is built from, and never `plan.items[0]`. « Suivre ce traitement »
+    // does create a one-act plan, so the two agree here today — but only one of them is the gate that decides
+    // whether the act is registrable, and the moment they disagree the booking is refused with « Le plan de
+    // traitement est requis pour lier l'acte. » That is not hypothetical: it is precisely what `items[0]` did
+    // to the continuation door, where a priced « travail restant » makes the first act Done on creation.
+    const item = schedulablePlanItems(plan)[0]
     if (!item) continue
     plans.push(plan)
     planIdByItem[item.id] = plan.id

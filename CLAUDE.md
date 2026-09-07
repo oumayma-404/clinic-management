@@ -273,6 +273,23 @@ touching the area.
   that 0 is how a 250 DT act with 150 collected left the patient owing 250 on the devis **and** 100 on an
   unlinked note: an invoice raised from a fiche carries `dentalRecordId` and **no `TreatmentPlanId`**, so
   `PlanBillingRules.BilledPlanIds` cannot de-duplicate it.
+- **A note that REPRESENTS a devis may not be attached to one holding money the note does not bill.** The
+  bridge is all-or-nothing — `BilledPlanIds` drops the *whole* plan from « Solde patient », « Créances », la
+  caisse and the dashboard the moment a real note names it — so « Montant du travail restant » priced on the
+  billed continuation path put a live debt exactly where nothing looks: a 30 DT coiffage billed on note
+  2026-0016, continued at 10 DT, left the patient's balance reading **0**. `AmendTreatmentPlanCommand`
+  already refuses that state in as many words (« acts added afterwards would be invisible in every balance »);
+  `ContinueRecordedActCommand` reached it by adding the line *before* attaching. It now prices the
+  already-billed act **0** and leaves the note **unattached** whenever there is new money, so the two
+  documents stay disjoint. ⚠️ Gated on `PlanBillingRules.RepresentsItsPlan`, never on « is there a note » — a
+  **Draft** note represents nothing and its plan still carries its own balance, so the 0 would lose the 30
+  instead of saving the 10.
+- **A plan minted inside a booking dialog is booked through `schedulablePlanItems`, never `plan.items[0]`.**
+  That is the gate `planIdByItem` is built from, and a priced « travail restant » makes the continuation's
+  *first* act `Done` on creation — so `items[0]` was dropped from the map and the save was refused outright
+  with « Le plan de traitement est requis pour lier l'acte. », after showing the finished 30 DT act in place
+  of the 10 DT being booked and offering no step at all. `attachPlanAct`'s own doc had said « never
+  `plan.items[0]` » since the day it was written; `check:responsive`'s N28 is what holds it.
 - **A restoration records work that is DONE, and the chart asserted it from the FIRST séance.** A multi-séance
   act's step-1 fiche carried the catalogue's `ResultingCondition`, so a tooth read « Implant » weeks before the
   implant existed — measured as 7 rows on the live database, every one from a step 1 of 2, three of them claiming
