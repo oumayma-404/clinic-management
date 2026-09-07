@@ -538,6 +538,15 @@ export interface InvoiceRevenueDto {
   totalInvoiced: number;
   totalCollected: number;
   outstanding: number;
+  /**
+   * How much of `totalCollected` came in on a **devis échéance** rather than on a note d'honoraires — real
+   * money, in la caisse, with **no row on the invoices screen**.
+   *
+   * ⚠️ A **component of** `totalCollected`, never an addition to it: a caller that sums the two double-counts.
+   * Absent on an older response, which reads as zero — and zero is the ordinary case, for a practice that
+   * raises a note for everything.
+   */
+  collectedOnTreatmentPlans?: number;
 }
 
 /** One act booked into a séance. */

@@ -175,6 +175,89 @@ check(
 );
 
 check(
+  "dialog-owns-one-scroller",
+  "N27",
+  "A dialog's full-height scrolling middle is a `DialogBody`, so the primitive stands its own scroller down",
+  "`DIALOG_DESKTOP` makes EVERY `DialogContent` a scroll container at `md:` and up, and the only thing that " +
+    "turns it off is a descendant carrying `data-slot=\"dialog-body\"`. So a dialog that hand-rolls its " +
+    "scrolling middle — `min-h-0 flex-1 overflow-y-auto` on a plain `div`, the exact classes `DialogBody` " +
+    "sets — ends up with TWO nested scrollers, and writing `overflow-hidden` on the `DialogContent` to say " +
+    "« I own my scrolling » does not help: it is unprefixed, so tailwind-merge keeps it AND the base's " +
+    "`md:overflow-y-auto`, and the media-query utility wins above 768 px. Measured on both booking dialogs at " +
+    "1440×900: the content computed `overflow-y: auto` with the form column scrolling inside it. " +
+    "The outer one is dormant only while every child keeps shrinking, which is why this reads as intermittent " +
+    "and keeps coming back — one child that cannot shrink turns it into a second full-height gutter. " +
+    "Use `DialogBody` for the scrolling middle (it may be nested — the guard's selector is descendant-based), " +
+    "or, when the region genuinely scrolls BOTH axes (a pan viewport for a document), say so on the " +
+    "`DialogContent` with an explicit `md:overflow-hidden`.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      if (!/<DialogContent\b/.test(src)) continue;
+      const lines = src.split(/\r?\n/);
+      const inComment = commentMask(lines);
+      // Real `\n` positions, not `length + 1` — see `page-scroller-contains-its-absolutes`, which lost a byte
+      // per line on a CRLF checkout and read the wrong region.
+      const lineStarts = [0];
+      for (let i = 0; i < src.length; i++) if (src[i] === "\n") lineStarts.push(i + 1);
+      const lineOf = (index) => {
+        let lo = 0;
+        let hi = lineStarts.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (lineStarts[mid] <= index) lo = mid;
+          else hi = mid - 1;
+        }
+        return lo;
+      };
+
+      /*
+       * Every JSX opening tag, brace-aware so a multi-line `className={cn(…)}` is read whole — the same walk
+       * `dialog-max-w` makes, for the same reason: two of these scrollers build their class list inside `cn()`
+       * across several lines, and a per-line grep declares them clean while they carry the bug.
+       */
+      const tags = [];
+      const re = /<([A-Za-z][A-Za-z0-9.]*)\b/g;
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        let i = m.index + m[0].length;
+        let depth = 0;
+        while (i < src.length) {
+          const c = src[i];
+          if (c === "{") depth++;
+          else if (c === "}") depth--;
+          else if (c === ">" && depth === 0) break;
+          i++;
+        }
+        tags.push({ name: m[1], tag: src.slice(m.index, i), index: m.index });
+      }
+
+      // An explicit `md:overflow-hidden` on the DialogContent is the other honest way to stand the outer
+      // scroller down, and the only one open to a region that must scroll sideways too.
+      const optedOut = tags.some((t) => t.name === "DialogContent" && /\bmd:overflow-hidden\b/.test(t.tag));
+      if (optedOut) continue;
+
+      for (const t of tags) {
+        if (inComment[lineOf(t.index)]) continue;
+        const tokens = t.tag.split(/[\s"'`{}()[\],]+/);
+        // `flex-1` + a scrolling overflow on one element IS a full-height scrolling middle, whatever it is named.
+        if (!tokens.some((tok) => /(^|:)flex-1$/.test(tok))) continue;
+        if (!tokens.some((tok) => /(^|:)overflow-(y-)?(auto|scroll)$/.test(tok))) continue;
+        if (t.name === "DialogBody" || /data-slot=["']dialog-body["']/.test(t.tag)) continue;
+        hits.push({
+          file: rel(file),
+          line: lineOf(t.index) + 1,
+          text: `<${t.name}> scrolls full-height but is not a DialogBody`,
+          full: t.tag.replace(/\s+/g, " ").slice(0, 120),
+        });
+      }
+    }
+    return hits;
+  }
+);
+
+check(
   "viewport-height",
   "P1",
   "No `h-screen` / `min-h-screen` — use the dynamic viewport (`h-dvh` / `min-h-dvh`)",
@@ -1539,6 +1622,59 @@ check(
         text:
           "found no surface passing planActs= — the scan is broken, and a guard that matches nothing cannot " +
           "hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "protocol-split-is-materialised",
+  "N26",
+  "A booking surface rendering the acts picker turns a split act into a real treatment when it saves",
+  "A multi-séance act is split BY DEFAULT — `resolvePlannedProtocols` decides it, the picker shows the séances " +
+    "and offers « Tout faire en une seule séance ». That decision is form state and nothing exists on the " +
+    "server until the save calls `materialisePlannedProtocols`, so a dialog that renders the picker and does " +
+    "not call it books an ordinary one-off visit while its own card said « Traitement en 3 séances » — no " +
+    "error, no toast, and the treatment is simply never created. This is the shape the feature shipped in the " +
+    "first time, inverted: the offer was a prop only the CREATE dialog passed, so the edit dialog rendered the " +
+    "sentence « cet acte se fait normalement en 3 séances » above no control at all, and so did a create form " +
+    "with no patient chosen yet — one dentist saw the button and another, on the same act, did not. Deriving " +
+    "the guard from the picker rather than from a list of files is what covers the third booking surface on " +
+    "the day it is written.",
+  () => {
+    const offenders = [];
+
+    // Derived from the picker itself: rendering it is what puts the split on screen.
+    const RENDERS = /<AppointmentActsPicker\b/;
+    const MATERIALISES = /\bmaterialisePlannedProtocols\s*\(/;
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+      if (!RENDERS.test(code)) continue;
+      candidates++;
+      if (MATERIALISES.test(code)) continue;
+      offenders.push({
+        file: rel(f),
+        line: lineAt(code, code.search(RENDERS)),
+        text:
+          "renders the acts picker but never calls materialisePlannedProtocols — an act the card says is split " +
+          "into séances is saved as an ordinary one-off, and no treatment is ever created",
+      });
+    }
+
+    // Tripwire: the component was renamed, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text:
+          "found no surface rendering <AppointmentActsPicker — the scan is broken, and a guard that matches " +
+          "nothing cannot hold anything",
       });
     }
 

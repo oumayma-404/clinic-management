@@ -122,6 +122,13 @@ catch it and nobody could see it. `dialog-max-w` fails on it now.
 
 Non-negotiables for either:
 
+- **The scrolling middle is a `DialogBody`, never a hand-rolled `min-h-0 flex-1 overflow-y-auto`.** The classes
+  are identical; the `data-slot` is not, and it is the only thing that turns off the primitive's own
+  `md:overflow-y-auto` — so the hand-rolled version is two nested scrollers. Writing `overflow-hidden` on the
+  `DialogContent` does not help: unprefixed, tailwind-merge keeps both and the media-query utility wins above
+  768 px. It may be nested (a scrolling column inside a `lg:flex-row`) — the guard's selector is
+  descendant-based. A region that genuinely scrolls **both** axes (a pan viewport for a document) says so with
+  an explicit `md:overflow-hidden` on the `DialogContent` instead. `dialog-owns-one-scroller` holds it.
 - Size to **`dvh`**, never `vh` — a `max-h-[90vh]` cap does not shrink when the keyboard opens, so the sticky
   footer holding « Enregistrer » ends up under it (`sheet-vh` check).
 - Dismissible by a **visible ≥ 44 px control and by `Escape`**, in addition to swipe. A reception tablet has a

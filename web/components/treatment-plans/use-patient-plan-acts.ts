@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import type { SelectedAct, PresetPlanAct } from "@/components/appointment-acts-picker"
+import {
+  agreedCostOf, followedProtocolActs, presetToSelectedAct, resolvePlannedProtocols,
+} from "@/components/appointment-acts-picker"
 import { showErrorToast } from "@/lib/errors"
 import { formatDT } from "@/lib/format"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
-import type { TreatmentPlanDto } from "@/lib/api/types"
+import type { ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { planItemToPreset, schedulablePlanItems } from "./plan-next-action"
 
 export interface PatientPlanActs {
@@ -175,4 +178,87 @@ export function resolveAttachedPlanId(
     }
   }
   return { planId: attached[0] }
+}
+
+/**
+ * What {@link materialisePlannedProtocols} produced: the acts to send, and the plans they were just given.
+ */
+export interface MaterialisedProtocols {
+  /** The act rows, with every followed act rewritten as a devis act — exactly the shape « Actes du devis » makes. */
+  acts: SelectedAct[]
+  /** The plan each freshly-created act belongs to, to be merged into `planIdByItem` before resolving. */
+  planIdByItem: Record<string, string>
+  /** The plans created, so the dialog can `register` them and the caller can report what it did. */
+  plans: TreatmentPlanDto[]
+}
+
+/**
+ * Turn every act the dentist left split into a real treatment, **at save time**.
+ *
+ * <p>This is the half that makes « split by default » safe. The button it replaces created the plan the moment
+ * it was pressed, which had three consequences and only the first was visible: it needed a patient id, so it
+ * was hidden on a booking for a « Nouveau patient » and before a patient had been chosen; abandoning the
+ * dialog afterwards left an un-numbered treatment behind with no appointment; and the decision could not be
+ * taken back without deleting a server aggregate. Deferring it to the save costs one round trip and removes
+ * all three.</p>
+ *
+ * <p>⚠️ <b>`created` is the caller's, and it MUST outlive one attempt.</b> Both dialogs re-run their save from
+ * the top on every confirmation the server asks for — slot taken, out of hours, past time — so a plan created
+ * on the first attempt must be reused on the second. This is `createdPatientIdRef`'s reason, one object over:
+ * without it, one « créer quand même » leaves two identical treatments on the patient. Keyed on the catalogue
+ * act, which the picker already refuses to list twice.</p>
+ *
+ * <p>⚠️ The rewritten row goes through `planItemToPreset` + `presetToSelectedAct`, never a hand-built object:
+ * a row attached here and a row attached from « Actes du devis » must be the same thing, down to the
+ * `billedOnPlan` block that locks the price and the preselected first step.</p>
+ */
+export async function materialisePlannedProtocols(
+  acts: readonly SelectedAct[],
+  procedureTypes: ProcedureTypeDto[],
+  patientId: string,
+  created: Map<string, TreatmentPlanDto>,
+): Promise<MaterialisedProtocols> {
+  const resolved = resolvePlannedProtocols(acts, procedureTypes)
+  const followed = followedProtocolActs(resolved)
+  if (followed.length === 0) return { acts: resolved, planIdByItem: {}, plans: [] }
+
+  const next = [...resolved]
+  const planIdByItem: Record<string, string> = {}
+  const plans: TreatmentPlanDto[] = []
+
+  for (const { act, index, steps } of followed) {
+    if (!act.procedureTypeId) continue
+    let plan = created.get(act.procedureTypeId)
+    if (!plan) {
+      plan = await treatmentPlansApi.startTreatment({
+        patientId,
+        procedureTypeId: act.procedureTypeId,
+        // The figure typed in the row is the treatment's TOTAL, not this séance's — the field says so.
+        agreedTotal: agreedCostOf(act),
+        toothNumbers: [],
+        /*
+         * ⚠️ Sent even when untouched, and that is deliberate: this list is what the dentist saw and
+         * approved. Omitting it would let the server re-read the catalogue, so a protocol edited in
+         * « Types de procédures » between the dialog opening and the save would silently replace it.
+         */
+        steps: steps.map((s) => ({
+          label: s.label.trim(),
+          estimatedDurationMinutes: s.durationMinutes,
+          minDaysAfterPrevious: s.minDaysAfterPrevious ?? null,
+        })),
+      })
+      created.set(act.procedureTypeId, plan)
+    }
+    const item = plan.items[0]
+    if (!item) continue
+    plans.push(plan)
+    planIdByItem[item.id] = plan.id
+    next[index] = {
+      ...presetToSelectedAct(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined), procedureTypes),
+      // Decided and done — the act carries a `treatmentPlanItemId` now, and the card stops offering the split.
+      plannedProtocol: null,
+    }
+  }
+
+  return { acts: next, planIdByItem, plans }
 }

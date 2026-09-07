@@ -4,6 +4,7 @@ import type React from "react"
 import { useCallback, useState, useEffect, useMemo, useRef } from "react"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -46,6 +47,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
   AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
+  protocolError,
   toProcedurePayloads,
   totalActsDuration,
   type PresetPlanAct,
@@ -54,12 +56,13 @@ import {
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatAmount, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
-import type { AppointmentDto, ProcedureTypeDto } from "@/lib/api/types"
+import type { AppointmentDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { suggestedPlanStep } from "@/components/treatment-plans/plan-next-action"
 import {
   usePatientPlanActs,
   resolveAttachedPlanId,
+  materialisePlannedProtocols,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
@@ -231,7 +234,16 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // derivations — the acts, which devis each belongs to, and the one to suggest — and a second copy of
   // `schedulablePlanItems` + `planItemToPreset` beside this one is the defect shape this repository produces
   // most: two call sites, one of which quietly stops agreeing with the rule.
-  const { plans: patientPlans, planActs, planIdByItem, saveActTotal: saveTreatmentTotal } = usePatientPlanActs(source?.patientId, open)
+  const {
+    plans: patientPlans, planActs, planIdByItem, register: registerPlan, saveActTotal: saveTreatmentTotal,
+  } = usePatientPlanActs(source?.patientId, open)
+
+  /**
+   * The treatments this dialog has already created, keyed on the catalogue act — see
+   * {@link materialisePlannedProtocols}. `performUpdate` re-runs on every confirmation the server asks for
+   * (slot taken, out of hours), so without this one « enregistrer quand même » leaves two identical treatments.
+   */
+  const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
 
   /**
    * « Ce patient a un traitement en cours » — the same reminder the create dialog gives, for the case the client
@@ -646,6 +658,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       return false
     }
 
+    // The same refusal as on create — a blank séance name must not reach `SetSteps` after the save has begun.
+    const protocol = protocolError(selectedActs)
+    if (protocol) {
+      setError(protocol)
+      return false
+    }
+
     return true
   }
 
@@ -683,7 +702,39 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
        * one séance is refused here — in French, before the round trip — rather than surfacing as the server's
        * own validation error on a save the user thought had worked.
        */
-      const attachedPlan = resolveAttachedPlanId(selectedActs, planIdByItem)
+      /*
+       * The treatments, before the appointment that carries them — the same materialisation the create dialog
+       * does, and it must be here too. This dialog offered NO way to follow a multi-séance act at all: the
+       * picker's protocol card rendered as a statement with no control, because the control was a prop only the
+       * create dialog passed. « J'ai vu « cet acte se fait en 3 séances », mais pas de bouton » is that.
+       *
+       * ⚠️ Refused rather than booked half-done, for the create dialog's reason: an act saved at its catalogue
+       * tarif with no séances behind it is a different appointment from the one on screen.
+       */
+      let actsToSend = selectedActs
+      let freshPlanIds: Record<string, string> = {}
+      if (appointment.patientId) {
+        try {
+          const materialised = await materialisePlannedProtocols(
+            selectedActs, procedureTypes, appointment.patientId, createdPlansRef.current,
+          )
+          actsToSend = materialised.acts
+          freshPlanIds = materialised.planIdByItem
+          materialised.plans.forEach(registerPlan)
+          if (materialised.plans.length > 0) setSelectedActs(materialised.acts)
+        } catch (err) {
+          setError(
+            err instanceof ApiError
+              ? `Le traitement n'a pas pu être préparé : ${err.message}`
+              : "Le traitement n'a pas pu être préparé.",
+          )
+          setLoading(false)
+          return
+        }
+      }
+
+      // Merged: a treatment created moments ago cannot be in `planIdByItem`, whose read predates it.
+      const attachedPlan = resolveAttachedPlanId(actsToSend, { ...planIdByItem, ...freshPlanIds })
       if (attachedPlan.error) {
         setError(attachedPlan.error)
         setLoading(false)
@@ -712,7 +763,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         // Replaces the whole list. `[]` is a real instruction here (« ce rendez-vous n'a plus d'acte ») and the
         // server distinguishes it from an omitted key, which is why this dialog always sends it and the cancel
         // path — which posts { status } alone — never does.
-        procedures: toProcedurePayloads(selectedActs),
+        procedures: toProcedurePayloads(actsToSend),
         allowOutsideWorkingHours: allowOutsideWorkingHours || undefined,
         allowOverlap: allowOverlap || undefined,
         // The version this form was hydrated from.
@@ -917,7 +968,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
           <form onSubmit={handleUpdate} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1 lg:flex-row">
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
+            {/* `DialogBody`, not a hand-rolled `min-h-0 flex-1 overflow-y-auto`: those classes are identical, but
+                only the `data-slot` makes the scroller VISIBLE to the primitive, which otherwise keeps its own
+                `md:overflow-y-auto` armed on top of it. `check:responsive`'s `dialog-owns-one-scroller` holds it. */}
+            <DialogBody className="space-y-4 px-6 pb-4">
 
             {/*
               Statut — FIRST, and one tap per option rather than a Select buried below the acts picker.
@@ -1265,7 +1319,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               }
             />
 
-            </div>
+            </DialogBody>
 
             {/* The pane, and the two read-only sections only this dialog has. Both are *statements*; the
                 actions behind them (the statut buttons, « Facturer ») stay in the form column. */}

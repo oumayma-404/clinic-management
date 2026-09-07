@@ -19,6 +19,7 @@ import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { InvoicesTable } from "@/components/factures/invoices-table"
 import { invoicesApi } from "@/lib/api/invoices"
 import type { InvoiceRevenueDto } from "@/lib/api/types"
+import Link from "next/link"
 import { formatDT } from "@/lib/format"
 import { getErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -115,6 +116,13 @@ function FacturesContent() {
   const [revenueError, setRevenueError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
+  /*
+   * The share of « Total encaissé » that has no row on this page. Served, never derived here: only the server
+   * can apply PlanBillingRules BilledPlanIds, which drops a devis already bridged into a note d honoraires —
+   * without it a plan collected through an invoice would be counted on both tracks and announced twice.
+   */
+  const planCollected = revenue?.collectedOnTreatmentPlans ?? 0
+
   const fromIso = from ? `${from}T00:00:00` : undefined
   const toIso = to ? `${to}T23:59:59` : undefined
   const statusFilter = status === ALL_STATUSES ? undefined : status
@@ -207,7 +215,19 @@ function FacturesContent() {
              * `InstallmentPayments`). Nothing on the screen said so, which made a correct figure read as a wrong
              * one. « Total facturé » and « Reste à recouvrer » DO match the rows to the millime.
              */
-            hint="paiements de notes et échéances de devis"
+            /*
+             * ⚠️ The hint carries the FIGURE now, and that is the half that was missing. « paiements de notes et
+             * échéances de devis » says what the total counts and leaves the reader unable to reconcile it: they
+             * cannot tell whether the gap between this figure and the column below is 120 DT or 2 000, nor where
+             * the difference went. Measured on the dev database: 2 050,000 DT across seven payments, not one of
+             * them visible anywhere on this page. Reported from use, twice — the second time as « il y a deux
+             * sources de vérité, on croit à une fuite d'argent ».
+             */
+            hint={
+              planCollected > 0
+                ? `dont ${formatDT(planCollected)} sur des devis`
+                : "paiements de notes d'honoraires"
+            }
             value={<RevenueValue loading={revenueLoading} failed={!!revenueError} value={revenue?.totalCollected} />}
           />
           <Stat
@@ -216,6 +236,38 @@ function FacturesContent() {
             value={<RevenueValue loading={revenueLoading} failed={!!revenueError} value={revenue?.outstanding} />}
           />
         </StatStrip>
+
+        {/*
+          ⚠️ **The route to the money this page has no row for**, and it is the whole fix rather than a note.
+
+          A séance of a multi-séance act is priced on the TREATMENT, so collecting at the chair records an
+          échéance payment and no note d'honoraires — by design (`CollectOnTreatmentCommand`). Someone who takes
+          120 DT and then comes here looking for the facture finds an unchanged table and a « Total encaissé »
+          that moved, which is indistinguishable from money having gone missing. It is the second time that has
+          been reported, the first having been answered with prose alone.
+
+          Rendered only when the figure is non-zero, so a practice that raises a note for everything never meets
+          it. `role="status"`, not an alert: nothing is wrong.
+        */}
+        {planCollected > 0 && (
+          <p
+            className="text-2xs leading-relaxed text-muted-foreground sm:text-xs"
+            role="status"
+          >
+            <span className="font-semibold text-foreground">{formatDT(planCollected)}</span> ont été encaissés
+            sur des <b>échéanciers de devis</b> — un acte en plusieurs séances est chiffré une fois sur son
+            traitement, donc l&apos;argent pris au fauteuil ne passe pas par une note d&apos;honoraires et
+            n&apos;apparaît pas dans le tableau ci-dessous. Ce montant est compté dans «&nbsp;Total
+            encaissé&nbsp;», comme dans la caisse.{" "}
+            <Link href="/caisse" className="font-medium text-primary underline decoration-dotted">
+              Voir le détail dans l&apos;extrait de caisse
+            </Link>
+            {" · "}
+            <Link href="/treatment-plans" className="font-medium text-primary underline decoration-dotted">
+              Voir les devis
+            </Link>
+          </p>
+        )}
 
         {/* Filters */}
         <Card>

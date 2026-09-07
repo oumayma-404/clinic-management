@@ -53,6 +53,35 @@ public class StartTreatmentCommand : IRequest<Result<TreatmentPlanDto>>
 
     /// <summary>FDI teeth, when the act is tooth-specific. Empty is legitimate (a whole-mouth act).</summary>
     public List<int> ToothNumbers { get; set; } = new();
+
+    /// <summary>
+    /// The séances this treatment is carried out over, <b>as the dentist confirmed them for this patient</b> —
+    /// the catalogue protocol with whatever they renamed, reordered, added or dropped in the booking dialog.
+    ///
+    /// <para>
+    /// ⚠️ <b>Tri-state, and all three states are real</b> — the same convention
+    /// <c>CreateTreatmentPlanRequest.Steps</c> already carries:
+    /// <list type="bullet">
+    /// <item><c>null</c> — nothing was decided; the catalogue protocol applies. Every caller written before
+    /// this field, and the default.</item>
+    /// <item><c>[]</c> — an explicit « cet acte se fait en une séance ». The protocol is <b>refused</b>, not
+    /// forgotten: sending null here would silently re-propose the séances the dentist just declined.</item>
+    /// <item>non-empty — exactly these séances, in this order.</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ <b>It never writes back to the catalogue.</b> <c>ProcedureType.DefaultSteps</c> proposes; the
+    /// treatment owns its copy from here on. That is what lets a protocol vary from one patient to the next
+    /// without every later booking inheriting the variation — « le protocole par défaut ne bouge pas ».
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ Any <c>Id</c> on a line is ignored. This creates the aggregate, so there is no existing step for a
+    /// line to stand for, and echoing a foreign id back would be refused by <c>SetSteps</c>.
+    /// </para>
+    /// </summary>
+    public List<TreatmentPlanItemStepRequest>? Steps { get; set; }
 }
 
 public class StartTreatmentCommandHandler : IRequestHandler<StartTreatmentCommand, Result<TreatmentPlanDto>>
@@ -127,17 +156,28 @@ public class StartTreatmentCommandHandler : IRequestHandler<StartTreatmentComman
             });
 
             /*
-             * The séances, from the catalogue protocol — this is the « automate whenever we could » half. An act
-             * with no protocol gets no steps and behaves exactly as it always did, which is most acts.
+             * The séances — what the dentist confirmed, or failing that the catalogue protocol. This is the
+             * « automate whenever we could » half: an act with no protocol and nothing confirmed gets no steps
+             * and behaves exactly as it always did, which is most acts.
              *
              * ⚠️ Applied HERE rather than by `TreatmentPlanStepProtocol` on acceptance, because this treatment
              * is never accepted: it stays a Draft until somebody asks for the devis.
+             *
+             * ⚠️ `Steps` is tri-state and `?? DefaultSteps` would flatten it — an empty list is the dentist
+             * saying « une seule séance » and must not fall through to the protocol they declined.
              */
-            var protocol = procedure.DefaultSteps;
+            var protocol = request.Steps is null
+                ? procedure.DefaultSteps
+                    .Select(s => new TreatmentPlanItemStepInput(
+                        null, s.Label, s.DurationMinutes, s.MinDaysAfterPrevious))
+                    .ToList()
+                : request.Steps
+                    .Select(s => new TreatmentPlanItemStepInput(
+                        null, s.Label, s.EstimatedDurationMinutes, s.MinDaysAfterPrevious))
+                    .ToList();
             if (protocol.Count > 0)
             {
-                plan.SetItemSteps(item.Id, protocol.Select(s =>
-                    new TreatmentPlanItemStepInput(null, s.Label, s.DurationMinutes, s.MinDaysAfterPrevious)));
+                plan.SetItemSteps(item.Id, protocol);
             }
 
             await _planRepository.AddAsync(plan, cancellationToken);

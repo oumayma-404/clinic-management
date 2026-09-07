@@ -55,6 +55,20 @@ public class TreatmentPlanItemStepRequest
 
     /// <summary>Chair time for this step, or null when nobody has estimated it.</summary>
     public int? EstimatedDurationMinutes { get; set; }
+
+    /// <summary>
+    /// Calendar days that must elapse after the previous séance, or null when the interval is clinically free.
+    ///
+    /// <para>
+    /// ⚠️ <b>It was missing here while every other layer carried it</b>, so this request could only ever say
+    /// « null » and <c>SetSteps</c> has replace semantics: renaming one step of an implant wiped the
+    /// osseointegration interval off <b>all</b> of them. The symptom is not an error — it is
+    /// <c>RecallWorklistRules</c> reporting a correctly-progressing implant as abandoned after a flat
+    /// fortnight, which is the exact failure <see cref="TreatmentPlanItemStep.MinDaysAfterPrevious"/> was
+    /// added to prevent. The client had been sending the field all along.
+    /// </para>
+    /// </summary>
+    public int? MinDaysAfterPrevious { get; set; }
 }
 
 public class SetTreatmentPlanItemStepsCommandHandler
@@ -99,7 +113,7 @@ public class SetTreatmentPlanItemStepsCommandHandler
                 plan.SetItemSteps(
                     request.ItemId,
                     request.Steps.Select(s => new TreatmentPlanItemStepInput(
-                        s.Id, s.Label, s.EstimatedDurationMinutes)));
+                        s.Id, s.Label, s.EstimatedDurationMinutes, s.MinDaysAfterPrevious)));
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {

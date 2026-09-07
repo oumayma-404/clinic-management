@@ -620,6 +620,73 @@ public class MoneyReadConsistencyTests
         Assert.Equal(640.000m, revenue.TotalCollected);
     }
 
+    /*
+     * The share of « Total encaissé » that has NO row on /factures, reported so the screen can name it.
+     *
+     * ⚠️ This is the second time the same confusion has been reported from use: the figure counts both money
+     * tracks (which is what keeps it equal to la caisse) while the table lists notes d'honoraires alone, so a
+     * séance collected on a devis échéance moves the headline and adds no row — « il y a deux sources de vérité,
+     * on croit à une fuite d'argent ». It was answered once with prose (« paiements de notes et échéances de
+     * devis ») and that is unreconcilable: it says the gap exists and never how big it is.
+     */
+    [Fact]
+    public async Task Revenue_Reports_How_Much_Was_Collected_On_Devis_Rather_Than_On_Notes()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(),
+            It.IsAny<CancellationToken>())).ReturnsAsync(900.000m);
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(120.000m);
+
+        var revenue = await RevenueAsync(DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow));
+
+        Assert.Equal(1020.000m, revenue.TotalCollected);
+        Assert.Equal(120.000m, revenue.CollectedOnTreatmentPlans);
+        /*
+         * A COMPONENT, never an addition — the whole risk of publishing this figure. Subtracting it must land
+         * exactly on the invoice ledger's own total, or the sentence the screen builds from it is arithmetic
+         * nobody can check.
+         */
+        Assert.Equal(900.000m, revenue.TotalCollected - revenue.CollectedOnTreatmentPlans);
+    }
+
+    // The no-period branch is the one /factures loads on arrival, and it computes the plan share separately —
+    // so it is the branch where the new figure could silently stay at zero while the total was right.
+    [Fact]
+    public async Task Revenue_Without_A_Period_Also_Reports_The_Devis_Share()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(640.000m);
+
+        var revenue = await RevenueAsync();
+
+        Assert.Equal(640.000m, revenue.CollectedOnTreatmentPlans);
+        Assert.Equal(revenue.TotalCollected, revenue.CollectedOnTreatmentPlans);
+    }
+
+    // A practice that raises a note for everything must meet nothing at all — the sentence is rendered only on
+    // a non-zero figure, so « zéro » is what keeps the ordinary screen unchanged.
+    [Fact]
+    public async Task A_Practice_With_No_Devis_Collection_Reports_Zero()
+    {
+        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
+
+        _invoices.Setup(r => r.GetCollectedBetweenAsync(
+            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(),
+            It.IsAny<CancellationToken>())).ReturnsAsync(450.000m);
+
+        var revenue = await RevenueAsync(DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow));
+
+        Assert.Equal(450.000m, revenue.TotalCollected);
+        Assert.Equal(0m, revenue.CollectedOnTreatmentPlans);
+    }
+
     // [J5] Every figure leaves the read rounded through the one money authority. This was the only money read that
     // did not, so a sum of two ledgers could print a fourth decimal the rest of the product never shows.
     [Fact]
