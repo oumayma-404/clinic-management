@@ -20,7 +20,9 @@ import { CategoryCombobox } from "@/components/ui/category-combobox"
 import { ApiError } from "@/lib/api/client"
 import { suppliersApi, SUPPLIER_DUPLICATE_CODE } from "@/lib/api/suppliers"
 import type { SupplierDto } from "@/lib/api/types"
-import { isDeliverablePhone } from "@/lib/phone"
+import { isDeliverablePhone, DEFAULT_REGION, regionOf } from "@/lib/phone"
+import type { CountryCode } from "libphonenumber-js/max"
+import { PhoneField } from "@/components/ui/phone-field"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 
 /**
@@ -57,6 +59,7 @@ export function SupplierFormDialog({
   const [name, setName] = useState("")
   const [category, setCategory] = useState("")
   const [phoneNumber, setPhoneNumber] = useState("")
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
   const [address, setAddress] = useState("")
   const [notes, setNotes] = useState("")
   const [nameError, setNameError] = useState("")
@@ -75,6 +78,7 @@ export function SupplierFormDialog({
     setName(editing?.name ?? "")
     setCategory(editing?.category ?? "")
     setPhoneNumber(editing?.phoneNumber ?? "")
+    setPhoneCountry(regionOf(editing?.phoneNumber) ?? DEFAULT_REGION)
     setAddress(editing?.address ?? "")
     setNotes(editing?.notes ?? "")
     setNameError("")
@@ -82,7 +86,10 @@ export function SupplierFormDialog({
   }, [editing, open])
 
   const phoneTyped = phoneNumber.trim() !== ""
-  const phoneUnreachable = phoneTyped && !isDeliverablePhone(phoneNumber)
+  // ⚠️ Still not a refusal (EC-1) — the number is stored whatever it is. What changed is how rarely this fires:
+  // a French or Italian dépôt now parses, so it gets the WhatsApp action instead of the note, and the note is
+  // left for a value no country can read at all.
+  const phoneUnreachable = phoneTyped && !isDeliverablePhone(phoneNumber, phoneCountry)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -170,18 +177,24 @@ export function SupplierFormDialog({
 
             <div className="space-y-2">
               <Label htmlFor="supplier-phone">Téléphone</Label>
-              <Input
+              <PhoneField
                 id="supplier-phone"
-                type="tel"
-                inputMode="tel"
-                placeholder="ex. : 71 234 567"
+                /* « ex. : » dropped: the label above already says « Téléphone », and those five characters are
+                   ~30 px of the 223 px this row gets at 1440 px — the difference between a whole example number
+                   and a clipped one, now that the country control shares the row. */
+                placeholder="71 234 567"
                 value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
+                onChange={setPhoneNumber}
+                country={phoneCountry}
+                onCountryChange={setPhoneCountry}
               />
               {phoneUnreachable ? (
+                /* ⚠️ `text-muted-foreground` and `role="status"`, not `text-destructive`: nothing is wrong.
+                   The sentence no longer claims WhatsApp « demande un numéro tunisien à 8 chiffres » — it
+                   takes any country now, so the only case left is a value no country can read. */
                 <p role="status" className="text-xs text-muted-foreground">
                   Ce numéro sera enregistré, mais l'action WhatsApp ne sera pas proposée : elle demande un
-                  numéro tunisien à 8 chiffres.
+                  numéro que l'on peut composer. Choisissez le pays si besoin.
                 </p>
               ) : null}
             </div>

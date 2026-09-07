@@ -35,13 +35,12 @@ public static class PatientFromRequest
     /// </summary>
     public static Result<Patient> Build(CreatePatientCommand request, Guid clinicId)
     {
-        // AC-5: a provided phone must be a deliverable Tunisian number (the same rule the reminder engine uses),
-        // else reject at entry so it never silently fails at dispatch. An empty phone is allowed — the patient
-        // simply can't receive reminders, and the form says so.
+        // A provided phone must be one we can reach — any country now, not just Tunisia — else reject at entry
+        // so it never silently fails at dispatch. An empty phone is allowed: the patient simply can't receive
+        // reminders, and the form says so.
         if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
         {
-            return Result<Patient>.Failure(
-                "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
+            return Result<Patient>.Failure(PhoneRefusals.Invalid);
         }
 
         // Blank means blank. This used to manufacture noemail@example.com and a ten-zero phone so the NOT NULL
@@ -112,7 +111,9 @@ public static class PatientFromRequest
         // Optional CNAM identity (ToDomain returns null for an omitted/empty block).
         patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
 
-        // Optional emergency contact (finding #11): name + a Tunisian phone. An empty block clears both.
+        // Optional emergency contact (finding #11): a name + a phone, in ANY shape. Deliberately not validated —
+        // nothing dispatches to it, a human reads it in an emergency, and « 71 555 (bureau) » is a real value a
+        // relative gives (AC-14). An empty block clears both.
         if (!string.IsNullOrWhiteSpace(request.EmergencyContactName) || !string.IsNullOrWhiteSpace(request.EmergencyContactPhone))
         {
             var emergencyPhone = string.IsNullOrWhiteSpace(request.EmergencyContactPhone)

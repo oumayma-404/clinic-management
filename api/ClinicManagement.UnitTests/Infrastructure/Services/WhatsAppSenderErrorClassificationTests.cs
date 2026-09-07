@@ -93,6 +93,34 @@ public class WhatsAppSenderErrorClassificationTests
         Assert.Equal(OutboxBlockReason.MessagingNumberStopped, result.BlockReason);
     }
 
+    /// <summary>
+    /// international-phone-numbers AC-17 — <b>this recipient</b> cannot be reached, and no retry or operator
+    /// action changes that: the number is not a WhatsApp account, its country is one this sender may not
+    /// message, or no template exists for its language.
+    ///
+    /// <para>⚠️ <b>Distinct from both neighbours, and the distinction is what the test is for.</b> A
+    /// <c>Throttled</c> row is retried and a <c>Blocked</c> one is parked until the review pass releases it —
+    /// but nothing here ever clears except a human editing the patient's number, so parking would hold the row
+    /// for ever against an event that never arrives. Until foreign numbers could be entered at all this whole
+    /// family fell through to <c>TransientFailure</c>, spending three attempts and leaving its only diagnostic
+    /// in Meta's response body, which <c>HttpReminderChannelSender</c> deliberately keeps off every screen.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(131026)] // not a WhatsApp account, or a country this sender may not message
+    [InlineData(131051)] // message type unsupported for this recipient
+    [InlineData(132001)] // no template for that name and language pair
+    public async Task An_Unreachable_Recipient_Fails_Once_And_Is_Not_Parked(int code)
+    {
+        var result = await SendAgainst(MetaError(code), HttpStatusCode.BadRequest);
+
+        Assert.Equal(ReminderSendOutcome.RecipientUnreachable, result.Outcome);
+        // Never parked: `BlockReason` is what the review pass keys on, and there is nothing to review.
+        Assert.Null(result.BlockReason);
+        // The sentence is ours and says what to do instead — it is read by staff in the notification feed.
+        Assert.NotNull(result.Error);
+        Assert.Contains("SMS", result.Error!, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>[FR-8] Anything else keeps the behaviour that shipped: an ordinary transient failure.</summary>
     [Fact]
     public async Task An_Unrecognised_Code_Stays_Transient()

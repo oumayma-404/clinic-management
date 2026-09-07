@@ -27,6 +27,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+// The one runtime import this gate makes, and it is the point of `phone-rule-matches-the-corpus`: the corpus is
+// driven through the very library the browser ships, not through a re-implementation of it.
+import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 
 const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_DIRS = ["app", "components", "lib", "contexts", "hooks"];
@@ -2057,6 +2060,151 @@ check(
         });
       }
     }
+    return hits;
+  }
+);
+
+check(
+  "phone-rule-matches-the-corpus",
+  "N25",
+  "The browser's phone rule answers `shared/phone-e164-corpus.json` exactly, and agrees on the default country",
+  "The phone rule exists TWICE — `api/…/ValueObjects/PhoneNumber.cs` for the server and `web/lib/phone.ts` " +
+    "for the browser's pre-check — and until the corpus existed the only thing holding them together was a " +
+    "comment in each saying the other was a mirror. That is the state `OdontogramConditionMirrorTests` calls " +
+    "« a mirror nobody checks is a mirror that is already wrong ». Both sides are pure total functions of a " +
+    "string, which no other mirrored rule in this repo is, so the two can be driven from the same inputs and " +
+    "pinned to the same outputs — stronger than comparing two declarations, and available for this rule alone. " +
+    "`PhoneRuleCorpusTests` holds the C# half against the same file. ⚠️ This drives libphonenumber-js " +
+    "DIRECTLY, so it proves the corpus and the shipped library agree; that `lib/phone.ts` actually delegates to " +
+    "that library rather than hand-rolling a rule again is the sibling check's job.",
+  () => {
+    const corpusPath = join(WEB_ROOT, "..", "shared", "phone-e164-corpus.json");
+    let corpus;
+    try {
+      corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
+    } catch (error) {
+      // A guard that quietly finds nothing to check is indistinguishable from one that passes.
+      return [{ file: rel(corpusPath), text: `could not read the corpus: ${error.message}` }];
+    }
+
+    const cases = Array.isArray(corpus.cases) ? corpus.cases : [];
+    const hits = [];
+
+    // Two non-vacuity tripwires: an empty corpus, and one with no refusals (which would pass while proving
+    // only that valid numbers are valid).
+    if (cases.length < 25) {
+      hits.push({ file: "shared/phone-e164-corpus.json", text: `only ${cases.length} case(s) parsed — the corpus shape changed` });
+      return hits;
+    }
+    if (!cases.some((c) => c.expected === null)) {
+      hits.push({ file: "shared/phone-e164-corpus.json", text: "no refusal cases — a corpus of accepts alone proves nothing" });
+    }
+
+    // The fallback country has one home on each side (AC-4); the corpus states the value both are held to.
+    const src = read(join(WEB_ROOT, "lib", "phone.ts"));
+    const declared = src.match(/DEFAULT_REGION\s*:\s*CountryCode\s*=\s*"([A-Z]{2})"/)?.[1];
+    if (!declared) {
+      hits.push({ file: "lib/phone.ts", text: "DEFAULT_REGION is gone or reshaped — update this parser, do NOT inline the value here" });
+    } else if (declared !== corpus.defaultRegion) {
+      hits.push({ file: "lib/phone.ts", text: `DEFAULT_REGION is ${declared}, the corpus says ${corpus.defaultRegion}` });
+    }
+
+    for (const c of cases) {
+      const region = c.region ?? corpus.defaultRegion;
+      let actual = null;
+      try {
+        const parsed = parsePhoneNumberFromString(c.raw, region);
+        if (parsed && parsed.isValid()) actual = parsed.number;
+      } catch {
+        actual = null;
+      }
+      const expected = c.expected ?? null;
+      if (actual !== expected) {
+        hits.push({
+          file: "shared/phone-e164-corpus.json",
+          text: `${JSON.stringify(c.raw)} (${region}) → ${actual ?? "null"}, corpus says ${expected ?? "null"}`,
+          full: c.why ?? "",
+        });
+      }
+    }
+
+    return hits;
+  }
+);
+
+check(
+  "phone-rule-has-one-owner",
+  "N25",
+  "Exactly one file decides what a valid phone number is, and it delegates to the metadata library",
+  "This repo's dominant defect shape is a correct rule wired to one call site, and the phone rule lived it: " +
+    "the sentence « Utilisez un numéro tunisien à 8 chiffres (ou +216…) » was pasted into three server files " +
+    "and written inline in a fourth in the browser, so widening the rule to accept any country made all four " +
+    "false at once. Two shapes are banned here. A second file normalising a number itself — stripping " +
+    "non-digits and prefixing a country code — is a second answer to « is this reachable? », and the browser " +
+    "already had one that disagreed with nothing only because both were Tunisian. And any user-facing string " +
+    "naming a digit count or a single country is now simply untrue: the field takes every country, and the " +
+    "country is a control beside it. Derived, not listed — whichever file owns the rule, there must be exactly " +
+    "one, and the message names the others so a deliberate move needs no edit here.",
+  () => {
+    const hits = [];
+    const owner = join(WEB_ROOT, "lib", "phone.ts");
+
+    // ── the rule itself: `+<cc>` composed from stripped digits, the hand-rolled shape this replaced ──────────
+    const normalisers = [];
+    for (const file of tsx()) {
+      const lines = read(file).split(/\r?\n/);
+      // ⚠️ `commentMask` returns a per-line BOOLEAN ARRAY, not the masked text — joining it and matching
+      // against the result tests the string "false,false,true…", which silently matches nothing. Caught by
+      // this check's own red proof, which is the whole reason § 14 demands one.
+      const inComment = commentMask(lines);
+      const code = lines.filter((_, i) => !inComment[i]).join("\n");
+      // A `\D` strip in the same file as a `+`-prefixed country code — the old `toE164Tunisian` verbatim.
+      if (/replace\(\s*\/\\D\/g/.test(code) && /["'`]\+(?:\$\{|\d)/.test(code)) {
+        normalisers.push(file);
+      }
+    }
+    /*
+     * ⚠️ No `length === 0` tripwire here, unlike this file's other one-owner checks: **zero is the correct
+     * steady state**. The owner delegates to libphonenumber-js and strips nothing itself, so a hit means
+     * somebody has hand-rolled the rule back — the shape that shipped for the product's whole life and could
+     * not refuse `201234567`. `a-live-treatment-has-one-test` carries the same note for the same reason.
+     * The vacuity risk moves to the delegation assertion below, which fails on a rename.
+     */
+    for (const file of normalisers) {
+      hits.push({
+        file: rel(file),
+        text: "normalises a phone number by hand",
+        full:
+          file === owner
+            ? "even the owner must not: parse through libphonenumber-js, or per-country validity is lost"
+            : "the rule has one owner, `lib/phone.ts`, and it delegates to libphonenumber-js",
+      });
+    }
+
+    // ── the owner really does delegate, so it cannot be hand-rolled back ────────────────────────────────────
+    const ownerSrc = read(owner);
+    if (!/from\s+["']libphonenumber-js\/max["']/.test(ownerSrc) || !/isValid\(\)/.test(ownerSrc)) {
+      hits.push({
+        file: "lib/phone.ts",
+        text: "the owner no longer parses through libphonenumber-js and checks isValid()",
+        full: "a length test cannot refuse `201234567` — a Tunisian number with a ninth digit is a valid Egyptian one",
+      });
+    }
+
+    /*
+     * ── the sentence: no user-facing string names one country or the old 8-digit shape ──────────────────────
+     * ⚠️ Anchored on « tunisien » and on **8** specifically, not on any digit count: `à\s+\d+\s+chiffres`
+     * matched « code à 6 chiffres » on the login screen, which is the TOTP field and entirely correct. A check
+     * that noisy earns an exemption list, and an exemption list that grows is a check that has stopped working
+     * — so the pattern narrows instead.
+     */
+    hits.push(
+      ...scanLines(tsx(), /num[ée]ro\s+tunisien|à\s+8\s+chiffres/i).map((h) => ({
+        ...h,
+        full: "the field accepts every country now, and the country is a control beside it — say « Choisissez le pays » instead",
+      }))
+    );
+
     return hits;
   }
 );

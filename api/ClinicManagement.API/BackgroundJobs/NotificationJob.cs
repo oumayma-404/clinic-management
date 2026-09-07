@@ -517,6 +517,22 @@ public class NotificationJob
                 }
                 break;
 
+            case ReminderSendOutcome.RecipientUnreachable:
+                // international-phone-numbers AC-17 — the DESTINATION is final, so unlike a transient failure this
+                // spends no attempts: three tries against a number that is not on WhatsApp cost three calls and
+                // delay the staff notice by two ticks for an answer already known. Failed, surfaced once.
+                //
+                // Not parked like `Blocked` either: that is released by the review pass when the sender's own
+                // situation clears, and nothing here ever clears — only a human editing the patient's number does,
+                // and that is exactly what the surfaced sentence asks for.
+                notification.MarkAsFailed(result.Error);
+                _logger.LogWarning(
+                    "Reminder {NotificationId} not deliverable to this recipient on {Channel}: {Error}",
+                    notification.Id, ChannelLabel(notification.Type), result.Error);
+                await SaveAsync(notification);
+                await SurfaceFailureAsync(notification, patient.GetFullName(), result.Error);
+                break;
+
             case ReminderSendOutcome.NotConfigured:
                 // Channel enabled but credentials/template missing → send nothing, no Failed spam. L3a: the row
                 // is **parked** rather than left Pending. It still sends once the operator configures the

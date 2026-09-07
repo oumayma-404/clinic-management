@@ -68,7 +68,9 @@ import { toast } from "sonner"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
-import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
+import { isDeliverablePhone, PHONE_ERROR_FR, DEFAULT_REGION } from "@/lib/phone"
+import type { CountryCode } from "libphonenumber-js/max"
+import { PhoneField } from "@/components/ui/phone-field"
 import { specialtyLabel } from "@/lib/specialties"
 
 /**
@@ -190,6 +192,7 @@ export function CreateAppointmentDialog({
   const [newPatientFirstName, setNewPatientFirstName] = useState("")
   const [newPatientLastName, setNewPatientLastName] = useState("")
   const [newPatientPhone, setNewPatientPhone] = useState("")
+  const [newPatientPhoneCountry, setNewPatientPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loadingPatients, setLoadingPatients] = useState(false)
 
@@ -729,7 +732,7 @@ export function CreateAppointmentDialog({
         }
         // Optional, reconciled with the patient form: the column is nullable and this door is where a walk-in is
         // booked, often with a name alone. A number that IS given must still be deliverable.
-        if (newPatientPhone.trim() && !isDeliverablePhone(newPatientPhone)) {
+        if (newPatientPhone.trim() && !isDeliverablePhone(newPatientPhone, newPatientPhoneCountry)) {
           setError(PHONE_ERROR_FR)
           return false
         }
@@ -1120,18 +1123,20 @@ export function CreateAppointmentDialog({
                       <Label htmlFor="newPatientPhone" className="text-sm">
                         Téléphone <span className="text-xs text-muted-foreground">(recommandé)</span>
                       </Label>
-                      <Input
+                      <PhoneField
                         id="newPatientPhone"
-                        type="tel"
                         placeholder="Ex. 20 123 456"
                         value={newPatientPhone}
-                        onChange={(e) => setNewPatientPhone(e.target.value)}
-                        className="h-10"
+                        onChange={setNewPatientPhone}
+                        country={newPatientPhoneCountry}
+                        onCountryChange={setNewPatientPhoneCountry}
                         disabled={patientAlreadyCreated}
                       />
+                      {/* Names no country any more: the control beside the field says which, and the sentence
+                          said « tunisien à 8 chiffres » — false for every other country the field now takes. */}
                       <p className="text-xs text-muted-foreground">
-                        Numéro tunisien à 8 chiffres, ou +216… Sans lui, ce patient ne recevrait ni rappel ni
-                        relance.
+                        Choisissez le pays si le numéro n'est pas tunisien. Sans numéro, ce patient ne recevrait
+                        ni rappel ni relance.
                       </p>
                     </div>
                   </div>
