@@ -146,6 +146,29 @@
    */
   --warning-ink: oklch(0.545 0.125 62);
   /*
+   * ── The odontogram's SYMBOL view: two marks, and only two ────────────────────────────────────────────────
+   *
+   * The fifteen `ToothCondition` hues in `odontogram-conditions.ts` are **identity** — « which condition is
+   * this » — and they are literal hexes there precisely because identity must not shift with the theme. These
+   * two are the opposite kind of colour: they are **state**, « is this done or still to do », which is what
+   * `--success` / `--warning` / `--destructive` already are. So they are tokens, they are themed, and they
+   * live here.
+   *
+   * ⚠️ Deliberately NOT `--primary` for « réalisé ». The chart already spends `--primary` on the selection ring
+   * and on « traitement en cours »; reusing it for a third meaning is exactly the collision the symbol view
+   * exists to remove. It is a colder, more saturated blue that no other chart chrome wears.
+   *
+   * ⚠️ Deliberately NOT `--destructive` for « à faire », even though it lands in the same red family. Red on
+   * the chart means *outstanding work*; `--destructive` means *this button destroys something*, and it is one
+   * click away inside the same popover (« Retirer ce diagnostic »). Sharing the token would mean a future
+   * restyle of danger affordances silently repaints thirty-two teeth.
+   *
+   * Both are inside the sRGB gamut at their own lightness — see the note at the top of this block before
+   * raising either chroma.
+   */
+  --chart-mark-todo: oklch(0.550 0.190 27);
+  --chart-mark-done: oklch(0.480 0.155 262);
+  /*
    * ⚠️ Was `oklch(0.962 0.03 25)` — **outside sRGB**, and by a long way: the chroma ceiling at that lightness
    * is 0.0187, so two thirds of the declared colour did not exist and the browser gamut-mapped it in silence.
    * At the ceiling the « Annulée » / « Échec » pill also reads slightly better (4.67:1 → 4.76:1), because the
@@ -387,6 +410,11 @@
      dark's amber reads as the same colour as light's rather than as a pale sand. */
   --warning-ink: oklch(0.8 0.12 72);
   --destructive-wash: oklch(0.330 0.048 25);
+
+  /* The symbol marks, lifted for a dark card. Both are strokes on an ivory tooth, so they need to clear the
+     enamel fill as well as the ground — which is why they lighten less than the other semantic pairs. */
+  --chart-mark-todo: oklch(0.640 0.195 27);
+  --chart-mark-done: oklch(0.650 0.150 262);
 
   --hero-from: oklch(0.455 0.088 234);
   --hero-to: oklch(0.345 0.082 248);

@@ -288,3 +288,144 @@ database: **2 050,000 DT across seven payments**, not one of them visible anywhe
 date-free one compute the plan share separately (there is no date-free plan aggregate), and the date-free one
 is what `/factures` loads on arrival — so it is the branch where the new figure could have stayed silently at
 zero while the total was right. It has its own test.
+
+---
+
+## La refonte : un objet, un vocabulaire, et rien d'inerte à l'écran
+
+Signalé de trois côtés à la fois — « trop chargé, la même information répétée », « pourquoi l'acte est écrit
+deux fois », « pourquoi ce 0 que je ne peux pas modifier », « les champs d'argent en bas ont l'air bizarres »,
+et « tant que je n'enregistre pas la première fiche, ça reste brouillon … we need visibility ».
+
+Un relevé sur les six écrans que la fonctionnalité touche a trouvé **14 problèmes, dont 5 vérifiés en base ou
+à l'écran**. Le diagnostic n'était pas le nombre de clics — réserver un acte en trois séances en coûte
+**zéro**, la répartition étant le défaut — mais la **lecture** : le même objet portait six noms, et trois
+écrans montraient des chiffres sur lesquels personne ne pouvait agir.
+
+### « Total » écrivait à travers un champ verrouillé
+
+`distributeSessionTotal` ne filtrait que sur `isActNamed`. Taper 150 dans « Total » réécrivait le prix de
+l'acte — **celui que `act-card` rend `readOnly`** — puis `PlanCarriedActPricing` le forçait à 0 à
+l'enregistrement. Mesuré sur l'application : « 0,000 » → « **150,000** » à l'écran, « 0,000 » en base après
+sauvegarde, sans un mot.
+
+⚠️ **Sur une séance MIXTE c'est pire et plus discret** : une couronne (portée) à côté d'un détartrage (non
+porté), et le total tapé se répartissait entre les deux — le détartrage était donc sous-facturé de la part
+allée à l'acte qui ne peut rien porter. `check:responsive` **N27 `session-total-skips-carried-acts`** dérive
+la garde de la fonction elle-même, et a été prouvée rouge sur une violation délibérée.
+
+### Masqué, jamais déverrouillé — et la condition exacte n'est pas la même des deux côtés
+
+- Le **prix** et la bascule « / dent · forfait » disparaissent **par acte** (`act.billedOnPlan`).
+- « **Total** » et « **Payé** » disparaissent **par séance**, et seulement si **toute** la séance est portée.
+
+⚠️ `seanceIsWhollyOnTreatment` est désormais **structurel** — « tous les actes nommés sont portés » — et non
+plus `roundMillimes(grandTotal) === 0`. L'ancien test était vrai d'une séance tenant une couronne portée *et*
+un détartrage que personne n'avait encore chiffré : « Payé » s'effaçait au moment précis où le dentiste allait
+saisir les honoraires du détartrage.
+
+⚠️ « **Mode** » suit l'argent : il part avec `amountCollectedOnPlan` sur le même payload, et il était apparié
+à « Total ». Il descend à côté de « Encaissé sur le traitement », qui est le seul champ qui prend quelque chose
+sur une telle séance. Une seule définition (`PaymentMethodField`), deux emplacements.
+
+Mesuré : **sept « 0,000 » → un**, et celui qui reste est le champ vide où l'on tape.
+
+### « Couronne / bridge (par élément) · Couronne / bridge (par élément) »
+
+Le libellé était `numéro ?? titre · désignation`. Un traitement suivi n'a pas de numéro et son **titre EST le
+nom de l'acte** (`StartTreatmentCommand` : « le dentiste l'a nommé en le choisissant »). Cinq lignes de la base
+étaient dans cette forme, et chaque traitement suivi jamais créé le sera. `planItemHeading` / `planDisplayName`
+vivent avec `planStatusLabel` — c'est aussi là que « **Devis — brouillon** », écrit en dur dans le bandeau
+patient à huit pixels du badge que ce module avait délibérément renommé « Sans devis », a disparu.
+
+### La liste des séances n'est plus un mode
+
+Elle était cachée derrière « Modifier les séances », et l'ouvrir coûtait **515 px à 1440 et 843 px sur un
+téléphone de 844**, pour trois séances. C'est aussi la sortie qui avait été signalée : ouverte, la rangée
+lisait « Terminer · Tout faire en une séance ».
+
+C'est une **frise lisible** maintenant — une ligne par séance, avec ses chiffres en pastilles — et **une seule
+rangée** s'ouvre, en l'éditeur complet d'avant. **303 px au repos, 400 px une rangée ouverte** ; 518 px à
+390 px de large au lieu de 843.
+
+⚠️ **Les neuf opérations sont conservées** : renommer · minutes · jours · monter · descendre · supprimer ·
+ajouter · rétablir · tout-en-une. La seule chose retirée est « masquer / afficher », qui n'est pas une
+capacité. « Tout faire en une seule séance » est un bouton pleine largeur permanent — plus visible qu'avant,
+où il apparaissait et disparaissait selon l'état de la liste.
+
+### Un traitement réservé ce matin apparaît ce matin
+
+`GetTreatmentsInProgressAsync` exigeait `item.Status == InProgress`, atteint seulement quand une première
+séance a été enregistrée. Deux traitements suivis étaient en base, en `Planned`, **sur aucune liste** — et dans
+« Devis et échéanciers » en brouillon sans numéro, rangés parmi les devis. Le filtre accepte désormais
+`Planned` **quand l'acte a des séances** ; `Steps.Any()` est ce qui garde l'élargissement honnête, un acte sans
+protocole n'ayant jamais eu sa place ici. 13 lignes → **28**.
+
+⚠️ **L'ordre passe de « devis le plus récent » à « ce qui est dû »**, en deux clés : non réservé avant réservé
+(`false < true` en PostgreSQL), puis la date dont chaque groupe parle. C'est ce qui rend les trois groupes de
+l'écran — **En retard · À planifier · Séance prévue** — *contigus* plutôt qu'entremêlés.
+
+⚠️ La sous-requête « cette séance est-elle réservée ? » doit répondre **exactement** ce que
+`TreatmentsInProgressReader` répond, sinon l'écran groupe selon une règle et ordonne selon une autre. Deux
+erreurs au premier essai, les deux observées : par **acte** au lieu de par **étape**, et avec un plancher
+« à partir d'aujourd'hui » — cinq lignes « prochaine séance le 3 sept. » se sont retrouvées au milieu du groupe
+« à planifier ».
+
+⚠️ C'est aussi le seul `AddDays` de cette requête, et l'interface dit que l'addition est délibérément tenue
+hors du SQL. Cela reste vrai de la **projection** ; ceci est un `ORDER BY`, qui ne peut pas être composé après
+la pagination sans réordonner une page au lieu de la liste.
+
+### L'odontogramme apprend « en cours »
+
+Il avait deux lectures et il en manquait une. « Diagnostics » garde le « à traiter » (correct — ce n'est pas
+fini) ; « Actes réalisés » colore la dent **dès la première séance**. Entre les deux, **rien** ne disait qu'une
+couronne est en cours sur la 16, séance 2 sur 3. Vérifié sur deux patients : ni « en cours », ni « séance N »,
+ni « étape N » nulle part.
+
+Un **anneau azur pointillé** — un `outline`, pas un `ring` : un ring est une `box-shadow` et ne peut pas être
+pointillé — plus une info-bulle qui nomme le traitement et où il en est. `teethUnderTreatment` est dérivé des
+plans que la page tient déjà pour le bandeau, donc la marque et le bandeau ne peuvent pas se contredire.
+
+⚠️ **La ligne du devis l'emporte quand elle nomme des dents ; les dents traitées ne sont qu'un repli — et
+l'union par laquelle cela a commencé était mesurablement fausse.** `treatedToothNumbers` vient des fiches, et
+une fiche enregistre les dents de **toute la séance**, pas d'un acte à l'intérieur. Mesuré : une « Extraction
+simple » chiffrée sur 13 et 43 dont la 1re séance a été saisie sur une fiche nommant **13, 27, 36, 37, 43** —
+l'union posait donc un anneau « traitement en cours » sur trois dents sans aucun traitement.
+
+⚠️ La priorité est l'**inverse** de celle d'`openPlanItems`, délibérément : celle-là sème le schéma d'une
+fiche, où les dents réellement travaillées sont la meilleure proposition ; celle-ci répond « sur quelles dents
+porte ce traitement », c'est-à-dire ce qui a été chiffré.
+
+### La fiche patient s'ouvre sur l'odontogramme
+
+⚠️ **C'est un revirement**, et les deux raisons méritent d'être gardées. Le bandeau avait été monté au-dessus
+du schéma sur demande, avec un vrai argument : « où en est le traitement ? » est un fait qu'il faut avant de
+toucher à quoi que ce soit. Ce qui a changé est l'autre moitié de l'échange, demandée en toutes lettres —
+« the patient page should have the odontogramme as focus ». L'argument du pli est **répondu** plutôt
+qu'abandonné : le schéma porte désormais la présence du traitement, et le bandeau juste dessous en porte le
+détail.
+
+⚠️ Le bandeau montrait **un** plan en détail et réduisait les autres à des pastilles de comptage — un patient
+avec cinq traitements en voyait quatre représentés par un nombre. Chaque traitement vivant a sa ligne ; les
+terminés gardent leur pastille, où un compte est bien toute l'histoire.
+
+### Ce qui a été refusé
+
+Passer un traitement suivi en **`Accepted`**, pour la visibilité. `Accepted` fait partie de
+`DebtBearingPlanStatuses` : le montant deviendrait une créance du patient **à la seconde où le rendez-vous est
+réservé**, avant que quiconque ait accepté quoi que ce soit — le naufrage que « Arrêter » → « Reprendre le
+traitement » a déjà produit une fois. Le statut ne bouge pas ; il cesse de s'appeler « brouillon », et le
+traitement apparaît dans les listes dès sa création.
+
+### Vérification
+
+Suite complète **4264 tests**, **50 contrôles responsive** (N27 nouvelle, prouvée rouge), `tsc` et `build` au
+vert. Parcours navigateur en un seul passage sur les quatre écrans : les trois groupes contigus (`En retard 1 ·
+À planifier 13 · Séance prévue 11`), l'odontogramme en tête (595 px contre 1085), les dents exactement
+marquées sur deux patients avec l'info-bulle qui nomme la séance, la frise à 303/400 px avec ses six contrôles
+dans la rangée ouverte, et la fiche à un seul « 0,000 ». 320 / 390 / 820 / 1180 / 1440 : aucun défilement
+latéral.
+
+⚠️ **Trois des cinq « échecs » du premier passage étaient la sonde** — un `/Séance \d+ sur \d+/` sensible à la
+casse contre une ligne en `uppercase`, un seuil `< 400` contre une carte de 400, et un `/0,000/` qui compte
+aussi « 500,000 ». Le quatrième (l'anneau sur trois dents de trop) était réel et est corrigé ci-dessus.

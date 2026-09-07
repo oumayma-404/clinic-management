@@ -98,6 +98,8 @@ import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
 import { isPlanLive, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
+import { planItemHeading } from "@/components/treatment-plans/treatment-plan-labels"
+import { teethUnderTreatment } from "@/components/treatment-plans/teeth-under-treatment"
 import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -1048,6 +1050,14 @@ export default function PatientDetailsPage() {
     )
   }
 
+  /**
+   * The teeth this patient has a multi-séance treatment running on — the odontogramme's third reading.
+   *
+   * Derived from the plans this page already holds for the band below the chart, so the mark on a tooth and
+   * the band's own list can never disagree about which treatments are live. See `teethUnderTreatment`.
+   */
+  const teethInTreatment = teethUnderTreatment(treatmentPlans)
+
   const patientName = getPatientName(patient)
   const age = calculateAge(patient.dateOfBirth)
   const hasFlags = hasActiveFlags(patient)
@@ -1060,7 +1070,18 @@ export default function PatientDetailsPage() {
       schedulablePlanItems(p).map((it) => ({
         itemId: it.id,
         planId: p.id,
-        label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+        /*
+         * ⚠️ **A followed treatment's title IS its act's name, so the obvious `number ?? title` prints it
+         * twice.** `StartTreatmentCommand` sets the plan title from the procedure (« the dentist named it by
+         * picking it »), and such a plan has no number — so « Acte planifié » read
+         * « Couronne / bridge (par élément) · Couronne / bridge (par élément) », which is what a dentist
+         * reported as « pourquoi l'acte est écrit deux fois ». Five rows in the live database were in exactly
+         * that shape, and every future followed treatment is.
+         *
+         * A hand-written Draft devis whose title is genuinely something else (« Plan esthétique ») keeps it —
+         * only the duplicate is replaced, and it is replaced by what the object actually is.
+         */
+        label: `${planItemHeading(p, it)} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
         designationFr: it.designationFr,
         plannedCost: it.plannedCost,
         /*
@@ -1082,6 +1103,10 @@ export default function PatientDetailsPage() {
         planNumber: p.number,
         billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
         planOutstanding: p.outstanding,
+        // « Séance 2 sur 3 » on the fiche. Both 0 for an act with no protocol, which is what keeps the ordinary
+        // fiche's banner unchanged.
+        stepsTotal: it.steps?.length ?? 0,
+        stepsDone: it.steps?.filter((s) => s.doneDate).length ?? 0,
         // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
         // already pays for, so that act's 0 is not read back as a discount the dentist granted.
         procedureTypeId: it.procedureTypeId ?? null,
@@ -1419,21 +1444,6 @@ export default function PatientDetailsPage() {
           onEdit={() => setEditDialogOpen(true)}
         />
 
-        {/*
-          ⚠️ **Directly under the notes, above the odontogramme** — on request, and it is the same reasoning the
-          notes strip itself carries: what the dentist must know before touching anything belongs in the first
-          screen. « Où en est le traitement, et qu'est-ce qui reste ? » is that kind of fact, and it used to sit
-          below the odontogramme — a full-width tooth chart further down the page — so on a laptop it was at or
-          past the fold and on a phone it was a scroll away. The band is ~76 px and states the next action, so
-          it earns the position more than the chart does.
-        */}
-        {sectionFailed("plans") && <SectionLoadFailure onRetry={retrySections} />}
-        <PatientPlansStrip
-          plans={treatmentPlans}
-          onOpen={() => openTab("treatment-plans")}
-          onChanged={() => setRefreshKey((k) => k + 1)}
-        />
-
         {/* An archived patient is hidden from every list and search but still reachable by direct URL —
             which makes this page the only place that can say so. */}
         {patient?.isArchived && (
@@ -1510,6 +1520,7 @@ export default function PatientDetailsPage() {
               patientId={patientId}
               dentition={patient.dentition}
               dateOfBirth={patient.dateOfBirth}
+              treatments={teethInTreatment}
               onCreatePlan={(seeds) => {
                 setPlanSeeds(seeds)
                 setSeededPlanOpen(true)
@@ -1517,6 +1528,26 @@ export default function PatientDetailsPage() {
             />
           </CardContent>
         </Card>
+
+        {/*
+          ⚠️ **Under l'odontogramme — a REVERSAL of the placement this file recorded before, and the reasons
+          for both are worth keeping.** The band was moved ABOVE the chart on request, with a real argument:
+          « où en est le traitement, et qu'est-ce qui reste ? » is a fact the dentist needs before touching
+          anything, and below a full-width tooth chart it sat at or past the fold on a laptop. What changed is
+          the other half of that trade, asked for in as many words — « the patient page should have the
+          odontogramme as focus ». It is the chart the whole consultation is read off, and a band above it
+          pushed the mouth itself off the first screen.
+
+          The fold argument is answered rather than abandoned: the chart now MARKS every tooth a treatment is
+          under way on (`teethUnderTreatment`), so the first thing on the page carries the treatment's
+          presence, and this band — directly beneath it — carries its detail and its next action.
+        */}
+        {sectionFailed("plans") && <SectionLoadFailure onRetry={retrySections} />}
+        <PatientPlansStrip
+          plans={treatmentPlans}
+          onOpen={() => openTab("treatment-plans")}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
 
         {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the plan
             felt disconnected from the patient it belongs to. A band rather than a card since the redesign —

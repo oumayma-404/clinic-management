@@ -35,19 +35,47 @@ import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
-import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, serializeSurfaces } from "@/components/odontogram-conditions"
+import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, SURFACE_ORDER, serializeSurfaces } from "@/components/odontogram-conditions"
 import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
 // One source for the FDI quadrant layout — `tooth-multiselect` is the client-side authority for a tooth's
 // dentition (mirroring the backend `FdiTooth.IsAdult`), and this file used to carry a second copy.
 import { TEETH_BY_VIEW, isAdultTooth } from "@/components/tooth-multiselect"
 import { DentitionViewSwitch } from "@/components/dentition-view-switch"
+import { OdontogramViewSwitch, type OdontogramChartView } from "@/components/odontogram-view-switch"
+import {
+  ToothSymbolGlyph,
+  OcclusalSurfaceBox,
+  OcclusalSurfacePicker,
+  ToothSymbolLegend,
+  type BridgeSpan,
+  type ToothMark,
+} from "@/components/tooth-symbols"
+import { isUpperTooth } from "@/components/tooth-anatomy"
+import { useToothDragSelect, TOOTH_CELL_ATTR } from "@/components/tooth-drag-select"
 import { ToothArchLayout, type ToothArch } from "@/components/tooth-arch-layout"
+import {
+  toothTreatmentSummary,
+  type ToothTreatment,
+} from "@/components/treatment-plans/teeth-under-treatment"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { quoteFr } from "@/lib/format"
 
 // Max dots drawn under a tooth before collapsing the overflow into a "+N".
 const MAX_DOTS = 4
+
+/** Per-browser reading preference, like the files drawer's grid/list. Never a server-side setting. */
+const CHART_VIEW_STORAGE_KEY = "odontogram.chartView"
+
+/**
+ * How many un-bridged sites a travée may cross before two bridges are read as one.
+ *
+ * ⚠️ **A bridge is charted on its ABUTMENTS, and the pontic site usually carries nothing at all** — measured on
+ * this product's own data: `Bridge` on 14 and on 16, with 15 charted with nothing. So « join adjacent Bridge
+ * teeth » finds no run and draws two unrelated crowns, which is precisely what a bridge is not. Three is a
+ * 5-unit bridge, beyond anything a practice places in one span.
+ */
+const MAX_PONTIC_SITES = 3
 
 // Conditions offerable as a diagnosis (everything except the implicit-healthy "Sain").
 const DIAGNOSIS_CONDITIONS = CONDITION_ORDER.filter((c) => c !== "Sain")
@@ -79,10 +107,35 @@ interface OdontogramProps {
   dateOfBirth?: string | null
   /** Called with one seed per tooth carrying an open diagnosis, to pre-fill a new treatment plan. */
   onCreatePlan?: (seeds: OdontogramPlanSeed[]) => void
+  /**
+   * Which teeth have a multi-séance treatment under way — `teethUnderTreatment(plans)`.
+   *
+   * <p>⚠️ <b>The third reading this chart did not have.</b> A diagnosis says the work is needed and an act says
+   * it was done; between them sits the state a couronne spends six weeks in, and the chart said nothing about
+   * it — the tooth simply kept its « à traiter » while the fiches beside it recorded two séances. Passed in
+   * rather than fetched because the patient page already holds the plans for the treatment band above.</p>
+   *
+   * <p>Optional: a caller with no plans in hand renders exactly as before, with no ring and no legend row.</p>
+   */
+  treatments?: Map<number, ToothTreatment[]>
 }
 
-export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: OdontogramProps) {
+export function Odontogram({
+  patientId,
+  dentition,
+  dateOfBirth,
+  onCreatePlan,
+  treatments,
+}: OdontogramProps) {
   const [chosenView, setChosenView] = useState<DentitionView | null>(null)
+  /**
+   * Which **drawing** the chart uses — see {@link OdontogramViewSwitch} for why there are two.
+   *
+   * <p>Unlike `chosenView` above, this is not seeded from the patient: it is a reading preference, the same
+   * nature as the files drawer's grid/list, and it is remembered per browser the same way. It defaults to
+   * `boxes` so nobody's chart changes under them on deploy day.</p>
+   */
+  const [chartView, setChartView] = useState<OdontogramChartView>("boxes")
   /**
    * « Plusieurs dents » — charting ONE diagnosis onto several teeth at once.
    *
@@ -152,6 +205,30 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
   }, [load])
 
   /*
+   * Read the chart preference AFTER mount, never during render: the server has no `localStorage`, and seeding
+   * state from it would hydrate one drawing and paint the other. Wrapped, because `localStorage` throws
+   * outright in a locked-down browser and in private mode on some engines — a remembered preference is not
+   * worth a chart that fails to render.
+   */
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(CHART_VIEW_STORAGE_KEY)
+      if (stored === "boxes" || stored === "symbols") setChartView(stored)
+    } catch {
+      /* keep the default */
+    }
+  }, [])
+
+  const chooseChartView = (next: OdontogramChartView) => {
+    setChartView(next)
+    try {
+      window.localStorage.setItem(CHART_VIEW_STORAGE_KEY, next)
+    } catch {
+      /* the switch still works for this session */
+    }
+  }
+
+  /*
    * Procedure catalog — used only to prefill a seeded plan line's cost (by resulting condition).
    *
    * ⚠️ A failure is **recorded**, not written back as `[]`. The empty write was a no-op (the state starts empty)
@@ -212,6 +289,89 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
     const shown = new Set([...teeth.upperRight, ...teeth.upperLeft, ...teeth.lowerRight, ...teeth.lowerLeft])
     return Array.from(byTooth.keys()).filter((tooth) => !shown.has(tooth)).length
   }, [teeth, byTooth])
+
+  /**
+   * The conditions this patient actually carries, in the shared display order — the symbol legend's contents.
+   *
+   * <p>Ordered by `CONDITION_ORDER` rather than by encounter so the key reads « à soigner » before
+   * « déjà traité », the same grouping the picker uses. Unknown values are dropped rather than listed: a
+   * condition the client does not know cannot be drawn either, and the build check is what stops that pair from
+   * ever being reached.</p>
+   */
+  /**
+   * Dragging across the arch to tick a run of teeth — see {@link useToothDragSelect}.
+   *
+   * <p>⚠️ `paintTooth` <b>sets</b> rather than toggles, because the hook decides the direction once from the
+   * tooth the gesture began on. A toggle here would undo any tooth the finger re-crossed, which on a curve is
+   * most of them.</p>
+   */
+  const paintTooth = useCallback((tooth: number, select: boolean) => {
+    setSelectedTeeth((prev) => {
+      if (prev.has(tooth) === select) return prev
+      const next = new Set(prev)
+      if (select) next.add(tooth)
+      else next.delete(tooth)
+      return next
+    })
+  }, [])
+
+  const dragSelect = useToothDragSelect({
+    enabled: multiSelect,
+    isSelected: (tooth) => selectedTeeth.has(tooth),
+    onPaint: paintTooth,
+  })
+
+  /**
+   * Which teeth carry a bridge that continues into the cell beside them.
+   *
+   * <p>⚠️ Computed <b>here</b> and nowhere else: a travée spans teeth, `ToothSymbolGlyph` sees one, and
+   * `ToothArchLayout` deliberately takes no per-tooth state. This component is already the one place holding
+   * every tooth *and* the arch order, so it is the only honest owner of « is my neighbour part of the same
+   * bridge? ».</p>
+   *
+   * <p>⚠️ Adjacency is read off the <b>arch as laid out</b>, not off the FDI number: the upper arch runs
+   * 18…11 then 21…28, so 11 and 21 are neighbours on screen while their numbers are ten apart — and a bridge
+   * across the midline is an ordinary anterior bridge, not an edge case.</p>
+   */
+  const bridgeSpans = useMemo(() => {
+    const bridgeMark = (tooth: number) =>
+      (byTooth.get(tooth) ?? []).find((e) => e.condition === "Bridge")
+
+    const spans = new Map<number, BridgeSpan>()
+    for (const arch of [
+      [...teeth.upperRight, ...teeth.upperLeft],
+      [...teeth.lowerRight, ...teeth.lowerLeft],
+    ]) {
+      const piers = arch.map((t, i) => ({ i, mark: bridgeMark(t) })).filter((x) => x.mark)
+
+      for (let n = 0; n < piers.length - 1; n++) {
+        const from = piers[n]
+        const to = piers[n + 1]
+        // ⚠️ Two bridges in one arch must not be joined into one. A span of more than three intervening
+        // sites is not a bridge anybody places — it is the next bridge along.
+        if (to.i - from.i - 1 > MAX_PONTIC_SITES) continue
+
+        // Planned wins: an abutment still to place makes the whole run a plan, and drawing half of it in
+        // « réalisé » blue would say part of a bridge that does not exist yet is in the mouth.
+        const planned = from.mark!.source === "Diagnosis" || to.mark!.source === "Diagnosis"
+        for (let i = from.i; i <= to.i; i++) {
+          const existing = spans.get(arch[i])
+          spans.set(arch[i], {
+            toPrevious: existing?.toPrevious || i > from.i,
+            toNext: existing?.toNext || i < to.i,
+            planned: existing?.planned || planned,
+          })
+        }
+      }
+    }
+    return spans
+  }, [teeth, byTooth])
+
+  const chartedConditions = useMemo(() => {
+    const present = new Set<string>()
+    for (const list of byTooth.values()) for (const entry of list) present.add(entry.condition)
+    return CONDITION_ORDER.filter((c) => present.has(c))
+  }, [byTooth])
 
   /**
    * Nothing tells us which arch to open on: no date of birth, nothing charted, and no choice made this session.
@@ -383,6 +543,9 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
                 <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
               </TabsList>
               <DentitionViewSwitch value={dentitionView} onChange={setChosenView} />
+              {/* Beside the dentition switch and NOT inside a tab body, for the same reason: it is a property
+                  of the whole chart. « Actes réalisés » keeps its own drawing for now — see the note there. */}
+              <OdontogramViewSwitch value={chartView} onChange={chooseChartView} />
               {chartedOutOfView > 0 && (
                 <button
                   type="button"
@@ -455,7 +618,7 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
               </Button>
               <p className="text-xs text-muted-foreground">
                 {multiSelect
-                  ? "Touchez les dents concernées, puis notez le diagnostic commun sous l'arcade."
+                  ? "Glissez sur l'arcade pour cocher une série (maintenez le doigt un instant sur mobile), ou touchez les dents une par une. Notez ensuite le diagnostic commun sous l'arcade."
                   : "Même diagnostic sur plusieurs dents ? Activez « Plusieurs dents »."}
               </p>
             </div>
@@ -463,6 +626,11 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
         {/* Geometry from `ToothArchLayout`. `ToothCell` keeps its own editor Popover and its per-cell state —
             the layout takes no open/hover state, which is what stops one arch's worth of editors from being
             addressable at once. */}
+        {/* The gesture is owned HERE and not by `ToothArchLayout`, whose contract is that it takes no
+            per-tooth state — a wrapper works because pointer events bubble, and `select-none` is
+            unconditional for the reason the agenda documents: a browser anchors a text selection on
+            pointerdown, before any movement has said this is a drag. */}
+        <div {...dragSelect.containerProps} className={cn(multiSelect && "select-none")}>
         <ToothArchLayout
           teeth={teeth}
           defaultArch={defaultArch}
@@ -477,9 +645,14 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
               isSelected={selectedTeeth.has(t)}
               onToggleSelect={toggleSelectedTooth}
               previewCondition={multiSelect && selectedTeeth.has(t) ? pendingCondition : null}
+              treatments={treatments?.get(t)}
+              chartView={chartView}
+              bridgeSpan={bridgeSpans.get(t)}
+              didConsumeGesture={dragSelect.didConsumeGesture}
             />
           )}
         />
+        </div>
 
             {multiSelect && (
               <MultiToothDiagnosisPanel
@@ -496,16 +669,32 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
             {/* The condition palette belongs to THIS chart. It used to sit outside the tabs, so all nine
                 conditions were also listed under « Actes réalisés » — a palette that view does not use. */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-              {CONDITION_ORDER.map((c) => (
-                <div key={c} className="flex items-center gap-1.5">
-                  <span className={cn("h-4 w-4 rounded border", conditionStyle(c).swatch)} />
-                  <span className="text-muted-foreground">{conditionStyle(c).label}</span>
+              {/* One legend per drawing, because the two spend colour on different things: fifteen condition
+                  hues under a chart whose colour means « à faire / réalisé » would teach the wrong key. */}
+              {chartView === "symbols" ? (
+                <ToothSymbolLegend conditions={chartedConditions} />
+              ) : (
+                <>
+                  {CONDITION_ORDER.map((c) => (
+                    <div key={c} className="flex items-center gap-1.5">
+                      <span className={cn("h-4 w-4 rounded border", conditionStyle(c).swatch)} />
+                      <span className="text-muted-foreground">{conditionStyle(c).label}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-4 w-4 rounded border-2 border-dashed border-muted-foreground/60" />
+                    <span className="text-muted-foreground">Diagnostic (à traiter)</span>
+                  </div>
+                </>
+              )}
+              {/* Only when the patient actually has one — a legend row for a state nothing on the chart is
+                  wearing teaches a mark the reader will never meet. */}
+              {treatments && treatments.size > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="mx-0.5 h-3.5 w-3.5 rounded-sm border border-border outline-2 outline-dashed outline-primary outline-offset-2" />
+                  <span className="text-muted-foreground">Traitement en cours</span>
                 </div>
-              ))}
-              <div className="flex items-center gap-1.5">
-                <span className="h-4 w-4 rounded border-2 border-dashed border-muted-foreground/60" />
-                <span className="text-muted-foreground">Diagnostic (à traiter)</span>
-              </div>
+              )}
             </div>
           </TabsContent>
 
@@ -533,6 +722,14 @@ interface ToothCellProps {
    * tooth is not part of a pending multi-tooth diagnosis, which is every tooth outside that mode.
    */
   previewCondition?: string | null
+  /** Treatments under way on this tooth, if any — see {@link OdontogramProps.treatments}. */
+  treatments?: ToothTreatment[]
+  /** Which drawing to use. Everything else about the cell — editor, selection, tooltip — is identical. */
+  chartView: OdontogramChartView
+  /** Set when this tooth's bridge continues into a neighbouring cell — see `bridgeSpans` above. */
+  bridgeSpan?: BridgeSpan
+  /** True while the click closing a drag-select is still to come — that click must not toggle this tooth again. */
+  didConsumeGesture: () => boolean
 }
 
 function ToothCell({
@@ -544,6 +741,10 @@ function ToothCell({
   isSelected,
   onToggleSelect,
   previewCondition = null,
+  treatments,
+  chartView,
+  bridgeSpan,
+  didConsumeGesture,
 }: ToothCellProps) {
   const [open, setOpen] = useState(false)
   /**
@@ -566,6 +767,7 @@ function ToothCell({
   }
 
   const latest = entries[0]
+  const underTreatment = (treatments?.length ?? 0) > 0
 
   /**
    * The condition the box is painted with: a **pending** choice wins over the stored state.
@@ -628,7 +830,55 @@ function ToothCell({
     }
   }
 
-  const box = (
+  /*
+   * What the symbol drawing paints, and the one place the two views deliberately differ.
+   *
+   * ⚠️ A pending choice is **added** here, where the box view **replaces**. That is not an inconsistency: the
+   * box can hold one fill and has no other option, while a symbol composes — so the dentist about to chart a
+   * carie on an already-couronnée tooth sees both, which is the truthful picture and the whole reason this
+   * view exists. Both halves read `preview` above, so an abandoned form leaves nothing behind either way.
+   */
+  const symbolMarks: ToothMark[] = [
+    ...entries.map((e) => ({ condition: e.condition, source: e.source, surfaces: e.surfaces })),
+    ...(preview ? [{ condition: preview, source: "Diagnosis" }] : []),
+  ]
+
+  /* Shared by both drawings: the ring, the treatment outline and the tick are chrome, not paint. */
+  const cellChrome = cn(
+    underTreatment && "outline-2 outline-dashed outline-primary outline-offset-2",
+    selectionMode && isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
+  )
+  const tick = selectionMode && isSelected && (
+    <span
+      aria-hidden="true"
+      className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm"
+    >
+      <Check className="size-2.5" strokeWidth={3} />
+    </span>
+  )
+
+  const symbolBox = (
+    <span className="flex flex-col items-center">
+      {/* The occlusal cell sits against the occlusal plane — under an upper tooth, over a lower one — so the
+          two arches face each other the way the mouth does. */}
+      <span className={cn("relative flex flex-col items-center gap-px rounded-md p-0.5", cellChrome)}>
+        {!isUpperTooth(toothNum) && <OcclusalSurfaceBox toothNumber={toothNum} marks={symbolMarks} />}
+        <ToothSymbolGlyph toothNumber={toothNum} marks={symbolMarks} bridgeSpan={bridgeSpan} />
+        {isUpperTooth(toothNum) && <OcclusalSurfaceBox toothNumber={toothNum} marks={symbolMarks} />}
+        {tick}
+      </span>
+      <span
+        className={cn(
+          "mt-0.5 text-2xs font-medium",
+          selectionMode && isSelected ? "font-semibold text-primary" : "text-muted-foreground",
+        )}
+      >
+        {toothNum}
+      </span>
+    </span>
+  )
+
+  const boxesBox = (
     <span className="flex flex-col items-center">
       <span
         /* The selection ring is painted on the tooth BOX, not on the wrapping button: on a coarse pointer the
@@ -639,18 +889,22 @@ function ToothCell({
           "relative flex h-9 w-7 items-center justify-center rounded-md border text-2xs font-semibold",
           style.box,
           latestIsDiagnosis && "border-2 border-dashed",
+          /*
+            ⚠️ **A RING, never a fill — the fill belongs to the condition and this is a different axis.**
+            « Un traitement est en cours ici » is orthogonal to « what state is this tooth in »: a couronne
+            two séances in is still charted « à traiter » (correctly — it is not finished), so painting the
+            box would overwrite the clinical fact with a workflow one. It is the same dashed-primary language
+            the séance strips already use for « prochaine étape », so the two read as one idea.
+            ⚠️ Drawn BEFORE the selection ring in the class list and overridden by it: « Plusieurs dents » is a
+            mode the dentist is actively in, and losing the tick mark to a treatment ring would be a control
+            hidden by a decoration.
+          */
+          underTreatment && "outline-2 outline-dashed outline-primary outline-offset-2",
           selectionMode && isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-background",
         )}
       >
         {latest?.surfaces ?? ""}
-        {selectionMode && isSelected && (
-          <span
-            aria-hidden="true"
-            className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm"
-          >
-            <Check className="size-2.5" strokeWidth={3} />
-          </span>
-        )}
+        {tick}
       </span>
       <span
         className={cn(
@@ -686,6 +940,14 @@ function ToothCell({
   )
 
   /*
+   * ⚠️ The two drawings swap HERE and nowhere else. Everything below — the tooltip, the checkbox branch, the
+   * editor Popover, the confirm dialog — is shared verbatim, which is what stops the symbol view from becoming
+   * a second chart with its own behaviour to keep in step. The dots are deliberately absent from the symbol
+   * drawing: they exist because a single fill can only show the latest state, and a symbol shows them all.
+   */
+  const box = chartView === "symbols" ? symbolBox : boxesBox
+
+  /*
     Hover reveals what is charted on the tooth — the acts chart does the same, but it can put that in its
     Popover because a click there has nothing else to do. Here the Popover IS the editor (condition, faces,
     note, save, retirer), so opening it on hover would pop a form open for every tooth the pointer crosses.
@@ -700,7 +962,10 @@ function ToothCell({
     « Plusieurs dents » swaps the trigger underneath it — the reading of a tooth does not change with the mode.
   */
   const withTooltip = (node: ReactNode) =>
-    entries.length === 0 ? (
+    // ⚠️ `underTreatment` widens the gate: a tooth whose treatment has not produced a fiche yet has NO charted
+    // entry at all, so the old `entries.length === 0` test withheld the tooltip from exactly the teeth the
+    // ring was drawn on — a mark on screen with no way to ask what it meant.
+    entries.length === 0 && !underTreatment ? (
       node
     ) : (
       <TooltipProvider>
@@ -708,6 +973,14 @@ function ToothCell({
           <TooltipTrigger asChild>{node}</TooltipTrigger>
           <TooltipContent side="top" align="center" className="max-w-xs">
             <p className="mb-1 font-semibold">Dent {toothNum}</p>
+            {/* The treatment leads: it is the live fact, and the charted entries below it are its history. */}
+            {treatments?.map((t) => (
+              <p key={`${t.planId}-${t.designationFr}`} className="mb-1 text-primary">
+                <span className="font-medium">{t.designationFr}</span>
+                <br />
+                {toothTreatmentSummary(t, formatDateFr)}
+              </p>
+            ))}
             <ul className="space-y-0.5">
               {entries.map((e) => (
                 <li key={e.id} className="flex items-center gap-1.5">
@@ -741,7 +1014,16 @@ function ToothCell({
         role="checkbox"
         aria-checked={isSelected}
         aria-label={`Dent ${toothNum}`}
-        onClick={() => onToggleSelect(toothNum)}
+        // How a drag asks the document which tooth it is over — see `tooth-drag-select.ts`.
+        {...{ [TOOTH_CELL_ATTR]: toothNum }}
+        /*
+          ⚠️ `pointerup` fires before `click`, so the last tooth of every drag would be painted by the gesture
+          and then toggled straight back by this handler. The guard consumes exactly one click.
+        */
+        onClick={() => {
+          if (didConsumeGesture()) return
+          onToggleSelect(toothNum)
+        }}
         // Same `coarse:min-w-11` reasoning as the editor trigger below: grow the paint, never overlay a 44px
         // target onto a 28px cell that a neighbour then wins.
         className="group rounded-md transition-all focus:outline-none focus:ring-1 focus:ring-ring coarse:min-w-11 hover-hover:hover:scale-105"
@@ -876,27 +1158,28 @@ function ToothCell({
               ))}
             </SelectContent>
           </Select>
-          {/* Surfaces (MODVL) — optional, finding #19.
-              `gap-2` + `coarse:h-11`: five 28px buttons at `gap-1` are a 32px pitch, and `buttonVariants`
-              already overlays each with a 44px `touch-target` — so 12px of every pair overlapped and the later
-              sibling won, recording the act on the wrong surface. Painting the height on a coarse pointer makes
-              the hit area equal the button again; the wider gap keeps the row honest. `coarse:h-11` rather than
-              `coarse:size-11` so it stays in the same tailwind-merge group as the base `h-7` and reliably wins. */}
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(SURFACE_LABELS).map(([code, label]) => (
-              <Button
-                key={code}
-                type="button"
-                variant={surfaces.has(code) ? "default" : "outline"}
-                size="sm"
-                className="h-7 px-2 text-xs coarse:h-11 coarse:min-w-11"
-                title={label}
-                aria-pressed={surfaces.has(code)}
-                onClick={() => toggleSurface(code)}
-              >
-                {code}
-              </Button>
-            ))}
+          {/*
+            Surfaces (MODVL) — **pointed at, not spelled out**.
+            The five letter buttons this replaced put the French name in a native `title` only, so on the one
+            control whose whole subject is *where on the tooth* the dentist read « M » and did the geometry in
+            their head — and on a phone the `title` needed a hover there is no pointer for. The picker is the
+            chart's own `OCCLUSAL_ZONES`, so the box here and the box under the tooth cannot disagree about
+            which side is mésial.
+            ⚠️ It is offered here and NOT in the multi-tooth panel below: there the faces apply to several teeth
+            at once, and mésial is on opposite sides of the two halves of the mouth.
+          */}
+          <div className="flex flex-col items-center gap-1.5">
+            <OcclusalSurfacePicker
+              toothNumber={toothNum}
+              selected={surfaces}
+              onToggle={toggleSurface}
+              disabled={saving}
+            />
+            <p className="text-2xs text-muted-foreground" role="status">
+              {surfaces.size === 0
+                ? "Faces (facultatif) — touchez la zone atteinte"
+                : `Faces : ${SURFACE_ORDER.filter((s) => surfaces.has(s)).map((s) => SURFACE_LABELS[s]).join(", ")}`}
+            </p>
           </div>
           <Textarea
             value={note}

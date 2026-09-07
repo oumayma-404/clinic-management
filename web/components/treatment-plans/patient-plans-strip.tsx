@@ -18,6 +18,7 @@ import {
   planStatusBadgeClass,
   planNextActionLabel,
   planHasRecordedWork,
+  planDisplayName,
   itemWorkflowLabel,
   itemWorkflowBadgeClass,
 } from "./treatment-plan-labels"
@@ -27,6 +28,7 @@ import {
   leadPlan,
   nextStepOf,
   planHeadline,
+  isPlanLive,
   planItemState,
   planNextAction,
   planStatusCounts,
@@ -106,16 +108,28 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
   const isDraft = plan.status === "Draft"
   const next = planNextAction(plan)
   const owed = displayedOutstanding(plan)
-  const otherCounts = planStatusCounts(plans, plan.id)
+  /*
+   * ⚠️ **The live plans are excluded from the chips because they now have their own LINES in the fold.**
+   * Leaving them in stated the same treatments twice — once as « 3 en cours » and once as three rows — and the
+   * chip is the weaker of the two, since it cannot say which one has a séance next week. A finished or
+   * cancelled treatment is genuinely a count, and keeps its chip.
+   */
+  const livePlans = plans.filter((p) => isPlanLive(p.status))
+  const otherCounts = planStatusCounts(plans).filter((c) => !isPlanLive(c.status))
   const openWorkspace = () => router.push(`/treatment-plans/${plan.id}`)
 
   return (
     <section aria-label="Plans de traitement" className="flex flex-col gap-2 border-y py-3">
       {/* Line 1 — identity · the one thing to do · the way in. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="text-sm font-semibold">
-          {isDraft ? "Devis — brouillon" : `Plan ${plan.number ?? ""}`.trim()}
-        </span>
+        {/*
+          ⚠️ **`planDisplayName`, never a ternary here.** This line read « Devis — brouillon » — written by
+          hand — directly beside the badge that `planStatusLabel` had deliberately renamed to « Sans devis »,
+          so the same object carried two names eight pixels apart, and one of them was the exact word the
+          rename existed to remove: « brouillon » says unfinished paperwork about a treatment with séances
+          recorded against it, and invites a dentist to delete it.
+        */}
+        <span className="text-sm font-semibold">{planDisplayName(plan)}</span>
         <Badge variant="secondary" className={planStatusBadgeClass(plan.status, planHasRecordedWork(plan))}>
           {planStatusLabel(plan.status, planHasRecordedWork(plan))}
         </Badge>
@@ -225,7 +239,7 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
         )}
       </div>
 
-      <PlanActsFold plan={plan} />
+      <PlanActsFold plans={livePlans} />
     </section>
   )
 }
@@ -252,11 +266,25 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
  * <p>Withdrawn acts are excluded (`activeItems`) for the reason the counters exclude them: a stopped treatment
  * listing the séances the patient is not coming back for reads as outstanding work.</p>
  */
-function PlanActsFold({ plan }: { plan: TreatmentPlanDto }) {
-  const items = activeItems(plan)
-  // Nothing to unfold for a single act with no protocol — line 2 already says everything the fold would.
-  if (items.length === 0) return null
-  if (items.length === 1 && (items[0].steps?.length ?? 0) === 0) return null
+function PlanActsFold({ plans }: { plans: TreatmentPlanDto[] }) {
+  /*
+   * ⚠️ **Every live treatment, not only the lead one.** The band showed one plan in detail and reduced the
+   * rest to counter chips — « 2 accepté · 3 en cours · 1 annulé » — so a patient with five treatments running
+   * had four of them represented by a number, and no way to tell which one has a séance next week. Reported
+   * as « in patient details page, should be noticeable, traitement en cours, à venir ». The chips stay for the
+   * FINISHED ones, where a count really is the whole story.
+   */
+  const groups = plans
+    .map((p) => ({ plan: p, items: activeItems(p) }))
+    .filter((g) => g.items.length > 0)
+  if (groups.length === 0) return null
+  // Nothing to unfold for one act with no protocol — line 2 already says everything the fold would.
+  if (groups.length === 1 && groups[0].items.length === 1 && (groups[0].items[0].steps?.length ?? 0) === 0) {
+    return null
+  }
+
+  const actCount = groups.reduce((n, g) => n + g.items.length, 0)
+  const several = groups.length > 1
 
   return (
     <details className="group">
@@ -264,15 +292,29 @@ function PlanActsFold({ plan }: { plan: TreatmentPlanDto }) {
           `list-none` alone does not remove, so the chevron below would sit beside a second one. */}
       <summary className="flex w-full cursor-pointer list-none items-center gap-1.5 py-1 text-xs text-muted-foreground touch-target hover:text-foreground [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
-        Détail des séances
+        {several ? "Traitements suivis" : "Détail des séances"}
         <span className="text-2xs opacity-70">
-          ({items.length} acte{items.length > 1 ? "s" : ""})
+          ({several ? `${groups.length} traitements · ` : ""}
+          {actCount} acte{actCount > 1 ? "s" : ""})
         </span>
       </summary>
 
       <ul className="mt-1 flex flex-col gap-1.5">
-        {items.map((item) => (
-          <PlanActLine key={item.id} item={item} />
+        {groups.map((g) => (
+          <li key={g.plan.id} className="flex flex-col gap-1.5">
+            {/* Named only when there is more than one — on a single treatment the band's own line 1 already
+                says which plan this is, and repeating it would be a heading over its only child. */}
+            {several && (
+              <span className="ps-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                {planDisplayName(g.plan)}
+              </span>
+            )}
+            <ul className="flex flex-col gap-1.5">
+              {g.items.map((item) => (
+                <PlanActLine key={item.id} item={item} />
+              ))}
+            </ul>
+          </li>
         ))}
       </ul>
     </details>

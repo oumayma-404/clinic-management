@@ -6,6 +6,7 @@ using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Features.TreatmentPlans;
 using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
@@ -81,12 +82,65 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
          * rule now lives in Domain and why `TreatmentPlanLifecycleTests` scans C# sources for the literal.
          */
         var liveStatuses = TreatmentPlanLifecycle.LiveStatuses;
+        var liveAppointmentStatuses = TreatmentPlanWorkflowProjection.LiveAppointmentStatuses;
+        /*
+         * The clinic's own midnight — never `DateTime.UtcNow`. It is where an act with no history at all sorts:
+         * such an act is neither late nor waiting, it is plannable *now*, and « now » in this product is a
+         * Tunisian day boundary. Its previous stand-in was `plan.CreatedAt`, which put a stepped act on a
+         * six-month-old devis above work that is genuinely overdue.
+         */
+        var todayUtc = ClinicClock.StartOfLocalDayUtc(ClinicClock.ClinicToday());
         var query =
             from item in _context.Set<TreatmentPlanItem>()
             join plan in _context.TreatmentPlans on item.TreatmentPlanId equals plan.Id
+            let nextStepId = item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => (Guid?)s.Id)
+                    .FirstOrDefault()
+                /*
+                 * Whether the NEXT step already has a séance, and when — the sort's first key, and the only
+                 * reason this query touches appointments at all.
+                 *
+                 * ⚠️ **It must answer exactly what `TreatmentsInProgressReader` answers, or the screen groups
+                 * rows by one rule and orders them by another.** Two things follow from that, and the first
+                 * draft got both wrong:
+                 *
+                 *   · **Per STEP, not per act.** An act with six séances can have the 2nd booked and the 5th
+                 *     not; the reader keys its booking on `NextStepId`, so an act-level match would call a
+                 *     bridge « booked » on the strength of a visit that carried out a step already done.
+                 *   · **No date floor.** A séance whose slot has passed with nobody closing it is still a
+                 *     standing booking — that is the whole reason `AwaitingClosure` and `Completed` are in
+                 *     `LiveAppointmentStatuses` — so filtering to « from today on » made the query call rows
+                 *     unbooked that the reader then rendered as « prochaine séance le 3 sept. ». Observed:
+                 *     five such rows interleaved through the « à planifier » group on the first run.
+                 */
+            let nextSeanceOn = (from ap in _context.Set<AppointmentProcedure>()
+                                join appt in _context.Appointments on ap.AppointmentId equals appt.Id
+                                where ap.TreatmentPlanItemStepId == nextStepId
+                                      && liveAppointmentStatuses.Contains(appt.Status)
+                                select (DateTime?)appt.AppointmentDateTime).Min()
+            let lastDoneOn = item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate)
+            let nextMinDays = item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => s.MinDaysAfterPrevious)
+                    .FirstOrDefault()
             where plan.ClinicId == clinicId
                   && liveStatuses.Contains(plan.Status)
-                  && item.Status == TreatmentPlanItemStatus.InProgress
+                  /*
+                   * ⚠️ **`Planned` with steps counts, and its absence is what made a treatment invisible on the
+                   * day it was created.** `InProgress` is only reached once a first séance has been recorded
+                   * (`RecomputeStatusFromSteps`), so an act booked for the 12th — the moment a dentist most
+                   * wants to see it — was on no list at all: not here, and in « Devis et échéanciers » as an
+                   * un-numbered brouillon, filed among quotes. Two such rows were sitting in the live database
+                   * when this was written. Reported as « unless i record the first fiche, it's still brouillon
+                   * … we need visibility ».
+                   *
+                   * `Steps.Any()` is what keeps the widening honest: an act with no protocol still goes
+                   * Planned → Done and has never belonged here, so ordinary un-started devis lines are no more
+                   * visible than before. What is added is exactly « un traitement à séances, pas encore fini ».
+                   */
+                  && (item.Status == TreatmentPlanItemStatus.InProgress
+                      || (item.Status == TreatmentPlanItemStatus.Planned && item.Steps.Any()))
                   && (pattern == null
                       || EF.Functions.ILike(SqlSearch.Unaccent(plan.Number)!, pattern, SqlSearch.EscapeString)
                       || _context.Patients.Any(pa =>
@@ -95,10 +149,40 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                                   SqlSearch.Unaccent(pa.FirstName + " " + pa.LastName)!, pattern, SqlSearch.EscapeString)
                               || EF.Functions.ILike(
                                   SqlSearch.Unaccent(pa.LastName + " " + pa.FirstName)!, pattern, SqlSearch.EscapeString))))
-            // Most recent devis first, then the act's rank inside it so a plan's acts stay in protocol order.
-            // The act's own id last and unique: without it OFFSET can repeat one act and skip another, which
-            // reads as « un traitement a disparu ». See the interface for why this is no longer oldest-first.
-            orderby plan.CreatedAt descending, item.SequenceNumber, item.Id
+            /*
+             * ⚠️ **By what is due, not by what was quoted last.** The order was `plan.CreatedAt descending` —
+             * the most recently written devis first — which answers « qu'a-t-on convenu récemment ? » on a
+             * screen whose whole question is « qu'est-ce qui vient ensuite ? ». Asked for in as many words:
+             * « sorted by closest to this date ».
+             *
+             * Two keys, and the first is what makes the screen's three groups CONTIGUOUS rather than
+             * interleaved:
+             *   1. an act with no séance booked sorts before one that has (false &lt; true in PostgreSQL), so
+             *      « en retard » and « à planifier » — the two that need a person — lead, and « séance prévue »
+             *      trails as a tail nobody has to act on;
+             *   2. then the date each group is actually about: the protocol's own due date for the unbooked
+             *      (oldest first, so the latest work leads), the appointment for the booked (soonest first).
+             *      `COALESCE` folds the two into one comparable instant, and an act with nothing done yet and
+             *      no interval falls back to when its devis was written.
+             *
+             * ⚠️ The `AddDays` is the ONE piece of date arithmetic this query does, and the interface's own
+             * note says the addition is deliberately kept out of SQL. That still holds for the PROJECTION —
+             * `NextStepMinDaysAfterPrevious` is served raw and the reader composes the date it shows. This is
+             * an ORDER BY, which cannot be composed after paging without reordering one page instead of the
+             * list.
+             */
+            orderby
+                nextSeanceOn != null,
+                (nextSeanceOn
+                 ?? (lastDoneOn != null && nextMinDays != null
+                        ? lastDoneOn.Value.AddDays(nextMinDays.Value)
+                        : lastDoneOn)
+                 ?? todayUtc),
+                // The act's rank inside its plan, so a plan's acts stay in protocol order when they tie…
+                item.SequenceNumber,
+                // …and the act's own id last and unique: without it OFFSET can repeat one act and skip
+                // another, which reads as « un traitement a disparu ».
+                item.Id
             select new TreatmentInProgressFact(
                 plan.Id,
                 plan.Number,

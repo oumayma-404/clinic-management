@@ -207,7 +207,22 @@ export function hasInvalidPrice(unitCost: string): boolean {
  * giving it a price would make it saveable.</p>
  */
 export function distributeSessionTotal(acts: SessionAct[], target: number): SessionAct[] {
-  const named = acts.filter(isActNamed)
+  /*
+   * ⚠️ **An act the treatment prices takes no share, and leaving it in was a way THROUGH the read-only lock.**
+   * `act-card` renders such an act's price `readOnly` and the server imposes 0 on it
+   * (`PlanCarriedActPricing`) — but « Total » wrote straight past both: typing 150 on a séance carrying a
+   * couronne moved the locked field to « 150,000 » on screen, and the save silently put it back to 0.
+   * Measured on the running app, 2026-09-07.
+   *
+   * On a MIXED séance the same bug is worse and quieter: a couronne (carried) beside a détartrage (not), and
+   * the typed total would be split between them — so the détartrage would be under-billed by whatever share
+   * went to the act that cannot hold it. The total the dentist types is the honoraires of this séance, and a
+   * carried act contributes none, so it must take none.
+   *
+   * When EVERY act is carried there is nothing to distribute and the list comes back untouched — which is
+   * also the case where `patient-record-modal` withdraws the « Total » field altogether.
+   */
+  const named = acts.filter((a) => isActNamed(a) && !a.billedOnPlan)
   if (named.length === 0) return acts
 
   // Integer millimes throughout — see the note above on why floats cannot hit the typed figure.

@@ -9,7 +9,7 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Check, ChevronsUpDown, ChevronUp, Clock, ListOrdered, Plus, Stethoscope, X } from "lucide-react"
+import { Check, ChevronsUpDown, Clock, Plus, Stethoscope, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AppointmentProtocolEditor } from "@/components/appointment-protocol-editor"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
@@ -523,8 +523,6 @@ export function AppointmentActsPicker({
   onTotalChange,
 }: AppointmentActsPickerProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
-  /** Which act rows have their séance list open for editing, keyed on the group's representative index. */
-  const [openProtocolEditors, setOpenProtocolEditors] = useState<Set<number>>(new Set())
   /**
    * Which act rows have their étape chooser open, keyed on the group's representative index.
    *
@@ -817,10 +815,18 @@ export function AppointmentActsPicker({
       {/* ⚠️ No longer gated on a « can this dialog start a treatment? » prop. It was, and that prop was absent
           in the edit dialog and on a create form with no patient chosen yet — so the sentence promising the
           feature was hidden in exactly the situations where somebody was looking for it. */}
+      {/*
+        ⚠️ **Shortened, deliberately NOT deleted — the design review proposed deleting it and the review was
+        wrong.** The argument for deletion was that nobody reads a consigne before having a problem, and the
+        card that appears after the choice says everything at the moment it matters. The argument against is
+        the one written above, and it is backed by an observed walk rather than by a view about reading
+        habits: with this line gone there is no *forward* door onto the feature at all, and a cold search for
+        « how do I plan a six-visit implant » took four wrong turns. Two lines of grey prose above an empty
+        field was the real complaint, so it is one short line now.
+      */}
       {rows.length === 0 && (
         <p className="text-2xs leading-relaxed text-muted-foreground">
-          Cet acte se fait en plusieurs séances&nbsp;? Choisissez-le ci-dessous — les actes qui demandent
-          plusieurs séances le disent, et le traitement est préparé automatiquement.
+          Un acte en plusieurs séances&nbsp;? Choisissez-le&nbsp;: le traitement est préparé tout seul.
         </p>
       )}
 
@@ -1122,20 +1128,11 @@ export function AppointmentActsPicker({
                 const index = row.group.indices[0]
                 const planned = row.act.plannedProtocol
                 const followed = planned != null && planned.length > 0
-                const editing = openProtocolEditors.has(index)
                 // Whose treatment this booking is already preparing, when it is not this act's — an appointment
                 // carries one `TreatmentPlanId`, so following this act means giving that one up.
                 const other = rows.find(
                   (r) => r !== row && r.act.plannedProtocol && r.act.plannedProtocol.length > 0,
                 )
-
-                const toggleEditor = () =>
-                  setOpenProtocolEditors((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(index)) next.delete(index)
-                    else next.add(index)
-                    return next
-                  })
 
                 return (
                   <div
@@ -1171,7 +1168,18 @@ export function AppointmentActsPicker({
                       </p>
                     )}
 
-                    {editing && followed && (
+                    {/*
+                      ⚠️ **Rendered unconditionally when the act is followed — there is no « Modifier les
+                      séances » any more, and removing that toggle IS the fix.** The list was hidden behind a
+                      disclosure whose open state was a form: 515 px at 1440 and 843 px at 390, for three
+                      séances. Worse, the disclosure was the reported defect — open, the row read
+                      « Terminer · Tout faire en une séance », so the exit looked like a validation of what had
+                      just been typed and the control beside it looked like the confirm. Renaming it treated the
+                      symptom; the list simply not being a mode treats the cause. It is a readable frise now, one
+                      line per séance, and only a single ROW is ever a form. Nothing here needs validating:
+                      « Créer le rendez-vous » is the one save on the screen.
+                    */}
+                    {followed && (
                       <AppointmentProtocolEditor
                         steps={planned}
                         onChange={(next) =>
@@ -1182,63 +1190,15 @@ export function AppointmentActsPicker({
                         canReset={
                           JSON.stringify(planned) !== JSON.stringify(row.protocol)
                         }
-                        onSingleSeance={() => {
-                          setPlannedProtocol(index, null)
-                          setOpenProtocolEditors((prev) => {
-                            const next = new Set(prev)
-                            next.delete(index)
-                            return next
-                          })
-                        }}
+                        onSingleSeance={() => setPlannedProtocol(index, null)}
                         disabled={disabled}
                         idPrefix={`${idPrefix}-protocol-${index}`}
                         actName={row.name}
                       />
                     )}
 
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {followed ? (
-                        <>
-                          {/*
-                            ⚠️ **A disclosure, never « Terminer ».** Reported from use: with the list open the
-                            row read « Terminer · Tout faire en une séance », so the exit looked like a
-                            *validation* of the séances just typed and the control beside it looked like the
-                            confirm — one press away from silently collapsing the whole treatment into a single
-                            visit. Nothing here needs validating: the list is form state and « Créer le
-                            rendez-vous » is the only save on the screen. So it says show/hide, with a chevron,
-                            and the one-séance action moves INSIDE the editor while it is open — beside
-                            « Rétablir le protocole », where it reads as one of the list's own operations.
-                          */}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 flex-1 gap-1 text-2xs coarse:h-11"
-                            disabled={disabled}
-                            onClick={toggleEditor}
-                            aria-expanded={editing}
-                          >
-                            {editing ? (
-                              <ChevronUp className="h-3.5 w-3.5" />
-                            ) : (
-                              <ListOrdered className="h-3.5 w-3.5" />
-                            )}
-                            {editing ? "Masquer les séances" : "Modifier les séances"}
-                          </Button>
-                          {!editing && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 flex-1 text-2xs text-muted-foreground coarse:h-11"
-                              disabled={disabled}
-                              onClick={() => setPlannedProtocol(index, null)}
-                            >
-                              Tout faire en une séance
-                            </Button>
-                          )}
-                        </>
-                      ) : (
+                    <div className={cn("flex flex-wrap gap-2", !followed && "mt-2")}>
+                      {followed ? null : (
                         <Button
                           type="button"
                           variant="outline"
@@ -1258,7 +1218,6 @@ export function AppointmentActsPicker({
                                     : act,
                               ),
                             )
-                            setOpenProtocolEditors((prev) => new Set(prev).add(index))
                           }}
                         >
                           <Stethoscope className="h-3.5 w-3.5" />

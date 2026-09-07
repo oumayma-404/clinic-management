@@ -310,6 +310,51 @@ check(
 );
 
 check(
+  "tooth-symbol-covers-every-condition",
+  "P6",
+  "Every `ToothCondition` the client knows has a glyph in `tooth-symbols.tsx`, and no glyph invents one",
+  "The symbol view draws a tooth by looking its condition up in `TOOTH_SYMBOLS`. A condition with no entry " +
+    "draws the bare tooth — no error, no warning, no console line: the state is simply not on the chart, and " +
+    "the tooth reads as healthy. That is the exact shape of the defect this repo keeps finding (a correct map " +
+    "wired to one of its call sites), and the six conditions added by `odontogram-plan-suggestions` are proof " +
+    "the set grows. Compared in BOTH directions: a glyph for a condition the vocabulary dropped is dead code " +
+    "that will be copied forward. `Sain` is excluded — it is the absence of a state and is never stored.",
+  () => {
+    const condFile = ALL_FILES.find((f) => rel(f) === "components/odontogram-conditions.ts");
+    const symFile = ALL_FILES.find((f) => rel(f) === "components/tooth-symbols.tsx");
+    if (!condFile || !symFile) {
+      return [{ file: condFile ? "components/tooth-symbols.tsx" : "components/odontogram-conditions.ts", line: 0, text: "missing", full: "a file this check guards is gone — retarget or retire the check" }];
+    }
+
+    // Read the vocabulary out of `CONDITION_ORDER`, which is the list the picker and the legend already walk —
+    // not out of `CONDITIONS`, whose keys could drift from what is offerable.
+    const order = read(condFile).match(/export const CONDITION_ORDER\s*=\s*\[([\s\S]*?)\]/);
+    const undrawn = read(symFile).match(/export const UNDRAWN_CONDITIONS\s*=\s*\[([\s\S]*?)\]/);
+    if (!order || !undrawn) {
+      return [{ file: rel(order ? symFile : condFile), line: 0, text: "unparsable", full: "CONDITION_ORDER / UNDRAWN_CONDITIONS no longer parse — this check is blind, fix it rather than deleting it" }];
+    }
+    const skip = new Set([...undrawn[1].matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]));
+    const conditions = [...order[1].matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]).filter((c) => !skip.has(c));
+
+    // The symbol map's own keys, taken from the object literal rather than from a hand-kept list.
+    const body = read(symFile).match(/export const TOOTH_SYMBOLS[^{]*\{([\s\S]*?)\n\}/);
+    if (!body) {
+      return [{ file: rel(symFile), line: 0, text: "unparsable", full: "TOOTH_SYMBOLS no longer parses — this check is blind, fix it rather than deleting it" }];
+    }
+    const drawn = new Set([...body[1].matchAll(/^\s{2}([A-Z][A-Za-z]*):\s*\{/gm)].map((m) => m[1]));
+
+    const hits = [];
+    for (const c of conditions) {
+      if (!drawn.has(c)) hits.push({ file: rel(symFile), line: 0, text: c, full: `\`${c}\` is charted but has no glyph — the symbol view would draw a healthy tooth for it` });
+    }
+    for (const c of drawn) {
+      if (!conditions.includes(c)) hits.push({ file: rel(symFile), line: 0, text: c, full: `\`${c}\` has a glyph but is not in CONDITION_ORDER — dead symbol` });
+    }
+    return hits;
+  }
+);
+
+check(
   "arch-clipping",
   "P6",
   "No `flex justify-center` inside a horizontally scrolling container",
@@ -1675,6 +1720,60 @@ check(
         text:
           "found no surface rendering <AppointmentActsPicker — the scan is broken, and a guard that matches " +
           "nothing cannot hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "session-total-skips-carried-acts",
+  "N27",
+  "The séance total is spread over the acts that can hold money, never over one the treatment prices",
+  "An act carried by a treatment is 0 by rule — the treatment prices it once, `PlanCarriedActPricing` imposes " +
+    "that server-side and `act-card` renders its price field read-only. « Total », three blocks below, wrote " +
+    "straight past both: `distributeSessionTotal` filtered on `isActNamed` alone, so typing 150 on a séance " +
+    "carrying a couronne moved the LOCKED field to « 150,000 » on screen and the save silently put it back to " +
+    "0 — measured on the running app. On a MIXED séance it is quieter and worse: a couronne (carried) beside a " +
+    "détartrage (not), and the typed total is split between them, so the détartrage is under-billed by " +
+    "whatever share went to the act that cannot hold it. Nothing errors in either case. The rule is one line " +
+    "and this is what keeps it: the filter is where the money is apportioned, and no reader downstream can " +
+    "put it back.",
+  () => {
+    const offenders = [];
+
+    // Derived from the function itself, not from a file list — a second implementation would be found too.
+    const DECLARES = /\bfunction\s+distributeSessionTotal\s*\(/;
+    let candidates = 0;
+
+    for (const f of tsx()) {
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+      const at = code.search(DECLARES);
+      if (at < 0) continue;
+      candidates++;
+      // The body, up to the next top-level declaration — enough to hold the filter and nothing else.
+      const body = code.slice(at, at + 2400);
+      if (/\bbilledOnPlan\b/.test(body)) continue;
+      offenders.push({
+        file: rel(f),
+        line: lineAt(code, at),
+        text:
+          "distributeSessionTotal does not exclude `billedOnPlan` acts — typing in « Total » writes through " +
+          "the read-only price of an act the treatment already prices, and the server discards it on save",
+      });
+    }
+
+    // Tripwire: the function was renamed, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/record/",
+        text:
+          "found no `distributeSessionTotal` — the scan is broken, and a guard that matches nothing cannot " +
+          "hold anything",
       });
     }
 

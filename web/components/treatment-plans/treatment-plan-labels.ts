@@ -130,6 +130,47 @@ export function planStatusBadgeClass(status: string, hasRecordedWork = false): s
   return statusToneClass(PLAN_STATUS_TONE[status]);
 }
 
+/**
+ * What to CALL a plan on screen — « Plan 2026-0004 », or « Traitement suivi » when it has no number.
+ *
+ * <p>⚠️ <b>« Devis — brouillon » was written by hand in the patient band, directly beside the badge that
+ * {@link planStatusLabel} deliberately renamed to « Sans devis ».</b> Two names for one object, eight pixels
+ * apart, one of them the exact word the rename existed to remove. That is why this is a function and not a
+ * ternary at a call site: a name this feature disagrees with itself about is the defect, not the wording.</p>
+ *
+ * <p>A hand-written Draft devis keeps whatever title the dentist typed — only the absence of a title, or a
+ * title that merely repeats the act (see {@link planItemHeading}), falls back to the generic name.</p>
+ */
+export function planDisplayName(plan: { number?: string | null; title?: string | null }): string {
+  const number = plan.number?.trim();
+  if (number) return `Plan ${number}`;
+  const title = plan.title?.trim();
+  return title ? title : "Traitement suivi";
+}
+
+/**
+ * The prefix that identifies which plan one act belongs to, in a list that mixes several.
+ *
+ * <p>⚠️ <b>A followed treatment's title IS its act's designation</b> — `StartTreatmentCommand` sets it from
+ * the procedure, because « the dentist named it by picking it » — so the obvious
+ * <code>number ?? title</code> renders « Couronne / bridge (par élément) · Couronne / bridge (par élément) ».
+ * Reported from use as « pourquoi l'acte est écrit deux fois », and true of every followed treatment ever
+ * created (five rows in the live database when this was written).</p>
+ *
+ * <p>The comparison is against <b>this</b> act rather than a flag, because it is the only honest test: a
+ * two-act Draft whose title happens to match one of them still says something about the other.</p>
+ */
+export function planItemHeading(
+  plan: { number?: string | null; title?: string | null },
+  item: { designationFr: string },
+): string {
+  const number = plan.number?.trim();
+  if (number) return number;
+  const title = plan.title?.trim();
+  if (!title || title === item.designationFr.trim()) return "Traitement suivi";
+  return title;
+}
+
 export function itemStatusLabel(status: string): string {
   return ITEM_STATUS_LABELS[status] ?? status;
 }

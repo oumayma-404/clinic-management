@@ -175,7 +175,7 @@ export function PlanActPrimaryAction({
   /**
    * Full width on its own row — the card tree's `primaryAction` slot.
    *
-   * ⚠️ In the card header this control is `shrink-0` beside the act's name, and « Planifier l'étape » plus the
+   * ⚠️ In the card header this control is `shrink-0` beside the act's name, and « Planifier la séance » plus the
    * « Étapes » trigger is ~200 px of a ~288 px card. Measured at 320 px, « Bridge 4 dents (14-17) » was left
    * so little that `[overflow-wrap:anywhere]` broke it to **one character per line** — a 26-line vertical
    * column of letters, and no overflow anywhere for a check to see. `CardList.primaryAction` exists for
@@ -212,10 +212,10 @@ export function PlanActPrimaryAction({
          * the rule the frontend contract states outright. The strip directly above already names the next
          * step in azure semibold, so the visible half stays « l'étape » and the full phrase is announced.
          */
-        aria-label={next ? `Planifier l'étape ${quoteFr(next.label)}` : undefined}
+        aria-label={next ? `Planifier la séance ${quoteFr(next.label)}` : undefined}
       >
         <CalendarPlus className="h-4 w-4" />
-        {next ? "Planifier l'étape" : "Planifier"}
+        {next ? "Planifier la séance" : "Planifier"}
       </Button>
     )
   }
@@ -315,10 +315,10 @@ export function PlanActStepsAction({
       onClick={() => onEditSteps(item)}
       aria-label={
         count > 0
-          ? `Modifier les ${count} étapes de ${quoteFr(item.designationFr)}`
-          : `Définir les étapes de ${quoteFr(item.designationFr)}`
+          ? `Modifier les ${count} séances de ${quoteFr(item.designationFr)}`
+          : `Définir les séances de ${quoteFr(item.designationFr)}`
       }
-      title={count > 0 ? "Modifier les étapes" : "Définir des étapes"}
+      title={count > 0 ? "Modifier les séances" : "Définir des séances"}
     >
       <ListOrdered className="h-4 w-4" />
     </Button>
