@@ -222,12 +222,17 @@ export function ActCard({
               >
                 {summariseTeeth(act.toothNumbers, arch)}
               </span>
-              <span className="text-xs font-semibold tabular-nums">{formatDT(total)}</span>
+              {/* ⚠️ No figure at all on an act the treatment prices — see the body's own note. A collapsed
+                  card reading « 0,000 DT » beside the act's name is the third of the séance's zeros and it
+                  says nothing: the act has no price *here*, which is different from costing nothing. */}
+              {!act.billedOnPlan && (
+                <span className="text-xs font-semibold tabular-nums">{formatDT(total)}</span>
+              )}
             </span>
           </button>
         )}
 
-        {focused && named && (
+        {focused && named && !act.billedOnPlan && (
           <span className="shrink-0 self-center whitespace-nowrap ps-1 text-sm font-semibold tabular-nums">
             {formatDT(total)}
           </span>
@@ -252,23 +257,31 @@ export function ActCard({
             </div>
           ) : (
             <>
+              {/*
+                ⚠️ **An act the treatment prices shows NO money row at all**, and that is a removal with a rule
+                behind it rather than a tidy-up. Read-only, the row still drew four things a dentist could
+                neither change nor act on — a locked « 0,000 », the words « Chiffré sur le traitement », a
+                live « / dent · forfait » switch multiplying a figure imposed at zero, and the same 0,000 a
+                third time — on a screen where « 0,000 » already appeared seven times. Reported from use as
+                « trop chargé, la même information répétée » and « pourquoi ce 0 que je ne peux pas modifier ».
+                What the dentist needs instead is one sentence, and the *amount* the treatment was agreed at,
+                which the modal states above where it is actually read.
+
+                ⚠️ It is withheld **per act**, never per fiche: a détartrage done in the same séance is real
+                honoraires and keeps its price, its switch and its total. Hiding on « this séance touches a
+                devis » would make that act unbillable.
+              */}
+              {act.billedOnPlan ? (
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Aucun honoraire sur cette séance.</span>{" "}
+                  Cet acte est chiffré une fois, sur le traitement.
+                </p>
+              ) : (
+              <>
               {/* The price, on the card face. It used to be a read-only figure with the editable field two folds
                   down, so the dentist looked straight at the number they wanted to change and could not touch
                   it — and lowered « Payé » instead, recording a debt on a patient who owed nothing. */}
               <div className="flex flex-wrap items-center gap-2">
-                {/*
-                  ⚠️ **Read-only on an act the devis carries, and that is the hole the tarif override went
-                  through.** Such an act is 0 by rule — it is priced once, on the treatment — and the field was
-                  freely editable, so a dentist meeting a « Tarif 0,000 » they had no other way to act on typed
-                  the real fee over it. That raises a note d'honoraires for work the treatment already prices,
-                  carrying no plan link, so nothing de-duplicates it and the patient owes the same act twice.
-                  Measured: a 250 DT act with 150 collected left 250 owed on the devis and 100 on the note.
-
-                  `readOnly` rather than `disabled`: a disabled input is skipped by the keyboard and reads to a
-                  screen reader as unavailable, while this one has a value worth reaching and a reason worth
-                  hearing. The server imposes the same 0 (`PlanCarriedActPricing`), so this is the explanation,
-                  never the enforcement.
-                */}
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -277,24 +290,12 @@ export function ActCard({
                   className={cn(
                     "h-9 w-28 text-right font-semibold tabular-nums",
                     priceInvalid && "border-destructive",
-                    act.billedOnPlan && "bg-muted text-muted-foreground",
                   )}
                   placeholder="0,000"
                   disabled={disabled}
-                  readOnly={act.billedOnPlan}
-                  aria-readonly={act.billedOnPlan || undefined}
                   aria-label={act.perTooth ? "Prix par dent (DT)" : "Montant forfaitaire (DT)"}
-                  aria-describedby={act.billedOnPlan ? `${act.key}-plan-price` : undefined}
                   aria-invalid={priceInvalid}
                 />
-                {act.billedOnPlan && (
-                  <span
-                    id={`${act.key}-plan-price`}
-                    className="text-2xs text-muted-foreground"
-                  >
-                    Chiffré sur le traitement
-                  </span>
-                )}
                 {/* ⚠️ `coarse:h-11` on both, not the inherited `.touch-target`. `buttonVariants` centres a 44 px
                     overlay on every Button, so two 32 px ones 4 px apart overhang each other and the later
                     sibling paints last — tapping the right of « / dent » would set « forfait », i.e. silently
@@ -338,6 +339,8 @@ export function ActCard({
                   <span className="text-xs text-warning-ink">Sans tarif — à compléter plus tard</span>
                 )}
               </div>
+              </>
+              )}
 
               {gesture !== null && !priceInvalid && (
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs">

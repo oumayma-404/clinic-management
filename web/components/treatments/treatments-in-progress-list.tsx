@@ -23,6 +23,57 @@ import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create
 /** Days after which a stalled treatment is worth pointing out. Two clinic weeks. */
 const STALE_DAYS = 14
 
+/**
+ * What a row asks of the person reading it — the ONE rule, so the group a treatment lands in and the amber on
+ * its own date can never disagree.
+ *
+ * <p>⚠️ It was written out inside {@link LastSeance} alone, which was fine while the list had no groups: the
+ * three readings existed only as colour. Grouping asks the same question a second time, and a second copy of
+ * « late » is the repository's signature defect — a row would sit under « En retard » with its date in neutral
+ * grey, or the reverse, and neither is obviously wrong on screen.</p>
+ *
+ * <p>Three answers, not four: « pas encore due » and « plannable aujourd'hui » are both <b>à planifier</b> for
+ * the person, and the row's own date says which. What separates the groups is what you would <i>do</i> — chase
+ * it, book it, or nothing at all.</p>
+ */
+type TreatmentUrgency = "late" | "to-plan" | "booked"
+
+function treatmentUrgency(row: TreatmentInProgressDto): TreatmentUrgency {
+  // A séance already booked is nobody's task — including one whose slot has passed with no fiche, which is
+  // « À clôturer »'s job and not this screen's. Same test the row's own action uses.
+  if (row.nextStepAppointmentId && row.nextStepAppointmentAt) return "booked"
+  const dueFrom = row.nextStepDueFrom ? new Date(row.nextStepDueFrom) : null
+  // The protocol's own interval where it states one — an implant waiting eight weeks for osseointegration is
+  // not late, and a list that says it is stops being read (see `LastSeance`).
+  if (dueFrom) return dueFrom.getTime() > Date.now() ? "to-plan" : "late"
+  // No interval and nothing done yet: the treatment was booked and its first séance is still to come.
+  if (!row.lastStepDoneOn) return "to-plan"
+  const days = Math.floor((Date.now() - new Date(row.lastStepDoneOn).getTime()) / 86_400_000)
+  return days >= STALE_DAYS ? "late" : "to-plan"
+}
+
+/**
+ * The three groups, in the order the server already sorts them into.
+ *
+ * ⚠️ The partition is applied to the PAGE, not to the whole list, and that is deliberate rather than a
+ * shortcut: `GetTreatmentsInProgressAsync` orders unbooked-before-booked and then by what is due, so page 1
+ * genuinely holds the urgent work — but the exact « late » boundary uses two different quantities (a
+ * protocol interval, else a flat fortnight) and no single SQL key makes both contiguous at every tie. Grouping
+ * what arrived keeps the headings honest without the pager describing a different set than the rows.
+ */
+const GROUPS: { key: TreatmentUrgency; label: string }[] = [
+  { key: "late", label: "En retard" },
+  { key: "to-plan", label: "À planifier" },
+  { key: "booked", label: "Séance prévue" },
+]
+
+/** Amber only on the group that is overdue — the other two are ordinary work and must not read as alarms. */
+const GROUP_HEADER_CLASS: Record<TreatmentUrgency, string> = {
+  late: "text-2xs font-semibold uppercase tracking-wider text-warning-ink",
+  "to-plan": "text-2xs font-semibold uppercase tracking-wider text-muted-foreground",
+  booked: "text-2xs font-semibold uppercase tracking-wider text-muted-foreground",
+}
+
 interface TreatmentsInProgressListProps {
   /**
    * Reports the **server's** total after every read, so the section around this list can state it — and `null`
@@ -107,6 +158,11 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
   useClinicRealtime([RealtimeResource.TreatmentPlans, RealtimeResource.Appointments], load)
 
   const rows = data?.items ?? []
+
+  /** The page's rows under their three headings, empty groups dropped. See {@link GROUPS}. */
+  const grouped = GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => treatmentUrgency(r) === g.key) })).filter(
+    (g) => g.rows.length > 0,
+  )
 
   // Landing on a page past the end (the last treatment of page 2 was finished) steps back rather than rendering
   // the empty-state invite under a pager reading « 26–26 sur 25 ».
@@ -237,7 +293,14 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
               {loading && rows.length === 0 ? (
                 <SkeletonRows />
               ) : (
-                rows.map((row) => (
+                grouped.flatMap((group) => [
+                  <TableRow key={`h-${group.key}`} className="hover:bg-transparent">
+                    <TableCell colSpan={5} className={cn("py-1.5", GROUP_HEADER_CLASS[group.key])}>
+                      {group.label}
+                      <span className="ms-2 font-normal opacity-70">{group.rows.length}</span>
+                    </TableCell>
+                  </TableRow>,
+                  ...group.rows.map((row) => (
                   /*
                    * The row opens the devis — that is where « et ensuite ? » is answered, and where the étapes,
                    * the money and the history live. `treatment-plans-table`'s pattern verbatim: `cursor-pointer`
@@ -276,7 +339,8 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
                       <RowAction row={row} onBook={book} onOpen={openAppointment} busy={preparingBooking === row.itemId} />
                     </TableCell>
                   </TableRow>
-                ))
+                  )),
+                ])
               )}
             </TableBody>
           </Table>
@@ -290,24 +354,37 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
               ))}
             </div>
           ) : (
-            <CardList
-              ariaLabel="Traitements en cours"
-              items={rows}
-              getKey={(row) => row.itemId}
-              title={(row) => row.patientName ?? "Patient supprimé"}
-              // The card's title IS the link, stretched over the whole card by CardList's pseudo-element.
-              href={(row) => `/treatment-plans/${row.planId}`}
-              subtitle={(row) => row.designationFr}
-              fields={(row) => [
-                // Card order per § 6: identity → status → date. There is no money field on this surface.
-                { label: "Prochaine étape", value: <NextStepCell row={row} /> },
-                { label: "Dernière séance", value: <LastSeance row={row} /> },
-              ]}
-              // Its own full-width row, never the card header — see `RowAction`'s `block` note.
-              primaryAction={(row) => (
-                <RowAction row={row} onBook={book} onOpen={openAppointment} busy={preparingBooking === row.itemId} block />
-              )}
-            />
+            /* Same three groups as the table, as headings between card blocks — the grouping is what turns
+               « 28 actes à terminer » into three answerable questions, and a card tree that dropped it would
+               leave a phone with the one reading this list exists to prevent: a flat pile. */
+            <div className="space-y-4">
+              {grouped.map((group) => (
+                <div key={group.key} className="space-y-2">
+                  <p className={cn("px-0.5", GROUP_HEADER_CLASS[group.key])}>
+                    {group.label}
+                    <span className="ms-2 font-normal opacity-70">{group.rows.length}</span>
+                  </p>
+                  <CardList
+                    ariaLabel={`Traitements — ${group.label.toLowerCase()}`}
+                    items={group.rows}
+                    getKey={(row) => row.itemId}
+                    title={(row) => row.patientName ?? "Patient supprimé"}
+                    // The card's title IS the link, stretched over the whole card by CardList's pseudo-element.
+                    href={(row) => `/treatment-plans/${row.planId}`}
+                    subtitle={(row) => row.designationFr}
+                    fields={(row) => [
+                      // Card order per § 6: identity → status → date. There is no money field on this surface.
+                      { label: "Prochaine étape", value: <NextStepCell row={row} /> },
+                      { label: "Dernière séance", value: <LastSeance row={row} /> },
+                    ]}
+                    // Its own full-width row, never the card header — see `RowAction`'s `block` note.
+                    primaryAction={(row) => (
+                      <RowAction row={row} onBook={book} onOpen={openAppointment} busy={preparingBooking === row.itemId} block />
+                    )}
+                  />
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
@@ -421,8 +498,10 @@ function LastSeance({ row }: { row: TreatmentInProgressDto }) {
 
   const dueFrom = row.nextStepDueFrom ? new Date(row.nextStepDueFrom) : null
   const notDueYet = dueFrom != null && dueFrom.getTime() > Date.now()
-  // Past the protocol's own interval where there is one, else past the fortnight.
-  const late = dueFrom ? !notDueYet : days >= STALE_DAYS
+  // ⚠️ Asked of {@link treatmentUrgency}, not re-derived: the group heading above this row is computed there,
+  // and the amber on this date is the same claim. Two copies drift into a row filed « En retard » whose own
+  // date is in neutral grey.
+  const late = treatmentUrgency(row) === "late"
 
   return (
     <span className="inline-flex flex-wrap items-baseline gap-x-1.5 text-xs">

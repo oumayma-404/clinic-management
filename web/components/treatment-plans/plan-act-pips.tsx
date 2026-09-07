@@ -91,8 +91,15 @@ export function PlanActPips({ items, done, total, plan, className }: PlanActPips
             {seances.done}/{seances.total} séance{seances.total > 1 ? "s" : ""}
             <span className="sr-only"> réalisée{seances.total > 1 ? "s" : ""}</span>
             {/* The act count survives as the hint, never as the headline — a treatment is finished when its
-                acts are, and a séance count alone would let « 5/6 » read as almost-done work that is not. */}
-            <span className="ms-1.5 text-2xs opacity-80">· {actsLabel}</span>
+                acts are, and a séance count alone would let « 5/6 » read as almost-done work that is not.
+
+                ⚠️ **Withheld on a ONE-act plan, where it is structurally uninformative.** With a single act
+                the hint can only ever read « 0/1 acte » until the very last séance and then « 1/1 » — it never
+                carries news, and beside « 2/5 séances » it puts two fractions with different denominators on
+                one line and asks the reader to work out that they count different things. The defence above is
+                real and is why this is a *narrowing* rather than a deletion: on a plan of several acts the
+                figure is the one that says whether the treatment is actually finished. */}
+            {total > 1 && <span className="ms-1.5 text-2xs opacity-80">· {actsLabel}</span>}
           </>
         ) : (
           <>

@@ -166,7 +166,7 @@ export function PlanItemStepsDialog({
 
     const trimmed = rows.map((r) => ({ ...r, label: r.label.trim() }))
     if (trimmed.some((r) => r.label.length === 0)) {
-      setError("Chaque étape doit porter un libellé.")
+      setError("Chaque séance doit porter un libellé.")
       return
     }
     const badDuration = trimmed.find(
@@ -221,7 +221,7 @@ export function PlanItemStepsDialog({
     <Dialog open={open} onOpenChange={guard.onOpenChange}>
       <DialogContent mobile="sheet" className="md:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Étapes de l&apos;acte</DialogTitle>
+          <DialogTitle>Séances de l&apos;acte</DialogTitle>
           <DialogDescription>
             {item.designationFr}
             {plan.number ? ` · devis ${plan.number}` : ""}
@@ -233,7 +233,7 @@ export function PlanItemStepsDialog({
 
           {rows.length === 0 && (
             <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              Aucune étape — cet acte se fait en une séance.
+              Aucune séance définie — cet acte se fait en une visite.
             </p>
           )}
 
@@ -281,7 +281,7 @@ export function PlanItemStepsDialog({
                         variant="ghost"
                         size="icon"
                         className="size-6 coarse:size-8"
-                        aria-label={`Monter ${quoteFr(row.label || "cette étape")}`}
+                        aria-label={`Monter ${quoteFr(row.label || "cette séance")}`}
                         disabled={saving || index === 0 || rows[index - 1]?.doneDate != null}
                         title={
                           rows[index - 1]?.doneDate != null
@@ -298,7 +298,7 @@ export function PlanItemStepsDialog({
                         variant="ghost"
                         size="icon"
                         className="size-6 coarse:size-8"
-                        aria-label={`Descendre ${quoteFr(row.label || "cette étape")}`}
+                        aria-label={`Descendre ${quoteFr(row.label || "cette séance")}`}
                         disabled={saving || index === rows.length - 1}
                         title={index === rows.length - 1 ? "C'est déjà la dernière séance." : undefined}
                         onClick={() => move(index, 1)}
@@ -314,7 +314,7 @@ export function PlanItemStepsDialog({
 
                 <div className="min-w-0 flex-1 basis-full sm:basis-0">
                   <Label htmlFor={`step-label-${row.key}`} className="sr-only">
-                    Libellé de l&apos;étape {index + 1}
+                    Nom de la séance {index + 1}
                   </Label>
                   {done ? (
                     <p className="truncate text-sm font-medium" title={row.label}>
@@ -341,7 +341,7 @@ export function PlanItemStepsDialog({
 
                 <div className="flex shrink-0 items-center gap-2">
                   <Label htmlFor={`step-dur-${row.key}`} className="sr-only">
-                    Durée de l&apos;étape {index + 1}, en minutes
+                    Durée de la séance {index + 1}, en minutes
                   </Label>
                   {done ? (
                     <span className="w-20 text-end font-mono text-2xs text-muted-foreground">
@@ -364,7 +364,7 @@ export function PlanItemStepsDialog({
                     </div>
                   )}
                   <Label htmlFor={`step-delay-${row.key}`} className="sr-only">
-                    Délai minimum avant l&apos;étape {index + 1}, en jours
+                    Délai minimum avant la séance {index + 1}, en jours
                   </Label>
                   {/*
                     The wait BEFORE this séance. Disabled on the first — it has no previous séance to wait
@@ -401,10 +401,10 @@ export function PlanItemStepsDialog({
                     className="size-9 shrink-0 text-muted-foreground coarse:size-11"
                     aria-label={
                       done
-                        ? `Détacher la fiche de soins de l'étape ${quoteFr(row.label)}`
-                        : `Supprimer l'étape ${quoteFr(row.label || String(index + 1))}`
+                        ? `Détacher la fiche de soins de la séance ${quoteFr(row.label)}`
+                        : `Supprimer la séance ${quoteFr(row.label || String(index + 1))}`
                     }
-                    title={done ? "Détacher la fiche de soins de cette étape" : undefined}
+                    title={done ? "Détacher la fiche de soins de cette séance" : undefined}
                     disabled={saving || detachBusy}
                     onClick={() => (done ? setDetaching(row) : remove(row.key))}
                   >
@@ -422,7 +422,7 @@ export function PlanItemStepsDialog({
             onClick={add}
           >
             <Plus className="h-4 w-4" />
-            Ajouter une étape
+            Ajouter une séance
           </Button>
 
           <div className="space-y-2 border-t pt-3 text-xs text-muted-foreground">
@@ -433,10 +433,10 @@ export function PlanItemStepsDialog({
             </p>
             {doneCount > 0 && (
               <p>
-                {doneCount === 1 ? "Une étape est déjà réalisée" : `${doneCount} étapes sont déjà réalisées`} :
+                {doneCount === 1 ? "Une séance est déjà réalisée" : `${doneCount} séances sont déjà réalisées`} :
                 elles portent le lien vers la fiche de soins qui les atteste, et ne peuvent donc pas être
                 supprimées. Pour en corriger une, détachez sa fiche avec l&apos;icône au bout de sa ligne :
-                l&apos;étape redevient « à faire » et reste modifiable.
+                la séance redevient « à faire » et reste modifiable.
               </p>
             )}
           </div>
@@ -447,7 +447,7 @@ export function PlanItemStepsDialog({
             Annuler
           </Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Enregistrement…" : "Enregistrer les étapes"}
+            {saving ? "Enregistrement…" : "Enregistrer les séances"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -461,7 +461,7 @@ export function PlanItemStepsDialog({
               Détacher la fiche de {quoteFr(detaching?.label ?? "")} ?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              L&apos;étape redevient « à faire » et son lien vers la fiche de soins est retiré. La fiche
+              La séance redevient « à faire » et son lien vers la fiche de soins est retiré. La fiche
               elle-même n&apos;est pas supprimée, et aucun montant ne bouge.{" "}
               {/*
                 ⚠️ The one condition, stated before the press. The server refuses when a live note bills this

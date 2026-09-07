@@ -62,6 +62,21 @@ public static class TreatmentPlanWorkflowProjection
     /// </summary>
     public static bool IsLive(AppointmentStatus status) => LiveStatuses.Contains(status);
 
+    /// <summary>
+    /// The same set, as a collection a <b>SQL</b> filter can carry.
+    ///
+    /// <para>
+    /// ⚠️ <see cref="IsLive"/> is a method call and EF cannot translate one, so « Traitements en cours » —
+    /// which has to know in the database whether an act already has a séance, in order to <i>order</i> by it —
+    /// could not ask through it. Exposed rather than re-listed at the call site for the reason the method's own
+    /// note gives: a second copy of this set would be free to disagree about whether a visit awaiting closure
+    /// still books a step, and the disagreement would be silent — the row would simply sort into the wrong
+    /// group.
+    /// </para>
+    /// </summary>
+    public static readonly IReadOnlyCollection<AppointmentStatus> LiveAppointmentStatuses =
+        LiveStatuses.ToArray();
+
     /// <summary>Build the derived lookups for the given plans (already tenant-checked by the caller).</summary>
     public static async Task<TreatmentPlanWorkflow> BuildAsync(
         IReadOnlyCollection<TreatmentPlan> plans,

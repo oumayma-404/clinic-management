@@ -344,6 +344,31 @@ touching the area.
   below the fold resolved against `<body>`, escaped the page scroller and made the *document* taller than
   `h-dvh` — a third scrollbar onto blank space (1168 px on the dashboard at 1440×900, 2611 px at 390×844).
   `check:responsive`'s `page-scroller-contains-its-absolutes` holds it.
+- **An act the TREATMENT prices takes no share of the séance total, and « Total » wrote straight past the
+  lock.** Such an act is 0 by rule — `act-card` renders its price `readOnly` and `PlanCarriedActPricing`
+  imposes the same 0 server-side — but `distributeSessionTotal` filtered on `isActNamed` alone, so typing 150
+  into « Total » moved the locked field to « 150,000 » on screen and the save silently put it back. On a
+  **mixed** séance it is quieter and worse: the typed total is split between a carried couronne and a real
+  détartrage, so the détartrage is under-billed by whatever share went to the act that cannot hold it. Its twin
+  is the *display* rule and the two conditions are different: the price field and the `/dent · forfait` switch
+  are withheld **per act** (`billedOnPlan`), while « Total » and « Payé » are withheld **per séance** and only
+  when *every* act is carried (`seanceIsWhollyOnTreatment`, which is structural — « all named acts are
+  carried » — never `grandTotal === 0`, a test that was also true of a détartrage nobody had priced yet).
+  `check:responsive`'s N27 holds the arithmetic half.
+- **`TreatmentPlanItemDto.treatedToothNumbers` is the whole SÉANCE's teeth, not the act's**, because it is
+  derived from the fiches an act's steps produced and a fiche records every tooth of the visit. So « which teeth
+  is this treatment on? » must read the devis LINE first and fall back to the treated ones only when it names
+  none (`teethUnderTreatment`) — the union was tried and measured wrong: an « Extraction simple » quoted on 13
+  and 43 whose first séance was recorded on a fiche naming **13, 27, 36, 37, 43** put a « traitement en cours »
+  ring on three teeth with no treatment on them. ⚠️ The priority is the **opposite** of `openPlanItems`', which
+  seeds a fiche's chart and legitimately prefers the teeth actually worked on.
+- **A treatment is `item.Status == Planned` until its first fiche lands**, so a filter on `InProgress` hides
+  it on exactly the day it is created. « Traitements suivis » accepts `Planned` **when the act has steps** —
+  `Steps.Any()` is what keeps the widening honest, since an act with no protocol goes Planned → Done and has
+  never belonged there. It orders unbooked-before-booked and then by what is due, which is what makes the
+  screen's three groups contiguous rather than interleaved; the « is this séance booked? » subquery must answer
+  **exactly** what `TreatmentsInProgressReader` answers (per **step**, and with no « from today » floor — an
+  `AwaitingClosure` visit is still a standing booking) or the list groups by one rule and sorts by another.
 - **Before any frontend code, read [`.claude/rules/frontend-web.md`](.claude/rules/frontend-web.md).** `web/`
   has no test runner and `npm run lint` cannot run (eslint is scripted but not installed), so the gate is
   `npm run check:responsive` + `npx tsc --noEmit` + `npm run build`, then an eye pass at

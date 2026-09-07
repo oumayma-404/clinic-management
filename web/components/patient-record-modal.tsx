@@ -95,6 +95,15 @@ export interface PlanItemOption {
   /** What is still to collect on the whole devis — meaningless once `billedOnInvoiceNumber` is set. */
   planOutstanding?: number
   /**
+   * How many séances the act is cut into, and how many are already carried out — so the fiche can lead with
+   * « Séance 2 sur 3 » instead of making the dentist count.
+   *
+   * <p>⚠️ Both are 0 for an act with no protocol, which is most acts, and the banner then says nothing about
+   * séances at all: « séance 1 sur 1 » is a fact nobody needs and it would appear on every ordinary fiche.</p>
+   */
+  stepsTotal?: number
+  stepsDone?: number
+  /**
    * The catalogue act this devis line is priced on. Carried so a REOPENED fiche can tell which of its acts the
    * devis pays for — see the `markBilledOnPlan` effect. Absent (a hand-typed devis line) falls back to the
    * single-act case, which is unambiguous.
@@ -736,7 +745,18 @@ export function PatientRecordModal({
    * Rendering it beside a 0 total is what sent a dentist to overtype the act's price: the only reachable money
    * field refused every amount they typed, and the act's tarif looked like the mistake.
    */
-  const seanceIsWhollyOnTreatment = collectsOnTreatment && roundMillimes(grandTotal) === 0
+  /*
+   * ⚠️ **Structural — « every act belongs to the treatment » — and NOT « the total came to zero ».** The old
+   * test was `roundMillimes(grandTotal) === 0`, which is true of a séance holding a carried couronne *and* a
+   * détartrage nobody has priced yet: « Payé » vanished exactly as the dentist was about to type the
+   * détartrage's fee, on a fiche that will produce a real note d'honoraires. It now says what it means, so a
+   * mixed séance keeps « Payé » and « Total » whatever the acts currently add up to.
+   *
+   * `namedActs.length > 0` because a fiche with no act yet is not « wholly on the treatment » — it is empty,
+   * and `every` over nothing answers true.
+   */
+  const seanceIsWhollyOnTreatment =
+    collectsOnTreatment && namedActs.length > 0 && namedActs.every((a) => a.billedOnPlan)
   /**
    * Collecting will mint the devis number — <c>CollectOnTreatmentCommand</c> issues one when the treatment has
    * none. A gapless number can only be released by a cancellation carrying a motif, so this is said on the
@@ -1026,7 +1046,13 @@ export function PatientRecordModal({
   const actsSummary =
     namedActs.length === 0
       ? "aucun acte"
-      : `${namedActs.length} acte${namedActs.length > 1 ? "s" : ""} · ${formatDT(grandTotal)}`
+      : // ⚠️ **No figure at all when every act is carried by a treatment.** The sum is 0 by rule there, and
+        // « 1 acte · 0,000 DT » directly above a card that no longer shows a price is the last of the zeros
+        // the crowding complaint was about — a total that can only ever be zero states nothing and reads as a
+        // fee that was forgotten. The count still earns its place: it says how many acts the séance holds.
+        seanceIsWhollyOnTreatment
+        ? `${namedActs.length} acte${namedActs.length > 1 ? "s" : ""}`
+        : `${namedActs.length} acte${namedActs.length > 1 ? "s" : ""} · ${formatDT(grandTotal)}`
 
   /**
    * Acts naming the same procedure on the same teeth. Legitimate in principle (a dentist may genuinely do the
@@ -1200,6 +1226,20 @@ export function PatientRecordModal({
             nothing at all: no « déjà facturé », no « facturé sur le devis », nowhere on the page. The text
             existed one screen away and never reached this one.
           */}
+          {/*
+            ⚠️ **The séance's own position leads, and the act card no longer repeats any of this.** The banner
+            used to carry three sentences — what the act is chiffré at, that the séance adds no honoraires, and
+            where to type what the patient hands over — above an act card that then showed a locked 0, the words
+            « Chiffré sur le traitement » and the same 0 twice more. Reported as « trop chargé, la même
+            information répétée ». The act card now states the « no honoraires » half once, in its own body; this
+            states the two facts only the plan knows: which séance this is, and the agreed total.
+          */}
+          {carriedByDevis && billedPlanItem && (billedPlanItem.stepsTotal ?? 0) > 1 && (
+            <p className="text-2xs font-semibold uppercase tracking-wider text-primary">
+              Séance {Math.min((billedPlanItem.stepsDone ?? 0) + 1, billedPlanItem.stepsTotal!)} sur{" "}
+              {billedPlanItem.stepsTotal}
+            </p>
+          )}
           {carriedByDevis && billedPlanItem && (
             <p
               role="status"
@@ -1229,10 +1269,13 @@ export function PatientRecordModal({
                 « Encaissé aujourd'hui » and offered to state what would remain. The instruction is now the true
                 one — the séance adds no honoraires, and money for the treatment has its own field.
               */}
-              . Cette séance n&apos;ajoute pas d&apos;honoraires
-              {billedPlanItem.billedOnInvoiceNumber
-                ? "."
-                : " : ce qu'il règle aujourd'hui se saisit dans « Encaissé sur le traitement », en bas."}
+              {/*
+                ⚠️ The « où taper » half is gone. It named a field two blocks below and, since that field is now
+                the only money control on a wholly-carried séance, the instruction had become a direction to the
+                one thing that is impossible to miss. The « n'ajoute pas d'honoraires » half moved to the act
+                card, where the missing price field is what raises the question.
+              */}
+              .
               {/* The devis' own balance is unusable once a note holds the money — its auto-échéance will never
                   see a payment — so the note is named instead. Same rule as the booking dialog's notice. */}
               {billedPlanItem.billedOnInvoiceNumber && (
@@ -1705,32 +1748,32 @@ export function PatientRecordModal({
             </div>
             )}
             {/* Beside the amount, because « combien » and « comment » are one answer. `min-w` + `flex-1` so it
-                wraps to its own full-width line below ~360 px instead of squeezing the amount field. */}
-            <div className="flex min-w-[9rem] flex-1 items-center gap-2">
-              <Label htmlFor="paid-method" className="shrink-0 text-xs text-muted-foreground">
-                Mode
-              </Label>
-              <Select
+                wraps to its own full-width line below ~360 px instead of squeezing the amount field.
+
+                ⚠️ **It follows the money, and on a wholly-carried séance the money is « Encaissé sur le
+                traitement » — so the field goes down there rather than staying here.** It was paired with
+                « Total » while being sent with `amountCollectedOnPlan`: two fields that produce nothing on
+                this séance, above the one that does, with the mode attached to the wrong pair. Reported as
+                « les champs d'argent en bas ont l'air bizarres ». */}
+            {!seanceIsWhollyOnTreatment && (
+              <PaymentMethodField
                 value={paymentMethod}
-                onValueChange={setPaymentMethod}
+                onChange={setPaymentMethod}
                 disabled={loading}
-              >
-                <SelectTrigger id="paid-method" className="h-8 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FICHE_PAYMENT_METHODS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                className="min-w-[9rem] flex-1"
+              />
+            )}
             {/* The total is EDITABLE, and typing in it re-prices the acts (`setTotal` → `distributeSessionTotal`)
                 rather than storing a figure of its own — the acts are what the note d'honoraires is built from.
                 It is still `Σ actTotal` on the way out, which is why editing an act afterwards simply moves it
-                again: there is no contest to resolve, and the last person to type always wins. */}
+                again: there is no contest to resolve, and the last person to type always wins.
+
+                ⚠️ **Withdrawn when every act is carried by the treatment**, for « Payé »'s reason one field
+                over: the note d'honoraires it builds cannot exist, so the field can only ever read 0,000. It
+                was worse than useless — `distributeSessionTotal` did not exclude carried acts, so typing here
+                wrote the amount into the act's own READ-ONLY price field and the server discarded it on save.
+                The distribution is fixed at its source; this hides the control that had no subject. */}
+            {!seanceIsWhollyOnTreatment && (
             <div className="flex shrink-0 items-center gap-1.5 text-sm">
               <Label htmlFor="session-total" className="text-muted-foreground">
                 Total
@@ -1762,6 +1805,7 @@ export function PatientRecordModal({
                 Modifier ce total répartit le montant sur les actes de la séance.
               </span>
             </div>
+            )}
             {/*
               THE TREATMENT'S OWN MONEY — its own field, on its own row, because it is a different quantity from
               « Payé » and no arithmetic is ever done between them. A multi-séance act is priced ONCE on its
@@ -1800,6 +1844,17 @@ export function PatientRecordModal({
                     aria-describedby="collected-on-plan-hint"
                   />
                 </div>
+                {/* The mode, beside the only amount this séance can take. Same field, same state, same payload
+                    key — it moved here rather than being duplicated, so « comment » sits with « combien »
+                    exactly as it does on an ordinary fiche. */}
+                {seanceIsWhollyOnTreatment && (
+                  <PaymentMethodField
+                    value={paymentMethod}
+                    onChange={setPaymentMethod}
+                    disabled={loading}
+                    className="min-w-[9rem] flex-1"
+                  />
+                )}
                 {/*
                   THE THREE FIGURES, so the amount can never be read as a price: what the whole treatment costs,
                   and what is left after this séance. `planOutstanding` — the plan's own figure — not
@@ -1984,5 +2039,46 @@ export function PatientRecordModal({
     )}
     <DiscardChangesDialog guard={guard} />
     </>
+  )
+}
+
+/**
+ * « Mode » — how the money came in. <b>One definition, two placements.</b>
+ *
+ * <p>The field belongs beside the amount it describes, and which amount that is depends on the séance: an
+ * ordinary fiche settles its own acts through « Payé », while a séance every act of which is carried by a
+ * treatment settles nothing and takes its money through « Encaissé sur le traitement ». Both send the same
+ * `paymentMethod` on the same payload, so this is one control that moves — not two that could drift into
+ * offering different lists, or into one of them being left behind when `FICHE_PAYMENT_METHODS` grows.</p>
+ */
+function PaymentMethodField({
+  value,
+  onChange,
+  disabled,
+  className,
+}: {
+  value: string
+  onChange: (next: string) => void
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <div className={cn("flex items-center gap-2", className)}>
+      <Label htmlFor="paid-method" className="shrink-0 text-xs text-muted-foreground">
+        Mode
+      </Label>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id="paid-method" className="h-8 w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {FICHE_PAYMENT_METHODS.map((m) => (
+            <SelectItem key={m.value} value={m.value}>
+              {m.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   )
 }
