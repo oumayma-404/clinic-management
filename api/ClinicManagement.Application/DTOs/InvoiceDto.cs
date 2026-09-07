@@ -126,6 +126,27 @@ public class InvoiceRevenueDto
     public decimal TotalInvoiced { get; set; }
     public decimal TotalCollected { get; set; }
     public decimal Outstanding { get; set; }
+
+    /// <summary>
+    /// How much of <see cref="TotalCollected"/> was collected on <b>devis échéances</b> rather than on a note
+    /// d'honoraires — money that is real, in la caisse, and has <b>no row on the invoices screen</b>.
+    ///
+    /// <para>
+    /// ⚠️ <b>Served rather than derived, because the browser cannot compute it and had been left to guess.</b>
+    /// « Total encaissé » deliberately counts both money tracks (so it agrees with la caisse and the dashboard)
+    /// while the table beneath it lists the invoice ledger alone, and the screen said so only in prose:
+    /// « paiements de notes et échéances de devis », with no figure. That is unreconcilable — a practice adding
+    /// up the « Encaissé » column comes out short and cannot tell by how much or where the rest went. Measured
+    /// on the dev database: 2 050,000 DT across seven payments, none of them visible anywhere on that page.
+    /// </para>
+    ///
+    /// <para>
+    /// It is a <b>component of</b> <c>TotalCollected</c>, never an addition to it: a caller that sums the two
+    /// double-counts. Zero is the ordinary case — a practice that raises a note for everything — and the
+    /// surface says nothing at all then.
+    /// </para>
+    /// </summary>
+    public decimal CollectedOnTreatmentPlans { get; set; }
 }
 
 /// <summary>One requested act line when creating/updating an invoice.</summary>

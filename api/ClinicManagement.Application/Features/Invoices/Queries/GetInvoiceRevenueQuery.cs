@@ -82,11 +82,17 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
             // (finding #18), so a payment collected in a different period from issuance lands in the same bucket
             // both views use. With no period, fall back to collected-to-date.
             decimal totalCollected;
+            /*
+             * Reported on the DTO, so the screen can name the share it cannot see rows for — see
+             * `InvoiceRevenueDto.CollectedOnTreatmentPlans`. Declared out here because both branches compute it
+             * and only one of them used to keep it.
+             */
+            decimal planCollected;
             if (request.From.HasValue && request.To.HasValue)
             {
                 var collected = await _invoiceRepository.GetCollectedBetweenAsync(
                     clinicId, request.From.Value, request.To.Value, cancellationToken: cancellationToken);
-                var planCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
+                planCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
                     clinicId, request.From.Value, request.To.Value, billedPlanIds, cancellationToken);
                 // Net out avoirs refunded in the same window so "encaissé" matches the caisse (finding #8).
                 var refunds = await _creditNoteRepository.GetRefundedBetweenAsync(
@@ -105,7 +111,7 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
                 // honestly expressed as the whole time axis, so the windowed call is asked for exactly that.
                 var creditedByInvoice = await _creditNoteRepository.GetTotalsForInvoicesAsync(
                     billable.Select(i => i.Id).ToList(), cancellationToken);
-                var planCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
+                planCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
                     clinicId, DateTime.MinValue, DateTime.MaxValue, billedPlanIds, cancellationToken);
                 totalCollected = billable.Sum(i => i.AmountCollected) + planCollected - creditedByInvoice.Values.Sum();
             }
@@ -116,7 +122,13 @@ public class GetInvoiceRevenueQueryHandler : IRequestHandler<GetInvoiceRevenueQu
                 // Rounded through the one arithmetic authority — this was the only money read that did not, so
                 // a sum of two ledgers could print a fourth decimal the rest of the product never shows.
                 TotalCollected = InvoiceCalculator.RoundMoney(totalCollected),
-                Outstanding = InvoiceCalculator.RoundMoney(outstanding)
+                Outstanding = InvoiceCalculator.RoundMoney(outstanding),
+                /*
+                 * ⚠️ Rounded independently of the total, and deliberately NOT back-derived from it: it is a
+                 * component, and a screen that subtracts it from `TotalCollected` to name the invoice share
+                 * must land on the invoice ledger's own figure to the millime.
+                 */
+                CollectedOnTreatmentPlans = InvoiceCalculator.RoundMoney(planCollected)
             };
 
             return Result<InvoiceRevenueDto>.Success(dto);

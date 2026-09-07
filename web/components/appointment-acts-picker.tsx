@@ -9,8 +9,9 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Check, ChevronsUpDown, Clock, Plus, Stethoscope, X } from "lucide-react"
+import { Check, ChevronsUpDown, ChevronUp, Clock, ListOrdered, Plus, Stethoscope, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { AppointmentProtocolEditor } from "@/components/appointment-protocol-editor"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
@@ -64,6 +65,104 @@ export interface SelectedAct {
    * plan, so this séance adds no honoraires.
    */
   billedOnPlan?: BilledOnPlan
+  /**
+   * The séances this act will be split into when the booking is saved — the catalogue protocol as the dentist
+   * has it **for this patient**, editable in place.
+   *
+   * <p>⚠️ **Tri-state, and all three states are real.** `undefined` is « nobody has decided », which the
+   * picker's one seeding effect turns into one of the other two; `null` is an explicit « tout faire en une
+   * seule séance »; a non-empty list is the confirmed protocol. `[]` is never stored — emptying the list *is*
+   * choosing one séance, and that is `null`.</p>
+   *
+   * <p>⚠️ **The treatment is created on SAVE, not when the act is picked.** That is the whole design: the
+   * decision is local form state until « Créer le rendez-vous », so it works before a patient has been chosen
+   * (« Nouveau patient » has no id until the save) and abandoning the dialog leaves nothing behind. The button
+   * it replaces created the plan on press and was rendered only when `selectedPatientId` was already set — so
+   * a dentist booking a walk-in read « cet acte se fait en 3 séances » with no way to act on it, which is the
+   * report this was built from.</p>
+   *
+   * <p>⚠️ Only ever set on an act **not** already on a devis: once `treatmentPlanItemId` is set the step chips
+   * are the real control, and this would be a second, weaker route to the same thing.</p>
+   */
+  plannedProtocol?: ProcedureStepTemplateDto[] | null
+}
+
+/**
+ * The catalogue protocol of an act, or `[]` when it proposes none.
+ *
+ * ⚠️ A row with no catalogue act behind it (a hand-typed devis line) has none by construction, and neither
+ * does an act already carried by a devis — that one's séances are the plan's, not the catalogue's.
+ */
+export function catalogueProtocolOf(
+  act: SelectedAct,
+  procedureTypes: ProcedureTypeDto[],
+): ProcedureStepTemplateDto[] {
+  if (act.treatmentPlanItemId || !act.procedureTypeId) return []
+  return procedureTypes.find((p) => p.id === act.procedureTypeId)?.defaultSteps ?? []
+}
+
+/**
+ * Fill in every `plannedProtocol` nobody has decided — **the one place the default lives**.
+ *
+ * <p>A multi-séance act is split <b>by default</b>: the treatment and its séances are prepared when the
+ * booking is saved, and « Tout faire en une seule séance » is the way out. The opposite default was a button
+ * somebody had to notice, and it was not even always rendered — which is the report this was built from.</p>
+ *
+ * <p>⚠️ <b>Derived, never seeded into state by an effect.</b> The only channel a picker has back to its host is
+ * `onChange`, and the edit dialog's `onChange` also resets `durationTouched` — so an effect that seeded through
+ * it would silently discard the saved duration of every appointment merely by opening it. Deriving costs one
+ * `map` and has no such reach.</p>
+ *
+ * <p>⚠️ <b>One treatment per booking.</b> An appointment carries a single `TreatmentPlanId` and
+ * `resolveAttachedPlanId` refuses two, so only the first undecided protocol act is followed; the rest resolve
+ * to `null` and their card offers to take its place.</p>
+ *
+ * <p>⚠️ It returns `acts` unchanged — the same array reference — when there was nothing to decide, so it is
+ * safe inside a `useMemo` feeding a list that compares by identity.</p>
+ */
+export function resolvePlannedProtocols(
+  acts: readonly SelectedAct[],
+  procedureTypes: ProcedureTypeDto[],
+): SelectedAct[] {
+  // Until the catalogue has arrived every act looks protocol-less, and resolving `null` on that would answer
+  // « une seule séance » for an implant before anybody had been shown the question.
+  if (procedureTypes.length === 0) return acts as SelectedAct[]
+
+  let following = acts.some((a) => a.plannedProtocol && a.plannedProtocol.length > 0)
+  let changed = false
+  const next = acts.map((act) => {
+    if (act.plannedProtocol !== undefined) return act
+    changed = true
+    const protocol = catalogueProtocolOf(act, procedureTypes)
+    if (protocol.length === 0 || following) return { ...act, plannedProtocol: null }
+    following = true
+    // A copy, never the catalogue's own array — the editor rewrites this list and the catalogue must not move.
+    return { ...act, plannedProtocol: protocol.map((s) => ({ ...s })) }
+  })
+  return changed ? next : (acts as SelectedAct[])
+}
+
+/** The acts this booking turns into treatments on save, with the séances each was given. */
+export function followedProtocolActs(
+  acts: readonly SelectedAct[],
+): { act: SelectedAct; index: number; steps: ProcedureStepTemplateDto[] }[] {
+  return acts.flatMap((act, index) =>
+    act.plannedProtocol && act.plannedProtocol.length > 0
+      ? [{ act, index, steps: act.plannedProtocol }]
+      : [],
+  )
+}
+
+/**
+ * Why this booking cannot be saved yet, or null.
+ *
+ * ⚠️ Refused in the form rather than server-side, because the server would refuse the **treatment** with the
+ * patient already created and the booking half-made: a blank séance name reaches `SetSteps` as an
+ * `ArgumentException` long after the point of no return. Same reason `hasInvalidAgreedCost` is checked here.
+ */
+export function protocolError(acts: readonly SelectedAct[]): string | null {
+  const blank = followedProtocolActs(acts).some((f) => f.steps.some((s) => s.label.trim().length === 0))
+  return blank ? "Nommez chaque séance du traitement, ou supprimez la ligne vide." : null
 }
 
 /**
@@ -380,22 +479,6 @@ interface AppointmentActsPickerProps {
   /** Acts that came from a devis and must stay in the séance (removing one is « ne pas le planifier »). */
   idPrefix?: string
   /**
-   * Start this act's protocol: create the devis carrying its séances and make this visit the first of them.
-   *
-   * ⚠️ Supplied by the **create** dialog only. A doctor in a hurry books from the agenda, so the act's
-   * protocol — six séances for an implant — was invisible there: the séances live on a devis, and there was no
-   * devis. Offering it here is what makes the flow two-directional without a silent side effect; the edit
-   * dialog's « Actes du devis » group covers attaching to a devis that already exists.
-   *
-   * Absent (or a row with no patient behind it) renders the protocol as a statement and no button — the
-   * dentist is told what the act involves, which is still better than nothing.
-   */
-  onStartProtocol?: (act: SelectedAct, protocol: ProcedureStepTemplateDto[]) => void | Promise<void>
-
-  /** Set while `onStartProtocol` is in flight, so the offer disables itself against a double press. */
-  startingProtocol?: boolean
-
-  /**
    * The patient's outstanding devis acts, offered as their own group in the picker.
    *
    * ⚠️ Absent on the create dialog, which receives its plan acts pre-selected from the devis workspace. Present
@@ -438,10 +521,10 @@ export function AppointmentActsPicker({
   idPrefix = "appt-acts",
   planActs,
   onTotalChange,
-  onStartProtocol,
-  startingProtocol = false,
 }: AppointmentActsPickerProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
+  /** Which act rows have their séance list open for editing, keyed on the group's representative index. */
+  const [openProtocolEditors, setOpenProtocolEditors] = useState<Set<number>>(new Set())
   /**
    * Which act rows have their étape chooser open, keyed on the group's representative index.
    *
@@ -500,6 +583,9 @@ export function AppointmentActsPicker({
     [procedureTypes],
   )
 
+  /** The acts with every undecided `plannedProtocol` filled in — see {@link resolvePlannedProtocols}. */
+  const resolved = useMemo(() => resolvePlannedProtocols(value, procedureTypes), [value, procedureTypes])
+
   /**
    * The chosen acts, resolved against the catalog. A row whose procedure is no longer in the active catalog is
    * **kept and marked**, never dropped: silently removing it would change what the user is about to save without
@@ -507,7 +593,7 @@ export function AppointmentActsPicker({
    */
   const rows = useMemo(
     () =>
-      groupActs(value).map((group) => {
+      groupActs(resolved).map((group) => {
         const act = group.act
         // ⚠️ The group's chair time, not the act's catalogue duration once per row. « 2 actes · 120 min » was
         // shown for a bridge booked across a 60-min préparation and a 30-min empreinte, while the duration
@@ -550,8 +636,16 @@ export function AppointmentActsPicker({
           tariff: pt?.defaultCost ?? null,
         }
       }),
-    [value, byId],
+    [resolved, byId],
   )
+
+  /*
+   * Writes back over `value`, deliberately, and NOT over `resolved`: an act left undecided must stay undecided
+   * so it can be re-resolved. Freezing the resolved list here would mean that saying « une seule séance » on a
+   * crown also silently froze the implant beside it at « une seule séance » — the slot it was only waiting for.
+   */
+  const setPlannedProtocol = (index: number, steps: ProcedureStepTemplateDto[] | null) =>
+    onChange(value.map((act, i) => (i === index ? { ...act, plannedProtocol: steps } : act)))
 
   // Both figures come from the grouped model, so the badge cannot disagree with the duration this same panel
   // sets on the form: `rows.length` is acts-as-counted-by-a-person and each row's minutes are its steps'.
@@ -720,10 +814,13 @@ export function AppointmentActsPicker({
         One line, on the empty form, beside the acts — which is where the question is actually asked. The pair is
         deliberate: this one goes forward, the existing link goes back, and neither is now the only one.
       */}
-      {rows.length === 0 && onStartProtocol && (
+      {/* ⚠️ No longer gated on a « can this dialog start a treatment? » prop. It was, and that prop was absent
+          in the edit dialog and on a create form with no patient chosen yet — so the sentence promising the
+          feature was hidden in exactly the situations where somebody was looking for it. */}
+      {rows.length === 0 && (
         <p className="text-2xs leading-relaxed text-muted-foreground">
           Cet acte se fait en plusieurs séances&nbsp;? Choisissez-le ci-dessous — les actes qui demandent
-          plusieurs séances le disent, et vous pourrez créer le devis d&apos;ici.
+          plusieurs séances le disent, et le traitement est préparé automatiquement.
         </p>
       )}
 
@@ -938,7 +1035,14 @@ export function AppointmentActsPicker({
                   htmlFor={`${idPrefix}-price-${row.group.indices[0]}`}
                   className="shrink-0 text-2xs font-normal text-muted-foreground"
                 >
-                  Prix pour ce rendez-vous
+                  {/* ⚠️ A followed act is priced ONCE, for the whole treatment — `StartTreatmentCommand`
+                      documents it (« a séance of it has none: what a séance carries is an encaissement »). The
+                      label must say so *before* the figure is typed: « Prix pour ce rendez-vous » on a 2 000 DT
+                      implant invites the dentist to type this visit's share, and the treatment is then created
+                      at that share for all six visits. */}
+                  {row.act.plannedProtocol && row.act.plannedProtocol.length > 0
+                    ? `Prix du traitement (${row.act.plannedProtocol.length} séances)`
+                    : "Prix pour ce rendez-vous"}
                 </Label>
                 <div className="relative">
                   <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
@@ -1002,53 +1106,185 @@ export function AppointmentActsPicker({
                 — which is exactly how this read « à 1 080,000 DT » for a 1 000 DT bridge.
               */}
               {/*
-                The act has a protocol and this visit is not on a devis yet — so the séances it needs are
-                invisible from here. State them, and offer to start them in one press.
+                A multi-séance act, on a visit that is not on a devis yet.
 
-                ⚠️ Shown only for an act **not** already linked to a devis: once it is, the step chips above
-                are the real control and this would be a second, weaker route to the same thing.
+                ⚠️ **The split is the DEFAULT and the button is the way out**, which is the reverse of what
+                shipped first. « Suivre ce traitement » was one press — but a press somebody had to notice, and
+                `create-appointment-dialog` rendered it only when a patient was already selected, so booking a
+                walk-in (« Nouveau patient » has no id until the save) or picking the act before the patient
+                showed « cet acte se fait en 3 séances » with **no control at all** underneath it. That is the
+                report this was rebuilt from: two people, the same act, one of them with the button.
+
+                ⚠️ Shown only for an act **not** already linked to a devis: once it is, the step chips above are
+                the real control and this would be a second, weaker route to the same thing.
               */}
-              {!row.act.treatmentPlanItemId && row.protocol && row.protocol.length > 0 && (
-                <div
-                  className="mt-2 rounded-md border border-dashed border-primary/60 bg-primary/[0.05] p-2.5"
-                  role="status"
-                >
-                  <p className="text-2xs leading-relaxed">
-                    <span className="font-semibold text-primary">
-                      Cet acte se fait normalement en {row.protocol.length} séances.
-                    </span>{" "}
-                    {row.protocol.map((step) => step.label).join(" · ")}
-                  </p>
-                  {/*
-                    ⚠️ **One press, inline, and nothing irreversible** — no confirmation modal, because there is
-                    nothing to confirm any more. This button used to read « Créer le devis et planifier la 1re
-                    séance » and it did exactly that: a NUMBERED, already-accepted devis carrying the act's whole
-                    total, raised from a dialog whose subject is a visit (measured: 2026-0023 at 800,000 DT), with
-                    a number releasable only by a cancellation with a motif. A confirmation was bolted on, which
-                    interrupted an ordinary booking without making the side effect any smaller.
-                    `startTreatment` creates an un-numbered draft instead: the number is taken later, by
-                    « Éditer le devis », the day the patient is handed paper.
-                  */}
-                  {onStartProtocol && (
-                    <>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="mt-2 h-8 w-full gap-1 text-xs coarse:h-11"
-                        disabled={disabled || startingProtocol}
-                        onClick={() => void onStartProtocol(row.act, row.protocol!)}
-                      >
-                        <Stethoscope className="h-3.5 w-3.5" />
-                        {startingProtocol ? "Création…" : "Suivre ce traitement"}
-                      </Button>
-                      <p className="mt-1 text-2xs text-muted-foreground">
-                        Aucun devis, aucun numéro. Le prix reste modifiable.
+              {!row.act.treatmentPlanItemId && row.protocol && row.protocol.length > 0 && (() => {
+                const index = row.group.indices[0]
+                const planned = row.act.plannedProtocol
+                const followed = planned != null && planned.length > 0
+                const editing = openProtocolEditors.has(index)
+                // Whose treatment this booking is already preparing, when it is not this act's — an appointment
+                // carries one `TreatmentPlanId`, so following this act means giving that one up.
+                const other = rows.find(
+                  (r) => r !== row && r.act.plannedProtocol && r.act.plannedProtocol.length > 0,
+                )
+
+                const toggleEditor = () =>
+                  setOpenProtocolEditors((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(index)) next.delete(index)
+                    else next.add(index)
+                    return next
+                  })
+
+                return (
+                  <div
+                    className="mt-2 rounded-md border border-dashed border-primary/60 bg-primary/[0.05] p-2.5"
+                    role="status"
+                  >
+                    {followed ? (
+                      <>
+                        <p className="text-2xs leading-relaxed">
+                          <span className="inline-flex items-center gap-1 font-semibold text-primary">
+                            <Stethoscope className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            Traitement en {planned.length}&nbsp;
+                            {planned.length > 1 ? "séances" : "séance"}.
+                          </span>{" "}
+                          {/* The one fact a dentist needs from this card: what is being done TODAY. */}
+                          Ce rendez-vous est la 1re&nbsp;: {quoteFr(planned[0]?.label || "séance 1")}.
+                        </p>
+                        {planned.length > 1 && (
+                          <p className="mt-0.5 text-2xs leading-relaxed text-muted-foreground">
+                            Ensuite&nbsp;:{" "}
+                            {planned.slice(1).map((s, i) => `${i + 2}. ${s.label}`).join(" · ")}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-2xs leading-relaxed">
+                        <span className="font-semibold text-primary">
+                          Cet acte se fait normalement en {row.protocol.length} séances.
+                        </span>{" "}
+                        {row.protocol.map((step) => step.label).join(" · ")}
+                        <br />
+                        <span className="text-muted-foreground">Prévu ici en une seule séance.</span>
                       </p>
-                    </>
-                  )}
-                </div>
-              )}
+                    )}
+
+                    {editing && followed && (
+                      <AppointmentProtocolEditor
+                        steps={planned}
+                        onChange={(next) =>
+                          // Emptying the list IS « une seule séance » — see `SelectedAct.plannedProtocol`.
+                          setPlannedProtocol(index, next.length > 0 ? next : null)
+                        }
+                        onReset={() => setPlannedProtocol(index, row.protocol!.map((s) => ({ ...s })))}
+                        canReset={
+                          JSON.stringify(planned) !== JSON.stringify(row.protocol)
+                        }
+                        onSingleSeance={() => {
+                          setPlannedProtocol(index, null)
+                          setOpenProtocolEditors((prev) => {
+                            const next = new Set(prev)
+                            next.delete(index)
+                            return next
+                          })
+                        }}
+                        disabled={disabled}
+                        idPrefix={`${idPrefix}-protocol-${index}`}
+                        actName={row.name}
+                      />
+                    )}
+
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {followed ? (
+                        <>
+                          {/*
+                            ⚠️ **A disclosure, never « Terminer ».** Reported from use: with the list open the
+                            row read « Terminer · Tout faire en une séance », so the exit looked like a
+                            *validation* of the séances just typed and the control beside it looked like the
+                            confirm — one press away from silently collapsing the whole treatment into a single
+                            visit. Nothing here needs validating: the list is form state and « Créer le
+                            rendez-vous » is the only save on the screen. So it says show/hide, with a chevron,
+                            and the one-séance action moves INSIDE the editor while it is open — beside
+                            « Rétablir le protocole », where it reads as one of the list's own operations.
+                          */}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 flex-1 gap-1 text-2xs coarse:h-11"
+                            disabled={disabled}
+                            onClick={toggleEditor}
+                            aria-expanded={editing}
+                          >
+                            {editing ? (
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            ) : (
+                              <ListOrdered className="h-3.5 w-3.5" />
+                            )}
+                            {editing ? "Masquer les séances" : "Modifier les séances"}
+                          </Button>
+                          {!editing && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 flex-1 text-2xs text-muted-foreground coarse:h-11"
+                              disabled={disabled}
+                              onClick={() => setPlannedProtocol(index, null)}
+                            >
+                              Tout faire en une séance
+                            </Button>
+                          )}
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-full gap-1 text-2xs coarse:h-11"
+                          disabled={disabled}
+                          onClick={() => {
+                            // One treatment per booking: taking the slot gives the other act its séance back.
+                            const freed = other ? other.group.indices[0] : null
+                            const steps = row.protocol!.map((s) => ({ ...s }))
+                            onChange(
+                              value.map((act, i) =>
+                                i === index
+                                  ? { ...act, plannedProtocol: steps }
+                                  : i === freed
+                                    ? { ...act, plannedProtocol: null }
+                                    : act,
+                              ),
+                            )
+                            setOpenProtocolEditors((prev) => new Set(prev).add(index))
+                          }}
+                        >
+                          <Stethoscope className="h-3.5 w-3.5" />
+                          Répartir en {row.protocol.length} séances
+                        </Button>
+                      )}
+                    </div>
+
+                    <p className="mt-1 text-2xs leading-relaxed text-muted-foreground">
+                      {followed ? (
+                        <>
+                          Aucun devis, aucun numéro — le traitement est préparé à l&apos;enregistrement du
+                          rendez-vous. Le prix saisi est celui de tout le traitement.
+                        </>
+                      ) : other ? (
+                        // Said before the press, not after: an appointment carries one devis, and finding that
+                        // out by having the other act quietly un-split is the worst possible way to learn it.
+                        <>Ce rendez-vous prépare déjà le traitement de {quoteFr(other.name)} — un rendez-vous
+                        n&apos;en prépare qu&apos;un.</>
+                      ) : (
+                        <>Les séances suivantes se planifient depuis la fiche du patient.</>
+                      )}
+                    </p>
+                  </div>
+                )
+              })()}
 
               {row.act.billedOnPlan && (
                 <p

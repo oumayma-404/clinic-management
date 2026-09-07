@@ -302,12 +302,22 @@ export const treatmentPlansApi = {
     procedureTypeId: string
     agreedTotal?: number | null
     toothNumbers?: number[]
+    /**
+     * The séances, **as the dentist confirmed them for this patient** — tri-state, exactly as
+     * `TreatmentPlanItemInput.steps`: omit for the catalogue protocol, `[]` for an explicit « une seule
+     * séance », a list for the confirmed sequence. It never writes back to the catalogue.
+     *
+     * ⚠️ `?? null` is wrong here and `?? []` is worse: both would flatten « rien de décidé » onto one of the
+     * two real answers. The key is omitted when it is undefined, which is what the server reads as « null ».
+     */
+    steps?: TreatmentPlanItemStepInput[]
   }): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>('/treatment-plans/start', {
       patientId: data.patientId,
       procedureTypeId: data.procedureTypeId,
       agreedTotal: data.agreedTotal ?? null,
       toothNumbers: data.toothNumbers ?? [],
+      ...(data.steps === undefined ? {} : { steps: data.steps }),
     }),
 
   /**

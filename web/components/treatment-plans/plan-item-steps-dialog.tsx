@@ -28,6 +28,16 @@ interface StepRow {
   id: string | null
   label: string
   duration: string
+  /**
+   * Calendar days that must elapse after the previous séance, as typed.
+   *
+   * ⚠️ **It was missing, and this editor therefore ERASED it on every save.** `setItemSteps` replaces the
+   * whole list and the payload omitted the key, so renaming one step of an implant wiped the osseointegration
+   * wait off all of them — silently, and the symptom is `RecallWorklistRules` reporting a correctly-progressing
+   * implant as abandoned after a flat fortnight. A different quantity from `duration`: that one sizes the
+   * appointment, this one decides when the appointment is *due*.
+   */
+  minDays: string
   doneDate: string | null
 }
 
@@ -114,6 +124,7 @@ export function PlanItemStepsDialog({
         id: step.id,
         label: step.label,
         duration: step.estimatedDurationMinutes?.toString() ?? "",
+        minDays: step.minDaysAfterPrevious?.toString() ?? "",
         doneDate: step.doneDate,
       })),
     )
@@ -129,7 +140,10 @@ export function PlanItemStepsDialog({
   const add = () =>
     setRows((prev) => [
       ...prev,
-      { key: `new-${Date.now()}-${prev.length}`, id: null, label: "", duration: "", doneDate: null },
+      {
+        key: `new-${Date.now()}-${prev.length}`, id: null, label: "", duration: "", minDays: "",
+        doneDate: null,
+      },
     ])
 
   /**
@@ -162,11 +176,21 @@ export function PlanItemStepsDialog({
       setError(`La durée de ${quoteFr(badDuration.label)} doit être un nombre de minutes.`)
       return
     }
+    const badDelay = trimmed.find(
+      (r) => r.minDays.trim() !== "" && !/^\d{1,4}$/.test(r.minDays.trim()),
+    )
+    if (badDelay) {
+      setError(`Le délai avant ${quoteFr(badDelay.label)} doit être un nombre de jours.`)
+      return
+    }
 
     const payload: TreatmentPlanItemStepInput[] = trimmed.map((r) => ({
       id: r.id,
       label: r.label,
       estimatedDurationMinutes: r.duration.trim() === "" ? null : Number(r.duration.trim()),
+      // ⚠️ Sent for every row, echoed ones included: the endpoint REPLACES the list, so an omitted key
+      // here is not « unchanged » — it clears the wait on a step nobody touched.
+      minDaysAfterPrevious: r.minDays.trim() === "" ? null : Number(r.minDays.trim()),
     }))
 
     setSaving(true)
@@ -336,6 +360,33 @@ export function PlanItemStepsDialog({
                       />
                       <span className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
                         min
+                      </span>
+                    </div>
+                  )}
+                  <Label htmlFor={`step-delay-${row.key}`} className="sr-only">
+                    Délai minimum avant l&apos;étape {index + 1}, en jours
+                  </Label>
+                  {/*
+                    The wait BEFORE this séance. Disabled on the first — it has no previous séance to wait
+                    after — and disabled on a done one, whose date is already a fact.
+                  */}
+                  {done || index === 0 ? (
+                    <span className="w-20 text-end font-mono text-2xs text-muted-foreground">
+                      {index === 0 ? "1re séance" : row.minDays ? `+ ${row.minDays} j` : "—"}
+                    </span>
+                  ) : (
+                    <div className="relative">
+                      <Input
+                        id={`step-delay-${row.key}`}
+                        value={row.minDays}
+                        onChange={(e) => update(row.key, { minDays: e.target.value })}
+                        disabled={saving}
+                        inputMode="numeric"
+                        placeholder="0"
+                        className="w-24 pe-14 text-end font-mono tabular-nums md:text-sm"
+                      />
+                      <span className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
+                        j après
                       </span>
                     </div>
                   )}

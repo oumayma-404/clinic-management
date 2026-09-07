@@ -247,6 +247,24 @@ touching the area.
   `Number is null` for that reason, after the guard was applied to one of four status writers and
   « Arrêter le traitement » → « Reprendre le traitement » turned a followed treatment into an `Accepted` devis
   with a null number and a live créance for a total nobody had quoted.
+- **A multi-séance act is split BY DEFAULT, and the treatment is created when the booking is SAVED.**
+  `resolvePlannedProtocols` is the only place that default lives, and `SelectedAct.plannedProtocol` is
+  tri-state (`undefined` = undecided · `null` = one séance · a list = the confirmed séances). It replaced a
+  « Suivre ce traitement » button that created the plan on press, and therefore needed a patient id: the create
+  dialog passed the control only once one was selected and the **edit** dialog never passed it at all — so the
+  sentence « cet acte se fait normalement en 3 séances » rendered above **no control** whenever the act was
+  picked before the patient, on a « Nouveau patient » walk-in, or on any reopened visit. Two dentists, the same
+  act, one button. ⚠️ Deferring to the save also means a `createdPlansRef` memo is mandatory: both dialogs
+  re-run their save **from the top** on every confirmation (slot taken, out of hours, past time), so without it
+  one « créer quand même » leaves two identical treatments — `createdPatientIdRef`'s scar, one object over.
+  ⚠️ Derived on render, **never seeded by an effect**: the only channel back to the host is `onChange`, and the
+  edit dialog's also resets `durationTouched`. `check:responsive`'s N26 holds the materialisation.
+- **A step input that COPIES a step must pass all four arguments.** `TreatmentPlanItemStepInput`'s fourth is
+  `MinDaysAfterPrevious` and it **defaults to null**, so a three-argument copy compiles, reads correctly, and
+  erases the interval — from *every* step of the act, since `SetSteps` replaces the list. That is what
+  `SetTreatmentPlanItemStepsCommand` did: renaming one step of an implant wiped its osseointegration wait, with
+  the client sending the field all along and the symptom being `RecallWorklistRules` reporting a healthy
+  implant as abandoned. `StartTreatmentStepsTests` scans for it, flagging a *copy* and not a synthesis.
 - **Money for a multi-séance act goes on the TREATMENT, never on the séance's note d'honoraires.** The act is
   priced once, so it sits on the fiche at **0** — imposed server-side by `PlanCarriedActPricing`, not merely
   offered — and what the patient hands over at the chair is `AmountCollectedOnPlan`, a **second** money field that

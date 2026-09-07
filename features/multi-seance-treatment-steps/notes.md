@@ -154,3 +154,137 @@ week's séances under a heading inviting the practice to chase patients with not
 been handed a devis, `Accept` being the only writer of `Number`. `CountUnansweredDraftsAsync` narrows it to
 Drafts with no recorded work. ⚠️ The identical premise was already corrected in `RecallWorklistRules.IsUnanswered`
 and this copy was missed — the `fixes-dont-propagate` shape, one layer over.
+
+---
+
+## A multi-séance act is split by DEFAULT, and the treatment is created on save (`resolvePlannedProtocols`)
+
+**Two dentists, the same act, and only one of them had the button.** Reported from the field: a client booked
+« Couronne / bridge », read « Cet acte se fait normalement en 3 séances » and had **no control at all**
+underneath it, while the same act on the same screen here showed « Suivre ce traitement ».
+
+The cause is one line — `create-appointment-dialog.tsx`'s `onStartProtocol={selectedPatientId ? startProtocol
+: undefined}` — against a picker that rendered the *sentence* unconditionally and the *button* inside
+`{onStartProtocol && …}`. So the offer was absent in three real situations, all of them ordinary:
+
+| Situation | Why the button was gone |
+|---|---|
+| The act picked before the patient | `selectedPatientId` is `""` until one is chosen |
+| « Nouveau patient » (a walk-in) | that mode has **no id at all** until the save |
+| The **edit** dialog | it never passed the prop — for everyone, always |
+
+⚠️ **Version skew is excluded, and the argument is worth keeping**: the sentence and the button landed in the
+same commit (`918537da`) inside the same JSX block, so anyone who can read the sentence is running the code
+that draws the button.
+
+**The fix inverts the default rather than widening the gate.** An act with a catalogue protocol is now split
+**by default** — `resolvePlannedProtocols` is the one place that decides it — and « Tout faire en une séance »
+is the way out. `SelectedAct.plannedProtocol` is tri-state (`undefined` = nobody decided · `null` = one séance
+· a list = the confirmed séances), and `[]` is never stored, because emptying the list *is* choosing one
+séance.
+
+⚠️ **Derived on render, never seeded into state by an effect.** The only channel a picker has back to its host
+is `onChange`, and the edit dialog's `onChange` also resets `durationTouched` — so an effect seeding through it
+would silently re-length every appointment merely by opening it. The rule costs one `map`.
+
+⚠️ **One treatment per booking.** An appointment carries a single `TreatmentPlanId` and `resolveAttachedPlanId`
+refuses two, so only the first undecided protocol act is followed; the others resolve to `null` and their card
+says which act holds the slot. `setPlannedProtocol` writes back over **`value`**, not over the resolved list —
+freezing the resolution would mean that saying « une seule séance » on a crown also froze the implant beside it
+at the same answer, which is the slot it was only waiting for.
+
+### The treatment is created when the booking is saved
+
+`materialisePlannedProtocols` (in `use-patient-plan-acts.ts`, beside `resolveAttachedPlanId`) turns every
+followed act into an un-numbered `Draft` at save time and rewrites its row through `planItemToPreset` +
+`presetToSelectedAct`, so a row attached here is identical to one attached from « Actes du devis ».
+
+That deferral **is** the fix, not an implementation detail. Creating on press needed a patient id, which is
+exactly what the three broken cases lacked; it also left an orphan treatment behind whenever the dentist
+abandoned the booking afterwards, and made the decision un-takeable-back without deleting a server aggregate.
+
+⚠️ **`createdPlansRef` is load-bearing, and it is `createdPatientIdRef`'s reason one object over.** Both
+dialogs re-run their save **from the top** on every confirmation the server asks for — slot taken, out of
+hours, past time — so without a per-catalogue-act memo one « créer quand même » leaves the patient with **two
+identical treatments**. Verified by booking deliberately onto an occupied slot: one confirmation accepted, one
+treatment.
+
+### The séances are editable in the booking dialog, for this patient only
+
+`AppointmentProtocolEditor` — rename, reorder, add, remove, chair time, and the minimum wait — inline in the
+act's card. `StartTreatmentCommand.Steps` carries the confirmed list and **never writes back to
+`ProcedureType.DefaultSteps`**; a test pins that, because reaching for the entity already in hand is the
+obvious way to break it.
+
+⚠️ **The exit is a disclosure, never « Terminer ».** Reported from use within minutes of shipping: with the
+list open the row read « Terminer · Tout faire en une séance », so the *exit* looked like a validation of the
+séances just typed and the control beside it looked like the confirm — one press from collapsing the whole
+treatment into a single visit. Nothing there needs validating (the list is form state; « Créer le rendez-vous »
+is the only save on the screen), so it says « Masquer les séances », and the one-séance action moves **inside**
+the editor while it is open, beside « Rétablir le protocole », where it reads as one of the list's own
+operations.
+
+⚠️ **The price field renames itself to « Prix du traitement (N séances) » on a followed act.** An act is priced
+once; « Prix pour ce rendez-vous » on a 2 000 DT implant invites the dentist to type this visit's share, and
+the treatment would then be created at that share for all six visits.
+
+`check:responsive`'s **N26 `protocol-split-is-materialised`** derives the guard from the picker itself: a
+surface that renders it and never calls the materialiser books an ordinary one-off while its own card says
+« Traitement en 3 séances » — no error, no toast, and the treatment simply never exists.
+
+---
+
+## « Modifier les étapes » was erasing the minimum interval on every save
+
+Found while wiring the editor above, and **older than it**: `SetTreatmentPlanItemStepsCommand`'s request had
+no `MinDaysAfterPrevious` at all, so its mapping built `new TreatmentPlanItemStepInput(s.Id, s.Label,
+s.EstimatedDurationMinutes)` — three arguments against a record whose fourth **defaults to null** — and
+`SetSteps` has replace semantics. Renaming one step of an implant therefore wiped the osseointegration wait off
+**all** of them, including steps the caller had only echoed back. The client had been sending the field all
+along; the old dialog did not, and now does.
+
+⚠️ The symptom is not an error anywhere. It is `RecallWorklistRules` reporting a correctly-progressing implant
+as abandoned after a flat fortnight — the exact failure `MinDaysAfterPrevious` was added to prevent.
+
+`StartTreatmentStepsTests.A_step_input_copied_from_a_source_carries_its_interval` is the derived guard, and it
+flags a **copy** rather than every three-argument call: `ContinueRecordedActCommand` synthesises two séances
+out of prose and has no source interval to carry, so demanding a fourth argument there would be noise — and a
+guard that reports things nobody should act on stops being read. A copy is two or more arguments reading
+members off one receiver, which is what every mapping from a request, a template or an existing step looks
+like. Red-proved against the real defect.
+
+---
+
+## `/factures` names the money it has no row for
+
+**Reported twice, the second time as « il y a deux sources de vérité, on croit à une fuite d'argent ».** A
+dentist recorded the first séance of a multi-séance act, took 120 DT at the chair, went to « Factures » — and
+found no facture. La caisse showed it, filed as an échéance de devis.
+
+The behaviour is correct and deliberate: an act done over several séances is **priced once on the treatment**,
+so collecting at the chair records an échéance payment and no note d'honoraires (`CollectOnTreatmentCommand`).
+What was wrong is what the screen said about it. « Total encaissé » deliberately counts **both** money tracks —
+that is what keeps it equal to la caisse and to the dashboard — while the table beneath it lists the invoice
+ledger alone. So the headline moved and no row appeared, which is indistinguishable from money going missing.
+
+⚠️ **It had already been answered once, in prose, and prose was not enough.** The hint read « paiements de
+notes et échéances de devis »: it says the gap exists and never *how big it is*, so a practice adding up the
+« Encaissé » column still comes out short and still cannot tell where the rest went. Measured on the dev
+database: **2 050,000 DT across seven payments**, not one of them visible anywhere on that page.
+
+- **`InvoiceRevenueDto.CollectedOnTreatmentPlans`** carries the share. Served, never derived in the browser:
+  only the server can apply `PlanBillingRules.BilledPlanIds`, which drops a devis already bridged into a note —
+  without it a plan collected *through* an invoice would be counted on both tracks and announced twice.
+  ⚠️ It is a **component of** `TotalCollected`, and `Revenue_Reports_How_Much_Was_Collected_On_Devis…` asserts
+  the subtraction lands exactly on the invoice ledger's own figure, because a sentence built on it is
+  arithmetic the reader is invited to check.
+- The hint on the figure becomes **« dont 2 050,000 DT sur des devis »**, and a `role="status"` line under the
+  strip explains why there is no facture and **links to the rows** — `/caisse`'s extrait and `/treatment-plans`.
+  A reader whose question is « où est mon argent ? » must not have to know that la caisse is where it lives.
+- Both are rendered **only when the figure is non-zero**, so a practice that raises a note for everything meets
+  nothing new. `A_Practice_With_No_Devis_Collection_Reports_Zero` pins that.
+
+⚠️ **Neither branch of the read could be trusted to report it by accident**: the windowed one and the
+date-free one compute the plan share separately (there is no date-free plan aggregate), and the date-free one
+is what `/factures` loads on arrival — so it is the branch where the new figure could have stayed silently at
+zero while the total was right. It has its own test.

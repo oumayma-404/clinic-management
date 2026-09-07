@@ -43,8 +43,8 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
-  AppointmentActsPicker, actLabelsOf, agreedCostOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
-  toProcedurePayloads, totalActsDuration,
+  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
+  protocolError, toProcedurePayloads, totalActsDuration,
   type SelectedAct, type PlanStepOption, type BilledOnPlan,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage } from "@/lib/errors"
@@ -61,6 +61,7 @@ import { planItemToPreset, suggestedPlanStep } from "@/components/treatment-plan
 import {
   usePatientPlanActs,
   resolveAttachedPlanId,
+  materialisePlannedProtocols,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import { ContinueSessionDialog } from "@/components/treatment-plans/continue-session-dialog"
@@ -269,51 +270,15 @@ export function CreateAppointmentDialog({
     [registerPlan, procedureTypes],
   )
 
-  const [startingProtocol, setStartingProtocol] = useState(false)
-
   /**
-   * « Suivre ce traitement » — one press, from inside an ordinary booking.
+   * The treatments this dialog has already created, keyed on the catalogue act.
    *
-   * <p>Creates the treatment as an <b>un-numbered draft</b> (no devis number, no échéancier, no créance) and
-   * rewrites this visit's act row as its first séance. The dentist then presses « Créer le rendez-vous » as
-   * they were going to.</p>
-   *
-   * <p>⚠️ <b>No confirmation, because there is nothing irreversible left to confirm.</b> This used to call
-   * <c>create</c>, which numbers and accepts in the same save — so one press produced an accepted devis
-   * claiming the act's whole total from a dialog about a visit, and abandoning the booking afterwards left it
-   * behind with no appointment. The number is taken later, by « Éditer le devis ».</p>
-   *
-   * <p>⚠️ The price the dentist typed in the row is the treatment's <b>total</b>, not this séance's: an act is
-   * priced once. Once it is a treatment act the row shows that total instead of a price field.</p>
+   * ⚠️ A ref, and it survives a failed attempt on purpose — `performCreate` runs again from the top on every
+   * confirmation the server asks for (slot taken, out of hours, past time). Without it, one « créer quand
+   * même » on a taken slot would leave the patient with two identical treatments. Exactly
+   * `createdPatientIdRef`'s reason, one object over. See {@link materialisePlannedProtocols}.
    */
-  const startProtocol = useCallback(
-    async (act: SelectedAct, _protocol: ProcedureStepTemplateDto[]) => {
-      if (!selectedPatientId || !act.procedureTypeId) return
-      setStartingProtocol(true)
-      try {
-        const plan = await treatmentPlansApi.startTreatment({
-          patientId: selectedPatientId,
-          procedureTypeId: act.procedureTypeId,
-          agreedTotal: agreedCostOf(act),
-          toothNumbers: [],
-        })
-        const item = plan.items[0]
-        if (!item) return
-        attachPlanAct(
-          plan,
-          item,
-          // Rewrite the row this was pressed on rather than appending — it is the same act, now followed.
-          (a) => a === act || (a.procedureTypeId === act.procedureTypeId && !a.treatmentPlanItemId),
-        )
-        toast.success(`Traitement suivi — ${plan.items[0]?.steps?.length ?? 0} séances. Ce RDV est la 1re.`)
-      } catch (err) {
-        showErrorToast(err)
-      } finally {
-        setStartingProtocol(false)
-      }
-    },
-    [selectedPatientId, attachPlanAct],
-  )
+  const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
 
   /** Accepting it: the act (and the step it is waiting on) becomes this séance's act. */
   const acceptSuggestion = useCallback(() => {
@@ -586,6 +551,9 @@ export function CreateAppointmentDialog({
       // The created-patient memory ends with the dialog: a new booking starts from a blank new-patient form, and
       // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
       createdPatientIdRef.current = null
+      // Same reason, and the consequence is worse: a treatment reused across two openings would attach a
+      // second patient's séance to the first patient's plan.
+      createdPlansRef.current = new Map()
       setCreatedPatientName(null)
       grantedOverridesRef.current = { ...NO_OVERRIDES }
       // Reset date to the caller's instant, else its day, else today
@@ -769,6 +737,14 @@ export function CreateAppointmentDialog({
       return false
     }
 
+    // ⚠️ Refused here, before the patient is created: a blank séance name reaches `SetSteps` as a refusal on
+    // the *treatment*, by which point the walk-in has a record and the booking is half-made.
+    const protocol = protocolError(selectedActs)
+    if (protocol) {
+      setError(protocol)
+      return false
+    }
+
     return true
   }
 
@@ -852,10 +828,45 @@ export function CreateAppointmentDialog({
       // something). The note then said one act and the column another.
       const appointmentNotes = notes.trim()
 
+      /*
+       * The treatments, before the appointment that carries them. An act the dentist left split becomes an
+       * un-numbered draft treatment here, and its row becomes that treatment's first séance.
+       *
+       * ⚠️ **Here and not when the act was picked**, which is the whole design — see
+       * `SelectedAct.plannedProtocol`. `patientId` above may have been created seconds ago (« Nouveau
+       * patient »), and that case had no way to follow a treatment at all.
+       *
+       * ⚠️ A failure here stops the booking rather than booking a visit whose treatment does not exist: the
+       * act would be saved at its catalogue tarif with no séances behind it, which is a silently different
+       * appointment from the one on screen.
+       */
+      let actsToSend = selectedActs
+      let freshPlanIds: Record<string, string> = {}
+      if (!isBusySlot && patientId) {
+        try {
+          const materialised = await materialisePlannedProtocols(
+            selectedActs, procedureTypes, patientId, createdPlansRef.current,
+          )
+          actsToSend = materialised.acts
+          freshPlanIds = materialised.planIdByItem
+          materialised.plans.forEach(registerPlan)
+          // Kept in state too, so a server refusal below leaves the form showing what actually exists.
+          if (materialised.plans.length > 0) setSelectedActs(materialised.acts)
+        } catch (err) {
+          setError(
+            err instanceof ApiError
+              ? `Le traitement n'a pas pu être préparé : ${err.message}`
+              : "Le traitement n'a pas pu être préparé.",
+          )
+          setLoading(false)
+          return
+        }
+      }
+
       // The séance's acts. A « créneau occupé » carries none by definition — no patient, so no clinical act.
       // A row with a null procedure is a devis link with no catalog act behind it; the server accepts those and
       // names them from the plan step's désignation.
-      const procedures = isBusySlot ? [] : toProcedurePayloads(selectedActs)
+      const procedures = isBusySlot ? [] : toProcedurePayloads(actsToSend)
 
       // Create appointment
       /*
@@ -865,7 +876,9 @@ export function CreateAppointmentDialog({
        * without deriving it the server refuses the save with « Le plan de traitement est requis pour lier
        * l'acte. » — the feature turned down by its own client.
        */
-      const attachedPlan = resolveAttachedPlanId(selectedActs, planIdByItem)
+      // ⚠️ Merged, not `planIdByItem` alone: a treatment created moments ago cannot be in the read this hook
+      // did when the patient was picked, and `registerPlan` above is a state write this tick cannot see.
+      const attachedPlan = resolveAttachedPlanId(actsToSend, { ...planIdByItem, ...freshPlanIds })
       if (attachedPlan.error) {
         setError(attachedPlan.error)
         setLoading(false)
@@ -1439,10 +1452,6 @@ export function CreateAppointmentDialog({
                 onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="create-appt"
-                // « Suivre ce traitement » — one press, no modal, no number. Only with a patient in hand: a
-                // treatment belongs to somebody.
-                onStartProtocol={selectedPatientId ? startProtocol : undefined}
-                startingProtocol={startingProtocol}
                 // « Actes du devis » — the same group the edit dialog offers. It is the un-hurried half of the
                 // suggestion above: the reminder names ONE act, this holds every one the patient has outstanding.
                 planActs={offeredPlanActs}
