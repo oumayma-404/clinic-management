@@ -281,6 +281,79 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         return await query.CountAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DentalRecordPlanLinkRow>> GetPlanLinksByDentalRecordAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> dentalRecordIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (dentalRecordIds.Count == 0)
+        {
+            return Array.Empty<DentalRecordPlanLinkRow>();
+        }
+
+        var ids = dentalRecordIds as ICollection<Guid> ?? dentalRecordIds.ToList();
+
+        /*
+         * Rooted at the clinic-filtered `TreatmentPlans` set, like its money sibling: the tenant filter is
+         * declared on the plan, so starting from `TreatmentPlanItemSteps` would read across practices.
+         *
+         * Two link columns, unioned in memory after two bounded reads rather than in one `Concat` query — Npgsql
+         * translates a `Concat` of two `SelectMany` projections into a UNION over both joins, and the plan
+         * columns have to be repeated on each side anyway, so two plain reads are the clearer shape for the same
+         * work. `Withdrawn` acts are deliberately included: a parked act's fiche still happened, and the history
+         * of a patient's visits must not lose a séance because the treatment was later stopped.
+         */
+        var stepLinks = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId)
+            .SelectMany(plan => plan.Items
+                .SelectMany(item => item.Steps
+                    .Where(s => s.LinkedDentalRecordId != null && ids.Contains(s.LinkedDentalRecordId!.Value))
+                    .Select(s => new DentalRecordPlanLinkRow(
+                        s.LinkedDentalRecordId!.Value, plan.Id, plan.Number,
+                        item.DesignationFr,
+                        s.Label,
+                        // `SequenceNumber` is 0-based and dense (held by `verify-schema`'s
+                        // `plan-step-sequence-dense`); +1 so the row can read « étape 3 / 6 » the way the rest
+                        // of the feature counts.
+                        s.SequenceNumber + 1,
+                        item.Steps.Count))))
+            .ToListAsync(cancellationToken);
+
+        var actLinks = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId)
+            .SelectMany(plan => plan.Items
+                .Where(item => item.LinkedDentalRecordId != null
+                               && ids.Contains(item.LinkedDentalRecordId!.Value))
+                .Select(item => new DentalRecordPlanLinkRow(
+                    item.LinkedDentalRecordId!.Value, plan.Id, plan.Number,
+                    item.DesignationFr, null, null, item.Steps.Count)))
+            .ToListAsync(cancellationToken);
+
+        // One row per fiche. A fiche recording séances of two different treatments is possible and rare; the
+        // step link wins because it is the more specific fact, which is why it is enumerated first.
+        return stepLinks
+            .Concat(actLinks)
+            .GroupBy(r => r.DentalRecordId)
+            .Select(g => g.First())
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountUnansweredDraftsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // `HasDeliveredWork` in SQL — the act is Done, or one of its steps carries a DoneDate. Written as a
+        // negated `Any` so the whole thing is one indexed COUNT with two EXISTS, never a materialised load.
+        return await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && p.Status == TreatmentPlanStatus.Draft
+                        && !p.Items.Any(i =>
+                            i.Status == TreatmentPlanItemStatus.Done
+                            || i.Steps.Any(s => s.DoneDate != null)))
+            .CountAsync(cancellationToken);
+    }
+
     public async Task<int> GetMaxSequenceForYearAsync(Guid clinicId, int year, CancellationToken cancellationToken = default)
     {
         var prefix = $"{year}-";

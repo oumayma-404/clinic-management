@@ -236,20 +236,12 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 
             await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
-            var toothStates = DentalRecordActParser
-                .BuildToothStates(acts, request.PatientId, patient.ClinicId, request.InterventionDate, record.Id)
-                .ToList();
-
-            // Treating a tooth closes any open diagnosis charted on it (AC-5).
-            await DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync(
-                _toothStateRepository, request.PatientId, toothStates, cancellationToken);
-
-            foreach (var toothState in toothStates)
-            {
-                await _toothStateRepository.AddAsync(toothState, cancellationToken);
-            }
-
             // Completing a scheduled plan step: mark it "réalisé" and link it to this record (AC-4).
+            //
+            // ⚠️ **This now runs BEFORE the odontogram is written, and the order is the fix.** Charting an act's
+            // end state is only legitimate once the act is finished, and only the aggregate — after the step has
+            // been marked — can say whether it is. See `ToothChartingRules`.
+            DentalRecordLinker.PlanActLink? planLink = null;
             if (request.TreatmentPlanItemId.HasValue)
             {
                 var link = await DentalRecordLinker.LinkPlanItemAsync(
@@ -261,6 +253,34 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 {
                     return Result<DentalRecordDto>.Failure(link.Error!);
                 }
+                planLink = link.Value;
+            }
+
+            /*
+             * ⚠️ `ChartableActs`, never `acts` — an implant's step-1 fiche used to chart « Implant » on the tooth
+             * weeks before the implant existed, and `ClearDiagnosesForTreatedTeethAsync` below deleted the
+             * « à traiter » that said the work was still needed. Measured: 7 rows on the live database, every one
+             * written from a step 1 of 2.
+             *
+             * The list is for the odontogram ONLY. `record.SetActs` above keeps the condition the dentist chose —
+             * it is what the act will chart when the treatment ends, and what re-opening the fiche must show.
+             */
+            var chartable = ToothChartingRules.ChartableActs(
+                acts, planLink?.Item, planLink?.ItemIsComplete ?? true);
+
+            var toothStates = DentalRecordActParser
+                .BuildToothStates(chartable, request.PatientId, patient.ClinicId, request.InterventionDate, record.Id)
+                .ToList();
+
+            // Treating a tooth closes any open diagnosis charted on it (AC-5). Driven off the states above, so a
+            // withheld one withholds this in the same breath — which is what keeps the tooth « à traiter » for
+            // the length of the treatment instead of clearing it on the first séance.
+            await DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync(
+                _toothStateRepository, request.PatientId, toothStates, cancellationToken);
+
+            foreach (var toothState in toothStates)
+            {
+                await _toothStateRepository.AddAsync(toothState, cancellationToken);
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);

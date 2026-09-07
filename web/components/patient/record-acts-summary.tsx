@@ -29,6 +29,40 @@ interface RecordActsSummaryProps {
  * <p>The single-act case is left exactly as it was — a name and its teeth, with no per-act scaffolding — because
  * that is the overwhelming majority of fiches and the ambiguity does not exist there.</p>
  */
+/**
+ * What a séance of a multi-séance treatment actually WAS — the step, with its rank.
+ *
+ * <p>⚠️ <b>Without it a patient's history printed the ACT once per séance.</b> Three fiches of one implant read
+ * « Implant dentaire · Implant dentaire · Implant dentaire », which says the patient had three implants — and
+ * nothing on any of the three rows said they were one treatment. The step label and its rank were on record
+ * (<c>TreatmentPlanItemStep</c>) and simply never read back.</p>
+ *
+ * <p>Rendered under the act's name rather than replacing it: « Implant dentaire » is what the patient and the
+ * devis both call the work, and « Pose de l'implant » alone would lose it.</p>
+ */
+function SeanceIdentity({ record }: { record: DentalRecordDto }) {
+  if (!record.treatmentPlanId) return null
+  const rank =
+    record.treatmentStepNumber && record.treatmentStepTotal
+      ? `étape ${record.treatmentStepNumber} / ${record.treatmentStepTotal}`
+      : null
+  // An act booked whole has no step, so it says only which treatment it belongs to — which is still the fact
+  // the row was missing.
+  if (!record.treatmentStepLabel && !rank) {
+    return (
+      <span className="text-2xs text-muted-foreground">
+        séance du traitement{record.treatmentPlanNumber ? ` ${record.treatmentPlanNumber}` : ""}
+      </span>
+    )
+  }
+  return (
+    <span className="text-2xs text-muted-foreground">
+      {record.treatmentStepLabel}
+      {rank ? <span className="opacity-80"> · {rank}</span> : null}
+    </span>
+  )
+}
+
 export function RecordActsSummary({ record, align = "start", hideSingleName, className }: RecordActsSummaryProps) {
   const acts = record.acts ?? []
   const justify = align === "end" ? "justify-end" : "justify-start"
@@ -53,6 +87,7 @@ export function RecordActsSummary({ record, align = "start", hideSingleName, cla
     return (
       <div className={cn("flex flex-col gap-1", align === "end" && "items-end", className)}>
         {!hideSingleName && <span className="text-sm">{name}</span>}
+        <SeanceIdentity record={record} />
         {teeth(numbers)}
       </div>
     )
@@ -60,6 +95,13 @@ export function RecordActsSummary({ record, align = "start", hideSingleName, cla
 
   return (
     <ul className={cn("flex flex-col gap-1.5", className)}>
+      {/* On a mixed séance the step names the visit, not any one act, so it leads the list rather than
+          repeating on each row. */}
+      {record.treatmentPlanId && (
+        <li className={cn("flex", justify)}>
+          <SeanceIdentity record={record} />
+        </li>
+      )}
       {acts.map((act, i) => (
         <li
           key={`${act.procedureName}-${i}`}

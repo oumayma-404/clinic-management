@@ -288,21 +288,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 await _toothStateRepository.DeleteAsync(state.Id, cancellationToken);
             }
 
-            var toothStates = DentalRecordActParser
-                .BuildToothStates(
-                    acts, dentalRecord.PatientId, dentalRecord.ClinicId, request.InterventionDate, dentalRecord.Id)
-                .ToList();
-
-            // Treating a tooth closes any open diagnosis charted on it (AC-5).
-            await DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync(
-                _toothStateRepository, dentalRecord.PatientId, toothStates, cancellationToken);
-
-            foreach (var toothState in toothStates)
-            {
-                await _toothStateRepository.AddAsync(toothState, cancellationToken);
-            }
-
             // Completing a scheduled plan step: mark it "réalisé" and link it to this record (AC-4).
+            //
+            // ⚠️ **Hoisted above the odontogram write, matching `CreateDentalRecordCommand`** — charting an act's
+            // end state is legitimate only once the act is finished, and only the aggregate can say whether the
+            // step just marked was the last one. See `ToothChartingRules`. The two commands must keep the same
+            // order: a re-save that charted early would put back exactly what the create path now withholds.
+            DentalRecordLinker.PlanActLink? planLink = null;
             if (request.TreatmentPlanItemId.HasValue)
             {
                 var link = await DentalRecordLinker.LinkPlanItemAsync(
@@ -316,6 +308,31 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 {
                     return Result<DentalRecordDto>.Failure(link.Error!);
                 }
+                planLink = link.Value;
+            }
+
+            /*
+             * ⚠️ `ChartableActs`, never `acts` — see `ToothChartingRules`. It matters twice as much on this path:
+             * the block above has just DELETED this fiche's existing tooth states, so re-saving an unfinished
+             * treatment's fiche is also the moment an early-charted row would be rewritten rather than corrected.
+             * Withholding here is what lets a re-save clean up rows the old behaviour left behind.
+             */
+            var chartable = ToothChartingRules.ChartableActs(
+                acts, planLink?.Item, planLink?.ItemIsComplete ?? true);
+
+            var toothStates = DentalRecordActParser
+                .BuildToothStates(
+                    chartable, dentalRecord.PatientId, dentalRecord.ClinicId, request.InterventionDate,
+                    dentalRecord.Id)
+                .ToList();
+
+            // Treating a tooth closes any open diagnosis charted on it (AC-5) — withheld with the states above.
+            await DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync(
+                _toothStateRepository, dentalRecord.PatientId, toothStates, cancellationToken);
+
+            foreach (var toothState in toothStates)
+            {
+                await _toothStateRepository.AddAsync(toothState, cancellationToken);
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);

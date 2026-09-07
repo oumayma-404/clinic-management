@@ -20,6 +20,7 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
     private readonly IPatientRepository _patientRepository;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetTreatmentPlanQueryHandler> _logger;
 
@@ -28,6 +29,7 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
         IPatientRepository patientRepository,
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
+        IDentalRecordRepository dentalRecordRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetTreatmentPlanQueryHandler> logger)
     {
@@ -35,6 +37,7 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
         _patientRepository = patientRepository;
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
+        _dentalRecordRepository = dentalRecordRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -59,7 +62,8 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
 
             var workflow = await TreatmentPlanWorkflowProjection.BuildAsync(
                 new[] { plan }, clinicResult.Value, _appointmentRepository, _invoiceRepository,
-                DateTime.UtcNow, cancellationToken);
+                // The record repository fills `TreatedToothNumbers` — the teeth the act's earlier séances marked.
+                DateTime.UtcNow, cancellationToken, _dentalRecordRepository);
 
             return Result<TreatmentPlanDto>.Success(plan.ToDto(patient?.GetFullName(), workflow));
         }

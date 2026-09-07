@@ -143,6 +143,7 @@ how it was built, `notes.md` is what shipped.
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
+- [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
@@ -254,6 +255,22 @@ touching the area.
   that 0 is how a 250 DT act with 150 collected left the patient owing 250 on the devis **and** 100 on an
   unlinked note: an invoice raised from a fiche carries `dentalRecordId` and **no `TreatmentPlanId`**, so
   `PlanBillingRules.BilledPlanIds` cannot de-duplicate it.
+- **A restoration records work that is DONE, and the chart asserted it from the FIRST séance.** A multi-séance
+  act's step-1 fiche carried the catalogue's `ResultingCondition`, so a tooth read « Implant » weeks before the
+  implant existed — measured as 7 rows on the live database, every one from a step 1 of 2, three of them claiming
+  implants and two claiming teeth were *gone* mid-extraction. Its twin fired in the same breath:
+  `ClearDiagnosesForTreatedTeethAsync` deleted the « à traiter » that said the work was still needed, so the chart
+  both claimed the work was finished and forgot it had been asked for. `ToothChartingRules` withholds the end
+  state until the act is `Done`, and both fiche commands now link the plan step **before** charting because only
+  the aggregate can say whether the step just marked was the last. ⚠️ Its companion is
+  `TreatmentPlanItemDto.TreatedToothNumbers`: with the chart written at the END, teeth entered on an early séance
+  and absent from the last fiche would chart **nothing at all**.
+- **An échéance the system raised is not a date anybody promised**, and reading it as one made every devis in the
+  database « En retard » from the day after signature (25 of 27 unpaid rows, cancelled and already-invoiced ones
+  included). `Accept` writes one lump-sum row dated at the acceptance instant so a payment has somewhere to live;
+  `Installment.IsAutoRaised` is what tells it from a schedule a dentist typed, and `InstallmentLateness` is the
+  one rule — it needs the plan's status, its note, its unrealised work and the clinic's day, so it is computed
+  server-side onto `InstallmentDto.IsOverdue` and never re-derived from `dueDate`.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill

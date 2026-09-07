@@ -28,11 +28,20 @@ public class GetTreatmentPlansQueryHandlerTests
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IAppointmentRepository> _appointments = new();
     private readonly Mock<IInvoiceRepository> _invoices = new();
+    // Stubbed empty, not merely constructed: an unstubbed Moq collection returns null, which NREs inside
+    // `TreatmentPlanWorkflowProjection` and surfaces as a generic French failure rather than as a null ref.
+    private readonly Mock<IDentalRecordRepository> _records = new();
+
+    private void NoTreatedTeeth() =>
+        _records
+            .Setup(r => r.GetTreatedTeethAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, int)>());
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
     private GetTreatmentPlansQueryHandler CreateHandler() => new(
-        _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _clinicResolver.Object,
-        NullLogger<GetTreatmentPlansQueryHandler>.Instance);
+        _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _records.Object,
+        _clinicResolver.Object, NullLogger<GetTreatmentPlansQueryHandler>.Instance);
 
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
@@ -53,6 +62,7 @@ public class GetTreatmentPlansQueryHandlerTests
     private void MultiPlanMultiPatientPage()
     {
         Authenticated();
+        NoTreatedTeeth();
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
                 It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
@@ -143,6 +153,7 @@ public class GetTreatmentPlansQueryHandlerTests
     public async Task Handle_Rejects_An_Invalid_Status_Filter()
     {
         Authenticated();
+        NoTreatedTeeth();
 
         var result = await CreateHandler().Handle(
             new GetTreatmentPlansQuery { Status = "Pas-Un-Statut" }, CancellationToken.None);

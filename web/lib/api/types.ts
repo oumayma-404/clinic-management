@@ -1134,6 +1134,12 @@ export interface DentalRecordDto {
    * ledger, never stored beside it, so voiding a payment corrects the history with it.
    */
   collectedOnTreatment?: number | null;
+  /** The devis act this séance carries out — see `DentalRecordDto.TreatmentActDesignation`. */
+  treatmentActDesignation?: string | null;
+  /** The step it carried out, with its rank («  Pose de l'implant », 3 of 6). Null for an act booked whole. */
+  treatmentStepLabel?: string | null;
+  treatmentStepNumber?: number | null;
+  treatmentStepTotal?: number | null;
   /** The treatment that money went to, so the row can name it. */
   treatmentPlanId?: string | null;
   /** @see treatmentPlanId */
@@ -1375,6 +1381,12 @@ export interface TreatmentPlanItemDto {
   procedureTypeId: string | null;
   designationFr: string;
   toothNumbers: number[];
+  /**
+   * The teeth this act has actually been carried out on, from the fiches its séances produced — **derived**,
+   * and distinct from `toothNumbers`, which is what the devis LINE says (very often nothing: « acte général »).
+   * See `TreatmentPlanItemDto.TreatedToothNumbers` for why the odontogram fix made this load-bearing.
+   */
+  treatedToothNumbers?: number[];
   plannedCost: number;
   status: string;
   doneDate: string | null;
@@ -1464,6 +1476,20 @@ export interface InstallmentDto {
   amountPaid: number;
   outstanding: number;
   isPaid: boolean;
+  /**
+   * Whether this échéance is genuinely late — **computed server-side** by `InstallmentLateness.IsLate`.
+   *
+   * ⚠️ Never re-derive it from `dueDate`. The rule also needs the plan's status, whether a note d'honoraires
+   * already represents it, whether any act is still unrealised, and whether the date was ever agreed — and the
+   * two surfaces that answered it locally both wrote `isBeforeToday(dueDate)`, which gave a different answer on
+   * 25 of 27 unpaid rows in the dev database, flagging even cancelled and already-invoiced devis.
+   */
+  isOverdue: boolean;
+  /**
+   * True when nobody agreed this date — the row the server raises so a payment has somewhere to live. See
+   * `Installment.IsAutoRaised`; it is why « Modifier l'échéancier » is the offer beside such a row.
+   */
+  isAutoRaised: boolean;
   /** Derived: the most recent LIVE payment's method/date. */
   lastMethod: string | null;
   lastPaidOn: string | null;

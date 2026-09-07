@@ -65,16 +65,41 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
              * one list of the visits that produced it could not see any of it. Read back rather than stored, so
              * voiding a payment corrects the history with it.
              */
+            var recordIds = dtos.Select(d => d.Id).ToList();
             var collected = await _treatmentPlanRepository.GetCollectedByDentalRecordAsync(
-                clinicResult.Value, dtos.Select(d => d.Id).ToList(), cancellationToken);
+                clinicResult.Value, recordIds, cancellationToken);
+            /*
+             * ⚠️ **The LINK is read separately from the MONEY, and merging them the other way round is what left a
+             * whole class of séance unlabelled.** The collection read can only see a fiche that took money, so a
+             * séance where the patient paid nothing that day — entirely ordinary on a six-visit implant — carried
+             * no plan id and printed « 0,000 DT · 0,000 DT », indistinguishable from a free ordinary visit while
+             * the treatment showed 1 500 DT outstanding. Belonging to a treatment is a clinical fact.
+             */
+            var links = await _treatmentPlanRepository.GetPlanLinksByDentalRecordAsync(
+                clinicResult.Value, recordIds, cancellationToken);
             var byRecord = collected.ToDictionary(c => c.DentalRecordId);
+            var linkByRecord = links.ToDictionary(l => l.DentalRecordId);
             foreach (var dto in dtos)
             {
+                if (linkByRecord.TryGetValue(dto.Id, out var link))
+                {
+                    dto.TreatmentPlanId = link.TreatmentPlanId;
+                    dto.TreatmentPlanNumber = link.PlanNumber;
+                    dto.TreatmentActDesignation = link.ActDesignationFr;
+                    dto.TreatmentStepLabel = link.StepLabel;
+                    dto.TreatmentStepNumber = link.StepNumber;
+                    dto.TreatmentStepTotal = link.StepTotal > 0 ? link.StepTotal : null;
+                    // 0 rather than null: « this séance belongs to a treatment and took nothing » is a figure,
+                    // and null would leave the row unable to tell it from « not a treatment séance at all ».
+                    dto.CollectedOnTreatment = 0m;
+                }
                 if (!byRecord.TryGetValue(dto.Id, out var row))
                 {
                     continue;
                 }
                 dto.CollectedOnTreatment = row.Amount;
+                // The money read wins on identity too: a payment names the plan it was posted to, which is the
+                // plan whose échéancier the figure came off.
                 dto.TreatmentPlanId = row.TreatmentPlanId;
                 dto.TreatmentPlanNumber = row.PlanNumber;
             }

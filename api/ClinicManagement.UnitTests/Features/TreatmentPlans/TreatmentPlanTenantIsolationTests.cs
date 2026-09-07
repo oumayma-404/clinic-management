@@ -34,6 +34,15 @@ public class TreatmentPlanTenantIsolationTests
     private readonly Mock<IProcedureTypeRepository> _procedureTypes = new();
     private readonly Mock<IAppointmentRepository> _appointments = new();
     private readonly Mock<IInvoiceRepository> _invoices = new();
+    // Stubbed empty, not merely constructed: an unstubbed Moq collection returns null, which NREs inside
+    // `TreatmentPlanWorkflowProjection` and surfaces as a generic French failure rather than as a null ref.
+    private readonly Mock<IDentalRecordRepository> _records = new();
+
+    private void NoTreatedTeeth() =>
+        _records
+            .Setup(r => r.GetTreatedTeethAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, int)>());
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -72,12 +81,13 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Get_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
 
         var handler = new GetTreatmentPlanQueryHandler(
-            _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _clinicResolver.Object,
-            NullLogger<GetTreatmentPlanQueryHandler>.Instance);
+            _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _records.Object,
+            _clinicResolver.Object, NullLogger<GetTreatmentPlanQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetTreatmentPlanQuery { Id = foreign.Id }, CancellationToken.None);
 
@@ -88,6 +98,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Update_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignDraftPlan();
         PlanIsLoadable(foreign);
 
@@ -106,6 +117,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Accept_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignDraftPlan();
         PlanIsLoadable(foreign);
 
@@ -125,6 +137,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Complete_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
 
@@ -144,6 +157,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Cancel_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
 
@@ -166,6 +180,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Delete_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignDraftPlan();
         PlanIsLoadable(foreign);
 
@@ -185,6 +200,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task MarkItemDone_On_A_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
         var itemId = foreign.Items.First().Id;
@@ -206,6 +222,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task RecordInstallmentPayment_On_A_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
         var installmentId = foreign.Installments.First().Id;
@@ -239,6 +256,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Amend_A_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
 
@@ -263,6 +281,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task ReviseInstallments_On_A_Foreign_Plan_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
 
@@ -288,6 +307,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task Reorder_A_Foreign_Plans_Acts_Is_NotFound()
     {
         Authenticated();
+        NoTreatedTeeth();
         var foreign = ForeignAcceptedPlan();
         PlanIsLoadable(foreign);
 
@@ -310,6 +330,7 @@ public class TreatmentPlanTenantIsolationTests
     public async Task List_Is_Scoped_To_Caller_Clinic()
     {
         Authenticated();
+        NoTreatedTeeth();
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
                 It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
@@ -324,8 +345,8 @@ public class TreatmentPlanTenantIsolationTests
             .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal TotalTtc, decimal Outstanding)>());
 
         var handler = new GetTreatmentPlansQueryHandler(
-            _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _clinicResolver.Object,
-            NullLogger<GetTreatmentPlansQueryHandler>.Instance);
+            _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _records.Object,
+            _clinicResolver.Object, NullLogger<GetTreatmentPlansQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetTreatmentPlansQuery(), CancellationToken.None);
 

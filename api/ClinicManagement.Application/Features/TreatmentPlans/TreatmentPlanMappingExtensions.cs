@@ -1,6 +1,8 @@
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
+using ClinicManagement.Application.Common;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans;
 
@@ -26,6 +28,18 @@ public static class TreatmentPlanMappingExtensions
     {
         var hasInvoice = workflow.InvoiceByPlanId.TryGetValue(plan.Id, out var invoice);
         workflow.NextAppointmentAtByPlanId.TryGetValue(plan.Id, out var nextAppointmentAt);
+
+        /*
+         * The three plan-level facts `InstallmentLateness` needs, hoisted out of the per-row projection below.
+         *
+         * `planIsBilled` reuses `PlanBillingRules.RepresentsItsPlan` rather than testing the number: a Draft or
+         * Cancelled note does NOT represent its plan, so its échéancier is still the live money — the same
+         * distinction every balance read makes, and getting it backwards here would silence a genuinely late
+         * échéance on a devis whose bridge was voided.
+         */
+        var planIsBilled = hasInvoice && PlanBillingRules.RepresentsItsPlan(invoice.Status);
+        var planHasUnrealisedWork = plan.ActiveItems.Any(i => i.Status != TreatmentPlanItemStatus.Done);
+        var clinicToday = ClinicClock.ClinicToday();
 
         return new TreatmentPlanDto
         {
@@ -68,6 +82,12 @@ public static class TreatmentPlanMappingExtensions
                     AmountPaid = i.AmountPaid,
                     Outstanding = i.Outstanding,
                     IsPaid = i.IsPaid,
+                    // ONE authority, server-side — see `InstallmentDto.IsOverdue` for why the client cannot
+                    // answer this and what the two local copies of it got wrong.
+                    IsOverdue = InstallmentLateness.IsLate(
+                        i.IsPaid, i.IsAutoRaised, i.DueDate,
+                        plan.Status, planIsBilled, planHasUnrealisedWork, clinicToday),
+                    IsAutoRaised = i.IsAutoRaised,
                     LastMethod = i.LastMethod?.ToString(),
                     LastPaidOn = i.LastPaidOn,
                     // Oldest first, with the insertion stamp as tiebreaker — two payments on the same day
@@ -105,6 +125,9 @@ public static class TreatmentPlanMappingExtensions
             DesignationFr = item.DesignationFr,
             ToothNumbers = item.ToothNumbers.ToList(),
             PlannedCost = item.PlannedCost,
+            TreatedToothNumbers = workflow.TreatedTeethByItemId.TryGetValue(item.Id, out var treated)
+                ? treated.ToList()
+                : new List<int>(),
             Status = item.Status.ToString(),
             DoneDate = item.DoneDate,
             LinkedDentalRecordId = item.LinkedDentalRecordId,
