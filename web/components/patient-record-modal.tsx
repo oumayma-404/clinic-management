@@ -130,6 +130,14 @@ function planItemPrefill(item: PlanItemOption, appointment?: AppointmentDto | nu
         designationFr: item.designationFr,
         plannedCost: item.plannedCost,
         toothNumbers: item.toothNumbers,
+        /*
+         * ⚠️ **Always true here, and its absence made this whole branch a dead end.** Linking a devis step means
+         * the devis carries the act's fee — `PlanCarriedActPricing` imposes 0 server-side whenever
+         * `treatmentPlanItemId` is set, with no exception. The appointment branch above never needed the flag
+         * because `applyAppointment` had already set it from the booked row; this branch is the fiche opened
+         * with no appointment at all (« Ajouter un acte dentaire »), and it had nothing to set it from.
+         */
+        billedOnPlan: true,
       }
 }
 
@@ -646,12 +654,27 @@ export function PatientRecordModal({
    * True when the séance's own act rows carry this devis act — i.e. the fee is on the devis and this visit adds
    * no honoraires. The one fact the fiche needed and did not have.
    */
-  const carriedByDevis = useMemo(
+  /**
+   * Does the APPOINTMENT say this séance carries the devis act? The booked row is the authority for a visit made
+   * from the agenda, and it is what back-fills a reopened fiche below.
+   */
+  const carriedByAppointment = useMemo(
     () =>
       billedPlanItem != null &&
       (appointment?.procedures ?? []).some((row) => row.treatmentPlanItemId === billedPlanItem.itemId),
     [billedPlanItem, appointment?.procedures],
   )
+
+  /*
+   * ⚠️ **This used to BE the appointment test, while its own docstring said « the séance's own act rows ».** With
+   * no appointment — a fiche opened from « Ajouter un acte dentaire » and linked to a devis step by hand — the
+   * list is empty, so the séance read as un-carried: « Encaissé sur le traitement » was never offered and there
+   * was no way to take the patient's money at that visit at all. The act rows are the honest source, and they
+   * carry the flag from both doors now (`applyAppointment` from the booked row, `applyPlanItem` from the link).
+   * The appointment stays in the OR for the reopened-fiche case, where the rows have not been marked yet.
+   */
+  const carriedByDevis =
+    billedPlanItem != null && (acts.some((a) => a.billedOnPlan) || carriedByAppointment)
 
   /*
    * Back-fill « this act is carried by the devis » onto a REOPENED fiche. `applyAppointment` carries it per act
@@ -661,10 +684,12 @@ export function PatientRecordModal({
    * The same back-fill shape as `edit-appointment-dialog`'s, and for the same reason: the hydration path is
    * where this family of defect reappears.
    */
+  // ⚠️ Keyed on `carriedByAppointment`, never on `carriedByDevis` — the latter now reads the very flag this
+  // dispatch sets, so keying on it would make the back-fill depend on its own outcome.
   useEffect(() => {
-    if (!open || !carriedByDevis || !billedPlanItem) return
+    if (!open || !carriedByAppointment || !billedPlanItem) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
-  }, [open, carriedByDevis, billedPlanItem, dispatch])
+  }, [open, carriedByAppointment, billedPlanItem, dispatch])
 
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
