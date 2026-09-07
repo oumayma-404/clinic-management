@@ -1,4 +1,4 @@
-import { toE164Tunisian } from "@/lib/phone"
+import { toE164 } from "@/lib/phone"
 import { quoteFr } from "@/lib/format"
 
 /**
@@ -19,7 +19,11 @@ import { quoteFr } from "@/lib/format"
 export const EXTERNAL_LINK_REL = "noopener noreferrer"
 
 /**
- * A `wa.me` link for `phone`, or `null` when it is not a deliverable Tunisian number.
+ * A `wa.me` link for `phone`, or `null` when no country can parse it.
+ *
+ * <p>⚠️ Any country works and always did — `wa.me/<digits>` is international by construction, so this function
+ * needed no change when the phone rule widened. What changed is how often it returns a link: a supplier or
+ * patient with a foreign number used to fall to the null branch on the *rule*, not on the format.</p>
  *
  * <p><b>Returning null rather than a best-effort link is the point.</b> AC-3 says a supplier with no usable
  * number gets « Ajouter un numéro » instead — never a disabled control and never a link that opens WhatsApp on
@@ -29,7 +33,7 @@ export const EXTERNAL_LINK_REL = "noopener noreferrer"
  * pre-filled message (AC-3), while the « Stock faible » alert pre-fills the order (AC-6).</p>
  */
 export function whatsAppUrl(phone: string | null | undefined, text?: string | null): string | null {
-  const e164 = toE164Tunisian(phone)
+  const e164 = toE164(phone)
   if (!e164) return null
 
   // `wa.me/<digits>` — the leading `+` is dropped, which is what the format expects.

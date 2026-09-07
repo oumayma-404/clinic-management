@@ -116,6 +116,19 @@ public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
                 OutboxBlockReason.MessagingNumberStopped,
                 "Envoi WhatsApp suspendu par Meta — rappel en attente, nous nous en occupons"),
 
+            // ⚠️ The destination itself cannot be reached, and no retry changes that (international-phone-numbers
+            // AC-17). 131026: the number is not a WhatsApp account, or its country is one this sender may not
+            // message. 131051: the message type is unsupported for that recipient. 132001: no template matches
+            // the name and language pair — the reminder template is registered for one language per install, so a
+            // patient abroad is exactly who this fires for.
+            //
+            // Before this branch existed the whole family fell through to a generic transient failure: three
+            // attempts, then silence, with the only diagnostic in Meta's response body — which
+            // `HttpReminderChannelSender` deliberately keeps off every screen because the endpoint is
+            // tenant-supplied. Foreign numbers could not be entered, so it never fired; they can now.
+            131026 or 131051 or 132001 => ReminderSendResult.RecipientUnreachable(
+                "Ce numéro n'est pas joignable sur WhatsApp — essayez par SMS ou appelez le patient"),
+
             _ => base.Classify(body, statusCode, channelLabel),
         };
     }

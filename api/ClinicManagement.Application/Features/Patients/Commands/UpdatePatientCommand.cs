@@ -196,13 +196,12 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 return Result<PatientDto>.Failure("Patient introuvable.");
             }
 
-            // AC-5: a provided phone must be a deliverable Tunisian number (same rule as the reminder engine).
-            // A legacy patient whose stored number is non-conforming surfaces this error the next time it is
-            // edited (the form re-submits the stored value) — the intended tightening, not a retro-invalidation.
+            // A provided phone must be one we can reach — any country now, not just Tunisia. The rule only ever
+            // widened, so no patient who could be saved before can be refused now: a legacy row that survived
+            // the Tunisian-only rule necessarily satisfies this one.
             if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
             {
-                return Result<PatientDto>.Failure(
-                    "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
+                return Result<PatientDto>.Failure(PhoneRefusals.Invalid);
             }
 
             // Update personal info if any fields are provided. Contact is deliberately NOT in this condition

@@ -55,6 +55,31 @@ public class DentalRecordRepository : IDentalRecordRepository
         return rows.Select(r => (r.AppointmentId, r.DentalRecordId, r.Cost)).ToList();
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(Guid DentalRecordId, int ToothNumber)>> GetTreatedTeethAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> dentalRecordIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (dentalRecordIds.Count == 0)
+        {
+            return Array.Empty<(Guid, int)>();
+        }
+
+        var ids = dentalRecordIds as ICollection<Guid> ?? dentalRecordIds.ToList();
+
+        // ⚠️ `ClinicId` is compared explicitly: `DentalRecord` is one of the seven clinical tables with no global
+        // query filter, so the per-read check is the ONLY tenant guard here — a record id from another practice
+        // would otherwise return its teeth.
+        var rows = await _context.DentalRecords
+            .Where(r => r.ClinicId == clinicId && ids.Contains(r.Id))
+            .SelectMany(r => r.Teeth.Select(t => new { DentalRecordId = r.Id, t.ToothNumber }))
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => (r.DentalRecordId, r.ToothNumber)).ToList();
+    }
+
     public async Task<DentalRecord> AddAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default)
     {
         await _context.DentalRecords.AddAsync(dentalRecord, cancellationToken);

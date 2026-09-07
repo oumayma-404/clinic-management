@@ -82,6 +82,25 @@ public class TreatmentPlanItemDto
     public string DesignationFr { get; set; } = string.Empty;
     public List<int> ToothNumbers { get; set; } = new();
     public decimal PlannedCost { get; set; }
+
+    /// <summary>
+    /// The teeth this act has actually been carried out on, unioned over the fiches its séances produced —
+    /// <b>derived, never stored</b>, and distinct from <c>ToothNumbers</c>, which is what the devis LINE says.
+    ///
+    /// <para>
+    /// ⚠️ <b>It exists because a devis line is very often an « acte général » with no teeth at all.</b> The
+    /// fiche's chart selection is prefilled from the line, so a dentist who marked tooth 38 on séance 1 was
+    /// offered a blank chart on séance 2 — and an implant's three fiches recorded the teeth once between them,
+    /// on whichever séance the dentist happened to fill them in.
+    /// </para>
+    /// <para>
+    /// ⚠️ It became <b>load-bearing rather than convenient</b> the moment the odontogram stopped being charted
+    /// from the first séance (<c>ToothChartingRules</c>): the chart is written when the act finishes, so teeth
+    /// entered early and absent from the last fiche would chart nothing at all.
+    /// </para>
+    /// </summary>
+    public List<int> TreatedToothNumbers { get; set; } = new();
+
     public string Status { get; set; } = string.Empty;
     public DateTime? DoneDate { get; set; }
     public Guid? LinkedDentalRecordId { get; set; }
@@ -183,6 +202,27 @@ public class InstallmentDto
 
     public decimal Outstanding { get; set; }
     public bool IsPaid { get; set; }
+
+    /// <summary>
+    /// Whether this échéance is genuinely late — <b>computed server-side by
+    /// <c>InstallmentLateness.IsLate</c></b> and never re-derived on the client.
+    ///
+    /// <para>
+    /// ⚠️ <b>It has to be served, because the client cannot answer it.</b> The rule needs the plan's status,
+    /// whether a note d'honoraires already represents it, whether any act is still unrealised, the clinic's own
+    /// calendar day, and whether the row's date was ever agreed — and the two surfaces that used to answer it
+    /// locally (the échéancier table and its card form) each wrote <c>isBeforeToday(dueDate)</c>, which is a
+    /// different, simpler question with a different answer on <b>25 of 27</b> unpaid rows in the dev database.
+    /// </para>
+    /// </summary>
+    public bool IsOverdue { get; set; }
+
+    /// <summary>
+    /// True when nobody agreed this date — see <c>Installment.IsAutoRaised</c>. Served so the échéancier can
+    /// say « échéance non convenue » instead of printing a date the patient never saw as though it were a
+    /// commitment, and so « Modifier l'échéancier » can be offered as the way to make it one.
+    /// </summary>
+    public bool IsAutoRaised { get; set; }
 
     /// <summary>Derived: the most recent LIVE payment's method/date.</summary>
     public string? LastMethod { get; set; }

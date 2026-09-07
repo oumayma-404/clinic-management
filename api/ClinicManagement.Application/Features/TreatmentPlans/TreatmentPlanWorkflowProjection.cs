@@ -69,9 +69,61 @@ public static class TreatmentPlanWorkflowProjection
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         DateTime asOfUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        // Optional: the read paths supply it, the amend response does not — the frontend reloads after every
+        // mutation, so a command response leaving `TreatedToothNumbers` empty costs nothing.
+        IDentalRecordRepository? dentalRecordRepository = null)
     {
         var itemIds = plans.SelectMany(p => p.Items).Select(i => i.Id).ToList();
+
+        /*
+         * The teeth each act has actually been carried out on, gathered from the fiches its séances produced.
+         *
+         * ⚠️ **Both link columns, and the step one is the important half**: a stepped act takes its own
+         * `LinkedDentalRecordId` only when its LAST step lands, so an act three séances into six is recorded on
+         * the steps alone and reading the act's link would find nothing — which is exactly the case this exists
+         * for. One batched read over the whole page, never one per act (§ 9.7).
+         */
+        var treatedTeeth = new Dictionary<Guid, IReadOnlyList<int>>();
+        if (dentalRecordRepository is not null)
+        {
+            var recordIdsByItem = plans
+                .SelectMany(p => p.Items)
+                .Select(i => (
+                    ItemId: i.Id,
+                    RecordIds: i.Steps
+                        .Select(st => st.LinkedDentalRecordId)
+                        .Append(i.LinkedDentalRecordId)
+                        .Where(id => id.HasValue)
+                        .Select(id => id!.Value)
+                        .Distinct()
+                        .ToList()))
+                .Where(x => x.RecordIds.Count > 0)
+                .ToList();
+
+            var allRecordIds = recordIdsByItem.SelectMany(x => x.RecordIds).Distinct().ToList();
+            if (allRecordIds.Count > 0)
+            {
+                var rows = await dentalRecordRepository.GetTreatedTeethAsync(
+                    clinicId, allRecordIds, cancellationToken);
+                var teethByRecord = rows
+                    .GroupBy(r => r.DentalRecordId)
+                    .ToDictionary(g => g.Key, g => g.Select(r => r.ToothNumber).ToList());
+
+                foreach (var (itemId, recordIds) in recordIdsByItem)
+                {
+                    var teeth = recordIds
+                        .SelectMany(id => teethByRecord.TryGetValue(id, out var t) ? t : Enumerable.Empty<int>())
+                        .Distinct()
+                        .OrderBy(t => t)
+                        .ToList();
+                    if (teeth.Count > 0)
+                    {
+                        treatedTeeth[itemId] = teeth;
+                    }
+                }
+            }
+        }
 
         var appointments = await appointmentRepository.GetByTreatmentPlanItemIdsAsync(
             clinicId, itemIds, cancellationToken);
@@ -132,7 +184,7 @@ public static class TreatmentPlanWorkflowProjection
                 .Min());
 
         return new TreatmentPlanWorkflow(
-            scheduledByItemId, invoiceByPlanId, nextAppointmentAtByPlanId, scheduledByStepId);
+            scheduledByItemId, invoiceByPlanId, nextAppointmentAtByPlanId, scheduledByStepId, treatedTeeth);
     }
 
     /// <summary>
@@ -163,11 +215,17 @@ public sealed record TreatmentPlanWorkflow(
         decimal TotalTtc,
         decimal Outstanding)> InvoiceByPlanId,
     IReadOnlyDictionary<Guid, DateTime?> NextAppointmentAtByPlanId,
-    IReadOnlyDictionary<Guid, Appointment> ScheduledByStepId)
+    IReadOnlyDictionary<Guid, Appointment> ScheduledByStepId,
+    /// <summary>
+    /// The teeth already treated on each devis act, unioned over the fiches its séances produced — see
+    /// <c>TreatmentPlanItemDto.TreatedToothNumbers</c>. Empty when the caller supplied no record repository.
+    /// </summary>
+    IReadOnlyDictionary<Guid, IReadOnlyList<int>> TreatedTeethByItemId)
 {
     public static TreatmentPlanWorkflow Empty { get; } = new(
         new Dictionary<Guid, Appointment>(),
         new Dictionary<Guid, (Guid, Guid, string?, InvoiceStatus, decimal, decimal)>(),
         new Dictionary<Guid, DateTime?>(),
-        new Dictionary<Guid, Appointment>());
+        new Dictionary<Guid, Appointment>(),
+        new Dictionary<Guid, IReadOnlyList<int>>());
 }

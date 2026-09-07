@@ -44,6 +44,8 @@ public class DashboardAlertsReaderTests
                 It.IsAny<Guid>(), It.IsAny<TreatmentPlanStatus>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
                 It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
+        _plans.Setup(r => r.CountUnansweredDraftsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
         _patients.Setup(r => r.GetRecallCandidatesAsync(
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
                 It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>()))
@@ -68,8 +70,7 @@ public class DashboardAlertsReaderTests
     {
         WireDefaults();
         _waitingList.Setup(r => r.CountWaitingAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(2);
-        _plans.Setup(r => r.CountByStatusAsync(
-                ClinicId, TreatmentPlanStatus.Draft, null, null, false, It.IsAny<CancellationToken>()))
+        _plans.Setup(r => r.CountUnansweredDraftsAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(5);
         _labOrders.Setup(r => r.CountOverdueAsync(ClinicId, FixedNow, It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _stock.Setup(r => r.CountLowStockAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(3);
@@ -87,17 +88,34 @@ public class DashboardAlertsReaderTests
         Assert.True(alerts.ExpiryAlertEnabled);
     }
 
-    // [AC-9] « Devis en attente de réponse » means Draft — a devis presented with no answer yet — and carries no date
-    // bound: a quote from three months ago with no reply is exactly the one worth chasing.
+    /// <summary>
+    /// [AC-9] « Devis en attente de réponse » is a quote the patient has not answered — and that is
+    /// <b>narrower than <c>Status == Draft</c></b>, which is what this test used to pin.
+    ///
+    /// <para>
+    /// ⚠️ Since « Suivre ce traitement » an un-numbered plan is usually a treatment being carried out right now,
+    /// so counting the status alone put this week's séances under « en attente de réponse » and invited the
+    /// practice to chase patients with nothing to answer — a Draft has never been handed a devis, <c>Accept</c>
+    /// being the only writer of <c>Number</c>. The rule now lives in <c>CountUnansweredDraftsAsync</c>, whose
+    /// SQL also excludes any plan with work recorded on it.
+    /// </para>
+    /// <para>
+    /// Still no date bound: a quote from three months ago with no reply is exactly the one worth chasing.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task Devis_Awaiting_An_Answer_Counts_Drafts_With_No_Date_Bound()
+    public async Task Devis_Awaiting_An_Answer_Excludes_Treatments_Already_Under_Way()
     {
         WireDefaults();
 
         await Reader().ReadAsync(ClinicId, FixedNow, CancellationToken.None);
 
+        _plans.Verify(
+            r => r.CountUnansweredDraftsAsync(ClinicId, It.IsAny<CancellationToken>()), Times.Once);
+        // The status-only count must not be what feeds this figure any more — a followed treatment wears Draft.
         _plans.Verify(r => r.CountByStatusAsync(
-            ClinicId, TreatmentPlanStatus.Draft, null, null, false, It.IsAny<CancellationToken>()), Times.Once);
+            ClinicId, TreatmentPlanStatus.Draft, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
+            It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
         _plans.Verify(r => r.CountByStatusAsync(
             ClinicId, TreatmentPlanStatus.Accepted, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
             It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);

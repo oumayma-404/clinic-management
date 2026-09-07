@@ -123,6 +123,19 @@ export interface PlanItemPrefill {
   designationFr?: string
   plannedCost?: number
   toothNumbers?: number[]
+  /**
+   * True when the devis carries this act's fee — so the fiche prices it at **0** and locks the tarif, exactly as
+   * a séance booked from the agenda already does.
+   *
+   * <p>⚠️ <b>Without it, linking a devis step by hand produced a fiche the server refuses.</b> `applyAppointment`
+   * sets the flag from the appointment's own row, but a fiche opened from « Ajouter un acte dentaire » has no
+   * appointment — so the act arrived at the devis' full price, unmarked, and `PlanCarriedActPricing` then imposed
+   * 0 server-side. The button read « Créer la fiche — 500,000 DT » and the save came back
+   * « Le montant payé (500,000 DT) dépasse le total de la séance (0,000 DT). … ajoutez l'acte qui manque » —
+   * advice nobody can act on, since nothing is missing. « Encaissé sur le traitement », the field that actually
+   * collects, was not offered at all, because it keys on this flag.</p>
+   */
+  billedOnPlan?: boolean
 }
 
 /**
@@ -538,10 +551,23 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const item = action.item
       const teeth = item.toothNumbers && item.toothNumbers.length > 0 ? sorted(item.toothNumbers) : first.toothNumbers
       const named = item.designationFr?.trim()
+      /*
+       * ⚠️ **A carried act is 0 on the fiche, and the price is NOT prefilled.** The devis prices the act once;
+       * `PlanCarriedActPricing` imposes that 0 server-side whatever this sends, so putting `plannedCost` in the
+       * fee field showed the dentist a total the save would refuse — « Créer la fiche — 500,000 DT » answered by
+       * « le montant payé dépasse le total de la séance (0,000 DT) ». `billedOnPlan` is what makes the card read
+       * « Chiffré sur le traitement » and what opens « Encaissé sur le traitement », the field that does collect.
+       */
+      const carried = item.billedOnPlan === true
       const next: SessionAct = {
         ...first,
         procedureName: named || first.procedureName,
-        unitCost: item.plannedCost != null && item.plannedCost > 0 ? formatAmount(item.plannedCost) : first.unitCost,
+        unitCost: carried
+          ? "0"
+          : item.plannedCost != null && item.plannedCost > 0
+            ? formatAmount(item.plannedCost)
+            : first.unitCost,
+        billedOnPlan: carried || first.billedOnPlan,
         // A step that names the act closes the catalogue; one that only carries teeth leaves it open.
         picking: named ? false : first.picking,
       }

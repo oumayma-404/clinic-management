@@ -40,6 +40,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
     private readonly IPatientRepository _patientRepository;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetTreatmentPlansQueryHandler> _logger;
 
@@ -48,6 +49,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
         IPatientRepository patientRepository,
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
+        IDentalRecordRepository dentalRecordRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetTreatmentPlansQueryHandler> logger)
     {
@@ -55,6 +57,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
         _patientRepository = patientRepository;
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
+        _dentalRecordRepository = dentalRecordRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -107,7 +110,9 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
             // Derived scheduling + devis→facture read-back for the whole page: two batched queries total,
             // never one per plan or per patient.
             var workflow = await TreatmentPlanWorkflowProjection.BuildAsync(
-                plans, clinicId, _appointmentRepository, _invoiceRepository, DateTime.UtcNow, cancellationToken);
+                plans, clinicId, _appointmentRepository, _invoiceRepository, DateTime.UtcNow, cancellationToken,
+                // The record repository fills `TreatedToothNumbers` — the teeth the act's earlier séances marked.
+                _dentalRecordRepository);
 
             var dtos = page.Map(p => p.ToDto(names.TryGetValue(p.PatientId, out var name) ? name : null, workflow));
 

@@ -94,11 +94,33 @@ public class DentalRecordDto
     /// </summary>
     public decimal? CollectedOnTreatment { get; set; }
 
-    /// <summary>The treatment that money went to, so the row can name it. Null when the fiche collected none.</summary>
+    /// <summary>The treatment this séance belongs to, so the row can name it. Null when it belongs to none.</summary>
     public Guid? TreatmentPlanId { get; set; }
 
     /// <inheritdoc cref="TreatmentPlanId"/>
     public string? TreatmentPlanNumber { get; set; }
+
+    /// <summary>
+    /// What this séance actually WAS — the devis act it carries out and, when the act is cut into séances, the
+    /// step it carried out with its rank (« Pose de l'implant », 3 of 6).
+    ///
+    /// <para>
+    /// ⚠️ <b>Without it a patient's history printed the ACT once per séance.</b> Three fiches of one implant read
+    /// « Implant dentaire · Implant dentaire · Implant dentaire », which says the patient had three implants; the
+    /// step that distinguishes them, and the treatment that binds them, were both on record and never read back.
+    /// Derived from <c>TreatmentPlanItemStep</c>, never stored on the fiche.
+    /// </para>
+    /// </summary>
+    public string? TreatmentActDesignation { get; set; }
+
+    /// <inheritdoc cref="TreatmentActDesignation"/>
+    public string? TreatmentStepLabel { get; set; }
+
+    /// <inheritdoc cref="TreatmentActDesignation"/>
+    public int? TreatmentStepNumber { get; set; }
+
+    /// <inheritdoc cref="TreatmentActDesignation"/>
+    public int? TreatmentStepTotal { get; set; }
 }
 
 /// <summary>

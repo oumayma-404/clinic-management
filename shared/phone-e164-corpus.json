@@ -1,0 +1,61 @@
+{
+  "$comment": [
+    "The phone-number rule, as data, so both implementations can be driven from ONE file.",
+    "",
+    "The rule lives twice — `api/ClinicManagement.Domain/ValueObjects/PhoneNumber.cs` for the server and",
+    "`web/lib/phone.ts` for the browser's pre-check — and until this file existed the only thing holding the two",
+    "together was a comment in each saying the other was a mirror. That is the state",
+    "`OdontogramConditionMirrorTests` calls « a mirror nobody checks is a mirror that is already wrong ».",
+    "",
+    "Why a corpus rather than a set-equality guard like this repo's others: both sides are PURE TOTAL FUNCTIONS",
+    "OF A STRING, which no other mirrored rule here is. So the two can be driven from the same inputs and pinned",
+    "to the same outputs, which is stronger than comparing two declarations and is available nowhere else.",
+    "",
+    "Read by `PhoneRuleCorpusTests` (C#) and by check:responsive's `phone-rule-matches-the-corpus` (node).",
+    "Both fail on a parsed count of zero, so « found nothing » cannot read as « nothing was wrong ».",
+    "",
+    "`region` is the country assumed when the number carries no country code; absent means defaultRegion.",
+    "`expected` null means the number must be refused."
+  ],
+
+  "defaultRegion": "TN",
+
+  "cases": [
+    { "raw": "20123456",          "expected": "+21620123456",  "why": "bare 8-digit national — the overwhelmingly common case" },
+    { "raw": "20 111 222",        "expected": "+21620111222",  "why": "spaced, as a real row on the dev database holds it" },
+    { "raw": "+216 20 123 456",   "expected": "+21620123456",  "why": "already +216, spaced" },
+    { "raw": "+21620123456",      "expected": "+21620123456",  "why": "already E.164" },
+    { "raw": "0021620123456",     "expected": "+21620123456",  "why": "00 IDD prefix" },
+    { "raw": "216-20-123-456",    "expected": "+21620123456",  "why": "country code with no +, dashed" },
+    { "raw": "71 234 567",        "expected": "+21671234567",  "why": "a landline, not a mobile" },
+
+    { "raw": "+33 6 12 34 56 78", "expected": "+33612345678",  "why": "AC-2 — the reported bug: a French mobile" },
+    { "raw": "0033612345678",     "expected": "+33612345678",  "why": "AC-2 — the same number via the IDD prefix" },
+    { "raw": "+1 650 253 0000",   "expected": "+16502530000",  "why": "AC-2 — a NANP number, where the country code is one digit" },
+    { "raw": "+44 20 7031 3000",  "expected": "+442070313000", "why": "AC-2 — a UK landline" },
+    { "raw": "+49 30 901820",     "expected": "+4930901820",   "why": "AC-2 — a German number shorter than a Tunisian one" },
+    { "raw": "+213 551 234 567",  "expected": "+213551234567", "why": "AC-2 — Algeria, the likeliest foreign number a Tunisian cabinet sees" },
+    { "raw": "+218 91 234 5678",  "expected": "+218912345678", "why": "AC-2 — Libya, the second likeliest" },
+    { "raw": "+212 661 234 567",  "expected": "+212661234567", "why": "AC-2 — Morocco" },
+    { "raw": "+971 50 123 4567",  "expected": "+971501234567", "why": "AC-2 — a Gulf number, for a patient working abroad" },
+
+    { "raw": "06 12 34 56 78", "region": "FR", "expected": "+33612345678",  "why": "AC-7/EC-4 — a national form the SELECTOR resolves; this is what the country picker is for" },
+    { "raw": "0612345678",     "region": "FR", "expected": "+33612345678",  "why": "the same, unspaced" },
+    { "raw": "551234567",      "region": "DZ", "expected": "+213551234567", "why": "an Algerian national form via the selector" },
+    { "raw": "650 253 0000",   "region": "US", "expected": "+16502530000",  "why": "a US national form via the selector" },
+    { "raw": "+21620123456",   "region": "FR", "expected": "+21620123456",  "why": "an explicit + OUTRANKS the selected country — the number says what it is" },
+
+    { "raw": "20123456",  "region": "FR", "expected": null, "why": "EC-4 — 8 Tunisian digits are not a French number; the selector is the authority, not the fallback" },
+    { "raw": "201234567",                 "expected": null, "why": "AC-3 — a Tunisian number with a NINTH digit. The rule this replaced could only count digits, so it had to accept this as a valid Egyptian number. Refusing it is the whole reason for a real metadata library" },
+    { "raw": "0612345678",                "expected": null, "why": "a French national form with no country said and no country picked — unresolvable, and the refusal must say to pick one" },
+    { "raw": "12",                        "expected": null, "why": "too short — pinned by PatientContactOptionalTests today" },
+    { "raw": "123",                       "expected": null, "why": "too short" },
+    { "raw": "2012345678901",             "expected": null, "why": "too long for any country" },
+    { "raw": "no-digits-here",            "expected": null, "why": "no digits at all" },
+    { "raw": "71 555 (bureau)",           "expected": null, "why": "EC-2 — the real emergency-contact value PatientImportRowReader's comment names. Refused as a patient's own number, STORED AS TYPED as an emergency contact" },
+    { "raw": "+999 123",                  "expected": null, "why": "a country calling code that does not exist" },
+    { "raw": "abc",                       "expected": null, "why": "letters only" },
+    { "raw": "",                          "expected": null, "why": "empty" },
+    { "raw": "   ",                       "expected": null, "why": "whitespace only" }
+  ]
+}

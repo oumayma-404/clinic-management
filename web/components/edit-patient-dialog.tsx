@@ -45,7 +45,9 @@ import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, ReminderConsent } from "@/lib/api/types"
 import { ApiError, ApiErrorCode } from "@/lib/api/client"
-import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
+import { isDeliverablePhone, PHONE_ERROR_FR, DEFAULT_REGION, regionOf } from "@/lib/phone"
+import type { CountryCode } from "libphonenumber-js/max"
+import { PhoneField } from "@/components/ui/phone-field"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes } from "@/lib/format"
 import { CNAM_DENTAL_ALLOWANCE, CNAM_PLAFOND_SUPPLEMENTS, cnamBaseCeiling, cnamDefaultCeiling } from "@/lib/cnam"
 import { SELECTABLE_GENDERS, genderLabel } from "@/components/appointment-labels"
@@ -172,6 +174,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [dentition, setDentition] = useState<Dentition | null>(null)
   const [dentitionTouched, setDentitionTouched] = useState(false)
   const [phone, setPhone] = useState("")
+  // The country each number is read against. Its own state, not derived per render: picking a country must
+  // survive the next keystroke (see `PhoneField`). Seeded from the stored value on hydration below.
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
   const [email, setEmail] = useState("")
   const [addressStreet, setAddressStreet] = useState("")
   const [addressGovernorate, setAddressGovernorate] = useState("")
@@ -179,6 +184,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [addressPostalCode, setAddressPostalCode] = useState("")
   const [emergencyName, setEmergencyName] = useState("")
   const [emergencyPhone, setEmergencyPhone] = useState("")
+  const [emergencyPhoneCountry, setEmergencyPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
   // « Adressé par » — the referring practitioner. Optional, free text (usually a doctor outside this clinic).
   const [referredBy, setReferredBy] = useState("")
   const [reminderConsent, setReminderConsent] = useState<ReminderConsent>("NotRecorded")
@@ -364,6 +370,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       setDentition((patient.dentition as Dentition) || null)
       setDentitionTouched(true)
       setPhone(patient.phoneNumber || "")
+      // A stored number re-opens its own country, so the control never contradicts the field beside it. Falls
+      // back to the default rather than to nothing: an unparseable legacy value has no country to show.
+      setPhoneCountry(regionOf(patient.phoneNumber) ?? DEFAULT_REGION)
       setEmail(patient.email || "")
       
       // Set address fields from address object
@@ -382,6 +391,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       // Emergency contact (finding #11)
       setEmergencyName(patient.emergencyContactName || "")
       setEmergencyPhone(patient.emergencyContactPhone || "")
+      setEmergencyPhoneCountry(regionOf(patient.emergencyContactPhone) ?? DEFAULT_REGION)
 
       // « Adressé par »
       setReferredBy(patient.referredBy || "")
@@ -441,6 +451,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setDentition(null)
         setDentitionTouched(false)
         setPhone("")
+        setPhoneCountry(DEFAULT_REGION)
         setEmail("")
         setAddressStreet("")
         setAddressGovernorate("")
@@ -448,6 +459,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setAddressPostalCode("")
         setEmergencyName("")
         setEmergencyPhone("")
+        setEmergencyPhoneCountry(DEFAULT_REGION)
         setReferredBy("")
         setPatientNotes("")
         setPatientImportantNotes("")
@@ -703,7 +715,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     // is routinely registered with a name alone. Requiring it here refused that record outright and pushed
     // reception into typing a fake number — the sentinel problem (`0000000000`) the backend deliberately retired.
     // The consequence is stated instead, under the field. A number that IS given must still be deliverable.
-    if (phone.trim() && !isDeliverablePhone(phone.trim())) {
+    // Any country now, resolved against whatever the country control says. The emergency contact below is
+    // deliberately NOT validated — nothing dispatches to it and « 71 555 (bureau) » is a real value a relative
+    // gives, so refusing it would cost the record to protect a field nobody sends to.
+    if (phone.trim() && !isDeliverablePhone(phone.trim(), phoneCountry)) {
       newErrors.phone = PHONE_ERROR_FR
     }
 
@@ -1216,14 +1231,26 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   <Label htmlFor="phone">
                     Numéro de téléphone <span className="text-muted-foreground text-xs">(recommandé)</span>
                   </Label>
-                  <Input
+                  <PhoneField
                     id="phone"
-                    type="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    autoComplete="tel"
-                    aria-invalid={!!errors.phone}
-                    className={cn(errors.phone && "border-destructive")}
+                    onChange={(next) => {
+                      setPhone(next)
+                      // ⚠️ The error MUST clear on change. Only `birthdate`/`approximateAge` were cleared
+                      // imperatively, so a corrected number kept its red border and its message until the next
+                      // submit — tolerable beside a plain input, and with a country control next to it it reads
+                      // as a broken control the user is fighting.
+                      if (errors.phone) {
+                        setErrors((prev) => {
+                          const rest = { ...prev }
+                          delete rest.phone
+                          return rest
+                        })
+                      }
+                    }}
+                    country={phoneCountry}
+                    onCountryChange={setPhoneCountry}
+                    invalid={!!errors.phone}
                   />
                   {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
                   {/* Optional does not mean consequence-free. Saying it here beats a neutral blank the user
@@ -1558,15 +1585,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   <Label htmlFor="emergencyPhone">
                     Téléphone d'urgence <span className="text-muted-foreground text-xs">(facultatif)</span>
                   </Label>
-                  {/* `type="tel"` — the patient's own number has always had it; this one did not, so the
-                      emergency contact was the single field in the form that opened the alphabet keyboard for a
-                      value that is entirely digits. No `autoComplete`: this is somebody else's number. */}
-                  <Input
+                  {/* ⚠️ A country control here is an AID, never a gate (AC-14): this field accepts whatever is
+                      typed, including « 71 555 (bureau) ». Nothing dispatches to it — a human reads it in an
+                      emergency — and refusing it would lose the patient's record to protect a field nobody
+                      sends to, reversing the import's own documented decision.
+                      `PhoneField` supplies `type="tel"`, which this input lacked: it was the one field in the
+                      form opening the alphabet keyboard for a value that is entirely digits. */}
+                  <PhoneField
                     id="emergencyPhone"
-                    type="tel"
                     value={emergencyPhone}
-                    onChange={(e) => setEmergencyPhone(e.target.value)}
-                    placeholder="+216 …"
+                    onChange={setEmergencyPhone}
+                    country={emergencyPhoneCountry}
+                    onCountryChange={setEmergencyPhoneCountry}
+                    autoComplete="off"
                   />
                 </div>
               </div>

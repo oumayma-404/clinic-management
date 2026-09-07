@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Enums;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
@@ -46,6 +47,19 @@ public class DeleteTreatmentPlanCommandHandler : IRequestHandler<DeleteTreatment
             if (plan == null || plan.ClinicId != clinicResult.Value)
             {
                 return Result.Failure("Plan de traitement introuvable.");
+            }
+
+            /*
+             * ⚠️ Two refusals, because they name two different next steps and one sentence for both sent the
+             * dentist to the wrong screen. « Un plan accepté … doit être annulé » is right for a numbered devis
+             * and wrong for a followed treatment with séances on it — that one is not annulé (a Draft has no
+             * number to void) but *arrêté*, which keeps the work that was done. See `TreatmentPlan.CanBeDeleted`.
+             */
+            if (plan.Status == TreatmentPlanStatus.Draft && !plan.CanBeDeleted)
+            {
+                return Result.Failure(
+                    "Des séances ont déjà été réalisées sur ce traitement : il ne peut plus être supprimé. "
+                    + "Utilisez « Arrêter le traitement » pour le clôturer en conservant ce qui a été fait.");
             }
 
             if (!plan.CanBeDeleted)

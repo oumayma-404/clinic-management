@@ -198,7 +198,13 @@ function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber
 function CollectedOnTreatment({ amount, planNumber }: { amount: number; planNumber?: string | null }) {
   return (
     <span className="inline-flex flex-wrap items-baseline gap-1.5">
-      <span>{formatDT(amount)}</span>
+      {/* ⚠️ A séance that collected nothing prints « — », not « 0,000 DT ». Zero here is the ORDINARY case on a
+          multi-séance act (the patient pays on some visits and not others) and « 0,000 DT » beside a patient
+          owing 1 500 on the devis reads as « rien encaissé, rien dû » — the same misreading the « Reste »
+          column already avoids. The badge still says where the money lives. */}
+      <span className={amount > 0 ? undefined : "text-muted-foreground"}>
+        {amount > 0 ? formatDT(amount) : "—"}
+      </span>
       <Badge variant="outline" className="text-2xs font-normal">
         {planNumber ? `traitement ${planNumber}` : "sur le traitement"}
       </Badge>
@@ -1057,7 +1063,20 @@ export default function PatientDetailsPage() {
         label: `${p.number ?? p.title} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
         designationFr: it.designationFr,
         plannedCost: it.plannedCost,
-        toothNumbers: it.toothNumbers,
+        /*
+         * ⚠️ **The teeth already treated win over the devis LINE's, and the line is very often empty.** A row
+         * reading « Implant dentaire — acte général » carries no teeth at all, so séance 2 opened on a blank
+         * chart and the dentist re-picked — or, as measured on a real implant, did not: its three fiches
+         * recorded the teeth once between them, on whichever séance they happened to fill in.
+         *
+         * It stopped being a convenience when the odontogram stopped being charted from the FIRST séance
+         * (`ToothChartingRules`): the chart is written when the act finishes, so teeth entered early and absent
+         * from the last fiche would now chart nothing at all.
+         */
+        toothNumbers:
+          it.treatedToothNumbers && it.treatedToothNumbers.length > 0
+            ? it.treatedToothNumbers
+            : it.toothNumbers,
         // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
         // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
         planNumber: p.number,
@@ -1639,8 +1658,15 @@ export default function PatientDetailsPage() {
                       subtitle={(record) => formatDate(record.interventionDate)}
                       fields={(record) => {
                         const invoiced = invoicedDentalRecordIds.has(record.id)
-                        // Money that went onto the treatment instead of onto a note — see `CollectedOnTreatment`.
-                        const onTreatment = !invoiced && (record.collectedOnTreatment ?? 0) > 0
+                        /*
+                         * A séance OF a treatment — see `CollectedOnTreatment`.
+                         *
+                         * ⚠️ Keyed on the LINK, not on money having moved. Branching on
+                         * `collectedOnTreatment > 0` left a séance that collected nothing reading « 0,000 DT ·
+                         * 0,000 DT », indistinguishable from an ordinary free visit while the treatment showed
+                         * 1 500 DT outstanding — and on a six-visit implant most séances collect nothing.
+                         */
+                        const onTreatment = !invoiced && record.treatmentPlanId != null
                         const reste = Math.max(0, record.balance ?? record.cost - record.amountPaid)
                         // ⚠️ Tested here, not by letting the component return null: `CardList` drops a field on an
                         // empty *value*, and a React element is never empty — the row would keep an « NOTES »
@@ -1764,9 +1790,10 @@ export default function PatientDetailsPage() {
                                   amount={record.amountPaid}
                                   invoiceNumber={invoicingNumberByRecordId.get(record.id)}
                                 />
-                              ) : (record.collectedOnTreatment ?? 0) > 0 ? (
+                              ) : record.treatmentPlanId != null ? (
+                                // The link, not the amount — see the card list above.
                                 <CollectedOnTreatment
-                                  amount={record.collectedOnTreatment!}
+                                  amount={record.collectedOnTreatment ?? 0}
                                   planNumber={record.treatmentPlanNumber}
                                 />
                               ) : (
@@ -1780,7 +1807,7 @@ export default function PatientDetailsPage() {
                               {(() => {
                                 // A séance of a treatment has no reste of its own — see the card list above.
                                 if (!invoicedDentalRecordIds.has(record.id)
-                                    && (record.collectedOnTreatment ?? 0) > 0) {
+                                    && record.treatmentPlanId != null) {
                                   return <span className="text-muted-foreground">—</span>
                                 }
                                 const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))

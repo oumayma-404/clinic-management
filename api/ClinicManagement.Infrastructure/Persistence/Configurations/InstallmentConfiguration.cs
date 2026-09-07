@@ -25,6 +25,12 @@ public class InstallmentConfiguration : IEntityTypeConfiguration<Installment>
 
         builder.Property(i => i.AmountPaid);
 
+        // ⚠️ Default FALSE, matching the aggregate: an unmarked row is one a human typed. The migration
+        // backfills the existing lump-sum rows to true — see `MarkAutoRaisedLumpSumInstallments`.
+        builder.Property(i => i.IsAutoRaised)
+            .IsRequired()
+            .HasDefaultValue(false);
+
         builder.Property(i => i.LastMethod)
             .HasConversion<int>();
 

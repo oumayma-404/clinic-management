@@ -67,7 +67,15 @@ public static class DentalRecordLinker
     /// appointment — a fiche recorded with no visit behind it — behaves exactly as before.
     /// </para>
     /// </summary>
-    public static async Task<Result> LinkPlanItemAsync(
+    /// <summary>
+    /// What the link did to the devis act — <b>and whether that act is now finished</b>, which is what decides
+    /// if its end state may be charted on the odontogram (see <see cref="ToothChartingRules"/>). Read off the
+    /// aggregate after the step has been marked, never derived from the step's rank: one séance can close two
+    /// steps, a protocol can be re-cut mid-treatment, and an act booked whole finishes on its first fiche.
+    /// </summary>
+    public sealed record PlanActLink(TreatmentPlanItem Item, bool ItemIsComplete);
+
+    public static async Task<Result<PlanActLink>> LinkPlanItemAsync(
         ITreatmentPlanRepository treatmentPlanRepository,
         IAppointmentRepository appointmentRepository,
         Guid? treatmentPlanId,
@@ -82,18 +90,18 @@ public static class DentalRecordLinker
     {
         if (!treatmentPlanId.HasValue)
         {
-            return Result.Failure("Le plan de traitement est requis pour lier l'acte.");
+            return Result<PlanActLink>.Failure("Le plan de traitement est requis pour lier l'acte.");
         }
 
         var plan = await treatmentPlanRepository.GetByIdAsync(treatmentPlanId.Value, cancellationToken);
         if (plan == null || plan.ClinicId != clinicId || plan.PatientId != patientId)
         {
-            return Result.Failure("Plan de traitement introuvable.");
+            return Result<PlanActLink>.Failure("Plan de traitement introuvable.");
         }
 
         if (plan.Items.All(i => i.Id != treatmentPlanItemId))
         {
-            return Result.Failure("Acte du plan introuvable.");
+            return Result<PlanActLink>.Failure("Acte du plan introuvable.");
         }
 
         var stepIds = await ResolveStepsOfTheSeanceAsync(
@@ -120,7 +128,7 @@ public static class DentalRecordLinker
                 // AppointmentPlanLink.ValidateManyAsync.
                 if (stepIds.Any(stepId => item.Steps.All(s => s.Id != stepId)))
                 {
-                    return Result.Failure("Étape du devis introuvable.");
+                    return Result<PlanActLink>.Failure("Étape du devis introuvable.");
                 }
 
                 /*
@@ -156,7 +164,9 @@ public static class DentalRecordLinker
         }
 
         await treatmentPlanRepository.UpdateAsync(plan, cancellationToken);
-        return Result.Success();
+        // `Status` is recomputed from the steps by the aggregate, so this is the act's real state after the save.
+        return Result<PlanActLink>.Success(
+            new PlanActLink(item, item.Status == TreatmentPlanItemStatus.Done));
     }
 
     /// <summary>

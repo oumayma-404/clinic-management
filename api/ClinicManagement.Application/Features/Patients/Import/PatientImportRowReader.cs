@@ -142,9 +142,10 @@ public static class PatientImportRowReader
             if (phone == null)
             {
                 // The same refusal `CreatePatientCommand` gives, reached at the row rather than at the request, so
-                // one bad number in 3 000 does not refuse the file.
-                errors.Add(
-                    $"Numéro de téléphone invalide : « {rawPhone} ». Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
+                // one bad number in 3 000 does not refuse the file. ⚠️ This sentence is the ONLY place a user ever
+                // learns the expected format — a rejected row has no in-app edit affordance, so the operator has
+                // to fix the CSV and re-import, and the sentence is the whole fix instruction.
+                errors.Add(PhoneRefusals.InvalidRow(rawPhone));
             }
         }
 
@@ -226,7 +227,7 @@ public static class PatientImportRowReader
                 // is read by a human in an emergency — and refusing a whole patient record because a relative's
                 // number is written « 71 555 (bureau) » would lose the record to protect a field nobody sends to.
                 emergencyPhone = rawEmergencyPhone;
-                warnings.Add($"Téléphone d'urgence non reconnu : « {rawEmergencyPhone} ». Importé tel quel.");
+                warnings.Add(PhoneRefusals.EmergencyRowNotRecognised(rawEmergencyPhone));
             }
         }
 

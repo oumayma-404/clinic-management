@@ -1664,6 +1664,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("DueDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsAutoRaised")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int?>("LastMethod")
                         .HasColumnType("integer");
 

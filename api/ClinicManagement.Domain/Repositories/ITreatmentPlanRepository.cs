@@ -35,6 +35,41 @@ public sealed record DentalRecordCollectedRow(
     string? PlanNumber,
     decimal Amount);
 
+/// <summary>
+/// Which treatment a fiche de soins was a séance OF — the link, with no money in it.
+///
+/// <para>
+/// ⚠️ <b>Separate from <see cref="DentalRecordCollectedRow"/> because they answer different questions, and
+/// deriving one from the other is what left a whole class of séance unlabelled.</b> The money read can only see
+/// a fiche that <i>collected</i> something, so a séance where the patient paid nothing that day — ordinary on a
+/// six-visit implant — showed as « 0,000 DT · 0,000 DT » in the patient's history: indistinguishable from a free
+/// ordinary visit, on a treatment with 1 500 DT outstanding. Belonging to a treatment is a clinical fact and
+/// has to be read as one.
+/// </para>
+/// </summary>
+public sealed record DentalRecordPlanLinkRow(
+    Guid DentalRecordId,
+    Guid TreatmentPlanId,
+    string? PlanNumber,
+    /// <summary>
+    /// The act this fiche is a séance of — « Implant dentaire ». Carried so the history can say what the
+    /// treatment is without the caller resolving the plan.
+    /// </summary>
+    string ActDesignationFr,
+    /// <summary>
+    /// The <b>step</b> this fiche carried out — « Pose de l'implant » — with its rank, or null for an act
+    /// booked whole.
+    ///
+    /// <para>
+    /// ⚠️ Without it a patient's history printed « Implant dentaire » three times over for one implant, with
+    /// nothing saying the three rows were one treatment or which séance each was. The label and the rank exist
+    /// on <c>TreatmentPlanItemStep</c> and were simply never read back.
+    /// </para>
+    /// </summary>
+    string? StepLabel,
+    int? StepNumber,
+    int StepTotal);
+
 public sealed record CaisseInstallmentPaymentRow(
     Guid PaymentId,
     Guid TreatmentPlanId,
@@ -158,6 +193,26 @@ public interface ITreatmentPlanRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Devis a patient was shown and has not answered — a <c>Draft</c> with <b>no work recorded on it</b>.
+    ///
+    /// <para>
+    /// ⚠️ <b>Its own read rather than <see cref="CountByStatusAsync"/> with <c>Draft</c>, because those two
+    /// stopped meaning the same thing.</b> Since « Suivre ce traitement » an un-numbered plan is most often a
+    /// treatment actively under way, so the dashboard's « Devis en attente de réponse » counted séances being
+    /// carried out that week — and sent the practice chasing patients who have nothing to answer, since
+    /// <c>Accept</c> is the only writer of <c>Number</c> and a Draft has therefore never been handed anything.
+    /// The same premise was corrected in <c>RecallWorklistRules.IsUnanswered</c> and this copy was missed.
+    /// </para>
+    /// <para>
+    /// « No work recorded » is <c>TreatmentPlanItem.HasDeliveredWork</c> stated in SQL — the act is
+    /// <c>Done</c>, or one of its steps carries a <c>DoneDate</c>. Withdrawn acts are included: a treatment
+    /// stopped mid-course is not a quote awaiting an answer either, and it cannot reach this count anyway
+    /// (<c>StopTreatment</c> leaves the plan <c>Completed</c>).
+    /// </para>
+    /// </summary>
+    Task<int> CountUnansweredDraftsAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Highest sequence number already assigned for a clinic in a given year (0 when none). The next
     /// accepted plan uses this + 1, giving a gapless per-clinic-per-year sequence (separate from invoices).
     /// </summary>
@@ -228,6 +283,24 @@ public interface ITreatmentPlanRepository
     /// </para>
     /// </summary>
     Task<IReadOnlyList<DentalRecordCollectedRow>> GetCollectedByDentalRecordAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> dentalRecordIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Which treatment each of these fiches was a séance of — see <see cref="DentalRecordPlanLinkRow"/>.
+    ///
+    /// <para>
+    /// Reads BOTH link columns: <c>TreatmentPlanItemStep.LinkedDentalRecordId</c> (a multi-séance act, the
+    /// common case) and <c>TreatmentPlanItem.LinkedDentalRecordId</c> (a single-séance act marked réalisé
+    /// against its fiche). Asking only the step one would miss every plain act, and asking only the act one
+    /// would miss every act still in progress — which is most of what this exists for.
+    /// </para>
+    /// <para>
+    /// ⚠️ Batched over the page like its neighbour, and for the same § 9.7 reason.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<DentalRecordPlanLinkRow>> GetPlanLinksByDentalRecordAsync(
         Guid clinicId,
         IReadOnlyCollection<Guid> dentalRecordIds,
         CancellationToken cancellationToken = default);

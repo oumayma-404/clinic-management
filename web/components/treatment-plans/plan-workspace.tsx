@@ -11,7 +11,7 @@ import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import {
   ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
   CalendarClock, CalendarPlus, Layers, ListChecks, MoreHorizontal, X, Mail, Undo2,
+  Trash2,
   CircleSlash,
   RotateCcw,
 } from "lucide-react"
@@ -120,6 +121,33 @@ interface PlanWorkspaceProps {
  * Keeping the row is the same rule the invoice detail follows and the same one la caisse's extrait follows: a
  * correction is evidence, not an erasure.</p>
  */
+/**
+ * The état of one échéance, in the ONE place both the table and the card list read it.
+ *
+ * <p>⚠️ <b>`inst.isOverdue` is served, and it must never be recomputed here from `dueDate`.</b> Both forms used
+ * to write `isBeforeToday(inst.dueDate)`, which answers a simpler question and gave the wrong answer on
+ * <b>25 of 27</b> unpaid rows in the dev database — every devis went red the day after it was signed, cancelled
+ * and already-invoiced ones included. The reason is that `TreatmentPlan.Accept` raises a lump-sum row for the
+ * whole total <i>dated at the acceptance instant</i> when no schedule was given: a ledger container so a payment
+ * has somewhere to live, not a day anybody promised. `InstallmentLateness` is the rule; it also needs the plan's
+ * status, its note d'honoraires and whether any act is still unrealised, none of which a row knows.</p>
+ *
+ * <p>« Non convenue » rather than « En attente » on such a row, because the two are different facts and the
+ * dentist can act on the difference: it names what « Modifier l'échéancier » is for, right beside it.</p>
+ */
+function InstallmentStatusBadge({ inst }: { inst: InstallmentDto }) {
+  if (inst.isPaid) return <Badge variant="secondary">Payée</Badge>
+  if (inst.isOverdue) return <Badge variant="destructive">En retard</Badge>
+  if (inst.isAutoRaised) {
+    return (
+      <Badge variant="outline" className="font-normal text-muted-foreground">
+        Échéance non convenue
+      </Badge>
+    )
+  }
+  return <Badge variant="outline">En attente</Badge>
+}
+
 function InstallmentPaymentLines({
   payments,
   className,
@@ -175,6 +203,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   /** True for the one close that follows a successful create — see `finishCurrentBooking`. */
   const justAdvancedRef = useRef(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  /** « Supprimer le traitement » — a followed treatment nothing has been recorded on. See `canDelete`. */
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
   /** The plan-level state change awaiting confirmation; null = no dialog. See {@link PlanConfirm}. */
   const [confirmAction, setConfirmAction] = useState<PlanConfirm | null>(null)
@@ -278,6 +308,27 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   // reaches this same workspace. Excluding it left no way to correct a total on the treatments a dentist
   // starts from the agenda — « the app should never refuse edits ». `EnsureAmendable` was widened to match.
   const canAmend = plan.status !== "Cancelled"
+
+  /**
+   * Whether this plan can be destroyed outright — mirrors `TreatmentPlan.CanBeDeleted`.
+   *
+   * <p>⚠️ <b>Both terms, and the second is the one that was missing everywhere.</b> A `Draft` is a followed
+   * treatment now, so it routinely carries recorded séances and links to the fiches that evidence them, and
+   * deleting one cascades its acts and step rows away — leaving the fiches attached to nothing, which is exactly
+   * the wreckage « Arrêter le traitement » exists to avoid. The list screen offered « Supprimer le brouillon »
+   * on the status alone, with a dialog reassuring that « aucun numéro n'a été consommé ».</p>
+   */
+  const canDelete = plan.status === "Draft" && !planHasRecordedWork(plan)
+
+  /**
+   * Whether « Annuler le devis » is offered.
+   *
+   * <p>⚠️ <b>Not `isActive`, which is what made it a dead control.</b> `isPlanLive` includes `Draft`, and
+   * `TreatmentPlan.Cancel` throws on `Draft` — « Un brouillon se supprime, il ne s'annule pas. » Browser-verified
+   * end to end: the motif was filled in, the confirmation pressed, and the server refused. A devis is cancelled
+   * because its number has to be accounted for; a treatment that never had one is deleted or stopped.</p>
+   */
+  const canCancel = isActive && plan.status !== "Draft"
 
   /**
    * Whether « Facturer le devis » is offered — every live status except a draft, minus a devis a note already
@@ -635,6 +686,24 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * — orphaning the fiches, re-quoting the act at the catalogue default rather than the fee it was quoted at,
    * and walking the header back to « 0 / N » on a treatment several séances in.</p>
    */
+
+  /**
+   * Destroy a followed treatment nothing has been recorded on — the workspace's first caller of
+   * `DELETE /api/treatment-plans/{id}`, which had shipped with none anywhere but the list screen.
+   *
+   * <p>It replaces « Annuler » on a Draft, where that button could only ever be refused. See `canDelete`.</p>
+   */
+  const handleDelete = () =>
+    run(
+      async () => {
+        await treatmentPlansApi.remove(plan.id)
+        // Nothing is left to reload — go back to the list rather than refetching a plan that is gone.
+        router.push("/treatment-plans")
+      },
+      "Traitement supprimé",
+      "Échec de la suppression du traitement.",
+    )
+
   const confirmReopen = () =>
     setConfirmAction({
       title: "Reprendre ce traitement ?",
@@ -661,6 +730,35 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           "Échec de la reprise du traitement.",
         ),
     })
+
+  /**
+   * The ONE action offered as a button; everything else lives in the « ⋯ » menu.
+   *
+   * <p>Derived from the state rather than listed per status, so the header cannot end up offering two answers to
+   * « et maintenant ? ». The order is the order a treatment actually moves in:</p>
+   * <ol>
+   *   <li><b>Sans devis</b> → « Éditer le devis ». The only place a devis number is taken, and the moment the
+   *       money becomes a claim. Nothing else on a followed treatment competes with it.</li>
+   *   <li><b>Facturable</b> → « Facturer le devis » — see `canBill`, which is deliberately wider than `isActive`
+   *       because a plan auto-completes the instant its last step lands, i.e. exactly when it becomes billable.</li>
+   *   <li><b>Terminé</b> → « Reprendre le traitement », the way back from a stop.</li>
+   * </ol>
+   * <p>An accepted devis mid-treatment gets <b>no</b> primary button, and that is right: what it needs next is a
+   * séance, which is booked from the acts below, not from this row.</p>
+   */
+  const primaryAction = useMemo(() => {
+    if (isDraft) {
+      return { label: "Éditer le devis", icon: ClipboardCheck, run: confirmIssueDevis }
+    }
+    if (canBill) {
+      return { label: "Facturer le devis", icon: ReceiptText, run: confirmBill }
+    }
+    if (plan.status === "Completed") {
+      return { label: "Reprendre le traitement", icon: RotateCcw, run: confirmReopen }
+    }
+    return null
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the three confirm openers are stable per render
+  }, [isDraft, canBill, plan.status, plan.version, plan.totalPlanned, plan.amountPaid])
 
   /**
    * Move an act one position up or down. The endpoint takes the **whole** order, not a delta — a partial
@@ -728,136 +826,125 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 </Badge>
               )}
             </CardTitle>
+            {/*
+              ⚠️ **ONE primary action and a « ⋯ » menu, where this row used to hold SEVEN buttons.**
+
+              Measured, and identical at every width from 320 to 1440: « Facturer le devis · Modifier le devis ·
+              Arrêter le traitement · Terminer · Devis PDF · Envoyer par e-mail · Annuler ». Seven controls of
+              equal weight state that seven things are equally likely, which is never true — at any moment there
+              is one thing to do and six things to be able to find. Two of them were also, side by side on a
+              followed treatment, « Éditer le devis » and « Modifier le devis »: near-identical French for
+              minting a gapless numbered financial document and for correcting an act's price.
+
+              The menu is the pattern this feature already uses for the plans list and for an échéance's own
+              actions, so nothing new is being learnt here.
+            */}
             <div className="flex flex-wrap items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {/* All three plan-level state changes go through a confirmation (see PlanConfirm). They used to
-                  fire on the first click, in a row that also holds « Devis PDF » and « Envoyer par e-mail ». */}
-              {/*
-                « Éditer le devis » — the ONLY place a devis number is taken, and the reason a treatment can be
-                started for nothing. A treatment followed from the agenda is an un-numbered draft: no number, no
-                échéancier, no créance. Pressing this is the moment the patient is handed paper, so it is also
-                the moment the money becomes a claim.
-                ⚠️ It replaces « Accepter le devis » on this row rather than sitting beside it: two controls
-                promoting the same draft is the « second door » this file already argues against, and « accepter »
-                described a decision the patient makes, not one the dentist records.
-              */}
-              {isDraft && (
-                <Button size="sm" className="gap-2" disabled={busy} onClick={confirmIssueDevis}>
-                  <ClipboardCheck className="h-4 w-4" />
-                  Éditer le devis
-                </Button>
-              )}
-              {/*
-                ⚠️ **`canBill`, not `isActive`, and the difference is the whole point of the feature.** Recording
-                the last step auto-completes the plan, so the moment a treatment is finished — the moment it
-                should be billed — this button, the only caller of that endpoint anywhere in the frontend,
-                disappeared. An unbilled devis whose séances were all correctly recorded at 0 DT reached
-                `Completed` with the full amount outstanding and no route to a note d'honoraires, while the
-                continuation dialog promised precisely that: « sera facturé une fois le traitement terminé ».
-                The server had always permitted it (it refuses only Draft and Cancelled), so this is the gate
-                catching up with what the endpoint already allowed.
-              */}
-              {canBill && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  disabled={busy}
-                  onClick={confirmBill}
-                  title={
-                    plan.amountPaid > 0
-                      ? `${formatDT(plan.amountPaid)} déjà encaissé sur ce devis sera reporté sur la facture à son émission`
-                      : undefined
-                  }
-                >
-                  <ReceiptText className="h-4 w-4" />
-                  Facturer le devis
-                </Button>
-              )}
-              {/* AC-P2.1 — `POST /amend` has been fully implemented and validated since
-                  `treatment-plan-workspace` with no caller, so a typo on an accepted devis forced cancelling
-                  it and losing its number. Called unconditionally within the amendable window and the 403 is
-                  surfaced, matching the other financial-reversal actions rather than gating on role. */}
-              {canAmend && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  disabled={busy}
-                  onClick={() => setAmendOpen(true)}
-                >
-                  <FilePen className="h-4 w-4" />
-                  Modifier le devis
-                </Button>
-              )}
-              {/*
-                « Arrêter le traitement » — the patient who stops halfway, which is ordinary and had no action at
-                all. What it does is exactly what a dentist would otherwise have to discover: put the acts not
-                yet started aside, keep what was carried out, and close the plan. Cancelling the devis was the
-                only thing on offer and it is the wrong answer — it voids the work that WAS done along with the
-                rest.
 
-                ⚠️ **Offered whenever the treatment is live, and it used to be gated on `stoppableItems.length`.**
-                That hid it in the commonest abandon shape of all: the patient who cancels the next séance and
-                never returns. With that séance still in the agenda the act reads « planifié », nothing was
-                « stoppable », and the button was simply absent — so the dentist had to find and cancel the
-                appointment on another screen with nothing telling them so. The dialog explains the booked
-                séances instead, which is the honest place for it.
+              {/*
+                The one act, by state — `primaryAction`. Filled, so it reads as the answer to « et maintenant ? »
+                rather than as one option among several.
               */}
-              {isActive && (
-                <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={() => setStopOpen(true)}>
-                  <CircleSlash className="h-4 w-4" />
-                  Arrêter le traitement
+              {primaryAction && (
+                <Button size="sm" className="gap-2" disabled={busy} onClick={primaryAction.run}>
+                  <primaryAction.icon className="h-4 w-4" />
+                  {primaryAction.label}
                 </Button>
               )}
-              {isActive && (
-                <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={confirmComplete}>
-                  <CheckCheck className="h-4 w-4" />
-                  Terminer
-                </Button>
-              )}
-              {/* The way back from a stopped treatment. Only on a Completed plan, and only worth offering when
-                  something was actually put aside or the patient is resuming a closed course. */}
-              {plan.status === "Completed" && (
-                <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={confirmReopen}>
-                  <RotateCcw className="h-4 w-4" />
-                  Reprendre le traitement
-                </Button>
-              )}
-              <Button size="sm" variant="outline" className="gap-2" disabled={busy} onClick={handleDownloadDevis}>
-                <FileDown className="h-4 w-4" />
-                Devis PDF
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-2"
-                disabled={busy}
-                onClick={() => setEmailTarget({
-                  kind: DOCUMENT_EMAIL_KINDS.TreatmentPlan,
-                  documentId: plan.id,
-                  label: `Devis ${plan.number ?? ""}`.trim(),
-                })}
-              >
-                <Mail className="h-4 w-4" />
-                Envoyer par e-mail
-              </Button>
-              {/* Cancelling a numbered devis lives here rather than in the list: it is the one destructive
-                  action on the plan and needs the context of what is being voided. Server-side it is
-                  AdminOrDoctor; the UI calls it unconditionally and surfaces the 403, matching the other
-                  financial-reversal actions. */}
-              {isActive && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-2 text-destructive hover:text-destructive"
-                  disabled={busy}
-                  onClick={() => setCancelOpen(true)}
-                >
-                  <Ban className="h-4 w-4" />
-                  Annuler
-                </Button>
-              )}
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 touch-target"
+                    disabled={busy}
+                    aria-label="Autres actions sur ce devis"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                    <span className="hidden sm:inline">Actions</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  {/* Le document — always available, never destructive, and what a dentist reaches for with the
+                      patient in the chair. */}
+                  <DropdownMenuItem onSelect={handleDownloadDevis} disabled={busy}>
+                    <FileDown className="h-4 w-4" />
+                    Devis PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={busy}
+                    onSelect={() => setEmailTarget({
+                      kind: DOCUMENT_EMAIL_KINDS.TreatmentPlan,
+                      documentId: plan.id,
+                      label: `Devis ${plan.number ?? ""}`.trim(),
+                    })}
+                  >
+                    <Mail className="h-4 w-4" />
+                    Envoyer par e-mail
+                  </DropdownMenuItem>
+
+                  {/*
+                    Le traitement. ⚠️ « Modifier les actes et les prix », not « Modifier le devis » — see the
+                    header note: the old label was a homophone of « Éditer le devis » and named the document
+                    rather than what it edits. `canAmend` is unchanged; only the wording is.
+                  */}
+                  {(canAmend || isActive || plan.status === "Completed") && <DropdownMenuSeparator />}
+                  {canAmend && (
+                    <DropdownMenuItem disabled={busy} onSelect={() => setAmendOpen(true)}>
+                      <FilePen className="h-4 w-4" />
+                      Modifier les actes et les prix
+                    </DropdownMenuItem>
+                  )}
+                  {/* AC-P2.1 — the amendable window, matching the server's widened `EnsureAmendable`. */}
+                  {isActive && (
+                    <DropdownMenuItem disabled={busy} onSelect={() => setStopOpen(true)}>
+                      <CircleSlash className="h-4 w-4" />
+                      Arrêter le traitement
+                    </DropdownMenuItem>
+                  )}
+                  {isActive && (
+                    <DropdownMenuItem disabled={busy} onSelect={confirmComplete}>
+                      <CheckCheck className="h-4 w-4" />
+                      Terminer le traitement
+                    </DropdownMenuItem>
+                  )}
+
+                  {/*
+                    ⚠️ **« Annuler » is gone from a Draft, and this is the whole of defect F2.** It was gated on
+                    `isActive`, which includes Draft since « Suivre ce traitement » — while `TreatmentPlan.Cancel`
+                    throws « Un brouillon se supprime, il ne s'annule pas. » on exactly that status. So a dentist
+                    whose patient decided against a followed treatment filled in a motif, pressed confirm, and was
+                    refused — and the remedy the sentence names lived only on `/treatment-plans`.
+
+                    A followed treatment is *deleted* (no number was ever consumed, so no gap to explain) and only
+                    while nothing has been carried out on it: past that, « Arrêter le traitement » above is the
+                    answer, because it keeps the séances. `TreatmentPlan.CanBeDeleted` enforces the same rule.
+                  */}
+                  {(canDelete || canCancel) && <DropdownMenuSeparator />}
+                  {canDelete && (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={busy}
+                      onSelect={() => setDeleteOpen(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Supprimer le traitement
+                    </DropdownMenuItem>
+                  )}
+                  {canCancel && (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={busy}
+                      onSelect={() => setCancelOpen(true)}
+                    >
+                      <Ban className="h-4 w-4" />
+                      Annuler le devis
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
@@ -1319,15 +1406,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 items={plan.installments}
                 getKey={(inst) => inst.id}
                 title={(inst) => formatDateFr(inst.dueDate)}
-                status={(inst) =>
-                  inst.isPaid ? (
-                    <Badge variant="secondary">Payée</Badge>
-                  ) : isBeforeToday(inst.dueDate) ? (
-                    <Badge variant="destructive">En retard</Badge>
-                  ) : (
-                    <Badge variant="outline">En attente</Badge>
-                  )
-                }
+                status={(inst) => <InstallmentStatusBadge inst={inst} />}
                 fields={(inst) => [
                   { label: "Montant", value: formatDT(inst.amount) },
                   { label: "Encaissé", value: formatDT(inst.amountPaid) },
@@ -1410,8 +1489,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 </TableHeader>
                 <TableBody>
                   {plan.installments.map((inst) => {
-                    // Late only once the due DAY has passed — an échéance due today still has the day to run.
-                    const isOverdue = !inst.isPaid && isBeforeToday(inst.dueDate)
                     return (
                       <Fragment key={inst.id}>
                         <TableRow>
@@ -1420,13 +1497,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                           <TableCell className="text-right">{formatDT(inst.amountPaid)}</TableCell>
                           <TableCell className="text-right">{formatDT(inst.outstanding)}</TableCell>
                           <TableCell>
-                            {inst.isPaid ? (
-                              <Badge variant="secondary">Payée</Badge>
-                            ) : isOverdue ? (
-                              <Badge variant="destructive">En retard</Badge>
-                            ) : (
-                              <Badge variant="outline">En attente</Badge>
-                            )}
+                            <InstallmentStatusBadge inst={inst} />
                           </TableCell>
                           <TableCell className="text-right">
                             {/* See `canCollectInstallments` — one derived rule shared with the card list. */}
@@ -1619,6 +1690,40 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         presetPlanActs={bookingQueue[0]}
         onSuccess={finishCurrentBooking}
       />
+
+      {/*
+        « Supprimer le traitement » — the way out of a followed treatment the patient decided against.
+
+        ⚠️ An `AlertDialog`, not a `Dialog`, matching every other destructive confirmation in the product — and
+        no motif field, deliberately: a motif exists to explain a **number** that was consumed and can never be
+        reissued, and this treatment never had one. Asking for one here would imply a document is being voided.
+      */}
+      <AlertDialog open={deleteOpen} onOpenChange={(open) => { if (!open && !busy) setDeleteOpen(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce traitement ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {planLabel} sera supprimé, avec ses actes et ses séances à planifier. Aucun numéro de devis
+              n&apos;a été consommé, donc rien ne manquera dans la numérotation — et aucune séance n&apos;a été
+              réalisée, donc aucune fiche de soins n&apos;est touchée. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Retour</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                // Radix dismisses on click; prevented so a refusal keeps the dialog open (the list's rule).
+                event.preventDefault()
+                void handleDelete().then(() => setDeleteOpen(false))
+              }}
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={cancelOpen}

@@ -26,7 +26,22 @@ public enum ReminderSendOutcome
     /// The provider has stopped this sender and a retry cannot change that (FR-8, EC-11). The row is <b>parked</b>
     /// under the reason on the result — held, not failed — so it goes out if the situation is resolved.
     /// </summary>
-    Blocked
+    Blocked,
+
+    /// <summary>
+    /// <b>This recipient</b> cannot be reached on this channel, and no retry or operator action changes that
+    /// (international-phone-numbers AC-17) — the number is not a WhatsApp account, its country is one this sender
+    /// may not message, or no template exists for its language. The row goes straight to <c>Failed</c> and is
+    /// surfaced to staff.
+    ///
+    /// <para>⚠️ <b>Distinct from <see cref="Blocked"/> on purpose.</b> Blocked is about the <i>sender</i> and is
+    /// released by the review pass once the situation clears; this is about the <i>destination</i> and clears
+    /// only if somebody edits the patient's number, so parking it would hold a row for ever against an event
+    /// that will never arrive. And distinct from <see cref="TransientFailure"/>, which spends three attempts
+    /// first — the answer is already final, and until foreign numbers could be entered at all this family fell
+    /// through to it and burned the whole budget in silence.</para>
+    /// </summary>
+    RecipientUnreachable
 }
 
 /// <summary>
@@ -48,6 +63,13 @@ public sealed record ReminderSendResult(ReminderSendOutcome Outcome, string? Err
 
     public static ReminderSendResult Blocked(OutboxBlockReason reason, string sentence) =>
         new(ReminderSendOutcome.Blocked, sentence, reason);
+
+    /// <summary>
+    /// This destination is final (AC-17). <paramref name="sentence"/> is ours and is read by staff in the feed,
+    /// so it says what to do instead — see the ⚠️ on the type for why nothing from the provider may reach it.
+    /// </summary>
+    public static ReminderSendResult RecipientUnreachable(string sentence) =>
+        new(ReminderSendOutcome.RecipientUnreachable, sentence);
 }
 
 /// <summary>

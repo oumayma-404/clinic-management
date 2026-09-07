@@ -91,7 +91,25 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
     public decimal AmountPaid => InvoiceCalculator.RoundMoney(_installments.Sum(i => i.AmountPaid));
     public decimal Outstanding => Math.Max(0m, TotalPlanned - AmountPaid);
-    public bool CanBeDeleted => Status == TreatmentPlanStatus.Draft;
+    /// <summary>
+    /// May this plan be destroyed outright, rather than cancelled or stopped?
+    ///
+    /// <para>
+    /// ⚠️ <b>Status is not enough any more, and asking only it made « Supprimer le brouillon » destructive.</b>
+    /// Since « Suivre ce traitement » a <c>Draft</c> is a treatment under way — un-numbered, but carrying
+    /// séances, recorded steps and links to the fiches that evidence them — and deleting one cascades:
+    /// <c>TreatmentPlanConfiguration</c> and <c>TreatmentPlanItemConfiguration</c> both declare
+    /// <c>DeleteBehavior.Cascade</c>, so the acts and their step rows go, while the appointments' links are
+    /// <c>SetNull</c>. The fiches survive attached to nothing — which is precisely the wreckage
+    /// <see cref="StopTreatment"/> was written to avoid, and it names it as one of the three defects it fixed.
+    /// </para>
+    /// <para>
+    /// <see cref="RemoveItem"/> has refused <c>HasDeliveredWork</c> per act all along; this is the same question
+    /// asked for the whole plan, which is what was missing. A treatment that <i>has</i> been worked on is closed
+    /// with <see cref="StopTreatment"/> (« Arrêter le traitement »), which keeps the séances and parks the rest.
+    /// </para>
+    /// </summary>
+    public bool CanBeDeleted => Status == TreatmentPlanStatus.Draft && !AnyWorkRecorded;
 
     private TreatmentPlan() { } // For EF Core
 
@@ -263,12 +281,21 @@ public class TreatmentPlan : AggregateRoot<Guid>
         AcceptedDate = DateTime.UtcNow;
         Status = TreatmentPlanStatus.Accepted;
 
-        // Ensure the accepted plan is payable: a devis with no échéancier gets a single lump-sum installment
-        // for the full planned total, due at acceptance — otherwise Outstanding (derived from installments)
-        // would be stuck at the total forever with no way to record a payment.
+        /*
+         * Ensure the accepted plan is payable: a devis with no échéancier gets a single lump-sum installment
+         * for the full planned total, due at acceptance — otherwise Outstanding (derived from installments)
+         * would be stuck at the total forever with no way to record a payment.
+         *
+         * ⚠️ `isAutoRaised: true` — and it is not a detail. This row is a **ledger container, not a promise**:
+         * nobody agreed its date, it simply has to be dated something and « now » is the only instant
+         * available. Left unmarked it made every devis in the database read « En retard » from the day after
+         * signature (25 of 27 unpaid échéances, measured), which is how that badge came to mean nothing. See
+         * `InstallmentLateness`, which is the only thing allowed to read the flag.
+         */
         if (_installments.Count == 0 && TotalPlanned > 0m)
         {
-            _installments.Add(new Installment(Guid.NewGuid(), Id, AcceptedDate.Value, TotalPlanned));
+            _installments.Add(new Installment(
+                Guid.NewGuid(), Id, AcceptedDate.Value, TotalPlanned, isAutoRaised: true));
         }
 
         Touch();
@@ -805,16 +832,24 @@ public class TreatmentPlan : AggregateRoot<Guid>
     {
         var outstanding = Outstanding;
         var collected = _installments.Where(i => i.AmountPaid > 0m).ToList();
+        // Remember what each kept row WAS before trimming it: `Revise` clears `IsAutoRaised` (revising is
+        // normally a dentist agreeing a date), and this is bookkeeping — trimming a row to what it actually
+        // took agrees to nothing. Without this, re-spreading would silently promote the auto lump-sum into an
+        // « agreed » date and put « En retard » back on it.
+        var wasAuto = collected.Where(i => i.IsAutoRaised).Select(i => i.Id).ToHashSet();
         foreach (var row in collected)
         {
             row.Revise(row.DueDate, row.AmountPaid);
+            if (wasAuto.Contains(row.Id)) row.MarkAutoRaised();
         }
 
         _installments.Clear();
         _installments.AddRange(collected);
         if (outstanding > 0m)
         {
-            _installments.Add(new Installment(Guid.NewGuid(), Id, dueDate, outstanding));
+            // Same reason as `Accept`'s row: the caller supplies this date from the clinic clock because a
+            // date is required, not because anybody chose it.
+            _installments.Add(new Installment(Guid.NewGuid(), Id, dueDate, outstanding, isAutoRaised: true));
         }
     }
 

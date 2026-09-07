@@ -76,9 +76,9 @@ public static class PlanCarriedActPricing
          * anything larger is left alone rather than zeroed on a guess: silently un-billing the wrong act is worse
          * than leaving a hand-typed line for the dentist to correct.
          */
-        var index = item.ProcedureTypeId is { } procedureTypeId
-            ? acts.FindIndex(a => a.ProcedureTypeId == procedureTypeId)
-            : acts.Count == 1 ? 0 : -1;
+        // ⚠️ `PlanCarriedAct`, not a local expression: `ToothChartingRules` asks the same question about the same
+        // act, and two copies of « which act does the devis carry » would price the implant and chart the filling.
+        var index = PlanCarriedAct.IndexIn(acts, item);
 
         if (index < 0 || (acts[index].Cost == 0m && acts[index].UnitCost is null or 0m))
         {

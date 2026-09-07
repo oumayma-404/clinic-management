@@ -190,6 +190,27 @@ Add new primitives with the shadcn CLI (`web/components.json`, base color neutra
 ⚠️ The current CLI emits imports from the **`radix-ui` umbrella package**, which this project does not depend on. Rewrite a freshly-added primitive's import to the scoped package that is already installed (e.g. `@radix-ui/react-dialog` for `sheet`, `@radix-ui/react-radio-group` for `radio-group`) and revert the CLI's `package.json`/lockfile edit — `sheet` and `radio-group` were added this way and add **zero** dependencies.
 
 Non-shadcn additions to the same layer:
+- **`phone-field.tsx`** — a phone number and the country it belongs to, as **one row**: a compact
+  `flag + indicatif` trigger over a searchable ~245-country `Popover`+`Command`, then the number. Used by the
+  four surfaces where a number reaches a human (patient, emergency contact, the booking dialog's inline new
+  patient, fournisseur); the clinic's own number, the doctor roster and the wizards keep plain inputs, being
+  identity rather than contact. ⚠️ **`modal` on the `Popover` is load-bearing, not tidiness**: a modal `Dialog`
+  installs `react-remove-scroll`, which cancels wheel events outside the one subtree it is given, and
+  `PopoverContent` portals to `body` — so without it the country list **cannot be scrolled with a mouse wheel**,
+  only by dragging its scrollbar (measured inside the fournisseur dialog: `scrollHeight` 7848, `clientHeight`
+  260, wheel `preventDefault`ed, `scrollTop` pinned at 0). Reported from real use, and easy to miss because the
+  scrollbar path is browser chrome and never reaches JS. Six other in-dialog pickers already pass `modal` for
+  the same reason (`lab-orders`, `waiting-list`, `appointment-acts-picker`, both booking dialogs,
+  `document-editor-content`, `invoice-form-modal`); `category-combobox`, `supplier-picker`,
+  `procedure-type-form-modal` and `tooth-multiselect` do **not**, and are only symptom-free because their lists
+  are too short to scroll. ⚠️ **No chevron on the trigger, deliberately**: the tightest cell in the product is
+  the fournisseur dialog's — a 2-column grid inside a 512 px dialog gives the row **223 px at 1440 px**, so a
+  desktop is *narrower* here than a 320 px phone, where the grid has already collapsed. With a chevron the
+  trigger took 117 px and left the field 99 px against the 124 px its own placeholder needed, clipping
+  « ex. : 71 234 567 » to « ex. : 71 234 »; at 85 px both halves fit on one line at every width. Stacking them
+  instead was tried and rejected on sight — it reads as two unrelated controls. ⚠️ Country **names come from
+  `Intl.DisplayNames`**, never a table in this repo, and the flag is `aria-hidden` decoration beside a real text
+  name (Windows ships no flag glyphs and renders the pair as two letters).
 - **`card-list.tsx`'s `underTitle`** — a **block** under the title (a progress strip, a meter), as opposed to
   `subtitle`, which is prose. It exists because `subtitle` renders a `<p class="line-clamp-2">` and neither half
   of that can carry one: a `<div>` inside a `<p>` is invalid, so React logs a hydration failure and the browser

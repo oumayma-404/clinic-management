@@ -24,6 +24,31 @@ public class Installment : Entity<Guid>
     public DateTime DueDate { get; private set; }
     public decimal Amount { get; private set; }
 
+    /// <summary>
+    /// True when nobody agreed this date — the row was raised by the system so the money would have somewhere
+    /// to live, not because a dentist and a patient settled on a day.
+    ///
+    /// <para>
+    /// ⚠️ <b>This is the flag that makes « En retard » mean something again.</b> A devis accepted with no
+    /// schedule gets ONE lump-sum row for the whole total dated at the acceptance instant
+    /// (<see cref="TreatmentPlan.Accept"/>), so it is in the past by the time anyone looks and every plan in
+    /// the database read « En retard » from the day after it was signed — measured at <b>25 of 27</b> unpaid
+    /// échéances. The badge was not wrong about the date; the date was never a promise.
+    /// </para>
+    /// <para>
+    /// The distinction has to be <b>stored</b> rather than guessed. A rule like « one row, dated at
+    /// acceptance » would also match a schedule a dentist deliberately typed for the signature day, and
+    /// silencing that one destroys the only thing an échéancier is for. See
+    /// <see cref="Services.InstallmentLateness"/> for the single rule that reads it.
+    /// </para>
+    /// <para>
+    /// <b>False by default</b>, so every row a human enters — <see cref="TreatmentPlan.SetInstallments"/> from
+    /// the create form, <see cref="TreatmentPlan.ReviseInstallments"/> from « Modifier l'échéancier » — is an
+    /// agreed date without any caller having to say so. Only the two system writers opt in.
+    /// </para>
+    /// </summary>
+    public bool IsAutoRaised { get; private set; }
+
     /// <summary>Σ of the non-voided ledger rows. Stored, but always recomputed — never assigned directly.</summary>
     public decimal AmountPaid { get; private set; }
 
@@ -41,7 +66,11 @@ public class Installment : Entity<Guid>
 
     private Installment() { } // For EF Core
 
-    public Installment(Guid id, Guid treatmentPlanId, DateTime dueDate, decimal amount)
+    /// <param name="isAutoRaised">
+    /// See <see cref="IsAutoRaised"/>. Defaults to false — a row nobody named is a row somebody typed, and the
+    /// two system writers pass true explicitly.
+    /// </param>
+    public Installment(Guid id, Guid treatmentPlanId, DateTime dueDate, decimal amount, bool isAutoRaised = false)
     {
         if (amount <= 0)
             throw new ArgumentException("Le montant de l'échéance doit être supérieur à 0.", nameof(amount));
@@ -50,6 +79,7 @@ public class Installment : Entity<Guid>
         TreatmentPlanId = treatmentPlanId;
         DueDate = dueDate;
         Amount = InvoiceCalculator.RoundMoney(amount);
+        IsAutoRaised = isAutoRaised;
     }
 
     /// <summary>
@@ -72,7 +102,18 @@ public class Installment : Entity<Guid>
 
         DueDate = dueDate;
         Amount = rounded;
+        // Revising is a dentist looking at the dates and settling on them, so whatever this row used to be it
+        // is an agreed date now. Without this, the auto row survived « Modifier l'échéancier » still marked
+        // auto and would never go red however deliberately its date had just been chosen.
+        IsAutoRaised = false;
     }
+
+    /// <summary>
+    /// Mark a row as system-raised after the fact — used only by <c>RespreadSchedule</c>, which keeps the
+    /// échéances that collected money and re-Revise()s them onto what they actually took. That call is
+    /// bookkeeping, not an agreement, so it must not silently promote a row nobody scheduled.
+    /// </summary>
+    internal void MarkAutoRaised() => IsAutoRaised = true;
 
     /// <summary>Record a payment as its own ledger row, then re-derive the stored totals from the ledger.</summary>
     /// <param name="cheque">
