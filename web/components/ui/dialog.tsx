@@ -90,8 +90,12 @@ function DialogOverlay({
  * `max()` rather than a bare `env()`: the inset is `0px` on a desktop browser and on Android, and the dialog
  * still wants its 24 px there. `md:pb-6` resets it for the centred presentation, which is nowhere near an edge.
  */
+// `has-[…]:overflow-hidden` is `DIALOG_DESKTOP`'s guard below the breakpoint — see its docstring. It was
+// prefixed `md:` there and nowhere here, so `mobile="bottom"` + a `DialogBody` was two nested scrollers on a
+// phone; no dialog hits it today only because all ten `DialogBody` callers happen to pass `mobile="sheet"`.
 export const DIALOG_MOBILE_BOTTOM =
-  "inset-x-0 bottom-0 max-h-[90dvh] overflow-y-auto rounded-t-xl border-x-0 border-b-0 " +
+  "inset-x-0 bottom-0 max-h-[90dvh] overflow-y-auto has-[[data-slot=dialog-body]]:overflow-hidden " +
+  "rounded-t-xl border-x-0 border-b-0 " +
   "pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] md:pb-6 " +
   "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom"
 

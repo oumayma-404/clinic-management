@@ -4,6 +4,7 @@ import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -1011,7 +1012,10 @@ export function CreateAppointmentDialog({
           {/* The split: form on the left, récapitulatif on the right from `lg:`. One flex row, so the pane costs
               no height arithmetic and the form column keeps its own scroll. */}
           <div className="flex min-h-0 flex-1 lg:flex-row">
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
+          {/* `DialogBody`, not a hand-rolled `min-h-0 flex-1 overflow-y-auto`: those classes are identical, but
+              only the `data-slot` makes the scroller VISIBLE to the primitive, which otherwise keeps its own
+              `md:overflow-y-auto` armed on top of it. `check:responsive`'s `dialog-owns-one-scroller` holds it. */}
+          <DialogBody className="space-y-4 px-6 pb-4">
           {/*
             1 — Patient. First, because it is the first thing decided and the field every other one depends on.
             The card chrome is gone: four bordered boxes of identical weight said nothing about which decision
@@ -1530,7 +1534,7 @@ export function CreateAppointmentDialog({
                 reporting failures in a slightly different red from the eighteen dialogs that route through
                 `FormErrorBanner` — which now renders on `--destructive` tokens and needs no `dark:` twin. */}
             <FormErrorBanner message={error} />
-          </div>
+          </DialogBody>
 
           {/* The pane. `flex` rather than `block` so its own `overflow-y-auto` gets a height to scroll within. */}
           <AppointmentRecap model={recapModel} variant="rail" className="hidden w-[272px] shrink-0 lg:flex" />

@@ -4,6 +4,7 @@ import type React from "react"
 import { useCallback, useState, useEffect, useMemo, useRef } from "react"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -917,7 +918,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
           <form onSubmit={handleUpdate} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1 lg:flex-row">
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
+            {/* `DialogBody`, not a hand-rolled `min-h-0 flex-1 overflow-y-auto`: those classes are identical, but
+                only the `data-slot` makes the scroller VISIBLE to the primitive, which otherwise keeps its own
+                `md:overflow-y-auto` armed on top of it. `check:responsive`'s `dialog-owns-one-scroller` holds it. */}
+            <DialogBody className="space-y-4 px-6 pb-4">
 
             {/*
               Statut — FIRST, and one tap per option rather than a Select buried below the acts picker.
@@ -1265,7 +1269,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               }
             />
 
-            </div>
+            </DialogBody>
 
             {/* The pane, and the two read-only sections only this dialog has. Both are *statements*; the
                 actions behind them (the statut buttons, « Facturer ») stay in the form column. */}
