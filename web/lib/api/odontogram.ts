@@ -7,6 +7,15 @@ export interface DiagnoseToothRequest {
   condition: string;
   surfaces?: string | null;
   note?: string | null;
+  /**
+   * The bridge these teeth form, when a whole planned bridge is charted in one gesture.
+   *
+   * ⚠️ There is no bulk endpoint — the multi-tooth panel posts one tooth at a time so a partial failure
+   * can re-offer exactly the teeth that did not land — so the only thing that knows « these five teeth are one
+   * bridge » is the gesture, and it mints the id. ⚠️ **A retry must re-send the SAME id**, or the bridge is
+   * split in two. Send it only for a bridge condition; the server folds it away for anything else.
+   */
+  bridgeGroupId?: string | null;
 }
 
 export const odontogramApi = {

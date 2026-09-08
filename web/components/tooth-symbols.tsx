@@ -277,36 +277,69 @@ export const TOOTH_SYMBOLS: Record<string, ToothSymbol> = {
   Implant: {
     legend: "Fût fileté à la place de la racine",
     body: { hideRoots: true },
-    draw: ({ color, planned }) => (
+    draw: (c) => <ImplantFixture {...c} />,
+  },
+
+  /*
+   * ⚠️ **The one bridge unit that is not drawn like the others, because it is not built like them.** A pilier
+   * is a prepared tooth that keeps its root; an implant pilier has a threaded fixture in bone and no root at
+   * all. Charted as a plain `BridgePilier` it drew a rooted tooth over an implant — and « does this abutment
+   * have a root? » is the question a dentist answers off this chart before touching it.
+   *
+   * So it is exactly what it is: the {@link ImplantFixture} in place of the root, plus the {@link CrownCap}
+   * that makes it a bridge retainer, and the travée joins it like any other unit. `hideRoots` for the same
+   * reason `Implant` sets it.
+   */
+  BridgePilierImplant: {
+    legend: "Pilier sur implant — couronne sur un fût, sans racine",
+    body: { hideRoots: true },
+    draw: (c) => (
       <>
-        <path
-          d="M40 86 L60 86 L56 26 C55.4 18 44.6 18 44 26 Z"
-          fill={color}
-          fillOpacity={planned ? 0 : 0.16}
-          stroke={color}
-          strokeWidth={2}
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
-        {Array.from({ length: 7 }, (_, i) => {
-          const y = 30 + i * 8
-          const hw = 7.2 + ((y - 22) / 64) * 3.2
-          return <path key={i} d={`M${50 - hw} ${y - 2.4} L${50 + hw} ${y + 2.4}`} {...stroke(1.8, { stroke: color })} />
-        })}
-        <rect
-          x={42}
-          y={86}
-          width={16}
-          height={7}
-          rx={1.5}
-          fill={planned ? "none" : color}
-          stroke={color}
-          strokeWidth={2}
-          vectorEffect="non-scaling-stroke"
-        />
+        <ImplantFixture {...c} />
+        <CrownCap {...c} />
       </>
     ),
   },
+}
+
+/**
+ * The threaded fixture an implant puts where the root was.
+ *
+ * ⚠️ **Extracted, not copied.** `Implant` and `BridgePilierImplant` are the same object under two different
+ * prostheses, and this repo's dominant defect is a correct drawing wired to one of its call sites. Two copies
+ * of seven thread strokes and a platform rect would drift the first time either was nudged, and the symptom
+ * would be two teeth on one chart claiming different hardware.
+ */
+function ImplantFixture({ color, planned }: DrawContext) {
+  return (
+    <>
+      <path
+        d="M40 86 L60 86 L56 26 C55.4 18 44.6 18 44 26 Z"
+        fill={color}
+        fillOpacity={planned ? 0 : 0.16}
+        stroke={color}
+        strokeWidth={2}
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      {Array.from({ length: 7 }, (_, i) => {
+        const y = 30 + i * 8
+        const hw = 7.2 + ((y - 22) / 64) * 3.2
+        return <path key={i} d={`M${50 - hw} ${y - 2.4} L${50 + hw} ${y + 2.4}`} {...stroke(1.8, { stroke: color })} />
+      })}
+      <rect
+        x={42}
+        y={86}
+        width={16}
+        height={7}
+        rx={1.5}
+        fill={planned ? "none" : color}
+        stroke={color}
+        strokeWidth={2}
+        vectorEffect="non-scaling-stroke"
+      />
+    </>
+  )
 }
 
 /**
@@ -357,6 +390,15 @@ export interface BridgeSpan {
   toNext: boolean
   /** The whole run's status — one abutment still to place makes the travée a plan. */
   planned?: boolean
+  /**
+   * « Bridge 14 → 16 · 3 éléments » — the run this tooth belongs to, named, for the cell's hover text.
+   *
+   * ⚠️ The element count is the GROUP's tooth count, never the number of cells the bar crosses. A bridge
+   * crosses un-charted pontic sites, and in the **mixte** arch it also crosses deciduous cells (`…16, 55, 15,
+   * 54, 14…`), so a 3-unit bridge spans five cells there and « 5 éléments » would be wrong on the same
+   * bridge in a different view.
+   */
+  runLabel?: string
 }
 
 interface ToothSymbolGlyphProps {
@@ -458,6 +500,37 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 40, bridgeSpan, c
           buttons. Half a cell each way meets its neighbour's half whatever that gap turns out to be.
         */}
         {bridgeSpan && (bridgeSpan.toPrevious || bridgeSpan.toNext) && (
+          <>
+          {/*
+            ⚠️ **The END STOPS, and they are what answers « where does this bridge begin and end? ».**
+            Two bridges placed side by side used to be one continuous bar — the extent was inferred from arch
+            adjacency, so 14·15·16 and 17·18 read as one five-unit span. `bridge-runs.ts` now separates them,
+            but separation alone leaves two bars meeting at a cell boundary, which reads as a rendering seam
+            rather than as a deliberate boundary. A short tick across the bar at each terminal says the run
+            stops HERE, on purpose.
+
+            Drawn per side and only where the run does not continue, so a 3-unit bridge gets exactly two.
+          */}
+          {!bridgeSpan.toPrevious && (
+            <path
+              d={`M50 ${a.neck + 1} L50 ${a.neck + 11}`}
+              stroke={bridgeSpan.planned ? TODO : DONE}
+              strokeDasharray={plannedDash(Boolean(bridgeSpan.planned))}
+              strokeWidth={3}
+              strokeLinecap="butt"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+          {!bridgeSpan.toNext && (
+            <path
+              d={`M50 ${a.neck + 1} L50 ${a.neck + 11}`}
+              stroke={bridgeSpan.planned ? TODO : DONE}
+              strokeDasharray={plannedDash(Boolean(bridgeSpan.planned))}
+              strokeWidth={3}
+              strokeLinecap="butt"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
           <path
             d={`M${bridgeSpan.toPrevious ? -55 : 50} ${a.neck + 6} L${bridgeSpan.toNext ? 155 : 50} ${a.neck + 6}`}
             /*
@@ -471,6 +544,7 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 40, bridgeSpan, c
             strokeLinecap="butt"
             vectorEffect="non-scaling-stroke"
           />
+          </>
         )}
         {!body.hideRoots && a.roots.map((d, i) => <path key={i} d={d} fill={`url(#${clipId}-dn)`} {...bodyStroke} />)}
         {!body.hideCrown && <path d={a.crown} fill={`url(#${clipId}-en)`} {...bodyStroke} />}

@@ -34,7 +34,8 @@ public class BridgePonticChartingTests
     private static DentalRecordActInput Act(
         ToothCondition? condition,
         int[] teeth,
-        int[]? pontics = null) =>
+        int[]? pontics = null,
+        int[]? implantPiliers = null) =>
         new(
             ProcedureTypeId: null,
             ProcedureName: "Couronne / bridge (par élément)",
@@ -45,7 +46,8 @@ public class BridgePonticChartingTests
             ResultingCondition: condition,
             Surfaces: null,
             Note: null,
-            PonticToothNumbers: pontics);
+            PonticToothNumbers: pontics,
+            ImplantPilierToothNumbers: implantPiliers);
 
     private static Dictionary<int, ToothCondition> Chart(params DentalRecordActInput[] acts) =>
         DentalRecordActParser
@@ -231,5 +233,158 @@ public class BridgePonticChartingTests
         Assert.True(BridgeCharting.IsUnit(ToothCondition.BridgePontique));
         Assert.False(BridgeCharting.IsUnit(ToothCondition.Couronne));
         Assert.False(BridgeCharting.IsUnit(null));
+    }
+
+    // ── the third role, and the four branches of the fold ───────────────────────────────────
+
+    /// <summary>
+    /// A bridge carried by implants: the abutment teeth have a fixture in bone and no root, so charting them as
+    /// an ordinary <see cref="ToothCondition.BridgePilier"/> drew a rooted tooth over an implant — and
+    /// « does this abutment have a root? » is what a dentist reads off the chart before touching it.
+    /// </summary>
+    [Fact]
+    public void A_marked_implant_pilier_charts_as_one()
+    {
+        var chart = Chart(Act(ToothCondition.Bridge, [14, 15, 16], pontics: [15], implantPiliers: [14, 16]));
+
+        Assert.Equal(ToothCondition.BridgePilierImplant, chart[14]);
+        Assert.Equal(ToothCondition.BridgePontique, chart[15]);
+        Assert.Equal(ToothCondition.BridgePilierImplant, chart[16]);
+    }
+
+    /// <summary>
+    /// Branch 3 in isolation: a role was stated <b>somewhere</b> on the act, so an unmarked tooth is a plain
+    /// pilier even though no pontique exists at all. This is the « bridge on implants, nothing missing » case.
+    /// </summary>
+    [Fact]
+    public void An_implant_pilier_alone_promotes_the_unmarked_teeth_to_pilier()
+    {
+        var chart = Chart(Act(ToothCondition.Bridge, [14, 15, 16], implantPiliers: [14]));
+
+        Assert.Equal(ToothCondition.BridgePilierImplant, chart[14]);
+        Assert.Equal(ToothCondition.BridgePilier, chart[15]);
+        Assert.Equal(ToothCondition.BridgePilier, chart[16]);
+    }
+
+    /// <summary>
+    /// Branch 3's other half: the promotion applies only to the unspecific <see cref="ToothCondition.Bridge"/>.
+    /// An act already charted as a specific variant keeps its own condition for its unmarked teeth.
+    /// </summary>
+    [Fact]
+    public void A_specific_act_condition_is_not_promoted_for_its_unmarked_teeth()
+    {
+        var chart = Chart(Act(ToothCondition.BridgePilierImplant, [14, 15, 16], pontics: [15]));
+
+        Assert.Equal(ToothCondition.BridgePilierImplant, chart[14]);
+        Assert.Equal(ToothCondition.BridgePontique, chart[15]);
+        Assert.Equal(ToothCondition.BridgePilierImplant, chart[16]);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Branch 4, and the whole migration's safety rests on it.</b> « Both lists empty » is the test — never
+    /// « the pontique list is empty » — so every row written before any of this existed, and every bridge a
+    /// dentist does not detail, charts exactly as it always did.
+    /// </summary>
+    [Fact]
+    public void Neither_list_populated_leaves_even_a_specific_condition_untouched()
+    {
+        var chart = Chart(Act(ToothCondition.BridgePilier, [14, 15, 16]));
+
+        Assert.Equal(ToothCondition.BridgePilier, chart[14]);
+        Assert.Equal(ToothCondition.BridgePilier, chart[15]);
+        Assert.Equal(ToothCondition.BridgePilier, chart[16]);
+    }
+
+    /// <summary>
+    /// A tooth in both lists cannot be both, and the aggregate resolves it one way — <b>pontique wins</b> — so
+    /// the answer never depends on a fold order nobody reading the record can see.
+    /// </summary>
+    [Fact]
+    public void A_tooth_in_both_lists_is_charted_as_a_pontique()
+    {
+        var chart = Chart(Act(ToothCondition.Bridge, [14, 15], pontics: [15], implantPiliers: [15]));
+
+        Assert.Equal(ToothCondition.BridgePontique, chart[15]);
+    }
+
+    [Fact]
+    public void A_non_bridge_act_ignores_an_implant_pilier_list_entirely()
+    {
+        var chart = Chart(Act(ToothCondition.Couronne, [14, 15], implantPiliers: [14]));
+
+        Assert.Equal(ToothCondition.Couronne, chart[14]);
+        Assert.Equal(ToothCondition.Couronne, chart[15]);
+    }
+
+    // ── the bridge's identity ───────────────────────────────────────────────────────
+
+    private static List<ToothState> States(params DentalRecordActInput[] acts) =>
+        DentalRecordActParser
+            .BuildToothStates(acts, Guid.NewGuid(), Guid.NewGuid(), new DateTime(2026, 9, 7), Guid.NewGuid())
+            .ToList();
+
+    /// <summary>
+    /// ⚠️ <b>The defect this exists for.</b> Two bridges side by side used to be joined into one bar by the
+    /// chart's arch-adjacency scan, and one bridge's « still to place » status then leaked onto the finished
+    /// crown beside it. Each act states its own extent instead.
+    /// </summary>
+    [Fact]
+    public void Two_bridge_acts_in_one_fiche_get_two_distinct_groups()
+    {
+        var states = States(
+            Act(ToothCondition.Bridge, [14, 15, 16], pontics: [15]),
+            Act(ToothCondition.Bridge, [17, 18]));
+
+        var first = states.Where(t => t.ToothNumber is 14 or 15 or 16).Select(t => t.BridgeGroupId).Distinct().ToList();
+        var second = states.Where(t => t.ToothNumber is 17 or 18).Select(t => t.BridgeGroupId).Distinct().ToList();
+
+        Assert.Single(first);
+        Assert.Single(second);
+        Assert.NotNull(first[0]);
+        Assert.NotNull(second[0]);
+        Assert.NotEqual(first[0], second[0]);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>A one-tooth act gets NO group, and that is a regression guard rather than tidiness.</b> Before
+    /// <c>PonticToothNumbers</c> existed the only way to record a three-unit bridge was the same procedure
+    /// twice, so fiches are still entered as two acts of one tooth each. Give each of those a group and every
+    /// one becomes a group of one, both are excluded from <c>bridge-runs.ts</c>' ungrouped fallback, and the
+    /// travee simply disappears from a workflow people use.
+    /// </summary>
+    [Fact]
+    public void A_one_tooth_bridge_act_stays_ungrouped()
+    {
+        var states = States(Act(ToothCondition.Bridge, [14]), Act(ToothCondition.Bridge, [16]));
+
+        Assert.All(states, t => Assert.Null(t.BridgeGroupId));
+    }
+
+    [Fact]
+    public void A_non_bridge_act_never_carries_a_group()
+    {
+        var states = States(Act(ToothCondition.Obturation, [14, 15, 16]));
+
+        Assert.All(states, t => Assert.Null(t.BridgeGroupId));
+    }
+
+    /// <summary>
+    /// The fold is in the aggregate, not only in the parser: a caller handing a group to a non-bridge condition
+    /// is normalised rather than refused, because a client legitimately holds a stale value the moment the
+    /// dentist changes the act's etat.
+    /// </summary>
+    [Fact]
+    public void A_tooth_state_drops_a_group_it_is_not_entitled_to()
+    {
+        var couronne = new ToothState(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 16, ToothCondition.Couronne,
+            new DateTime(2026, 9, 7), bridgeGroupId: Guid.NewGuid());
+
+        var bridge = new ToothState(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 16, ToothCondition.BridgePilier,
+            new DateTime(2026, 9, 7), bridgeGroupId: Guid.NewGuid());
+
+        Assert.Null(couronne.BridgeGroupId);
+        Assert.NotNull(bridge.BridgeGroupId);
     }
 }

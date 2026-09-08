@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react"
 import { toast } from "sonner"
 import { Plus, Trash2, Stethoscope, ClipboardList, CheckSquare, Check, ChevronRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -47,8 +47,8 @@ import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
 import {
-  BRIDGE_UNIT_CONDITIONS,
   CONDITION_ORDER,
+  isBridgeUnit,
   conditionStyle,
   SURFACE_LABELS,
   SURFACE_ORDER,
@@ -70,6 +70,7 @@ import {
 } from "@/components/tooth-symbols"
 import { isUpperTooth } from "@/components/tooth-anatomy"
 import { useToothDragSelect, TOOTH_CELL_ATTR } from "@/components/tooth-drag-select"
+import { buildBridgeRuns } from "@/components/bridge-runs"
 import { ToothArchLayout, type ToothArch } from "@/components/tooth-arch-layout"
 import {
   toothTreatmentSummary,
@@ -84,16 +85,6 @@ const MAX_DOTS = 4
 
 /** Per-browser reading preference, like the files drawer's grid/list. Never a server-side setting. */
 const CHART_VIEW_STORAGE_KEY = "odontogram.chartView"
-
-/**
- * How many un-bridged sites a travée may cross before two bridges are read as one.
- *
- * ⚠️ **A bridge is charted on its ABUTMENTS, and the pontic site usually carries nothing at all** — measured on
- * this product's own data: `Bridge` on 14 and on 16, with 15 charted with nothing. So « join adjacent Bridge
- * teeth » finds no run and draws two unrelated crowns, which is precisely what a bridge is not. Three is a
- * 5-unit bridge, beyond anything a practice places in one span.
- */
-const MAX_PONTIC_SITES = 3
 
 // Conditions offerable as a diagnosis (everything except the implicit-healthy "Sain").
 const DIAGNOSIS_CONDITIONS = CONDITION_ORDER.filter((c) => c !== "Sain")
@@ -342,59 +333,37 @@ export function Odontogram({
     })
   }, [])
 
+  /*
+   * ⚠️ **`enabled: true` — the drag is no longer gated on the mode, and entering the mode is what it does.**
+   *
+   * It shipped gated on « Plusieurs dents », and the sentence that taught it (« Glissez pour cocher une
+   * série ») rendered only WHILE the mode was on — so the one thing telling you the gesture existed was behind
+   * already knowing it existed. Reported as « it isn't noticeable ».
+   *
+   * ⚠️ Safe here only because the hook now arms on **reaching a second tooth** rather than on 4 px of
+   * movement: on this chart a tap must still open the tooth's editor, and a hand tremor must not chart-select
+   * instead. See `tooth-drag-select.ts`.
+   */
   const dragSelect = useToothDragSelect({
-    enabled: multiSelect,
+    enabled: true,
     isSelected: (tooth) => selectedTeeth.has(tooth),
-    onPaint: paintTooth,
+    onPaint: (tooth, select) => {
+      // The first painted tooth ENTERS the mode, so the diagnosis bar and the tick marks appear with it.
+      if (select) setMultiSelect(true)
+      paintTooth(tooth, select)
+    },
   })
 
   /**
    * Which teeth carry a bridge that continues into the cell beside them.
    *
-   * <p>⚠️ Computed <b>here</b> and nowhere else: a travée spans teeth, `ToothSymbolGlyph` sees one, and
-   * `ToothArchLayout` deliberately takes no per-tooth state. This component is already the one place holding
-   * every tooth *and* the arch order, so it is the only honest owner of « is my neighbour part of the same
-   * bridge? ».</p>
-   *
-   * <p>⚠️ Adjacency is read off the <b>arch as laid out</b>, not off the FDI number: the upper arch runs
-   * 18…11 then 21…28, so 11 and 21 are neighbours on screen while their numbers are ten apart — and a bridge
-   * across the midline is an ordinary anterior bridge, not an edge case.</p>
+   * <p>⚠️ **This used to be computed here, from arch adjacency, and it was wrong.** Two bridges placed side
+   * by side merged into one bar, and one bridge's « still to place » status leaked along it onto the finished
+   * crown beside it. `bridge-runs.ts` is the one owner now — it groups on the record's own
+   * `bridgeGroupId` and keeps the old adjacency scan only as the fallback for ungrouped legacy rows. Its
+   * doc-comment carries the measurements.</p>
    */
-  const bridgeSpans = useMemo(() => {
-    // All three say « this tooth is part of a bridge » — the two specific ones say which part, and the older
-    // `Bridge` is what rows charted before the distinction existed still carry.
-    const bridgeMark = (tooth: number) =>
-      (byTooth.get(tooth) ?? []).find((e) => BRIDGE_UNIT_CONDITIONS.includes(e.condition))
-
-    const spans = new Map<number, BridgeSpan>()
-    for (const arch of [
-      [...teeth.upperRight, ...teeth.upperLeft],
-      [...teeth.lowerRight, ...teeth.lowerLeft],
-    ]) {
-      const piers = arch.map((t, i) => ({ i, mark: bridgeMark(t) })).filter((x) => x.mark)
-
-      for (let n = 0; n < piers.length - 1; n++) {
-        const from = piers[n]
-        const to = piers[n + 1]
-        // ⚠️ Two bridges in one arch must not be joined into one. A span of more than three intervening
-        // sites is not a bridge anybody places — it is the next bridge along.
-        if (to.i - from.i - 1 > MAX_PONTIC_SITES) continue
-
-        // Planned wins: an abutment still to place makes the whole run a plan, and drawing half of it in
-        // « réalisé » blue would say part of a bridge that does not exist yet is in the mouth.
-        const planned = from.mark!.source === "Diagnosis" || to.mark!.source === "Diagnosis"
-        for (let i = from.i; i <= to.i; i++) {
-          const existing = spans.get(arch[i])
-          spans.set(arch[i], {
-            toPrevious: existing?.toPrevious || i > from.i,
-            toNext: existing?.toNext || i < to.i,
-            planned: existing?.planned || planned,
-          })
-        }
-      }
-    }
-    return spans
-  }, [teeth, byTooth])
+  const bridgeSpans = useMemo(() => buildBridgeRuns(teeth, byTooth), [teeth, byTooth])
 
   const chartedConditions = useMemo(() => {
     const present = new Set<string>()
@@ -669,6 +638,21 @@ export function Odontogram({
                 is the one thing the label cannot say — that you may drag — shown only while the mode is on,
                 which is the only time dragging does anything. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              {/*
+                ⚠️ **It is a READOUT and still a real toggle, and both halves are load-bearing.**
+
+                The gate is what went: dragging now enters the mode on its own, so this no longer stands
+                between a dentist and the faster way of charting. What it must keep doing is two things a
+                pointer gesture cannot:
+
+                · **Discoverability.** The comment that stood here argued that a permanent, labelled control is
+                  the only thing that tells somebody who has just charted the same carie on three molars one at
+                  a time that there was a faster way. That argument is still right — it is the *gate* the owner
+                  overrode, not the affordance — so the button stays, and the « glissez » hint beside it is now
+                  PERMANENT rather than shown only once the mode is on.
+                · **Keyboard and AT.** A drag is pointer-only. With the button gone there is no route into
+                  multi-select without a pointer at all, since Space on a tooth opens its editor.
+              */}
               <Button
                 type="button"
                 size="sm"
@@ -679,10 +663,24 @@ export function Odontogram({
                 className="h-8 gap-1.5 text-xs coarse:h-11"
               >
                 <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
-                Plusieurs dents
+                {selectedTeeth.size > 0
+                  ? `${selectedTeeth.size} dent${selectedTeeth.size > 1 ? "s" : ""} sélectionnée${selectedTeeth.size > 1 ? "s" : ""}`
+                  : "Plusieurs dents"}
               </Button>
-              {multiSelect && (
-                <p className="text-xs text-muted-foreground">Glissez pour cocher une série</p>
+              {selectedTeeth.size > 0 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setMultiSelectMode(false)}
+                  className="h-8 text-xs coarse:h-11"
+                >
+                  Vider
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Glissez sur plusieurs dents pour les sélectionner
+                </p>
               )}
             </div>
 
@@ -693,10 +691,13 @@ export function Odontogram({
             per-tooth state — a wrapper works because pointer events bubble, and `select-none` is
             unconditional for the reason the agenda documents: a browser anchors a text selection on
             pointerdown, before any movement has said this is a drag. */}
-        <div {...dragSelect.containerProps} className={cn(multiSelect && "select-none")}>
+        {/* The gesture reaches the arch through `ToothArchLayout`'s own `dragSelect` prop now, not through a
+            wrapper here — that is what gave the fiche de soins the same drag from one edit, and it is why the
+            layout's « no per-tooth state » contract still holds: what it receives is an opaque handle. */}
         <ToothArchLayout
           teeth={teeth}
           defaultArch={defaultArch}
+          dragSelect={dragSelect}
           renderTooth={(t) => (
             <ToothCell
               key={t}
@@ -715,7 +716,6 @@ export function Odontogram({
             />
           )}
         />
-        </div>
 
             {multiSelect && (
               <MultiToothDiagnosisPanel
@@ -1072,7 +1072,11 @@ function ToothCell({
     // ⚠️ `underTreatment` widens the gate: a tooth whose treatment has not produced a fiche yet has NO charted
     // entry at all, so the old `entries.length === 0` test withheld the tooltip from exactly the teeth the
     // ring was drawn on — a mark on screen with no way to ask what it meant.
-    entries.length === 0 && !underTreatment ? (
+    //
+    // ⚠️ `bridgeSpan?.runLabel` widens it once more, and for the same reason: a tooth the bar merely CROSSES
+    // (an un-charted pontic site) has no entry and no treatment either, so it would be the one cell in the run
+    // that could not say which bridge it belongs to.
+    entries.length === 0 && !underTreatment && !bridgeSpan?.runLabel ? (
       node
     ) : (
       <TooltipProvider>
@@ -1080,6 +1084,18 @@ function ToothCell({
           <TooltipTrigger asChild>{node}</TooltipTrigger>
           <TooltipContent side="top" align="center" className="max-w-xs">
             <p className="mb-1 font-semibold">Dent {toothNum}</p>
+            {/*
+              ⚠️ **Which bridge, stated in words.** « Where does this bridge begin and where does it end? » was
+              the dentist's question, and the caps on the travée answer it graphically — but only for someone
+              who already reads the drawing. This is the same fact in text, so it survives greyscale, 200 % zoom
+              and a screen reader.
+
+              ⚠️ It sits ABOVE the entries because a crossed pontic site has no entries at all: it would
+              otherwise be a tooltip whose only content was an empty list.
+            */}
+            {bridgeSpan?.runLabel && (
+              <p className="mb-1 text-muted-foreground">{bridgeSpan.runLabel}</p>
+            )}
             {/* The treatment leads: it is the live fact, and the charted entries below it are its history. */}
             {treatments?.map((t) => (
               <p key={`${t.planId}-${t.designationFr}`} className="mb-1 text-primary">
@@ -1121,7 +1137,7 @@ function ToothCell({
         role="checkbox"
         aria-checked={isSelected}
         aria-label={`Dent ${toothNum}`}
-        // How a drag asks the document which tooth it is over — see `tooth-drag-select.ts`.
+        // Both branches carry it — see the note on the editor trigger for why gating it was a deadlock.
         {...{ [TOOTH_CELL_ATTR]: toothNum }}
         /*
           ⚠️ `pointerup` fires before `click`, so the last tooth of every drag would be painted by the gesture
@@ -1149,6 +1165,17 @@ function ToothCell({
             ? `Dent ${toothNum} — aucun état enregistré`
             : `Dent ${toothNum} — ${entries.length} état${entries.length > 1 ? "s" : ""} enregistré${entries.length > 1 ? "s" : ""}`
         }
+        /*
+         * ⚠️ **UNCONDITIONAL, and this branch is the one that matters.** The attribute is how a drag asks
+         * the document which tooth it is over, and it used to be emitted only inside the `selectionMode`
+         * branch below — i.e. only once « Plusieurs dents » was already on. Once the drag stopped being gated
+         * on that mode, that left a deadlock: with the mode off there was nothing to hit-test, so the gesture
+         * could never paint a tooth, and painting a tooth is what enters the mode. The drag therefore did
+         * NOTHING until the button was pressed — exactly the behaviour the mode was removed to fix, now under
+         * a permanent hint promising otherwise. Measured in the browser: 32 tooth buttons, zero `data-tooth`.
+         * Neither `tsc` nor `check:responsive` can see it; only looking can.
+         */
+        {...{ [TOOTH_CELL_ATTR]: toothNum }}
         /*
          * Movement hover gated behind `hover-hover:` per the policy in globals.css: a tap fires `:hover` and
          * leaves it applied, so on a tablet the tooth stayed enlarged and read as a stuck selection (AC-11).
@@ -1398,6 +1425,33 @@ function MultiToothDiagnosisPanel({
 
   const teeth = useMemo(() => Array.from(selectedTeeth).sort((a, b) => a - b), [selectedTeeth])
 
+  /**
+   * The bridge these teeth form, when the condition being charted is a bridge unit.
+   *
+   * <p>⚠️ **A ref, and it must survive a partial failure.** `handleSave` posts one tooth at a time —
+   * deliberately, so a failure can re-offer exactly the teeth that did not land — and the retry sends only
+   * those. A fresh id on the retry would put the landed teeth in one group and the retried ones in another,
+   * i.e. split one bridge in two, with the chart then drawing two runs where the dentist charted one.</p>
+   *
+   * <p>⚠️ Minted lazily and cleared only on success or on clearing the selection, never per render.</p>
+   */
+  const bridgeGroupRef = useRef<string | null>(null)
+
+  /**
+   * **A planned bridge charted here is one condition across N teeth, so it needs the roles asked for too.**
+   *
+   * <p>The fiche de soins asks « quelles dents sont des pontiques ? » because an act carries one
+   * `resultingCondition` for all of its teeth. This panel has exactly the same shape and exactly the same
+   * defect: without it, a three-unit bridge *planned* on the odontogramme could only be charted as three
+   * piliers or three pontiques — the anatomically impossible reading the whole pilier/pontique split exists to
+   * remove — and it is this surface, not the fiche, that the dentist was looking at when they reported it.</p>
+   *
+   * <p>⚠️ Each `ToothState` row carries its own condition, so nothing new is needed on the wire: the panel
+   * simply posts a different condition per tooth. Empty means « all piliers », which is the default and is
+   * never seeded — see `BridgeRolesStep` for why a positional guess is worse than none.</p>
+   */
+  const [ponticTeeth, setPonticTeeth] = useState<Set<number>>(new Set())
+
   const toggleSurface = (code: string) => {
     setSurfaces((prev) => {
       const next = new Set(prev)
@@ -1418,13 +1472,26 @@ function MultiToothDiagnosisPanel({
   const handleSave = async () => {
     setSaving(true)
     const failed: number[] = []
+    const bridge = isBridgeUnit(effectiveCondition)
+    /*
+     * ⚠️ Minted here, not per tooth, and only for a bridge — the server folds it away for anything else,
+     * but sending one on a carie would put a meaningless token on a clinical row. `??=` is what makes a retry
+     * reuse the id the first attempt used.
+     */
+    if (bridge) bridgeGroupRef.current ??= crypto.randomUUID()
+    // A group of one asserts nothing about a span, exactly as `BuildToothStates` decides server-side.
+    const groupId = bridge && teeth.length > 1 ? bridgeGroupRef.current : null
+
     for (const tooth of teeth) {
       try {
         await odontogramApi.diagnose(patientId, {
           toothNumber: tooth,
-          condition: effectiveCondition,
+          // Per tooth, so one gesture can chart piliers and pontiques together. Off a bridge every tooth gets
+          // the same condition, which is what it always did.
+          condition: bridge && ponticTeeth.has(tooth) ? "BridgePontique" : effectiveCondition,
           surfaces: serializeSurfaces(surfaces) || null,
           note: note.trim() || null,
+          bridgeGroupId: groupId,
         })
       } catch {
         failed.push(tooth)
@@ -1438,6 +1505,9 @@ function MultiToothDiagnosisPanel({
       toast.success(`${label} — ${teeth.length} dent${teeth.length > 1 ? "s" : ""} chartée${teeth.length > 1 ? "s" : ""}`)
       setNote("")
       setSurfaces(new Set())
+      setPonticTeeth(new Set())
+      // The next gesture is a different bridge.
+      bridgeGroupRef.current = null
       onClearSelection()
       return
     }
@@ -1496,7 +1566,13 @@ function MultiToothDiagnosisPanel({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={onClearSelection}
+          onClick={() => {
+            // The roles and the group belong to THIS gesture; carrying either into the next selection would
+            // chart a pontique on a tooth nobody marked, or file two bridges under one id.
+            setPonticTeeth(new Set())
+            bridgeGroupRef.current = null
+            onClearSelection()
+          }}
           disabled={saving}
           aria-label="Désélectionner toutes les dents"
           className="h-7 shrink-0 gap-1.5 px-2 text-xs coarse:h-11"
@@ -1530,6 +1606,56 @@ function MultiToothDiagnosisPanel({
           {saving ? "Enregistrement…" : "Enregistrer"}
         </Button>
       </div>
+
+      {/*
+        ⚠️ **The pontique question, asked on the PLANNING side too.**
+
+        The fiche de soins asks it because an act carries one condition for all of its teeth. This bar has the
+        same shape and had the same hole: a three-unit bridge *planned* here could only be charted as three
+        piliers or three pontiques — the anatomically impossible reading the pilier/pontique split exists to
+        remove. Each row it writes carries its own condition, so nothing new was needed on the wire.
+
+        Rendered only for a bridge unit on more than one tooth, so nothing changes for ordinary charting; and
+        nothing is pre-marked, for the reason `BridgeRolesStep` records at length — a positional guess is wrong
+        on a pier abutment, on a cantilever and across the midline.
+      */}
+      {isBridgeUnit(effectiveCondition) && teeth.length > 1 && (
+        <div role="group" aria-label="Dents pontiques" className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-2xs text-muted-foreground">Pontiques ?</span>
+          {teeth.map((tooth) => (
+            <button
+              key={tooth}
+              type="button"
+              disabled={saving}
+              aria-pressed={ponticTeeth.has(tooth)}
+              aria-label={
+                ponticTeeth.has(tooth)
+                  ? `Dent ${tooth} : pontique — la repasser en pilier`
+                  : `Dent ${tooth} : pilier — la passer en pontique`
+              }
+              onClick={() =>
+                setPonticTeeth((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(tooth)) next.delete(tooth)
+                  else next.add(tooth)
+                  return next
+                })
+              }
+              className={cn(
+                "inline-flex min-h-6 items-center rounded border px-1.5 font-mono text-2xs tabular-nums transition-colors coarse:min-h-11 coarse:px-2.5",
+                ponticTeeth.has(tooth)
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover-hover:hover:text-foreground",
+              )}
+            >
+              {tooth}
+            </button>
+          ))}
+          <span className="text-2xs text-muted-foreground">
+            {ponticTeeth.size === 0 ? "aucun — toutes piliers" : `${ponticTeeth.size} pontique${ponticTeeth.size > 1 ? "s" : ""}`}
+          </span>
+        </div>
+      )}
 
       {/*
         Faces and note folded, with the fold's own summary stating what is set — the two are optional on most

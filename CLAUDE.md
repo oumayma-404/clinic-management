@@ -144,6 +144,7 @@ how it was built, `notes.md` is what shipped.
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
+- [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
 - [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
@@ -393,10 +394,24 @@ touching the area.
   `ResultingCondition` per act it charted **three abutments and no pontic** — anatomically impossible — and the
   odontogramme then drew a travée across the run, which made it look deliberate. Entering it as the same
   procedure twice was the only way to say it and nothing suggested that. `DentalRecordAct.PonticToothNumbers`
-  records the answer and `BridgeCharting.ConditionFor` folds it; ⚠️ **an act with no pontique marked charts
-  exactly as before**, which is what makes it safe against every existing row. ⚠️ **Never infer the roles from
-  position**: a pier abutment is crowned in the *middle* of the span, a cantilever hangs past the last abutment,
-  and 12 · 11 · 21 sorts to 11 · 12 · 21, so « the middle one » is the wrong tooth.
+  records the answer and `BridgeCharting.ConditionFor` folds it — in **four** branches, and the fourth is
+  load-bearing: ⚠️ **with NEITHER role list populated an act charts exactly as before**, which is what makes it
+  safe against every existing row. « Both lists empty » is the test, never « the pontique list is empty », now
+  that `ImplantPilierToothNumbers` is the second one. ⚠️ **Never infer the roles from position**: a pier abutment
+  is crowned in the *middle* of the span, a cantilever hangs past the last abutment, and 12 · 11 · 21 sorts to
+  11 · 12 · 21, so « the middle one » is the wrong tooth.
+- **And a bridge's EXTENT cannot be inferred from position either — the product made the same mistake one level
+  up.** `odontogram.tsx` joined bridge-marked teeth by arch adjacency within three intervening sites, so a bridge
+  on 14·15·16 beside one on 17·18 drew **one five-unit bar** — and because the run's `planned` flag was OR-ed
+  across the merge, a **finished** crown on 16 was drawn dashed-red, *asserted as not yet in the mouth*. It also
+  failed the other way, drawing nothing for abutments four sites apart. `ToothState.BridgeGroupId` states the
+  answer (minted per bridge **act**, and per **gesture** for a planned one) and `web/components/bridge-runs.ts`
+  is the one reader. ⚠️ **A group is minted only for an act with ≥ 2 teeth**, or the two-acts-of-one-tooth
+  workflow that predates `PonticToothNumbers` silently loses its travée; ⚠️ **one bridge mark per tooth, the
+  newest, resolved before grouping**, or a redone bridge lands in two groups and they merge again; ⚠️ ungrouped
+  rows keep the old adjacency scan and **grouped teeth are excluded from it**; ⚠️ and the migration must
+  **never backfill** — inferring a group from adjacency would freeze today's wrong answer into data. Held by
+  `check:responsive`'s N30.
 - **A `PopoverContent` that caps its own height DISABLES the cap it looks like it is tightening.** The base reads
   `--radix-popover-content-available-height` — the room Radix measures between the anchor and the edge — and
   tailwind-merge lets a caller's `max-h-[…]` win over it, while `dvh` measures the viewport instead. Measured on

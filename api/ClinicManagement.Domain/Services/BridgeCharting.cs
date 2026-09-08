@@ -33,27 +33,54 @@ public static class BridgeCharting
         ToothCondition.Bridge,
         ToothCondition.BridgePilier,
         ToothCondition.BridgePontique,
+        ToothCondition.BridgePilierImplant,
     };
 
     /// <summary>True when <paramref name="condition"/> is one element of a bridge.</summary>
     public static bool IsUnit(ToothCondition? condition) => condition is not null && Units.Contains(condition.Value);
 
     /// <summary>
-    /// The state one tooth of an act ends in.
+    /// The state one tooth of an act ends in. <b>Four branches, and the fourth is the one that keeps history
+    /// intact:</b>
     ///
-    /// <para>⚠️ <b>An act with no pontique marked is left exactly as it was</b>, whatever its condition — that is
-    /// what keeps every record written before this existed, and every bridge a dentist does not bother to detail,
-    /// charting the way it always did. The split is opt-in per act, and marking one tooth is the opt-in.</para>
+    /// <list type="number">
+    /// <item>the tooth is a marked pontique ⇒ <see cref="ToothCondition.BridgePontique"/>;</item>
+    /// <item>the tooth is a marked implant pilier ⇒ <see cref="ToothCondition.BridgePilierImplant"/>;</item>
+    /// <item>some role was stated on this act ⇒ the act's own condition, with the unspecific
+    ///   <see cref="ToothCondition.Bridge"/> <b>promoted</b> to <see cref="ToothCondition.BridgePilier"/>
+    ///   (stating one role is what makes the rest of the span precise);</item>
+    /// <item><b>no role stated at all ⇒ the act's condition, untouched.</b></item>
+    /// </list>
+    ///
+    /// <para>⚠️ <b>Branch 4 is load-bearing.</b> An act with neither list populated charts exactly as it did
+    /// before any of this existed — that is what keeps every historical record, and every bridge a dentist does
+    /// not bother to detail, drawing the way it always did. The split is opt-in per act, and marking one tooth
+    /// is the opt-in. « Both lists empty » is the test, never « the pontique list is empty ».</para>
+    ///
+    /// <para>⚠️ <b><paramref name="implantPilierTeeth"/> has no default value, deliberately.</b>
+    /// <c>TreatmentPlanItemStepInput</c>'s fourth parameter defaults to null, so a three-argument copy compiled,
+    /// read correctly, and silently erased an osseointegration wait from every step of an act. A required
+    /// parameter makes every call site answer the question at compile time instead.</para>
     /// </summary>
     /// <param name="actCondition">The act's own resulting condition.</param>
     /// <param name="ponticTeeth">The teeth of this act the dentist marked as pontiques; may be empty.</param>
+    /// <param name="implantPilierTeeth">The teeth of this act the dentist marked as implant-borne piliers; may be empty.</param>
     /// <param name="tooth">The tooth being charted.</param>
     public static ToothCondition ConditionFor(
         ToothCondition actCondition,
         IReadOnlyCollection<int> ponticTeeth,
+        IReadOnlyCollection<int> implantPilierTeeth,
         int tooth)
     {
-        if (ponticTeeth.Count == 0 || !IsUnit(actCondition)) return actCondition;
-        return ponticTeeth.Contains(tooth) ? ToothCondition.BridgePontique : ToothCondition.BridgePilier;
+        if (!IsUnit(actCondition)) return actCondition;
+        // Branch 4: nothing was stated, so nothing is inferred.
+        if (ponticTeeth.Count == 0 && implantPilierTeeth.Count == 0) return actCondition;
+
+        if (ponticTeeth.Contains(tooth)) return ToothCondition.BridgePontique;
+        if (implantPilierTeeth.Contains(tooth)) return ToothCondition.BridgePilierImplant;
+
+        // Branch 3: a role was stated somewhere on this act, so an unmarked tooth is a plain pilier — but only
+        // the unspecific `Bridge` is promoted. An act already charted as a specific variant keeps its own.
+        return actCondition == ToothCondition.Bridge ? ToothCondition.BridgePilier : actCondition;
     }
 }

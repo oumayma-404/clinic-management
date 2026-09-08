@@ -85,4 +85,22 @@ public enum ToothCondition
     /// <summary>Bridge pontic (BP) — the artificial tooth suspended over an edentulous span. It has no root,
     /// because there is no tooth there.</summary>
     BridgePontique = 16,
+
+    /// <summary>
+    /// Bridge retainer carried by an <b>implant</b> rather than by a prepared natural tooth — « intermédiaire
+    /// de bridge sur implant ».
+    ///
+    /// <para><see cref="BridgePilier"/>'s own summary already said « a prepared natural tooth <b>or implant</b> »,
+    /// and that was the whole problem: the two are opposite things under the crown. A natural pilier keeps its
+    /// root and its periodontium; an implant pilier has a threaded fixture in bone and no root at all, which is
+    /// why the chart draws <see cref="Implant"/> with <c>hideRoots</c>. Folded into one value, an implant-borne
+    /// bridge was charted as a rooted tooth — a false statement about the one thing a dentist checks before
+    /// touching that abutment.</para>
+    ///
+    /// <para>⚠️ It is a <b>role of one tooth within one act</b>, not a separate act:
+    /// <c>DentalRecordAct.ImplantPilierToothNumbers</c> carries it beside the pontique list, and
+    /// <see cref="Services.BridgeCharting"/> folds the two into per-tooth states. A three-unit bridge on two
+    /// implants is still one act priced per element.</para>
+    /// </summary>
+    BridgePilierImplant = 17,
 }

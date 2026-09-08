@@ -19,6 +19,9 @@ public class DiagnoseToothCommand : IRequest<Result<ToothStateDto>>
     public string Condition { get; set; } = string.Empty;
     public string? Surfaces { get; set; }
     public string? Note { get; set; }
+    /// <summary>The bridge these teeth form, when a whole planned bridge is charted in one gesture — see
+    /// <see cref="DiagnoseToothInput.BridgeGroupId"/>. Folded away for a non-bridge condition.</summary>
+    public Guid? BridgeGroupId { get; set; }
 }
 
 public class DiagnoseToothCommandHandler : IRequestHandler<DiagnoseToothCommand, Result<ToothStateDto>>
@@ -75,7 +78,10 @@ public class DiagnoseToothCommandHandler : IRequestHandler<DiagnoseToothCommand,
                 request.Surfaces,
                 request.Note,
                 dentalRecordId: null,
-                source: ToothStateSource.Diagnosis);
+                source: ToothStateSource.Diagnosis,
+                // Folded to null by the aggregate for anything that is not a bridge unit, so a caller that
+                // sends one on a « Carie » is normalised rather than refused.
+                bridgeGroupId: request.BridgeGroupId);
 
             await _toothStateRepository.AddAsync(state, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -90,6 +96,7 @@ public class DiagnoseToothCommandHandler : IRequestHandler<DiagnoseToothCommand,
                 Note = state.Note,
                 TreatmentDate = state.TreatmentDate,
                 DentalRecordId = state.DentalRecordId,
+                BridgeGroupId = state.BridgeGroupId,
                 CreatedAt = state.CreatedAt
             });
         }

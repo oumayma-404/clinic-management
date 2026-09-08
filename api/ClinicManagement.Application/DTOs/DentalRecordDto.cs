@@ -219,6 +219,11 @@ public class DentalRecordActDto
     /// bridge, and for a bridge whose shape nobody detailed — see <c>DentalRecordAct.PonticToothNumbers</c>.
     /// </summary>
     public List<int> PonticToothNumbers { get; set; } = new();
+    /// <summary>
+    /// Which of <see cref="ToothNumbers"/> are piliers carried by an implant. Disjoint from
+    /// <see cref="PonticToothNumbers"/> — see <c>DentalRecordAct.ImplantPilierToothNumbers</c>.
+    /// </summary>
+    public List<int> ImplantPilierToothNumbers { get; set; } = new();
     public string? ResultingCondition { get; set; }
     public string? Surfaces { get; set; }
     public string? Note { get; set; }
@@ -242,6 +247,12 @@ public class DentalActInput
     /// legitimately holds a stale list the moment the dentist changes the act's état or removes a tooth.
     /// </summary>
     public List<int> PonticToothNumbers { get; set; } = new();
+    /// <summary>
+    /// The teeth of this act that are implant-borne piliers. Same contract as
+    /// <see cref="PonticToothNumbers"/> — ignored off a bridge, intersected rather than refused, and made
+    /// disjoint from the pontique list by the aggregate (pontique wins).
+    /// </summary>
+    public List<int> ImplantPilierToothNumbers { get; set; } = new();
     /// <summary>Resulting odontogram state (ToothCondition name); null/empty/"Sain" = no odontogram entry.</summary>
     public string? ResultingCondition { get; set; }
     public string? Surfaces { get; set; }

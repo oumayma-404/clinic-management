@@ -95,10 +95,13 @@ public static class ConditionTreatments
         // the couronne provisoire, tying the first rung and silently removing this diagnosis' pre-fill.
         [ToothCondition.Bridge] = [new(Produces: ToothCondition.Couronne)],
 
-        // The two halves of a bridge take the same act for the same reason `Bridge` does — the catalogue prices
-        // « Couronne / bridge (par élément) » per element, and a pilier and a pontique are each one element.
+        // The three roles of a bridge take the same act for the same reason `Bridge` does — the catalogue
+        // prices « Couronne / bridge (par élément) » per element, and a pilier, a pontique and an
+        // implant-borne pilier are each one element. ⚠️ An implant pilier's act is still the CROWN, not the
+        // implant: the fixture is already in the bone by the time the bridge is charted on it.
         [ToothCondition.BridgePilier] = [new(Produces: ToothCondition.Couronne)],
         [ToothCondition.BridgePontique] = [new(Produces: ToothCondition.Couronne)],
+        [ToothCondition.BridgePilierImplant] = [new(Produces: ToothCondition.Couronne)],
 
         /*
          * ⚠️ A missing tooth is REPLACED, never extracted again. Inverting ResultingCondition answered

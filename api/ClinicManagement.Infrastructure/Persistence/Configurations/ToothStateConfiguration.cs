@@ -48,6 +48,13 @@ public class ToothStateConfiguration : IEntityTypeConfiguration<ToothState>
 
         builder.Property(t => t.DentalRecordId);
 
+        // Which bridge this row belongs to — nullable, never backfilled, and NOT a foreign key: it is an
+        // opaque grouping token, so there is nothing to point at. Indexed because the client's `bridge-runs.ts`
+        // groups the whole odontogramme read on it.
+        builder.Property(t => t.BridgeGroupId);
+
+        builder.HasIndex(t => t.BridgeGroupId);
+
         builder.Property(t => t.TreatmentDate)
             .IsRequired();
 

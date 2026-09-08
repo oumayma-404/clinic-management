@@ -34,6 +34,16 @@ export const CONDITIONS: Record<string, ConditionStyle> = {
    */
   BridgePilier: { label: "Bridge — pilier", box: "bg-teal-700 text-white border-teal-800", swatch: "bg-teal-700", color: "#0f766e" },
   BridgePontique: { label: "Bridge — pontique", box: "bg-teal-900 text-white border-teal-950", swatch: "bg-teal-900", color: "#134e4a" },
+  /*
+   * The third role. Teal, because it IS a bridge unit and the family is what makes the trio readable together —
+   * but `teal-500` (Bridge), `teal-700` (pilier) and `teal-900` (pontique) had taken the family's whole usable
+   * range, so a fourth step inside it would land under the ~20 ΔE floor the « À traiter » note above records.
+   * `cyan-800` is the adjacent hue at a lightness nothing else occupies: nearest neighbour is
+   * `RestaurationDefectueuse` (#0e7490, cyan-700), one step lighter and in the pathology run rather than beside
+   * these in a legend. The DRAWING is what actually tells this one apart — it is the only bridge unit with a
+   * fixture instead of a root — and the colour only has to not collide.
+   */
+  BridgePilierImplant: { label: "Bridge — pilier sur implant", box: "bg-cyan-800 text-white border-cyan-900", swatch: "bg-cyan-800", color: "#155e75" },
   ExtraitAbsent: { label: "Extrait / Absent", box: "bg-gray-300 text-gray-500 border-gray-400 line-through dark:bg-gray-700 dark:text-gray-400", swatch: "bg-gray-300 dark:bg-gray-700", color: "#9ca3af" },
   /*
    * ⚠️ Rose, and it must NOT go back to the orange family. « À traiter » was `orange-400` (#fb923c) against
@@ -99,6 +109,7 @@ export const CONDITION_ORDER = [
   "Bridge",
   "BridgePilier",
   "BridgePontique",
+  "BridgePilierImplant",
   "Implant",
 ]
 
@@ -122,6 +133,7 @@ export const CONDITION_FAMILY: Record<string, ConditionFamily> = {
   Bridge: "traite",
   BridgePilier: "traite",
   BridgePontique: "traite",
+  BridgePilierImplant: "traite",
   Implant: "traite",
 }
 
@@ -198,7 +210,7 @@ export function serializeSurfaces(set: Set<string>): string {
  * these (`BridgeCharting.Units`). Three copies of one list is how the chart and the form come to disagree about
  * what a bridge is.</p>
  */
-export const BRIDGE_UNIT_CONDITIONS = ["Bridge", "BridgePilier", "BridgePontique"]
+export const BRIDGE_UNIT_CONDITIONS = ["Bridge", "BridgePilier", "BridgePontique", "BridgePilierImplant"]
 
 /** True when `condition` names one element of a bridge. Tolerates null so a caller need not pre-check. */
 export function isBridgeUnit(condition: string | null | undefined): boolean {
