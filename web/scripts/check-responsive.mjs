@@ -1898,6 +1898,65 @@ check(
 );
 
 check(
+  "bridge-run-has-one-owner",
+  "N30",
+  "A travee is drawn from `buildBridgeRuns`, never from a chart's own idea of which teeth are one bridge",
+  "A bridge's EXTENT cannot be read off the arch, and this product proved it. `odontogram.tsx` joined " +
+    "bridge-marked teeth by adjacency within three intervening sites, so a bridge on 14/15/16 beside one on " +
+    "17/18 drew ONE five-unit bar -- the dentist's own report -- and because the run's `planned` flag was " +
+    "OR-ed across the merge, a FINISHED crown on 16 beside a planned bridge rendered dashed-red, i.e. " +
+    "asserted as not yet placed: a false clinical statement on the one diagram read at a glance. It failed " +
+    "the other way too, drawing no bar at all for abutments four sites apart. `BridgeCharting`'s own summary " +
+    "on the server already says a bridge's SHAPE cannot come from position; its extent is the same rule one " +
+    "level up. `bridge-runs.ts` is the one owner: it groups on the record's own `bridgeGroupId` and keeps the " +
+    "adjacency scan only as the fallback for ungrouped legacy rows. Nothing errors when a second reader " +
+    "re-derives this -- two charts of one mouth simply disagree. Derived from the PROP rather than from a " +
+    "file list, so the third chart to draw a travee is covered the day it is written.",
+  () => {
+    const offenders = [];
+
+    // Any component handed a bridgeSpan must have obtained it from the one owner.
+    const CONSUMES = /\bbridgeSpan=\{/;
+    const OWNER = /\bbuildBridgeRuns\s*\(/;
+    // The module that DEFINES the prop is not a consumer of it, and neither is the owner itself.
+    const EXEMPT = new Set(["components/tooth-symbols.tsx", "components/bridge-runs.ts"]);
+
+    let candidates = 0;
+    for (const f of tsx()) {
+      const rp = rel(f);
+      if (EXEMPT.has(rp)) continue;
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+      if (!CONSUMES.test(code)) continue;
+      candidates++;
+      if (OWNER.test(code)) continue;
+      offenders.push({
+        file: rp,
+        line: lineAt(code, code.search(CONSUMES)),
+        text:
+          "passes `bridgeSpan` without calling `buildBridgeRuns` -- it is deciding for itself which teeth " +
+          "are one bridge, which is the arch-adjacency guess that merged two bridges into one bar and drew " +
+          "a finished crown as still-to-place",
+      });
+    }
+
+    // Tripwire: the prop was renamed, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text:
+          "found no surface passing `bridgeSpan=` -- the scan is broken, and a guard that matches nothing " +
+          "cannot hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
   "devis-balance-has-one-reader",
   "N18",
   "Every surface that prints a devis' « Reste » reads it through `displayedOutstanding`",
@@ -2558,6 +2617,89 @@ check(
 
     return hits;
   }
+);
+
+check(
+  "debt-rule-has-no-typescript-copy",
+  "N29",
+  "What a patient owes is SERVED — no browser file re-derives which plans carry debt",
+  "`PlanBillingRules` is the single authority on which treatment plans carry patient debt, and « Solde " +
+    "patient », « Créances », la caisse, the dashboard and the vendor console are held equal by " +
+    "`MoneyReadConsistencyTests` because all five route through it. A browser cannot: the de-duplication " +
+    "needs every invoice's plan link and status, so a client that sums the two lists a page happens to have " +
+    "loaded counts a bridged devis on BOTH tracks. That is not hypothetical — `displayedOutstanding`'s own " +
+    "docstring records it measured on a live database: 4 of 4 bridged plans reported the whole devis as " +
+    "unpaid, two of them fully settled, one patient shown « Solde dû 31,000 DT » in their file header and " +
+    "« Reste 120,000 DT » in the plan strip on the same page. `/factures` states the rule for its own figure " +
+    "in as many words — « Served, never derived here: only the server can apply PlanBillingRules " +
+    "BilledPlanIds ». So a hand-written disjunction over the debt-bearing statuses, or a local " +
+    "`carriesDebt`/`billedPlanIds`, is a second authority whose disagreements are silent in both directions: " +
+    "a debt shown that nobody owes, or one owed that is readable nowhere. Read the served figure — " +
+    "`totalOutstanding`, `lines[].outstanding`, `displayedOutstanding(plan)`, `InstallmentDto.isOverdue`.",
+  () => {
+    const offenders = [];
+
+    // The one file allowed to name these statuses at all: it holds `isPlanBilled`/`displayedOutstanding`,
+    // which read the SERVER's own per-plan figures rather than re-deriving the rule.
+    const OWNER = /components[\\/]treatment-plans[\\/]plan-next-action\.ts$/;
+    // Derived from the rule itself, not from a file list: any file writing its own name for the concept.
+    const NAMES = /\b(carriesDebt|billedPlanIds|debtBearing|debtBearingStatuses|isDebtBearing)\b/;
+    // A hand-written disjunction over `PlanBillingRules.DebtBearingPlanStatuses`. Two of the three members in
+    // one expression is the shape — the third is optional, since dropping `Completed` is itself the defect
+    // that hid a finished treatment's créance.
+    const DISJUNCTION =
+      /["']?Accepted["']?[^;\n]{0,80}\|\|[^;\n]{0,80}["']?(InProgress|Completed)["']?/;
+
+    let candidates = 0;
+
+    for (const f of tsx()) {
+      if (OWNER.test(f)) continue;
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      candidates++;
+
+      lines.forEach((line, i) => {
+        if (masked[i]) return;
+        // A *type* annotation naming a status is fine — the union is the DTO's own shape.
+        if (/^\s*(\/\/|\*)/.test(line)) return;
+
+        if (NAMES.test(line)) {
+          offenders.push({
+            file: rel(f),
+            line: i + 1,
+            text: "names the debt rule in the browser — read the served figure instead",
+            full: line.trim(),
+          });
+          return;
+        }
+        if (DISJUNCTION.test(line) && /status/i.test(line)) {
+          offenders.push({
+            file: rel(f),
+            line: i + 1,
+            text: "hand-written debt-bearing status test — ask the server, or `isPlanLive` for the clinical question",
+            full: line.trim(),
+          });
+        }
+      });
+    }
+
+    // Tripwire: the scan is measuring nothing rather than finding nothing — a renamed owner, or a glob that
+    // stopped matching. A guard that matches no candidates cannot hold anything.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/",
+        text: "found no files to scan — the guard is broken, not satisfied",
+      });
+    }
+    if (!ALL_FILES.some((f) => OWNER.test(f))) {
+      offenders.push({
+        file: "components/treatment-plans/plan-next-action.ts",
+        text: "the owner file is gone — this check's exemption now names nothing, so re-point it deliberately",
+      });
+    }
+
+    return offenders;
+  },
 );
 
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────

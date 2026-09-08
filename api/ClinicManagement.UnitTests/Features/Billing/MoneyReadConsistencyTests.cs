@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Billing;
 using ClinicManagement.Application.Features.Billing.Queries;
 using ClinicManagement.Application.Features.Invoices.Queries;
 using ClinicManagement.Application.Features.Dashboard;
@@ -238,7 +239,30 @@ public class MoneyReadConsistencyTests
         var result = await handler.Handle(
             new GetPatientBillingSummaryQuery { PatientId = PatientId }, CancellationToken.None);
         Assert.True(result.IsSuccess);
-        return result.Value!.TotalOutstanding;
+
+        // ⚠️ The breakdown must ALWAYS add up to the figure above it, and asserting that here rather than in a
+        // case of its own is the point: every fixture in this file — bridged, Draft-bridged, cancelled-bridge,
+        // unbridged, Draft-with-a-schedule — passes through this helper, so the invariant is checked against all
+        // of them and against any fixture added later. A patient reading « Solde dû 240,000 DT » above rows that
+        // sum to something else is the one defect « Reste à payer » exists to remove, and it cannot be caught by
+        // a test that only ever reads the total.
+        var summary = result.Value!;
+        Assert.Equal(
+            summary.TotalOutstanding,
+            InvoiceCalculator.RoundMoney(summary.Lines.Sum(l => l.Outstanding)));
+        // And the two per-track figures stay the same statement as the rows, so neither can drift alone.
+        Assert.Equal(
+            summary.InvoiceOutstanding,
+            InvoiceCalculator.RoundMoney(summary.Lines
+                .Where(l => l.Kind == PatientDebtLines.InvoiceKind).Sum(l => l.Outstanding)));
+        Assert.Equal(
+            summary.InstallmentOutstanding,
+            InvoiceCalculator.RoundMoney(summary.Lines
+                .Where(l => l.Kind == PatientDebtLines.TreatmentPlanKind).Sum(l => l.Outstanding)));
+        // Nothing settled is ever listed — a « reste 0,000 DT » row is a line that trains the eye to skip lines.
+        Assert.All(summary.Lines, l => Assert.True(l.Outstanding > 0m));
+
+        return summary.TotalOutstanding;
     }
 
     private async Task<decimal> CreancesAsync()

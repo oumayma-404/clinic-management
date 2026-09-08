@@ -43,9 +43,23 @@ export function nextStepOf(item: TreatmentPlanItemDto) {
   return steps.filter((s) => !s.doneDate).sort((a, b) => a.sequenceNumber - b.sequenceNumber)[0] ?? null
 }
 
-/** True once a non-cancelled invoice already bills this devis (hides "Facturer", blocks amending). */
+/**
+ * True once a note d'honoraires **represents** this devis — it hides « Facturer » and it is what
+ * {@link displayedOutstanding} keys on to name the note's balance instead of the plan's.
+ *
+ * <p>⚠️ **`linkedInvoiceStatus`, not `linkedInvoiceId != null`.** The server sets the link for *any* attached
+ * note including a `Draft` and a `Cancelled` one, and `TreatmentPlanMappingExtensions` deliberately keeps its
+ * own `planIsBilled` on `PlanBillingRules.RepresentsItsPlan` for that exact reason — a draft has carried nothing
+ * yet and a cancelled bridge is void, so in both cases the **plan** keeps its own balance and « Solde patient »
+ * counts it (pinned by `MoneyReadConsistencyTests`'
+ * `Cancelling_The_Bridge_Invoice_Returns_The_Plan_To_The_Balance`). Reading the id alone made this the one
+ * client-side copy of that rule that disagreed with the server: a devis of 1 000 with 400 collected and a
+ * cancelled bridge note showed « Reste sur la note 1 000,000 DT » in the plan strip while the header said
+ * « Solde dû 600,000 DT » — two figures about one devis, on one screen, and the wrong document named.</p>
+ */
 export function isPlanBilled(plan: TreatmentPlanDto): boolean {
-  return plan.linkedInvoiceId != null
+  const status = plan.linkedInvoiceStatus
+  return plan.linkedInvoiceId != null && status !== "Draft" && status !== "Cancelled"
 }
 
 /**

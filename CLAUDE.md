@@ -135,6 +135,7 @@ how it was built, `notes.md` is what shipped.
 
 - [`data-and-money-integrity`](features/data-and-money-integrity/notes.md) — Optimistic concurrency, solution-wide · Money is correctable, not immutable · Patient records resist destruction · `reconcile-money` (Local-mode console verb)
 - [`caisse-extrait`](features/caisse-extrait/notes.md) — La caisse has a statement, and it is a read · A session's payment reaches the till
+- [`patient-outstanding-breakdown`](features/patient-outstanding-breakdown/notes.md) — « Solde dû » says what it is made of, and each row is settled where it is read
 - [`adoption-gaps-remediation`](features/adoption-gaps-remediation/notes.md) — Re-saving a fiche tops its note up, and la caisse's day is Tunisian (Part 2)
 - [`audit-sections-3-to-10`](features/audit-sections-3-to-10/notes.md) — `verify-schema` (Local-mode console verb) · Tunisia is UTC+1, and `ClinicClock` is the only thing that knows it (P6) · A visit knows whether it was billed (P6) · One CNAM calculator (P6)
 

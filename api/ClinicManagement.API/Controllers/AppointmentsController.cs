@@ -41,6 +41,7 @@ public class AppointmentsController : ApiControllerBase
     public async Task<ActionResult<VisitsToCloseDto>> GetVisitsToClose(
         [FromQuery] int? days = null,
         [FromQuery] Guid? doctorId = null,
+        [FromQuery] Guid? patientId = null,
         [FromQuery] bool disregarded = false,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
@@ -49,6 +50,7 @@ public class AppointmentsController : ApiControllerBase
         {
             Days = days,
             DoctorId = doctorId,
+            PatientId = patientId,
             Disregarded = disregarded,
             Paging = PageRequest.From(page, pageSize),
         });

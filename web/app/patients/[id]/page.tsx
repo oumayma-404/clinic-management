@@ -74,7 +74,7 @@ import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
-import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto } from "@/lib/api/types"
+import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto, InvoiceDto, InstallmentDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { ExportButton } from "@/components/ui/export-button"
@@ -94,6 +94,12 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plans-table"
 import { PatientPlansStrip } from "@/components/treatment-plans/patient-plans-strip"
+import {
+  PatientOutstandingStrip,
+  PATIENT_OUTSTANDING_SECTION_ID,
+} from "@/components/patient/patient-outstanding-strip"
+import { PaymentModal } from "@/components/factures/payment-modal"
+import { InstallmentPaymentModal } from "@/components/treatment-plans/installment-payment-modal"
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
@@ -560,6 +566,27 @@ export default function PatientDetailsPage() {
    * `GET /patients/{id}/billing-summary` sits on `AnyClinicRole` rather than behind the clinic-wide money gate.
    */
   const [billingSummary, setBillingSummary] = useState<PatientBillingSummaryDto | null>(null)
+  /*
+   * « Travail non facturé » — this patient's séances whose remaining question is « combien a-t-il payé ? ».
+   *
+   * ⚠️ Read from `GET /appointments/to-close?patientId=…&days=` rather than derived here, and that is the whole
+   * design: `VisitClosureRules` already knows that a contrôle gratuit, a séance carried by a devis, and a visit
+   * marked « rien à facturer » or « retirée » are not gaps. A per-patient rule written beside the band would be
+   * a second copy of all four terms, and it would nag about every one of them. No `days` — one patient's list
+   * is not a clinic's first worklist, and a séance nobody billed is not less open for being three months old.
+   */
+  const [unbilledVisits, setUnbilledVisits] = useState<VisitToCloseDto[]>([])
+  /*
+   * The document a payment dialog is open on. ⚠️ Both are **re-read on open** rather than taken from this
+   * page's snapshot: the band's figures are minutes old at best, and a colleague settling the note in the
+   * meantime would otherwise prefill the dialog with a stale « reste » and produce a refusal for it. The page
+   * already live-refreshes on `invoices`/`treatmentplans`, so this only covers the gap between the last
+   * broadcast and the press.
+   */
+  const [paymentInvoice, setPaymentInvoice] = useState<InvoiceDto | null>(null)
+  const [paymentInstallment, setPaymentInstallment] =
+    useState<{ planId: string; installment: InstallmentDto } | null>(null)
+  const [openingDocumentId, setOpeningDocumentId] = useState<string | null>(null)
   const [unarchiving, setUnarchiving] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
@@ -786,6 +813,7 @@ export default function PatientDetailsPage() {
           plansData,
           documentsData,
           billingData,
+          unbilledData,
         ] = await Promise.all([
           attempt("appointments", appointmentsApi.list({ patientId })),
           attempt("medicalHistory", patientMedicalHistoryApi.list(patientId)),
@@ -797,6 +825,9 @@ export default function PatientDetailsPage() {
           attempt("plans", treatmentPlansApi.list({ patientId })),
           attempt("documents", medicalDocumentsApi.list(patientId)),
           attemptOne("billing", billingApi.getPatientSummary(patientId)),
+          // `attemptOne` and not `attempt`: this read answers with an object, and its own `null` is what makes
+          // « we could not ask » distinguishable from « nothing is unbilled » one line below.
+          attemptOne("billing", appointmentsApi.visitsToClose({ patientId })),
         ])
         if (cancelled) return
         setFailedSections(failed)
@@ -809,6 +840,15 @@ export default function PatientDetailsPage() {
         setFiles(filesData)
         setFolders(foldersData)
         setBillingSummary(billingData)
+        /*
+         * Only the séances whose remaining question is the MONEY one. `nextStep` is served precisely so this
+         * cascade is never re-derived in a browser: a visit nobody has confirmed happened is not « missing a
+         * note d'honoraires », and a séance with no fiche has no acts to price. Filtering on the step the
+         * server already decided is reading its answer, not repeating its rule.
+         */
+        setUnbilledVisits(
+          (unbilledData?.visits.items ?? []).filter((v: VisitToCloseDto) => v.nextStep === "Billing"),
+        )
         // A dental record counts as "already invoiced" only if a NON-cancelled invoice links to it
         // (a cancelled invoice frees it for re-billing) — via the header link OR any line link (a
         // multi-record note d'honoraires links each billed record at the line level). Safe degradation:
@@ -1158,6 +1198,108 @@ export default function PatientDetailsPage() {
    *  would be three code paths for one gesture. */
   const retrySections = () => setRefreshKey((k) => k + 1)
 
+  /*
+   * « Encaisser » on a « Reste à payer » row.
+   *
+   * ⚠️ **The document is re-read before the dialog opens**, never taken from `billingSummary`'s snapshot. Both
+   * dialogs prefill and bound themselves on the document's live « reste », and a colleague who settled the note
+   * in the meantime would otherwise leave the field prefilled with a figure the server now refuses — a refusal
+   * for a number this page itself printed. It also spares the band from having to carry a whole `InvoiceDto`
+   * per row. On failure the band is refreshed rather than left asserting the old figure.
+   *
+   * ⚠️ **No new money writer.** Both dialogs are the ones `/factures` and the devis workspace already use, so
+   * a payment recorded here goes through `RecordPaymentCommand` / `RecordInstallmentPaymentCommand` like any
+   * other — cash lives in exactly two ledgers and this adds neither a third nor a second route into them.
+   */
+  const openInvoicePayment = async (line: PatientDebtLineDto) => {
+    setOpeningDocumentId(line.documentId)
+    try {
+      setPaymentInvoice(await invoicesApi.get(line.documentId))
+    } catch (err) {
+      showErrorToast(err, "La note d'honoraires n'a pas pu être ouverte.")
+      setRefreshKey((k) => k + 1)
+    } finally {
+      setOpeningDocumentId(null)
+    }
+  }
+
+  const openInstallmentPayment = async (line: PatientDebtLineDto) => {
+    setOpeningDocumentId(line.documentId)
+    try {
+      const plan = await treatmentPlansApi.get(line.documentId)
+      /*
+       * The oldest échéance that can still take money, re-picked from the FRESH aggregate rather than trusting
+       * `line.payableInstallmentId`: between the read and the press that échéance may have been settled, and
+       * `Installment.RecordPayment` would refuse the payment against it. Ordered exactly as the server's own
+       * projection is — due date, then id — so the two pick the same row.
+       */
+      const target = [...plan.installments]
+        .filter((i) => !i.isPaid && i.outstanding > 0)
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.id.localeCompare(b.id))[0]
+      if (!target) {
+        // The band offered « Encaisser » on a devis whose échéancier has since closed. Say so and re-read,
+        // rather than opening a dialog with nothing to pay into.
+        toast.info("Cet échéancier ne peut plus recevoir de paiement. Ouvrez le devis pour le compléter.")
+        setRefreshKey((k) => k + 1)
+        return
+      }
+      setPaymentInstallment({ planId: plan.id, installment: target })
+    } catch (err) {
+      showErrorToast(err, "Le devis n'a pas pu être ouvert.")
+      setRefreshKey((k) => k + 1)
+    } finally {
+      setOpeningDocumentId(null)
+    }
+  }
+
+  /**
+   * « Solde dû » in the header → the breakdown, wherever it is.
+   *
+   * ⚠️ **Two steps, and the scroll must wait for the first.** The band lives in the « Actes dentaires » tab,
+   * and Radix mounts a `TabsContent` only when it becomes active — so scrolling in the same tick finds no
+   * element at all. `requestAnimationFrame` is what puts the lookup after the commit that mounts it.
+   *
+   * ⚠️ `block: "center"` rather than `"start"`: the page scroller is `AppShell`'s `<main>` and the band sits
+   * under a full table, so aligning to the top of the viewport leaves the figure the reader just pressed off
+   * screen above it.
+   */
+  const openOutstandingSection = () => {
+    openTab("medical-records")
+    requestAnimationFrame(() => {
+      document
+        .getElementById(PATIENT_OUTSTANDING_SECTION_ID)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    })
+  }
+
+  /** The document itself — the devis workspace, or the note in this page's own Factures tab. */
+  const openOutstandingDocument = (line: PatientDebtLineDto) => {
+    if (line.kind === "TreatmentPlan") {
+      router.push(`/treatment-plans/${line.documentId}`)
+      return
+    }
+    openTab("factures")
+  }
+
+  /**
+   * « Facturer » on a « Travail non facturé » row — the existing `BillDentalRecordDialog`, which issues the
+   * note and records the cash in one action and states the irreversibility before the press.
+   *
+   * The visit carries its fiche's id; the fiche itself is already in this page's state, so no read is needed.
+   * A row with no fiche cannot reach here — `VisitClosureRules` asks the fiche question before the money one.
+   */
+  const billUnbilledVisit = (visit: VisitToCloseDto) => {
+    const record = dentalRecords.find((r) => r.id === visit.dentalRecordId)
+    if (!record) {
+      // The fiche moved (deleted, or re-linked) since the band was read. Re-read rather than open a dialog on
+      // nothing — the row will simply be gone.
+      toast.info("Cette séance a changé. La liste a été actualisée.")
+      setRefreshKey((k) => k + 1)
+      return
+    }
+    setBillingRecord(record)
+  }
+
   /**
    * What a tab body shows when it holds no rows — **three** states, never two.
    *
@@ -1294,12 +1436,28 @@ export default function PatientDetailsPage() {
                 on this page already uses (`text-amber-600` had no `dark:` pair and measured ~3.2:1).
               */}
               {billingSummary !== null && billingSummary.totalOutstanding > 0 && (
-                <span className="text-muted-foreground">
+                /*
+                 * ⚠️ A real control, not a `<span>`, and that is the whole point of it: « Reste à payer » lives
+                 * inside the « Actes dentaires » tab now, so the one figure a header should carry has to be the
+                 * way to it — otherwise the breakdown is a section nobody on this page can find. It switches
+                 * the tab AND scrolls, because either alone leaves the reader somewhere they did not ask for.
+                 *
+                 * `touch-target`, not `coarse:py-*`: this is one isolated inline control in a wrapping row of
+                 * text, so the 44 px hit area is overlaid rather than painted (§ 2) — growing it would push
+                 * « âge · téléphone · assureur » apart on every patient.
+                 */
+                <button
+                  type="button"
+                  onClick={openOutstandingSection}
+                  className="touch-target inline-flex items-center gap-1 rounded text-muted-foreground underline-offset-2 hover:underline"
+                  aria-label={`Solde dû ${formatDT(billingSummary.totalOutstanding)} — voir le détail et encaisser`}
+                >
                   Solde dû{" "}
                   <span className="font-semibold text-warning-ink">
                     {formatDT(billingSummary.totalOutstanding)}
                   </span>
-                </span>
+                  <ChevronRight aria-hidden="true" className="size-3.5" />
+                </button>
               )}
               {/* « Adressé par » belongs in the strip and not only in the card below: a referred patient owes
                   the referrer a lettre de liaison, and that obligation has to be visible on opening the file
@@ -1571,6 +1729,7 @@ export default function PatientDetailsPage() {
           onOpen={() => openTab("treatment-plans")}
           onChanged={() => setRefreshKey((k) => k + 1)}
         />
+
 
         {/* Treatment leads the patient page now. A devis buried in the 8th tab was the whole reason the plan
             felt disconnected from the patient it belongs to. A band rather than a card since the redesign —
@@ -1980,6 +2139,27 @@ export default function PatientDetailsPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/*
+              « Reste à payer » — **under** l'historique des actes, in the same tab, and both halves of that
+              are deliberate.
+
+              It sat above the tabs at first, which put a money surface between the odontogramme and the whole
+              record and pushed the tabs down on every patient who owed anything. Here it reads as the natural
+              second half of the tab it is in: the table above says what was done and what each fiche took, and
+              this says what is still owed on it and settles it. Its own `id` is what « Solde dû » in the
+              header links to, since a band inside a tab cannot be seen from the top of the page.
+            */}
+            {sectionFailed("billing") && <SectionLoadFailure onRetry={retrySections} />}
+            <PatientOutstandingStrip
+              summary={billingSummary}
+              unbilled={unbilledVisits}
+              busyDocumentId={openingDocumentId}
+              onCollectInvoice={openInvoicePayment}
+              onCollectInstallment={openInstallmentPayment}
+              onOpenDocument={openOutstandingDocument}
+              onBillVisit={billUnbilledVisit}
+            />
           </TabsContent>
 
           {/* Plan de traitement Tab */}
@@ -2953,6 +3133,34 @@ export default function PatientDetailsPage() {
         record={billingRecord}
         patientName={patientName}
         onOpenChange={(open) => { if (!open) setBillingRecord(null) }}
+        onSuccess={() => setRefreshKey((k) => k + 1)}
+      />
+
+      {/*
+        The two payment dialogs « Reste à payer » opens — mounted here at page level, as siblings of every other
+        dialog on this page.
+
+        ⚠️ **The same two components `/factures` and the devis workspace use**, not copies: a payment recorded
+        from the patient file goes through `RecordPaymentCommand` / `RecordInstallmentPaymentCommand` like any
+        other, so it reaches la caisse, « Créances », the dashboard and its own reçu without this page knowing
+        anything about them. They also already carry the parts that are easy to lose — `useDirtyGuard` on money
+        being typed, `parseAmountInput`, `todayLocalIso`, the cheque sub-form behind one shared payload builder,
+        and the receipt offered in the success toast.
+
+        ⚠️ Mounted at page level and **never inside the band**: `PatientOutstandingStrip` is a plain section, and
+        putting a `Dialog` inside a list row is how a focus trap ends up nested in whatever the row is sitting in.
+      */}
+      <PaymentModal
+        open={paymentInvoice !== null}
+        onOpenChange={(open) => { if (!open) setPaymentInvoice(null) }}
+        invoice={paymentInvoice}
+        onSuccess={() => setRefreshKey((k) => k + 1)}
+      />
+      <InstallmentPaymentModal
+        open={paymentInstallment !== null}
+        onOpenChange={(open) => { if (!open) setPaymentInstallment(null) }}
+        planId={paymentInstallment?.planId ?? null}
+        installment={paymentInstallment?.installment ?? null}
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
 

@@ -287,6 +287,7 @@ public class AppointmentRepository : IAppointmentRepository
         DateTime fromUtc,
         DateTime nowUtc,
         Guid? doctorId = null,
+        Guid? patientId = null,
         CancellationToken cancellationToken = default)
     {
         return await _context.Appointments
@@ -316,7 +317,10 @@ public class AppointmentRepository : IAppointmentRepository
                                 // fiche and owes no money. Excluded so the in-memory rule never has to un-say them.
                                 && a.Status != AppointmentStatus.Cancelled
                                 && a.Status != AppointmentStatus.NoShow))
-                        && (doctorId == null || a.DoctorId == doctorId))
+                        && (doctorId == null || a.DoctorId == doctorId)
+                        // Outside the disregarded branch, like `doctorId`: a retired séance of THIS patient must
+                        // still be findable, and narrowing to one patient never widens the set.
+                        && (patientId == null || a.PatientId == patientId))
             // Unique column last — the caller pages this, and OFFSET over a non-unique sort can show a row on two
             // pages and skip another, which on this screen reads as « une séance a disparu ».
             .OrderBy(a => a.AppointmentDateTime)

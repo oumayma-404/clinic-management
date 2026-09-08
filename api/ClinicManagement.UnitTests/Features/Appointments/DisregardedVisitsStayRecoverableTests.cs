@@ -132,7 +132,7 @@ public class DisregardedVisitsStayRecoverableTests
     {
         _appointments.Setup(r => r.GetClosureCandidatesAsync(
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(candidates);
 
         _dentalRecords.Setup(r => r.GetAppointmentLinksAsync(
@@ -151,7 +151,7 @@ public class DisregardedVisitsStayRecoverableTests
             .ReturnsAsync(Array.Empty<Guid>());
 
         return await VisitClosureReader.ReadAsync(
-            ClinicId, days: null, doctorId: null, Now,
+            ClinicId, days: null, doctorId: null, patientId: null, Now,
             _appointments.Object, _dentalRecords.Object, _invoices.Object, _plans.Object);
     }
 }
