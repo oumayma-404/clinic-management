@@ -142,13 +142,52 @@ public class NullableDateOfBirthTests
         Assert.Equal(dob, patient.DateOfBirth);
     }
 
-    [Fact] // [AC-21]
-    public void Insurance_Accepts_One_Side_And_Refuses_Neither()
+    /// <summary>
+    /// Any one part is enough, and an all-blank address is <c>null</c> rather than a throw.
+    ///
+    /// <para>Adjacent to this feature and easy to regress together: every part used to be mandatory, so « Sfax »
+    /// alone was dropped on create and threw on update. The invariant is now the retired insurance block's —
+    /// refuse a value with <b>no</b> side, express « none » as a null address.</para>
+    /// </summary>
+    [Fact]
+    public void An_Address_Accepts_Any_One_Part_And_Is_Null_With_None()
     {
-        // Adjacent to this feature and easy to regress together: both halves used to be mandatory, which is what
-        // made the client pad a missing one with the literal "Unknown".
-        Assert.Equal("CNAM", new InsuranceInfo("CNAM", null).Provider);
-        Assert.Equal("12345", new InsuranceInfo(null, "12345").PolicyNumber);
-        Assert.Throws<ArgumentException>(() => new InsuranceInfo("   ", null));
+        Assert.Equal("12 rue de Marseille", Address.OfAny("12 rue de Marseille", null, null, null)!.Street);
+        Assert.Equal("Sfax", Address.OfAny(null, "Sfax", null, null)!.City);
+        Assert.Equal("Sfax", Address.OfAny(null, null, "Sfax", null)!.State);
+        Assert.Equal("3000", Address.OfAny(null, null, null, "3000")!.ZipCode);
+
+        Assert.Null(Address.OfAny(null, null, null, null));
+        Assert.Null(Address.OfAny("   ", "", "\t", null));
+
+        // A country alone asserts nothing about where the patient lives — it is defaulted client-side.
+        Assert.Null(Address.OfAny(null, null, null, null, "Tunisia"));
+    }
+
+    /// <summary>
+    /// « Tabac »: a quantity belongs to a smoker alone, and is dropped rather than kept contradicting the status.
+    /// </summary>
+    [Fact]
+    public void Tobacco_Keeps_A_Quantity_Only_For_A_Smoker()
+    {
+        var smoker = new TobaccoUse(SmokingStatus.Smoker, 20, TobaccoUnit.Cigarettes);
+        Assert.Equal(20, smoker.PerDay);
+        Assert.Equal(TobaccoUnit.Cigarettes, smoker.Unit);
+
+        // A bare figure is cigarettes, but the unit is STORED rather than left for each reader to assume.
+        Assert.Equal(TobaccoUnit.Cigarettes, new TobaccoUse(SmokingStatus.Smoker, 20).Unit);
+
+        // « Fumeur, quantité non dite » is a real answer.
+        Assert.Null(new TobaccoUse(SmokingStatus.Smoker).PerDay);
+
+        foreach (var status in new[] { SmokingStatus.NonSmoker, SmokingStatus.FormerSmoker })
+        {
+            var use = new TobaccoUse(status, 20, TobaccoUnit.Packs);
+            Assert.Null(use.PerDay);
+            Assert.Null(use.Unit);
+        }
+
+        Assert.Throws<ArgumentException>(() => new TobaccoUse(SmokingStatus.Smoker, 0));
+        Assert.Throws<ArgumentException>(() => new TobaccoUse(SmokingStatus.Smoker, TobaccoUse.MaxPerDay + 1));
     }
 }

@@ -221,7 +221,7 @@ One `IEntityTypeConfiguration<T>` per aggregate, auto-discovered via `ApplyConfi
 Conventions: `Id` `ValueGeneratedNever()` (GUIDs from domain ctors); enums `HasConversion<int>()`; value
 objects (Email, PhoneNumber) owned/converted. `AppointmentConfiguration` stores `Duration` as ticks, makes
 `PatientId` nullable (busy slots, `SetNull`), `ProcedureTypeId`/`DoctorId` FKs `SetNull`. Files: Appointment,
-Patient, PatientFlag, PatientFile, PatientFolder, PatientMedicalHistory, PatientFamilyHistory, Notification,
+Patient, PatientFile, PatientFolder, PatientMedicalHistory, PatientFamilyHistory, Notification,
 StaffNotification (indexes `(ClinicId, EffectiveFeedTime)` + `AppointmentId`), NotificationDismissal (PK
 `(NotificationId, UserId)`, index on `UserId`, cascade from the notification — the per-user « je ne veux plus
 voir cette ligne », added by `AddNotificationDismissals`), NotificationRead (PK
@@ -231,7 +231,7 @@ Installment, TreatmentPlan, TreatmentPlanItem, ClinicReminderSettings, CnamLette
 DentalActCode, Medication, MedicationActiveIngredient, Expense, WaitingListEntry, LabWorkOrder.
 
 ### Migrations (`Migrations/`)
-46 migrations, applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Early ones
+47 migrations, applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Early ones
 build the base schema, Google-event id, procedures, medical/dental records, notes, storage folders, medical
 documents, nullable-patient appointments, and the multi-tenant clinic/user/doctor model. Notable later ones:
 `AddLocalAuthUserFields` (Local-auth `User` columns + partial unique index on lowercased email filtered to

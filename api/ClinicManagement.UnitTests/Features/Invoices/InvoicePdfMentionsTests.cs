@@ -107,7 +107,7 @@ public class InvoicePdfMentionsTests
     [Fact]
     public async Task The_Patient_Address_Reaches_The_Render_Model()
     {
-        PatientHas(new Address("12 rue de Marseille", "Tunis", "Tunis", "1000"));
+        PatientHas(Address.OfAny("12 rue de Marseille", "Tunis", "Tunis", "1000"));
         var invoice = IssuedInvoice();
 
         var data = await RenderAsync(invoice);
@@ -120,7 +120,7 @@ public class InvoicePdfMentionsTests
     [Fact]
     public async Task The_Governorate_Is_Not_Repeated()
     {
-        PatientHas(new Address("5 avenue Habib Bourguiba", "Sfax", "Sfax", "3000"));
+        PatientHas(Address.OfAny("5 avenue Habib Bourguiba", "Sfax", "Sfax", "3000"));
         var invoice = IssuedInvoice();
 
         var data = await RenderAsync(invoice);
@@ -132,7 +132,7 @@ public class InvoicePdfMentionsTests
     [Fact]
     public async Task The_Country_Is_Not_Printed()
     {
-        PatientHas(new Address("12 rue de Marseille", "Tunis", "Tunis", "1000", "Tunisie"));
+        PatientHas(Address.OfAny("12 rue de Marseille", "Tunis", "Tunis", "1000", "Tunisie"));
         var invoice = IssuedInvoice();
 
         var data = await RenderAsync(invoice);

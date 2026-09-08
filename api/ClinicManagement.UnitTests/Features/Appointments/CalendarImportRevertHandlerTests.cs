@@ -65,7 +65,7 @@ public class CalendarImportRevertHandlerTests
 
     /// <summary>A placeholder holding nothing but the appointments this run created.</summary>
     private static PatientLinkedDataCounts UntouchedPatient(int appointments) =>
-        new(appointments, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Notifications: 1);
+        new(appointments, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Notifications: 1);
 
     private RevertCalendarImportRunCommandHandler Handler(CalendarImportRun run, CalendarImportRunContents contents)
     {

@@ -109,7 +109,7 @@ public class ClinicalRecordAuditCoverageTests
                  {
                      nameof(DentalRecord), nameof(MedicalDocument), nameof(PatientFile),
                      nameof(ToothState), nameof(PatientMedicalHistory), nameof(PatientFamilyHistory),
-                     nameof(PatientFlag), nameof(Appointment),
+                     nameof(Appointment),
                  })
         {
             Assert.Contains(name, found);

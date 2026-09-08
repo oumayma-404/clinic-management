@@ -143,7 +143,6 @@ public class MoneyReadConsistencyTests
                     ? new Dictionary<Guid, Patient> { [PatientId] = patient }
                     : new Dictionary<Guid, Patient>()));
         _patients.Setup(r => r.CountByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(1);
-        _patients.Setup(r => r.CountFlaggedByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
         _appointments.Setup(r => r.CountByClinicIdAsync(
                 It.IsAny<Guid>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<AppointmentStatus?>(),
                 It.IsAny<IReadOnlyCollection<AppointmentStatus>?>(), It.IsAny<CancellationToken>()))

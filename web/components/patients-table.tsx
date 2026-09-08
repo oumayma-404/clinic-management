@@ -10,13 +10,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX, Archive } from "lucide-react"
+import { Users, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX, Archive } from "lucide-react"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
-import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
   DropdownMenu,
@@ -39,7 +38,6 @@ import { quoteFr } from "@/lib/format"
 
 interface PatientsTableProps {
   searchQuery: string
-  showFlaggedOnly: boolean
   /**
    * Include archived patients in the list. WIDENS the read rather than narrowing it, which is why the row for an
    * archived patient carries a badge — otherwise the two kinds are indistinguishable once mixed.
@@ -64,7 +62,7 @@ interface PatientsTableProps {
    * a surface that embeds this table without a create flow simply gets no button.</p>
    */
   onCreatePatient?: () => void
-  /** Clears search + flag + date window, for the « nothing matching » empty state. Same reason it is a prop. */
+  /** Clears search + the date window, for the « nothing matching » empty state. Same reason it is a prop. */
   onClearFilters?: () => void
   /**
    * Bumped by the page when a colleague's change arrives over realtime — a **refetch**, never a remount.
@@ -80,13 +78,12 @@ interface PatientsTableProps {
 
 /**
  * Column widths the loading skeleton mirrors, in the table's own order — Nom, Date de naissance, Téléphone,
- * Email, Signalements, Actions. Kept beside the table so the two cannot drift into different shapes.
+ * Email, Statut, Actions. Kept beside the table so the two cannot drift into different shapes.
  */
 const PATIENT_COLUMN_WIDTHS = ["w-[22%]", "w-[16%]", "w-[16%]", "w-[22%]", "w-[14%]", "w-[10%]"] as const
 
 export function PatientsTable({
   searchQuery,
-  showFlaggedOnly,
   showArchived = false,
   showPendingReviewOnly = false,
   createdFrom,
@@ -202,7 +199,6 @@ export function PatientsTable({
         page,
         pageSize,
         search,
-        flaggedOnly: showFlaggedOnly || undefined,
         includeArchived: showArchived || undefined,
         pendingCalendarReviewOnly: showPendingReviewOnly || undefined,
         createdFrom,
@@ -212,7 +208,7 @@ export function PatientsTable({
         // sélecteur de patients du rendez-vous lisent le même endpoint et gardent l'ordre alphabétique.
         sort: 'RecentlyAdded',
       }),
-    [showFlaggedOnly, showArchived, showPendingReviewOnly, createdFrom, createdTo],
+    [showArchived, showPendingReviewOnly, createdFrom, createdTo],
   )
 
   const {
@@ -228,7 +224,7 @@ export function PatientsTable({
     fetchPage,
     search: searchQuery,
     // Ticking « signalés » or arriving on a date-bounded drill-through returns to page 1 (AC-22).
-    filters: [showFlaggedOnly, showArchived, showPendingReviewOnly, createdFrom, createdTo],
+    filters: [showArchived, showPendingReviewOnly, createdFrom, createdTo],
     // Both signals in one key: this table's own mutations and the page's realtime nudge. A refetch either way.
     refreshKey: `${reloadKey ?? 0}:${refreshKey}`,
   })
@@ -300,10 +296,6 @@ export function PatientsTable({
     return `${patient.firstName} ${patient.lastName}`.trim()
   }
 
-  const hasActiveFlags = (patient: PatientDto) => {
-    return patient.flags && patient.flags.some(flag => flag.isActive)
-  }
-
   /**
    * Is the list empty because the clinic has no patients, or because a filter excluded them all? They are
    * different facts and `EmptyState` exists to keep them apart.
@@ -313,7 +305,7 @@ export function PatientsTable({
    * duplicate of a patient who is sitting one filter away.</p>
    */
   const isFiltered =
-    isSearching || showFlaggedOnly || showPendingReviewOnly || Boolean(createdFrom || createdTo)
+    isSearching || showPendingReviewOnly || Boolean(createdFrom || createdTo)
 
   const emptyState = error ? null : (
     <EmptyState
@@ -325,13 +317,11 @@ export function PatientsTable({
       title={
         isSearching
           ? `Aucun résultat pour ${quoteFr(searchQuery.trim())}`
-          : showFlaggedOnly
-            ? "Aucun patient signalé"
-            : showPendingReviewOnly
-              ? "Aucun patient à compléter"
-              : isFiltered
-                ? "Aucun patient sur cette période"
-                : "Aucun patient enregistré"
+          : showPendingReviewOnly
+            ? "Aucun patient à compléter"
+            : isFiltered
+              ? "Aucun patient sur cette période"
+              : "Aucun patient enregistré"
       }
       description={
         isFiltered
@@ -442,23 +432,7 @@ export function PatientsTable({
               // genuinely has no date of birth on file (AC-18).
               return age !== null ? `${age} ans` : "âge inconnu"
             }}
-            status={(p) =>
-              hasActiveFlags(p) || p.isArchived ? (
-                <span className="flex flex-wrap gap-1">
-                  {archivedBadge(p)}
-                  {p.flags
-                    ?.filter((flag) => flag.isActive)
-                    .map((flag) => (
-                      <Badge key={flag.id} variant="destructive" className="gap-1">
-                        <Flag className="h-3 w-3" />
-                        {/* The enum name was rendered raw — « HighPriority » in a red badge beside a patient's
-                            name, in an otherwise entirely French UI. See `patient-flag-labels.ts`. */}
-                        {patientFlagLabel(flag.flagType)}
-                      </Badge>
-                    ))}
-                </span>
-              ) : null
-            }
+            status={(p) => (p.isArchived ? archivedBadge(p) : null)}
             /*
               Tapping the card opens the patient's FULL record, the same destination the desktop row click has
               always had (`handleRowClick` → `/patients/{id}`). It used to open the résumé modal instead, so
@@ -528,7 +502,7 @@ export function PatientsTable({
                 <TableHead>Date de naissance</TableHead>
                 <TableHead>Téléphone</TableHead>
                 <TableHead>E-mail</TableHead>
-                <TableHead>Signalements</TableHead>
+                <TableHead>Statut</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -544,7 +518,6 @@ export function PatientsTable({
               ) : (
                 patients.map((patient) => {
                   const age = calculateAge(patient.dateOfBirth)
-                  const hasFlags = hasActiveFlags(patient)
                   return (
                     <TableRow 
                       key={patient.id} 
@@ -587,16 +560,8 @@ export function PatientsTable({
                         {patient.email || "Non renseigné"}
                       </TableCell>
                       <TableCell>
-                        {hasFlags || patient.isArchived ? (
-                          <div className="flex flex-wrap gap-1">
-                            {archivedBadge(patient)}
-                            {patient.flags?.filter(flag => flag.isActive).map((flag) => (
-                              <Badge key={flag.id} variant="destructive" className="gap-1">
-                                <Flag className="h-3 w-3" />
-                                {patientFlagLabel(flag.flagType)}
-                              </Badge>
-                            ))}
-                          </div>
+                        {patient.isArchived ? (
+                          <div className="flex flex-wrap gap-1">{archivedBadge(patient)}</div>
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}

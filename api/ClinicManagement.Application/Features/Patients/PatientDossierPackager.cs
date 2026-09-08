@@ -162,10 +162,11 @@ public static class PatientDossierPackager
         Row("Code postal", p.Address?.ZipCode);
         Row("Identifiant CNAM", p.CnamInfo?.IdentifiantUnique);
         Row("Régime", p.CnamInfo?.Regime);
-        Row("Assurance", p.InsuranceInfo?.Provider);
-        Row("N° de police", p.InsuranceInfo?.PolicyNumber);
+        Row("Motif de consultation", p.ConsultationReason);
         Row("Allergies", p.Allergies);
         Row("Antécédents médicaux (résumé)", p.MedicalHistory);
+        Row("Tabac", p.TobaccoUse is { } tobacco ? TobaccoLabels.Status(tobacco.Status) : null);
+        Row("Tabac (par jour)", TobaccoLabels.PerDay(p.TobaccoUse));
         Row("Contact d'urgence", p.EmergencyContactName);
         Row("Téléphone d'urgence", p.EmergencyContactPhone?.Value);
         Row("Adressé par", p.ReferredBy);

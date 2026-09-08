@@ -62,9 +62,15 @@ public class PatientDto
     /// <inheritdoc cref="Notes"/>
     public string? ImportantNotes { get; set; }
     public AddressDto? Address { get; set; }
-    public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }
-    public List<PatientFlagDto> Flags { get; set; } = new();
+
+    /// <summary>
+    /// « Motif de consultation » — why the patient came in the first place. Read beside their name.
+    /// </summary>
+    public string? ConsultationReason { get; set; }
+
+    /// <summary>« Tabac ». Null means nobody has asked; see <see cref="TobaccoUseDto"/>.</summary>
+    public TobaccoUseDto? TobaccoUse { get; set; }
 
     /// <summary>
     /// Archived patients are hidden from lists, search, recall and every picker, but keep every record and stay

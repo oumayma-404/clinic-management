@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { CnamInfo, PatientDto, PatientDeletionCheckDto, ReminderConsent } from './types';
+import type { CnamInfo, PatientDto, PatientDeletionCheckDto, ReminderConsent, TobaccoUse } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const patientsApi = {
@@ -26,11 +26,6 @@ export const patientsApi = {
       createdFrom?: string;
       createdTo?: string;
       /**
-       * Only patients carrying an active flag. Server-side — it used to be a client-side `.filter()`, which over a
-       * page means "the flagged ones among these 25" and hides the flagged patients on every other page.
-       */
-      flaggedOnly?: boolean;
-      /**
        * Include archived patients. Only `/patients`' « Afficher les patients archivés » sets this — the header
        * lookup and every picker leave it off, because archiving means "stop offering this person".
        *
@@ -40,7 +35,7 @@ export const patientsApi = {
       includeArchived?: boolean;
       /**
        * Only the patients the Google Calendar import conjured from an event title and nobody has confirmed.
-       * Server-side, for `flaggedOnly`'s reason.
+       * Server-side: over a page a client-side filter would mean « those of these 25 ».
        */
       pendingCalendarReviewOnly?: boolean;
       /**
@@ -81,24 +76,23 @@ export const patientsApi = {
     phoneNumber?: string | null;
     medicalHistory?: string;
     allergies?: string;
-    /** `null` is accepted so one expression can serve create and update — on create it is simply "no address". */
+    /**
+     * `null` is accepted so one expression can serve create and update — on create it is simply "no address".
+     *
+     * ⚠️ Every part is optional: « Sfax » alone is a real address. All four used to be required, which made the
+     * server drop a partial one silently here and throw on the update path.
+     */
     address?: {
-      street: string;
-      city: string;
-      state: string;
-      zipCode: string;
+      street?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
       country?: string;
     } | null;
-    /**
-     * Either side is enough (AC-21) — omit the block entirely to store no insurance. The two fields used to be
-     * required, which is why the dialog padded a missing half with the literal `"Unknown"`.
-     */
-    insuranceInfo?: {
-      provider?: string;
-      policyNumber?: string;
-      groupNumber?: string;
-      expiryDate?: string;
-    };
+    /** « Motif de consultation » — why the patient came in the first place. */
+    consultationReason?: string;
+    /** « Tabac ». Omit to leave it unanswered — never send a `NonSmoker` block to mean « nobody asked ». */
+    tobaccoUse?: TobaccoUse | null;
     /**
      * The CNAM identity block, as the shared `CnamInfo` rather than a re-listed literal. It used to be spelled out
      * inline here, so L10's two ceiling fields typechecked on the update path (which reads `CnamInfo`) and failed on
@@ -127,8 +121,6 @@ export const patientsApi = {
     /** Patient-level notes; `importantNotes` is shown highlighted on the patient's file. */
     notes?: string;
     importantNotes?: string;
-    isFlagged?: boolean;
-    flagNotes?: string;
     /**
      * « Créer quand même » — the user has been shown that this person appears to be on file already and confirmed
      * they are somebody else.
@@ -144,7 +136,7 @@ export const patientsApi = {
 
   update: async (
     id: string,
-    data: Partial<PatientDto> & { isFlagged?: boolean; flagNotes?: string },
+    data: Partial<PatientDto>,
   ): Promise<PatientDto> => {
     return apiPut<PatientDto>(`/patients/${id}`, data);
   },

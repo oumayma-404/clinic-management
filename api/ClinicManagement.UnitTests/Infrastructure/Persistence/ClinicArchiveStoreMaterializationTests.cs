@@ -221,7 +221,7 @@ public class ClinicArchiveStoreMaterializationTests
     [Theory]
     [InlineData(typeof(Invoice), "_lines")]
     [InlineData(typeof(Invoice), "_payments")]
-    [InlineData(typeof(Patient), "_flags")]
+    [InlineData(typeof(Patient), "_files")]
     public void A_Materialised_Entity_Has_Its_Collection_Fields_Initialised(Type clrType, string field)
     {
         var instance = Materialize(clrType);

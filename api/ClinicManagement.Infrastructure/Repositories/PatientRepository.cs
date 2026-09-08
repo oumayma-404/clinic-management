@@ -21,7 +21,6 @@ public class PatientRepository : IPatientRepository
     public async Task<Patient?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Patients
-            .Include(p => p.Flags)
             .Include(p => p.MedicalHistoryEntries)
             .Include(p => p.FamilyHistoryEntries)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
@@ -72,7 +71,6 @@ public class PatientRepository : IPatientRepository
     {
         return await _context.Patients
             .Include(p => p.Appointments)
-            .Include(p => p.Flags)
             .Include(p => p.Files)
             .Include(p => p.MedicalHistoryEntries)
             .Include(p => p.FamilyHistoryEntries)
@@ -91,7 +89,6 @@ public class PatientRepository : IPatientRepository
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
         string? searchTerm = null,
-        bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
         bool dismissedReviewOnly = false,
         PatientListSort sort = PatientListSort.Name,
@@ -100,18 +97,11 @@ public class PatientRepository : IPatientRepository
     {
         var query = _context.Patients.Where(p => p.ClinicId == clinicId);
 
-        // In SQL, like flaggedOnly below and for its reason.
+        // In SQL, for the same reason every other narrowing here is: over a page a client-side filter would
+        // mean « those of these 25 », which is not a number anyone asked for.
         if (pendingCalendarReviewOnly)
         {
             query = PendingReviewQuery(query, dismissedReviewOnly);
-        }
-
-        // « Patients signalés » used to be a client-side .filter() over the full list. That was equivalent only
-        // while the client held every patient: over a page it hides flagged patients on other pages and shows a
-        // count of "the flagged ones among these 25", which is not a number anyone asked for.
-        if (flaggedOnly)
-        {
-            query = query.Where(p => p.Flags.Any(f => f.IsActive));
         }
 
         if (!includeArchived)
@@ -139,16 +129,14 @@ public class PatientRepository : IPatientRepository
         // Id is the tiebreaker, and it is not cosmetic: OFFSET paging over a non-unique sort can show a row
         // twice or skip it entirely when two patients share a surname and PostgreSQL picks a different order
         // for the two queries. Every paginated read here ends its ordering on a unique column for that reason.
-        var ordered = query.Include(p => p.Flags.Where(f => f.IsActive));
-
         return await (sort switch
         {
             // ⚠️ `CreatedAt` and not the id: the ids are v4 GUIDs and carry no timestamp, so ordering by one
             // would be arbitrary under a name that promises otherwise.
-            PatientListSort.RecentlyAdded => ordered
+            PatientListSort.RecentlyAdded => query
                 .OrderByDescending(p => p.CreatedAt)
                 .ThenBy(p => p.Id),
-            _ => ordered
+            _ => query
                 .OrderBy(p => p.LastName)
                 .ThenBy(p => p.FirstName)
                 .ThenBy(p => p.Id),
@@ -426,7 +414,6 @@ public class PatientRepository : IPatientRepository
             MedicalDocuments: await _context.MedicalDocuments.CountAsync(m => m.PatientId == patientId, cancellationToken),
             Files: await _context.PatientFiles.CountAsync(f => f.PatientId == patientId, cancellationToken),
             Folders: await _context.PatientFolders.CountAsync(f => f.PatientId == patientId, cancellationToken),
-            Flags: await _context.PatientFlags.CountAsync(f => f.PatientId == patientId, cancellationToken),
             RecurringAppointments: await _context.RecurringAppointments.CountAsync(r => r.PatientId == patientId, cancellationToken),
             MedicalHistoryEntries: await _context.PatientMedicalHistories.CountAsync(h => h.PatientId == patientId, cancellationToken),
             FamilyHistoryEntries: await _context.PatientFamilyHistories.CountAsync(h => h.PatientId == patientId, cancellationToken),
@@ -469,21 +456,6 @@ public class PatientRepository : IPatientRepository
     {
         return await _context.Patients
             .CountAsync(p => p.ClinicId == clinicId, cancellationToken);
-    }
-
-    public async Task<int> CountFlaggedByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default)
-    {
-        return await _context.Patients
-            .Where(p => p.ClinicId == clinicId && p.Flags.Any(f => f.IsActive))
-            .CountAsync(cancellationToken);
-    }
-
-    public async Task<IEnumerable<Patient>> GetFlaggedPatientsAsync(CancellationToken cancellationToken = default)
-    {
-        return await _context.Patients
-            .Include(p => p.Flags.Where(f => f.IsActive))
-            .Where(p => p.Flags.Any(f => f.IsActive))
-            .ToListAsync(cancellationToken);
     }
 
     public async Task<Patient> AddAsync(Patient patient, CancellationToken cancellationToken = default)

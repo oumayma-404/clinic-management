@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { RecordToothChart, type ToothPaint } from "./record-tooth-chart"
 import { isAdultTooth } from "@/components/tooth-multiselect"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
+import { tobaccoSummary } from "@/lib/tobacco"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 // The dental-records table is gone entirely (Exception 3) — this modal renders a card list at every width.
@@ -13,7 +14,7 @@ import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { formatDT, formatDate } from "@/lib/format"
-import { User, Phone, Mail, Calendar, MapPin, CreditCard, FileText, ChevronDown, ChevronUp } from "lucide-react"
+import { User, Phone, Mail, Calendar, MapPin, CreditCard, FileText, ChevronDown, ChevronUp, ClipboardList, Cigarette } from "lucide-react"
 import { genderLabel } from "@/components/appointment-labels"
 
 interface PatientSummaryModalProps {
@@ -200,16 +201,25 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                   </div>
                 )}
 
-                {patient.insuranceInfo && (
+                {patient.consultationReason && (
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1 flex items-center gap-2">
-                      <CreditCard className="h-4 w-4" />
-                      Assurance
+                      <ClipboardList className="h-4 w-4" />
+                      Motif de consultation
                     </p>
-                    <p className="text-base">
-                      {patient.insuranceInfo.provider}
-                      {patient.insuranceInfo.policyNumber && ` (${patient.insuranceInfo.policyNumber})`}
+                    <p className="text-base">{patient.consultationReason}</p>
+                  </div>
+                )}
+
+                {/* Every answer, not only a current smoker's: the panel above carries the warning, this is the
+                    record — and « Non-fumeur » is a fact worth reading on a quick look at a patient's file. */}
+                {tobaccoSummary(patient.tobaccoUse) && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1 flex items-center gap-2">
+                      <Cigarette className="h-4 w-4" />
+                      Tabac
                     </p>
+                    <p className="text-base">{tobaccoSummary(patient.tobaccoUse)}</p>
                   </div>
                 )}
               </div>

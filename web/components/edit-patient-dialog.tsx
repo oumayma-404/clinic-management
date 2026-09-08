@@ -18,11 +18,17 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
 import { CNAM_LIENS, CNAM_REGIMES } from "@/lib/cnam"
+import {
+  MAX_TOBACCO_PER_DAY,
+  SMOKING_STATUSES,
+  TOBACCO_UNITS,
+  smokingStatusLabel,
+  tobaccoUnitLabel,
+} from "@/lib/tobacco"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
-import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,13 +43,21 @@ import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
-import { User, Phone, Heart, CreditCard, Flag, Save, X, Plus, Trash2, StickyNote, AlertTriangle, Shield } from "lucide-react"
+import { User, Phone, Heart, CreditCard, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
 import { RecordSection } from "@/components/record/record-section"
 import { cn } from "@/lib/utils"
 import { patientsApi } from "@/lib/api/patients"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
-import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, ReminderConsent } from "@/lib/api/types"
+import type {
+  PatientDto,
+  PatientMedicalHistoryDto,
+  PatientFamilyHistoryDto,
+  ReminderConsent,
+  SmokingStatus,
+  TobaccoUnit,
+  TobaccoUse,
+} from "@/lib/api/types"
 import { ApiError, ApiErrorCode } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR, DEFAULT_REGION, regionOf } from "@/lib/phone"
 import type { CountryCode } from "libphonenumber-js/max"
@@ -136,12 +150,12 @@ const FIELD_LABELS_FR: Record<string, string> = {
   email: "E-mail",
 }
 
-/** The six foldable sections of the patient form, in the order they appear. */
-type SectionKey = "notes" | "adresse" | "medical" | "cnam" | "assurance" | "flags"
+/** The four foldable sections of the patient form, in the order they appear. */
+type SectionKey = "notes" | "adresse" | "medical" | "cnam"
 
-/** All folded (creating) or all unfolded (editing) — see `openSections` for why the two differ. */
+/** Every section open, or every section folded — see `openSections` for why the default is open. */
 function allSections(open: boolean): Record<SectionKey, boolean> {
-  return { notes: open, adresse: open, medical: open, cnam: open, assurance: open, flags: open }
+  return { notes: open, adresse: open, medical: open, cnam: open }
 }
 
 export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: EditPatientDialogProps) {
@@ -255,9 +269,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [removingHistory, setRemovingHistory] = useState(false)
 
   // Administrative State
-  const [insuranceProvider, setInsuranceProvider] = useState("")
-  const [insuranceNumber, setInsuranceNumber] = useState("")
-  const [policyHolder, setPolicyHolder] = useState("")
+  /** « Motif de consultation » — free text, right under the two names. */
+  const [consultationReason, setConsultationReason] = useState("")
+
+  /**
+   * « Tabac ». ⚠️ `null` is « personne n'a posé la question » and is the initial value on both paths — seeding
+   * `"NonSmoker"` would make a form nobody filled in indistinguishable from an answer somebody gave, the same
+   * fabrication the sexe and the date de naissance were made optional to stop.
+   */
+  const [smokingStatus, setSmokingStatus] = useState<SmokingStatus | null>(null)
+  const [smokingPerDay, setSmokingPerDay] = useState("")
+  const [smokingUnit, setSmokingUnit] = useState<TobaccoUnit>("Cigarettes")
 
   // CNAM identity (optional — pre-fills the Bulletin de soins BS1).
   const [cnam, setCnam] = useState({
@@ -269,8 +291,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   })
 
   // Flags State
-  const [flagged, setFlagged] = useState(false)
-  const [flagNotes, setFlagNotes] = useState("")
 
   const [loading, setLoading] = useState(false)
   // The one editing surface in the app with no form-level error display: a failed save produced a toast
@@ -291,13 +311,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   /**
-   * Which secondary sections are unfolded. ⚠️ **Everything below « L'essentiel » is folded when CREATING and
-   * unfolded when EDITING**, and that asymmetry is the whole design: registering a walk-in needs a name and a
-   * phone, while opening an existing file is how somebody goes looking for the CNAM identity or an allergy. The
-   * form used to render all forty fields expanded in both cases, which put « Enregistrer » under eleven CNAM
-   * fields nobody filling in a new patient was going to touch.
+   * Which sections are unfolded. ⚠️ **Every section is open on arrival, on BOTH paths** — a folded section is a
+   * question the desk never sees, and « Informations médicales » folded on a new patient is how a smoker, an
+   * allergy and a chronic condition go unrecorded at the one moment somebody is sitting there answering.
+   *
+   * ⚠️ This is a **reversal**, and the argument it overturns is worth keeping: the sections were folded on create
+   * so « Enregistrer » would not sit under eleven CNAM fields nobody registering a walk-in was going to touch.
+   * That cost is real and is paid deliberately — the two sections that made it heavy have since been retired
+   * (assurance, signalements), the form is shorter, and the footer is sticky, so the button is reachable at any
+   * scroll position. Everything stays foldable; only the default moved.
    */
-  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(() => allSections(!!patient))
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(() => allSections(true))
 
   const toggleSection = (key: SectionKey) =>
     setOpenSections((current) => ({ ...current, [key]: !current[key] }))
@@ -309,6 +333,23 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
    * a claim that there is nothing to say.
    */
   const filled = (...values: (string | null | undefined)[]) => values.filter((v) => v && v.trim()).length
+
+  /**
+   * The « Tabac » block as the wire wants it, or `null` for « personne n'a posé la question ».
+   *
+   * One builder for both save paths — the create path omits a null and the update path sends it, which is the
+   * only difference between them, and it is expressed at the two call sites rather than duplicated here.
+   */
+  const tobaccoPayload = (): TobaccoUse | null => {
+    if (smokingStatus === null) return null
+
+    if (smokingStatus !== "Smoker") return { status: smokingStatus }
+
+    const perDay = Number(smokingPerDay.trim())
+    return smokingPerDay.trim() && Number.isFinite(perDay)
+      ? { status: smokingStatus, perDay, unit: smokingUnit }
+      : { status: smokingStatus }
+  }
 
   const sectionSummary: Record<SectionKey, string> = {
     notes:
@@ -322,12 +363,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             .join(" · ")
         : "à renseigner",
     medical:
-      filled(chronicDiseases, allergies) > 0
-        ? [chronicDiseases.trim() && "affections", allergies.trim() && "allergies"].filter(Boolean).join(" · ")
+      filled(chronicDiseases, allergies) > 0 || smokingStatus !== null
+        ? [
+            chronicDiseases.trim() && "affections",
+            allergies.trim() && "allergies",
+            // The label itself, not the word « tabac »: « Fumeur » is the fact worth reading on a folded section.
+            smokingStatus !== null && smokingStatusLabel(smokingStatus).toLowerCase(),
+          ]
+            .filter(Boolean)
+            .join(" · ")
         : "aucune information",
     cnam: cnam.identifiantUnique.trim() || (cnam.regime.trim() ? cnam.regime.trim() : "aucun identifiant"),
-    assurance: insuranceProvider.trim() ? insuranceProvider.trim() : "aucune assurance privée",
-    flags: flagged ? "patient signalé" : "aucun signalement",
   }
 
   /**
@@ -352,10 +398,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (open) {
-      // ⚠️ Re-derived on every open, not only on mount: this component is reused for both modes from the same
-      // parent, so an edit followed by « Ajouter un patient » would otherwise open the new form with all six
-      // sections unfolded — the exact wall of forty fields the folding exists to prevent.
-      setOpenSections(allSections(!!patient))
+      // ⚠️ Re-set on every open, not only on mount: this component is reused for both modes from the same
+      // parent, so a section somebody folded on the previous patient would stay folded on the next one —
+      // and the initial state alone cannot reach a second opening.
+      setOpenSections(allSections(true))
       if (patient) {
         // Edit mode: populate with existing patient data
       setFirstName(patient.firstName || "")
@@ -401,10 +447,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       setPatientNotes(patient.notes || "")
       setPatientImportantNotes(patient.importantNotes || "")
 
-      // Insurance info
-      setInsuranceProvider(patient.insuranceInfo?.provider || "")
-      setInsuranceNumber(patient.insuranceInfo?.policyNumber || "")
-      setPolicyHolder(patient.insuranceInfo?.groupNumber || "")
+      // « Motif de consultation » — why they came in the first place.
+      setConsultationReason(patient.consultationReason || "")
 
       // CNAM identity
       setCnam({
@@ -425,22 +469,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       setAllergies(patient.allergies || "")
       setChronicDiseases(patient.medicalHistory || "")
       
-      // Flags
-      const hasActiveFlags = patient.flags && patient.flags.some(flag => flag.isActive)
-      setFlagged(hasActiveFlags || false)
-      if (hasActiveFlags && patient.flags) {
-        const activeFlag = patient.flags.find(flag => flag.isActive)
-        setFlagNotes(activeFlag?.notes || activeFlag?.description || "")
-      } else {
-        setFlagNotes("")
-      }
+      // « Tabac ». A null block is « jamais renseigné » — never seeded as « Non-fumeur ».
+      setSmokingStatus(patient.tobaccoUse?.status ?? null)
+      setSmokingPerDay(patient.tobaccoUse?.perDay != null ? String(patient.tobaccoUse.perDay) : "")
+      setSmokingUnit(patient.tobaccoUse?.unit ?? "Cigarettes")
 
-        // Load medical and family history entries when dialog opens
-        if (patient.id) {
-          loadMedicalHistoryEntries(patient.id)
-          loadFamilyHistoryEntries(patient.id)
-        }
-      } else {
+      // Load medical and family history entries when dialog opens
+      if (patient.id) {
+        loadMedicalHistoryEntries(patient.id)
+        loadFamilyHistoryEntries(patient.id)
+      }
+    } else {
         // Create mode: reset form to empty
         setFirstName("")
         setLastName("")
@@ -465,12 +504,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setPatientImportantNotes("")
         setChronicDiseases("")
         setAllergies("")
-        setInsuranceProvider("")
-        setInsuranceNumber("")
+        setConsultationReason("")
         setCnam({ identifiantUnique: "", regime: "", assureFirstName: "", assureLastName: "", assureAddress: "", assurePostalCode: "", maladeLien: "", maladeLienRang: "", dependantCount: "", annualCeilingOverride: "" })
-        setPolicyHolder("")
-        setFlagged(false)
-        setFlagNotes("")
+        // ⚠️ `null`, not `"NonSmoker"` — a fresh form has asked nobody anything.
+        setSmokingStatus(null)
+        setSmokingPerDay("")
+        setSmokingUnit("Cigarettes")
         setMedicalHistoryEntries([])
         setFamilyHistoryEntries([])
         // Create mode reads nothing, so neither list can be in a failed state.
@@ -726,6 +765,20 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       newErrors.email = "Adresse e-mail invalide"
     }
 
+    /*
+     * A typed quantity that is not a number is refused; a blank one is not.
+     *
+     * « Fumeur, quantité non dite » is a real answer at a desk, so the field is optional — but an unreadable
+     * answer must not silently become no answer, the same rule the approximate age above follows. The ceiling
+     * mirrors `TobaccoUse.MaxPerDay`, so the server's refusal and this one cannot disagree.
+     */
+    if (smokingStatus === "Smoker" && smokingPerDay.trim()) {
+      const perDay = Number(smokingPerDay)
+      if (!Number.isFinite(perDay) || !Number.isInteger(perDay) || perDay < 1 || perDay > MAX_TOBACCO_PER_DAY) {
+        newErrors.smokingPerDay = `Indiquez une quantité entre 1 et ${MAX_TOBACCO_PER_DAY} par jour`
+      }
+    }
+
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -775,7 +828,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
       if (patient) {
         // Edit mode: Update existing patient
-        const updateData: Partial<PatientDto> & { isFlagged?: boolean; flagNotes?: string } = {
+        const updateData: Partial<PatientDto> = {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           // "Unknown" when unanswered, never "" — the same value the create path sends, so a patient registered
@@ -821,15 +874,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
            */
           medicalHistory: chronicDiseases.trim(),
           allergies: allergies.trim(),
-          // Exactly what was typed (AC-21). The two `|| "Unknown"` paddings existed because the server demanded
-          // both halves; it now accepts either, so a patient who named their insurer with the card at home no
-          // longer acquires a policy number literally reading « Unknown » — indistinguishable, in every later
-          // read, from a real one.
-          insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
-            provider: insuranceProvider.trim() || undefined,
-            policyNumber: insuranceNumber.trim() || undefined,
-            groupNumber: policyHolder.trim() || undefined,
-          } : undefined,
+          // Always present (possibly ""), so clearing the box clears the stored motif — the same reason
+          // `notes`/`importantNotes` above are sent that way.
+          consultationReason: consultationReason.trim(),
+          // ⚠️ Always present, **including `null`**. The key is tri-state server-side: an omitted one leaves the
+          // stored answer alone, so `undefined` would make un-recording « Tabac » impossible — the L1b defect.
+          tobaccoUse: tobaccoPayload(),
           cnamInfo: {
             identifiantUnique: cnam.identifiantUnique.trim() || null,
             regime: cnam.regime.trim() || null,
@@ -842,11 +892,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             dependantCount: parseOptionalCount(cnam.dependantCount),
             annualCeilingOverride: parseOptionalAmount(cnam.annualCeilingOverride),
           },
-          // "Signaler ce patient" toggle: true ensures an active flag, false clears it.
-          isFlagged: flagged,
-          // Present-but-blank clears the note (the handler passes it positionally to `PatientFlag.Update`), so
-          // `|| undefined` here is not the L1b defect — but `.trim()` states the intent instead of relying on it.
-          flagNotes: flagNotes.trim(),
         }
 
         /*
@@ -855,7 +900,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
          * The local spread was the second half of the L1b defect: it echoed the request back as though it had been
          * accepted, so the UI could show a state the server never stored (a cleared allergy the old payload never
          * asked it to clear looked cleared until the next refetch). It also could not be correct in principle — the
-         * spread carries request-shaped keys (`isFlagged`, `flagNotes`, a raw `dentition`) over a DTO, and knows
+         * spread carries request-shaped keys (a raw `dentition`, for one) over a DTO, and knows
          * nothing about what the handler derives. The response is the one authority on what was saved.
          */
         savedPatient = await patientsApi.update(patient.id, updateData)
@@ -945,15 +990,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           reminderConsent: reminderConsent === "NotRecorded" ? undefined : reminderConsent,
           notes: patientNotes.trim() || undefined,
           importantNotes: patientImportantNotes.trim() || undefined,
-          // Exactly what was typed (AC-21). The two `|| "Unknown"` paddings existed because the server demanded
-          // both halves; it now accepts either, so a patient who named their insurer with the card at home no
-          // longer acquires a policy number literally reading « Unknown » — indistinguishable, in every later
-          // read, from a real one.
-          insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
-            provider: insuranceProvider.trim() || undefined,
-            policyNumber: insuranceNumber.trim() || undefined,
-            groupNumber: policyHolder.trim() || undefined,
-          } : undefined,
+          consultationReason: consultationReason.trim() || undefined,
+          // `?? undefined`, not `null`: on create there is nothing stored to clear, so an unanswered « Tabac »
+          // is simply omitted.
+          tobaccoUse: tobaccoPayload() ?? undefined,
           cnamInfo: {
             identifiantUnique: cnam.identifiantUnique.trim() || null,
             regime: cnam.regime.trim() || null,
@@ -968,8 +1008,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           },
           medicalHistoryEntries: medicalHistoryEntriesToSend.length > 0 ? medicalHistoryEntriesToSend : undefined,
           familyHistoryEntries: familyHistoryEntriesToSend.length > 0 ? familyHistoryEntriesToSend : undefined,
-          isFlagged: flagged,
-          flagNotes: flagNotes.trim() || undefined,
           // Absent on the first attempt, so the server checks whether this person is already on file. Only the
           // « Créer quand même » confirmation sets it — see the AlertDialog at the bottom of this file.
           allowDuplicate: allowDuplicateRef.current || undefined,
@@ -1028,7 +1066,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const guard = useDirtyGuard(open, onOpenChange)
 
   const fullName = `${firstName} ${lastName}`.trim()
-  const hasActiveFlags = patient?.flags && patient.flags.some(flag => flag.isActive)
 
   return (
     <>
@@ -1045,16 +1082,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
               </DialogTitle>
               <DialogDescription className="mt-1">
                 {patient
-                  ? "Mettez à jour toutes les informations du patient, y compris les antécédents médicaux et l'assurance"
+                  ? "Mettez à jour toutes les informations du patient, y compris les antécédents médicaux"
                   : "Saisissez les informations du patient pour créer un nouveau dossier"}
               </DialogDescription>
             </div>
-            {hasActiveFlags && (
-              <Badge variant="destructive" className="gap-1">
-                <Flag className="h-3 w-3" />
-                Signalé
-              </Badge>
-            )}
           </div>
         </DialogHeader>
 
@@ -1132,6 +1163,30 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     className={cn(errors.lastName && "border-destructive")}
                   />
                   {errors.lastName && <p className="text-sm text-destructive">{errors.lastName}</p>}
+                </div>
+
+                {/*
+                  « Motif de consultation » — why this patient came in the first place, immediately after the two
+                  names because that is the order the question is asked in at the desk, and because it is read
+                  beside the patient's name on their own page.
+
+                  Optional like everything but the two names: a walk-in whose reason is « je ne sais pas, ça fait
+                  mal » is a record worth keeping, and a required field the desk cannot answer is a fabrication
+                  generator — the same reasoning that made the sexe, the date de naissance and the denture optional.
+
+                  ⚠️ An `Input`, not a `Textarea`: it renders on one line beside the name, so the control's shape
+                  states the length expected rather than inviting a paragraph the page will clamp away.
+                */}
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="consultationReason">
+                    Motif de consultation <span className="text-muted-foreground text-xs">(facultatif)</span>
+                  </Label>
+                  <Input
+                    id="consultationReason"
+                    value={consultationReason}
+                    onChange={(e) => setConsultationReason(e.target.value)}
+                    placeholder="Douleur 36, contrôle, suivi orthodontique…"
+                  />
                 </div>
 
                 {/*
@@ -1638,6 +1693,97 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   />
                 </div>
 
+                {/*
+                  « Tabac » — a dental risk factor, so it sits with the allergies rather than in the free-text
+                  antécédents: it bears on healing, on implant survival and on periodontal work, and a paragraph
+                  nobody scrolls to is not where that belongs.
+
+                  ⚠️ **Nothing is preselected**, and that is the whole design. `null` means the question has not
+                  been put, which is a different clinical fact from an answered « Non-fumeur » — seeding the first
+                  answer would make a form nobody filled in indistinguishable from one somebody did, exactly the
+                  fabrication the sexe and the date de naissance were made optional to stop. « Non renseigné »
+                  therefore stays reachable as a real fourth choice rather than only as an initial state.
+
+                  ⚠️ The quantity is **withheld** for the other two statuses rather than shown at 0 — `act-card`'s
+                  rule: a control that can only hold a meaningless value says less than no control. The value
+                  object drops it server-side too, so a figure typed and then corrected to « Non-fumeur » cannot
+                  survive as a contradiction.
+                */}
+                <div className="space-y-2">
+                  <Label htmlFor="smoking-status">Tabac</Label>
+                  <div id="smoking-status" className="flex flex-wrap gap-2">
+                    {SMOKING_STATUSES.map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => setSmokingStatus(status)}
+                        aria-pressed={smokingStatus === status}
+                        /* `coarse:min-h-11` grows the box rather than overlaying a `.touch-target`: these sit a
+                           few pixels apart and the later sibling paints last, so an overlay steals its
+                           neighbour's taps. */
+                        className={cn(
+                          "inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium transition-colors coarse:min-h-11",
+                          smokingStatus === status
+                            ? "border-primary/40 bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover-hover:hover:text-foreground",
+                        )}
+                      >
+                        {smokingStatusLabel(status)}
+                      </button>
+                    ))}
+                    {smokingStatus !== null && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSmokingStatus(null)
+                          setSmokingPerDay("")
+                        }}
+                        className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-muted-foreground underline-offset-2 hover-hover:hover:underline coarse:min-h-11"
+                      >
+                        Non renseigné
+                      </button>
+                    )}
+                  </div>
+
+                  {smokingStatus === "Smoker" && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <Label htmlFor="smokingPerDay" className="text-sm text-muted-foreground">
+                        Combien par jour
+                      </Label>
+                      {/* ⚠️ `inputMode="numeric"`, never `type="number"` — spinners, a scroll wheel that
+                          silently changes the value, and a locale-dependent decimal separator, on a field that
+                          is a plain count. Same rule as the postal code and the identifiant CNAM above. */}
+                      <Input
+                        id="smokingPerDay"
+                        value={smokingPerDay}
+                        onChange={(e) => setSmokingPerDay(e.target.value)}
+                        inputMode="numeric"
+                        placeholder="20"
+                        className="w-20 md:text-sm"
+                        aria-invalid={!!errors.smokingPerDay}
+                      />
+                      <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
+                        {TOBACCO_UNITS.map((unit) => (
+                          <Button
+                            key={unit}
+                            type="button"
+                            variant={smokingUnit === unit ? "default" : "ghost"}
+                            size="sm"
+                            /* `coarse:h-11` for `act-card`'s documented reason: `buttonVariants` centres a 44 px
+                               overlay on every Button, so two 32 px pills 4 px apart overhang each other. */
+                            className="h-8 px-2.5 text-2xs coarse:h-11"
+                            onClick={() => setSmokingUnit(unit)}
+                            aria-pressed={smokingUnit === unit}
+                          >
+                            {tobaccoUnitLabel(unit)}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {errors.smokingPerDay && <p className="text-sm text-destructive">{errors.smokingPerDay}</p>}
+                </div>
+
                 {/* Medical History (replaces Past Surgeries) */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1909,90 +2055,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     invisible ici. Le montant réellement remboursé est fixé par la CNAM.
                   </p>
                 </div>
-              </div>
-            </RecordSection>
-
-            {/* Insurance Information Section */}
-            <RecordSection
-              size="md"
-              icon={<Shield className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
-              title="Informations d'assurance"
-              summary={sectionSummary.assurance}
-              open={openSections.assurance}
-              onToggle={() => toggleSection("assurance")}
-            >
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Insurance Provider */}
-                <div className="space-y-2">
-                  <Label htmlFor="insuranceProvider">Assureur</Label>
-                  <Input
-                    id="insuranceProvider"
-                    value={insuranceProvider}
-                    onChange={(e) => setInsuranceProvider(e.target.value)}
-                    placeholder="CNAM, STAR Assurances, GAT"
-                  />
-                </div>
-
-                {/* Insurance Number */}
-                <div className="space-y-2">
-                  <Label htmlFor="insuranceNumber">Numéro d'assurance / d'identification</Label>
-                  <Input
-                    id="insuranceNumber"
-                    value={insuranceNumber}
-                    onChange={(e) => setInsuranceNumber(e.target.value)}
-                    placeholder="Ex. 12345678"
-                  />
-                </div>
-
-                {/* Policy Holder */}
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="policyHolder">Numéro de groupe</Label>
-                  <Input
-                    id="policyHolder"
-                    value={policyHolder}
-                    onChange={(e) => setPolicyHolder(e.target.value)}
-                    placeholder="Ex. GRP-2026-014"
-                  />
-                </div>
-              </div>
-            </RecordSection>
-
-            {/* Flags Section */}
-            <RecordSection
-              size="md"
-              icon={<Flag className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
-              title="Signalements du patient"
-              summary={sectionSummary.flags}
-              open={openSections.flags}
-              onToggle={() => toggleSection("flags")}
-            >
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="flagged" className="cursor-pointer">
-                      Signaler ce patient pour une attention particulière
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      Marquez les patients qui nécessitent une attention médicale particulière ou présentent un état critique
-                    </p>
-                  </div>
-                  <Switch id="flagged" checked={flagged} onCheckedChange={setFlagged} />
-                </div>
-
-                {flagged && (
-                  <div className="space-y-2 pt-2">
-                    <Label htmlFor="flagNotes">Notes de signalement</Label>
-                    <Textarea
-                      id="flagNotes"
-                      value={flagNotes}
-                      onChange={(e) => setFlagNotes(e.target.value)}
-                      placeholder="Motif du signalement (ex. : patient à haut risque, allergies sévères, etc.)"
-                      className="min-h-[60px] resize-none"
-                    />
-                  </div>
-                )}
               </div>
             </RecordSection>
           </form>

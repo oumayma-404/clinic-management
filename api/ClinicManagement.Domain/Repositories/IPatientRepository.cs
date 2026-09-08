@@ -42,7 +42,6 @@ public sealed record PatientLinkedDataCounts(
     int MedicalDocuments,
     int Files,
     int Folders,
-    int Flags,
     int RecurringAppointments,
     int MedicalHistoryEntries,
     int FamilyHistoryEntries,
@@ -52,7 +51,7 @@ public sealed record PatientLinkedDataCounts(
 {
     public int Total =>
         Appointments + Invoices + TreatmentPlans + DentalRecords + ToothStates + MedicalDocuments
-        + Files + Folders + Flags + RecurringAppointments + MedicalHistoryEntries + FamilyHistoryEntries
+        + Files + Folders + RecurringAppointments + MedicalHistoryEntries + FamilyHistoryEntries
         + LabOrders + WaitingListEntries + Notifications;
 
     public bool Any => Total > 0;
@@ -97,7 +96,7 @@ public sealed record RecallCandidate(
 /// One existing patient reduced to the four things that answer « do we already have this person? » (L5 import).
 ///
 /// <para>A projection and not a <see cref="Patient"/> on purpose: a duplicate check over an arriving file of 3 000
-/// rows needs the clinic's whole identity index in one read, and materialising every aggregate — with its flags and
+/// rows needs the clinic's whole identity index in one read, and materialising every aggregate — with its
 /// both history collections — to compare a name is the § 9.6 full-scan in a new place.</para>
 /// </summary>
 public sealed record PatientIdentity(
@@ -152,9 +151,9 @@ public interface IPatientRepository
     /// search, the patient pickers and the AI dispatcher all need the full set.
     /// </param>
     /// <param name="pendingCalendarReviewOnly">
-    /// Only the patients the Google Calendar import conjured and nobody has confirmed. In SQL for
-    /// <paramref name="flaggedOnly"/>'s reason: over a page it would mean « those of these 25 », which is a
-    /// different question from the one the filter chip asks.
+    /// Only the patients the Google Calendar import conjured and nobody has confirmed. Applied in SQL, never
+    /// over the page: a client-side filter would mean « those of these 25 », which is a different question
+    /// from the one the filter chip asks.
     /// </param>
     /// <param name="dismissedReviewOnly">
     /// Which side of <paramref name="pendingCalendarReviewOnly"/>'s list to return: false (the default) the
@@ -177,7 +176,6 @@ public interface IPatientRepository
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
         string? searchTerm = null,
-        bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
         bool dismissedReviewOnly = false,
         PatientListSort sort = PatientListSort.Name,
@@ -260,7 +258,6 @@ public interface IPatientRepository
     /// <summary>Unpaid balance and upcoming visits — the two things archiving must not hide.</summary>
     Task<PatientArchiveBlockers> GetArchiveBlockersAsync(Guid patientId, DateTime asOfUtc, CancellationToken cancellationToken = default);
     Task<int> CountByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default);
-    Task<int> CountFlaggedByClinicIdAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// How many patients the clinic registered in <c>[from, toInclusive]</c> — the dashboard's « Nouveaux
@@ -273,7 +270,6 @@ public interface IPatientRepository
         DateTime toInclusive,
         bool includeArchived = false,
         CancellationToken cancellationToken = default);
-    Task<IEnumerable<Patient>> GetFlaggedPatientsAsync(CancellationToken cancellationToken = default);
     Task<Patient> AddAsync(Patient patient, CancellationToken cancellationToken = default);
     Task UpdateAsync(Patient patient, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

@@ -71,7 +71,6 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     /// would lose every upload in flight on a deploy — which is exactly when one is most likely to be running.
     /// </summary>
     public DbSet<FileUploadSession> FileUploadSessions { get; set; }
-    public DbSet<PatientFlag> PatientFlags { get; set; }
     public DbSet<RecurringAppointment> RecurringAppointments { get; set; }
     public DbSet<StockItem> StockItems { get; set; }
     // Append-only stock-movement audit log (consume/restock history) — clinic-scoped aggregate root.

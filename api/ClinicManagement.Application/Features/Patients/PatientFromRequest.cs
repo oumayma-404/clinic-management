@@ -26,9 +26,6 @@ namespace ClinicManagement.Application.Features.Patients;
 /// </summary>
 public static class PatientFromRequest
 {
-    /// <summary>Description stamped on the flag created by the « Signaler ce patient » toggle.</summary>
-    public const string SignaledFlagDescription = "Patient signalé";
-
     /// <summary>
     /// The patient the request describes, or a French <see cref="Result"/> failure. Nothing here touches a
     /// repository, so a failure has nothing to roll back — which is what lets the import decide per row.
@@ -51,37 +48,16 @@ public static class PatientFromRequest
             ? null
             : new PhoneNumber(request.PhoneNumber);
 
-        // Convert AddressDto to Address value object if provided and valid
-        Address? address = null;
-        if (request.Address != null &&
-            !string.IsNullOrWhiteSpace(request.Address.Street) &&
-            !string.IsNullOrWhiteSpace(request.Address.City) &&
-            !string.IsNullOrWhiteSpace(request.Address.State) &&
-            !string.IsNullOrWhiteSpace(request.Address.ZipCode))
-        {
-            address = new Address(
-                request.Address.Street,
-                request.Address.City,
-                request.Address.State,
-                request.Address.ZipCode,
-                request.Address.Country);
-        }
-
-        // Build the insurance block when **either** side was given (AC-21). It used to require both and otherwise
-        // leave it null — a *silent drop*, not a refusal: a patient who named their insurer with the card at home
-        // had that thrown away with no message, on the door most patients are created through. Both sides blank
-        // still stores nothing, so an untouched form behaves exactly as before.
-        InsuranceInfo? insuranceInfo = null;
-        if (request.InsuranceInfo != null &&
-            (!string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) ||
-             !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber)))
-        {
-            insuranceInfo = new InsuranceInfo(
-                request.InsuranceInfo.Provider,
-                request.InsuranceInfo.PolicyNumber,
-                request.InsuranceInfo.GroupNumber,
-                request.InsuranceInfo.ExpiryDate);
-        }
+        // Whatever address was given, however partial. The four-way `&&` this replaces required all of street,
+        // city, gouvernorat and code postal — so « Sfax » alone was *silently dropped*, not refused: the address
+        // was thrown away with no message, on the door most patients are created through. That is the same defect
+        // the insurance block below was fixed for, in this same method, and it was left here.
+        var address = Address.OfAny(
+            request.Address?.Street,
+            request.Address?.City,
+            request.Address?.State,
+            request.Address?.ZipCode,
+            request.Address?.Country);
 
         // Blank means blank here too. This used to substitute « thirty years ago » so a NOT NULL column would take
         // the row — which stored a birthday nobody gave us and, through DentitionRules below, charted every
@@ -99,8 +75,7 @@ public static class PatientFromRequest
             gender,
             email,
             phoneNumber,
-            address,
-            insuranceInfo);
+            address);
 
         // Set medical history and allergies after creation
         if (!string.IsNullOrWhiteSpace(request.MedicalHistory) || !string.IsNullOrWhiteSpace(request.Allergies))
@@ -148,12 +123,12 @@ public static class PatientFromRequest
             patient.SetReminderConsent(consent.Value, DateTime.UtcNow, recordedBy: null);
         }
 
-        // Optional "Signaler ce patient" flag at creation.
-        if (request.IsFlagged == true)
-        {
-            patient.AddFlag(new PatientFlag(
-                Guid.NewGuid(), patient.Id, PatientFlagType.HighPriority, SignaledFlagDescription, request.FlagNotes));
-        }
+        // « Motif de consultation » — why they came in the first place. Blank leaves it null.
+        patient.SetConsultationReason(request.ConsultationReason);
+
+        // « Tabac ». An omitted/unparseable status leaves the block null, which is « nobody has asked » — never
+        // « non-fumeur ». See `TobaccoUse`.
+        patient.UpdateTobaccoUse(TobaccoUseMapping.ToDomain(request.TobaccoUse));
 
         return Result<Patient>.Success(patient);
     }
