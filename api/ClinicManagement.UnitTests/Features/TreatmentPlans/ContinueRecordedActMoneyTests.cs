@@ -19,8 +19,11 @@ namespace ClinicManagement.UnitTests.Features.TreatmentPlans;
 /// <c>UnitTests</c> was a compiled assembly.
 ///
 /// <para>
-/// The rule under test is a single sentence with two halves that must not be split: <b>a note that represents a
-/// plan may not be attached to a plan holding money the note does not bill.</b> The bridge is all-or-nothing —
+/// The rule under test is a single sentence with two halves that must not be split: <b>a note may not be
+/// attached to a plan holding money the note does not bill</b> — and « may not » is about the note's whole life,
+/// not about its status now. Gating on <c>RepresentsItsPlan</c> read that status once, at continuation time, so
+/// a <c>Draft</c> was attached and <i>issuing it afterwards</i> reached the forbidden state from the other end.
+/// The gate is <c>remainingCost == 0</c>, which has the same answer at every moment. The bridge is all-or-nothing —
 /// <see cref="PlanBillingRules.BilledPlanIds"/> drops the whole plan from every money read the moment a real note
 /// names it — so a priced « travail restant » on the billed path put real money exactly where nothing looks.
 /// Reported from use: a 30 DT coiffage billed on a note, continued at 10 DT, left the patient's balance at
@@ -282,23 +285,110 @@ public class ContinueRecordedActMoneyTests
     }
 
     /// <summary>
-    /// ⚠️ The edge the gate exists for. A <b>Draft</b> note represents nothing
-    /// (<see cref="PlanBillingRules.RepresentsItsPlan"/> is false), so the plan still carries its own balance —
-    /// pricing the first act at 0 there would lose the 30 instead of saving the 10. Gating on « is there a
-    /// note » rather than « does it represent the plan » is exactly that mistake, and
-    /// <c>InvoiceLinkChoice.ByKey</c> keeps draft notes, so it is reachable.
+    /// ⚠️ <b>A <c>Draft</c> note is treated exactly like a live one, and the test that used to stand here
+    /// asserted the opposite.</b>
+    ///
+    /// <para>The argument it encoded was that a Draft « represents nothing »
+    /// (<see cref="PlanBillingRules.RepresentsItsPlan"/> is false), so the plan may safely carry the whole 30
+    /// and pricing the first act at 0 would lose it. Every clause of that is true at the instant it is
+    /// evaluated — and the conclusion was still a defect, because <b>a status read once does not stay read</b>.
+    /// Reading it meant the Draft took the other branch and <i>was</i> attached; issuing the note later flips
+    /// the predicate, <see cref="PlanBillingRules.BilledPlanIds"/> drops the plan whole, and the plan is holding
+    /// 10 DT the note does not bill. See
+    /// <see cref="Issuing_A_Draft_Note_Afterwards_Cannot_Hide_The_Remaining_Work"/>, which is the case that
+    /// killed it.</para>
+    ///
+    /// <para>The question is therefore « does this note bill everything the plan holds », whose answer is
+    /// <c>remainingCost == 0</c> at every moment of the note's life — never « does it represent the plan
+    /// today ». And the 30 is not lost: it is <i>not claimed yet</i>, which is what a Draft is, and is exactly
+    /// what the same fiche under the same Draft note reads with no continuation at all.</para>
     /// </summary>
     [Fact]
-    public async Task A_Draft_Note_Does_Not_Make_The_Devis_Drop_The_First_Act()
+    public async Task A_Draft_Note_Is_Treated_Exactly_Like_A_Live_One()
     {
         var actId = PinRecord();
-        NoteOverTheFiche(InvoiceStatus.Draft);
+        var note = NoteOverTheFiche(InvoiceStatus.Draft);
 
         var result = await ContinueActOf(actId, RemainingCost);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal(ActCost + RemainingCost, _saved!.TotalPlanned);
-        Assert.Equal(ActCost, _saved.Items.OrderBy(i => i.SequenceNumber).First().PlannedCost);
+
+        // The two documents are made disjoint immediately, exactly as on the live path…
+        Assert.Null(note.TreatmentPlanId);
+        Assert.Equal(RemainingCost, _saved!.TotalPlanned);
+        Assert.Equal(0m, _saved.Items.OrderBy(i => i.SequenceNumber).First().PlannedCost);
+        Assert.Equal(RemainingCost, _saved.Items.OrderBy(i => i.SequenceNumber).Last().PlannedCost);
+
+        // …and the devis says which document holds the 30, naming a Draft as a Draft rather than printing a
+        // blank where its number would be.
+        Assert.Contains("brouillon de note d'honoraires", _saved.Notes);
+        Assert.DoesNotContain("note n°", _saved.Notes);
+    }
+
+    /// <summary>
+    /// The regression this whole gate now exists for, and the case a status-based gate structurally could not
+    /// see: <b>the note is issued AFTER the continuation.</b>
+    ///
+    /// <para>Measured end to end before the fix — « Solde patient » read 40 DT, the note was issued, and the
+    /// same read answered <b>30</b> while the plan itself still reported 40 and nothing else read it at all.
+    /// Four ordinary gestures reach it (record a fiche, raise a note from <c>/factures</c> — which creates a
+    /// Draft — continue the act with a priced remainder, issue the note), and one such Draft already existed on
+    /// the development database.</para>
+    ///
+    /// <para>⚠️ Asserted through <see cref="PlanBillingRules.BilledPlanIds"/> rather than on the branch's flag,
+    /// because that set is what <c>GetPatientBillingSummaryQuery</c> subtracts: a refactor that keeps the flag
+    /// and loses the effect has to fail here.</para>
+    /// </summary>
+    [Fact]
+    public async Task Issuing_A_Draft_Note_Afterwards_Cannot_Hide_The_Remaining_Work()
+    {
+        var actId = PinRecord();
+        var note = NoteOverTheFiche(InvoiceStatus.Draft);
+
+        var result = await ContinueActOf(actId, RemainingCost);
+        Assert.True(result.IsSuccess, result.Error);
+
+        // Nothing hides the plan while the note is a Draft — RepresentsItsPlan(Draft) is false either way, so
+        // this half passed before the fix too and is here to make the *change* below unambiguous.
+        Assert.DoesNotContain(_saved!.Id, PlanBillingRules.BilledPlanIds(new[] { note }));
+
+        // ── The gesture that used to lose the money. ──
+        note.Issue("2026-0016");
+
+        Assert.True(PlanBillingRules.RepresentsItsPlan(note.Status));
+        Assert.DoesNotContain(
+            _saved.Id,
+            PlanBillingRules.BilledPlanIds(new[] { note }));
+
+        // The devis still owes the new work, and the note still owes its own — each counted once.
+        Assert.Equal(RemainingCost, _saved.TotalPlanned);
+        Assert.Equal(ActCost, note.TotalTtc);
+    }
+
+    /// <summary>
+    /// The other half of the same rule, and the reason the gate is <c>remainingCost == 0</c> rather than « never
+    /// attach »: with no new money the note bills <b>everything</b> the plan holds, so attaching it is a true
+    /// claim and the de-duplication it buys is the point. A Draft is attached here too — it simply does not
+    /// exclude anything until it is issued, at which point it correctly excludes a plan whose whole content it
+    /// bills.
+    /// </summary>
+    [Fact]
+    public async Task An_Unpriced_Continuation_On_A_DRAFT_Note_Still_Attaches_It()
+    {
+        var actId = PinRecord();
+        var note = NoteOverTheFiche(InvoiceStatus.Draft);
+
+        var result = await ContinueActOf(actId, null);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(_saved!.Id, note.TreatmentPlanId);
+        Assert.Equal(ActCost, _saved.TotalPlanned);
+        Assert.Null(_saved.Notes);
+
+        // Issued later, the note now speaks for the plan — and everything the plan holds is what it bills.
+        note.Issue("2026-0016");
+        Assert.Contains(_saved.Id, PlanBillingRules.BilledPlanIds(new[] { note }));
+        Assert.Equal(ActCost, note.TotalTtc);
     }
 
     /// <summary>Never billed at all: the devis owns the whole fee, priced remainder included, and always did.</summary>
