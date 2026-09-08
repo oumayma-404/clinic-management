@@ -777,6 +777,26 @@ export interface MedicationDto {
   version: number;
 }
 
+/**
+ * « Tabac » on the wire — the storage keys, never the French labels.
+ *
+ * `lib/tobacco.ts` holds the display map, on the repo's standing English-key/French-display convention
+ * (`lib/specialties.ts`, `components/appointment-labels.ts`). ⚠️ Never rename a member: these strings are what
+ * the database holds.
+ */
+export type SmokingStatus = "NonSmoker" | "Smoker" | "FormerSmoker";
+
+/** What a smoker's daily figure counts. Never converted — « un paquet » is not « vingt cigarettes ». */
+export type TobaccoUnit = "Cigarettes" | "Packs";
+
+export interface TobaccoUse {
+  status: SmokingStatus;
+  /** Only ever set alongside `"Smoker"` — the server drops it for the other two statuses. */
+  perDay?: number | null;
+  /** Null whenever `perDay` is. */
+  unit?: TobaccoUnit | null;
+}
+
 export interface PatientDto {
   /**
    * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
@@ -852,27 +872,28 @@ export interface PatientDto {
    * address boxes silently did nothing.
    */
   address?: {
-    street: string;
-    city: string;
-    state: string;
-    zipCode: string;
-    country: string;
+    street?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
   } | null;
-  /** Either side may be absent (AC-21): a patient can name their insurer without the card, or the reverse. */
-  insuranceInfo?: {
-    provider?: string;
-    policyNumber?: string;
-    groupNumber?: string;
-    expiryDate?: string;
-  };
   cnamInfo?: CnamInfo | null;
-  flags?: Array<{
-    id: string;
-    flagType: string;
-    description: string;
-    notes?: string;
-    isActive: boolean;
-  }>;
+  /**
+   * « Motif de consultation » — why the patient came in the first place, in their own terms.
+   *
+   * Read beside their name on the patient page, so it is a one-line fact rather than a paragraph. Unbounded on
+   * the wire; the display clamps. On update: omit to leave unchanged, send `""` to clear.
+   */
+  consultationReason?: string | null;
+  /**
+   * « Tabac ».
+   *
+   * ⚠️ **Absent means nobody has asked**, which is a different clinical fact from an answered `"NonSmoker"` —
+   * never send a `NonSmoker` block to mean « non renseigné ». On update the key is tri-state: omit it to leave
+   * the stored answer alone, send an explicit `null` to un-record it.
+   */
+  tobaccoUse?: TobaccoUse | null;
   /**
    * Archived patients are hidden from lists, search, recall and every picker, but keep every record and stay
    * reachable by direct URL — so a detail page that loads one must be able to say so.
@@ -1198,6 +1219,16 @@ export interface DentalRecordDto {
    * ledger, never stored beside it, so voiding a payment corrects the history with it.
    */
   collectedOnTreatment?: number | null;
+  /**
+   * The devis act's own **id**, so a reopened fiche can re-establish « Acte planifié ».
+   *
+   * ⚠️ Without it an edited fiche of a devis-carried act read as un-carried — no « Suivi comme traitement »
+   * notice, no « Encaissé sur le traitement » field, and the act card announcing its locked 0 against the
+   * catalogue tarif as « geste de 500,000 DT » with a « remettre au tarif » link, i.e. a discount nobody
+   * granted, one press from re-charging the devis. Cleared server-side when the money read names a different
+   * plan from the clinical link, so it never points at an act of another treatment.
+   */
+  treatmentPlanItemId?: string | null;
   /** The devis act this séance carries out — see `DentalRecordDto.TreatmentActDesignation`. */
   treatmentActDesignation?: string | null;
   /** The step it carried out, with its rank («  Pose de l'implant », 3 of 6). Null for an act booked whole. */

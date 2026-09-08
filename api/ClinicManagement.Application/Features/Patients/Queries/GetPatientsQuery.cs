@@ -32,7 +32,6 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     /// Only patients carrying an active flag. Applied in SQL — it was a client-side filter over the full list,
     /// which a page turns into "the flagged ones on this page".
     /// </summary>
-    public bool FlaggedOnly { get; set; }
 
     /// <summary>
     /// Only the patients the Google Calendar import created from an event title and nobody has confirmed
@@ -134,7 +133,6 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 createdFrom: request.CreatedFrom,
                 createdTo: request.CreatedTo,
                 searchTerm: request.SearchTerm,
-                flaggedOnly: request.FlaggedOnly,
                 pendingCalendarReviewOnly: request.PendingCalendarReviewOnly,
                 dismissedReviewOnly: request.DismissedReviewOnly,
                 includeArchived: request.IncludeArchived,

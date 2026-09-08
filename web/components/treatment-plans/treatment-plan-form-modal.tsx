@@ -1038,10 +1038,21 @@ export function TreatmentPlanFormModal({
                 const removalBlocked = line.id ? removalBlockers.get(line.id) : undefined
                 return (
                 <div key={index} className="rounded-lg border p-3 space-y-2">
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
+                  {/*
+                    ⚠️ **`min-w-0` on both flex children, or « Supprimer l'acte » leaves the screen.** A flex
+                    item's `min-width` is `auto`, and an `<Input>`'s intrinsic width comes from its placeholder
+                    — « Désignation de l'acte (ou choisir au catalogue) » — so the column refused to shrink
+                    below ~316 px inside a 215 px box and pushed the row 62 px past the dialog's scrollport.
+                    Measured at 320 px: the delete button's right edge at **343** against a port ending at
+                    **296**, i.e. the only way to remove a line was a sideways drag nobody tries (§ 0/§ 11).
+                    The magnifier beside the field went the same way. Releasing the floor lets the field
+                    truncate its own placeholder, which is what it is for.
+                  */}
+                  <div className="flex min-w-0 items-start gap-2">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex min-w-0 items-center gap-2">
                         <Input
+                          className="min-w-0"
                           value={line.designationFr}
                           onChange={(e) => updateLine(index, { designationFr: e.target.value })}
                           placeholder="Désignation de l'acte (ou choisir au catalogue)"
@@ -1300,13 +1311,29 @@ export function TreatmentPlanFormModal({
                 return (
                   <div key={index} className="rounded-md border bg-card p-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                      <span className="min-w-0 flex-1 text-sm font-medium [overflow-wrap:anywhere]">
+                      {/*
+                        ⚠️ **`basis-full sm:flex-1`, never a bare `flex-1`** — § 10.1, and it was measured here
+                        rather than assumed. `flex-1` is `flex: 1 1 0%`, so the name's hypothetical size is zero
+                        and the row can never wrap: at 320 px it kept ~63 px beside the counter and the
+                        « Modifier » button, and `[overflow-wrap:anywhere]` then broke « Prothèse amovible
+                        (partielle / complète) » to **one word per line** — nine lines of a 160 px row. That is
+                        `plan-act-row`'s own recorded defect, in a second place. With a real basis the name takes
+                        its own line below `sm:` and the two controls wrap under it, so the label breaks at
+                        spaces like ordinary prose.
+                      */}
+                      <span className="min-w-0 basis-full text-sm font-medium [overflow-wrap:anywhere] sm:basis-auto sm:flex-1">
                         {line.designationFr || "Acte sans nom"}
                       </span>
                       {steps.length > 0 ? (
                         <>
-                          <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
-                            {kept} / {steps.length}
+                          {/* ⚠️ « incluses » is visible: this counts the séances TICKED for the devis, and the
+                              same bare fraction elsewhere counts the ones already carried out. Two questions,
+                              one shape — the reader needs the word to know which was answered. */}
+                          <span className="shrink-0 text-2xs text-muted-foreground">
+                            <span className="font-mono tabular-nums">
+                              {kept} / {steps.length}
+                            </span>{" "}
+                            {kept > 1 ? "incluses" : "incluse"}
                           </span>
                           <Button
                             type="button"

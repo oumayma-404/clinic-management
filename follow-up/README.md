@@ -29,6 +29,7 @@ Track incomplete work, bugs, and technical debt across all features.
 
 | Item | Feature | Type | Completed |
 |------|---------|------|-----------|
+| [A reopened fiche forgot its devis link — phantom discount, no collect field](./reopened-fiche-loses-its-devis-link.md) | multi-seance-treatment-steps | bug | 2026-09-08 |
 
 ## How to Work on These
 

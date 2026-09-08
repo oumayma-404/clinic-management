@@ -32,7 +32,6 @@ public class ExportPatientsQuery : IRequest<Result<IReadOnlyList<PatientDto>>>
     public string? SearchTerm { get; set; }
     public DateTime? CreatedFrom { get; set; }
     public DateTime? CreatedTo { get; set; }
-    public bool FlaggedOnly { get; set; }
 }
 
 public class ExportPatientsQueryHandler
@@ -77,7 +76,6 @@ public class ExportPatientsQueryHandler
                 SearchTerm = request.SearchTerm,
                 CreatedFrom = request.CreatedFrom,
                 CreatedTo = request.CreatedTo,
-                FlaggedOnly = request.FlaggedOnly,
             },
             cancellationToken);
 
@@ -101,7 +99,7 @@ public class ExportPatientsQueryHandler
                 "Liste des patients",
                 rows.Count,
                 ListExportLedger.DescribeFilters(
-                    request.SearchTerm, request.CreatedFrom, request.CreatedTo, request.FlaggedOnly),
+                    request.SearchTerm, request.CreatedFrom, request.CreatedTo),
                 DateTime.UtcNow,
                 cancellationToken);
         }

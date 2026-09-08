@@ -121,17 +121,18 @@ public class PatientExportLedgerTests
     }
 
     [Theory]
-    [InlineData(true, false, "patients signalés uniquement")]
-    [InlineData(false, true, "filtré par date d'inscription")]
+    [InlineData("Béchir", false, "recherche appliquée")]
+    [InlineData(null, true, "filtré par date d'inscription")]
     public void The_filter_summary_names_each_narrowing_without_its_value(
-        bool flaggedOnly, bool byDate, string expected)
+        string? searchTerm, bool byDate, string expected)
     {
         var summary = ListExportLedger.DescribeFilters(
-            searchTerm: null,
+            searchTerm: searchTerm,
             createdFrom: byDate ? new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
-            createdTo: null,
-            flaggedOnly: flaggedOnly);
+            createdTo: byDate ? new DateTime(2026, 1, 31, 0, 0, 0, DateTimeKind.Utc) : null);
 
         Assert.Contains(expected, summary);
+        // ⚠️ The term itself is never recorded: on this product a patient search box holds a patient's name.
+        Assert.DoesNotContain("Béchir", summary);
     }
 }

@@ -31,8 +31,9 @@ public static class ExportTables
         var table = CsvTable.Create(
             "Nom", "Prénom", "Date de naissance", "Sexe", "Téléphone", "Email",
             "Adresse", "Ville", "Gouvernorat", "Code postal",
-            "Identifiant CNAM", "Assurance", "N° police",
-            "Antécédents médicaux", "Allergies",
+            "Identifiant CNAM",
+            "Motif de consultation",
+            "Antécédents médicaux", "Allergies", "Tabac", "Tabac (par jour)",
             "Contact d'urgence", "Téléphone d'urgence", "Adressé par",
             "Archivé", "Inscrit le");
 
@@ -53,10 +54,14 @@ public static class ExportTables
                 CsvCell.Text(p.Address?.State),
                 CsvCell.Text(p.Address?.ZipCode),
                 CsvCell.Text(p.CnamInfo?.IdentifiantUnique),
-                CsvCell.Text(p.InsuranceInfo?.Provider),
-                CsvCell.Text(p.InsuranceInfo?.PolicyNumber),
+                CsvCell.Text(p.ConsultationReason),
                 CsvCell.Text(p.MedicalHistory),
                 CsvCell.Text(p.Allergies),
+                // French for the reader, English on the wire — `PatientGender.Label` two rows up is the same rule.
+                // An unanswered « Tabac » is an EMPTY cell, never « Non-fumeur »: a placeholder re-imports as data,
+                // which is the reason the four contact sentinels were retired.
+                CsvCell.Text(TobaccoLabels.Status(p.TobaccoUse?.Status)),
+                CsvCell.Text(TobaccoLabels.PerDay(p.TobaccoUse)),
                 CsvCell.Text(p.EmergencyContactName),
                 CsvCell.Text(p.EmergencyContactPhone),
                 CsvCell.Text(p.ReferredBy),

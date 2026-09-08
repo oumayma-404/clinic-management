@@ -51,8 +51,13 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     public AddressDto? Address { get; set; }
-    public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }
+
+    /// <summary>« Motif de consultation » — why the patient came in the first place. Optional, free text.</summary>
+    public string? ConsultationReason { get; set; }
+
+    /// <summary>« Tabac ». Omitted leaves it unanswered — never « non-fumeur ».</summary>
+    public TobaccoUseDto? TobaccoUse { get; set; }
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
     /// <summary>Optional « adressé par » — the referring practitioner, free text.</summary>
@@ -64,16 +69,12 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public List<MedicalHistoryEntryDto>? MedicalHistoryEntries { get; set; }
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
 
-    // "Signaler ce patient" toggle + note at creation (feeds the "Urgents" KPI / flagged filter).
     /// <summary>
     /// The patient's answer about automated SMS/WhatsApp reminders, if it was taken at registration —
     /// <c>"Granted"</c> or <c>"Refused"</c>. Omitted leaves it <c>NotRecorded</c>: an honest « nobody has asked
     /// yet », not a silent yes. A string, for <c>UpdatePatientCommand.ReminderConsent</c>'s reason.
     /// </summary>
     public string? ReminderConsent { get; set; }
-
-    public bool? IsFlagged { get; set; }
-    public string? FlagNotes { get; set; }
 
     /// <summary>
     /// « Créer quand même » — the caller has been shown that this person appears to be on file already and has
@@ -262,62 +263,11 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
-            var dto = new PatientDto
-            {
-                Id = patient.Id,
-                ClinicId = patient.ClinicId,
-                FirstName = patient.FirstName,
-                LastName = patient.LastName,
-                DateOfBirth = patient.DateOfBirth,
-                Gender = patient.Gender,
-                Dentition = patient.Dentition.ToString(),
-                Email = patient.Email?.Value,
-                PhoneNumber = patient.PhoneNumber?.Value,
-                PhoneE164 = PhoneNumber.ToE164(patient.PhoneNumber?.Value),
-                MedicalHistory = patient.MedicalHistory,
-                Allergies = patient.Allergies,
-                EmergencyContactName = patient.EmergencyContactName,
-                EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
-                ReferredBy = patient.ReferredBy,
-                ReminderConsent = patient.ReminderConsent.ToString(),
-                ReminderConsentRecordedAtUtc = patient.ReminderConsentRecordedAtUtc,
-                ReminderConsentRecordedBy = patient.ReminderConsentRecordedBy,
-                Notes = patient.Notes,
-                ImportantNotes = patient.ImportantNotes,
-                CreatedAt = patient.CreatedAt,
-                Version = patient.Version,
-            };
-
-            // Map address to DTO
-            if (patient.Address != null)
-            {
-                dto.Address = new AddressDto
-                {
-                    Street = patient.Address.Street,
-                    City = patient.Address.City,
-                    State = patient.Address.State,
-                    ZipCode = patient.Address.ZipCode,
-                    Country = patient.Address.Country
-                };
-            }
-
-            // Map insurance info to DTO
-            if (patient.InsuranceInfo != null)
-            {
-                dto.InsuranceInfo = new InsuranceInfoDto
-                {
-                    Provider = patient.InsuranceInfo.Provider,
-                    PolicyNumber = patient.InsuranceInfo.PolicyNumber,
-                    GroupNumber = patient.InsuranceInfo.GroupNumber,
-                    ExpiryDate = patient.InsuranceInfo.ExpiryDate
-                };
-            }
-
-            dto.CnamInfo = patient.CnamInfo.ToDto();
-
-            dto.Flags = patient.Flags.Select(f => f.ToDto()).ToList();
-
-            return Result<PatientDto>.Success(dto);
+            // The shared mapper, never a hand-written copy. The initialiser this replaces was a second, silently
+            // divergent mapping of the same entity: it omitted `IsArchived`, `ArchivedAt`, `ArchiveReason` and
+            // `CalendarImportPendingReviewSince` — the exact omission `UpdatePatientCommand` already returns
+            // `ToDto()` to avoid — and it was a second place every new patient field had to be remembered.
+            return Result<PatientDto>.Success(patient.ToDto());
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

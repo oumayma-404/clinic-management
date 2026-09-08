@@ -23,7 +23,6 @@ public static class PatientDeletionBlockers
         Add(blockers, "medicalDocuments", counts.MedicalDocuments, "document médical", "documents médicaux", "documents");
         Add(blockers, "files", counts.Files, "fichier", "fichiers", "files");
         Add(blockers, "folders", counts.Folders, "dossier", "dossiers", "files");
-        Add(blockers, "flags", counts.Flags, "signalement", "signalements", null);
         Add(blockers, "recurringAppointments", counts.RecurringAppointments, "série de rendez-vous", "séries de rendez-vous", "appointments");
         Add(blockers, "medicalHistory", counts.MedicalHistoryEntries, "antécédent médical", "antécédents médicaux", null);
         Add(blockers, "familyHistory", counts.FamilyHistoryEntries, "antécédent familial", "antécédents familiaux", null);

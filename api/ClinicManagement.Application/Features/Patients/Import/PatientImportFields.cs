@@ -27,10 +27,11 @@ public enum PatientImportField
     State,
     ZipCode,
     CnamIdentifiant,
-    InsuranceProvider,
-    InsurancePolicyNumber,
+    ConsultationReason,
     MedicalHistory,
     Allergies,
+    SmokingStatus,
+    SmokingPerDay,
     EmergencyContactName,
     EmergencyContactPhone,
     ReferredBy,
@@ -60,10 +61,11 @@ public static class PatientImportFields
         PatientImportField.State,
         PatientImportField.ZipCode,
         PatientImportField.CnamIdentifiant,
-        PatientImportField.InsuranceProvider,
-        PatientImportField.InsurancePolicyNumber,
+        PatientImportField.ConsultationReason,
         PatientImportField.MedicalHistory,
         PatientImportField.Allergies,
+        PatientImportField.SmokingStatus,
+        PatientImportField.SmokingPerDay,
         PatientImportField.EmergencyContactName,
         PatientImportField.EmergencyContactPhone,
         PatientImportField.ReferredBy,
@@ -96,10 +98,11 @@ public static class PatientImportFields
         PatientImportField.State => "Gouvernorat",
         PatientImportField.ZipCode => "Code postal",
         PatientImportField.CnamIdentifiant => "Identifiant CNAM",
-        PatientImportField.InsuranceProvider => "Assurance",
-        PatientImportField.InsurancePolicyNumber => "N° police",
+        PatientImportField.ConsultationReason => "Motif de consultation",
         PatientImportField.MedicalHistory => "Antécédents médicaux",
         PatientImportField.Allergies => "Allergies",
+        PatientImportField.SmokingStatus => "Tabac",
+        PatientImportField.SmokingPerDay => "Tabac (par jour)",
         PatientImportField.EmergencyContactName => "Contact d'urgence",
         PatientImportField.EmergencyContactPhone => "Téléphone d'urgence",
         PatientImportField.ReferredBy => "Adressé par",
@@ -139,16 +142,20 @@ public static class PatientImportFields
         {
             "Identifiant CNAM", "CNAM", "Identifiant unique", "N° CNAM", "Numéro CNAM",
         },
-        [PatientImportField.InsuranceProvider] = new[] { "Assurance", "Assureur", "Mutuelle", "Insurance", "Insurance provider" },
-        [PatientImportField.InsurancePolicyNumber] = new[]
+        [PatientImportField.ConsultationReason] = new[]
         {
-            "N° police", "Numéro de police", "Police", "Policy number", "Policy",
+            "Motif de consultation", "Motif", "Raison de la visite", "Reason for visit", "Chief complaint",
         },
         [PatientImportField.MedicalHistory] = new[]
         {
             "Antécédents médicaux", "Antécédents", "Antecedents", "Medical history", "Historique médical",
         },
         [PatientImportField.Allergies] = new[] { "Allergies", "Allergie", "Allergy" },
+        [PatientImportField.SmokingStatus] = new[] { "Tabac", "Tabagisme", "Fumeur", "Smoking", "Smoking status" },
+        [PatientImportField.SmokingPerDay] = new[]
+        {
+            "Tabac (par jour)", "Tabac par jour", "Cigarettes par jour", "Cigarettes/jour", "Smoking per day",
+        },
         [PatientImportField.EmergencyContactName] = new[]
         {
             "Contact d'urgence", "Contact urgence", "Personne à contacter", "Emergency contact",

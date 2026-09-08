@@ -44,7 +44,7 @@ public class PatientDeletionGuardTests
         new DateTime(1990, 4, 12, 0, 0, 0, DateTimeKind.Utc), "Female",
         new Email("sonia@example.tn"), new PhoneNumber("20123456"));
 
-    private static PatientLinkedDataCounts Nothing => new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    private static PatientLinkedDataCounts Nothing => new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     private void Arrange(
         Patient patient,

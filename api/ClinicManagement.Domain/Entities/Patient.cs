@@ -32,10 +32,29 @@ public class Patient : AggregateRoot<Guid>
     public Email? Email { get; private set; }
     public PhoneNumber? PhoneNumber { get; private set; }
     public Address? Address { get; private set; }
-    public InsuranceInfo? InsuranceInfo { get; private set; }
     public CnamInfo? CnamInfo { get; private set; }
+
+    /// <summary>
+    /// « Motif de consultation » — why this patient came in the first place, in their own terms.
+    ///
+    /// <para>Patient-level and free text on purpose. It is the standing reason this person is on the books
+    /// (« douleur 36 », « suivi ortho », « esthétique »), which is why it is read beside the name rather than
+    /// filed under a visit: whoever opens the fiche wants it before anything else on the screen.</para>
+    ///
+    /// <para>Unbounded (<c>text</c>, like <see cref="Notes"/>) rather than length-capped: a capped column turns a
+    /// long paste into a <c>SaveChanges</c> failure that surfaces as the generic error, naming no field. The
+    /// display clamps to one line instead, which costs nothing and refuses no record.</para>
+    /// </summary>
+    public string? ConsultationReason { get; private set; }
+
     public string? MedicalHistory { get; private set; }
     public string? Allergies { get; private set; }
+
+    /// <summary>
+    /// « Tabac ». Null means nobody has asked — see <see cref="ValueObjects.TobaccoUse"/>, which is where the
+    /// difference between that and an answered « Non-fumeur » is written down.
+    /// </summary>
+    public TobaccoUse? TobaccoUse { get; private set; }
     public string? EmergencyContactName { get; private set; }
     public PhoneNumber? EmergencyContactPhone { get; private set; }
 
@@ -135,8 +154,6 @@ public class Patient : AggregateRoot<Guid>
 
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
-    private readonly List<PatientFlag> _flags = new();
-    public IReadOnlyCollection<PatientFlag> Flags => _flags.AsReadOnly();
 
     private readonly List<PatientFile> _files = new();
     public IReadOnlyCollection<PatientFile> Files => _files.AsReadOnly();
@@ -161,8 +178,7 @@ public class Patient : AggregateRoot<Guid>
         string gender,
         Email? email = null,
         PhoneNumber? phoneNumber = null,
-        Address? address = null,
-        InsuranceInfo? insuranceInfo = null)
+        Address? address = null)
     {
         Id = id;
         ClinicId = clinicId;
@@ -173,7 +189,6 @@ public class Patient : AggregateRoot<Guid>
         Email = email;
         PhoneNumber = phoneNumber;
         Address = address;
-        InsuranceInfo = insuranceInfo;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -275,13 +290,21 @@ public class Patient : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public void UpdateInsuranceInfo(InsuranceInfo? insuranceInfo)
+    /// <summary>« Motif de consultation ». Blank clears it — see <see cref="ConsultationReason"/>.</summary>
+    public void SetConsultationReason(string? reason)
     {
-        InsuranceInfo = insuranceInfo;
+        ConsultationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         UpdatedAt = DateTime.UtcNow;
     }
 
-    // A null (or all-empty) CnamInfo clears the stored CNAM identity — mirrors UpdateInsuranceInfo.
+    /// <summary>« Tabac ». A null block clears the answer back to « jamais renseigné ».</summary>
+    public void UpdateTobaccoUse(TobaccoUse? tobaccoUse)
+    {
+        TobaccoUse = tobaccoUse;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    // A null (or all-empty) CnamInfo clears the stored CNAM identity.
     public void UpdateCnamInfo(CnamInfo? cnamInfo)
     {
         CnamInfo = cnamInfo is { IsEmpty: true } ? null : cnamInfo;
@@ -423,28 +446,6 @@ public class Patient : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public void AddFlag(PatientFlag flag)
-    {
-        if (flag == null)
-            throw new ArgumentNullException(nameof(flag));
-
-        if (!_flags.Contains(flag))
-        {
-            _flags.Add(flag);
-            UpdatedAt = DateTime.UtcNow;
-        }
-    }
-
-    public void RemoveFlag(Guid flagId)
-    {
-        var flag = _flags.FirstOrDefault(f => f.Id == flagId);
-        if (flag != null)
-        {
-            _flags.Remove(flag);
-            UpdatedAt = DateTime.UtcNow;
-        }
-    }
-
     public void AddFile(PatientFile file)
     {
         if (file == null)
@@ -484,8 +485,7 @@ public class Patient : AggregateRoot<Guid>
     /// </para>
     /// <para>
     /// Nothing reads <c>Patient.UpdatedAt</c> — it is persisted and never queried, sorted or projected — so the
-    /// stamp was buying nothing and costing that. <c>AddFlag</c> keeps its own stamp: its only callers are
-    /// <c>UpdatePatientCommand</c> and the create path, which write the patient row in the same SaveChanges.
+    /// stamp was buying nothing and costing that.
     /// </para>
     /// </remarks>
     public void AddMedicalHistoryEntry(PatientMedicalHistory entry)

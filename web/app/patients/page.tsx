@@ -22,7 +22,6 @@ import { formatDateFr } from "@/lib/format"
 export default function PatientsPage() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
-  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false)
   // « Archiver » had no counterpart: an archived patient leaves this list, the header search AND /fichiers, so
   // the « Restaurer » control on their own page could only be reached by someone who already knew their UUID.
   // Off by default — archiving means "stop offering this person", and a list that showed them by default would
@@ -48,14 +47,11 @@ export default function PatientsPage() {
   // gone with nothing said. The signal now goes in as a prop the table folds into its own refetch key.
   useClinicRealtime(RealtimeResource.Patients, () => setRefreshKey((prev) => prev + 1))
 
-  // Dashboard drill-throughs: ?flagged=1 pre-applies the flagged filter, and ?createdFrom/?createdTo narrow the list
+  // Dashboard drill-throughs: ?createdFrom/?createdTo narrow the list
   // to the patients registered in the window the KPI counted. Read from window.location (client-only, in an effect)
   // to avoid a useSearchParams Suspense boundary.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get("flagged") === "1") {
-      setShowFlaggedOnly(true)
-    }
     // Seeded from the same key the chip writes, so a link this page emits is a link it honours.
     if (params.get("pendingCalendarReview") === "1") {
       setShowPendingReviewOnly(true)
@@ -116,7 +112,6 @@ export default function PatientsPage() {
                 stepUpPurpose="Exporter la liste des patients (avec antécédents et allergies)"
                 params={{
                   searchTerm: searchQuery || undefined,
-                  flaggedOnly: showFlaggedOnly || undefined,
                   createdFrom,
                   createdTo,
                 }}
@@ -147,9 +142,9 @@ export default function PatientsPage() {
           }
         />
 
-        {/* Only what NARROWS the list. « Signalés » is a chip with a stable label and `aria-pressed`, where it
-            used to be a Button whose text flipped between « Afficher les signalés » and « Signalés affichés »
-            — so the only way to know the filter was on was to read a sentence and infer its tense. */}
+        {/* Only what NARROWS the list, each a chip with a stable label and `aria-pressed` rather than a Button
+            whose text flips between two tenses — the only way to know such a filter is on is to read the
+            sentence and infer it. (« Signalés » lived here until the signalement subsystem was retired.) */}
         <ListToolbar
           search={{
             value: searchQuery,
@@ -159,17 +154,12 @@ export default function PatientsPage() {
           }}
         >
           <FilterChip
-            label="Signalés"
-            active={showFlaggedOnly}
-            onToggle={() => setShowFlaggedOnly(!showFlaggedOnly)}
-          />
-          <FilterChip
             label="À compléter"
             active={showPendingReviewOnly}
             onToggle={togglePendingReview}
           />
           {/* This one WIDENS the list rather than narrowing it, which is why its label says so plainly instead
-              of naming a subset: « Archivés » beside « Signalés » would read as "show only the archived ones". */}
+              of naming a subset: « Archivés » beside « À compléter » would read as "show only the archived ones". */}
           <FilterChip
             label="Avec les archivés"
             active={showArchived}
@@ -197,12 +187,11 @@ export default function PatientsPage() {
         {/* Patients Table.
             The two callbacks exist so the table's empty state can be a real one: this page owns both the create
             dialog and every narrowing control, so without them « Aucun patient » could only ever be a sentence.
-            `onClearFilters` clears ALL three — search, the « Signalés » chip and the date window — because the
+            `onClearFilters` clears every one of them — search, the chips and the date window — because the
             user reading « aucun résultat » wants their list back, not a guessing game about which filter did it. */}
         <PatientsTable
           reloadKey={refreshKey}
           searchQuery={searchQuery}
-          showFlaggedOnly={showFlaggedOnly}
           showArchived={showArchived}
           showPendingReviewOnly={showPendingReviewOnly}
           createdFrom={createdFrom}
@@ -210,7 +199,6 @@ export default function PatientsPage() {
           onCreatePatient={() => setCreateDialogOpen(true)}
           onClearFilters={() => {
             setSearchQuery("")
-            setShowFlaggedOnly(false)
             setShowArchived(false)
             if (showPendingReviewOnly) togglePendingReview()
             clearDateWindow()

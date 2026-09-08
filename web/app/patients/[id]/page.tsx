@@ -9,7 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CardList, CARDS_ONLY, CARDS_ONLY_LG, TABLE_ONLY, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
@@ -88,7 +87,8 @@ import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record
 import { Odontogram } from "@/components/odontogram"
 import { PatientNotesStrip } from "@/components/patient/patient-notes-strip"
 import { PatientUndocumentedVisits } from "@/components/patient/patient-undocumented-visits"
-import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
+import { isActiveSmoker, tobaccoSummary } from "@/lib/tobacco"
+import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -141,14 +141,77 @@ const getPatientName = (patient: PatientDto) => {
   return `${patient.firstName} ${patient.lastName}`.trim()
 }
 
-const formatAddress = (address: PatientDto["address"]) => {
-  if (!address) return "Non renseigné"
-  const parts = [address.street, address.city, address.state, address.zipCode].filter(Boolean)
-  return parts.join(", ") || "Non renseigné"
+/**
+ * The address as one line, or `null` when nothing was given.
+ *
+ * ⚠️ **Consecutive identical parts collapse**, and that is not cosmetic tidying: in Tunisia the ville and the
+ * gouvernorat are routinely the same word — Ariana, Sfax, Tunis, Nabeul, Bizerte — so the naive join printed
+ * « 12 rue de la République, Ariana, Ariana, 1002 » and read as a rendering fault rather than as an address.
+ * Only *adjacent* duplicates go, so a street genuinely repeating its town's name is left alone.
+ *
+ * ⚠️ Returns `null` rather than « Non renseigné »: since every part became optional this is the one formatter
+ * that has to distinguish « no address » from a partial one, and the caller decides how an absence is worded.
+ */
+const formatAddress = (address: PatientDto["address"]): string | null => {
+  if (!address) return null
+
+  const parts = [address.street, address.city, address.state, address.zipCode]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+
+  const collapsed = parts.filter(
+    (part, i) => i === 0 || part.toLowerCase() !== parts[i - 1].toLowerCase(),
+  )
+
+  return collapsed.length > 0 ? collapsed.join(", ") : null
 }
 
-const hasActiveFlags = (patient: PatientDto) => {
-  return patient.flags && patient.flags.some(flag => flag.isActive)
+/**
+ * One label-over-value row of the two record cards at the foot of the page.
+ *
+ * <p>It exists because that markup was written twelve times, each pair wrapped in its own `<div>` and joined by
+ * a `<Separator />` — twelve horizontal rules through what is a definition list, which is most of why the two
+ * cards read as heavy. Whitespace separates them now; the labels are the structure.</p>
+ *
+ * ⚠️ **An absent value is muted, a real one is not**, and that is the substantive half of this component. Both
+ * used to render `text-foreground`, so « Non renseigné » had exactly the weight of a phone number — three of
+ * them down one card, each looking like data. The distinction is kept rather than the field being dropped
+ * (`frontend-web.md` § 6's omit-don't-dash rule is about a *card list*, where a row is a summary): this is the
+ * patient's record, and « nobody has filled this in » is a fact the person reading it can act on.
+ *
+ * @param wide spans both columns — for a value that is a sentence, a list or a row of badges.
+ */
+function RecordField({
+  label,
+  value,
+  children,
+  wide,
+  hint,
+}: {
+  label: string
+  /** Rendered muted as « Non renseigné » when blank. Ignored when `children` is supplied. */
+  value?: string | null
+  children?: React.ReactNode
+  wide?: boolean
+  /** A consequence of the value, under it — e.g. that no reminder can reach this patient. */
+  hint?: React.ReactNode
+}) {
+  const filled = children ?? (value?.trim() ? value : null)
+
+  return (
+    <div className={cn("min-w-0", wide && "sm:col-span-2")}>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "mt-0.5 text-sm [overflow-wrap:anywhere]",
+          filled ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {filled ?? "Non renseigné"}
+      </dd>
+      {hint}
+    </div>
+  )
 }
 
 /*
@@ -1100,58 +1163,90 @@ export default function PatientDetailsPage() {
 
   const patientName = getPatientName(patient)
   const age = calculateAge(patient.dateOfBirth)
-  const hasFlags = hasActiveFlags(patient)
 
   // Open (not-yet-done) steps of the patient's active plans — offered in the record modal to close the
   // plan→record loop, and completed automatically when a linked record is saved.
-  const openPlanItems: PlanItemOption[] = treatmentPlans
-    .filter((p) => isPlanLive(p.status))
-    .flatMap((p) =>
-      schedulablePlanItems(p).map((it) => ({
-        itemId: it.id,
-        planId: p.id,
-        /*
-         * ⚠️ **A followed treatment's title IS its act's name, so the obvious `number ?? title` prints it
-         * twice.** `StartTreatmentCommand` sets the plan title from the procedure (« the dentist named it by
-         * picking it »), and such a plan has no number — so « Acte planifié » read
-         * « Couronne / bridge (par élément) · Couronne / bridge (par élément) », which is what a dentist
-         * reported as « pourquoi l'acte est écrit deux fois ». Five rows in the live database were in exactly
-         * that shape, and every future followed treatment is.
-         *
-         * A hand-written Draft devis whose title is genuinely something else (« Plan esthétique ») keeps it —
-         * only the duplicate is replaced, and it is replaced by what the object actually is.
-         */
-        label: `${planItemHeading(p, it)} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
-        designationFr: it.designationFr,
-        plannedCost: it.plannedCost,
-        /*
-         * ⚠️ **The teeth already treated win over the devis LINE's, and the line is very often empty.** A row
-         * reading « Implant dentaire — acte général » carries no teeth at all, so séance 2 opened on a blank
-         * chart and the dentist re-picked — or, as measured on a real implant, did not: its three fiches
-         * recorded the teeth once between them, on whichever séance they happened to fill in.
-         *
-         * It stopped being a convenience when the odontogram stopped being charted from the FIRST séance
-         * (`ToothChartingRules`): the chart is written when the act finishes, so teeth entered early and absent
-         * from the last fiche would now chart nothing at all.
-         */
-        toothNumbers:
-          it.treatedToothNumbers && it.treatedToothNumbers.length > 0
-            ? it.treatedToothNumbers
-            : it.toothNumbers,
-        // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
-        // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
-        planNumber: p.number,
-        billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
-        planOutstanding: p.outstanding,
-        // « Séance 2 sur 3 » on the fiche. Both 0 for an act with no protocol, which is what keeps the ordinary
-        // fiche's banner unchanged.
-        stepsTotal: it.steps?.length ?? 0,
-        stepsDone: it.steps?.filter((s) => s.doneDate).length ?? 0,
-        // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
-        // already pays for, so that act's 0 is not read back as a discount the dentist granted.
-        procedureTypeId: it.procedureTypeId ?? null,
-      })),
-    )
+  const planItemOptionOf = (
+    p: TreatmentPlanDto,
+    it: TreatmentPlanDto["items"][number],
+  ): PlanItemOption => ({
+    itemId: it.id,
+    planId: p.id,
+    /*
+     * ⚠️ **A followed treatment's title IS its act's name, so the obvious `number ?? title` prints it
+     * twice.** `StartTreatmentCommand` sets the plan title from the procedure (« the dentist named it by
+     * picking it »), and such a plan has no number — so « Acte planifié » read
+     * « Couronne / bridge (par élément) · Couronne / bridge (par élément) », which is what a dentist
+     * reported as « pourquoi l'acte est écrit deux fois ». Five rows in the live database were in exactly
+     * that shape, and every future followed treatment is.
+     *
+     * A hand-written Draft devis whose title is genuinely something else (« Plan esthétique ») keeps it —
+     * only the duplicate is replaced, and it is replaced by what the object actually is.
+     */
+    label: `${planItemHeading(p, it)} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+    designationFr: it.designationFr,
+    plannedCost: it.plannedCost,
+    /*
+     * ⚠️ **The teeth already treated win over the devis LINE's, and the line is very often empty.** A row
+     * reading « Implant dentaire — acte général » carries no teeth at all, so séance 2 opened on a blank
+     * chart and the dentist re-picked — or, as measured on a real implant, did not: its three fiches
+     * recorded the teeth once between them, on whichever séance they happened to fill in.
+     *
+     * It stopped being a convenience when the odontogram stopped being charted from the FIRST séance
+     * (`ToothChartingRules`): the chart is written when the act finishes, so teeth entered early and absent
+     * from the last fiche would now chart nothing at all.
+     */
+    toothNumbers:
+      it.treatedToothNumbers && it.treatedToothNumbers.length > 0
+        ? it.treatedToothNumbers
+        : it.toothNumbers,
+    // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
+    // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
+    planNumber: p.number,
+    billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
+    planOutstanding: p.outstanding,
+    // The protocol, so the fiche can say WHICH séance it is and name it — « Cette séance : étape 1 sur 3 ·
+    // Préparation ». The steps themselves rather than counts: the séance's step is the one the appointment
+    // booked, which `stepsDone + 1` only happens to equal when the séances are carried out in order. Empty
+    // for an act with no protocol, which is what keeps the ordinary fiche's banner unchanged.
+    steps: it.steps ?? [],
+    // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
+    // already pays for, so that act's 0 is not read back as a discount the dentist granted.
+procedureTypeId: it.procedureTypeId ?? null,
+  })
+
+  const openPlanItems: PlanItemOption[] = (() => {
+    const options = treatmentPlans
+      .filter((p) => isPlanLive(p.status))
+      .flatMap((p) => schedulablePlanItems(p).map((it) => planItemOptionOf(p, it)))
+
+    /*
+     * ⚠️ **The act a fiche being EDITED already points at, whatever its status and whatever its plan's — and
+     * without it the fix above reached only half the fiches.** `schedulablePlanItems` is the *offer* list: it
+     * drops a `Done` act, correctly, because proposing one for a new fiche is what `MarkDone` refuses. But an
+     * existing record's link is a historical fact, not an offer, and the last séance of every finished
+     * treatment has exactly that shape — measured on the dev database, a « Facette » fiche whose act was Done
+     * had no « Acte planifié » control at all (the Select renders only for a non-empty list), no
+     * « Déjà facturé » notice, and its card announced « Tarif catalogue 700,000 DT — geste de 700,000 DT »
+     * beside a « remettre au tarif » link. The phantom discount, on a completed treatment, permanently.
+     *
+     * ⚠️ Neither `isPlanLive` nor `activeItems` here: a Completed plan is not live and a Withdrawn act is not
+     * active, yet the fiche that evidenced either still happened and must still read correctly. Appended only
+     * when a record is being edited, so nothing new is ever *offered* — a Select must contain its own value.
+     */
+    const linkedId = editingRecord?.treatmentPlanItemId
+    if (linkedId && !options.some((o) => o.itemId === linkedId)) {
+      for (const p of treatmentPlans) {
+        const it = p.items.find((i) => i.id === linkedId)
+        if (it) {
+          options.push(planItemOptionOf(p, it))
+          break
+        }
+      }
+    }
+
+    return options
+  })()
 
   /**
    * The appointment the record documents, so its booked procedure can be PROPOSED in the record modal and its
@@ -1335,7 +1430,6 @@ export default function PatientDetailsPage() {
     : []
   
   // Parse medical history (if it contains structured data, otherwise show as text)
-  const medicalHistoryText = patient.medicalHistory || "Aucun renseignement"
   
 
   return (
@@ -1378,19 +1472,24 @@ export default function PatientDetailsPage() {
               <h1 className="min-w-0 text-2xl font-semibold leading-tight text-foreground [overflow-wrap:anywhere] sm:text-title">
                 {patientName}
               </h1>
-              {hasFlags && (
-                <div className="flex flex-wrap gap-1">
-                  {patient.flags?.filter(flag => flag.isActive).map((flag) => (
-                    <Badge key={flag.id} variant="destructive" className="gap-1">
-                      <Flag className="h-3 w-3" />
-                      {/* The raw enum name was printed here — « HighPriority » in a red badge beside the
-                          patient's name, at the top of an otherwise entirely French record. */}
-                      {patientFlagLabel(flag.flagType)}
-                    </Badge>
-                  ))}
-                </div>
-              )}
             </div>
+
+            {/*
+              « Motif de consultation » — why this patient came in the first place, directly under their name.
+
+              ⚠️ Clamped to one line with the full value in the `title`, never truncated away entirely: the column
+              is unbounded server-side (a capped one would turn a long paste into a save that fails naming no
+              field), so the display is what keeps it to a line rather than the storage.
+            */}
+            {patient.consultationReason && (
+              <p
+                className="line-clamp-1 text-sm text-muted-foreground"
+                title={patient.consultationReason}
+              >
+                <span className="font-medium text-foreground">Motif :</span>{" "}
+                {patient.consultationReason}
+              </p>
+            )}
 
             {/*
               Identity strip — âge · téléphone · assureur, and allergies.
@@ -1425,8 +1524,25 @@ export default function PatientDetailsPage() {
               ) : (
                 <span className="text-amber-700 dark:text-amber-400">Aucun téléphone</span>
               )}
-              {patient.insuranceInfo?.provider && (
-                <span className="text-muted-foreground">{patient.insuranceInfo.provider}</span>
+              {/*
+                « Tabac » takes the slot the assureur vacated, and it earns it on this strip's own terms: it is a
+                fact that changes what the practitioner does (healing, implant survival, periodontal work) and it
+                is one short phrase. Omitted when unanswered rather than printed as « non renseigné » — the strip's
+                convention, the same one the assureur and « Adressé par » follow.
+
+                Amber for a current smoker and plain for the rest: « Non-fumeur » is reassurance and « Ancien
+                fumeur » is history, so tinting either would spend a warning colour on a patient nothing is wrong
+                with — the same rule `PatientAlertPanel` applies one component over.
+              */}
+              {tobaccoSummary(patient.tobaccoUse) && (
+                <span
+                  className={cn(
+                    "text-muted-foreground",
+                    isActiveSmoker(patient.tobaccoUse) && "text-warning-ink",
+                  )}
+                >
+                  {tobaccoSummary(patient.tobaccoUse)}
+                </span>
               )}
               {/*
                 Rendered only when something is actually owed. A « Solde dû 0,000 DT » on every settled patient
@@ -2877,7 +2993,15 @@ export default function PatientDetailsPage() {
 
         </Tabs>
 
-        <div className="grid gap-6 lg:grid-cols-3">
+        {/*
+          Two cards, two columns — it declared **three** while a third card (« Informations administratives »,
+          the retired insurance block) filled the last one, so removing that card left a whole empty column on
+          every desktop and two very tall, very narrow stacks beside it.
+
+          Each card then lays its own fields out 2-up from `sm:`, which is what turns the width back into
+          something read rather than scrolled: « Informations personnelles » was nine rows in one column.
+        */}
+        <div className="grid gap-6 lg:grid-cols-2">
           {/* Personal Information */}
           <Card>
             <CardHeader>
@@ -2886,62 +3010,42 @@ export default function PatientDetailsPage() {
                 Informations personnelles
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Nom complet</p>
-                <p className="text-sm text-foreground">{patientName}</p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Adressé par</p>
-                <p className="text-sm text-foreground">{patient.referredBy || "Non renseigné"}</p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Date de naissance</p>
-                <p className="text-sm text-foreground">
-                  {formatDate(patient.dateOfBirth)} {age !== null ? `(${age} ans)` : "(âge inconnu)"}
-                </p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Sexe</p>
-                <p className="text-sm text-foreground">{genderLabel(patient.gender)}</p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Téléphone</p>
-                <p className="text-sm text-foreground">{patient.phoneNumber || "Non renseigné"}</p>
-                {/* The blank alone reads as "nobody typed it in yet". What matters is that this patient
-                    is silently excluded from every automated contact. */}
-                {!patient.phoneNumber && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    Ni rappel ni relance ne peuvent lui être envoyés.
-                  </p>
-                )}
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">E-mail</p>
-                <p className="text-sm text-foreground">{patient.email || "Non renseigné"}</p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Adresse</p>
-                <p className="text-sm text-foreground">{formatAddress(patient.address)}</p>
-              </div>
-              {patient.emergencyContactName && (
-                <>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Contact d'urgence</p>
-                    <p className="text-sm text-foreground">
-                      {patient.emergencyContactName}
-                      {patient.emergencyContactPhone && ` - ${patient.emergencyContactPhone}`}
-                    </p>
-                  </div>
-                </>
-              )}
+            <CardContent>
+              <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                <RecordField label="Nom complet" value={patientName} />
+                {/* The reason the patient is on the books at all — beside their name above, and here in the
+                    record. `wide`, because it is a sentence rather than a field. */}
+                <RecordField label="Motif de consultation" value={patient.consultationReason} wide />
+                <RecordField
+                  label="Date de naissance"
+                  value={`${formatDate(patient.dateOfBirth)} ${age !== null ? `(${age} ans)` : "(âge inconnu)"}`}
+                />
+                <RecordField label="Sexe" value={genderLabel(patient.gender)} />
+                <RecordField
+                  label="Téléphone"
+                  value={patient.phoneNumber}
+                  /* The blank alone reads as "nobody typed it in yet". What matters is that this patient
+                     is silently excluded from every automated contact. */
+                  hint={
+                    !patient.phoneNumber && (
+                      <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+                        Ni rappel ni relance ne peuvent lui être envoyés.
+                      </p>
+                    )
+                  }
+                />
+                <RecordField label="E-mail" value={patient.email} />
+                <RecordField label="Adresse" value={formatAddress(patient.address)} wide />
+                <RecordField label="Adressé par" value={patient.referredBy} />
+                <RecordField
+                  label="Contact d'urgence"
+                  value={
+                    patient.emergencyContactName
+                      ? `${patient.emergencyContactName}${patient.emergencyContactPhone ? ` — ${patient.emergencyContactPhone}` : ""}`
+                      : null
+                  }
+                />
+              </dl>
             </CardContent>
           </Card>
 
@@ -2953,16 +3057,28 @@ export default function PatientDetailsPage() {
                 Informations médicales
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Maladies chroniques / affections</p>
-                <p className="text-sm text-foreground whitespace-pre-wrap">
-                  {medicalHistoryText}
-                </p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents médicaux</p>
+            <CardContent>
+              <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                {/* Half width so it pairs with « Tabac » rather than leaving it alone on its own row. It is
+                    free text and can run long, which `whitespace-pre-wrap` + the field's own
+                    `[overflow-wrap:anywhere]` handle inside the column. */}
+                <RecordField label="Maladies chroniques / affections">
+                  {patient.medicalHistory?.trim() ? (
+                    <span className="whitespace-pre-wrap">{patient.medicalHistory}</span>
+                  ) : null}
+                </RecordField>
+                {/*
+                  « Tabac » belongs in this card and had no home in it — the modal records it under Informations
+                  médicales, the strip above states it, and the record card that lists every other medical fact
+                  about the patient omitted it. That gap is how a field becomes invisible on the one screen
+                  somebody opens to read the whole file.
+
+                  Every answer shows here, not only a current smoker's: the amber in the strip and the alert
+                  panel is the *warning*, this is the *record*, and « Non-fumeur » is worth reading.
+                */}
+                <RecordField label="Tabac" value={tobaccoSummary(patient.tobaccoUse)} />
+                <div className="min-w-0 sm:col-span-2">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents médicaux</p>
                 {medicalHistoryEntries.length > 0 ? (
                   <div className="space-y-2">
                     {medicalHistoryEntries.map((entry) => (
@@ -2991,10 +3107,9 @@ export default function PatientDetailsPage() {
                     <p className="text-sm text-muted-foreground">Aucun antécédent médical</p>,
                   )
                 )}
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents familiaux</p>
+                </div>
+                <div className="min-w-0 sm:col-span-2">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents familiaux</p>
                 {familyHistoryEntries.length > 0 ? (
                   <div className="space-y-2">
                     {familyHistoryEntries.map((entry) => (
@@ -3015,10 +3130,9 @@ export default function PatientDetailsPage() {
                     <p className="text-sm text-muted-foreground">Aucun antécédent familial</p>,
                   )
                 )}
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Allergies</p>
+                </div>
+                <div className="min-w-0 sm:col-span-2">
+                  <p className="text-xs font-medium text-muted-foreground">Allergies</p>
                 {allergiesList.length > 0 ? (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {allergiesList.map((allergy: string, index: number) => (
@@ -3030,48 +3144,11 @@ export default function PatientDetailsPage() {
                 ) : (
                   <p className="text-sm text-muted-foreground">Aucune signalée</p>
                 )}
-              </div>
+                </div>
+              </dl>
             </CardContent>
           </Card>
 
-          {/* Administrative Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <CreditCard className="h-5 w-5 text-muted-foreground" />
-                Informations administratives
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Assureur</p>
-                <p className="text-sm text-foreground">{patient.insuranceInfo?.provider || "Non renseigné"}</p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Numéro de police</p>
-                <p className="font-mono text-sm text-foreground">{patient.insuranceInfo?.policyNumber || "Non renseigné"}</p>
-              </div>
-              {patient.insuranceInfo?.groupNumber && (
-                <>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Numéro de groupe</p>
-                    <p className="text-sm text-foreground">{patient.insuranceInfo.groupNumber}</p>
-                  </div>
-                </>
-              )}
-              {patient.insuranceInfo?.expiryDate && (
-                <>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Date d'expiration</p>
-                    <p className="text-sm text-foreground">{formatDate(patient.insuranceInfo.expiryDate)}</p>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
         </div>
 
       </AppShell>

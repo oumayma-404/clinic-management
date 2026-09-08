@@ -82,8 +82,7 @@ public class PatientsController : ApiControllerBase
         [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
         [FromQuery] string? searchTerm = null,
         [FromQuery] DateTime? createdFrom = null,
-        [FromQuery] DateTime? createdTo = null,
-        [FromQuery] bool flaggedOnly = false)
+        [FromQuery] DateTime? createdTo = null)
     {
         // ⚠️ Three controls added together, because the finding was the ASYMMETRY rather than any one of them:
         // this file carries twenty columns per patient — date de naissance, adresse, identifiant CNAM,
@@ -102,7 +101,6 @@ public class PatientsController : ApiControllerBase
             SearchTerm = searchTerm,
             CreatedFrom = createdFrom,
             CreatedTo = createdTo,
-            FlaggedOnly = flaggedOnly,
         });
 
         if (result.IsFailure)
@@ -336,7 +334,6 @@ public class PatientsController : ApiControllerBase
         [FromQuery] DateTime? createdTo = null,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
-        [FromQuery] bool flaggedOnly = false,
         [FromQuery] bool pendingCalendarReviewOnly = false,
         // Only meaningful alongside the filter above: a dismissal narrows « Patients à compléter » and never the
         // practice's directory, or « ne plus afficher » would read as a delete.
@@ -355,7 +352,6 @@ public class PatientsController : ApiControllerBase
             CreatedTo = createdTo,
             Page = page,
             PageSize = pageSize,
-            FlaggedOnly = flaggedOnly,
             PendingCalendarReviewOnly = pendingCalendarReviewOnly,
             DismissedReviewOnly = dismissedReviewOnly,
             Sort = string.Equals(sort, nameof(PatientListSort.RecentlyAdded), StringComparison.OrdinalIgnoreCase)

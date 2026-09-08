@@ -122,8 +122,7 @@ public static class ListExportLedger
     public static string DescribeFilters(
         string? searchTerm,
         DateTime? createdFrom,
-        DateTime? createdTo,
-        bool flaggedOnly)
+        DateTime? createdTo)
     {
         var parts = new List<string>();
 
@@ -135,11 +134,6 @@ public static class ListExportLedger
         if (createdFrom.HasValue || createdTo.HasValue)
         {
             parts.Add("filtré par date d'inscription");
-        }
-
-        if (flaggedOnly)
-        {
-            parts.Add("patients signalés uniquement");
         }
 
         return parts.Count == 0

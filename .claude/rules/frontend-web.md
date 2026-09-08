@@ -277,6 +277,16 @@ channel:
   *filtered* list, and a card list with no chip is a filtered list that looks unfiltered.
 - **A loading skeleton distinct from empty.** A card list has no header row, so "empty", "loading" and "your
   filter is wrong" are otherwise the same blank rectangle.
+- **A screen states what HAPPENED, never what comes next dressed as a past fact.** Two shapes, both shipped
+  and both reported: a rank computed as `count + 1` (« séance 2 sur 3 » printed on a treatment whose only
+  delivered séance was the first — and wrong outright when the work is done out of order, which the domain
+  allows), and a **bare fraction** (`2 / 3`), which is read as progress every time. Report a count *phrased as
+  a count* (« 1 étape sur 3 **faite** ») and **name** the thing rather than numbering it — « étape 1 sur 3 ·
+  Préparation », because « Couronne / bridge » alone is identical on the préparation and on the scellement six
+  weeks later. « Prochaine étape » belongs only where the subject is planning, and never on a chart of the
+  mouth, where every word is taken as a clinical fact. The word goes beside the **visible** figure: an
+  `sr-only` label is not enough, and it was already right in both surfaces where this was measured while the
+  sighted reader had nothing. `step-counter-says-done-or-to-do` (N31) holds it.
 - **A destructive confirm names what it destroys** (« Supprimer le brouillon de {patient} ? »), and its button
   is `variant="destructive"`. With three drafts open, « Êtes-vous sûr ? » cannot say which one you are losing.
 - **No English string reaches a user**, and none mentions CORS. A connection loss is its own French, retryable

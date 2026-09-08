@@ -394,7 +394,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                 .SelectMany(item => item.Steps
                     .Where(s => s.LinkedDentalRecordId != null && ids.Contains(s.LinkedDentalRecordId!.Value))
                     .Select(s => new DentalRecordPlanLinkRow(
-                        s.LinkedDentalRecordId!.Value, plan.Id, plan.Number,
+                        s.LinkedDentalRecordId!.Value, plan.Id, item.Id, plan.Number,
                         item.DesignationFr,
                         s.Label,
                         // `SequenceNumber` is 0-based and dense (held by `verify-schema`'s
@@ -410,7 +410,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                 .Where(item => item.LinkedDentalRecordId != null
                                && ids.Contains(item.LinkedDentalRecordId!.Value))
                 .Select(item => new DentalRecordPlanLinkRow(
-                    item.LinkedDentalRecordId!.Value, plan.Id, plan.Number,
+                    item.LinkedDentalRecordId!.Value, plan.Id, item.Id, plan.Number,
                     item.DesignationFr, null, null, item.Steps.Count)))
             .ToListAsync(cancellationToken);
 

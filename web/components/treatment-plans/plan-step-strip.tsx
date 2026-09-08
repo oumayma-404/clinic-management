@@ -99,10 +99,19 @@ export function PlanStepStrip({
       {/*
         The count is what stays legible once the strip wraps or goes compact, so it is pushed to the end and
         read out for a screen reader — which gets the whole sentence rather than a row of decorative dots.
+
+        ⚠️ « faites » is VISIBLE, and the screen-reader label alone is what it used to be. This is the
+        done / total counter, while « Traitements en cours » prints the NEXT step's rank in the identical
+        shape — so a bridge with one of three séances behind it read « 1 / 3 » here and « étape 2 / 3 » there,
+        and a bare fraction gives the sighted reader no way to tell which question was answered. That list
+        already carries its own word for exactly this reason; the strip did not.
       */}
-      <span className="ms-auto ps-2.5 font-mono text-2xs tabular-nums text-muted-foreground">
-        <span className="sr-only">Étapes réalisées : </span>
-        {done} / {steps.length}
+      <span className="ms-auto ps-2.5 text-2xs text-muted-foreground">
+        <span className="sr-only">Étapes </span>
+        <span className="font-mono tabular-nums">
+          {done} / {steps.length}
+        </span>{" "}
+        {done > 1 ? "faites" : "faite"}
         {next && <span className="sr-only">. Prochaine étape : {next.label}</span>}
       </span>
     </div>

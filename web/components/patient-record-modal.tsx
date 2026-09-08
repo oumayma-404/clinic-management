@@ -30,6 +30,7 @@ import type {
   ToothStateDto,
   AppointmentDto,
   AppointmentProcedureDto,
+  TreatmentPlanItemStepDto,
 } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, toLocalIso, todayLocalIso } from "@/lib/format"
 import { conditionStyle, needsTreatment, serializeSurfaces } from "@/components/odontogram-conditions"
@@ -78,6 +79,12 @@ const ACT_PALETTE = ["#7c5cd6", "#0f9b8e", "#c9376d", "#b8792f", "#3b82f6", "#5d
 // Sentinel for "not linked to a treatment-plan step".
 const NO_PLAN_ITEM = "__none__"
 
+/** « Préparation et Empreinte » / « 1, 2 et 3 » — a French list, for the two-steps-in-one-séance case. */
+const joinFr = (parts: string[]): string =>
+  parts.length <= 1
+    ? (parts[0] ?? "")
+    : `${parts.slice(0, -1).join(", ")} et ${parts[parts.length - 1]}`
+
 /** An open treatment-plan step offered for linking a dental record (closes the plan→record loop). */
 export interface PlanItemOption {
   itemId: string
@@ -96,14 +103,20 @@ export interface PlanItemOption {
   /** What is still to collect on the whole devis — meaningless once `billedOnInvoiceNumber` is set. */
   planOutstanding?: number
   /**
-   * How many séances the act is cut into, and how many are already carried out — so the fiche can lead with
-   * « Séance 2 sur 3 » instead of making the dentist count.
+   * The act's protocol — every séance it is cut into, with the ones already carried out dated.
    *
-   * <p>⚠️ Both are 0 for an act with no protocol, which is most acts, and the banner then says nothing about
-   * séances at all: « séance 1 sur 1 » is a fact nobody needs and it would appear on every ordinary fiche.</p>
+   * <p>⚠️ <b>The steps themselves, and not the two counts this used to carry.</b> It was `stepsTotal` +
+   * `stepsDone`, from which the fiche printed « Séance 2 sur 3 » as <code>stepsDone + 1</code> — a rank derived
+   * from a count, which is only the séance being recorded when the séances happen in order. A dentist may
+   * legitimately book the scellement before the essayage, and `DentalRecordLinker` says exactly which steps
+   * this fiche will close: the ones the <b>appointment's own rows</b> name. Counts cannot answer that, and they
+   * cannot answer the question that was actually asked either — <i>which</i> séance is this? « Séance 1 sur 3 »
+   * names a position and never the work, so the fiche said nothing the dentist did not already know.</p>
+   *
+   * <p>Absent or empty for an act with no protocol, which is most acts, and the fiche then says nothing about
+   * séances at all: « étape 1 sur 1 » is a fact nobody needs and it would appear on every ordinary fiche.</p>
    */
-  stepsTotal?: number
-  stepsDone?: number
+  steps?: TreatmentPlanItemStepDto[]
   /**
    * The catalogue act this devis line is priced on. Carried so a REOPENED fiche can tell which of its acts the
    * devis pays for — see the `markBilledOnPlan` effect. Absent (a hand-typed devis line) falls back to the
@@ -441,6 +454,41 @@ export function PatientRecordModal({
     dispatch({ type: "applyPlanItem", item: planItemPrefill(linked, appointment) })
   }, [open, record, appointment, planItems, dispatch])
 
+  /*
+   * The twin of the effect above, for a fiche being EDITED — and its absence was a money defect, not a missing
+   * convenience.
+   *
+   * ⚠️ **`linkedPlanItemId` had three writers and none of them was the record.** The open effect resets it to
+   * `NO_PLAN_ITEM`, the appointment effect is guarded by `if (… || record || …) return`, and the page passes no
+   * appointment when a record is being edited (`recordAppointment` is null for `editingRecord`, on its own
+   * stated reasoning). So a reopened fiche of a devis-carried act had `billedPlanItem == null`, which made
+   * `carriedByDevis` false, which meant: « Acte planifié : Aucun » on a fiche the server has linked, no
+   * « Suivi comme traitement » / « Déjà facturé » notice, no « Encaissé sur le traitement » field at all — so
+   * the séance could not take the patient's money — and, worst, `markBilledOnPlan` could never fire, so the act
+   * card read its stored 0 against the catalogue tarif and announced « geste de 500,000 DT » beside a
+   * « remettre au tarif » link. A discount nobody granted, one press from re-charging the devis, and that
+   * back-fill's own docstring says it exists to prevent exactly it. Measured on a live fiche at 1440 px.
+   *
+   * ⚠️ **It only ever SELECTS; it never dispatches a prefill.** `applyPlanItem` carries the act's designation,
+   * its `plannedCost` and its teeth into the séance — right when a *new* fiche is being composed, and wrong
+   * here: the stored acts are what happened, and `use-session-acts`' own note records that the prefill charged
+   * a treatment's whole fee at every séance (300,000 DT taken for a 150,000 DT act). Selecting is enough,
+   * because `markBilledOnPlan` below is what the flag needs.
+   *
+   * ⚠️ **Guarded on `planItems`, the same rule as its twin**: that list holds the plan's *open* acts, so an act
+   * on a cancelled plan, or one already fully réalisé, falls through to exactly the behaviour it has today
+   * rather than selecting an option the Select does not offer.
+   */
+  useEffect(() => {
+    if (!open || !record?.treatmentPlanItemId) return
+    // Never overwrite a choice already made — the user's own pick, or this effect's on an earlier pass.
+    if (linkedPlanItemId !== NO_PLAN_ITEM) return
+    const linked = planItems.find((p) => p.itemId === record.treatmentPlanItemId)
+    if (!linked) return
+
+    setLinkedPlanItemId(linked.itemId)
+  }, [open, record, planItems, linkedPlanItemId])
+
   /**
    * Every act booked into this séance, in the dentist's order, resolved against the catalogue.
    *
@@ -499,11 +547,27 @@ export function PatientRecordModal({
     if (prefill.length > 0) dispatch({ type: "applyAppointment", procedures: prefill })
   }, [open, record, appointment?.procedureTypeId, bookedActs, procedureTypes, dispatch])
 
-  // « Montant payé » mirrors the running total until the user takes the field over.
+  /*
+   * « Montant payé » mirrors the running total until the user takes the field over.
+   *
+   * ⚠️ **`record` is a gate in its own right, and `paidDirty` alone could not be one.** The open effect above
+   * sets the field from `record.amountPaid` and then `setPaidDirty(true)` — « a saved amount is the user's,
+   * never re-mirrored from the total » — but both effects run in the SAME commit, so this one reads the
+   * `paidDirty` of the render it was scheduled from, i.e. still `false`, and being declared later its update
+   * lands last and wins. Whether it wins is pure ordering luck: it depends on whether the acts have loaded and
+   * `grandTotal` is non-zero on that first pass.
+   *
+   * Measured on a live fiche while verifying the devis-link hydration: a séance with **999,000 DT** recorded
+   * reopened showing **40,000** — its act's price — with the save button enabled, so one press would have
+   * written the session total over the patient's real payment. The database row was untouched (`AmountPaid`
+   * 999.000, last written weeks earlier), which is what makes this a *display* defect rather than a lost one:
+   * silent, and a money figure nobody would think to distrust. A saved record's « Payé » is never a mirror of
+   * anything, so the honest guard is the record itself rather than a flag whose value arrives one commit late.
+   */
   useEffect(() => {
-    if (paidDirty || isInvoiced) return
+    if (record || paidDirty || isInvoiced) return
     setAmountPaid(grandTotal > 0 ? formatAmount(grandTotal) : "")
-  }, [grandTotal, paidDirty, isInvoiced])
+  }, [record, grandTotal, paidDirty, isInvoiced])
 
   // Latest recorded state per tooth, EXCLUDING the record being edited — its own tooth states are this
   // session's output, and painting them as "prior state" would double-count them on the chart.
@@ -706,6 +770,58 @@ export function PatientRecordModal({
   const carriedByDevis =
     billedPlanItem != null && (acts.some((a) => a.billedOnPlan) || carriedByAppointment)
 
+  /**
+   * WHICH séance of the treatment this fiche is — « Cette séance : étape 1 sur 3 · Préparation ».
+   *
+   * <p>⚠️ <b>The step, named, and not merely a rank.</b> The fiche is where a multi-séance act is recorded and
+   * it said only the act's name: a dentist recording the préparation of a couronne saw « Couronne / bridge (par
+   * élément) », exactly what they would see on the scellement six weeks later, and reported it as « nothing
+   * mentions the step that was done ». The label was on record all along — `TreatmentPlanItemStep.Label`, which
+   * the saved fiche then reads back through `RecordActsSummary` — so the one screen that could not say what the
+   * séance was is the screen that creates it.</p>
+   *
+   * <p>⚠️ <b>Mirrors {@code DentalRecordLinker.ResolveStepsOfTheSeanceAsync} exactly, and that is the whole
+   * point.</b> Which steps a fiche closes is decided server-side from the <b>appointment's own procedure
+   * rows</b> — several of them when « préparation + empreinte » share one visit — falling back to the act's
+   * next pending step when the séance names none (`TreatmentPlanItem.MarkDone`). Anything else here is a second
+   * opinion about a fact the database already holds, and it would name one séance while the save recorded
+   * another.</p>
+   */
+  const seanceStepLine = useMemo(() => {
+    /*
+     * ⚠️ **A REOPENED fiche answers from ITSELF, and the fallback below would have named the wrong séance.**
+     * The page passes no appointment when a record is being edited (`recordAppointment` is null for
+     * `editingRecord`, deliberately), so with nothing booked to read this would drop to « the next pending
+     * step » — and on a fiche that recorded the préparation, the next pending step is the empreinte. That is
+     * the very defect this whole change exists to remove, one door further in. `treatmentStepLabel` is the
+     * server's own read-back of the step this record closed (`GetPlanLinksByDentalRecordAsync`), so it is the
+     * one answer that cannot disagree with what the patient's history prints for the same fiche.
+     */
+    if (record?.treatmentStepLabel && record.treatmentStepNumber && record.treatmentStepTotal) {
+      return `Cette séance : étape ${record.treatmentStepNumber} sur ${record.treatmentStepTotal} · ${record.treatmentStepLabel}`
+    }
+
+    const steps = billedPlanItem?.steps ?? []
+    // « étape 1 sur 1 » on every ordinary act is noise; an act booked whole has no step to name.
+    if (!billedPlanItem || steps.length <= 1) return null
+
+    const booked = new Set(
+      (appointment?.procedures ?? [])
+        .filter((row) => row.treatmentPlanItemId === billedPlanItem.itemId && row.treatmentPlanItemStepId)
+        .map((row) => row.treatmentPlanItemStepId as string),
+    )
+    const named = steps.filter((s) => booked.has(s.id))
+    // The server's own fallback, not a guess: with no step on the booked row it advances `NextStep`.
+    const target =
+      named.length > 0 ? named : steps.filter((s) => !s.doneDate).slice(0, 1)
+    if (target.length === 0) return null
+
+    const ordered = [...target].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+    const ranks = joinFr(ordered.map((s) => String(s.sequenceNumber + 1)))
+    const rank = `étape${ordered.length > 1 ? "s" : ""} ${ranks} sur ${steps.length}`
+    return `Cette séance : ${rank} · ${joinFr(ordered.map((s) => s.label))}`
+  }, [record, billedPlanItem, appointment?.procedures])
+
   /*
    * Back-fill « this act is carried by the devis » onto a REOPENED fiche. `applyAppointment` carries it per act
    * for a fresh one, but a saved record is built before any plan data has loaded — and without it the reopened
@@ -714,12 +830,25 @@ export function PatientRecordModal({
    * The same back-fill shape as `edit-appointment-dialog`'s, and for the same reason: the hydration path is
    * where this family of defect reappears.
    */
-  // ⚠️ Keyed on `carriedByAppointment`, never on `carriedByDevis` — the latter now reads the very flag this
-  // dispatch sets, so keying on it would make the back-fill depend on its own outcome.
+  /*
+   * ⚠️ **The RECORD is the second source, and it is the one that was missing.** A reopened fiche has no
+   * appointment, so `carriedByAppointment` is false and this back-fill — the thing that stops the card
+   * announcing the catalogue tarif as a « geste » — could never fire on the one path it was written for: a
+   * *saved* record. The record's own server-side link says the same fact the booked row says.
+   *
+   * ⚠️ Still keyed on neither `carriedByDevis` nor `acts.some(billedOnPlan)`: both read the very flag this
+   * dispatch sets, so either would make the back-fill depend on its own outcome. These two inputs are
+   * independent of it, which is what keeps the effect a fixpoint (the reducer no-ops once every match is
+   * marked).
+   */
+  const recordCarriesPlanItem =
+    billedPlanItem != null && record?.treatmentPlanItemId === billedPlanItem.itemId
+
   useEffect(() => {
-    if (!open || !carriedByAppointment || !billedPlanItem) return
+    if (!open || !billedPlanItem) return
+    if (!carriedByAppointment && !recordCarriesPlanItem) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
-  }, [open, carriedByAppointment, billedPlanItem, dispatch])
+  }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, dispatch])
 
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
@@ -778,6 +907,26 @@ export function PatientRecordModal({
    */
   const seanceIsWhollyOnTreatment =
     collectsOnTreatment && namedActs.length > 0 && namedActs.every((a) => a.billedOnPlan)
+
+  /**
+   * A stored « Payé » on a séance that is wholly carried by the treatment — so the field is **shown anyway**.
+   *
+   * <p>⚠️ <b>§ 0: hiding it would remove the only way to read or correct money that is already recorded.</b>
+   * `seanceIsWhollyOnTreatment` withdraws « Payé », « Mode » and « Total » because on such a séance they can
+   * only ever be 0 — true of a fiche composed today, and **false of one saved before that rule existed**. Those
+   * fiches are the direct product of the defect this hydration fixes: with the devis link lost on reopen the
+   * card offered a tarif and a price field, so somebody could and did put the patient's cash in « Payé ».
+   * Measured on the dev database: <b>23</b> single-act fiches carry a non-zero `AmountPaid` on a plan-linked
+   * act. The value is never lost either way — the save sends `amountPaid` back from state, not 0 — but unseen
+   * money that cannot be corrected is worse than a field that reads 0.</p>
+   *
+   * <p>⚠️ Keyed on the <b>record's stored</b> figure, never on the live `amountPaid` state: keying on the state
+   * would make the field un-hide itself as soon as a digit was typed into it, i.e. exactly when the rule wants
+   * it gone. Typing 0 over it and saving therefore removes it from the next reopen, which is the correction.</p>
+   */
+  const hasStoredSeancePayment = (record?.amountPaid ?? 0) > 0
+  /** The withhold, with its one exception applied. Every « Payé » / « Mode » / « Total » gate reads this. */
+  const withholdSeanceMoneyFields = seanceIsWhollyOnTreatment && !hasStoredSeancePayment
   /**
    * Collecting will mint the devis number — <c>CollectOnTreatmentCommand</c> issues one when the treatment has
    * none. A gapless number can only be released by a cancellation carrying a motif, so this is said on the
@@ -1222,7 +1371,16 @@ export function PatientRecordModal({
                 Acte planifié <span className="font-normal text-muted-foreground">(facultatif)</span>
               </Label>
               <Select value={linkedPlanItemId} onValueChange={handlePlanItemLink} disabled={loading}>
-                <SelectTrigger id="plan-item" className="h-9">
+                {/*
+                  ⚠️ **`w-full`, because `SelectTrigger` is `w-fit` and this trigger now holds a long value.**
+                  The primitive already truncates the value correctly (`block min-w-0 truncate`), but a `w-fit`
+                  box sizes to its content first, so the cell's `min-w-0` had nothing to shrink. Invisible while
+                  the value was « Aucun »; the moment a reopened fiche hydrates its own devis act the label
+                  becomes « 2026-0027 · Couronne / bridge (par élément) » and the trigger measured **380 px in a
+                  257 px cell** at 320 px, pushing the whole Patient/Date/Acte row 108 px past the dialog. With
+                  `w-full` it takes the cell and ellipsises.
+                */}
+                <SelectTrigger id="plan-item" className="h-9 w-full">
                   <SelectValue placeholder="Lier à un acte du plan" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1264,11 +1422,23 @@ export function PatientRecordModal({
             information répétée ». The act card now states the « no honoraires » half once, in its own body; this
             states the two facts only the plan knows: which séance this is, and the agreed total.
           */}
-          {carriedByDevis && billedPlanItem && (billedPlanItem.stepsTotal ?? 0) > 1 && (
-            <p className="text-2xs font-semibold uppercase tracking-wider text-primary">
-              Séance {Math.min((billedPlanItem.stepsDone ?? 0) + 1, billedPlanItem.stepsTotal!)} sur{" "}
-              {billedPlanItem.stepsTotal}
-            </p>
+          {/*
+            ⚠️ « Cette séance : » is a VISIBLE prefix and the rank is no longer alone. « Séance 2 sur 3 » in
+            small caps read as a statement about the treatment's progress rather than about the fiche being
+            typed, and it named no work at all — see `seanceStepLine`, which also explains why the rank comes
+            from the appointment's booked step and not from `stepsDone + 1`. Not `uppercase` any more either: a
+            protocol's own label (« Essai de l'armature ») is prose and shouting it makes it hard to read.
+          */}
+          {/*
+            ⚠️ **Gated on the line itself, NOT on `carriedByDevis`, and that difference is what makes it visible
+            on a reopened fiche.** `linkedPlanItemId` is never hydrated from a saved record — it is reset to
+            `NO_PLAN_ITEM` on open and only the appointment effect sets it — so `billedPlanItem` is null when a
+            fiche is edited, and every one of the money statements below is absent there. Which séance this is
+            is not a money statement: it is true whether or not the devis carries the fee, and on the edit path
+            it comes from the record's own read-back, which exists only when the fiche really closed a step.
+          */}
+          {seanceStepLine && (
+            <p className="text-2xs font-semibold text-primary">{seanceStepLine}</p>
           )}
           {carriedByDevis && billedPlanItem && (
             <p
@@ -1768,7 +1938,7 @@ export function PatientRecordModal({
               It used to be relabelled « Encaissé aujourd'hui » here and left in place, which promised a
               mechanism that did not exist: nothing on this path could put that money anywhere.
             */}
-            {!seanceIsWhollyOnTreatment && (
+            {!withholdSeanceMoneyFields && (
             <div className="flex min-w-[9rem] flex-1 items-center gap-2">
               <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
                 Payé
@@ -1799,7 +1969,7 @@ export function PatientRecordModal({
                 « Total » while being sent with `amountCollectedOnPlan`: two fields that produce nothing on
                 this séance, above the one that does, with the mode attached to the wrong pair. Reported as
                 « les champs d'argent en bas ont l'air bizarres ». */}
-            {!seanceIsWhollyOnTreatment && (
+            {!withholdSeanceMoneyFields && (
               <PaymentMethodField
                 value={paymentMethod}
                 onChange={setPaymentMethod}
@@ -1816,7 +1986,14 @@ export function PatientRecordModal({
                 over: the note d'honoraires it builds cannot exist, so the field can only ever read 0,000. It
                 was worse than useless — `distributeSessionTotal` did not exclude carried acts, so typing here
                 wrote the amount into the act's own READ-ONLY price field and the server discarded it on save.
-                The distribution is fixed at its source; this hides the control that had no subject. */}
+                The distribution is fixed at its source; this hides the control that had no subject.
+
+                ⚠️ **This one keeps `seanceIsWhollyOnTreatment` and takes NO stored-payment exception**, unlike
+                « Payé » two fields up. The exception exists so already-recorded money stays readable and
+                correctable; « Total » holds no recorded money — it re-prices the acts, and on a wholly-carried
+                séance `distributeSessionTotal` has no act eligible to receive it. Un-hiding it would put back a
+                control that visibly accepts a figure and changes nothing, which is the defect this hide was
+                added for. */}
             {!seanceIsWhollyOnTreatment && (
             <div className="flex shrink-0 items-center gap-1.5 text-sm">
               <Label htmlFor="session-total" className="text-muted-foreground">
@@ -1890,8 +2067,14 @@ export function PatientRecordModal({
                 </div>
                 {/* The mode, beside the only amount this séance can take. Same field, same state, same payload
                     key — it moved here rather than being duplicated, so « comment » sits with « combien »
-                    exactly as it does on an ordinary fiche. */}
-                {seanceIsWhollyOnTreatment && (
+                    exactly as it does on an ordinary fiche.
+
+                    ⚠️ **`withholdSeanceMoneyFields`, i.e. the exact complement of the « Payé » gate above, so
+                    the two can never both render.** `PaymentMethodField` hard-codes `id="paid-method"` and
+                    `htmlFor="paid-method"`, so a second instance is a duplicate id — one label pointing at two
+                    controls over one piece of state, which is invalid and picks whichever the browser finds
+                    first. Reachable the moment a wholly-carried séance keeps « Payé » for a stored payment. */}
+                {withholdSeanceMoneyFields && (
                   <PaymentMethodField
                     value={paymentMethod}
                     onChange={setPaymentMethod}
@@ -1956,7 +2139,7 @@ export function PatientRecordModal({
               patient owes 100 on the treatment — a true statement about the séance read as a false one about
               the patient, directly beneath the field that says otherwise.
             */}
-            {!seanceIsWhollyOnTreatment && (
+            {!withholdSeanceMoneyFields && (
             <div className="w-full text-xs sm:w-auto">
               {overpaid ? (
                 <p role="status" className="font-medium text-destructive">

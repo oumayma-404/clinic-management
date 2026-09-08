@@ -166,34 +166,44 @@ public static class PatientImportRowReader
             }
         }
 
-        // ---- Address (all four parts, or none) ---------------------------------------------------------------
+        // ---- Address (whatever parts the row gives) ----------------------------------------------------------
+        // Any one part is enough, so there is nothing left to warn about: `Address.OfAny` stores what was given
+        // and returns null only when all four are blank. This used to require all four and warn « non importée »
+        // on the rest — a whole column of « Sfax » was dropped by design, on a file the operator cannot re-check
+        // row by row.
         var street = Value(PatientImportField.Street);
         var city = Value(PatientImportField.City);
         var state = Value(PatientImportField.State);
         var zip = Value(PatientImportField.ZipCode);
         AddressDto? address = null;
-        var addressParts = new[] { street, city, state, zip };
-        if (addressParts.All(p => p.Length > 0))
+        if (new[] { street, city, state, zip }.Any(p => p.Length > 0))
         {
             address = new AddressDto { Street = street, City = city, State = state, ZipCode = zip };
         }
-        else if (addressParts.Any(p => p.Length > 0))
-        {
-            // `CreatePatientCommand` requires all four and silently stores null otherwise. Mirroring that is right
-            // (one rule, one place) but staying quiet about it is not: the operator would believe they had imported
-            // addresses.
-            warnings.Add("Adresse incomplète (rue, ville, gouvernorat et code postal sont requis) : non importée.");
-        }
 
-        // ---- Insurance (provider + policy, or none) ----------------------------------------------------------
-        var insurer = Value(PatientImportField.InsuranceProvider);
-        var policy = Value(PatientImportField.InsurancePolicyNumber);
-        // Either side is enough (AC-21). A one-sided row used to be dropped with a warning nobody could act on —
-        // and on a 3 000-row file a silent drop is unrecoverable without re-importing the whole thing.
-        InsuranceInfoDto? insurance = null;
-        if (insurer.Length > 0 || policy.Length > 0)
+        // ---- Tabac -------------------------------------------------------------------------------------------
+        // An unreadable status is a warning, not an error: it must not cost the clinical record, and « nobody has
+        // asked » is the honest state to fall back to — never « non-fumeur », which would be an answer nobody gave.
+        var rawSmoking = Value(PatientImportField.SmokingStatus);
+        TobaccoUseDto? tobacco = null;
+        if (rawSmoking.Length > 0)
         {
-            insurance = new InsuranceInfoDto { Provider = insurer, PolicyNumber = policy };
+            if (TobaccoLabels.ParseStatus(rawSmoking) is { } smokingStatus)
+            {
+                var (perDay, unit) = TobaccoLabels.ParsePerDay(Value(PatientImportField.SmokingPerDay));
+                tobacco = new TobaccoUseDto
+                {
+                    Status = smokingStatus.ToString(),
+                    PerDay = perDay,
+                    Unit = unit?.ToString(),
+                };
+            }
+            else
+            {
+                warnings.Add(
+                    $"Tabac « {rawSmoking} » non reconnu (attendu : {TobaccoLabels.NonSmoker}, {TobaccoLabels.Smoker} "
+                    + $"ou {TobaccoLabels.FormerSmoker}) : non importé.");
+            }
         }
 
         // ---- CNAM --------------------------------------------------------------------------------------------
@@ -246,7 +256,8 @@ public static class PatientImportRowReader
             Email = email ?? string.Empty,
             PhoneNumber = phone ?? string.Empty,
             Address = address,
-            InsuranceInfo = insurance,
+            TobaccoUse = tobacco,
+            ConsultationReason = NullIfBlank(Value(PatientImportField.ConsultationReason)),
             CnamInfo = cnam,
             EmergencyContactName = emergencyName.Length > 0 ? emergencyName : null,
             EmergencyContactPhone = emergencyPhone,

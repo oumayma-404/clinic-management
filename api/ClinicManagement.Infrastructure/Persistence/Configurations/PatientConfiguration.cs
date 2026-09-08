@@ -63,6 +63,11 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
                 .HasMaxLength(20);
         });
 
+        // ⚠️ EF warns that `Address` is now an "optional dependent … without any required non shared property",
+        // i.e. a row whose five columns are all null materialises no instance. That is correct and harmless
+        // *because* `Address.OfAny` refuses to build one with every part blank — the « at least one side » rule is
+        // what makes the warning inapplicable, not a nicety. `CnamInfo` below has carried the same warning since
+        // it shipped, for the same reason (`IsEmpty` collapses to null).
         builder.OwnsOne(p => p.Address, address =>
         {
             address.Property(a => a.Street).HasColumnName("Street").HasMaxLength(200);
@@ -72,12 +77,13 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             address.Property(a => a.Country).HasColumnName("Country").HasMaxLength(100);
         });
 
-        builder.OwnsOne(p => p.InsuranceInfo, insurance =>
+        // « Tabac ». Three nullable columns: the whole owned block is null until somebody answers, which is what
+        // distinguishes « jamais renseigné » from an answered « Non-fumeur » — see `TobaccoUse`.
+        builder.OwnsOne(p => p.TobaccoUse, tobacco =>
         {
-            insurance.Property(i => i.Provider).HasColumnName("InsuranceProvider").HasMaxLength(200);
-            insurance.Property(i => i.PolicyNumber).HasColumnName("InsurancePolicyNumber").HasMaxLength(100);
-            insurance.Property(i => i.GroupNumber).HasColumnName("InsuranceGroupNumber").HasMaxLength(100);
-            insurance.Property(i => i.ExpiryDate).HasColumnName("InsuranceExpiryDate");
+            tobacco.Property(t => t.Status).HasColumnName("SmokingStatus").HasConversion<int>();
+            tobacco.Property(t => t.PerDay).HasColumnName("SmokingPerDay");
+            tobacco.Property(t => t.Unit).HasColumnName("SmokingUnit").HasConversion<int?>();
         });
 
         // Optional CNAM identity (spec AC-1) — owned, all columns nullable. An all-null owned instance
@@ -99,6 +105,11 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
                 .HasColumnName("CnamAnnualCeilingOverride")
                 .HasPrecision(18, 3);
         });
+
+        // « Motif de consultation » — `text`, not a capped length: a capped column turns a long paste into a
+        // SaveChanges failure surfacing as the generic error, naming no field. The display clamps instead.
+        builder.Property(p => p.ConsultationReason)
+            .HasColumnType("text");
 
         builder.Property(p => p.MedicalHistory)
             .HasColumnType("text");
@@ -196,11 +207,6 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.Property(p => p.UpdatedAt);
 
         // Relationships
-        builder.HasMany(p => p.Flags)
-            .WithOne(f => f.Patient)
-            .HasForeignKey(f => f.PatientId)
-            .OnDelete(DeleteBehavior.Cascade);
-
         builder.HasMany(p => p.Files)
             .WithOne(f => f.Patient)
             .HasForeignKey(f => f.PatientId)

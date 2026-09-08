@@ -110,8 +110,34 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     [JsonIgnore]
     public bool AddressSpecified { get; private set; }
 
-    public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }
+
+    /// <summary>
+    /// « Motif de consultation ». Same convention as <see cref="Notes"/>: omitted leaves it unchanged, a
+    /// present-but-blank value clears it.
+    /// </summary>
+    public string? ConsultationReason { get; set; }
+
+    /// <summary>
+    /// « Tabac », tri-state on the <c>Specified</c> pattern: omit the key to leave the stored answer alone, send
+    /// an explicit <c>null</c> to un-record it, send a block to set it.
+    ///
+    /// <para>⚠️ A real <c>Specified</c> flag rather than a plain null-check, because « nobody has asked » is a
+    /// value here and not merely an absence — a null block has to be able to mean « clear the answer », which a
+    /// plain null-check cannot distinguish from an omitted key. This is deliberately <b>not</b> the shape the
+    /// retired insurance block had: that one cleared the stored value whenever the key was missing, so any caller
+    /// that did not echo it back wiped the patient's insurer with no way to say « leave it ».</para>
+    /// </summary>
+    public TobaccoUseDto? TobaccoUse
+    {
+        get => _tobaccoUse;
+        set { _tobaccoUse = value; TobaccoUseSpecified = true; }
+    }
+    private TobaccoUseDto? _tobaccoUse;
+
+    [JsonIgnore]
+    public bool TobaccoUseSpecified { get; private set; }
+
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     // Emergency contact (finding #11). null (omitted) = leave unchanged; a present value (even empty) sets/clears.
@@ -134,8 +160,6 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     /// <inheritdoc cref="Notes"/>
     public string? ImportantNotes { get; set; }
 
-    // "Signaler ce patient" toggle + note. null = leave the flag state unchanged (backward-compatible with
-    // callers that don't send it); true = ensure an active flag; false = clear any active flag.
     /// <summary>
     /// The patient's answer about automated SMS/WhatsApp reminders — <c>"NotRecorded"</c>, <c>"Granted"</c> or
     /// <c>"Refused"</c>. <b>Omitted means unchanged</b>, like every other key on this command; sending
@@ -146,16 +170,10 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     /// accepts only <c>2</c>.</para>
     /// </summary>
     public string? ReminderConsent { get; set; }
-
-    public bool? IsFlagged { get; set; }
-    public string? FlagNotes { get; set; }
 }
 
 public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand, Result<PatientDto>>
 {
-    // Description stamped on the flag created by the "Signaler ce patient" toggle.
-    private const string SignaledFlagDescription = "Patient signalé";
-
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
@@ -230,23 +248,24 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 // Tri-state: an unspecified block keeps the stored address, a specified `null` clears it, a
                 // specified block replaces it. `request.Address != null` was the whole bug — it made "clear"
                 // and "leave alone" the same request.
+                // ⚠️ `Address.OfAny`, never the constructor. This called `new Address(...)` with no guard at all,
+                // so a partial address — « Sfax » and nothing else, the ordinary case at a desk — threw
+                // `ArgumentException` straight into the catch-all below and came back as the generic
+                // « une erreur est survenue », naming no field and losing the save. Its twin on the create path
+                // failed the opposite way, dropping the same input silently. One factory, one behaviour.
                 Address? address;
                 if (!request.AddressSpecified)
                 {
                     address = patient.Address;
                 }
-                else if (request.Address != null)
-                {
-                    address = new Address(
-                        request.Address.Street,
-                        request.Address.City,
-                        request.Address.State,
-                        request.Address.ZipCode,
-                        request.Address.Country);
-                }
                 else
                 {
-                    address = null;
+                    address = Address.OfAny(
+                        request.Address?.Street,
+                        request.Address?.City,
+                        request.Address?.State,
+                        request.Address?.ZipCode,
+                        request.Address?.Country);
                 }
 
                 patient.UpdatePersonalInfo(
@@ -267,31 +286,21 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 patient.UpdateContact(email, phoneNumber);
             }
 
-            // Update insurance info. A null/omitted InsuranceInfo clears the stored insurance
-            // (the edit dialog sends undefined when both insurance fields are emptied).
-            if (request.InsuranceInfo != null)
+            // « Motif de consultation ». Present sets it, present-but-blank clears it, omitted leaves it alone.
+            if (request.ConsultationReason != null)
             {
-                // Either side is enough (AC-21) — but a block with *neither* is how the dialog says « clear it »,
-                // and the value object refuses that, so it is turned into a clear here rather than a 500.
-                var hasAnySide =
-                    !string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) ||
-                    !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber);
-
-                patient.UpdateInsuranceInfo(hasAnySide
-                    ? new InsuranceInfo(
-                        request.InsuranceInfo.Provider,
-                        request.InsuranceInfo.PolicyNumber,
-                        request.InsuranceInfo.GroupNumber,
-                        request.InsuranceInfo.ExpiryDate)
-                    : null);
-            }
-            else
-            {
-                patient.UpdateInsuranceInfo(null);
+                patient.SetConsultationReason(request.ConsultationReason);
             }
 
-            // CNAM identity. Unlike insurance, a null/omitted block LEAVES it unchanged (DEV-1) — the edit
-            // dialog always sends a present block, so a present-but-empty block still clears the stored value.
+            // « Tabac », on the `Specified` pattern so an explicit null can un-record the answer without an
+            // omitted key doing the same by accident — which is precisely what the retired insurance block did.
+            if (request.TobaccoUseSpecified)
+            {
+                patient.UpdateTobaccoUse(TobaccoUseMapping.ToDomain(request.TobaccoUse));
+            }
+
+            // CNAM identity. A null/omitted block LEAVES it unchanged (DEV-1) — the edit dialog always sends a
+            // present block, so a present-but-empty block still clears the stored value.
             if (request.CnamInfo != null)
             {
                 patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
@@ -348,32 +357,6 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             {
                 patient.SetReminderConsent(
                     requestedConsent.Value, DateTime.UtcNow, _clinicContext.GetUserEmail());
-            }
-
-            // Patient flag ("Signaler ce patient"): a single active HighPriority flag carries the toggle
-            // + note; it feeds the "Urgents" KPI and the flagged filter. A null IsFlagged leaves it unchanged.
-            if (request.IsFlagged.HasValue)
-            {
-                var activeFlag = patient.Flags.FirstOrDefault(f => f.IsActive);
-                if (request.IsFlagged.Value)
-                {
-                    if (activeFlag != null)
-                    {
-                        activeFlag.Update(activeFlag.Description, request.FlagNotes);
-                    }
-                    else
-                    {
-                        patient.AddFlag(new PatientFlag(
-                            Guid.NewGuid(), patient.Id, PatientFlagType.HighPriority, SignaledFlagDescription, request.FlagNotes));
-                    }
-                }
-                else
-                {
-                    foreach (var flag in patient.Flags.Where(f => f.IsActive).ToList())
-                    {
-                        flag.Deactivate();
-                    }
-                }
             }
 
             // Validate the save against the version the USER was editing, not the one this

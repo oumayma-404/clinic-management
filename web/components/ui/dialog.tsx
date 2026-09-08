@@ -276,12 +276,21 @@ function DialogContent({
  * ⚠️ `min-h-0` is load-bearing. A flex item's default `min-height: auto` refuses to shrink below its content,
  * so without it the body pushes the footer off the bottom of the viewport instead of scrolling — which is
  * precisely the AC-25 failure (the primary action leaves the screen when the keyboard opens).
+ *
+ * ⚠️ `relative` is load-bearing for the same class of reason, and it was missing: **a scroll container does
+ * not clip its own `absolute` children unless it is positioned.** Tailwind's `sr-only` *is*
+ * `position: absolute`, so every screen-reader-only line in a dialog body resolved against a further ancestor
+ * and widened this element's scrollable area — measured on « Nouveau plan de traitement » at 320 px, a
+ * `scrollWidth` of 275 against a 257 px box with **no painted content out there at all**: a horizontal
+ * scrollbar onto nothing, on the narrowest screen the product supports. It is the identical defect the root
+ * guide records for `AppShell`'s `<main>` (« a third scrollbar onto blank space »), one primitive over, and the
+ * rule stated there is unconditional — a scroll container is `relative`.
  */
 function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-body"
-      className={cn("min-h-0 flex-1 overflow-y-auto", className)}
+      className={cn("relative min-h-0 flex-1 overflow-y-auto", className)}
       {...props}
     />
   )

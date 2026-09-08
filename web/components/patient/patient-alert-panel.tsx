@@ -1,9 +1,8 @@
 "use client"
 
 import { AlertTriangle } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
+import { isActiveSmoker, tobaccoSummary } from "@/lib/tobacco"
 import type { PatientDto } from "@/lib/api/types"
 
 /** True when this patient carries anything the panel would show — so a caller can decide layout before rendering. */
@@ -12,7 +11,7 @@ export function hasPatientAlerts(patient: PatientDto | null | undefined): boolea
   return (
     Boolean(patient.allergies?.trim()) ||
     Boolean(patient.medicalHistory?.trim()) ||
-    (patient.flags ?? []).some((f) => f.isActive)
+    isActiveSmoker(patient.tobaccoUse)
   )
 }
 
@@ -22,7 +21,7 @@ interface PatientAlertPanelProps {
 }
 
 /**
- * « Alertes médicales » — allergies, active flags and chronic conditions, in one read-only panel.
+ * « Alertes médicales » — allergies, tabac and chronic conditions, in one read-only panel.
  *
  * ## Why it is shared
  *
@@ -33,7 +32,7 @@ interface PatientAlertPanelProps {
  *   so prescribing Clamoxyl or Augmentin — both carrying `Amoxicilline` as a structured DCI in the seeded
  *   catalogue — to a penicillin-allergic patient raised nothing;
  * - the **patient summary modal**, the one-click quick look from the patients list and the phone ⋯ menu, which
- *   omitted allergies, flags and antécédents entirely while the full page and the fiche modal both showed them.
+ *   omitted allergies and antécédents entirely while the full page and the fiche modal both showed them.
  *
  * That is this codebase's dominant defect shape — a correct answer wired to one call site — so the answer is a
  * component, not a third copy. Anything that shows a patient in a clinical context renders this.
@@ -50,9 +49,16 @@ interface PatientAlertPanelProps {
 export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps) {
   const allergies = patient.allergies?.trim()
   const medicalHistory = patient.medicalHistory?.trim()
-  const activeFlags = (patient.flags ?? []).filter((f) => f.isActive)
+  /*
+   * ⚠️ A **current** smoker only. « Non-fumeur » is reassurance and « Ancien fumeur » is history, and a warning
+   * panel that fires on every patient is a panel the eye learns to skip — both stay readable in the patient's
+   * own file. It replaced the retired « signalement » badges here: those were a second, weaker mechanism for the
+   * same job as `importantNotes`, while this is a fact that bears on the decision being taken on these three
+   * surfaces (healing, implant survival, periodontal work).
+   */
+  const tobacco = isActiveSmoker(patient.tobaccoUse) ? tobaccoSummary(patient.tobaccoUse) : null
 
-  if (!allergies && !medicalHistory && activeFlags.length === 0) return null
+  if (!allergies && !medicalHistory && !tobacco) return null
 
   return (
     <div
@@ -70,14 +76,10 @@ export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps
             <span className="font-semibold">Allergies :</span> {allergies}
           </p>
         )}
-        {activeFlags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {activeFlags.map((f) => (
-              <Badge key={f.id} variant="destructive" className="text-2xs">
-                {f.description || patientFlagLabel(f.flagType)}
-              </Badge>
-            ))}
-          </div>
+        {tobacco && (
+          <p className="text-amber-800 dark:text-amber-200">
+            <span className="font-semibold">Tabac :</span> {tobacco}
+          </p>
         )}
         {medicalHistory && (
           <p className="text-amber-800 dark:text-amber-200">

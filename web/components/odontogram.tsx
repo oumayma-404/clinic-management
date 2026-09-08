@@ -1101,7 +1101,7 @@ function ToothCell({
               <p key={`${t.planId}-${t.designationFr}`} className="mb-1 text-primary">
                 <span className="font-medium">{t.designationFr}</span>
                 <br />
-                {toothTreatmentSummary(t, formatDateFr)}
+                {toothTreatmentSummary(t)}
               </p>
             ))}
             <ul className="space-y-0.5">

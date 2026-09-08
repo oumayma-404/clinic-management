@@ -4,6 +4,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Moq;
@@ -12,25 +13,34 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Features.Patients;
 
 /// <summary>
-/// Hardening pass — cross-clinic isolation (AC-1) and the insurance-clear fix (AC-8) for the patient
-/// handlers. Mirrors the Stock handler tests' shape (Moq + xUnit Assert).
+/// Hardening pass — cross-clinic isolation (AC-1) and the « Tabac » tri-state for the patient handlers.
+/// Mirrors the Stock handler tests' shape (Moq + xUnit Assert).
 /// </summary>
 public static class PatientTestData
 {
     public static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     public static readonly Guid OtherClinicId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
-    public static Patient Patient(Guid clinicId, InsuranceInfo? insurance = null) => new(
-        Guid.NewGuid(),
-        clinicId,
-        "Jean",
-        "Dupont",
-        new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-        "M",
-        new Email("jean.dupont@example.com"),
-        new PhoneNumber("+21620123456"),
-        address: null,
-        insuranceInfo: insurance);
+    public static Patient Patient(Guid clinicId, TobaccoUse? tobacco = null)
+    {
+        var patient = new Patient(
+            Guid.NewGuid(),
+            clinicId,
+            "Jean",
+            "Dupont",
+            new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            "M",
+            new Email("jean.dupont@example.com"),
+            new PhoneNumber("+21620123456"),
+            address: null);
+
+        if (tobacco is not null)
+        {
+            patient.UpdateTobaccoUse(tobacco);
+        }
+
+        return patient;
+    }
 }
 
 public class UpdatePatientCommandHandlerTests
@@ -61,27 +71,52 @@ public class UpdatePatientCommandHandlerTests
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // [AC-8] Omitting InsuranceInfo (null) clears the stored insurance.
+    /// <summary>
+    /// ⚠️ The regression the retired insurance block WAS: an omitted key must leave the stored answer alone.
+    ///
+    /// <para>`UpdateInsuranceInfo(null)` sat in an `else` branch, so every update that did not echo the block back
+    /// wiped the patient's insurer — latent only because one caller always echoed it. « Tabac » is on the
+    /// `Specified` pattern so the same shape cannot recur, and this is the test that says so.</para>
+    /// </summary>
     [Fact]
-    public async Task Handle_Should_Clear_Insurance_When_Omitted()
+    public async Task Handle_Should_Leave_Tobacco_Alone_When_Key_Omitted()
     {
         Authenticated();
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
         var patient = PatientTestData.Patient(
             PatientTestData.ClinicId,
-            new InsuranceInfo("CNAM", "POL-123", "GRP-9", null));
+            new TobaccoUse(SmokingStatus.Smoker, 20, TobaccoUnit.Cigarettes));
         _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
 
-        var result = await Handler().Handle(new UpdatePatientCommand { Id = patient.Id, InsuranceInfo = null }, CancellationToken.None);
+        var result = await Handler().Handle(new UpdatePatientCommand { Id = patient.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Null(result.Value!.InsuranceInfo);
-        Assert.Null(patient.InsuranceInfo);
+        Assert.NotNull(patient.TobaccoUse);
+        Assert.Equal(SmokingStatus.Smoker, patient.TobaccoUse!.Status);
+        Assert.Equal(20, patient.TobaccoUse.PerDay);
     }
 
-    // [AC-8] Providing InsuranceInfo still updates it.
+    /// <summary>An explicit null un-records the answer — the other half of the tri-state.</summary>
     [Fact]
-    public async Task Handle_Should_Set_Insurance_When_Provided()
+    public async Task Handle_Should_Clear_Tobacco_When_Explicitly_Null()
+    {
+        Authenticated();
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var patient = PatientTestData.Patient(
+            PatientTestData.ClinicId,
+            new TobaccoUse(SmokingStatus.Smoker, 20, TobaccoUnit.Cigarettes));
+        _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+
+        var result = await Handler().Handle(
+            new UpdatePatientCommand { Id = patient.Id, TobaccoUse = null }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.TobaccoUse);
+        Assert.Null(patient.TobaccoUse);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Set_Tobacco_When_Provided()
     {
         Authenticated();
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
@@ -91,14 +126,96 @@ public class UpdatePatientCommandHandlerTests
         var command = new UpdatePatientCommand
         {
             Id = patient.Id,
-            InsuranceInfo = new InsuranceInfoDto { Provider = "STAR", PolicyNumber = "P-999" }
+            TobaccoUse = new TobaccoUseDto { Status = "Smoker", PerDay = 1, Unit = "Packs" },
         };
         var result = await Handler().Handle(command, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.NotNull(result.Value!.InsuranceInfo);
-        Assert.Equal("STAR", result.Value!.InsuranceInfo!.Provider);
-        Assert.Equal("STAR", patient.InsuranceInfo!.Provider);
+        Assert.Equal("Smoker", result.Value!.TobaccoUse!.Status);
+        Assert.Equal("Packs", result.Value!.TobaccoUse!.Unit);
+        Assert.Equal(TobaccoUnit.Packs, patient.TobaccoUse!.Unit);
+    }
+
+    /// <summary>
+    /// « Motif de consultation » follows `Notes`' convention: present sets, present-but-blank clears, omitted
+    /// leaves alone.
+    /// </summary>
+    [Fact]
+    public async Task Handle_Should_Set_And_Clear_The_Consultation_Reason()
+    {
+        Authenticated();
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(2);
+        var patient = PatientTestData.Patient(PatientTestData.ClinicId);
+        _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+
+        await Handler().Handle(
+            new UpdatePatientCommand { Id = patient.Id, ConsultationReason = "  Douleur 36  " },
+            CancellationToken.None);
+        Assert.Equal("Douleur 36", patient.ConsultationReason);
+
+        await Handler().Handle(new UpdatePatientCommand { Id = patient.Id }, CancellationToken.None);
+        Assert.Equal("Douleur 36", patient.ConsultationReason);
+
+        await Handler().Handle(
+            new UpdatePatientCommand { Id = patient.Id, ConsultationReason = "" }, CancellationToken.None);
+        Assert.Null(patient.ConsultationReason);
+    }
+
+    /// <summary>
+    /// ⚠️ The defect this whole change was asked for: « Sfax » and nothing else.
+    ///
+    /// <para>This path called <c>new Address(...)</c> with no guard, so a partial address threw
+    /// <see cref="ArgumentException"/> into the handler's catch-all and came back as the generic error, losing
+    /// the save. Its create-path twin dropped the same input silently — hence a test on each.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("12 rue de Marseille", null, null, null)]
+    [InlineData(null, "Sfax", null, null)]
+    [InlineData(null, null, "Sfax", null)]
+    [InlineData(null, null, null, "3000")]
+    public async Task Handle_Should_Store_A_Partial_Address(string? street, string? city, string? state, string? zip)
+    {
+        Authenticated();
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var patient = PatientTestData.Patient(PatientTestData.ClinicId);
+        _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+
+        var command = new UpdatePatientCommand
+        {
+            Id = patient.Id,
+            Address = new AddressDto { Street = street, City = city, State = state, ZipCode = zip },
+        };
+        var result = await Handler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(patient.Address);
+        Assert.Equal(street, patient.Address!.Street);
+        Assert.Equal(city, patient.Address.City);
+        Assert.Equal(state, patient.Address.State);
+        Assert.Equal(zip, patient.Address.ZipCode);
+    }
+
+    /// <summary>An all-blank block still clears — « vider l'adresse » must stay reachable.</summary>
+    [Fact]
+    public async Task Handle_Should_Clear_An_Address_Whose_Every_Box_Is_Blank()
+    {
+        Authenticated();
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var patient = PatientTestData.Patient(PatientTestData.ClinicId);
+        patient.UpdatePersonalInfo(
+            patient.FirstName, patient.LastName, patient.DateOfBirth, patient.Gender, patient.Email,
+            patient.PhoneNumber, Address.OfAny("12 rue de Marseille", "Tunis", "Tunis", "1000"));
+        _patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
+
+        var command = new UpdatePatientCommand
+        {
+            Id = patient.Id,
+            Address = new AddressDto { Street = "  ", City = "", State = null, ZipCode = null },
+        };
+        var result = await Handler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(patient.Address);
     }
 
     // Clinic cannot be resolved (unauthenticated) → failure, nothing persisted.
