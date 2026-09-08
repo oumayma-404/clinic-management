@@ -69,12 +69,19 @@ public static class VisitClosureReader
     /// </summary>
     /// <param name="days">Clinic-local days back, including today. See <see cref="ResolveDays"/>.</param>
     /// <param name="doctorId">Optional practitioner filter.</param>
+    /// <param name="patientId">
+    /// Optional patient filter, for the patient file's « travail non facturé » band. Deliberately a parameter
+    /// on <b>this</b> reader rather than a rule beside the band: <see cref="VisitClosureRules"/> already knows
+    /// that a contrôle gratuit (<c>FicheCost == 0</c>), a séance carried by a devis and a visit somebody marked
+    /// « rien à facturer » or « retirée » are not gaps, and a second implementation would nag about all four.
+    /// </param>
     /// <param name="nowUtc">Taken from the caller so the boundary is testable — the pattern
     /// <c>SubscriptionWarningJob</c> and <c>AppointmentProgressJob</c> both follow.</param>
     public static async Task<VisitClosureWorklist> ReadAsync(
         Guid clinicId,
         int? days,
         Guid? doctorId,
+        Guid? patientId,
         DateTime nowUtc,
         IAppointmentRepository appointments,
         IDentalRecordRepository dentalRecords,
@@ -93,7 +100,7 @@ public static class VisitClosureReader
             : ClinicClock.StartOfLocalDayUtc(clinicToday.AddDays(-(resolvedDays.Value - 1)));
 
         var candidates = await appointments.GetClosureCandidatesAsync(
-            clinicId, fromUtc, nowUtc, doctorId, cancellationToken);
+            clinicId, fromUtc, nowUtc, doctorId, patientId, cancellationToken);
 
         if (candidates.Count == 0)
         {

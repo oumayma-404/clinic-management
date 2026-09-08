@@ -38,6 +38,9 @@ public static class DentalRecordMappingExtensions
                 // editing that could not see which tooth was a pontique would send the list back empty and
                 // silently flatten the bridge on the next save.
                 PonticToothNumbers = a.PonticToothNumbers.ToList(),
+                // Same reason, second list: an editor blind to the implant piliers sends them back empty and
+                // the next save charts rooted abutments over implants.
+                ImplantPilierToothNumbers = a.ImplantPilierToothNumbers.ToList(),
                 ResultingCondition = a.ResultingCondition?.ToString(),
                 Surfaces = a.Surfaces,
                 Note = a.Note

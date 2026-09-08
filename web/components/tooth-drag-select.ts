@@ -9,6 +9,15 @@ import { useCallback, useEffect, useRef, useState } from "react"
  * tapped individually — so a whole quadrant was eight separate presses, and the mode that exists to make
  * charting faster made the commonest case the slowest. Dragging is what both pointers already do.</p>
  *
+ * ## ⚠️ The gesture no longer needs a mode, and that is the point
+ *
+ * <p>It shipped gated on « Plusieurs dents » being ON, and the sentence that taught it (« Glissez pour cocher
+ * une série ») was rendered only WHILE the mode was on — so the one thing that told you the gesture existed
+ * was behind knowing the gesture existed. The dentist's report was « it isn't noticeable ». The drag is now
+ * unconditional on both charts and the toggle became a selection READOUT, which is a change of job, not a
+ * deletion: see `odontogram.tsx`, and ⚠️ note that the toggle also stays the ONLY keyboard route into
+ * multi-select, because a drag is pointer-only.</p>
+ *
  * ## It follows `agenda-grid-drag.ts`, deliberately
  *
  * That hook solved the same three problems for the agenda and its solutions are the ones documented and
@@ -121,8 +130,18 @@ export function useToothDragSelect({ enabled, isSelected, onPaint }: ToothDragSe
     touch: boolean
     /** What the drag is applying: the opposite of what the tooth it began on was. */
     select: boolean
-    /** The cell the gesture started on — one end of the range, for its whole life. */
-    anchor: Element | null
+    /**
+     * The TOOTH the gesture started on — one end of the range, for its whole life.
+     *
+     * ⚠️ **A number, never the `Element`, and that distinction is a defect that shipped.** The first painted
+     * tooth turns « Plusieurs dents » on, and that swaps every cell from the editor branch to the checkbox
+     * branch — i.e. React REPLACES all 32 DOM nodes mid-gesture. Holding the element left the anchor pointing
+     * at a detached node, so `cells.indexOf(anchor)` returned -1 and `applyRange` bailed out for the whole rest
+     * of the drag: the range froze at the anchor plus the one tooth that had triggered the paint, so **every
+     * drag selected exactly 2 teeth** however far it went. Reported from real use, and invisible to `tsc`,
+     * `check:responsive` and a DOM-query probe alike — only a hand on the mouse finds it.
+     */
+    anchorTooth: number | null
     /** Everything the gesture has set so far, so narrowing the range puts the difference back. */
     applied: Set<number>
     timer: number | null
@@ -148,10 +167,11 @@ export function useToothDragSelect({ enabled, isSelected, onPaint }: ToothDragSe
   const applyRange = useCallback(
     (x: number, y: number) => {
       const state = drag.current
-      if (!state?.armed || !container || !state.anchor) return
+      if (!state?.armed || !container || state.anchorTooth == null) return
 
       const cells = cellsIn(container)
-      const from = cells.indexOf(state.anchor)
+      // Re-resolved on every move, because the nodes may have been replaced since the gesture began.
+      const from = cells.findIndex((c) => toothOf(c) === state.anchorTooth)
       if (from < 0) return
 
       const overCell = cellAt(x, y)
@@ -182,27 +202,42 @@ export function useToothDragSelect({ enabled, isSelected, onPaint }: ToothDragSe
     [container, onPaint],
   )
 
+  /**
+   * Arm the gesture, anchored on the tooth the press STARTED on — not the one the pointer is over now.
+   *
+   * ⚠️ **The caller decides WHEN, and the rule is « the pointer has reached a second tooth ».** The mode
+   * used to be the thing that made a drag a drag; without it, `MOUSE_DRAG_SLOP_PX` alone meant a 4 px hand
+   * tremor or a trackpad tap with drift ticked the tooth instead of opening its editor — and on the
+   * odontogramme the editor is the primary action. « Left the tooth it began on » is both the fix and the
+   * honest semantics: a gesture that never leaves its anchor **is** a click, and dragging out and back to the
+   * start behaves the same way.
+   */
   const arm = useCallback(
-    (x: number, y: number) => {
+    (anchorX: number, anchorY: number) => {
       const state = drag.current
       if (!state || state.armed) return
-      const cell = cellAt(x, y)
+      const cell = cellAt(anchorX, anchorY)
       const tooth = toothOf(cell)
       if (tooth == null) {
         drag.current = null
         return
       }
       state.armed = true
-      state.anchor = cell
+      state.anchorTooth = tooth
       state.select = !isSelected(tooth)
-      applyRange(x, y)
     },
-    [isSelected, applyRange],
+    [isSelected],
   )
 
   const end = useCallback(() => {
     cancelPending()
-    if (drag.current?.armed) {
+    /*
+     * ⚠️ **`applied.size`, not `armed`** — and with the mode gone this is what keeps a long press alive.
+     * A finger held still on a tooth arms after 350 ms and, under `arm`'s new « reached a second tooth » rule,
+     * paints nothing. Swallowing the click on `armed` alone therefore made a long press do NOTHING AT ALL: no
+     * editor, no selection, no feedback of any kind. A gesture that painted nothing has no click to protect.
+     */
+    if (drag.current?.applied.size) {
       consumed.current = true
       // A safety net: if no click follows (a release outside the arch, a cancelled gesture) the flag must not
       // survive to swallow the user's next deliberate tap.
@@ -224,7 +259,7 @@ export function useToothDragSelect({ enabled, isSelected, onPaint }: ToothDragSe
         startY: e.clientY,
         touch,
         select: true,
-        anchor: null,
+        anchorTooth: null,
         applied: new Set(),
         timer: null,
       }
@@ -258,6 +293,15 @@ export function useToothDragSelect({ enabled, isSelected, onPaint }: ToothDragSe
         if (Math.hypot(dx, dy) > MOUSE_DRAG_SLOP_PX) arm(state.startX, state.startY)
         if (!drag.current?.armed) return
       }
+
+      /*
+       * ⚠️ Nothing is painted until the pointer is over a DIFFERENT cell from the anchor — see `arm`. Once
+       * it has been, `applyRange` runs on every move including a return to the anchor, so narrowing the range
+       * back down to the single starting tooth still works; only the very first paint is gated.
+       */
+      const state2 = drag.current
+      if (!state2?.armed) return
+      if (state2.applied.size === 0 && toothOf(cellAt(e.clientX, e.clientY)) === state2.anchorTooth) return
       applyRange(e.clientX, e.clientY)
     }
 

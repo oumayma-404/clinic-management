@@ -62,7 +62,7 @@ public static class DentalRecordActParser
              * why that half is a fold and not a refusal. A tooth number that is not a tooth is a different
              * thing entirely and is refused, exactly as `ToothNumbers` is two loops above.
              */
-            foreach (var tooth in a.PonticToothNumbers)
+            foreach (var tooth in a.PonticToothNumbers.Concat(a.ImplantPilierToothNumbers))
             {
                 if (!FdiTooth.IsValid(tooth))
                 {
@@ -80,7 +80,8 @@ public static class DentalRecordActParser
                 condition,
                 a.Surfaces,
                 a.Note,
-                a.PonticToothNumbers));
+                a.PonticToothNumbers,
+                a.ImplantPilierToothNumbers));
         }
 
         return Result<List<DentalRecordActInput>>.Success(result);
@@ -113,12 +114,36 @@ public static class DentalRecordActParser
              * written before this — and every act that is not a bridge — charts exactly as it did.
              */
             var pontics = a.PonticToothNumbers ?? Array.Empty<int>();
-            foreach (var tooth in a.ToothNumbers.Distinct())
+            var implantPiliers = a.ImplantPilierToothNumbers ?? Array.Empty<int>();
+            var teeth = a.ToothNumbers.Distinct().ToList();
+
+            /*
+             * ⚠️ **One bridge act, one group — and a ONE-TOOTH act gets NONE.** The group is what tells two
+             * bridges placed side by side apart, so it has to be minted here (the only place that knows which
+             * teeth arrived together) rather than derived from the chart later.
+             *
+             * ⚠️ The `>= 2` is not a tidiness rule, it is a **regression guard**. Before
+             * `PonticToothNumbers` existed the only way to record a three-unit bridge was the SAME PROCEDURE
+             * TWICE — `DentalRecordAct.ImplantPilierToothNumbers`' sibling doc records that — so fiches are
+             * still entered as two acts of one tooth each. Give each of those a group and every one becomes a
+             * group of one, both are then excluded from `bridge-runs.ts`' ungrouped fallback, and the travée
+             * simply disappears from a workflow people use. A one-tooth act asserts nothing about a span, so it
+             * must not claim one: null leaves it to the adjacency scan, exactly as today.
+             *
+             * A re-save mints a fresh id, which is safe because `UpdateDentalRecordCommand` deletes and
+             * rebuilds this fiche's whole set of states in one transaction.
+             */
+            var bridgeGroupId = teeth.Count >= 2 && BridgeCharting.IsUnit(a.ResultingCondition.Value)
+                ? Guid.NewGuid()
+                : (Guid?)null;
+
+            foreach (var tooth in teeth)
             {
-                var condition = BridgeCharting.ConditionFor(a.ResultingCondition.Value, pontics, tooth);
+                var condition = BridgeCharting.ConditionFor(
+                    a.ResultingCondition.Value, pontics, implantPiliers, tooth);
                 yield return new ToothState(
                     Guid.NewGuid(), patientId, clinicId, tooth, condition, treatmentDate,
-                    a.Surfaces, a.Note, dentalRecordId);
+                    a.Surfaces, a.Note, dentalRecordId, bridgeGroupId: bridgeGroupId);
             }
         }
     }

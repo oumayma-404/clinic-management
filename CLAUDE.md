@@ -47,6 +47,12 @@ clinic-management/
 │   ├── ClinicManagement.Infrastructure/  → CLAUDE.md  (EF Core, repos, external services, DI)
 │   ├── ClinicManagement.API/             → CLAUDE.md  (controllers, SignalR hubs, background jobs, Program.cs startup)
 │   └── ClinicManagement.UnitTests/       → CLAUDE.md  (~90 xUnit+Moq classes mirroring every layer; guard tests)
+├── e2e/                          Playwright HOT-PATH suite — the money/fiche/devis gate `UnitTests` structurally
+│                                   cannot have (nothing there touches a database) and `web`'s gate cannot see
+│                                   (tsc + check:responsive + build all passed while every Completed plan threw
+│                                   during render). Arranges over the API, ACTS in the browser, asserts on the
+│                                   coupled reads. Runs in CI's `e2e` job on a bootstrapped database, and as a
+│                                   READ-ONLY smoke after a hosted deploy. → features/e2e-hot-paths/
 ├── web/                          Next.js frontend
 │   ├── (root)                            → CLAUDE.md  (stack, routing, API/auth integration)
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)
@@ -129,12 +135,18 @@ how it was built, `notes.md` is what shipped.
 
 **How the system works** — cross-cutting, belonging to no one feature
 
+- [`e2e-hot-paths`](features/e2e-hot-paths/findings.md) — **the coupling written down**: `coupling-matrix.md`
+  is the eleven surfaces one fiche save moves, the eight writers, and every guard with the remedy it names;
+  `scenarios.md` is 268 hot-path scenarios (125 tier-0) plus an appendix of the **probe traps** that each
+  produced a convincing false defect report; `findings.md` is what the 2026-09-08 pass found.
+
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — There is a CI gate now, and before it there was none for `api/` or `web/` · Multi-tenancy · Pluggable auth (`Auth:Mode` = `Cloud` | `Local`) · Google Calendar sync is asymmetric + per-clinic · Background jobs · Billing / CNAM / treatment plans (deep, fully-wired subsystems) · Clinical-workflow-depth operational features (built) · Dead-code cleanup · Clinic-scoped SignalR realtime (built) · In-app staff notification center (built) · Real outbound SMS/WhatsApp reminders · Security posture (mostly hardened by `cloud-security-and-tenant-isolation`, PR #11)
 
 **Money, and the ledgers behind it**
 
 - [`data-and-money-integrity`](features/data-and-money-integrity/notes.md) — Optimistic concurrency, solution-wide · Money is correctable, not immutable · Patient records resist destruction · `reconcile-money` (Local-mode console verb)
 - [`caisse-extrait`](features/caisse-extrait/notes.md) — La caisse has a statement, and it is a read · A session's payment reaches the till
+- [`patient-outstanding-breakdown`](features/patient-outstanding-breakdown/notes.md) — « Solde dû » says what it is made of, and each row is settled where it is read
 - [`adoption-gaps-remediation`](features/adoption-gaps-remediation/notes.md) — Re-saving a fiche tops its note up, and la caisse's day is Tunisian (Part 2)
 - [`audit-sections-3-to-10`](features/audit-sections-3-to-10/notes.md) — `verify-schema` (Local-mode console verb) · Tunisia is UTC+1, and `ClinicClock` is the only thing that knows it (P6) · A visit knows whether it was billed (P6) · One CNAM calculator (P6)
 
@@ -143,6 +155,7 @@ how it was built, `notes.md` is what shipped.
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
+- [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
 - [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
@@ -362,8 +375,9 @@ touching the area.
   `h-dvh` — a third scrollbar onto blank space (1168 px on the dashboard at 1440×900, 2611 px at 390×844).
   `check:responsive`'s `page-scroller-contains-its-absolutes` holds it.
 - **An act the TREATMENT prices takes no share of the séance total, and « Total » wrote straight past the
-  lock.** Such an act is 0 by rule — `act-card` renders its price `readOnly` and `PlanCarriedActPricing`
-  imposes the same 0 server-side — but `distributeSessionTotal` filtered on `isActNamed` alone, so typing 150
+  lock.** Such an act is 0 by rule — `act-card` **withholds the price field altogether**, printing « Aucun
+  honoraire sur cette séance » in its place (a card reading « 0,000 DT » « is the third of the séance's zeros
+  and it says nothing »), and `PlanCarriedActPricing` imposes the same 0 server-side — but `distributeSessionTotal` filtered on `isActNamed` alone, so typing 150
   into « Total » moved the locked field to « 150,000 » on screen and the save silently put it back. On a
   **mixed** séance it is quieter and worse: the typed total is split between a carried couronne and a real
   détartrage, so the détartrage is under-billed by whatever share went to the act that cannot hold it. Its twin
@@ -392,10 +406,24 @@ touching the area.
   `ResultingCondition` per act it charted **three abutments and no pontic** — anatomically impossible — and the
   odontogramme then drew a travée across the run, which made it look deliberate. Entering it as the same
   procedure twice was the only way to say it and nothing suggested that. `DentalRecordAct.PonticToothNumbers`
-  records the answer and `BridgeCharting.ConditionFor` folds it; ⚠️ **an act with no pontique marked charts
-  exactly as before**, which is what makes it safe against every existing row. ⚠️ **Never infer the roles from
-  position**: a pier abutment is crowned in the *middle* of the span, a cantilever hangs past the last abutment,
-  and 12 · 11 · 21 sorts to 11 · 12 · 21, so « the middle one » is the wrong tooth.
+  records the answer and `BridgeCharting.ConditionFor` folds it — in **four** branches, and the fourth is
+  load-bearing: ⚠️ **with NEITHER role list populated an act charts exactly as before**, which is what makes it
+  safe against every existing row. « Both lists empty » is the test, never « the pontique list is empty », now
+  that `ImplantPilierToothNumbers` is the second one. ⚠️ **Never infer the roles from position**: a pier abutment
+  is crowned in the *middle* of the span, a cantilever hangs past the last abutment, and 12 · 11 · 21 sorts to
+  11 · 12 · 21, so « the middle one » is the wrong tooth.
+- **And a bridge's EXTENT cannot be inferred from position either — the product made the same mistake one level
+  up.** `odontogram.tsx` joined bridge-marked teeth by arch adjacency within three intervening sites, so a bridge
+  on 14·15·16 beside one on 17·18 drew **one five-unit bar** — and because the run's `planned` flag was OR-ed
+  across the merge, a **finished** crown on 16 was drawn dashed-red, *asserted as not yet in the mouth*. It also
+  failed the other way, drawing nothing for abutments four sites apart. `ToothState.BridgeGroupId` states the
+  answer (minted per bridge **act**, and per **gesture** for a planned one) and `web/components/bridge-runs.ts`
+  is the one reader. ⚠️ **A group is minted only for an act with ≥ 2 teeth**, or the two-acts-of-one-tooth
+  workflow that predates `PonticToothNumbers` silently loses its travée; ⚠️ **one bridge mark per tooth, the
+  newest, resolved before grouping**, or a redone bridge lands in two groups and they merge again; ⚠️ ungrouped
+  rows keep the old adjacency scan and **grouped teeth are excluded from it**; ⚠️ and the migration must
+  **never backfill** — inferring a group from adjacency would freeze today's wrong answer into data. Held by
+  `check:responsive`'s N30.
 - **A `PopoverContent` that caps its own height DISABLES the cap it looks like it is tightening.** The base reads
   `--radix-popover-content-available-height` — the room Radix measures between the anchor and the edge — and
   tailwind-merge lets a caller's `max-h-[…]` win over it, while `dvh` measures the viewport instead. Measured on

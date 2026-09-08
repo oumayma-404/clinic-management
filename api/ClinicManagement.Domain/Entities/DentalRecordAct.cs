@@ -51,6 +51,22 @@ public class DentalRecordAct : Entity<Guid>
     /// </summary>
     public IReadOnlyList<int> PonticToothNumbers => _ponticToothNumbers.AsReadOnly();
 
+    private readonly List<int> _implantPilierToothNumbers = new();
+    /// <summary>
+    /// Which of this act's teeth are piliers carried by an <b>implant</b> rather than by a prepared natural
+    /// tooth — see <see cref="ToothCondition.BridgePilierImplant"/>. Always a subset of
+    /// <see cref="ToothNumbers"/>, always <b>disjoint from <see cref="PonticToothNumbers"/></b>, and empty for
+    /// every act that is not a bridge.
+    ///
+    /// <para>⚠️ <b>Two subset lists is the shape, and a FOURTH role would have to break it.</b> Three roles
+    /// (pilier · pontique · pilier sur implant) fit as « the default, plus two exceptions », which is why this
+    /// mirrors <see cref="PonticToothNumbers"/> exactly instead of replacing both with a role map: one column,
+    /// no data migration, and <see cref="PonticToothNumbers"/>' meaning is untouched for every existing row.
+    /// A fourth role does <b>not</b> fit — do not add a third list. Replace both with a
+    /// <c>Dictionary&lt;int, BridgeUnitRole&gt;</c> and migrate the two columns into it.</para>
+    /// </summary>
+    public IReadOnlyList<int> ImplantPilierToothNumbers => _implantPilierToothNumbers.AsReadOnly();
+
     /// <summary>Resulting tooth state for the odontogram (null = no state change, e.g. cleaning/consultation).</summary>
     public ToothCondition? ResultingCondition { get; private set; }
     public string? Surfaces { get; private set; }
@@ -105,11 +121,31 @@ public class DentalRecordAct : Entity<Guid>
          * bridge shape on an act that is not a bridge. Intersecting and clearing is the only reading that can
          * be wrong about nothing.
          */
-        if (BridgeCharting.IsUnit(ResultingCondition) && input.PonticToothNumbers is not null)
+        if (BridgeCharting.IsUnit(ResultingCondition))
         {
-            foreach (var tooth in input.PonticToothNumbers.Distinct())
+            if (input.PonticToothNumbers is not null)
             {
-                if (_toothNumbers.Contains(tooth)) _ponticToothNumbers.Add(tooth);
+                foreach (var tooth in input.PonticToothNumbers.Distinct())
+                {
+                    if (_toothNumbers.Contains(tooth)) _ponticToothNumbers.Add(tooth);
+                }
+            }
+
+            /*
+             * ⚠️ **Pontique wins, and the two lists are made disjoint HERE rather than trusted to be.** A tooth
+             * cannot be both a suspended replacement and an abutment, but the form holds two independent lists
+             * and a stale client can legitimately send a tooth in both — the same reasoning as the intersect
+             * above. Folding it one way in one place is what stops `BridgeCharting.ConditionFor`'s branch order
+             * from being the only thing deciding, which would make the answer depend on a fold order nobody
+             * reading the record can see.
+             */
+            if (input.ImplantPilierToothNumbers is not null)
+            {
+                foreach (var tooth in input.ImplantPilierToothNumbers.Distinct())
+                {
+                    if (_toothNumbers.Contains(tooth) && !_ponticToothNumbers.Contains(tooth))
+                        _implantPilierToothNumbers.Add(tooth);
+                }
             }
         }
     }
@@ -131,6 +167,13 @@ public class DentalRecordAct : Entity<Guid>
 /// existing construction sites keep compiling: they build acts that are not bridges, and adding a required
 /// positional parameter to a record every test fixture builds would have been a hundred edits to say « none ».
 /// </param>
+/// <param name="ImplantPilierToothNumbers">
+/// The subset of <paramref name="ToothNumbers"/> that are implant-borne piliers — see
+/// <see cref="DentalRecordAct.ImplantPilierToothNumbers"/>. ⚠️ Optional and **last**, after
+/// <paramref name="PonticToothNumbers"/>, for exactly the reason that one is: every existing construction site
+/// builds an act that is not a bridge and must keep compiling. ⚠️ Unlike the aggregate's *fold*, a **caller
+/// that copies this record must pass both lists** — dropping one silently flattens half a bridge's shape.
+/// </param>
 public sealed record DentalRecordActInput(
     Guid? ProcedureTypeId,
     string ProcedureName,
@@ -141,4 +184,5 @@ public sealed record DentalRecordActInput(
     ToothCondition? ResultingCondition,
     string? Surfaces,
     string? Note,
-    IReadOnlyList<int>? PonticToothNumbers = null);
+    IReadOnlyList<int>? PonticToothNumbers = null,
+    IReadOnlyList<int>? ImplantPilierToothNumbers = null);

@@ -89,6 +89,12 @@ public class GetPatientBillingSummaryQueryHandler
             var invoiceOutstanding = InvoiceCalculator.RoundMoney(invoices.Sum(i => i.Outstanding));
             var installmentOutstanding = InvoiceCalculator.RoundMoney(plans.Sum(p => p.Outstanding));
 
+            // What that balance is MADE of — the same two collections, projected instead of discarded. « Solde
+            // dû » stood on the patient file as one figure with nothing saying what it covered, while the
+            // composition lived in two places the file could not show side by side. See PatientDebtLines on why
+            // it is a row per document and not per échéance.
+            var debtLines = PatientDebtLines.Project(invoices, plans, clinicToday);
+
             var overdueInstallmentDates = plans
                 .SelectMany(p => p.Installments)
                 // Compared by CALENDAR DAY, not instant. Due dates are stored at midnight, so `DueDate < now`
@@ -142,11 +148,17 @@ public class GetPatientBillingSummaryQueryHandler
             {
                 InvoiceOutstanding = invoiceOutstanding,
                 InstallmentOutstanding = installmentOutstanding,
-                TotalOutstanding = InvoiceCalculator.RoundMoney(invoiceOutstanding + installmentOutstanding),
+                // ⚠️ Derived FROM the rows, not computed beside them. The arithmetic is identical today — both
+                // track sums are already millime-precise, so the rounding is a no-op — and deriving is what
+                // makes « the parts add up to the figure above them » structural rather than coincidental. A
+                // patient reading a total that its own breakdown contradicts is the one defect this whole
+                // section exists to remove. `MoneyReadConsistencyTests` pins the equality either way.
+                TotalOutstanding = InvoiceCalculator.RoundMoney(debtLines.Sum(l => l.Outstanding)),
                 OldestOverdueDate = oldestOverdue,
                 CnamReimbursable = cnamReimbursable,
                 PatientOutOfPocket = patientOutOfPocket,
                 CreditedTotal = creditedTotal,
+                Lines = debtLines,
             });
         }
         catch (NotFoundException)

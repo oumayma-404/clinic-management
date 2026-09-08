@@ -1244,6 +1244,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("DentalRecordId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ImplantPilierToothNumbers")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsPerTooth")
                         .HasColumnType("boolean");
 
@@ -3815,6 +3819,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BridgeGroupId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
@@ -3854,6 +3861,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BridgeGroupId");
 
                     b.HasIndex("ClinicId");
 

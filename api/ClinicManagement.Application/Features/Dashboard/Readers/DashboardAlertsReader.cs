@@ -93,6 +93,7 @@ public class DashboardAlertsReader : IDashboardAlertsReader
             clinicId,
             days: null,
             doctorId: null,
+            patientId: null,
             nowUtc,
             _appointmentRepository,
             _dentalRecordRepository,

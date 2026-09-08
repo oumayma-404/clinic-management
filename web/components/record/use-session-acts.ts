@@ -6,6 +6,29 @@ import { isBridgeUnit, parseSurfaces } from "@/components/odontogram-conditions"
 import type { DentalRecordDto, DentalRecordActDto, ProcedureTypeDto } from "@/lib/api/types"
 
 /**
+ * What one tooth of a bridge is. `pilier` is the **default** and is therefore not stored — the two lists on
+ * `SessionAct` are the exceptions to it, which is exactly the shape the server's `ConditionFor` folds.
+ *
+ * ⚠️ A **fourth** role does not fit two subset lists. Do not add a third list; replace both with a role
+ * map and migrate the two columns — `DentalRecordAct.ImplantPilierToothNumbers` carries the same warning.
+ */
+export type BridgeUnitRole = "pilier" | "pontique" | "pilierImplant"
+
+/** The role a bridge act currently gives one tooth. */
+export function bridgeRoleOf(act: SessionAct, tooth: number): BridgeUnitRole {
+  if (act.ponticTeeth.includes(tooth)) return "pontique"
+  if (act.implantPilierTeeth.includes(tooth)) return "pilierImplant"
+  return "pilier"
+}
+
+/** The word shown on the tooth's chip, and read out by its control. */
+export const BRIDGE_ROLE_LABEL: Record<BridgeUnitRole, string> = {
+  pilier: "pilier",
+  pontique: "pontique",
+  pilierImplant: "pilier sur implant",
+}
+
+/**
  * One act of the séance, and the ONLY shape this store holds. Every card on screen is one of these: there is no
  * draft, no "act in progress" and no committed/uncommitted distinction.
  *
@@ -53,9 +76,36 @@ export interface SessionAct {
    *
    * <p>⚠️ **Never derived from position.** « The ends are piliers » is false of a pier abutment (a crowned tooth
    * in the middle of the span) and of a cantilever (a pontique hanging past the last abutment). The dentist says
-   * which is which; `PONTIC_SEED` below only *proposes*, visibly and per act.</p>
+   * which is which — `BridgeRolesStep` in `act-card.tsx` asks, and pre-marks nothing.</p>
+   *
+   * <p>⚠️ An earlier draft of this note named a `PONTIC_SEED` that was never written and does not exist
+   * anywhere in the repo. Nothing seeds a role, deliberately; do not add it.</p>
    */
   ponticTeeth: number[]
+  /**
+   * Which of `toothNumbers` are piliers carried by an **implant** rather than by a prepared natural tooth
+   * (« intermédiaire de bridge sur implant »). Always a subset of `toothNumbers` and always **disjoint from
+   * `ponticTeeth`**; always empty unless `resultingCondition` is a bridge unit.
+   *
+   * <p>⚠️ Under the crown these are opposite things: a natural pilier keeps its root, an implant pilier has
+   * a fixture in bone and none — and « does this abutment have a root? » is what a dentist reads off the chart
+   * before touching it. Folded into `BridgePilier` the chart drew a rooted tooth over an implant.</p>
+   */
+  implantPilierTeeth: number[]
+  /**
+   * Has « quelles dents sont des pontiques ? » been **answered** for this act?
+   *
+   * <p>⚠️ **A third state, and it lives only here.** `ponticTeeth: []` means both « no pontique » and
+   * « nobody was asked », and it must go on meaning both **on the wire**: `BridgeCharting.ConditionFor`'s
+   * fourth branch keys on both lists being empty to leave every historical row charting exactly as it did, so
+   * teaching the server a third value would put that guarantee at risk to drive a prompt. This is form state,
+   * never sent, never stored.</p>
+   *
+   * <p>⚠️ Seeded **true** for an act read back from the server (`actFromDto`): a saved act has already been
+   * through this form once, so reopening a fiche to fix a typo must not re-interrogate a bridge somebody
+   * detailed last week. That one line is what makes a client-only tri-state sufficient.</p>
+   */
+  bridgeRolesAnswered: boolean
   /**
    * This act is carried by an accepted devis, so its fee lives once on the plan and this séance adds nothing.
    * ⚠️ **It is not the same fact as `unitCostLocked`**, which is merely « somebody has set this price » and is
@@ -90,6 +140,10 @@ const emptyAct = (key: string): SessionAct => ({
   billedOnPlan: false,
   toothNumbers: [],
   ponticTeeth: [],
+  implantPilierTeeth: [],
+  // A brand-new act has been asked nothing. It only ever matters once the état is a bridge and it holds two
+  // teeth, which is what the card gates the prompt on.
+  bridgeRolesAnswered: false,
   picking: true,
 })
 
@@ -324,8 +378,27 @@ export type SessionAction =
   | { type: "cancelPicking"; key: string }
   | { type: "resetUnitCostToTariff"; key: string; defaultCost: number | null }
   | { type: "toggleTooth"; tooth: number }
-  /** Flip one of the focused act's teeth between pilier and pontique. Ignored for a non-bridge act. */
-  | { type: "togglePontic"; tooth: number }
+  /**
+   * **Set** — not toggle — whether one tooth is on the focused act. What the drag gesture dispatches.
+   *
+   * ⚠️ `useToothDragSelect` decides the direction ONCE, from the tooth the gesture began on, and then
+   * *sets* every tooth in the range. Wiring it to `toggleTooth` would un-tick every tooth the pointer
+   * re-crosses — which on a curve is most of them — and is the trap `paintTooth`'s own comment in
+   * `odontogram.tsx` records.
+   */
+  | { type: "setTooth"; tooth: number; present: boolean }
+  /**
+   * Give one of an act's teeth its role in the bridge. Ignored for a non-bridge act, or a tooth not on it.
+   *
+   * ⚠️ Keyed by act `key`, **never by `focusKey`**: the answered role summary renders on a card at rest,
+   * so « modifier » on the second bridge of a séance would otherwise write roles onto the first. Two bridges in
+   * one visit is the case the owner reported.
+   */
+  | { type: "setBridgeRole"; key: string; tooth: number; role: BridgeUnitRole }
+  /** The dentist answered the pontique question for this act — including by answering « aucun pontique ». */
+  | { type: "answerBridgeRoles"; key: string }
+  /** Put the pontique question back on screen — what « modifier » and a tooth's role word do. */
+  | { type: "reopenBridgeRoles"; key: string }
   | { type: "selectMany"; teeth: number[]; additive: boolean }
   | { type: "clearTeeth" }
   | { type: "applyAppointment"; procedures: BookedActPrefill[] }
@@ -363,6 +436,16 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
      * belt and braces against a row whose teeth were edited by an older client.
      */
     ponticTeeth: [...(a.ponticToothNumbers ?? [])].filter((t) => teeth.includes(t)).sort((x, y) => x - y),
+    // Same read-back, same reason, second list — and made disjoint from the pontiques, as the aggregate does.
+    implantPilierTeeth: [...(a.implantPilierToothNumbers ?? [])]
+      .filter((t) => teeth.includes(t) && !(a.ponticToothNumbers ?? []).includes(t))
+      .sort((x, y) => x - y),
+    /*
+     * ⚠️ **True, and that is what makes the client-only tri-state work.** A saved act has already passed
+     * through this form, so the prompt must not re-ask about a bridge somebody detailed last week — including
+     * one they detailed as « aucun pontique », which is indistinguishable on the wire from never asked.
+     */
+    bridgeRolesAnswered: true,
     // `formatAmount`, never `String(...)`: reopening a saved act must show its fee the way the rest of the
     // product prints it (« 90,500 », not « 90.5 »), and the field accepts that form back.
     unitCost: formatAmount(perTooth && unit != null ? unit : a.cost),
@@ -414,6 +497,7 @@ const withTeeth = (act: SessionAct, toothNumbers: number[]): SessionAct => ({
    * back. Filtering keeps the screen and the save telling the same story.
    */
   ponticTeeth: act.ponticTeeth.filter((t) => toothNumbers.includes(t)),
+  implantPilierTeeth: act.implantPilierTeeth.filter((t) => toothNumbers.includes(t)),
 })
 
 /**
@@ -520,8 +604,18 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
          * them here would keep painting a travée on a chart whose act is now a couronne, until the next save
          * silently dropped it.
          */
-        if (action.patch.resultingCondition !== undefined && !isBridgeUnit(next.resultingCondition)) {
-          next.ponticTeeth = []
+        if (action.patch.resultingCondition !== undefined) {
+          if (!isBridgeUnit(next.resultingCondition)) {
+            next.ponticTeeth = []
+            next.implantPilierTeeth = []
+          } else if (!isBridgeUnit(act.resultingCondition)) {
+            /*
+             * ⚠️ It has just BECOME a bridge, so the question has not been asked about it. Without this the
+             * prompt is skipped for every act picked as a couronne and corrected to a bridge afterwards — and
+             * on a reopened fiche `bridgeRolesAnswered` is seeded true, so it would never appear at all.
+             */
+            next.bridgeRolesAnswered = false
+          }
         }
         return next
       })
@@ -573,15 +667,43 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       return mapAct(state, focused.key, (a) => withTeeth(a, teeth))
     }
 
-    case "togglePontic": {
-      if (!focused || !isBridgeUnit(focused.resultingCondition)) return state
-      if (!focused.toothNumbers.includes(action.tooth)) return state
-      const has = focused.ponticTeeth.includes(action.tooth)
-      const ponticTeeth = has
-        ? focused.ponticTeeth.filter((t) => t !== action.tooth)
-        : sorted([...focused.ponticTeeth, action.tooth])
-      return mapAct(state, focused.key, (a) => ({ ...a, ponticTeeth }))
+    case "setTooth": {
+      if (!focused) return state
+      const has = focused.toothNumbers.includes(action.tooth)
+      if (has === action.present) return state
+      const teeth = action.present
+        ? sorted([...focused.toothNumbers, action.tooth])
+        : focused.toothNumbers.filter((t) => t !== action.tooth)
+      return mapAct(state, focused.key, (a) => withTeeth(a, teeth))
     }
+
+    case "setBridgeRole": {
+      const target = state.acts.find((a) => a.key === action.key)
+      if (!target || !isBridgeUnit(target.resultingCondition)) return state
+      if (!target.toothNumbers.includes(action.tooth)) return state
+      /*
+       * ⚠️ The two lists are kept **disjoint here**, not left to the fold: a tooth cannot be both a
+       * suspended replacement and an abutment, and the aggregate makes pontique win — so a client that let
+       * both hold the same tooth would show one role and save the other.
+       */
+      const pontiques = target.ponticTeeth.filter((t) => t !== action.tooth)
+      const implants = target.implantPilierTeeth.filter((t) => t !== action.tooth)
+      if (action.role === "pontique") pontiques.push(action.tooth)
+      if (action.role === "pilierImplant") implants.push(action.tooth)
+      return mapAct(state, action.key, (a) => ({
+        ...a,
+        ponticTeeth: sorted(pontiques),
+        implantPilierTeeth: sorted(implants),
+      }))
+    }
+
+    case "answerBridgeRoles":
+      // « Aucun pontique » is a real answer and lands here with both lists empty — which is the record the
+      // product already wrote, and now the one the dentist has confirmed.
+      return mapAct(state, action.key, (a) => ({ ...a, bridgeRolesAnswered: true }))
+
+    case "reopenBridgeRoles":
+      return mapAct(state, action.key, (a) => ({ ...a, bridgeRolesAnswered: false }))
 
     case "selectMany": {
       if (!focused) return state

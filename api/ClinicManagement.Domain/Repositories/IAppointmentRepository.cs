@@ -147,11 +147,18 @@ public interface IAppointmentRepository
     /// over a non-unique sort can show a row on two pages and skip another, which reads as « une séance a
     /// disparu ». Procedures are included — a row names the acts the séance was booked for.</para>
     /// </summary>
+    /// <param name="patientId">
+    /// Optional patient filter — the same shape as <paramref name="doctorId"/>, for the patient file's own
+    /// « travail non facturé » band. It is a filter on the <b>identical</b> candidate set and rule rather than a
+    /// second read: a per-patient predicate written next to the band would be a second copy of
+    /// <c>VisitClosureRules</c>, and the two would disagree the first time either gained a term.
+    /// </param>
     Task<IReadOnlyList<Appointment>> GetClosureCandidatesAsync(
         Guid clinicId,
         DateTime fromUtc,
         DateTime nowUtc,
         Guid? doctorId = null,
+        Guid? patientId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

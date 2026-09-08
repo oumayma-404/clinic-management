@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 // its own copy of the same four arrays.
 import { TEETH_BY_VIEW } from "@/components/tooth-multiselect"
 import { ToothArchLayout, type ToothArch } from "@/components/tooth-arch-layout"
+import { TOOTH_CELL_ATTR, type ToothDragSelectHandle } from "@/components/tooth-drag-select"
 import type { DentitionView } from "@/lib/dentition"
 
 /**
@@ -152,6 +153,15 @@ interface RecordToothChartProps {
   toothTitle?: (toothNumber: number) => string
   /** Forwarded to `ToothArchLayout` — content that belongs to the card, below the arches (the fiche's legend). */
   footer?: ReactNode
+  /**
+   * Drag-to-select, from `useToothDragSelect`. Optional, so the read-only summary chart is unaffected.
+   *
+   * ⚠️ **A tap here has only ONE meaning** — put this tooth on the armed act — so unlike the patient
+   * page's odontogramme this chart needs **no mode at all**: the drag is simply the plural of the tap. That
+   * asymmetry is deliberate and the two charts must not be « unified »; over there a tap also has to be able to
+   * open a tooth's editor, which is why a selection readout survives on that side.
+   */
+  dragSelect?: ToothDragSelectHandle
 }
 
 export function RecordToothChart({
@@ -161,6 +171,7 @@ export function RecordToothChart({
   disabled,
   toothTitle,
   footer,
+  dragSelect,
 }: RecordToothChartProps) {
   const teeth = TEETH_BY_VIEW[view]
 
@@ -176,8 +187,18 @@ export function RecordToothChart({
         key={num}
         type="button"
         disabled={disabled}
-        onClick={() => onToggleTooth(num)}
+        /*
+         * ⚠️ `didConsumeGesture()` is what stops the last tooth of a drag being toggled straight back off:
+         * `pointerup` fires before `click`, so the gesture paints the tooth and then this handler undoes it.
+         * The hook only reports a consumed gesture when it actually painted something, so an ordinary tap —
+         * and a long press that selected nothing — still lands here.
+         */
+        onClick={() => {
+          if (dragSelect?.didConsumeGesture()) return
+          onToggleTooth(num)
+        }}
         title={toothTitle?.(num) ?? `Dent ${num}`}
+        {...{ [TOOTH_CELL_ATTR]: num }}
         /* A toggle, so it must say so and say which way it is set: selection was carried by fill colour and a
            ring alone, i.e. by nothing at all to a screen reader — on the control that decides what is charted
            and, on a per-tooth act, what is billed. */
@@ -258,5 +279,13 @@ export function RecordToothChart({
   // The geometry (scroll box, rows, midline, labels, the below-`md:` arch switch) lives in `ToothArchLayout`.
   // Everything above — paint, selection, `disabled`, the native `title` — stays here, which is exactly the
   // contract that lets the read-only summary reuse this chart. See the layout's own note.
-  return <ToothArchLayout teeth={teeth} renderTooth={renderTooth} defaultArch={dataArch} footer={footer} />
+  return (
+    <ToothArchLayout
+      teeth={teeth}
+      renderTooth={renderTooth}
+      defaultArch={dataArch}
+      footer={footer}
+      dragSelect={dragSelect}
+    />
+  )
 }

@@ -50,6 +50,21 @@ public class GetVisitsToCloseQuery : IRequest<Result<VisitsToCloseDto>>
     /// <summary>Optional practitioner filter — a dentist closing their own day in a two-chair practice.</summary>
     public Guid? DoctorId { get; set; }
 
+    /// <summary>
+    /// Optional patient filter — the patient file's « travail non facturé » band, which asks this screen's
+    /// third question (« combien a-t-il payé ? ») about one patient with that patient standing at the desk.
+    ///
+    /// <para><b>A filter and not a second read, deliberately.</b> The four things that make a séance legitimately
+    /// unbillable — a contrôle gratuit, a séance whose money is on a devis, a visit marked « rien à facturer »
+    /// and one somebody retired — are all already terms of <see cref="VisitClosureRules"/>. A per-patient rule
+    /// written next to the band would be a second copy of them, and the band would nag about all four.</para>
+    ///
+    /// <para>⚠️ Pair it with <see cref="Days"/> = <c>null</c>. The window exists because a clinic's <i>first</i>
+    /// worklist is several thousand rows; one patient's is not, and the séance nobody billed is not less open for
+    /// being three months old — it is the money most likely to be lost.</para>
+    /// </summary>
+    public Guid? PatientId { get; set; }
+
     /// <summary>Null reads everything. See <c>PageRequest</c> on why that is a first-class case.</summary>
     public PageRequest? Paging { get; set; }
 }
@@ -104,6 +119,7 @@ public class GetVisitsToCloseQueryHandler
                 clinicId,
                 request.Days,
                 request.DoctorId,
+                request.PatientId,
                 DateTime.UtcNow,
                 _appointmentRepository,
                 _dentalRecordRepository,

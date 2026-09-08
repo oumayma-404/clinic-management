@@ -108,7 +108,19 @@ export const appointmentsApi = {
    * `items.length`. That is how the agenda strip stays one small request.
    */
   visitsToClose: async (
-    params?: PageParams & { days?: number; doctorId?: string; disregarded?: boolean },
+    params?: PageParams & {
+      days?: number
+      doctorId?: string
+      /**
+       * One patient's still-open séances — the patient file's « Travail non facturé » band.
+       *
+       * ⚠️ Pair it with **no `days`**. The window exists because a clinic's first worklist is several thousand
+       * rows; one patient's is not, and a séance nobody billed is not less open for being three months old — it
+       * is the money most likely to be lost.
+       */
+      patientId?: string
+      disregarded?: boolean
+    },
   ): Promise<VisitsToCloseResponse> =>
     apiGet<VisitsToCloseResponse>('/appointments/to-close', params),
 

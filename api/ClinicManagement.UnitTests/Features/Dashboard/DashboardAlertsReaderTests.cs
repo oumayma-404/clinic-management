@@ -59,7 +59,7 @@ public class DashboardAlertsReaderTests
         // No candidate visits ⇒ VisitClosureReader short-circuits before its three link reads, so only this one
         // needs wiring for the existing cases.
         _appointments.Setup(r => r.GetClosureCandidatesAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(),
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
     }

@@ -64,6 +64,7 @@ public class GetOdontogramQueryHandler : IRequestHandler<GetOdontogramQuery, Res
                     Note = t.Note,
                     TreatmentDate = t.TreatmentDate,
                     DentalRecordId = t.DentalRecordId,
+                    BridgeGroupId = t.BridgeGroupId,
                     CreatedAt = t.CreatedAt
                 })
                 .ToList();

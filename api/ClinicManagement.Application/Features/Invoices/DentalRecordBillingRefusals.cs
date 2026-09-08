@@ -85,8 +85,14 @@ public static class DentalRecordBillingRefusals
     /// <summary>
     /// « la note n° 2026-0042 » — or « un brouillon de note d'honoraires » when the invoice has no number yet.
     /// A refusal with no number sends the user hunting through /factures.
+    ///
+    /// <para>⚠️ <b>Public because a second surface asks the same question</b>: the devis a continuation mints
+    /// prints « la 1re séance est facturée sur … » in its own notes, and that sentence has to name a
+    /// <i>Draft</i> note too — <c>Number</c> is null until <c>Issue</c>, so interpolating it directly printed
+    /// « sur la note d'honoraires  (30,000 DT) » with a hole in the middle of a document handed to a patient.
+    /// One phrase, one place.</para>
     /// </summary>
-    private static string Document(string? invoiceNumber) =>
+    public static string Document(string? invoiceNumber) =>
         invoiceNumber is null ? "un brouillon de note d'honoraires" : $"la note n° {invoiceNumber}";
 
     /// <summary>Millimes, French decimal comma — matching what every money surface in the product prints.</summary>

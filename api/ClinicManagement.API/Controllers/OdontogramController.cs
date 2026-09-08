@@ -52,7 +52,8 @@ public class OdontogramController : ApiControllerBase
             ToothNumber = input.ToothNumber,
             Condition = input.Condition,
             Surfaces = input.Surfaces,
-            Note = input.Note
+            Note = input.Note,
+            BridgeGroupId = input.BridgeGroupId
         });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }

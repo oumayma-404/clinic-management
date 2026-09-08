@@ -39,8 +39,20 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 /// 30 DT coiffage billed on a note and continued at 10 DT left the patient's balance reading <b>0</b>. Where
 /// there is new money the note is therefore <b>not attached</b> and the already-billed act sits on the devis at
 /// 0: the two documents stay disjoint, the note keeps its own balance and the devis owes the new work alone.
-/// See <c>noteKeepsTheFirstAct</c> in <c>Handle</c> for why it is gated on
-/// <see cref="PlanBillingRules.RepresentsItsPlan"/> and not on « is there a note ».
+/// See <c>noteKeepsTheFirstAct</c> in <c>Handle</c> for why it is gated on « <b>is there a note</b> » and
+/// <b>never</b> on <see cref="PlanBillingRules.RepresentsItsPlan"/>.
+/// </para>
+/// <para>
+/// ⚠️ <b>That gate read the note's STATUS once, and a status read once does not stay read — which was the
+/// second version's defect.</b> `RepresentsItsPlan(Draft)` is false, so a Draft note took the other branch and
+/// <i>was</i> attached; issuing it afterwards flips the same predicate to true,
+/// <c>BilledPlanIds</c> then drops the plan whole, and the plan is holding 10 DT the note does not bill — the
+/// state this class's own comment forbids, reached from the other end. Measured: balance 40 before the issue,
+/// <b>30</b> after, plan still reporting 40. So the question is « does this note bill everything the plan
+/// holds », whose answer is <c>remainingCost == 0</c> at every moment of the note's life. A <c>Draft</c> is now
+/// treated exactly like a live note, and the « but that loses the 30 » objection is answered rather than
+/// accepted: with a Draft the 30 is <i>not claimed yet</i>, which is what a Draft is — and is precisely what
+/// the same fiche under the same Draft note reads with no continuation at all.
 /// </para>
 /// <para>
 /// ⚠️ <b>The 800 already collected is never replayed onto the plan.</b> A plan installment payment posts its own
@@ -238,14 +250,33 @@ public class ContinueRecordedActCommandHandler
              * that already owns it. Nothing is re-modelled and no receipt moves — the exclusion this feature's
              * spec warned about is simply not entered into.
              *
-             * ⚠️ Gated on <see cref="PlanBillingRules.RepresentsItsPlan"/>, never on « is there a note »: a
-             * <c>Draft</c> note represents nothing, so the plan still carries its own balance and pricing the
-             * act at 0 there would lose the 30 DT instead of saving the 10. `InvoiceLinkChoice.ByKey` filters
-             * cancelled notes and keeps draft ones, which is what makes that distinction reachable here.
+             * ⚠️ <b>Gated on « is there a note », NOT on the note's STATUS — and an earlier version of this line
+             * had it the other way round, which is a defect and not a preference.</b>
+             *
+             * The argument for reading the status was that a <c>Draft</c> note represents nothing, so the plan
+             * may safely carry the whole 30 and pricing the act at 0 would « lose » it. Each half of that is
+             * true in the instant it is evaluated, and the conclusion is still wrong: <b>a status read once, at
+             * continuation time, does not stay read.</b> `RepresentsItsPlan(Draft)` was false, so the Draft took
+             * the other branch and <i>was</i> attached — and issuing that note later flips the same predicate to
+             * true, <c>BilledPlanIds</c> then drops the plan whole, and the plan is holding 10 DT the note does
+             * not bill. The exact state this comment exists to prevent, reached from the other end. Measured end
+             * to end: balance 40 before the issue, <b>30</b> after, with the plan still reporting 40 and nothing
+             * else reading it.
+             *
+             * So the question is not « does this note represent the plan today » but « <b>does this note bill
+             * everything the plan holds</b> », and that has one answer at every moment in the note's life:
+             * <c>remainingCost == 0</c>. With new money the two documents are made disjoint immediately — the
+             * billed act at 0, the note unattached — and stay disjoint through the issue.
+             *
+             * ⚠️ The « loses the 30 » objection is answered rather than accepted: with a <b>Draft</b> note the 30
+             * is not lost, it is <i>not claimed yet</i> — which is what a Draft is, and is exactly what the same
+             * fiche under the same Draft note reads without any continuation at all. Issuing it claims the 30,
+             * and the devis' 10 is still there beside it because nothing was ever attached.
+             *
+             * `InvoiceLinkChoice.ByKey` filters cancelled notes and keeps draft ones, so `billingInvoice` here
+             * is always a note that can still bill — which is what makes « is there a note » the whole question.
              */
-            var noteRepresentsThePlan =
-                billingInvoice != null && PlanBillingRules.RepresentsItsPlan(billingInvoice.Status);
-            var noteKeepsTheFirstAct = noteRepresentsThePlan && remainingCost > 0m;
+            var noteKeepsTheFirstAct = billingInvoice != null && remainingCost > 0m;
 
             /*
              * Why the devis says so in its notes rather than in the act's designation: the designation is the
@@ -254,9 +285,13 @@ public class ContinueRecordedActCommandHandler
              * it appears on. A 0 with no explanation on a printed devis is what needs answering, and the notes
              * are what the document prints for it.
              */
+            // ⚠️ Through `DentalRecordBillingRefusals.Document`, never `Number` directly: a Draft note has no
+            // number, and interpolating it printed « sur la note d'honoraires  (30,000 DT) » — a hole in the
+            // middle of a sentence on a document the patient is handed.
             var planNotes = noteKeepsTheFirstAct
-                ? $"La 1re séance du {record.InterventionDate:dd/MM/yyyy} est facturée sur la note d'honoraires "
-                  + $"{billingInvoice!.Number} ({act.Cost:0.000} DT). Ce devis ne porte que le travail restant."
+                ? $"La 1re séance du {record.InterventionDate:dd/MM/yyyy} est facturée sur "
+                  + $"{DentalRecordBillingRefusals.Document(billingInvoice!.Number)} "
+                  + $"({act.Cost:0.000} DT). Ce devis ne porte que le travail restant."
                 : null;
 
             var plan = new TreatmentPlan(Guid.NewGuid(), clinicId, record.PatientId, designation, planNotes);

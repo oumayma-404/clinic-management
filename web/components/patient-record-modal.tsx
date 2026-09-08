@@ -16,6 +16,7 @@ import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { odontogramApi } from "@/lib/api/odontogram"
+import { useToothDragSelect } from "@/components/tooth-drag-select"
 import { showErrorToast } from "@/lib/errors"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
@@ -570,6 +571,26 @@ export function PatientRecordModal({
     return map
   }, [acts, procedureTypes])
 
+  /**
+   * **Drag across the arch to put a run of teeth on the armed act.**
+   *
+   * ⚠️ **No mode, unlike the patient page's odontogramme**, and the asymmetry is deliberate: a tap here has
+   * exactly one meaning — add this tooth to the armed act — so the drag is simply the plural of the tap and
+   * there is nothing for a mode to disambiguate. Over there a tap must ALSO be able to open a tooth's editor,
+   * which is why a selection readout survives on that side. Do not « unify » the two charts.
+   *
+   * ⚠️ `setTooth`, never `toggleTooth`: the hook decides the direction once from the anchor tooth and then
+   * SETS each tooth of the range, so a toggle would un-tick every tooth the pointer re-crosses.
+   *
+   * ⚠️ Disabled with nothing armed, matching the chart's own `disabled` — a tapped tooth has to belong to
+   * an act, and a drag that paints nothing must also not consume the click that follows.
+   */
+  const dragSelect = useToothDragSelect({
+    enabled: !!focusedAct && !loading,
+    isSelected: (tooth) => !!focusedAct?.toothNumbers.includes(tooth),
+    onPaint: (tooth, present) => dispatch({ type: "setTooth", tooth, present }),
+  })
+
   const focusedColor = focusedAct ? (actColors.get(focusedAct.key) ?? null) : null
 
   /*
@@ -869,6 +890,9 @@ export function PatientRecordModal({
           // shape is not detailed »). The reducer already guarantees it is a subset of `toothNumbers` and empty
           // for a non-bridge act; the aggregate intersects again regardless.
           ponticToothNumbers: a.ponticTeeth,
+          // Both role lists travel together. Sending one without the other flattens half a bridge's shape,
+          // silently, on the next save — which is the `procedures`/`SetProcedures` trap on a second field.
+          implantPilierToothNumbers: a.implantPilierTeeth,
           resultingCondition: a.resultingCondition, // null when "Aucun"
           surfaces: serializeSurfaces(a.surfaces) || null,
           note: a.note.trim() || null,
@@ -1388,7 +1412,20 @@ export function PatientRecordModal({
         <div className="space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             {/* Inert, the chart says so where the eye already is — the sentence under it went unread. */}
-            <Label>{focusedAct ? "Sur quelle(s) dent(s) ?" : "Cliquez un acte pour modifier ses dents"}</Label>
+            {/* ⚠️ The gesture hint is PERMANENT, not shown once a drag is under way. On the odontogramme the
+                same sentence rendered only while a mode was on, so the one thing that taught the gesture was
+                behind already knowing it existed — which is what the dentist reported as « it isn't
+                noticeable ». It is withheld only when there is nothing to drag onto. */}
+            <Label>
+              {focusedAct ? (
+                <>
+                  Sur quelle(s) dent(s) ?{" "}
+                  <span className="font-normal text-muted-foreground">— glissez pour en sélectionner plusieurs</span>
+                </>
+              ) : (
+                "Cliquez un acte pour modifier ses dents"
+              )}
+            </Label>
             {/* The bulk selectors write to the armed act, so with nothing armed they have no subject and are
                 disabled rather than silently doing nothing. */}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1447,6 +1484,7 @@ export function PatientRecordModal({
           <RecordToothChart
             view={dentitionView}
             paint={toothPaint}
+            dragSelect={dragSelect}
             onToggleTooth={(tooth) => dispatch({ type: "toggleTooth", tooth })}
             // Inert until a card is armed. A tapped tooth has to belong to an act, and guessing which one is how
             // reopening a saved fiche would silently re-chart an act that is already on a numbered note.

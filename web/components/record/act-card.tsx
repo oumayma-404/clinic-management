@@ -14,6 +14,9 @@ import {
   actTotal,
   hasInvalidPrice,
   isActNamed,
+  BRIDGE_ROLE_LABEL,
+  bridgeRoleOf,
+  type BridgeUnitRole,
   type SessionAct,
   type SessionAction,
 } from "@/components/record/use-session-acts"
@@ -397,25 +400,28 @@ export function ActCard({
                         about THIS tooth, and « P » would have to be learned. `whitespace-nowrap` because the
                         chip already wraps as a unit and « pontique » must not break inside it.
                       */}
+                      {/*
+                        ⚠️ **A word, and it REOPENS the question rather than cycling it.** It was a two-way
+                        toggle, which said pilier/pontique and cannot express a third role: a three-state cycle
+                        inside a chip hides its own options, so a thumb must tap past « pontique » to reach
+                        « pilier sur implant » and can only discover that by trying. The roles are chosen in the
+                        step below, where all three are visible at once; this states the answer and is the way
+                        back to it.
+                      */}
                       {bridgeAct && (
                         <button
                           type="button"
-                          onClick={() => dispatch({ type: "togglePontic", tooth })}
+                          onClick={() => dispatch({ type: "reopenBridgeRoles", key: act.key })}
                           disabled={disabled}
-                          aria-pressed={act.ponticTeeth.includes(tooth)}
-                          aria-label={
-                            act.ponticTeeth.includes(tooth)
-                              ? `La dent ${tooth} est un pontique — la repasser en pilier`
-                              : `La dent ${tooth} est un pilier — la passer en pontique`
-                          }
+                          aria-label={`La dent ${tooth} est un ${BRIDGE_ROLE_LABEL[bridgeRoleOf(act, tooth)]} — changer son rôle`}
                           className={cn(
                             "ms-0.5 inline-flex min-h-5 items-center whitespace-nowrap rounded px-1 font-sans text-2xs font-medium transition-colors coarse:min-h-11 coarse:px-2",
-                            act.ponticTeeth.includes(tooth)
-                              ? "bg-foreground/10 text-foreground"
-                              : "text-muted-foreground hover-hover:hover:text-foreground",
+                            bridgeRoleOf(act, tooth) === "pilier"
+                              ? "text-muted-foreground hover-hover:hover:text-foreground"
+                              : "bg-foreground/10 text-foreground",
                           )}
                         >
-                          {act.ponticTeeth.includes(tooth) ? "pontique" : "pilier"}
+                          {BRIDGE_ROLE_LABEL[bridgeRoleOf(act, tooth)]}
                         </button>
                       )}
                       <button
@@ -444,11 +450,8 @@ export function ActCard({
                 if the dentist marks nothing, which is also exactly what the product did before this control
                 existed. `role="status"`, and only while it is actually true.
               */}
-              {bridgeAct && toothCount > 1 && act.ponticTeeth.length === 0 && (
-                <p role="status" className="text-2xs text-muted-foreground">
-                  Toutes ces dents seront chartées comme <span className="font-medium">piliers</span>. Touchez
-                  « pilier » sur une dent remplacée pour la passer en pontique.
-                </p>
+              {bridgeAct && toothCount > 1 && (
+                <BridgeRolesStep act={act} dispatch={dispatch} disabled={disabled} />
               )}
 
               {/* ── the act's detail, folded but summarised ───────────────────────────────────────── */}
@@ -496,6 +499,142 @@ export function ActCard({
           {error}
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * **« Quelles dents sont des pontiques ? »** — the follow-up a bridge act asks, and the only place the three
+ * roles are chosen.
+ *
+ * ## Why this exists at all
+ *
+ * The roles were already recordable: each tooth chip carried a two-way « pilier »/« pontique » toggle, and it
+ * charted correctly. What it never did was **ask**. It was a `text-2xs` word tucked inside a tooth chip, so a
+ * dentist entering a three-unit bridge had no reason to think the shape was theirs to state — the reported
+ * symptom was « you have to select the piliers and the pontiques separately », i.e. the flow was believed not to
+ * exist. So the question is now put, once, in words, at the moment it can be answered.
+ *
+ * ## ⚠️ Always rendered; `bridgeRolesAnswered` decides EXPANDED vs COLLAPSED
+ *
+ * Not appear/disappear. Appearing on the 2nd tooth and vanishing on the answer leaves two bad options for a
+ * tooth added afterwards: re-open (and nag once per tooth while the dentist taps four of them) or stay shut
+ * (and silently default the new tooth to pilier, which is the wrong-default defect this whole feature exists to
+ * remove). Collapsed to a **live summary** instead, so a tooth added later is visibly accounted for.
+ *
+ * ## ⚠️ « Aucun pontique » is a real answer, not a dismissal
+ *
+ * A bridge with no pontique is ordinary — nothing is missing, so nothing is suspended — and it is what the
+ * product recorded before any of this existed. Answering it writes exactly that record, with the difference
+ * that the dentist has now confirmed it rather than merely not been asked.
+ *
+ * ## ⚠️ Nothing is seeded, and that is not laziness
+ *
+ * « The ends are piliers and the middle is a pontique » is wrong for a **pier abutment** (crowned, in the
+ * middle of the span), for a **cantilever** (a pontique hanging past the last abutment) and for a bridge
+ * crossing the midline (12 · 11 · 21 sorts to 11 · 12 · 21, so « the middle one » is the wrong tooth). A visible
+ * wrong default on a clinical form is worse than none, because it is accepted.
+ */
+function BridgeRolesStep({
+  act,
+  dispatch,
+  disabled,
+}: {
+  act: SessionAct
+  dispatch: React.Dispatch<SessionAction>
+  disabled?: boolean
+}) {
+  if (act.bridgeRolesAnswered) {
+    const byRole = new Map<BridgeUnitRole, number[]>()
+    for (const tooth of act.toothNumbers) {
+      const role = bridgeRoleOf(act, tooth)
+      byRole.set(role, [...(byRole.get(role) ?? []), tooth])
+    }
+    // Piliers first, then what is suspended — the order the span is read in.
+    const order: BridgeUnitRole[] = ["pilier", "pilierImplant", "pontique"]
+    const summary = order
+      .filter((r) => byRole.has(r))
+      .map((r) => `${byRole.get(r)!.join(" · ")} ${BRIDGE_ROLE_LABEL[r]}${byRole.get(r)!.length > 1 ? "s" : ""}`)
+      .join(" — ")
+
+    return (
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+        <span>{summary}</span>
+        <button
+          type="button"
+          onClick={() => dispatch({ type: "reopenBridgeRoles", key: act.key })}
+          disabled={disabled}
+          className="min-h-5 rounded font-medium text-primary underline-offset-2 hover-hover:hover:underline coarse:min-h-11"
+        >
+          modifier
+        </button>
+      </p>
+    )
+  }
+
+  return (
+    <div role="group" aria-label="Rôle de chaque dent du bridge" className="space-y-2 rounded-md border bg-muted/30 p-2">
+      <p className="text-2xs font-medium">Quelles dents sont des pontiques ?</p>
+      <div className="space-y-1.5">
+        {act.toothNumbers.map((tooth) => {
+          const role = bridgeRoleOf(act, tooth)
+          return (
+            <div key={tooth} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="min-w-8 font-mono text-xs tabular-nums">{tooth}</span>
+              {/* All three visible at once — the reason this is not a cycle on the chip. `flex-wrap` because
+                  three French role names do not fit one line inside a card at 320 px. */}
+              <div className="flex flex-wrap gap-1">
+                {(["pilier", "pontique", "pilierImplant"] as BridgeUnitRole[]).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => dispatch({ type: "setBridgeRole", key: act.key, tooth, role: r })}
+                    disabled={disabled}
+                    aria-pressed={role === r}
+                    aria-label={`Dent ${tooth} : ${BRIDGE_ROLE_LABEL[r]}`}
+                    className={cn(
+                      "inline-flex min-h-7 items-center whitespace-nowrap rounded border px-2 text-2xs font-medium transition-colors coarse:min-h-11",
+                      role === r
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover-hover:hover:text-foreground",
+                    )}
+                  >
+                    {BRIDGE_ROLE_LABEL[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {/* Two ways out, and the first is an ANSWER: a bridge with nothing missing has no pontique, and saying
+            so is a statement about the mouth rather than a way of closing the question. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs coarse:h-11"
+          disabled={disabled}
+          onClick={() => {
+            for (const tooth of act.toothNumbers) {
+              dispatch({ type: "setBridgeRole", key: act.key, tooth, role: "pilier" })
+            }
+            dispatch({ type: "answerBridgeRoles", key: act.key })
+          }}
+        >
+          Aucun pontique
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          className="h-8 text-xs coarse:h-11"
+          disabled={disabled}
+          onClick={() => dispatch({ type: "answerBridgeRoles", key: act.key })}
+        >
+          Valider
+        </Button>
+      </div>
     </div>
   )
 }

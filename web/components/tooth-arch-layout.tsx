@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
+import type { ToothDragSelectHandle } from "@/components/tooth-drag-select"
 import { cn } from "@/lib/utils"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import type { ToothQuadrants } from "@/components/tooth-multiselect"
@@ -38,6 +39,21 @@ interface ToothArchLayoutProps {
    * leave the colour key off screen exactly when a narrow viewport makes it hardest to read the chart.</p>
    */
   footer?: ReactNode
+  /**
+   * The drag-to-select gesture, from `useToothDragSelect`. Optional — a read-only chart passes nothing.
+   *
+   * ⚠️ **This does NOT breach the « no per-tooth state » contract above.** What arrives is an opaque
+   * handle: this component spreads its `containerProps` onto the wrapper and applies `select-none`, and still
+   * knows nothing about teeth, selection or conditions — the hook is owned by the chart, which is the only
+   * thing that can answer « is this tooth selected? ». It lives here rather than at each call site because
+   * pointer events bubble, so ONE wrapper serves both arches, and because the gesture shipped wired to a single
+   * chart while the fiche de soins — where a dentist taps sixteen teeth into one act — had no drag at all.
+   *
+   * ⚠️ `select-none` is **unconditional** whenever a handle is present, never gated on the gesture being
+   * armed: the browser anchors a text selection on `pointerdown`, before any movement has said this is a drag,
+   * so a conditional class lands after the smear already exists (measured in `agenda-grid-drag.ts`).
+   */
+  dragSelect?: ToothDragSelectHandle
 }
 
 /**
@@ -76,6 +92,7 @@ export function ToothArchLayout({
   defaultArch,
   labels,
   footer,
+  dragSelect,
 }: ToothArchLayoutProps) {
   /*
    * When one arch at a time is the only honest layout.
@@ -153,7 +170,10 @@ export function ToothArchLayout({
       {/* The border and the ground moved OUT to this wrapper so `footer` can sit on a hairline inside the card
           while only the arches scroll. With no footer the rendering is identical to before. */}
       <div className="rounded-lg border border-border bg-card">
-      <div className="overflow-x-auto p-3">
+      <div
+        {...(dragSelect?.containerProps ?? {})}
+        className={cn("overflow-x-auto p-3", dragSelect && "select-none")}
+      >
         <div className="mx-auto w-max">
           {showUpper && (
             <div className="space-y-1.5">

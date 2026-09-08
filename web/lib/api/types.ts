@@ -427,6 +427,57 @@ export interface PatientBillingSummaryDto {
    * the fee, so it does not move `totalOutstanding`.
    */
   creditedTotal: number;
+  /**
+   * What `totalOutstanding` is made of — one row per document that still owes, and the whole of it.
+   *
+   * ⚠️ **Served, never derived here.** Only the server can apply `PlanBillingRules.BilledPlanIds`, so summing
+   * the invoice and plan lists this page happens to have loaded would count a bridged devis on both tracks —
+   * measured once already on the plan side: 4 of 4 bridged plans reported the whole devis as unpaid, two of
+   * them fully settled. Render these rows; never `.reduce()` your own total from them.
+   */
+  lines: PatientDebtLineDto[];
+}
+
+/** @see PatientBillingSummaryDto.lines */
+export interface PatientDebtLineDto {
+  /**
+   * ⚠️ Branch on this, never on `label` — a `Contains("devis")` once made rewording a sentence change
+   * behaviour.
+   */
+  kind: 'Invoice' | 'TreatmentPlan';
+  /** The note or the devis. Re-read it before opening a payment dialog, never trust this page's snapshot. */
+  documentId: string;
+  /** « 2026-0042 ». Never null in practice — an un-numbered document carries no debt. */
+  number: string | null;
+  /** « Note d'honoraires » / « Devis ». */
+  label: string;
+  /**
+   * The acts the document bills, comma-joined and capped with a « +N autre(s) » tail. The honest granularity:
+   * a payment is recorded against a document and never against a line, so this names the work without
+   * claiming which act of it is unpaid.
+   */
+  covers: string;
+  total: number;
+  collected: number;
+  outstanding: number;
+  /** When the debt started. Null when the document carries no date to say it with — then state no age. */
+  since: string | null;
+  /**
+   * ⚠️ **A devis échéance only**, from `InstallmentLateness`. A note d'honoraires is payable on issue, so
+   * « en retard » would be true of every unpaid note the day after it was raised. A note carries its age.
+   */
+  isOverdue: boolean;
+  /**
+   * A devis only: the oldest unpaid échéance, which is what « Encaisser » targets. **Null means the devis has
+   * no échéance able to take the money** — offer the devis itself, never a payment dialog with no target.
+   */
+  payableInstallmentId: string | null;
+  /**
+   * What the échéancier can actually accept. Equal to `outstanding` in the ordinary case; **less** when the
+   * schedule no longer sums to the plan total, and then the row must say so — `Installment.RecordPayment` is
+   * bounded by one échéance's own room, so offering `outstanding` produces a refusal for the figure shown.
+   */
+  payableRoom: number;
 }
 
 /** One row of the clinic-wide « Créances » (accounts-receivable) list. */
@@ -1072,6 +1123,8 @@ export interface DentalRecordActDto {
   toothNumbers: number[];
   /** The subset of `toothNumbers` that are pontiques — see `DentalActInput.ponticToothNumbers`. */
   ponticToothNumbers?: number[];
+  /** The subset that are piliers on an implant — see `DentalActInput.implantPilierToothNumbers`. */
+  implantPilierToothNumbers?: number[];
   /** ToothCondition name this act results in on the odontogram, or null. */
   resultingCondition?: string | null;
   surfaces?: string | null;
@@ -1235,6 +1288,13 @@ export interface DentalActInput {
    * The split is opt-in per act, so no existing caller changes behaviour by not knowing about this.
    */
   ponticToothNumbers?: number[];
+  /**
+   * The subset of `toothNumbers` that are piliers carried by an **implant** rather than a natural tooth.
+   *
+   * ⚠️ Same contract as `ponticToothNumbers`, and the server makes the two **disjoint** with pontique
+   * winning. Omitting both is what keeps an act charting one condition across all its teeth, exactly as before.
+   */
+  implantPilierToothNumbers?: number[];
   resultingCondition?: string | null;
   surfaces?: string | null;
   note?: string | null;
@@ -1385,6 +1445,14 @@ export interface ToothStateDto {
   note: string | null;
   treatmentDate: string;
   dentalRecordId: string | null;
+  /**
+   * Which bridge this tooth belongs to, or null — see `ToothState.BridgeGroupId`.
+   *
+   * ⚠️ `bridge-runs.ts` is the only reader. A **null** is not an absence of information but a first-class
+   * case: it means « ungrouped », which the chart answers with the legacy adjacency scan rather than by
+   * drawing nothing.
+   */
+  bridgeGroupId: string | null;
   createdAt: string;
 }
 

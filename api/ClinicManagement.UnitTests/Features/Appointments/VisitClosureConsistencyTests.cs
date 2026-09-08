@@ -108,7 +108,7 @@ public class VisitClosureConsistencyTests
     private void Wire(params Appointment[] candidates)
     {
         _appointments.Setup(r => r.GetClosureCandidatesAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(),
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(candidates);
 
@@ -154,7 +154,7 @@ public class VisitClosureConsistencyTests
     // somebody has set aside, and these tests are about the two surfaces agreeing on the open ones.
     private async Task<IReadOnlyList<OpenVisit>> ReadWorklist() =>
         (await VisitClosureReader.ReadAsync(
-            ClinicId, days: null, doctorId: null, Now,
+            ClinicId, days: null, doctorId: null, patientId: null, Now,
             _appointments.Object, _dentalRecords.Object, _invoices.Object, _plans.Object)).Open;
 
     private Task<ClinicManagement.Application.DTOs.DashboardAlertsDto> ReadDashboard() =>
