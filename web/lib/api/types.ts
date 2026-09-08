@@ -1070,6 +1070,8 @@ export interface DentalRecordActDto {
   /** True when `cost` is `unitCost` × treated teeth; false = flat session fee. */
   isPerTooth: boolean;
   toothNumbers: number[];
+  /** The subset of `toothNumbers` that are pontiques — see `DentalActInput.ponticToothNumbers`. */
+  ponticToothNumbers?: number[];
   /** ToothCondition name this act results in on the odontogram, or null. */
   resultingCondition?: string | null;
   surfaces?: string | null;
@@ -1225,6 +1227,14 @@ export interface DentalActInput {
   /** Whether `cost` is per treated tooth (else a flat session fee). Ignored when the act has no teeth. */
   isPerTooth: boolean;
   toothNumbers: number[];
+  /**
+   * The teeth of this act that are **pontiques** (suspended, no root) rather than **piliers** (crowned, rooted).
+   * Always a subset of `toothNumbers`, and meaningful only when `resultingCondition` is a bridge unit.
+   *
+   * ⚠️ Omit it or send `[]` and the act charts exactly as it always did — one condition across all its teeth.
+   * The split is opt-in per act, so no existing caller changes behaviour by not knowing about this.
+   */
+  ponticToothNumbers?: number[];
   resultingCondition?: string | null;
   surfaces?: string | null;
   note?: string | null;

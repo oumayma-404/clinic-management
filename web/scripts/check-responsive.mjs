@@ -295,6 +295,64 @@ check(
 );
 
 check(
+  "popover-height-is-radix-measured",
+  "P6",
+  "No `PopoverContent` caps its own max-height — the base caps on Radix's measured available height",
+  "A popover's constraint is the room left BETWEEN THE ANCHOR AND THE VIEWPORT EDGE, which only Radix can " +
+    "measure and which it publishes as `--radix-popover-content-available-height`. A hand-written " +
+    "`max-h-[70dvh]` measures the viewport instead, and tailwind-merge lets the caller's value win over the " +
+    "base — so the override does not merely duplicate the cap, it DISABLES it. Measured on the odontogram's " +
+    "tooth editor at 390x844: Radix flipped the panel above the tooth with 394 px of room, `70dvh` allowed " +
+    "590.8 px, and the 428 px panel rendered at `y = -35` with its heading clipped off the top of the screen " +
+    "and nothing to scroll. All three call sites in this repo had made the same guess, while `select.tsx` and " +
+    "`dropdown-menu.tsx` had had the correct cap all along — the repo's dominant defect shape, at the " +
+    "primitive layer. A popover that genuinely needs to be shorter should compose its own cap with a min() " +
+    "against the Radix variable, and say why — which this deliberately still flags, so the reason gets " +
+    "written down.",
+  /*
+   * ⚠️ **Tailwind v4 scans THIS FILE for class names**, so a bracketed utility written inside one of these
+   * description strings is emitted as real CSS. Writing the illustrative form of the rule above — a bracketed
+   * `max-h` with an ellipsis inside it, which is the shape a comment naturally reaches for — compiled to a
+   * `max-height` with no value and took the whole stylesheet down with « Parsing CSS source code failed »,
+   * pointing at a line of `globals.css` that nobody wrote. Describe a utility in words here, or quote one that
+   * is genuinely valid (`max-h-[70dvh]` above is real, and merely emits a rule nothing uses).
+   */
+  /*
+   * Scanned over the whole file rather than with `scanLines`, because the props of a long `<PopoverContent>`
+   * are routinely wrapped onto their own lines and a per-line regex would only ever catch the one-liner form —
+   * i.e. it would pass on exactly the call sites big enough to need the cap.
+   */
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const tag = /<PopoverContent\b/g;
+      let m;
+      while ((m = tag.exec(src)) !== null) {
+        // Read forward to the end of the opening tag, ignoring `>` inside a quoted attribute value.
+        let i = m.index + m[0].length;
+        let quote = null;
+        for (; i < src.length; i++) {
+          const c = src[i];
+          if (quote) { if (c === quote) quote = null; continue; }
+          if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+          if (c === ">") break;
+        }
+        const openTag = src.slice(m.index, i + 1);
+        if (!/\bmax-h-\[/.test(openTag)) continue;
+        hits.push({
+          file: rel(file),
+          line: src.slice(0, m.index).split("\n").length,
+          text: (openTag.match(/\bmax-h-\[[^\]]*\]/) || ["une hauteur maximale"])[0],
+          full: `<PopoverContent> caps its own height — this overrides the base's Radix-measured cap instead of tightening it`,
+        });
+      }
+    }
+    return hits;
+  }
+);
+
+check(
   "hover-movement",
   "P2",
   "No ungated `hover:scale-*` — gate movement hovers behind `hover-hover:`",
@@ -1774,6 +1832,64 @@ check(
         text:
           "found no `distributeSessionTotal` — the scan is broken, and a guard that matches nothing cannot " +
           "hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "booked-plan-act-is-schedulable",
+  "N28",
+  "A plan minted inside a booking dialog is booked through `schedulablePlanItems`, never `plan.items[0]`",
+  "`planIdByItem` — the map `resolveAttachedPlanId` reads to fill the appointment's own `treatmentPlanId` — is " +
+    "built from `schedulablePlanItems`. So any surface that picks an act off a freshly created plan by another " +
+    "rule is picking one the map may not contain, and the save is then refused outright with « Le plan de " +
+    "traitement est requis pour lier l'acte. » `plan.items[0]` is that other rule, and it is not hypothetical: " +
+    "« Montant du travail restant » makes `ContinueRecordedActCommand` build TWO acts — the one already carried " +
+    "out, whose single « 1re séance » step is marked done on creation, and the remaining work, which is where " +
+    "the séance still to book lives. items[0] is therefore `Done`, `schedulablePlanItems` drops it, and the " +
+    "booking was refused on the one flow the continuation door exists for. The two symptoms before the refusal " +
+    "were just as wrong and looked ordinary: the card showed the 30 DT act already on a note instead of the " +
+    "10 DT being booked, and `planItemToPreset` offers only steps still to carry out — that act has none left — " +
+    "so the séance carried no step at all. `attachPlanAct`'s own doc had said « never `plan.items[0]` » since " +
+    "the day it was written; a sentence in a comment is not a guard.",
+  () => {
+    const offenders = [];
+
+    // Derived from participation in the plan-link contract, not from a file list: a surface that names
+    // `planIdByItem` or `attachPlanAct` is one that puts a devis act on a seance, whatever it is called.
+    const PARTICIPATES = /\bplanIdByItem\b|\battachPlanAct\b/;
+    const FIRST_ITEM = /\.items\[0\]/;
+    let candidates = 0;
+
+    for (const f of tsx()) {
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+      if (!PARTICIPATES.test(code)) continue;
+      candidates++;
+      const at = code.search(FIRST_ITEM);
+      if (at < 0) continue;
+      offenders.push({
+        file: rel(f),
+        line: lineAt(code, at),
+        text:
+          "picks a plan act with `.items[0]` \u2014 take `schedulablePlanItems(plan)[0]`, the same gate " +
+          "`planIdByItem` is built from, or the booking is refused with \u00ab Le plan de traitement est requis " +
+          "pour lier l'acte. \u00bb the moment the first act is Done",
+      });
+    }
+
+    // Tripwire: both markers were renamed, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/treatment-plans/",
+        text:
+          "found no surface naming `planIdByItem` or `attachPlanAct` \u2014 the scan is broken, and a guard " +
+          "that matches nothing cannot hold anything",
       });
     }
 

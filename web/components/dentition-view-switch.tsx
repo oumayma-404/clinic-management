@@ -37,7 +37,13 @@ export function DentitionViewSwitch({ value, onChange, disabled, className }: De
     <div
       role="group"
       aria-label="Dentition affichée"
-      className={cn("flex items-center gap-1 rounded-md border bg-muted/40 p-1", className)}
+      /* ⚠️ `gap-0.5` below `sm:` is a measured 2 px, and it is only defensible because the row it lives in now
+         WRAPS rather than overflows. Side by side the two switches need 128 + 159 + 8 = 295 px against the
+         294 px the odontogramme's control row has at 390 px — short by one pixel, which is not a fit anybody
+         should rely on. Tightening the two internal gaps and the wrapper's brings it to 287, a 7 px margin;
+         and if a relabel ever eats that margin the pair drops to a second row instead of painting a segment
+         outside the card, which is what the previous `min-w-0` attempt did. */
+      className={cn("flex items-center gap-0.5 rounded-md border bg-muted/40 p-1 sm:gap-1", className)}
     >
       {DENTITION_VIEWS.map((view) => (
         <button
@@ -47,7 +53,9 @@ export function DentitionViewSwitch({ value, onChange, disabled, className }: De
           onClick={() => onChange(view)}
           aria-pressed={value === view}
           className={cn(
-            "flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors coarse:py-3 disabled:cursor-not-allowed disabled:opacity-60",
+            // `px-1.5` below `sm:` for the measured reason `OdontogramViewSwitch` carries — the two share a row
+            // above the odontogramme and must stay the same object.
+            "flex-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:px-2 coarse:py-3 disabled:cursor-not-allowed disabled:opacity-60",
             value === view
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover-hover:hover:text-foreground",

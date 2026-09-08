@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -11,7 +12,23 @@ namespace ClinicManagement.Application.Features.Patients;
 /// </summary>
 public static class DentalRecordLinker
 {
-    /// <summary>Delete any open <see cref="ToothStateSource.Diagnosis"/> entries on teeth that this record now treats (AC-5).</summary>
+    /// <summary>
+    /// Close any open <see cref="ToothStateSource.Diagnosis"/> entry that this record's work answers (AC-5).
+    ///
+    /// <para>
+    /// ⚠️ <b>It used to compare tooth numbers and nothing else</b>, so restoring the mésiale of 26 deleted the
+    /// diagnosis recorded on its occlusale — a hard delete, with no error and nothing left saying the second
+    /// face was still to do. Invisible while nothing drew the faces; the symbol view draws them.
+    /// <see cref="ToothSurfaces.Resolves"/> is the rule, and it is deliberately conservative — see its own note
+    /// for the three cases that still close.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ The treated faces are <b>unioned per tooth across the whole séance</b> before the comparison. Two acts
+    /// in one visit, one on M and one on O, together answer a carie MO; comparing act by act would leave it open
+    /// with both faces already restored.
+    /// </para>
+    /// </summary>
     public static async Task ClearDiagnosesForTreatedTeethAsync(
         IToothStateRepository toothStateRepository,
         Guid patientId,
@@ -23,14 +40,53 @@ public static class DentalRecordLinker
             return;
         }
 
-        var treatedTeeth = newTreatmentStates.Select(s => s.ToothNumber).ToHashSet();
-        var existing = await toothStateRepository.GetByPatientIdAsync(patientId, cancellationToken);
-        foreach (var diagnosis in existing.Where(s =>
-                     s.Source == ToothStateSource.Diagnosis && treatedTeeth.Contains(s.ToothNumber)))
+        var treatedFaces = new Dictionary<int, HashSet<char>>();
+        foreach (var state in newTreatmentStates)
         {
+            if (!treatedFaces.TryGetValue(state.ToothNumber, out var faces))
+            {
+                faces = new HashSet<char>();
+                treatedFaces[state.ToothNumber] = faces;
+            }
+
+            // An unfaced act answers the whole tooth, and must not be narrowed by a faced sibling on the same
+            // one: an extraction recorded beside a filling still ends every diagnosis there.
+            if (string.IsNullOrWhiteSpace(state.Surfaces))
+            {
+                faces.Clear();
+                treatedFaces[state.ToothNumber] = WholeTooth;
+                continue;
+            }
+
+            if (!ReferenceEquals(faces, WholeTooth))
+            {
+                faces.UnionWith(ToothSurfaces.Parse(state.Surfaces));
+            }
+        }
+
+        var existing = await toothStateRepository.GetByPatientIdAsync(patientId, cancellationToken);
+        foreach (var diagnosis in existing.Where(s => s.Source == ToothStateSource.Diagnosis))
+        {
+            if (!treatedFaces.TryGetValue(diagnosis.ToothNumber, out var treated))
+            {
+                continue;
+            }
+
+            if (!ToothSurfaces.Resolves(treated, ToothSurfaces.Parse(diagnosis.Surfaces)))
+            {
+                continue;
+            }
+
             await toothStateRepository.DeleteAsync(diagnosis.Id, cancellationToken);
         }
     }
+
+    /// <summary>
+    /// The sentinel for "this tooth was treated without naming a face", i.e. everything on it is answered.
+    /// An empty set already means that to <see cref="ToothSurfaces.Resolves"/>; this instance is compared by
+    /// reference so a later faced act on the same tooth cannot narrow it back down.
+    /// </summary>
+    private static readonly HashSet<char> WholeTooth = new();
 
     /// <summary>
     /// Mark the given plan act — or one named <b>step</b> of it — "réalisé", linked to

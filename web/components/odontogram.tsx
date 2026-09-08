@@ -2,10 +2,21 @@
 
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
 import { toast } from "sonner"
-import { Plus, Trash2, Stethoscope, ClipboardList, CheckSquare, Check, X } from "lucide-react"
+import { Plus, Trash2, Stethoscope, ClipboardList, CheckSquare, Check, ChevronRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AppLoader } from "@/components/ui/app-loader"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   AlertDialog,
@@ -35,7 +46,14 @@ import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
-import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, SURFACE_ORDER, serializeSurfaces } from "@/components/odontogram-conditions"
+import {
+  BRIDGE_UNIT_CONDITIONS,
+  CONDITION_ORDER,
+  conditionStyle,
+  SURFACE_LABELS,
+  SURFACE_ORDER,
+  serializeSurfaces,
+} from "@/components/odontogram-conditions"
 import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
 // One source for the FDI quadrant layout — `tooth-multiselect` is the client-side authority for a tooth's
 // dentition (mirroring the backend `FdiTooth.IsAdult`), and this file used to carry a second copy.
@@ -135,6 +153,15 @@ export function Odontogram({
    * nature as the files drawer's grid/list, and it is remembered per browser the same way. It defaults to
    * `boxes` so nobody's chart changes under them on deploy day.</p>
    */
+  /**
+   * Which of the two charts is on screen.
+   *
+   * ⚠️ **Controlled, and only because the Cases/Symboles switch must not be OFFERED on « Actes réalisés ».**
+   * `OdontogramActsChart` draws its own thing and ignores `chartView`, so on that tab the switch took the press,
+   * moved its pressed state and changed **nothing** — verified byte-for-byte identical renderings either way.
+   * A control that lies is worse than a missing one, and this one lied on half the card.
+   */
+  const [tab, setTab] = useState("diagnostics")
   const [chartView, setChartView] = useState<OdontogramChartView>("boxes")
   /**
    * « Plusieurs dents » — charting ONE diagnosis onto several teeth at once.
@@ -334,8 +361,10 @@ export function Odontogram({
    * across the midline is an ordinary anterior bridge, not an edge case.</p>
    */
   const bridgeSpans = useMemo(() => {
+    // All three say « this tooth is part of a bridge » — the two specific ones say which part, and the older
+    // `Bridge` is what rows charted before the distinction existed still carry.
     const bridgeMark = (tooth: number) =>
-      (byTooth.get(tooth) ?? []).find((e) => e.condition === "Bridge")
+      (byTooth.get(tooth) ?? []).find((e) => BRIDGE_UNIT_CONDITIONS.includes(e.condition))
 
     const spans = new Map<number, BridgeSpan>()
     for (const arch of [
@@ -528,60 +557,89 @@ export function Odontogram({
            default — it is where charting happens. « Actes réalisés » is read-only and reflects what the fiches
            recorded, which the server writes on its own. Both read the arch from **one** `dentitionView` above the
            tabs, so there is no per-tab setting that could disagree. */
-        <Tabs defaultValue="diagnostics" className="w-full">
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
           {/* The view switch and the create-plan action share one row.
               They used to be two stacked rows — the button right-aligned on its own line, the tabs left-aligned on
               the next — which spent two rows of chrome directly above the chart the page exists to show. They pair
               naturally: both act on the whole odontogram, and putting them at opposite ends of one row reads as
               « which view » on the left and « what to do with it » on the right. */}
+          {/*
+            ⚠️ **Which view, and which drawing — and nothing else.** This row used to carry « Créer un plan » too,
+            and at 390 px the four controls wrapped into FOUR stacked rows (measured: 127 px for the switches plus
+            28 px for the button). The chart under them is 177 px, so the card was spending 516 px of chrome to
+            show 177 px of teeth — a 3:1 ratio on the one card the patient page exists for, with the first tooth
+            at **y = 1214**, i.e. 1.44 screens down. The action moved BELOW the chart, onto the legend row: it
+            acts on what is charted, so it is read after the teeth, not before them.
+
+            The dentition switch stays here rather than inside a tab body: it applies to **both** charts, and a
+            per-tab copy could have the Diagnostics arch disagreeing with the Actes one.
+          */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* The dentition switch sits beside the view tabs, not inside a tab body: it applies to **both**
-                charts, and a per-tab copy could have the Diagnostics arch disagreeing with the Actes one. */}
-            <div className="flex flex-wrap items-center gap-2">
-              <TabsList>
-                <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
-                <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
-              </TabsList>
-              <DentitionViewSwitch value={dentitionView} onChange={setChosenView} />
-              {/* Beside the dentition switch and NOT inside a tab body, for the same reason: it is a property
-                  of the whole chart. « Actes réalisés » keeps its own drawing for now — see the note there. */}
-              <OdontogramViewSwitch value={chartView} onChange={chooseChartView} />
-              {chartedOutOfView > 0 && (
-                <button
-                  type="button"
-                  role="status"
-                  onClick={() => setChosenView("mixed")}
-                  className="rounded-md border border-warning/40 bg-warning-wash px-2 py-1 text-2xs font-medium text-warning-ink underline-offset-2 hover-hover:hover:underline coarse:py-2"
-                >
-                  {chartedOutOfView === 1
-                    ? "1 état hors de cette vue — tout afficher"
-                    : `${chartedOutOfView} états hors de cette vue — tout afficher`}
-                </button>
+            <TabsList>
+              <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+              <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
+            </TabsList>
+            {/*
+              ⚠️ `w-full sm:w-auto` + `flex-wrap` + `flex-1` on each switch, rather than trusting them to fit
+              side by side. Their intrinsic widths came to 294 px against a 294 px row at 390 px — a tie, which
+              flexbox resolves by wrapping, so the pair took a second 38 px row directly above the teeth.
+              Trimming padding closed the gap *exactly*, which is the kind of fit that survives until somebody
+              renames « Symboles ». Letting the group own the row and the two switches share it is the same
+              result with no measurement in it.
+
+              ⚠️ **`min-w-0` on the switches is what must NOT be here, and putting it there was a real defect.**
+              It looks like the usual « let a flex child shrink » incantation, and on a control made of text
+              segments it removes the `min-width: auto` floor that is the only thing stopping them being
+              squeezed below their own words — while the segments *inside* each switch keep their floor. So the
+              switch box shrank and its segments overflowed to the right: measured at 320 px, « Mixte » was
+              painted from x=267 to x=310 inside a 108 px box ending at 264 and a card ending at 289 — outside
+              the card, over the page ground, and `<main>` grew a horizontal scrollbar, which § 11 forbids
+              outright. With the floor left alone, the pair simply wraps when the two words no longer fit, which
+              is the honest answer at 320 px.
+            */}
+            <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:gap-2">
+              {/*
+                ⚠️ **Offered on « Diagnostics » only, because it does nothing on the other tab.**
+                `OdontogramActsChart` has its own drawing and does not read `chartView`, so on « Actes réalisés »
+                this switch accepted the press, moved its own pressed state, and left the chart byte-for-byte
+                identical — a control that appears to work and does not. It stays *outside* the tab bodies
+                (rather than moving inside the Diagnostics one) so it keeps its place in the row and does not
+                jump position as the tab changes; only whether it is rendered depends on the tab.
+
+                ⚠️ The dentition switch beside it is genuinely different and is NOT conditional: `teeth` is
+                derived from `dentitionView` and both charts are drawn from it, so it really is a property of
+                the whole card. That asymmetry is the point — the two controls looked alike and only one of
+                them was ever shared.
+              */}
+              {tab === "diagnostics" && (
+                <OdontogramViewSwitch
+                  value={chartView}
+                  onChange={chooseChartView}
+                  className="flex-1 sm:flex-none"
+                />
               )}
+              <DentitionViewSwitch
+                value={dentitionView}
+                onChange={setChosenView}
+                className="flex-1 sm:flex-none"
+              />
             </div>
-            {onCreatePlan && (
-              /* ⚠️ The label shortens below `sm:`, and the `aria-label` carries the full phrase at every width.
-                 « Créer un plan depuis l'odontogramme » measures 253 px against the 223 px this row has at
-                 320 px, and `Button` is `whitespace-nowrap shrink-0` — so the wording, not the layout, was what
-                 pushed a control out through the card's edge. Shortening the *visible* half loses nothing here:
-                 the button sits directly under the odontogramme it acts on, so « depuis l'odontogramme » is the
-                 one part of the sentence the context already supplies. */
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 max-w-full gap-1.5 text-xs"
-                disabled={planSeeds.length === 0}
-                onClick={() => onCreatePlan(planSeeds)}
-                aria-label="Créer un plan depuis l'odontogramme"
-                title={planSeeds.length === 0 ? "Aucun diagnostic à planifier" : undefined}
-              >
-                <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-                Créer un plan
-                <span className="hidden sm:inline">&nbsp;depuis l&apos;odontogramme</span>
-              </Button>
-            )}
           </div>
 
+          {/* Its own line, and only when there is something to say — inside the row above it was a fifth control
+              competing for a width that already had none. */}
+          {chartedOutOfView > 0 && (
+            <button
+              type="button"
+              role="status"
+              onClick={() => setChosenView("mixed")}
+              className="mt-2 rounded-md border border-warning/40 bg-warning-wash px-2 py-1 text-2xs font-medium text-warning-ink underline-offset-2 hover-hover:hover:underline coarse:py-2"
+            >
+              {chartedOutOfView === 1
+                ? "1 état hors de cette vue — tout afficher"
+                : `${chartedOutOfView} états hors de cette vue — tout afficher`}
+            </button>
+          )}
           {/* Said where the consequence is: a plan seeded without the catalogue carries no tarifs, and « 0,000 DT »
               is indistinguishable from « gratuit ». Only shown where the action exists. */}
           {onCreatePlan && catalogFailed && (
@@ -597,12 +655,19 @@ export function Odontogram({
           {/* The instruction line that stood here is gone: it repeated the card's own description almost word for
               word, so the same sentence was on screen twice and cost a third row. The card header keeps it. */}
           <TabsContent value="diagnostics" className="mt-3 space-y-2">
-            {/* ⚠️ The toggle is a **permanent, labelled control directly above the teeth**, not an option behind a
-                menu or a modifier key. The whole point of the feature is that a dentist who has just charted the
-                same carie on three molars one at a time discovers there was a faster way without being told — a
-                ctrl-click or a long-press would have been cheaper to build and invisible to everyone who did not
-                already know it was there. It sits inside the Diagnostics tab because « Actes réalisés » is
-                read-only and has nothing to select teeth for. */}
+            {/* ⚠️ The toggle stays a **permanent, labelled control directly above the teeth**, not an option
+                behind a menu or a modifier key. The whole point of the feature is that a dentist who has just
+                charted the same carie on three molars one at a time discovers there was a faster way without
+                being told — a ctrl-click or a long-press would have been cheaper to build and invisible to
+                everyone who did not already know it was there. It sits inside the Diagnostics tab because
+                « Actes réalisés » is read-only and has nothing to select teeth for.
+
+                ⚠️ **What did go is the paragraph beside it**, which was two lines at 390 px and on screen
+                permanently. Its « off » half (« Même diagnostic sur plusieurs dents ? Activez … ») restated the
+                button's own label back at the reader, and its « on » half ended « … sous l'arcade », which is
+                now false: the diagnostic is entered in a bar docked to the bottom of the screen. What survives
+                is the one thing the label cannot say — that you may drag — shown only while the mode is on,
+                which is the only time dragging does anything. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <Button
                 type="button"
@@ -616,11 +681,9 @@ export function Odontogram({
                 <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
                 Plusieurs dents
               </Button>
-              <p className="text-xs text-muted-foreground">
-                {multiSelect
-                  ? "Glissez sur l'arcade pour cocher une série (maintenez le doigt un instant sur mobile), ou touchez les dents une par une. Notez ensuite le diagnostic commun sous l'arcade."
-                  : "Même diagnostic sur plusieurs dents ? Activez « Plusieurs dents »."}
-              </p>
+              {multiSelect && (
+                <p className="text-xs text-muted-foreground">Glissez pour cocher une série</p>
+              )}
             </div>
 
         {/* Geometry from `ToothArchLayout`. `ToothCell` keeps its own editor Popover and its per-cell state —
@@ -696,6 +759,38 @@ export function Odontogram({
                 </div>
               )}
             </div>
+
+            {/*
+              ⚠️ **Below the chart, not above it** — this is the one control that acts on what the odontogramme
+              already says, so it is read after the teeth. Above, it was a fourth wrapped row of chrome between
+              the card's title and the first tooth (§ the row-1 note), and it invited a press before there was
+              anything on screen to press it about: with nothing charted it is disabled, which at the top of the
+              card reads as a broken control and at the bottom reads as « rien à planifier », which is the truth.
+
+              ⚠️ The label shortens below `sm:` and the `aria-label` carries the full phrase at every width.
+              « Créer un plan depuis l'odontogramme » measures 253 px against the 223 px this row has at 320 px,
+              and `Button` is `whitespace-nowrap shrink-0` — so the wording, not the layout, was what pushed a
+              control out through the card's edge. Shortening the *visible* half loses nothing here: the button
+              sits directly under the odontogramme it acts on, so « depuis l'odontogramme » is the one part of
+              the sentence the context already supplies.
+            */}
+            {onCreatePlan && (
+              <div className="flex justify-end pt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 max-w-full gap-1.5 text-xs coarse:h-11"
+                  disabled={planSeeds.length === 0}
+                  onClick={() => onCreatePlan(planSeeds)}
+                  aria-label="Créer un plan depuis l'odontogramme"
+                  title={planSeeds.length === 0 ? "Aucun diagnostic à planifier" : undefined}
+                >
+                  <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
+                  Créer un plan
+                  <span className="hidden sm:inline">&nbsp;depuis l&apos;odontogramme</span>
+                </Button>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="acts" className="mt-3">
@@ -747,8 +842,18 @@ function ToothCell({
   didConsumeGesture,
 }: ToothCellProps) {
   const [open, setOpen] = useState(false)
+  /*
+   * Confirm-before-discard, on every channel Radix funnels through `onOpenChange` — the ✕, Escape, and a tap
+   * on the overlay, which on a phone is most of the screen. The panel carries a free-text note, and it became
+   * a `Dialog` in this pass: `frontend-web.md` § 5 requires the guard of any dialog holding entered data, and
+   * the popover it replaced silently discarded a typed note on an outside click.
+   */
+  const guard = useDirtyGuard(open, (next) => {
+    setOpen(next)
+    if (!next) setCondition(null)
+  })
   /**
-   * This popover's own chosen condition — `null` until the dentist picks one, so that merely *opening* a tooth
+   * This editor's own chosen condition — `null` until the dentist picks one, so that merely *opening* a tooth
    * does not paint it with the Select's initial « Carie ». Falls back to that same first entry when saved
    * untouched, which is what the Select has been displaying all along.
    */
@@ -794,6 +899,8 @@ function ToothCell({
       setNote("")
       setSurfaces(new Set())
       setCondition(null)
+      // Before the close, or the guard asks the dentist to confirm discarding the note it has just saved.
+      guard.markClean()
       setOpen(false)
       onChanged()
     } catch (err) {
@@ -1034,7 +1141,7 @@ function ToothCell({
   }
 
   const trigger = (
-    <PopoverTrigger asChild>
+    <DialogTrigger asChild>
       <button
         type="button"
         aria-label={
@@ -1058,151 +1165,166 @@ function ToothCell({
       >
         {box}
       </button>
-    </PopoverTrigger>
+    </DialogTrigger>
   )
 
   /* Closing drops the pending choice: a form the dentist walked away from must not leave the tooth painted with
      a diagnosis that was never saved. */
+  /*
+    ⚠️ **A Dialog, not a Popover, and at every width — one element, two presentations.**
+
+    This panel is a *form*: a condition, five faces, a note and a save. It was an anchored popover, and the
+    anchor was costing more than it was worth on both sides of the breakpoint.
+
+    On a phone it was measurably broken. Measured at 390x844 on tooth 18: Radix had 326 px below the tooth and
+    398 px above, flipped to `side="top"`, and the panel — capped by a hand-written `max-h-[70dvh]` = 590.8 px
+    rather than by the 394 px Radix had actually measured — rendered at **`y = -35`**. Its « Dent 18 » heading
+    was off the top of the screen with *nothing to scroll*, because the content fitted the cap it had been
+    given. Scrolling the page to reach the heading moved the tooth, which repositioned the popover, which moved
+    the heading again: the « I have to chase it » report, reproduced exactly. `ui/popover.tsx` now caps on
+    Radix's own measurement so the other 76 call sites cannot repeat it — but the right primitive for a form
+    this size on a 390 px screen is not a better-behaved popover.
+
+    On a desktop the anchor was near-worthless information anyway: 32 near-identical cells a few pixels apart,
+    and the panel's own heading names the tooth. What the anchor did cost was the whole collision problem.
+
+    ⚠️ `mobile="sheet"` is **one element re-styled, not two components swapped** — `ui/dialog.tsx`'s own
+    docstring is explicit that a `useMediaQuery() ? <Sheet> : <Dialog>` swap looks identical either side of the
+    breakpoint and silently unmounts a half-typed form on the way across. That warning applies to a
+    `Popover ↔ Dialog` swap in exactly the same way, which is why there is no media query here: below `md:` this
+    is a full-screen sheet, above it a centred panel, and rotating a tablet mid-note changes neither the mount
+    nor the note.
+
+    The `DialogBody` + `DialogFooter` split is what the popover could never offer: « Ajouter le diagnostic » is
+    outside the scroll container, so the control this panel exists for cannot leave the screen — not behind a
+    long list of charted states, and not when the on-screen keyboard opens over the note.
+  */
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) setCondition(null)
-      }}
-    >
-      {withTooltip(trigger)}
-      {/*
-        ⚠️ `max-h-[70dvh] overflow-y-auto` — Radix does not bound a popover's height, and this one grows without
-        limit: it lists EVERY recorded state for the tooth and then carries the whole add-diagnosis form
-        (condition, MODVL faces, note, save). A molar with a few charted states already renders taller than a
-        phone, and « Ajouter le diagnostic » sits at the very bottom — so the control the popover exists for
-        became unreachable, with nothing to scroll because the overflow was the popover itself.
+    <>
+      <Dialog open={open} onOpenChange={guard.onOpenChange}>
+        {withTooltip(trigger)}
+        <DialogContent mobile="sheet" className="md:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Dent {toothNum}</DialogTitle>
+            <DialogDescription>
+              {entries.length === 0
+                ? "Aucun état enregistré"
+                : `${entries.length} état${entries.length > 1 ? "s" : ""} enregistré${entries.length > 1 ? "s" : ""}`}
+            </DialogDescription>
+          </DialogHeader>
 
-        `dvh`, not `vh`, for the reason `check-responsive`'s `sheet-vh` states: `vh` does not shrink when the
-        on-screen keyboard opens, and this panel contains a textarea.
-      */}
-      <PopoverContent className="w-80 max-h-[70dvh] space-y-3 overflow-y-auto" align="center">
-        <div>
-          <p className="text-sm font-semibold">Dent {toothNum}</p>
-          <p className="text-xs text-muted-foreground">
-            {entries.length === 0
-              ? "Aucun état enregistré"
-              : `${entries.length} état${entries.length > 1 ? "s" : ""} enregistré${entries.length > 1 ? "s" : ""}`}
-          </p>
-        </div>
-
-        {entries.length > 0 && (
-          <ul className="space-y-2">
-            {entries.map((e) => (
-              <li key={e.id} className="rounded-md border p-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full border", conditionStyle(e.condition).swatch)} />
-                  <span className="font-medium text-foreground">{conditionStyle(e.condition).label}</span>
-                  <span
-                    className={cn(
-                      "rounded px-1 py-0.5 text-2xs font-medium",
-                      isDiagnosis(e)
-                        ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"
-                        : "bg-muted text-muted-foreground",
+          <DialogBody className="space-y-3">
+            {entries.length > 0 && (
+              <ul className="space-y-2">
+                {entries.map((e) => (
+                  <li key={e.id} className="rounded-md border p-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full border", conditionStyle(e.condition).swatch)} />
+                      <span className="font-medium text-foreground">{conditionStyle(e.condition).label}</span>
+                      <span
+                        className={cn(
+                          "rounded px-1 py-0.5 text-2xs font-medium",
+                          isDiagnosis(e)
+                            ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {isDiagnosis(e) ? "Diagnostic" : "Réalisé"}
+                      </span>
+                      <span className="ml-auto text-muted-foreground">{formatDateFr(e.treatmentDate)}</span>
+                    </div>
+                    {e.surfaces && <p className="mt-1 text-muted-foreground">Faces : {e.surfaces.split("").join(", ")}</p>}
+                    {e.note && <p className="mt-1 text-foreground">{e.note}</p>}
+                    {isDiagnosis(e) ? (
+                      /* A real, hit-able control rather than the 10px text link this used to be: correcting a
+                         mis-charted tooth is routine, and an affordance nobody can find is the same as none. */
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setPendingRemoval(e)}
+                        aria-label={`Retirer le diagnostic ${conditionStyle(e.condition).label} de la dent ${toothNum}`}
+                        className="mt-1.5 h-7 gap-1.5 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive coarse:h-11"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Retirer ce diagnostic
+                      </Button>
+                    ) : (
+                      /* A treatment-sourced state is deliberately NOT removable here — the server refuses it, because
+                         deleting it would erase the chart while its fiche still says the act was done. Saying so is the
+                         point: before, these rows simply had no button and no explanation, which reads as "the app
+                         won't let me fix my mistake". */
+                      <p className="mt-1.5 flex items-start gap-1.5 text-2xs text-muted-foreground">
+                        <ClipboardList className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+                        <span>Acte réalisé — se corrige via sa fiche de soins, pas ici.</span>
+                      </p>
                     )}
-                  >
-                    {isDiagnosis(e) ? "Diagnostic" : "Réalisé"}
-                  </span>
-                  <span className="ml-auto text-muted-foreground">{formatDateFr(e.treatmentDate)}</span>
-                </div>
-                {e.surfaces && <p className="mt-1 text-muted-foreground">Faces : {e.surfaces.split("").join(", ")}</p>}
-                {e.note && <p className="mt-1 text-foreground">{e.note}</p>}
-                {isDiagnosis(e) ? (
-                  /* A real, hit-able control rather than the 10px text link this used to be: correcting a
-                     mis-charted tooth is routine, and an affordance nobody can find is the same as none. */
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPendingRemoval(e)}
-                    aria-label={`Retirer le diagnostic ${conditionStyle(e.condition).label} de la dent ${toothNum}`}
-                    className="mt-1.5 h-7 gap-1.5 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Retirer ce diagnostic
-                  </Button>
-                ) : (
-                  /* A treatment-sourced state is deliberately NOT removable here — the server refuses it, because
-                     deleting it would erase the chart while its fiche still says the act was done. Saying so is the
-                     point: before, these rows simply had no button and no explanation, which reads as "the app
-                     won't let me fix my mistake". */
-                  <p className="mt-1.5 flex items-start gap-1.5 text-2xs text-muted-foreground">
-                    <ClipboardList className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
-                    <span>Acte réalisé — se corrige via sa fiche de soins, pas ici.</span>
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+                  </li>
+                ))}
+              </ul>
+            )}
 
-        {/* Add-diagnosis form */}
-        <div className="space-y-2 border-t pt-2">
-          <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-            <Stethoscope className="h-3.5 w-3.5" /> Noter un diagnostic
-          </p>
-          <Select value={condition ?? DIAGNOSIS_CONDITIONS[0]} onValueChange={setCondition}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DIAGNOSIS_CONDITIONS.map((c) => (
-                <SelectItem key={c} value={c} className="text-xs">
-                  {conditionStyle(c).label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {/*
-            Surfaces (MODVL) — **pointed at, not spelled out**.
-            The five letter buttons this replaced put the French name in a native `title` only, so on the one
-            control whose whole subject is *where on the tooth* the dentist read « M » and did the geometry in
-            their head — and on a phone the `title` needed a hover there is no pointer for. The picker is the
-            chart's own `OCCLUSAL_ZONES`, so the box here and the box under the tooth cannot disagree about
-            which side is mésial.
-            ⚠️ It is offered here and NOT in the multi-tooth panel below: there the faces apply to several teeth
-            at once, and mésial is on opposite sides of the two halves of the mouth.
-          */}
-          <div className="flex flex-col items-center gap-1.5">
-            <OcclusalSurfacePicker
-              toothNumber={toothNum}
-              selected={surfaces}
-              onToggle={toggleSurface}
-              disabled={saving}
-            />
-            <p className="text-2xs text-muted-foreground" role="status">
-              {surfaces.size === 0
-                ? "Faces (facultatif) — touchez la zone atteinte"
-                : `Faces : ${SURFACE_ORDER.filter((s) => surfaces.has(s)).map((s) => SURFACE_LABELS[s]).join(", ")}`}
-            </p>
-          </div>
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Note (facultative)"
-            className="min-h-[52px] text-xs"
-          />
-          {/* The popover's primary action, at 32px. `coarse:h-11` paints the floor rather than overlaying it —
-              it is the last control in the panel, so an overlay would hang past the popover's own edge. */}
-          <Button
-            size="sm"
-            className="h-8 w-full gap-1.5 text-xs coarse:h-11"
-            onClick={handleDiagnose}
-            disabled={saving}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {saving ? "Enregistrement…" : "Ajouter le diagnostic"}
-          </Button>
-        </div>
-      </PopoverContent>
+            {/* Add-diagnosis form. Its submit lives in the footer below, outside this scroller. */}
+            <div className={cn("space-y-2", entries.length > 0 && "border-t pt-3")}>
+              <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                <Stethoscope className="h-3.5 w-3.5" /> Noter un diagnostic
+              </p>
+              <Select value={condition ?? DIAGNOSIS_CONDITIONS[0]} onValueChange={setCondition}>
+                <SelectTrigger className="h-9 text-xs coarse:h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DIAGNOSIS_CONDITIONS.map((c) => (
+                    <SelectItem key={c} value={c} className="text-xs">
+                      {conditionStyle(c).label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/*
+                Surfaces (MODVL) — **pointed at, not spelled out**.
+                The five letter buttons this replaced put the French name in a native `title` only, so on the one
+                control whose whole subject is *where on the tooth* the dentist read « M » and did the geometry in
+                their head — and on a phone the `title` needed a hover there is no pointer for. The picker is the
+                chart's own `OCCLUSAL_ZONES`, so the box here and the box under the tooth cannot disagree about
+                which side is mésial.
+                ⚠️ It is offered here and NOT in the multi-tooth bar: there the faces apply to several teeth
+                at once, and mésial is on opposite sides of the two halves of the mouth.
+              */}
+              <div className="flex flex-col items-center gap-1.5">
+                <OcclusalSurfacePicker
+                  toothNumber={toothNum}
+                  selected={surfaces}
+                  onToggle={toggleSurface}
+                  disabled={saving}
+                />
+                <p className="text-2xs text-muted-foreground" role="status">
+                  {surfaces.size === 0
+                    ? "Faces (facultatif) — touchez la zone atteinte"
+                    : `Faces : ${SURFACE_ORDER.filter((s) => surfaces.has(s)).map((s) => SURFACE_LABELS[s]).join(", ")}`}
+                </p>
+              </div>
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Note (facultative)"
+                className="min-h-[52px] text-xs"
+              />
+            </div>
+          </DialogBody>
 
-      {/* Rendered inside the Popover but outside PopoverContent so closing the popover does not unmount the dialog
-          mid-confirmation. Naming the tooth and the condition matters here: the whole point is correcting a state
+          <DialogFooter>
+            <Button onClick={handleDiagnose} disabled={saving} className="gap-1.5 coarse:h-11">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {saving ? "Enregistrement…" : "Ajouter le diagnostic"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DiscardChangesDialog guard={guard} />
+
+      {/* A sibling of the editor rather than a child, so dismissing the editor cannot unmount the confirmation
+          mid-flight. Naming the tooth and the condition matters here: the whole point is correcting a state
           charted on the WRONG tooth, so the dialog has to let the dentist check they are undoing the right one. */}
       <AlertDialog open={pendingRemoval !== null} onOpenChange={(o) => !o && setPendingRemoval(null)}>
         <AlertDialogContent>
@@ -1228,7 +1350,7 @@ function ToothCell({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Popover>
+    </>
   )
 }
 
@@ -1331,46 +1453,63 @@ function MultiToothDiagnosisPanel({
     onKeepOnlyFailed(failed)
   }
 
+  /*
+    ⚠️ **Nothing at all until a tooth is ticked, and DOCKED to the bottom of the scrollport once one is.**
+
+    It was an ordinary block in the flow directly under the arch, and the arch is tall: measured at 390x844 with
+    the chart at a natural reading position (first tooth at y=433), « Ajouter le diagnostic à 3 dents » sat at
+    **y = 844–880** — entirely below the fold, 330 px past the teeth being tapped. So the dentist ticked three
+    molars, watched them highlight, and nothing they could see changed; « je ne savais pas qu'il fallait
+    enregistrer » is the expected reading of that, and it is what was reported.
+
+    ⚠️ **Auto-saving on the condition instead was the other candidate and it is worse**, for three reasons that
+    are all about this form in particular: the faces and the note are entered *after* the condition, so writing
+    on the pick would amputate both; a `Select` brushed while scrolling a phone would commit N clinical records,
+    each undoable only through its own confirm dialog; and it would remove `handleSave`'s partial-failure retry,
+    which re-ticks exactly the teeth that did not land. The commitment stays explicit and moves to where the eyes
+    already are.
+
+    `sticky`, deliberately not `fixed`: `AppShell`'s `<main>` is the scroller and `BottomNav` is its flex
+    *sibling*, so sticking to the scrollport's bottom already clears the bar — no `--bottom-inset`, and nothing
+    to keep in step with it. `-mx-6` reaches the card's own edge (`CardContent` is `px-6`), which is what makes
+    it read as a docked bar rather than a floating panel.
+  */
+  if (teeth.length === 0) return null
+
   return (
-    <div className="space-y-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium text-foreground">
-          {teeth.length === 0
-            ? "Aucune dent sélectionnée"
-            : `${teeth.length} dent${teeth.length > 1 ? "s" : ""} sélectionnée${teeth.length > 1 ? "s" : ""}`}
+    <div
+      role="group"
+      aria-label="Diagnostic commun aux dents sélectionnées"
+      className="sticky bottom-0 z-30 -mx-6 border-t border-primary/30 bg-card px-6 py-2.5 shadow-[0_-4px_12px_-6px_rgb(0_0_0/0.15)]"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        {/* The numbers written out, not just counted: « 3 dents » does not let anyone check they ticked 16 and
+            not 15, and this bar writes to the record. `min-w-0` + `truncate` because a full-quadrant selection
+            is a long line at 320px and this row must stay one line — the bar is docked over the chart. */}
+        <p className="min-w-0 flex-1 truncate text-xs" title={`Dents : ${teeth.join(", ")}`}>
+          <span className="font-medium text-foreground">
+            {teeth.length} dent{teeth.length > 1 ? "s" : ""}
+          </span>
+          <span className="text-muted-foreground"> · {teeth.join(", ")}</span>
         </p>
-        {teeth.length > 0 && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onClearSelection}
-            disabled={saving}
-            className="h-7 gap-1.5 px-2 text-xs coarse:h-11"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden="true" /> Tout effacer
-          </Button>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onClearSelection}
+          disabled={saving}
+          aria-label="Désélectionner toutes les dents"
+          className="h-7 shrink-0 gap-1.5 px-2 text-xs coarse:h-11"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden="true" /> Effacer
+        </Button>
       </div>
 
-      {teeth.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          Touchez les dents concernées sur l&apos;arcade ci-dessus. Le diagnostic que vous saisirez ici sera noté
-          sur chacune d&apos;elles.
-        </p>
-      ) : (
-        /* The numbers written out, not just counted: « 3 dents » does not let anyone check they ticked 16 and not
-           15, and this form writes to the record. `break-words` because a full-quadrant selection is a long line
-           at 320px. */
-        <p className="break-words text-xs text-muted-foreground">Dents : {teeth.join(", ")}</p>
-      )}
-
-      <div className="space-y-2 border-t border-primary/20 pt-3">
-        <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-          <Stethoscope className="h-3.5 w-3.5" aria-hidden="true" /> Diagnostic commun
-        </p>
+      <div className="mt-1.5 flex items-center gap-2">
         <Select value={effectiveCondition} onValueChange={onConditionChange}>
-          <SelectTrigger className="h-9 text-xs">
+          {/* `min-w-0` so the trigger yields to the button beside it rather than pushing it out: `Button` is
+              `whitespace-nowrap shrink-0`, so at 320 px the overflow lands on the control, not on the label. */}
+          <SelectTrigger className="h-9 min-w-0 flex-1 text-xs coarse:h-11">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -1381,44 +1520,70 @@ function MultiToothDiagnosisPanel({
             ))}
           </SelectContent>
         </Select>
-        {/* Same `gap-2` + `coarse:h-11` as the single-tooth form: five 28px buttons at `gap-1` overlap their own
-            44px touch overlays and the later sibling wins the tap. */}
-        <div className="flex flex-wrap gap-2">
-          {Object.entries(SURFACE_LABELS).map(([code, label]) => (
-            <Button
-              key={code}
-              type="button"
-              variant={surfaces.has(code) ? "default" : "outline"}
-              size="sm"
-              className="h-8 px-2 text-xs coarse:h-11 coarse:min-w-11"
-              title={label}
-              aria-pressed={surfaces.has(code)}
-              onClick={() => toggleSurface(code)}
-            >
-              {code}
-            </Button>
-          ))}
-        </div>
-        <Textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Note (facultative) — appliquée à toutes les dents sélectionnées"
-          className="min-h-[52px] text-xs"
-        />
         <Button
           size="sm"
-          className="h-9 w-full gap-1.5 text-xs coarse:h-11"
+          className="h-9 shrink-0 gap-1.5 text-xs coarse:h-11"
           onClick={handleSave}
-          disabled={saving || teeth.length === 0}
+          disabled={saving}
         >
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-          {saving
-            ? "Enregistrement…"
-            : teeth.length === 0
-              ? "Ajouter le diagnostic"
-              : `Ajouter le diagnostic à ${teeth.length} dent${teeth.length > 1 ? "s" : ""}`}
+          {saving ? "Enregistrement…" : "Enregistrer"}
         </Button>
       </div>
+
+      {/*
+        Faces and note folded, with the fold's own summary stating what is set — the two are optional on most
+        charting and this bar sits over the arch, so every row it spends is a row of teeth it hides. A collapsed
+        section that shows its value is the `record-section.tsx` rule: collapsing makes a value read-only, never
+        hidden.
+        ⚠️ Letter buttons here and the graphical picker in the single-tooth editor, deliberately: the faces apply
+        to several teeth at once and mésial is on opposite sides of the two halves of the mouth, so there is no
+        one drawing that could be pointed at.
+      */}
+      <details className="mt-1.5 group">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-2xs text-muted-foreground coarse:py-2">
+          <ChevronRight className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+          <span className="truncate">
+            {surfaces.size === 0 && note.trim() === ""
+              ? "Faces et note (facultatif)"
+              : [
+                  surfaces.size > 0
+                    ? `Faces : ${SURFACE_ORDER.filter((s) => surfaces.has(s)).join(", ")}`
+                    : null,
+                  note.trim() !== "" ? "note" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+          </span>
+        </summary>
+        <div className="mt-1.5 space-y-1.5">
+          {/* Same `gap-2` + `coarse:h-11` as the single-tooth form: five 28px buttons at `gap-1` overlap their own
+              44px touch overlays and the later sibling wins the tap. */}
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(SURFACE_LABELS).map(([code, label]) => (
+              <Button
+                key={code}
+                type="button"
+                variant={surfaces.has(code) ? "default" : "outline"}
+                size="sm"
+                className="h-8 px-2 text-xs coarse:h-11 coarse:min-w-11"
+                title={label}
+                aria-label={label}
+                aria-pressed={surfaces.has(code)}
+                onClick={() => toggleSurface(code)}
+              >
+                {code}
+              </Button>
+            ))}
+          </div>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Note (facultative) — appliquée à toutes les dents sélectionnées"
+            className="min-h-[52px] text-xs"
+          />
+        </div>
+      </details>
     </div>
   )
 }

@@ -9,6 +9,7 @@ using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 
@@ -30,6 +31,16 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 /// <c>Accept</c> raises a lump-sum échéance for the plan's whole total, and « Solde patient » drops a plan that
 /// is billed into an invoice — so without the link a 1 000 DT bridge already invoiced would be claimed twice,
 /// once by the note (200 still owed) and once by the devis (1 000 « restant »).
+/// </para>
+/// <para>
+/// ⚠️ <b>And the rule's own corollary, which the first version got backwards: a bridged plan may hold NOTHING
+/// the note does not bill.</b> The exclusion is all-or-nothing, so a priced <see cref="ContinueRecordedActCommand.RemainingWorkCost"/>
+/// on the billed path put real money exactly where every read stops looking — measured on the reported case, a
+/// 30 DT coiffage billed on a note and continued at 10 DT left the patient's balance reading <b>0</b>. Where
+/// there is new money the note is therefore <b>not attached</b> and the already-billed act sits on the devis at
+/// 0: the two documents stay disjoint, the note keeps its own balance and the devis owes the new work alone.
+/// See <c>noteKeepsTheFirstAct</c> in <c>Handle</c> for why it is gated on
+/// <see cref="PlanBillingRules.RepresentsItsPlan"/> and not on « is there a note ».
 /// </para>
 /// <para>
 /// ⚠️ <b>The 800 already collected is never replayed onto the plan.</b> A plan installment payment posts its own
@@ -67,6 +78,14 @@ public class ContinueRecordedActCommand : IRequest<Result<TreatmentPlanDto>>
     /// « Extraction simple, 120 DT » whose next séance is « Pose de la prothèse ». A prosthesis is not part of an
     /// extraction's fee, and the only remedy was to amend the devis afterwards, which on a plan already bridged
     /// to a note put the added money out of reach of every collection path.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>And the first version of this field walked into that same hole, which is worth knowing because the
+    /// paragraph above names it.</b> Adding the line at creation rather than by a later amendment changes
+    /// nothing about the bridge: the note was still attached, so the plan was still dropped whole by
+    /// <c>PlanBillingRules.BilledPlanIds</c> and the priced remainder was owed by the patient and readable
+    /// nowhere. The fix is not in this field but in what the billed path now does with the note — see
+    /// <c>noteKeepsTheFirstAct</c>.
     /// </para>
     /// <para>
     /// A <b>second act</b> rather than a larger fee on the first, deliberately: the first act's price is what a
@@ -147,15 +166,16 @@ public class ContinueRecordedActCommandHandler
 
             /*
              * Already on a devis? Then this is not a continuation, it is a second devis over the same work, and
-             * the two would disagree about how far along it is. Checked against the plan items AND their steps,
-             * because a stepped act carries its evidence per step.
+             * the two would disagree about how far along it is.
+             *
+             * ⚠️ Through `ContinuationTracking`, which is the same answer `GetContinuableActsQuery` gives when
+             * it decides what to OFFER. Written out here it had no status filter while the query excluded
+             * cancelled plans — so a fiche whose only devis had been cancelled was listed by the dialog and
+             * refused on the press, closing the very recovery path cancelling exists to open.
              */
             var existingPlans = await _planRepository.GetFilteredAsync(
                 clinicId, patientId: record.PatientId, cancellationToken: cancellationToken);
-            var alreadyTracked = existingPlans.Items
-                .SelectMany(p => p.Items)
-                .Any(i => i.LinkedDentalRecordId == record.Id
-                          || i.Steps.Any(s => s.LinkedDentalRecordId == record.Id));
+            var alreadyTracked = ContinuationTracking.IsTracked(existingPlans.Items, record.Id);
             if (alreadyTracked)
             {
                 return Result<TreatmentPlanDto>.Failure(
@@ -196,14 +216,61 @@ public class ContinueRecordedActCommandHandler
                 ? DefaultNextStepLabel
                 : request.NextStepLabel.Trim();
 
-            var plan = new TreatmentPlan(Guid.NewGuid(), clinicId, record.PatientId, designation, null);
+            /*
+             * ⚠️ <b>A NOTE THAT REPRESENTS A PLAN CANNOT HOLD NEW MONEY, so when there is new money the note
+             * does not represent the plan — the devis carries the remaining work alone.</b>
+             *
+             * The bridge is all-or-nothing: `PlanBillingRules.BilledPlanIds` drops the WHOLE plan from every
+             * money read the moment a real note names it, on the stated ground that the note speaks for it. That
+             * is exactly right while the plan holds only what the note billed, and silently false the moment it
+             * holds anything more — the note's lines froze at issue and nothing re-syncs them, so a 10 DT
+             * « travail restant » on a bridged plan is owed by the patient and invisible to « Solde patient »,
+             * « Créances », la caisse, the dashboard and the échéancier alike. Measured on the reported case: a
+             * 30 DT coiffage billed on a note, continued at 10 DT, left the patient's balance reading 0.
+             *
+             * `AmendTreatmentPlanCommand.EnsureNotBilledAsync` refuses precisely this state — « acts added
+             * afterwards would be invisible in every balance » — and this command reached it by another door,
+             * adding the line before attaching rather than after.
+             *
+             * So: the already-billed act goes on the devis at <b>0</b> (the note collected it and still does)
+             * and the note is left unattached, which keeps the two documents disjoint instead of overlapping.
+             * The patient then owes the note's own balance plus the devis' 10, each counted once by the read
+             * that already owns it. Nothing is re-modelled and no receipt moves — the exclusion this feature's
+             * spec warned about is simply not entered into.
+             *
+             * ⚠️ Gated on <see cref="PlanBillingRules.RepresentsItsPlan"/>, never on « is there a note »: a
+             * <c>Draft</c> note represents nothing, so the plan still carries its own balance and pricing the
+             * act at 0 there would lose the 30 DT instead of saving the 10. `InvoiceLinkChoice.ByKey` filters
+             * cancelled notes and keeps draft ones, which is what makes that distinction reachable here.
+             */
+            var noteRepresentsThePlan =
+                billingInvoice != null && PlanBillingRules.RepresentsItsPlan(billingInvoice.Status);
+            var noteKeepsTheFirstAct = noteRepresentsThePlan && remainingCost > 0m;
+
+            /*
+             * Why the devis says so in its notes rather than in the act's designation: the designation is the
+             * act's identity everywhere else — the picker's label, the fiche's prefill, the act card's name —
+             * so « Coiffage pulpaire (facturé sur la note 2026-0016) » would follow that act onto every screen
+             * it appears on. A 0 with no explanation on a printed devis is what needs answering, and the notes
+             * are what the document prints for it.
+             */
+            var planNotes = noteKeepsTheFirstAct
+                ? $"La 1re séance du {record.InterventionDate:dd/MM/yyyy} est facturée sur la note d'honoraires "
+                  + $"{billingInvoice!.Number} ({act.Cost:0.000} DT). Ce devis ne porte que le travail restant."
+                : null;
+
+            var plan = new TreatmentPlan(Guid.NewGuid(), clinicId, record.PatientId, designation, planNotes);
             // L9 — the work was this fiche's practitioner's, not the caller's. That is a fact on the record here,
             // unlike a devis written from scratch, so there is nothing to fall back to.
             plan.SetDoctor(record.DoctorId);
 
+            // 0 when the note keeps this act — see `noteKeepsTheFirstAct`. The line stays on the devis either
+            // way: it is what the « 1re séance » step is marked done against, so dropping it would lose the
+            // link to the fiche that evidences the work and the whole continuation with it.
+            var firstActCost = noteKeepsTheFirstAct ? 0m : act.Cost;
             var lines = new List<TreatmentPlanItemInput>
             {
-                new(null, designation, act.Cost, act.ProcedureTypeId, act.ToothNumbers.ToList()),
+                new(null, designation, firstActCost, act.ProcedureTypeId, act.ToothNumbers.ToList()),
             };
 
             // The work still to come, priced on its own line — see `RemainingWorkCost`. The teeth travel with it
@@ -264,7 +331,14 @@ public class ContinueRecordedActCommandHandler
                         plan.MarkItemStepDone(item.Id, firstStep.Id, record.InterventionDate, record.Id);
                     }
 
-                    billingInvoice?.AttachToTreatmentPlan(plan.Id);
+                    // ⚠️ Not attached when the note keeps the first act: attaching is what makes every money
+                    // read stop looking at this plan, and this plan is the only thing that knows about the
+                    // remaining work. Idempotent either way — `AttachToTreatmentPlan` returns on a re-attach,
+                    // which is what lets a devis-number collision replay this whole block.
+                    if (!noteKeepsTheFirstAct)
+                    {
+                        billingInvoice?.AttachToTreatmentPlan(plan.Id);
+                    }
 
                     await _planRepository.AddAsync(plan, ct);
                 },
@@ -288,7 +362,12 @@ public class ContinueRecordedActCommandHandler
              * for a plan billed into a note (its auto-echeance will never see a payment) and would tell somebody
              * to collect money the patient has already handed over.
              */
-            if (billingInvoice != null)
+            // ⚠️ Echoed only when the note really was attached. These fields are what the browser reads to
+            // decide the act card's money sentence, and with the note unattached « Encaissement sur la note
+            // 2026-0016 » would send the dentist to collect 10 DT on a document that neither holds them nor
+            // can: the devis' own « Reste » is the true figure on that path, and `billedOnInvoiceNumber` is
+            // exactly what suppresses it.
+            if (billingInvoice != null && !noteKeepsTheFirstAct)
             {
                 dto.LinkedInvoiceId = billingInvoice.Id;
                 dto.LinkedInvoiceNumber = billingInvoice.Number;

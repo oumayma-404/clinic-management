@@ -58,4 +58,31 @@ public enum ToothCondition
     /// (détartrage, surfaçage) are <b>session</b> fees rather than per-tooth ones, which is why a plan line
     /// grouping several teeth must not multiply the tariff by the tooth count.</summary>
     MaladieParodontale = 14,
+
+    /*
+     * ── A bridge is not one thing, and saying so is what these two are for ─────────────────────────────────
+     *
+     * <see cref="Bridge"/> (5) records « this tooth is part of a bridge » and cannot say **which part**. The
+     * charting convention has distinguished the two since long before this product — BR for the retainer, BP
+     * for the pontic — because they are opposite clinical facts: a retainer is a prepared, living, rooted tooth
+     * carrying the prosthesis, and a pontic is an artificial tooth suspended over a gap where no tooth exists.
+     *
+     * ⚠️ Without the distinction a chart has to **guess**, and every rule for guessing is wrong on a real
+     * configuration. « The unit in the middle is the pontic » is false for a **pilier intermédiaire** (pier
+     * abutment) — a natural tooth between two edentulous spaces, e.g. terminal 16 and 12 with 14 an abutment
+     * and 15 and 13 pontics — and « the pontic sits between two abutments » is false for a **cantilever**,
+     * which has abutments at one end only and a pontic attached at one side. Drawing a living abutment as a
+     * suspended crown is a false clinical statement on the one diagram a dentist reads at a glance.
+     *
+     * ⚠️ <see cref="Bridge"/> is **kept and never re-pointed**: values are append-only, rows already carry it,
+     * and it stays the honest answer when the practitioner records a bridge without saying which unit is which.
+     */
+
+    /// <summary>Bridge retainer (BR) — a prepared natural tooth or implant carrying the prosthesis. It has a
+    /// root: it is the tooth the bridge is anchored to.</summary>
+    BridgePilier = 15,
+
+    /// <summary>Bridge pontic (BP) — the artificial tooth suspended over an edentulous span. It has no root,
+    /// because there is no tooth there.</summary>
+    BridgePontique = 16,
 }

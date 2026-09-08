@@ -2,7 +2,7 @@
 
 import { useMemo, useReducer } from "react"
 import { formatAmount, parseAmountInput, roundMillimes } from "@/lib/format"
-import { parseSurfaces } from "@/components/odontogram-conditions"
+import { isBridgeUnit, parseSurfaces } from "@/components/odontogram-conditions"
 import type { DentalRecordDto, DentalRecordActDto, ProcedureTypeDto } from "@/lib/api/types"
 
 /**
@@ -41,6 +41,22 @@ export interface SessionAct {
   /** The act's own teeth. Empty is legitimate — a détartrage or a panoramique is a séance-level act. */
   toothNumbers: number[]
   /**
+   * Which of `toothNumbers` are **pontiques** (suspended replacements) rather than **piliers** (crowned teeth
+   * keeping their roots). Always a subset of `toothNumbers`; always empty unless `resultingCondition` is a
+   * bridge unit.
+   *
+   * <p>⚠️ **This is the one thing an act could not previously say, and it made a bridge unrecordable.** An act
+   * carries ONE `resultingCondition` for all of its teeth, so a three-unit bridge could only be entered as the
+   * same procedure twice — which nothing in this form suggested — and entering it once charted three abutments
+   * and no pontic: a bridge that cannot exist. Splitting it into two acts is still allowed and still prices
+   * correctly; this makes the single-act path correct too.</p>
+   *
+   * <p>⚠️ **Never derived from position.** « The ends are piliers » is false of a pier abutment (a crowned tooth
+   * in the middle of the span) and of a cantilever (a pontique hanging past the last abutment). The dentist says
+   * which is which; `PONTIC_SEED` below only *proposes*, visibly and per act.</p>
+   */
+  ponticTeeth: number[]
+  /**
    * This act is carried by an accepted devis, so its fee lives once on the plan and this séance adds nothing.
    * ⚠️ **It is not the same fact as `unitCostLocked`**, which is merely « somebody has set this price » and is
    * true of a hand-typed figure too — so it cannot stand in for this.
@@ -73,6 +89,7 @@ const emptyAct = (key: string): SessionAct => ({
   note: "",
   billedOnPlan: false,
   toothNumbers: [],
+  ponticTeeth: [],
   picking: true,
 })
 
@@ -307,6 +324,8 @@ export type SessionAction =
   | { type: "cancelPicking"; key: string }
   | { type: "resetUnitCostToTariff"; key: string; defaultCost: number | null }
   | { type: "toggleTooth"; tooth: number }
+  /** Flip one of the focused act's teeth between pilier and pontique. Ignored for a non-bridge act. */
+  | { type: "togglePontic"; tooth: number }
   | { type: "selectMany"; teeth: number[]; additive: boolean }
   | { type: "clearTeeth" }
   | { type: "applyAppointment"; procedures: BookedActPrefill[] }
@@ -337,6 +356,13 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     procedureTypeId: a.procedureTypeId ?? null,
     procedureName: a.procedureName,
     toothNumbers: teeth,
+    /*
+     * ⚠️ Read back and intersected, not assumed empty. `SetActs` rebuilds every act from what this form sends,
+     * so a fiche reopened to correct a typo would send an empty pontique list and silently flatten the bridge
+     * charted last week — the same shape of loss as the `procedures`/`SetProcedures` trap. The intersection is
+     * belt and braces against a row whose teeth were edited by an older client.
+     */
+    ponticTeeth: [...(a.ponticToothNumbers ?? [])].filter((t) => teeth.includes(t)).sort((x, y) => x - y),
     // `formatAmount`, never `String(...)`: reopening a saved act must show its fee the way the rest of the
     // product prints it (« 90,500 », not « 90.5 »), and the field accepts that form back.
     unitCost: formatAmount(perTooth && unit != null ? unit : a.cost),
@@ -381,6 +407,13 @@ const withTeeth = (act: SessionAct, toothNumbers: number[]): SessionAct => ({
   ...act,
   toothNumbers,
   perTooth: derivePerTooth(act, toothNumbers.length),
+  /*
+   * ⚠️ Pruned here, at the ONE place an act's teeth change, rather than at each of the three actions that call
+   * it — a tooth untapped from the act cannot remain a pontique of it, and the server intersects anyway, so a
+   * stale entry would not corrupt the record but would silently reappear as a pontique if the tooth were tapped
+   * back. Filtering keeps the screen and the save telling the same story.
+   */
+  ponticTeeth: act.ponticTeeth.filter((t) => toothNumbers.includes(t)),
 })
 
 /**
@@ -481,6 +514,15 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         else if (action.patch.resultingCondition !== undefined) {
           next.perTooth = derivePerTooth(next, next.toothNumbers.length)
         }
+        /*
+         * An état that is no longer a bridge cannot keep pontiques. The server clears them too — the aggregate
+         * folds rather than refuses, precisely because a client legitimately holds a stale list — but leaving
+         * them here would keep painting a travée on a chart whose act is now a couronne, until the next save
+         * silently dropped it.
+         */
+        if (action.patch.resultingCondition !== undefined && !isBridgeUnit(next.resultingCondition)) {
+          next.ponticTeeth = []
+        }
         return next
       })
 
@@ -529,6 +571,16 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         ? focused.toothNumbers.filter((t) => t !== action.tooth)
         : sorted([...focused.toothNumbers, action.tooth])
       return mapAct(state, focused.key, (a) => withTeeth(a, teeth))
+    }
+
+    case "togglePontic": {
+      if (!focused || !isBridgeUnit(focused.resultingCondition)) return state
+      if (!focused.toothNumbers.includes(action.tooth)) return state
+      const has = focused.ponticTeeth.includes(action.tooth)
+      const ponticTeeth = has
+        ? focused.ponticTeeth.filter((t) => t !== action.tooth)
+        : sorted([...focused.ponticTeeth, action.tooth])
+      return mapAct(state, focused.key, (a) => ({ ...a, ponticTeeth }))
     }
 
     case "selectMany": {

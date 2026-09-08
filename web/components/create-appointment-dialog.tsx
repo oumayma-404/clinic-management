@@ -57,7 +57,11 @@ import { formatAmount, formatDT } from "@/lib/format"
 import type { PatientDto, ProcedureStepTemplateDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
-import { planItemToPreset, suggestedPlanStep } from "@/components/treatment-plans/plan-next-action"
+import {
+  planItemToPreset,
+  schedulablePlanItems,
+  suggestedPlanStep,
+} from "@/components/treatment-plans/plan-next-action"
 import {
   usePatientPlanActs,
   resolveAttachedPlanId,
@@ -1578,8 +1582,36 @@ export function CreateAppointmentDialog({
         onOpenChange={setContinueOpen}
         patientId={selectedPatientId}
         onCreated={(plan) => {
-          const item = plan.items[0]
-          if (item) attachPlanAct(plan, item)
+          /*
+           * ⚠️ **The act to book, never `plan.items[0]`** — the trap `attachPlanAct` names in its own doc, made
+           * real by « Montant du travail restant ». Priced, that field makes `ContinueRecordedActCommand` build
+           * TWO acts: item 0 is the act already carried out, holding a single « 1re séance » step marked done,
+           * and item 1 is the remaining work, which is where the séance still to book lives (« With a priced
+           * remaining act the next séance belongs to THAT line »). Taking the first put all three of its
+           * consequences on screen at once, measured on a « Coiffage pulpaire » of 30 DT continued for 10:
+           *
+           *  - the card showed the 30 DT act with « Déjà facturé … cette séance n'ajoute pas d'honoraires »,
+           *    instead of the 10 DT actually being booked;
+           *  - `planItemToPreset` offers only steps still to carry out, and that act has none left, so the
+           *    séance carried no step at all;
+           *  - and the act is `Done`, so `schedulablePlanItems` drops it, `planIdByItem` never learns its plan,
+           *    and `resolveAttachedPlanId` sends no `treatmentPlanId` — the save refused outright with « Le plan
+           *    de traitement est requis pour lier l'acte. », on the one booking this door exists for.
+           *
+           * `schedulablePlanItems` is the same gate `planIdByItem` is built from, which is what makes the two
+           * agree by construction: whatever it returns here is registrable, and an unpriced continuation — one
+           * act, two steps, the second still open — resolves to that act exactly as before.
+           */
+          const item = schedulablePlanItems(plan)[0]
+          if (!item) {
+            // Never silent: the devis exists on the server either way, so « rien ne s'est passé » would be the
+            // one reading that is false. Nothing is attached, and the dentist is told where the work went.
+            toast.error(
+              `Devis ${plan.number ?? ""} créé, mais aucune séance à planifier n'y a été trouvée. Ouvrez le devis pour la planifier.`.trim(),
+            )
+            return
+          }
+          attachPlanAct(plan, item)
           toast.success(
             `Traitement créé — devis ${plan.number ?? ""}. Ce rendez-vous en est la 2e séance.`.trim(),
           )

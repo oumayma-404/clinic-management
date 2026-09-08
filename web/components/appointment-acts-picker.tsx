@@ -864,7 +864,19 @@ export function AppointmentActsPicker({
                   {row.act.planLabel}
                 </Badge>
               )}
-              {row.durationMinutes != null && (
+              {/*
+                ⚠️ **`> 0`, not `!= null` — an unknown chair time is not a zero-minute act.** A devis step
+                carries `estimatedDurationMinutes` only when somebody typed one, and the two steps
+                `ContinueRecordedActCommand` synthesises carry none at all (nothing knows how long the next
+                séance of a retroactive continuation takes, which is the same reason their labels are generic).
+                So the continuation's act rendered « Séance suivante · devis · 0 min » — a measurement nobody
+                made, next to a récapitulatif correctly saying 30 min, on the one row a dentist reads to check
+                what they are booking. Withholding the figure says « not stated »; printing 0 says « none »,
+                and only one of those is true. `totalActsDuration` already refuses to sum it, and the summary
+                badge three blocks up already hides its own total at 0 — this row was the one place left
+                asserting it.
+              */}
+              {row.durationMinutes != null && row.durationMinutes > 0 && (
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                   {row.durationMinutes} min
                 </span>

@@ -10,16 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -77,8 +67,6 @@ export function ContinueSessionDialog({
   /** What the remaining work is worth, as typed. Empty means « rien de plus » — see the field. */
   const [remainingCost, setRemainingCost] = useState("")
   const [saving, setSaving] = useState(false)
-  /** The irreversibility question — see the footer. */
-  const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = async () => {
@@ -98,7 +86,6 @@ export function ContinueSessionDialog({
     setSelected(null)
     setNextLabel(DEFAULT_NEXT_LABEL)
     setRemainingCost("")
-    setConfirming(false)
     setError(null)
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -287,6 +274,15 @@ export function ContinueSessionDialog({
                 </p>
               </div>
 
+              {/*
+                ⚠️ **This paragraph carries what an AlertDialog used to say, and that is why it is worded this
+                fully.** The confirmation was removed at the owner's request — it cost a click on every single
+                continuation, and its whole content was a statement of consequences rather than a question only
+                the user could answer. What it stated is still true and still worth reading, so it moved onto
+                the surface where the decision is actually taken, beside the fields that determine it. Deleting
+                the step is not deleting the fact: « un devis ne se supprime pas » is the one line here a
+                dentist cannot recover from not having read.
+              */}
               <p className="text-2xs leading-relaxed text-muted-foreground">
                 La séance du {formatDateFr(selected.interventionDate)} sera enregistrée comme la 1re, déjà
                 réalisée.{" "}
@@ -296,8 +292,18 @@ export function ContinueSessionDialog({
                   time — the note keeps the money and « Solde patient » drops a plan billed into one. Saying the
                   devis is empty would be contradicted by the devis itself the moment the dentist opened it.
                 */}
+                {/*
+                  ⚠️ **Three cases, not two, and the third is the one that used to lie.** With a note already
+                  holding the act AND a priced travail restant, « le devis ne réclamera rien de plus » is false:
+                  the devis carries the new work and is what collects it. The server backs this exactly —
+                  `noteKeepsTheFirstAct` prices the finished act 0 and leaves the note unattached, so the two
+                  documents are disjoint and each is collected on its own. Before that pair of changes the
+                  sentence was true of the devis and the money was owed by nobody a screen could see.
+                */}
                 {selected.invoiceNumber
-                  ? `Le devis ne réclamera rien de plus : la note ${selected.invoiceNumber} garde l'argent de cet acte.`
+                  ? remainingWork > 0
+                    ? `La note ${selected.invoiceNumber} garde l'argent de cet acte ; le devis ne portera que le travail restant, ${formatDT(remainingWork)}, à encaisser sur le devis.`
+                    : `Le devis ne réclamera rien de plus : la note ${selected.invoiceNumber} garde l'argent de cet acte.`
                   : "Le devis portera le montant de l'acte et sera facturé une fois le traitement terminé."}{" "}
                 Vous pourrez renommer et découper les étapes ensuite.
               </p>
@@ -305,53 +311,43 @@ export function ContinueSessionDialog({
           )}
         </div>
 
+        {/*
+          ⚠️ **Outside the scroller, so it is on screen when the button is.** This is the line that replaced
+          the confirmation step, and inside the scrolling middle it was doing the job badly: measured at
+          320 px the panel is 1021 px in a 436 px window, so « Créer le traitement » was visible while the one
+          consequence a dentist cannot recover from not having read sat two screens below it. A warning the
+          reader has to go looking for is weaker than the modal it replaced, not merely quieter. Here it is
+          pinned above the footer at every width — the sheet's own last line before the action.
+
+          Rendered only with an act chosen, because until then it describes nothing.
+        */}
+        {selected && (
+          <p
+            className="shrink-0 border-t pt-3 text-2xs leading-relaxed text-warning-ink"
+            role="status"
+          >
+            Le devis est créé numéroté et accepté : il ne se supprime pas, il s&apos;annule avec un motif.
+          </p>
+        )}
+
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Annuler
           </Button>
           {/*
-            ⚠️ **Confirmed, because it is irreversible and had no confirmation at all.** One press mints a devis
-            that is numbered AND accepted in the same save, so it can never be deleted — only cancelled, with a
-            motif, on the books for ever. Worse, picking the wrong séance used to be a permanent dead end: the
-            note was attached to that devis write-once, the continuation could never be re-run for that fiche,
-            and the fiche itself became undeletable. (Cancelling now releases the note, so a mistake is
-            recoverable — but a numbered, accepted document still deserves the question.)
+            ⚠️ **One press, and it is irreversible** — the devis is numbered AND accepted in the same save, so it
+            can never be deleted, only cancelled with a motif. It carried a confirmation step for exactly that
+            reason and no longer does: the owner asked for it removed, on the ground that it asked nothing —
+            every word of it was a consequence the dentist had just typed the inputs for, and it charged a click
+            for reading them back. The consequences moved into the panel above, where they sit beside the fields
+            that determine them and are read *before* the decision rather than after it.
           */}
-          <Button type="button" onClick={() => setConfirming(true)} disabled={!selected || saving}>
+          <Button type="button" onClick={() => void submit()} disabled={!selected || saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Créer le traitement…
+            Créer le traitement
           </Button>
         </DialogFooter>
       </DialogContent>
-
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Créer le traitement pour {selected?.procedureName} ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Un devis numéroté et <b>accepté</b> est créé immédiatement. La séance du{" "}
-              {selected ? formatDateFr(selected.interventionDate) : ""} y figurera comme la 1re, déjà réalisée.
-              {remainingWork > 0
-                ? ` Le travail restant est ajouté comme un acte à part, à ${formatDT(remainingWork)}.`
-                : " Aucun montant n'est ajouté à ce qui a déjà été convenu."}{" "}
-              Un devis ne se supprime pas : il s&apos;annule, avec un motif.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving}>Retour</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={saving}
-              onClick={(event) => {
-                event.preventDefault()
-                setConfirming(false)
-                void submit()
-              }}
-            >
-              Créer le traitement
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Dialog>
   )
 }

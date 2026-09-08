@@ -64,17 +64,8 @@ public class ToothState : Entity<Guid>, IAuditable
         CreatedAt = DateTime.UtcNow;
     }
 
-    private static string? NormalizeSurfaces(string? surfaces)
-    {
-        if (string.IsNullOrWhiteSpace(surfaces))
-            return null;
-
-        var normalized = surfaces.Trim().ToUpperInvariant();
-        foreach (var c in normalized)
-        {
-            if ("MODVL".IndexOf(c) < 0)
-                throw new ArgumentException($"Surface invalide : '{c}'. Valeurs autorisées : M, O, D, V, L.", nameof(surfaces));
-        }
-        return normalized;
-    }
+    // ⚠️ Delegates to ToothSurfaces: this method was byte-for-byte identical in ToothState and
+    // DentalRecordAct, two entry points for the same string from the same picker.
+    private static string? NormalizeSurfaces(string? surfaces) =>
+        ToothSurfaces.Normalize(surfaces, nameof(surfaces));
 }

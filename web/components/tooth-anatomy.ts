@@ -179,10 +179,28 @@ export const OCCLUSAL_GRID: [number, number, number, number][] = [
  * the read-side twin, so a value that somehow got past it draws nothing rather than throwing on a chart.
  */
 export function surfaceZone(fdi: number, letter: string): string | null {
-  let code = letter.toUpperCase()
+  return OCCLUSAL_ZONES[surfaceZoneCode(fdi, letter)] ?? null
+}
+
+/**
+ * The **geometric** zone a stored surface letter occupies on this tooth — i.e. which of `OCCLUSAL_ZONES`' five
+ * keys it lands on, after the mésial/distal mirror.
+ *
+ * <p>⚠️ **Extracted so the mirror has exactly one owner, because a second copy of it shipped and was wrong for
+ * half the mouth.** `surfaceZone` swaps M↔D on the patient's right, and `tooth-symbols.tsx`'s
+ * `ZONE_LABEL_POSITION` — which decides where the letter sits inside its trapezoid — was a fixed map that
+ * always put M on the left and D on the right. So on quadrants 1 and 4 the « M » button was clipped to the
+ * RIGHT trapezoid while its letter was positioned at the LEFT edge: outside its own `clip-path`, and therefore
+ * **not painted at all**. Measured on tooth 16 at 820 px — the picker showed V, O and L with two unlabelled,
+ * silent hit zones, on the one control whose entire subject is *where on the tooth*.</p>
+ *
+ * <p>Anything that positions something inside a face's shape must key on this, never on the stored letter.</p>
+ */
+export function surfaceZoneCode(fdi: number, letter: string): string {
+  const code = letter.toUpperCase()
   if (isPatientRightTooth(fdi)) {
-    if (code === "M") code = "D"
-    else if (code === "D") code = "M"
+    if (code === "M") return "D"
+    if (code === "D") return "M"
   }
-  return OCCLUSAL_ZONES[code] ?? null
+  return code
 }

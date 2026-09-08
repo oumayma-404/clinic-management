@@ -3,6 +3,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Patients;
 
@@ -55,6 +56,20 @@ public static class DentalRecordActParser
                 condition = parsed;
             }
 
+            /*
+             * The pontique list is validated as FDI here and normalised (intersected with the act's teeth,
+             * cleared when the act is not a bridge) by the aggregate — see `DentalRecordAct`'s constructor for
+             * why that half is a fold and not a refusal. A tooth number that is not a tooth is a different
+             * thing entirely and is refused, exactly as `ToothNumbers` is two loops above.
+             */
+            foreach (var tooth in a.PonticToothNumbers)
+            {
+                if (!FdiTooth.IsValid(tooth))
+                {
+                    return Result<List<DentalRecordActInput>>.Failure($"Numéro de dent invalide : {tooth}.");
+                }
+            }
+
             result.Add(new DentalRecordActInput(
                 a.ProcedureTypeId,
                 a.ProcedureName,
@@ -64,7 +79,8 @@ public static class DentalRecordActParser
                 a.ToothNumbers,
                 condition,
                 a.Surfaces,
-                a.Note));
+                a.Note,
+                a.PonticToothNumbers));
         }
 
         return Result<List<DentalRecordActInput>>.Success(result);
@@ -85,10 +101,23 @@ public static class DentalRecordActParser
                 continue;
             }
 
+            /*
+             * ⚠️ **One act, and possibly TWO states across its teeth** — the only case in the product where that
+             * is true, and the reason `BridgeCharting` exists. A three-unit bridge is one act (« Couronne /
+             * bridge (par élément) » priced per element, so one line and the right total) whose 14 and 16 are
+             * piliers and whose 15 is a pontique. Charting the act's single `ResultingCondition` across all
+             * three said « three abutments, no pontic »: a bridge that cannot exist, drawn on the patient's
+             * chart with a travée joining it.
+             *
+             * With no pontique marked the fold returns the act's own condition unchanged, so every record
+             * written before this — and every act that is not a bridge — charts exactly as it did.
+             */
+            var pontics = a.PonticToothNumbers ?? Array.Empty<int>();
             foreach (var tooth in a.ToothNumbers.Distinct())
             {
+                var condition = BridgeCharting.ConditionFor(a.ResultingCondition.Value, pontics, tooth);
                 yield return new ToothState(
-                    Guid.NewGuid(), patientId, clinicId, tooth, a.ResultingCondition.Value, treatmentDate,
+                    Guid.NewGuid(), patientId, clinicId, tooth, condition, treatmentDate,
                     a.Surfaces, a.Note, dentalRecordId);
             }
         }

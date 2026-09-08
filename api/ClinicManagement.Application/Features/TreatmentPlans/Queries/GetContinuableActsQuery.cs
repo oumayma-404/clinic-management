@@ -102,15 +102,11 @@ public class GetContinuableActsQueryHandler
             // matched — so the fiche vanished from « Suite d'une séance précédente » for ever, the continuation
             // could never be re-run, and the fiche itself became undeletable (deleting it un-marks a step on a
             // cancelled plan, which the aggregate refuses).
-            var recordsOnAPlan = plans.Items
-                .Where(p => p.Status != TreatmentPlanStatus.Cancelled)
-                .SelectMany(p => p.Items)
-                .SelectMany(i => i.Steps
-                    .Select(s => s.LinkedDentalRecordId)
-                    .Append(i.LinkedDentalRecordId))
-                .Where(id => id.HasValue)
-                .Select(id => id!.Value)
-                .ToHashSet();
+            //
+            // ⚠️ The rule moved to `ContinuationTracking` rather than staying here: this was the half that had
+            // it, `ContinueRecordedActCommand`'s guard was the half that did not, and the disagreement made the
+            // dialog offer a séance the press then refused.
+            var recordsOnAPlan = ContinuationTracking.TrackedRecordIds(plans.Items);
 
             // Which fiches are already on a note, and what is still owed on it. The light projection rather than
             // GetFilteredAsync, for the reason the repository's own docstring gives.

@@ -169,6 +169,22 @@
   --chart-mark-todo: oklch(0.550 0.190 27);
   --chart-mark-done: oklch(0.480 0.155 262);
   /*
+   * The tooth itself. **Two stops each, and the gradient is not decoration** — a flat beige silhouette reads
+   * as a blob at 40 px, and what makes it read as a *tooth* is that enamel is brightest at the incisal edge
+   * and shades toward the collet while dentine does the opposite, darkening toward the apex. The first port of
+   * this component flattened them and lost most of the drawing's legibility.
+   *
+   * ⚠️ Literals rather than derived from the palette, for the same reason the fifteen condition hexes are:
+   * a tooth is ivory in a dark cabinet too, and the mesh viewer settled the same question the same way
+   * ("matte off-white"). Only the outline lifts in dark, because it is the one line carrying the silhouette
+   * against the card.
+   */
+  --tooth-enamel-edge: #fdfcf9;
+  --tooth-enamel-neck: #eee8dc;
+  --tooth-dentine-neck: #e9dcc2;
+  --tooth-dentine-apex: #d3c1a0;
+  --tooth-line: #6b6055;
+  /*
    * ⚠️ Was `oklch(0.962 0.03 25)` — **outside sRGB**, and by a long way: the chroma ceiling at that lightness
    * is 0.0187, so two thirds of the declared colour did not exist and the browser gamut-mapped it in silence.
    * At the ceiling the « Annulée » / « Échec » pill also reads slightly better (4.67:1 → 4.76:1), because the
@@ -415,6 +431,9 @@
      enamel fill as well as the ground — which is why they lighten less than the other semantic pairs. */
   --chart-mark-todo: oklch(0.640 0.195 27);
   --chart-mark-done: oklch(0.650 0.150 262);
+
+  /* The tooth keeps its ivory — only the outline lifts, so the silhouette still reads against a dark card. */
+  --tooth-line: #8b7f70;
 
   --hero-from: oklch(0.455 0.088 234);
   --hero-to: oklch(0.345 0.082 248);
@@ -1013,3 +1032,4 @@
     margin: 12mm;
   }
 }
+

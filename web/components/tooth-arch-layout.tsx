@@ -157,7 +157,14 @@ export function ToothArchLayout({
         <div className="mx-auto w-max">
           {showUpper && (
             <div className="space-y-1.5">
-              <div className="text-center text-2xs font-medium text-muted-foreground">{upperLabel}</div>
+              {/* ⚠️ The caption is the SWITCH's job whenever the switch exists. Below `md:` (and on a coarse
+                  tablet) only one arch is drawn and the control above already reads « Maxillaire (haut) /
+                  Mandibule (bas) », so this line restated the pressed button directly beneath it — 24 px of
+                  duplicate label immediately above the teeth, on the width with the least room for them. With
+                  both arches drawn there is no switch, and then the captions are the only thing naming them. */}
+              {!isNarrow && (
+                <div className="text-center text-2xs font-medium text-muted-foreground">{upperLabel}</div>
+              )}
               <div className="flex gap-2">
                 <div className="flex gap-0.5">{teeth.upperRight.map(renderTooth)}</div>
                 <div className="w-px bg-border" />
@@ -176,7 +183,9 @@ export function ToothArchLayout({
                 <div className="w-px bg-border" />
                 <div className="flex gap-0.5">{teeth.lowerLeft.map(renderTooth)}</div>
               </div>
-              <div className="text-center text-2xs font-medium text-muted-foreground">{lowerLabel}</div>
+              {!isNarrow && (
+                <div className="text-center text-2xs font-medium text-muted-foreground">{lowerLabel}</div>
+              )}
             </div>
           )}
         </div>

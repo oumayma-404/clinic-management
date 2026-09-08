@@ -273,6 +273,23 @@ touching the area.
   that 0 is how a 250 DT act with 150 collected left the patient owing 250 on the devis **and** 100 on an
   unlinked note: an invoice raised from a fiche carries `dentalRecordId` and **no `TreatmentPlanId`**, so
   `PlanBillingRules.BilledPlanIds` cannot de-duplicate it.
+- **A note that REPRESENTS a devis may not be attached to one holding money the note does not bill.** The
+  bridge is all-or-nothing — `BilledPlanIds` drops the *whole* plan from « Solde patient », « Créances », la
+  caisse and the dashboard the moment a real note names it — so « Montant du travail restant » priced on the
+  billed continuation path put a live debt exactly where nothing looks: a 30 DT coiffage billed on note
+  2026-0016, continued at 10 DT, left the patient's balance reading **0**. `AmendTreatmentPlanCommand`
+  already refuses that state in as many words (« acts added afterwards would be invisible in every balance »);
+  `ContinueRecordedActCommand` reached it by adding the line *before* attaching. It now prices the
+  already-billed act **0** and leaves the note **unattached** whenever there is new money, so the two
+  documents stay disjoint. ⚠️ Gated on `PlanBillingRules.RepresentsItsPlan`, never on « is there a note » — a
+  **Draft** note represents nothing and its plan still carries its own balance, so the 0 would lose the 30
+  instead of saving the 10.
+- **A plan minted inside a booking dialog is booked through `schedulablePlanItems`, never `plan.items[0]`.**
+  That is the gate `planIdByItem` is built from, and a priced « travail restant » makes the continuation's
+  *first* act `Done` on creation — so `items[0]` was dropped from the map and the save was refused outright
+  with « Le plan de traitement est requis pour lier l'acte. », after showing the finished 30 DT act in place
+  of the 10 DT being booked and offering no step at all. `attachPlanAct`'s own doc had said « never
+  `plan.items[0]` » since the day it was written; `check:responsive`'s N28 is what holds it.
 - **A restoration records work that is DONE, and the chart asserted it from the FIRST séance.** A multi-séance
   act's step-1 fiche carried the catalogue's `ResultingCondition`, so a tooth read « Implant » weeks before the
   implant existed — measured as 7 rows on the live database, every one from a step 1 of 2, three of them claiming
@@ -369,6 +386,22 @@ touching the area.
   screen's three groups contiguous rather than interleaved; the « is this séance booked? » subquery must answer
   **exactly** what `TreatmentsInProgressReader` answers (per **step**, and with no « from today » floor — an
   `AwaitingClosure` visit is still a standing booking) or the list groups by one rule and sorts by another.
+- **One act charts ONE state across all its teeth — except a bridge, which is the only exception in the
+  product.** A three-unit bridge is one act (« Couronne / bridge (par élément) », priced per element, so one
+  devis line and the right total) whose 14 and 16 are *piliers* and whose 15 is a *pontique*. With one
+  `ResultingCondition` per act it charted **three abutments and no pontic** — anatomically impossible — and the
+  odontogramme then drew a travée across the run, which made it look deliberate. Entering it as the same
+  procedure twice was the only way to say it and nothing suggested that. `DentalRecordAct.PonticToothNumbers`
+  records the answer and `BridgeCharting.ConditionFor` folds it; ⚠️ **an act with no pontique marked charts
+  exactly as before**, which is what makes it safe against every existing row. ⚠️ **Never infer the roles from
+  position**: a pier abutment is crowned in the *middle* of the span, a cantilever hangs past the last abutment,
+  and 12 · 11 · 21 sorts to 11 · 12 · 21, so « the middle one » is the wrong tooth.
+- **A `PopoverContent` that caps its own height DISABLES the cap it looks like it is tightening.** The base reads
+  `--radix-popover-content-available-height` — the room Radix measures between the anchor and the edge — and
+  tailwind-merge lets a caller's `max-h-[…]` win over it, while `dvh` measures the viewport instead. Measured on
+  the tooth editor: 394 px of room, 590.8 px allowed, a 428 px panel at `y = -35` with its heading off screen and
+  *nothing to scroll*. `select.tsx` and `dropdown-menu.tsx` had the correct cap all along and `popover.tsx` did
+  not, for 77 call sites — the repo's own defect shape, at the primitive layer.
 - **Before any frontend code, read [`.claude/rules/frontend-web.md`](.claude/rules/frontend-web.md).** `web/`
   has no test runner and `npm run lint` cannot run (eslint is scripted but not installed), so the gate is
   `npm run check:responsive` + `npx tsc --noEmit` + `npm run build`, then an eye pass at
