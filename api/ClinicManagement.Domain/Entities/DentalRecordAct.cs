@@ -34,6 +34,23 @@ public class DentalRecordAct : Entity<Guid>
     private readonly List<int> _toothNumbers = new();
     public IReadOnlyList<int> ToothNumbers => _toothNumbers.AsReadOnly();
 
+    private readonly List<int> _ponticToothNumbers = new();
+    /// <summary>
+    /// Which of this act's teeth are <b>pontiques</b> (suspended replacements) rather than <b>piliers</b>
+    /// (crowned teeth keeping their own roots). Always a subset of <see cref="ToothNumbers"/>, and empty for
+    /// every act that is not a bridge.
+    ///
+    /// <para>⚠️ <b>This is the only place a bridge's shape is recorded, and it had to be recorded rather than
+    /// derived.</b> Before it, an act carried ONE <see cref="ResultingCondition"/> for all of its teeth, so a
+    /// three-unit bridge could only be entered as two separate acts of the same procedure — which nothing in the
+    /// UI said to do, and doing it in one act charted three abutments and no pontic: a bridge that cannot
+    /// exist.</para>
+    ///
+    /// <para>⚠️ Position cannot supply the answer — see <see cref="BridgeCharting"/> on pier abutments and
+    /// cantilevers.</para>
+    /// </summary>
+    public IReadOnlyList<int> PonticToothNumbers => _ponticToothNumbers.AsReadOnly();
+
     /// <summary>Resulting tooth state for the odontogram (null = no state change, e.g. cleaning/consultation).</summary>
     public ToothCondition? ResultingCondition { get; private set; }
     public string? Surfaces { get; private set; }
@@ -76,28 +93,44 @@ public class DentalRecordAct : Entity<Guid>
 
         // A mouth-level act (no teeth) can only be a flat fee — there is nothing to multiply.
         IsPerTooth = input.IsPerTooth && _toothNumbers.Count > 0;
-    }
 
-    private static string? NormalizeSurfaces(string? surfaces)
-    {
-        if (string.IsNullOrWhiteSpace(surfaces))
-            return null;
-
-        var normalized = surfaces.Trim().ToUpperInvariant();
-        foreach (var c in normalized)
+        /*
+         * ⚠️ **Normalised, never refused** — the same shape as `IsPerTooth` above and `ResultingCondition`'s
+         * `Sain` fold, and for the same reason: the client legitimately holds a stale answer.
+         *
+         * A dentist marks 15 as a pontique, then changes the act's état from « Bridge » to « Couronne », or
+         * removes 15 from the act's teeth. Both leave a pontique list that no longer describes anything, and
+         * both are ordinary edits made in the fiche's own form. Throwing would turn them into a 400 the user
+         * did nothing to earn; keeping them would chart a pontique on a tooth the act does not treat, or a
+         * bridge shape on an act that is not a bridge. Intersecting and clearing is the only reading that can
+         * be wrong about nothing.
+         */
+        if (BridgeCharting.IsUnit(ResultingCondition) && input.PonticToothNumbers is not null)
         {
-            if ("MODVL".IndexOf(c) < 0)
-                throw new ArgumentException($"Surface invalide : '{c}'. Valeurs autorisées : M, O, D, V, L.", nameof(surfaces));
+            foreach (var tooth in input.PonticToothNumbers.Distinct())
+            {
+                if (_toothNumbers.Contains(tooth)) _ponticToothNumbers.Add(tooth);
+            }
         }
-        return normalized;
     }
+
+    // ⚠️ Delegates to ToothSurfaces: this method was byte-for-byte identical in ToothState and
+    // DentalRecordAct, two entry points for the same string from the same picker.
+    private static string? NormalizeSurfaces(string? surfaces) =>
+        ToothSurfaces.Normalize(surfaces, nameof(surfaces));
 }
 
 /// <summary>
 /// One act requested when (re)building a <see cref="DentalRecord"/>'s act list — a parameter object rather
-/// than a positional tuple, because the nine correlated fields (incl. the per-tooth pricing provenance) are
+/// than a positional tuple, because the ten correlated fields (incl. the per-tooth pricing provenance) are
 /// unreadable inline. Validated by the <see cref="DentalRecordAct"/> constructor it feeds.
 /// </summary>
+/// <param name="PonticToothNumbers">
+/// The subset of <paramref name="ToothNumbers"/> that are pontiques — see
+/// <see cref="DentalRecordAct.PonticToothNumbers"/>. ⚠️ Optional and **last**, with a default, so the eleven
+/// existing construction sites keep compiling: they build acts that are not bridges, and adding a required
+/// positional parameter to a record every test fixture builds would have been a hundred edits to say « none ».
+/// </param>
 public sealed record DentalRecordActInput(
     Guid? ProcedureTypeId,
     string ProcedureName,
@@ -107,4 +140,5 @@ public sealed record DentalRecordActInput(
     IReadOnlyList<int> ToothNumbers,
     ToothCondition? ResultingCondition,
     string? Surfaces,
-    string? Note);
+    string? Note,
+    IReadOnlyList<int>? PonticToothNumbers = null);

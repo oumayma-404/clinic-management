@@ -11,6 +11,7 @@ import {
   TOOTH_VIEWBOX,
   isUpperTooth,
   surfaceZone,
+  surfaceZoneCode,
   toothKind,
   type ToothAnatomy,
 } from "@/components/tooth-anatomy"
@@ -53,14 +54,14 @@ const TODO = "var(--chart-mark-todo)"
 const DONE = "var(--chart-mark-done)"
 
 /**
- * Enamel, dentine and the outline are **literals, not theme tokens** — for the same reason the fifteen
- * condition hues are. A tooth is ivory in a dark cabinet too, and the mesh viewer already settled this
- * question the same way ("matte off-white"; a specular highlight in a fissure reads as a finding).
+ * ⚠️ **The tooth is drawn with two gradients, and they are not decoration.**
+ *
+ * Flat fills read as a beige blob at 40 px. What makes the shape read as a *tooth* is that enamel is brightest
+ * at the incisal edge and shades toward the collet, while dentine does the opposite and darkens toward the
+ * apex — so the crown lifts off the root without a second outline between them. The first version of this
+ * component flattened both and lost most of the drawing's legibility; the values live in `globals.css`.
  */
-const ENAMEL = "#faf7f1"
-const DENTINE = "#e7dac1"
-/** Dark enough to carry the whole silhouette: the two fills are near-white and do the work of a tint, not an edge. */
-const OUTLINE = "#6b6155"
+const OUTLINE = "var(--tooth-line)"
 
 const markColor = (m: ToothMark) => (m.source === "Diagnosis" ? TODO : DONE)
 const isPlanned = (m: ToothMark) => m.source === "Diagnosis"
@@ -256,6 +257,23 @@ export const TOOTH_SYMBOLS: Record<string, ToothSymbol> = {
     draw: (c) => <CrownCap {...c} />,
   },
 
+  /*
+   * ⚠️ **These two are the whole reason the chart may stop guessing.** A pilier is a prepared living tooth and
+   * keeps its root; a pontique is suspended over a gap and has none — so the difference the drawing has to
+   * carry is exactly the one the record now states, rather than one inferred from a neighbour. Anything the
+   * practitioner charts as the older, unspecified `Bridge` is still drawn as a plain crowned unit.
+   */
+  BridgePilier: {
+    legend: "Pilier — couronne sur une dent qui garde sa racine",
+    draw: (c) => <CrownCap {...c} />,
+  },
+
+  BridgePontique: {
+    legend: "Pontique — couronne suspendue, sans racine",
+    body: { hideRoots: true },
+    draw: (c) => <CrownCap {...c} />,
+  },
+
   Implant: {
     legend: "Fût fileté à la place de la racine",
     body: { hideRoots: true },
@@ -359,7 +377,7 @@ interface ToothSymbolGlyphProps {
  * the read-only callers can reuse this untouched. (Same contract `record-tooth-chart` keeps, and for the same
  * reason.)
  */
-export function ToothSymbolGlyph({ toothNumber, marks, width = 34, bridgeSpan, className }: ToothSymbolGlyphProps) {
+export function ToothSymbolGlyph({ toothNumber, marks, width = 40, bridgeSpan, className }: ToothSymbolGlyphProps) {
   const reactId = useId()
   const clipId = `crown-${reactId.replace(/[^a-zA-Z0-9-]/g, "")}`
   const a = TOOTH_ANATOMY[toothKind(toothNumber)]
@@ -370,11 +388,23 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 34, bridgeSpan, c
     .filter((s): s is { mark: ToothMark; symbol: ToothSymbol } => Boolean(s.symbol))
 
   /*
-   * An INTERIOR unit of a bridge is the travée: a crown suspended between two abutments, with no root of its
-   * own. It is derivable rather than stored — a unit with the same bridge on both sides can be nothing else —
-   * which is what keeps « which one is the pontic? » from becoming a field somebody has to remember to set.
+   * ⚠️ **A tooth in the middle of a bridge is NOT necessarily the travée, and this component must not guess.**
+   *
+   * The first version derived it — « same bridge on both sides ⇒ pontique ⇒ draw no root » — and that is
+   * medically false in the two configurations a prosthodontist meets most after the textbook one:
+   *
+   *   · a **pilier intermédiaire** (pier abutment) is « a natural tooth located between two edentulous spaces
+   *     and terminal abutments »: 16 and 12 terminal, **14 an abutment**, 15 and 13 pontics. The derivation
+   *     draws a living, prepared, rooted abutment as a crown floating in space.
+   *   · a **cantilever** has « abutment or abutments at one end only, the other end of the pontic remaining
+   *     unattached », so its pontic is not between anything at all.
+   *
+   * The root cause is that `ToothCondition.Bridge` is ONE flag: the charting convention has distinct marks for
+   * the **retainer** and the **pontic** (BR / BP) and this model cannot hold the difference, so nothing here is
+   * entitled to invent it. Each unit is now drawn as whatever it is actually charted as — an absent tooth keeps
+   * its cross, an uncharted one stays healthy — and the bar is the only mark the bridge itself contributes.
+   * Understating a bridge is recoverable; asserting the wrong tooth is a pontic is not.
    */
-  const isPontic = Boolean(bridgeSpan?.toPrevious && bridgeSpan?.toNext)
 
   // Body effects accumulate: a tooth can be both incluse and absent, and the stronger fade should win.
   const body = symbols.reduce<BodyEffect>((acc, { symbol }) => {
@@ -386,7 +416,7 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 34, bridgeSpan, c
       hideCrown: acc.hideCrown || b.hideCrown,
       hideRoots: acc.hideRoots || b.hideRoots,
     }
-  }, isPontic ? { hideRoots: true } : {})
+  }, {})
 
   const bodyStroke = {
     stroke: OUTLINE,
@@ -409,6 +439,15 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 34, bridgeSpan, c
         <clipPath id={clipId}>
           <path d={a.crown} />
         </clipPath>
+        {/* Bottom-to-top on the crown, top-to-bottom on the root: the two run opposite ways on purpose. */}
+        <linearGradient id={`${clipId}-en`} x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stopColor="var(--tooth-enamel-edge)" />
+          <stop offset="100%" stopColor="var(--tooth-enamel-neck)" />
+        </linearGradient>
+        <linearGradient id={`${clipId}-dn`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--tooth-dentine-apex)" />
+          <stop offset="100%" stopColor="var(--tooth-dentine-neck)" />
+        </linearGradient>
       </defs>
       {/* One flip for the lower arch — see the note in `tooth-anatomy.ts` on why nothing here may be text. */}
       <g transform={upper ? undefined : LOWER_ARCH_TRANSFORM}>
@@ -421,14 +460,20 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 34, bridgeSpan, c
         {bridgeSpan && (bridgeSpan.toPrevious || bridgeSpan.toNext) && (
           <path
             d={`M${bridgeSpan.toPrevious ? -55 : 50} ${a.neck + 6} L${bridgeSpan.toNext ? 155 : 50} ${a.neck + 6}`}
-            stroke={DONE}
+            /*
+             * ⚠️ The bar takes the RUN's status, not this cell's. Hard-coding « réalisé » drew a solid blue
+             * travée between two red, still-to-place abutments — a bridge asserted as present in a mouth that
+             * does not have one yet, which is the single worst thing this chart could say. Caught by looking.
+             */
+            stroke={bridgeSpan.planned ? TODO : DONE}
+            strokeDasharray={plannedDash(Boolean(bridgeSpan.planned))}
             strokeWidth={3}
             strokeLinecap="butt"
             vectorEffect="non-scaling-stroke"
           />
         )}
-        {!body.hideRoots && a.roots.map((d, i) => <path key={i} d={d} fill={DENTINE} {...bodyStroke} />)}
-        {!body.hideCrown && <path d={a.crown} fill={ENAMEL} {...bodyStroke} />}
+        {!body.hideRoots && a.roots.map((d, i) => <path key={i} d={d} fill={`url(#${clipId}-dn)`} {...bodyStroke} />)}
+        {!body.hideCrown && <path d={a.crown} fill={`url(#${clipId}-en)`} {...bodyStroke} />}
         {symbols.map(({ mark, symbol }, i) =>
           symbol.draw ? (
             <g key={`${mark.condition}-${i}`}>
@@ -515,7 +560,13 @@ export function OcclusalSurfacePicker({
             )}
           >
             {/* The letter still shows: it is the notation the note, the tooltip and the fiche all print. */}
-            <span className={cn("pointer-events-none", ZONE_LABEL_POSITION[code])}>{code}</span>
+            {/* ⚠️ Keyed on the ZONE the button actually paints, never on the stored letter — the two differ on the
+                  patient's right, where M and D are mirrored. Keyed on the letter, « M » was positioned at the left
+                  edge while its clip-path was the RIGHT trapezoid, so the letter fell outside its own clip and was
+                  not drawn: half the mouth showed V, O and L over two unlabelled hit zones. */}
+            <span className={cn("pointer-events-none", ZONE_LABEL_POSITION[surfaceZoneCode(toothNumber, code)])}>
+              {code}
+            </span>
           </button>
         )
       })}
@@ -601,7 +652,7 @@ interface OcclusalSurfaceBoxProps {
  * and « Carie OD » draw the same tooth. Today that information renders as the letters `MO` crammed into a
  * 28 px box at 9 px, which is under the 11 px legibility floor the rest of the app is held to.
  */
-export function OcclusalSurfaceBox({ toothNumber, marks, size = 18, className }: OcclusalSurfaceBoxProps) {
+export function OcclusalSurfaceBox({ toothNumber, marks, size = 22, className }: OcclusalSurfaceBoxProps) {
   const reactId = useId()
   const clipId = `occ-${reactId.replace(/[^a-zA-Z0-9-]/g, "")}`
   const withFaces = marks.filter((m) => m.surfaces)
@@ -622,7 +673,7 @@ export function OcclusalSurfaceBox({ toothNumber, marks, size = 18, className }:
       height={size}
       aria-hidden="true"
       focusable="false"
-      className={cn(empty && "opacity-40", className)}
+      className={cn(empty && "opacity-55", className)}
     >
       <defs>
         <clipPath id={clipId}>

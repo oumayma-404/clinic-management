@@ -48,7 +48,13 @@ export function OdontogramViewSwitch({ value, onChange, className }: OdontogramV
     <div
       role="group"
       aria-label="Dessin de l'odontogramme"
-      className={cn("flex items-center gap-1 rounded-md border bg-muted/40 p-1", className)}
+      /* ⚠️ `gap-0.5` below `sm:` is a measured 2 px, and it is only defensible because the row it lives in now
+         WRAPS rather than overflows. Side by side the two switches need 128 + 159 + 8 = 295 px against the
+         294 px the odontogramme's control row has at 390 px — short by one pixel, which is not a fit anybody
+         should rely on. Tightening the two internal gaps and the wrapper's brings it to 287, a 7 px margin;
+         and if a relabel ever eats that margin the pair drops to a second row instead of painting a segment
+         outside the card, which is what the previous `min-w-0` attempt did. */
+      className={cn("flex items-center gap-0.5 rounded-md border bg-muted/40 p-1 sm:gap-1", className)}
     >
       {ODONTOGRAM_CHART_VIEWS.map((view) => (
         <button
@@ -58,7 +64,13 @@ export function OdontogramViewSwitch({ value, onChange, className }: OdontogramV
           aria-pressed={value === view}
           title={HINTS[view]}
           className={cn(
-            "flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors coarse:py-3",
+            /* ⚠️ `px-1.5` below `sm:` is a measured fit, not taste. At 390 px the odontogramme's control row
+               has 294 px of content box, and the two switches come to 136 + 170 + 8 = 314 — so the pair wrapped
+               onto a second row and the card spent 38 px of chrome on the wrap alone, directly above the teeth.
+               6 px of horizontal padding per segment brings the pair inside 294. At 320 px they wrap again,
+               which is the honest answer at the narrowest supported width. Kept identical in
+               {@link DentitionViewSwitch} — the two sit in one row and must stay the same object. */
+            "flex-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:px-2 coarse:py-3",
             value === view
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover-hover:hover:text-foreground",

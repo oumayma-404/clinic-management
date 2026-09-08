@@ -82,7 +82,7 @@ import { PatientRecordModal } from "@/components/patient-record-modal"
 import { RecordActsSummary } from "@/components/patient/record-acts-summary"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
-import { Smile, ClipboardCheck, FolderOpen } from "lucide-react"
+import { Smile, ClipboardCheck, FolderOpen, CalendarPlus } from "lucide-react"
 import { InvoicesTable } from "@/components/factures/invoices-table"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
@@ -1353,16 +1353,31 @@ export default function PatientDetailsPage() {
             plain `lg:shrink-0` trades this one for, and the reason the pin exists at all. From 1280 px there is
             room for both, so the group returns beside the name and the pin is right again.
           */}
+          {/*
+            ⚠️ **Icon-only below `sm:`, with the label kept in the DOM** — `ExportButton compact`'s own pattern,
+            which already sat in this very row, applied to the four controls beside it so the row is one shape
+            rather than one compact control among four full-width ones.
+
+            Measured at 390 px: five French labels wrapped this group onto **three 44 px rows — ~148 px**, and it
+            is one of the blocks standing between the top of the page and the odontogramme, which began at
+            **y = 698** with **18 buttons** above it. Icon-only the row is 5 × 44 px + gaps = ~252 px, i.e. a
+            single row at 390 px *and* at 320 px (288 px of content box).
+
+            ⚠️ **Not a « ⋯ » menu**, which was the other candidate: it puts four controls one tap deeper and, on
+            this row specifically, `ExportButton` carries its own step-up dialog — and a dialog rendered inside a
+            `DropdownMenuContent` is unmounted in the same tick `onSelect` closes the menu, the defect
+            `expense-movement-actions.tsx` documents. Nothing here is hidden, so § 0 is not engaged at all.
+          */}
           <div className="flex min-w-0 basis-full flex-wrap gap-2 xl:basis-auto xl:shrink-0">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setEditDialogOpen(true)}
               className="gap-2 coarse:h-11"
-              title="Modifier le patient"
+              aria-label="Modifier le patient"
             >
               <Edit className="h-4 w-4" />
-              Modifier
+              <span className="sr-only sm:not-sr-only">Modifier</span>
             </Button>
             {/* Files live on their own route, which is the whole manager — folders, upload, delete. It sits in
                 the action row rather than as a panel above the odontogram: « do they have a panoramique? » is a
@@ -1372,10 +1387,10 @@ export default function PatientDetailsPage() {
               size="sm"
               onClick={() => router.push(`/patients/${patient.id}/files`)}
               className="gap-2 coarse:h-11"
-              title="Fichiers et dossiers du patient"
+              aria-label="Fichiers et dossiers du patient"
             >
               <FolderOpen className="h-4 w-4" />
-              Fichiers
+              <span className="sr-only sm:not-sr-only">Fichiers</span>
             </Button>
             {/* The plans of THIS patient, one tap from the top of their page — the tab is the destination rather
                 than the clinic-wide devis list, which has no patient filter and would answer a different
@@ -1385,10 +1400,10 @@ export default function PatientDetailsPage() {
               size="sm"
               onClick={() => openTab("treatment-plans")}
               className="gap-2 coarse:h-11"
-              title="Plans de traitement du patient"
+              aria-label="Plans de traitement du patient"
             >
               <ClipboardCheck className="h-4 w-4" />
-              Plans de traitement
+              <span className="sr-only sm:not-sr-only">Plans de traitement</span>
             </Button>
             {/*
               « Dossier » — the patient's own copy of their record, as one archive.
@@ -1409,10 +1424,12 @@ export default function PatientDetailsPage() {
                 overlays overhung each other besides. */}
             <Button
               size="sm"
-              className="coarse:h-11"
+              className="gap-2 coarse:h-11"
+              aria-label="Planifier un rendez-vous"
               onClick={() => router.push(`/appointments?patientId=${patient.id}`)}
             >
-              Planifier un RDV
+              <CalendarPlus className="h-4 w-4" />
+              <span className="sr-only sm:not-sr-only">Planifier un RDV</span>
             </Button>
           </div>
         </div>
@@ -1504,16 +1521,22 @@ export default function PatientDetailsPage() {
           Outstanding debt is still one click away in « Créances », the patient's Factures tab, and the plan
           card's own encaissé / total line.
         */}
-        <Card>
-          <CardHeader className="pb-3">
+        {/*
+          ⚠️ **No `CardDescription`, and its absence is the largest single saving on this card.** It read
+          « Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s'ajoutent
+          automatiquement … » and measured **80 px — four lines — at 390 px**, permanently, above a chart that is
+          177 px. Both halves were already said better elsewhere: tapping a tooth is what the chart teaches in one
+          tap and the tooth editor's own heading confirms, and « les actes réalisés s'ajoutent automatiquement »
+          is the « Actes réalisés » tab standing right underneath. `pb-2` because the header is now one line.
+        */}
+        {/* `gap-2` overrides `Card`'s own `gap-6`: with the description gone the header is a single 20 px line,
+            and 24 px of gap under it is a quarter of the space between the card's edge and the first tooth. */}
+        <Card className="gap-2">
+          <CardHeader className="pb-0">
             <CardTitle className="flex items-center gap-2">
               <Smile className="h-5 w-5" />
               Odontogramme
             </CardTitle>
-            <CardDescription>
-              Cliquez sur une dent pour noter un diagnostic (à traiter) ; les actes réalisés s&apos;ajoutent
-              automatiquement lors de l&apos;enregistrement d&apos;un acte médical.
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <Odontogram

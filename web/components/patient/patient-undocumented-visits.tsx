@@ -18,8 +18,22 @@ interface PatientUndocumentedVisitsProps {
   onRecord: (appointmentId: string) => void
 }
 
-/** Rows visible before the list starts scrolling, in the default state. */
+/** Rows visible before the list starts scrolling, in the default state, from `sm:` up. */
 const VISIBLE_ROWS = 3
+
+/**
+ * The same cap below `sm:`.
+ *
+ * This section sits between the top of the patient page and the odontogramme, and on a phone it was the largest
+ * thing there: seven pending visits rendered **182 px and eight controls** — seven « Enregistrer la fiche » plus
+ * « Tout afficher » — of the **698 px and 18 buttons** standing above a chart the page exists for. One row is
+ * still the whole point of the section (« you owe a fiche, and here is the most recent one »), the count badge in
+ * the header states the debt in full whatever is drawn, and « Tout afficher » opens the lot.
+ *
+ * ⚠️ The cap is CSS (`max-h`), never `useMediaQuery`: that hook returns `false` until after mount by contract, so
+ * a JS switch would paint three rows and then snap to one on every phone load.
+ */
+const NARROW_VISIBLE_ROWS = 1
 
 /**
  * Height of one row: a `h-7` button (28 px) plus `py-1` (8 px).
@@ -31,6 +45,19 @@ const VISIBLE_ROWS = 3
 const ROW_PX = 36
 
 const LIST_MAX_PX = VISIBLE_ROWS * ROW_PX
+const NARROW_LIST_MAX_PX = NARROW_VISIBLE_ROWS * ROW_PX
+
+/*
+ * The caps are applied as the literal Tailwind utilities `max-h-[36px] sm:max-h-[108px]` (see the note at the
+ * scroll box). These two lines are what make a change to `ROW_PX` or to either row count a **build failure**
+ * rather than a chart that silently clips at the wrong height: a literal class cannot be derived, so the only
+ * available guard is to state the derivation and check it.
+ */
+if (NARROW_LIST_MAX_PX !== 36 || LIST_MAX_PX !== 108) {
+  throw new Error(
+    `Les hauteurs de la liste ont changé (${NARROW_LIST_MAX_PX}/${LIST_MAX_PX}) — mettez à jour les classes max-h littérales.`,
+  )
+}
 
 /** A visit in one of these states is not waiting for a fiche — nothing happened, or it was called off. */
 const NOT_EXPECTED = new Set(["Cancelled", "NoShow"])
@@ -90,6 +117,15 @@ export function PatientUndocumentedVisits({
   if (pending.length === 0) return null
 
   const hasMoreThanFits = pending.length > VISIBLE_ROWS
+  /*
+   * ⚠️ The footer's condition is per-WIDTH, because the cap now is. `pending.length > VISIBLE_ROWS` alone would
+   * have withheld « Tout afficher » from a phone showing 1 of 2 or 1 of 3 rows — a list clipped with no control
+   * to open it, which is § 0's « no capability removed by a layout decision » exactly. So it renders whenever
+   * more than the *narrow* cap is pending and is hidden from `sm:` up in the band where the desktop cap already
+   * shows everything: `pending.length` is 2 or 3, i.e. more than `NARROW_VISIBLE_ROWS` and no more than
+   * `VISIBLE_ROWS`.
+   */
+  const hasMoreThanNarrowFits = pending.length > NARROW_VISIBLE_ROWS
 
   return (
     <section className="rounded-lg border border-primary/30 bg-primary/5">
@@ -132,10 +168,18 @@ export function PatientUndocumentedVisits({
       >
         <div className="overflow-hidden">
           <div
-            className={cn("px-3", showAll ? "overflow-visible" : "overflow-y-auto")}
-            // Expanded lifts the cap entirely — « voir toute la liste » means the whole list, not a taller window.
-            // It is opt-in per click, so the section's resting size is still three rows.
-            style={showAll ? undefined : { maxHeight: LIST_MAX_PX }}
+            className={cn(
+              "px-3",
+              showAll ? "overflow-visible" : "overflow-y-auto",
+              /*
+               * ⚠️ **Written out, never interpolated.** Tailwind v4 finds classes by scanning source text for
+               * literal names, so `max-h-[${NARROW_LIST_MAX_PX}px]` generates **no CSS at all** — the cap would
+               * simply not exist, silently, with the class sitting in the DOM looking correct. The two values
+               * are `NARROW_VISIBLE_ROWS × ROW_PX` = 36 and `VISIBLE_ROWS × ROW_PX` = 108; the assertion just
+               * below is what keeps them honest if a row's height or a cap ever changes.
+               */
+              !showAll && "max-h-[36px] sm:max-h-[108px]",
+            )}
           >
             <ul className="divide-y divide-primary/15">
               {pending.map((appointment) => (
@@ -164,7 +208,7 @@ export function PatientUndocumentedVisits({
 
           {/* Only when there is genuinely more than fits — otherwise the control would promise something it cannot
               deliver. A sibling of the scroll box, never inside it, so revealing it cannot resize what it describes. */}
-          {hasMoreThanFits ? (
+          {hasMoreThanNarrowFits ? (
             // A bare underlined `<button>` was a ~16px-tall target. `variant="link"` keeps exactly the look
             // (primary ink, underline, no press-scale) and inherits the 44px `touch-target` floor from
             // `buttonVariants`; the negative margins keep the row's original spacing.
@@ -174,13 +218,18 @@ export function PatientUndocumentedVisits({
               size="sm"
               onClick={() => setShowAll((v) => !v)}
               aria-expanded={showAll}
-              className="mb-2 mt-1 h-auto py-1 text-xs font-semibold"
+              className={cn(
+                "mb-2 mt-1 h-auto py-1 text-xs font-semibold",
+                !hasMoreThanFits && "sm:hidden",
+              )}
             >
               {showAll ? "Réduire la liste" : `Tout afficher (${pending.length})`}
             </Button>
           ) : (
             <div className="pb-2" />
           )}
+          {/* The bottom breathing room the footer would have provided, in the band where it is hidden. */}
+          {hasMoreThanNarrowFits && !hasMoreThanFits && <div className="hidden pb-2 sm:block" />}
         </div>
       </div>
     </section>

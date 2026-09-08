@@ -133,7 +133,7 @@ export function ToothMultiSelect({ value, onChange, disabled, isAdult }: ToothMu
       {/* Wider on a finger, because the cells inside grew — `ui/popover.tsx` already caps every popover at
           `max-w-[calc(100vw-2rem)]`, so this cannot overflow a 390px phone. `max-h`/scroll because 32 adult
           teeth at 40px plus the child arch is taller than a short viewport. */}
-      <PopoverContent className="w-80 max-h-[70dvh] space-y-3 overflow-y-auto coarse:w-[22rem]" align="start">
+      <PopoverContent className="w-80 space-y-3 coarse:w-[22rem]" align="start">
         {showAdult && (
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground">Adulte</p>

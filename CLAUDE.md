@@ -386,6 +386,22 @@ touching the area.
   screen's three groups contiguous rather than interleaved; the « is this séance booked? » subquery must answer
   **exactly** what `TreatmentsInProgressReader` answers (per **step**, and with no « from today » floor — an
   `AwaitingClosure` visit is still a standing booking) or the list groups by one rule and sorts by another.
+- **One act charts ONE state across all its teeth — except a bridge, which is the only exception in the
+  product.** A three-unit bridge is one act (« Couronne / bridge (par élément) », priced per element, so one
+  devis line and the right total) whose 14 and 16 are *piliers* and whose 15 is a *pontique*. With one
+  `ResultingCondition` per act it charted **three abutments and no pontic** — anatomically impossible — and the
+  odontogramme then drew a travée across the run, which made it look deliberate. Entering it as the same
+  procedure twice was the only way to say it and nothing suggested that. `DentalRecordAct.PonticToothNumbers`
+  records the answer and `BridgeCharting.ConditionFor` folds it; ⚠️ **an act with no pontique marked charts
+  exactly as before**, which is what makes it safe against every existing row. ⚠️ **Never infer the roles from
+  position**: a pier abutment is crowned in the *middle* of the span, a cantilever hangs past the last abutment,
+  and 12 · 11 · 21 sorts to 11 · 12 · 21, so « the middle one » is the wrong tooth.
+- **A `PopoverContent` that caps its own height DISABLES the cap it looks like it is tightening.** The base reads
+  `--radix-popover-content-available-height` — the room Radix measures between the anchor and the edge — and
+  tailwind-merge lets a caller's `max-h-[…]` win over it, while `dvh` measures the viewport instead. Measured on
+  the tooth editor: 394 px of room, 590.8 px allowed, a 428 px panel at `y = -35` with its heading off screen and
+  *nothing to scroll*. `select.tsx` and `dropdown-menu.tsx` had the correct cap all along and `popover.tsx` did
+  not, for 77 call sites — the repo's own defect shape, at the primitive layer.
 - **Before any frontend code, read [`.claude/rules/frontend-web.md`](.claude/rules/frontend-web.md).** `web/`
   has no test runner and `npm run lint` cannot run (eslint is scripted but not installed), so the gate is
   `npm run check:responsive` + `npx tsc --noEmit` + `npm run build`, then an eye pass at

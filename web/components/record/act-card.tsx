@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatDT, parseAmountInput } from "@/lib/format"
-import { conditionStyle } from "@/components/odontogram-conditions"
+import { conditionStyle, isBridgeUnit } from "@/components/odontogram-conditions"
 import { ActCatalogPicker } from "@/components/record/act-catalog-picker"
 import { ActDetailFields } from "@/components/record/act-detail-fields"
 import {
@@ -104,6 +104,10 @@ export function ActCard({
   const priceInvalid = hasInvalidPrice(act.unitCost)
   const condition = act.resultingCondition ? conditionStyle(act.resultingCondition) : null
   const toothCount = act.toothNumbers.length
+  /* Whether « quelle dent porte le bridge ? » is a question worth asking of this act at all. Read from the
+     shared vocabulary rather than compared here, so the chart's travée, this control and the server's own fold
+     cannot come to disagree about what counts as a bridge. */
+  const bridgeAct = isBridgeUnit(act.resultingCondition)
 
   /**
    * The gap between what is charged and what the catalogue asks. Shown because a dentist lowering a price for one
@@ -383,6 +387,37 @@ export function ActCard({
                       className="inline-flex min-h-7 items-center gap-0.5 rounded-md border ps-2 pe-0.5 font-mono text-xs tabular-nums coarse:min-h-11"
                     >
                       {tooth}
+                      {/*
+                        ⚠️ **The one control that makes a bridge recordable in a single act.** Without it an act
+                        carried one état for all of its teeth, so « pilier · pontique · pilier » could only be
+                        entered as the same procedure twice — which nothing here said to do — and entering it
+                        once charted three abutments and no pontic: a bridge that cannot exist.
+
+                        A word, not an icon, and on the chip rather than in the folded détails: it is a fact
+                        about THIS tooth, and « P » would have to be learned. `whitespace-nowrap` because the
+                        chip already wraps as a unit and « pontique » must not break inside it.
+                      */}
+                      {bridgeAct && (
+                        <button
+                          type="button"
+                          onClick={() => dispatch({ type: "togglePontic", tooth })}
+                          disabled={disabled}
+                          aria-pressed={act.ponticTeeth.includes(tooth)}
+                          aria-label={
+                            act.ponticTeeth.includes(tooth)
+                              ? `La dent ${tooth} est un pontique — la repasser en pilier`
+                              : `La dent ${tooth} est un pilier — la passer en pontique`
+                          }
+                          className={cn(
+                            "ms-0.5 inline-flex min-h-5 items-center whitespace-nowrap rounded px-1 font-sans text-2xs font-medium transition-colors coarse:min-h-11 coarse:px-2",
+                            act.ponticTeeth.includes(tooth)
+                              ? "bg-foreground/10 text-foreground"
+                              : "text-muted-foreground hover-hover:hover:text-foreground",
+                          )}
+                        >
+                          {act.ponticTeeth.includes(tooth) ? "pontique" : "pilier"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => dispatch({ type: "toggleTooth", tooth })}
@@ -396,6 +431,25 @@ export function ActCard({
                   ))
                 )}
               </div>
+
+              {/*
+                ⚠️ **Stated, never seeded.** « The ends are piliers and the middles are pontiques » was the
+                obvious default and it is wrong in three arrangements a dentist meets: a **pier abutment** is a
+                crowned tooth in the MIDDLE of the span, a **cantilever** hangs a pontique past the last
+                abutment, and a bridge crossing the midline is not even in anatomical order when its FDI numbers
+                are sorted (12 · 11 · 21 reads 11 · 12 · 21). A visible wrong default on a clinical form is worse
+                than none, because it is accepted.
+
+                So nothing is assumed and the consequence is said out loud instead: this is what will be charted
+                if the dentist marks nothing, which is also exactly what the product did before this control
+                existed. `role="status"`, and only while it is actually true.
+              */}
+              {bridgeAct && toothCount > 1 && act.ponticTeeth.length === 0 && (
+                <p role="status" className="text-2xs text-muted-foreground">
+                  Toutes ces dents seront chartées comme <span className="font-medium">piliers</span>. Touchez
+                  « pilier » sur une dent remplacée pour la passer en pontique.
+                </p>
+              )}
 
               {/* ── the act's detail, folded but summarised ───────────────────────────────────────── */}
               <div className="rounded-md border">

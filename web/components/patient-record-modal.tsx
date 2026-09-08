@@ -863,6 +863,12 @@ export function PatientRecordModal({
           unitCost: Number.isFinite(unit) ? roundMillimes(unit) : null,
           isPerTooth: a.perTooth && a.toothNumbers.length > 0,
           toothNumbers: a.toothNumbers,
+          // ⚠️ Always sent, `[]` included. The server rebuilds every act from this payload, so omitting the key
+          // on an act whose last pontique was just un-marked would leave the previous shape stored — the same
+          // « an update DTO is tri-state » trap, on a field whose empty value is a real answer (« this bridge's
+          // shape is not detailed »). The reducer already guarantees it is a subset of `toothNumbers` and empty
+          // for a non-bridge act; the aggregate intersects again regardless.
+          ponticToothNumbers: a.ponticTeeth,
           resultingCondition: a.resultingCondition, // null when "Aucun"
           surfaces: serializeSurfaces(a.surfaces) || null,
           note: a.note.trim() || null,

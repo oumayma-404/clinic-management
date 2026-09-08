@@ -34,6 +34,10 @@ public static class DentalRecordMappingExtensions
                 UnitCost = a.UnitCost,
                 IsPerTooth = a.IsPerTooth,
                 ToothNumbers = a.ToothNumbers.ToList(),
+                // ⚠️ Read back on purpose: `SetActs` rebuilds every act from the input, so a fiche reopened for
+                // editing that could not see which tooth was a pontique would send the list back empty and
+                // silently flatten the bridge on the next save.
+                PonticToothNumbers = a.PonticToothNumbers.ToList(),
                 ResultingCondition = a.ResultingCondition?.ToString(),
                 Surfaces = a.Surfaces,
                 Note = a.Note

@@ -45,6 +45,21 @@ public class DentalRecordActConfiguration : IEntityTypeConfiguration<DentalRecor
                     c => c != null ? c.ToList() : new List<int>()))
             .HasColumnType("text");
 
+        // Which of those teeth are pontiques — same JSON int array, same comparer, for the same reason.
+        // Additive and nullable-by-absence: every existing row deserialises to an empty list, which is exactly
+        // « this act is not a bridge, or nobody said which tooth is which », so no backfill exists or is needed.
+        builder.Property(a => a.PonticToothNumbers)
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null!),
+                v => string.IsNullOrWhiteSpace(v)
+                    ? new List<int>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<int>>(v, (System.Text.Json.JsonSerializerOptions?)null!) ?? new List<int>(),
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<IReadOnlyList<int>>(
+                    (c1, c2) => c1 != null && c2 != null && c1.SequenceEqual(c2),
+                    c => c != null ? c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())) : 0,
+                    c => c != null ? c.ToList() : new List<int>()))
+            .HasColumnType("text");
+
         builder.Property(a => a.ResultingCondition)
             .HasConversion<int?>();
 

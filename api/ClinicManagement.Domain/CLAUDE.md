@@ -293,3 +293,57 @@ The `Events/` folder, `IDomainEvent`, and `AggregateRoot`'s event list were remo
 - Money everywhere is TND **millimes** (3 decimals). Round only through `InvoiceCalculator`.
 - **`ColorHex`'s curated palette has no frontend counterpart to keep in sync any more** — the browser had a hardcoded hex array, then just the French *names*, and now neither: `GET /api/procedure-types/colors` serves the families **and their labels**, so this file is the sole authority on which colours exist and on what they are called. Grouped rather than flat because an act catalogue outgrows ten colours long before it outgrows twelve hues, and the picker offers a hue first and its nuance second.
 - `ClinicReminderSettings`, `NotificationRead` and `NotificationDismissal` are the non-standard keys: the first's `Id` **is** the clinic id (1:1 shared PK); the other two are plain composite-key classes, not `Entity`.
+
+## `Common/ToothSurfaces` — the five faces, and the one rule that reads them
+
+`Normalize` was written **twice, byte for byte** (`ToothState` and `DentalRecordAct`), two entry points for the
+same string from the same picker; both delegate here now, beside `FdiTooth` and for the same reason.
+
+⚠️ **`Resolves` is what stopped soigner la mésiale from deleting the diagnosis on the occlusale.**
+`DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync` matched on the tooth number alone — a hard delete, no
+tombstone — so a carie MOD half restored lost the record of the two faces still to do. It never failed
+anywhere; the chart simply stopped saying the work was needed. Invisible while nothing drew the faces, which is
+why it shipped with the symbol view rather than after it.
+
+The rule is deliberately **conservative** and withholds closure only when the diagnosis names a face the work
+did not reach: an unfaced treatment (an extraction, a couronne) still ends everything on its tooth, and an
+unfaced diagnosis (« À traiter », « Fracture » — they name no place) is still closed by faced work, or it could
+never be closed by anything and « N dents à traiter » would inflate for ever. The treated set is unioned **per
+tooth across the whole séance**, never per act.
+
+⚠️ Palatine and linguale collapse to one letter, `L` — the column is `varchar(5)` and the picker offers five, so
+a sixth code is a schema change plus a client mirror. A known simplification, recorded so it is not a discovery.
+
+Covered by `Features/Patients/DiagnosisClosureBySurfaceTests`.
+
+## `Services/BridgeCharting` — which tooth of a bridge is a pilier, and which is a pontique
+
+A fixed bridge is **not one state spread over its teeth**: a *pilier* is a crowned tooth that keeps its own
+root, a *pontique* is a suspended replacement with no root under it, and the odontogramme draws them
+differently and joins the run with a travée.
+
+⚠️ **A `DentalRecordAct` carried ONE `ResultingCondition` for all of its teeth**, so a three-unit bridge entered
+as one act charted **three abutments and no pontic** — a bridge that cannot exist — and the chart then drew a
+travée across it, which made it look deliberate. Entering it as two acts of the same procedure was the only way
+to say it, and nothing in the fiche suggested that. `DentalRecordAct.PonticToothNumbers` is the recorded answer
+(a JSON `text` column beside `ToothNumbers`, migration `AddDentalRecordActPonticTeeth`, purely additive with no
+backfill), and this type is the fold that reads it.
+
+⚠️ **Position cannot supply the answer, and this type exists because inferring it was tried and is wrong three
+ways.** A **pier** (intermediate) abutment is a crowned tooth in the *middle* of the span; a **cantilever** hangs
+a pontique past the last abutment; and a bridge crossing the midline is not in anatomical order when its FDI
+numbers are sorted (12 · 11 · 21 sorts to 11 · 12 · 21). So the dentist marks the roles per act, in the fiche's
+own tooth chips, and nothing here reads geometry.
+
+⚠️ **An act with no pontique marked charts exactly as it always did**, whatever its condition — that is what
+makes the change safe against a live database, and what keeps every act that is not a bridge untouched. The
+split is opt-in per act, and marking one tooth is the opt-in. The aggregate **normalises rather than refuses**
+(intersect with the act's teeth, clear when the état is not a bridge): a client legitimately holds a stale list
+the moment the dentist un-taps a tooth or changes the état, and a 400 for an ordinary edit is a defect, not a
+guard.
+
+⚠️ `ToothCondition.Bridge` is in `Units` although it predates the split — it is what every existing row carries,
+and marking a pontique on such an act is exactly how it becomes precise. The client mirror is
+`web/components/odontogram-conditions.ts`' `BRIDGE_UNIT_CONDITIONS`.
+
+Covered by `Features/Patients/BridgePonticChartingTests`.

@@ -23,6 +23,17 @@ export const CONDITIONS: Record<string, ConditionStyle> = {
   TraitementDeCanal: { label: "Traitement de canal", box: "bg-purple-500 text-white border-purple-600", swatch: "bg-purple-500", color: "#a855f7" },
   Bridge: { label: "Bridge", box: "bg-teal-500 text-white border-teal-600", swatch: "bg-teal-500", color: "#14b8a6" },
   Implant: { label: "Implant", box: "bg-slate-600 text-white border-slate-700", swatch: "bg-slate-600", color: "#475569" },
+  /*
+   * ⚠️ The two halves of a bridge, and they are opposite clinical facts: a **pilier** is a prepared living
+   * tooth WITH a root carrying the prosthesis, a **pontique** is an artificial tooth suspended where no tooth
+   * exists. `Bridge` (5) stays and means « part of a bridge, unspecified » — it is what older rows carry.
+   *
+   * Both sit in the teal family beside `Bridge` (#14b8a6) because they ARE that thing, and both a step darker
+   * so the trio is orderable at the 12 px swatch: teal-700 and teal-900. Nearest neighbour for each is the
+   * other two, and the family was otherwise free.
+   */
+  BridgePilier: { label: "Bridge — pilier", box: "bg-teal-700 text-white border-teal-800", swatch: "bg-teal-700", color: "#0f766e" },
+  BridgePontique: { label: "Bridge — pontique", box: "bg-teal-900 text-white border-teal-950", swatch: "bg-teal-900", color: "#134e4a" },
   ExtraitAbsent: { label: "Extrait / Absent", box: "bg-gray-300 text-gray-500 border-gray-400 line-through dark:bg-gray-700 dark:text-gray-400", swatch: "bg-gray-300 dark:bg-gray-700", color: "#9ca3af" },
   /*
    * ⚠️ Rose, and it must NOT go back to the orange family. « À traiter » was `orange-400` (#fb923c) against
@@ -86,6 +97,8 @@ export const CONDITION_ORDER = [
   "TraitementDeCanal",
   "Couronne",
   "Bridge",
+  "BridgePilier",
+  "BridgePontique",
   "Implant",
 ]
 
@@ -107,6 +120,8 @@ export const CONDITION_FAMILY: Record<string, ConditionFamily> = {
   TraitementDeCanal: "traite",
   Couronne: "traite",
   Bridge: "traite",
+  BridgePilier: "traite",
+  BridgePontique: "traite",
   Implant: "traite",
 }
 
@@ -169,4 +184,23 @@ export function parseSurfaces(surfaces: string | null | undefined): Set<string> 
 
 export function serializeSurfaces(set: Set<string>): string {
   return SURFACE_ORDER.filter((s) => set.has(s)).join("")
+}
+
+/**
+ * Every condition that makes a tooth **one element of a bridge**.
+ *
+ * <p>⚠️ `Bridge` is deliberately in the set although it predates the pilier/pontique split: it is what every row
+ * charted before those existed still carries, and dropping it would make those bridges silently stop connecting
+ * on the chart.</p>
+ *
+ * <p>⚠️ **One owner, three readers.** The odontogramme joins a travée across these, the fiche de soins offers
+ * the pilier/pontique control only for these, and the server folds an act's teeth into two states only for
+ * these (`BridgeCharting.Units`). Three copies of one list is how the chart and the form come to disagree about
+ * what a bridge is.</p>
+ */
+export const BRIDGE_UNIT_CONDITIONS = ["Bridge", "BridgePilier", "BridgePontique"]
+
+/** True when `condition` names one element of a bridge. Tolerates null so a caller need not pre-check. */
+export function isBridgeUnit(condition: string | null | undefined): boolean {
+  return condition != null && BRIDGE_UNIT_CONDITIONS.includes(condition)
 }

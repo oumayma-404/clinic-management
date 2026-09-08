@@ -214,6 +214,11 @@ public class DentalRecordActDto
     /// <summary>True when <see cref="Cost"/> is <see cref="UnitCost"/> × teeth; false = flat fee.</summary>
     public bool IsPerTooth { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
+    /// <summary>
+    /// Which of <see cref="ToothNumbers"/> are pontiques rather than piliers. Empty for every act that is not a
+    /// bridge, and for a bridge whose shape nobody detailed — see <c>DentalRecordAct.PonticToothNumbers</c>.
+    /// </summary>
+    public List<int> PonticToothNumbers { get; set; } = new();
     public string? ResultingCondition { get; set; }
     public string? Surfaces { get; set; }
     public string? Note { get; set; }
@@ -231,6 +236,12 @@ public class DentalActInput
     /// <summary>Whether <see cref="Cost"/> is per treated tooth (else a flat session fee). Ignored when no teeth.</summary>
     public bool IsPerTooth { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
+    /// <summary>
+    /// The teeth of this act that are pontiques. Ignored unless <see cref="ResultingCondition"/> is a bridge
+    /// unit, and intersected with <see cref="ToothNumbers"/> by the aggregate rather than refused — a client
+    /// legitimately holds a stale list the moment the dentist changes the act's état or removes a tooth.
+    /// </summary>
+    public List<int> PonticToothNumbers { get; set; } = new();
     /// <summary>Resulting odontogram state (ToothCondition name); null/empty/"Sain" = no odontogram entry.</summary>
     public string? ResultingCondition { get; set; }
     public string? Surfaces { get; set; }
