@@ -1,0 +1,12 @@
+.artifacts/
+node_modules/
+
+# ⚠️ The QA account's password and TOTP secret never enter git. This repository's own convention is explicit —
+# appsettings.json carries « SECRET — do NOT commit a value here » — and a credential in a history is permanent,
+# survives a change of repository visibility, and belongs to an ADMIN on a database of real-shaped patient data.
+# `credentials.local.example.json` IS committed; the filled-in copy is not.
+credentials.local.json
+
+# Throwaway diagnostics. A probe written to settle one question during a pass is not part of the gate, and two
+# of them ( .diag.mjs, .sp3.mjs ) reached a staging area before this line existed.
+.*.mjs

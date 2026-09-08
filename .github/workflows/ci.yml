@@ -264,3 +264,199 @@ jobs:
             mobile/android/app/build/reports/lint-results-*.html
             mobile/android/app/build/intermediates/**/lint-results-*.txt
           if-no-files-found: warn
+
+  # The hot-path end-to-end gate — the one thing neither `api` nor `web` can possibly cover.
+  #
+  # ⚠️ **`api`'s unit suite structurally cannot see any of this.** `api/CLAUDE.md` says it in as many words:
+  # nothing in `UnitTests` touches a database, so a migration is the one change unit tests cannot verify — and
+  # by the same token neither can a *coupled read*. Every tier-0 scenario here is « this figure is right on the
+  # screen you touched and wrong on the four you did not »: a fiche's payment reaching la caisse on the séance's
+  # own day, a plan dropped whole from « Créances » by the devis→note bridge, an odontogram asserting an implant
+  # from a step 1 of 2. Those are facts about the *database and the reads over it*, and the only way to hold them
+  # is to run the product.
+  #
+  # ⚠️ **And `web`'s gate cannot see the client half.** `tsc --noEmit` + `check:responsive` + `next build` all
+  # passed while every `Completed` treatment plan threw during render and its workspace showed nothing
+  # (`primaryAction`, a `useMemo` calling a `const` declared below it). Only a browser saw it. That scenario is
+  # `PLAN-01` in this suite.
+  #
+  # ── What it costs, and why that is acceptable ──
+  # ~4 minutes on a `ubuntu-latest` runner: postgres + minio as services, one API, one `next build` + `start`,
+  # then ~65 tests at one worker. It is the slowest job in this file and the only one that can catch a money
+  # defect.
+  #
+  # ⚠️ **`workers: 1` is set in `playwright.config.ts` and must stay there.** Half of what this asserts is a
+  # *clinic-wide* read — la caisse's day total, « Créances », the dashboard's counts — so two tests billing a
+  # fiche concurrently make each other's expected figure wrong. Parallelising this suite does not make it fast,
+  # it makes it lie.
+  e2e:
+    name: E2E — hot paths (money · fiche · devis)
+    runs-on: ubuntu-latest
+    # Nothing is gained by running it against a tree that does not compile, and a 4-minute job that was always
+    # going to fail is 4 minutes of everyone's afternoon.
+    needs: [api, web]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinic_user
+          POSTGRES_PASSWORD: clinic_password
+          POSTGRES_DB: clinic_management
+        ports: ["5432:5432"]
+        # Without a health check the API races the database and fails its first migration.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ["9000:9000"]
+
+    env:
+      # `Development` is required, not convenient: a non-Development environment REFUSES to start without real
+      # MinIO credentials, an encrypted Data Protection key ring and verified internal transport — see
+      # `Program.cs`'s startup diagnostics. Those are the right refusals and this job must not weaken them, so it
+      # runs the environment they are relaxed for.
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=clinic_management;Username=clinic_user;Password=clinic_password"
+      NEXT_PUBLIC_API_URL: "http://localhost:5000/api"
+      API_INTERNAL_URL: "http://localhost:5000/api"
+
+      # ⚠️ **The rate limiter is LOOSENED here, and only here.** `RateLimiting.cs` exposes these keys in as many
+      # words — « so an unusually busy cabinet can be loosened » — and a suite that arranges its own
+      # preconditions is by far the busiest client the API will ever see: ~70 tests, several writes each, plus a
+      # `/bff/auth/token` exchange (which is an `/api/auth/*` call) on **every** browser navigation. The auth
+      # window's real default is 30 attempts per five minutes per account, which a person mistyping a password
+      # never approaches and this suite passes in about ninety seconds.
+      #
+      # The limits are not being *tested* away: the burst is an artefact of the harness, not of the product, and
+      # a 429 mid-run reads exactly like a broken endpoint. `ClinicApi` still honours `Retry-After` on top of
+      # this, so a genuine limit is still handled rather than hidden.
+      RateLimiting__Auth__PermitLimit: "2000"
+      RateLimiting__Auth__AddressPermitLimit: "5000"
+      RateLimiting__Api__PermitLimit: "5000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── The API. Starting it is also what APPLIES THE MIGRATIONS, and the order matters: `provision-clinic`
+      #    intercepts before the web host boots, so run alone on an empty database it fails with
+      #    « relation "Users" does not exist ». Measured, on the first attempt at this.
+      - name: Build the API
+        run: dotnet build api/ClinicManagement.API/ClinicManagement.API.csproj -c Release
+
+      - name: Start the API (applies migrations)
+        run: |
+          dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile \
+            > /tmp/api.log 2>&1 &
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/health --max-time 3 || true)
+            [ "$code" != "000" ] && { echo "api up: $code"; exit 0; }
+            sleep 2
+          done
+          echo "::error title=API did not start::last 80 lines follow"; tail -80 /tmp/api.log; exit 1
+
+      # ── The clinic and its first administrator, through the product's own operator verb.
+      - name: Provision a clinic
+        id: provision
+        run: |
+          out=$(dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile -- \
+            provision-clinic --name "Cabinet E2E" --admin-email e2e.runner@cabinet-e2e.tn \
+            --admin-name "Dr E2E Runner" --city Tunis)
+          echo "$out"
+          # The verb prints « Temporary password: <value> » — the one value the next step cannot derive.
+          pw=$(echo "$out" | sed -n 's/.*Temporary password:[[:space:]]*//p' | tr -d '\r' | head -1)
+          [ -n "$pw" ] || { echo "::error title=No temporary password in provision-clinic output::"; exit 1; }
+          echo "::add-mask::$pw"
+          echo "temp_password=$pw" >> "$GITHUB_OUTPUT"
+
+      # ── Enrol the second factor, spend the one-time password, seed the catalogue. Writes
+      #    CLINIC_EMAIL / CLINIC_PASSWORD / CLINIC_TOTP_SECRET / CLINIC_ID into $GITHUB_ENV.
+      #
+      #    ⚠️ It is slow on purpose (~90 s): a TOTP code is single-use and the auth endpoints are rate-limited,
+      #    so each step waits for a fresh 30-second window instead of retrying inside one.
+      - name: Bootstrap the account and the catalogue
+        run: node e2e/bootstrap.mjs --temp-password "${{ steps.provision.outputs.temp_password }}"
+
+      # ── The frontend. A PRODUCTION build, not `next dev`: `next dev` degrades over a long session (measured —
+      #    a Turbopack worker died after 11 hours and every page rendered « Jest worker encountered 2 child
+      #    process exceptions », which reads as a product crash), and the CSP that gates `blob:` workers only
+      #    exists in a real build.
+      - name: Install web
+        working-directory: web
+        run: npm ci
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Start web
+        working-directory: web
+        run: |
+          npm run start > /tmp/web.log 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/login --max-time 5 || true)
+            [ "$code" = "200" ] && { echo "web up"; exit 0; }
+            sleep 2
+          done
+          echo "::error title=Web did not start::last 60 lines follow"; tail -60 /tmp/web.log; exit 1
+
+      - name: Install the suite
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # `channel: "chrome"` in the config is right for a developer's machine; CI has the bundled Chromium.
+      - name: Run the hot-path suite
+        working-directory: e2e
+        env:
+          CLINIC_E2E_BROWSER_CHANNEL: ""
+        run: npx playwright test
+
+      # ── The two read-only console verbs, AFTER the suite has written to every ledger it touches. This is the
+      #    check `.claude/rules/verification.md` names for a money change and it costs seconds: exit 0 clean,
+      #    1 could-not-run, 2 drift found.
+      - name: verify-schema
+        if: always()
+        run: dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile -- verify-schema
+
+      - name: reconcile-money
+        if: always()
+        run: dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile -- reconcile-money
+
+      - name: Upload the report, traces and screenshots
+        if: always() # They matter most when the step above failed.
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            e2e/.artifacts/report
+            e2e/.artifacts/results.json
+            e2e/.artifacts/**/*.png
+            e2e/.artifacts/**/trace.zip
+          if-no-files-found: warn
+
+      - name: Upload the server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-server-logs
+          path: |
+            /tmp/api.log
+            /tmp/web.log
+          if-no-files-found: warn

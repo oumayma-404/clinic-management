@@ -373,6 +373,52 @@ jobs:
             *) echo "::error::verify-schema could not run (exit $code)."; exit 1 ;;
           esac
 
+      # ── The hot-path smoke, against the deployment that just went live ──────────────────────────────────
+      #
+      # ⚠️ **READ-ONLY, and that is the whole design.** `CLINIC_E2E_READONLY=1` skips every `@mutating` spec —
+      # which is most of the suite — because a practice's real ledger is not a fixture. What remains is the set
+      # that only needs to *look*: does each hot-path screen render inside the application, does it raise no
+      # render crash, and does the page scroller still clip its own absolutes. That is deliberately a smaller
+      # question than CI's, and it is the one worth asking about a live deployment.
+      #
+      # ⚠️ It is a **warning, not a gate**, and the reason is specific: by this point the deploy is already
+      # serving and `/health` has answered 200. Failing the workflow here does not roll anything back — it only
+      # colours a run red after the fact, and the honest signal is « the deployment is live and these screens
+      # need looking at ». The two things that DO gate are `/health` and `verify-schema`, above.
+      #
+      # ⚠️ It needs a real account on the deployment, so it runs only when one is configured. Absent secrets
+      # skip it loudly rather than passing empty — a green smoke that signed in as nobody is the « present and
+      # inert » failure this repository already names.
+      - name: Hot-path smoke (read-only)
+        if: always()
+        continue-on-error: true
+        env:
+          CLINIC_ORIGIN: "https://${{ env.DEPLOY_DOMAIN }}"
+          CLINIC_API: "https://${{ env.DEPLOY_DOMAIN }}/api"
+          CLINIC_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          CLINIC_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+          CLINIC_TOTP_SECRET: ${{ secrets.SMOKE_TOTP_SECRET }}
+          CLINIC_E2E_READONLY: "1"
+        run: |
+          if [ -z "$CLINIC_EMAIL" ] || [ -z "$CLINIC_PASSWORD" ] || [ -z "$CLINIC_TOTP_SECRET" ]; then
+            echo "::warning title=Hot-path smoke skipped::SMOKE_EMAIL / SMOKE_PASSWORD / SMOKE_TOTP_SECRET are not configured, so the deployed screens were not walked."
+            exit 0
+          fi
+          cd e2e
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test --project=hot-paths
+
+      - name: Upload the smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-smoke-report
+          path: |
+            e2e/.artifacts/report
+            e2e/.artifacts/**/*.png
+          if-no-files-found: ignore
+
       - name: Record what is live
         if: always()
         run: |

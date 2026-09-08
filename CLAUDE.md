@@ -47,6 +47,12 @@ clinic-management/
 │   ├── ClinicManagement.Infrastructure/  → CLAUDE.md  (EF Core, repos, external services, DI)
 │   ├── ClinicManagement.API/             → CLAUDE.md  (controllers, SignalR hubs, background jobs, Program.cs startup)
 │   └── ClinicManagement.UnitTests/       → CLAUDE.md  (~90 xUnit+Moq classes mirroring every layer; guard tests)
+├── e2e/                          Playwright HOT-PATH suite — the money/fiche/devis gate `UnitTests` structurally
+│                                   cannot have (nothing there touches a database) and `web`'s gate cannot see
+│                                   (tsc + check:responsive + build all passed while every Completed plan threw
+│                                   during render). Arranges over the API, ACTS in the browser, asserts on the
+│                                   coupled reads. Runs in CI's `e2e` job on a bootstrapped database, and as a
+│                                   READ-ONLY smoke after a hosted deploy. → features/e2e-hot-paths/
 ├── web/                          Next.js frontend
 │   ├── (root)                            → CLAUDE.md  (stack, routing, API/auth integration)
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)
@@ -128,6 +134,11 @@ they reached 27,000 words, which every session paid to load — `spec.md` is wha
 how it was built, `notes.md` is what shipped.
 
 **How the system works** — cross-cutting, belonging to no one feature
+
+- [`e2e-hot-paths`](features/e2e-hot-paths/findings.md) — **the coupling written down**: `coupling-matrix.md`
+  is the eleven surfaces one fiche save moves, the eight writers, and every guard with the remedy it names;
+  `scenarios.md` is 268 hot-path scenarios (125 tier-0) plus an appendix of the **probe traps** that each
+  produced a convincing false defect report; `findings.md` is what the 2026-09-08 pass found.
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — There is a CI gate now, and before it there was none for `api/` or `web/` · Multi-tenancy · Pluggable auth (`Auth:Mode` = `Cloud` | `Local`) · Google Calendar sync is asymmetric + per-clinic · Background jobs · Billing / CNAM / treatment plans (deep, fully-wired subsystems) · Clinical-workflow-depth operational features (built) · Dead-code cleanup · Clinic-scoped SignalR realtime (built) · In-app staff notification center (built) · Real outbound SMS/WhatsApp reminders · Security posture (mostly hardened by `cloud-security-and-tenant-isolation`, PR #11)
 
@@ -364,8 +375,9 @@ touching the area.
   `h-dvh` — a third scrollbar onto blank space (1168 px on the dashboard at 1440×900, 2611 px at 390×844).
   `check:responsive`'s `page-scroller-contains-its-absolutes` holds it.
 - **An act the TREATMENT prices takes no share of the séance total, and « Total » wrote straight past the
-  lock.** Such an act is 0 by rule — `act-card` renders its price `readOnly` and `PlanCarriedActPricing`
-  imposes the same 0 server-side — but `distributeSessionTotal` filtered on `isActNamed` alone, so typing 150
+  lock.** Such an act is 0 by rule — `act-card` **withholds the price field altogether**, printing « Aucun
+  honoraire sur cette séance » in its place (a card reading « 0,000 DT » « is the third of the séance's zeros
+  and it says nothing »), and `PlanCarriedActPricing` imposes the same 0 server-side — but `distributeSessionTotal` filtered on `isActNamed` alone, so typing 150
   into « Total » moved the locked field to « 150,000 » on screen and the save silently put it back. On a
   **mixed** séance it is quieter and worse: the typed total is split between a carried couronne and a real
   détartrage, so the détartrage is under-billed by whatever share went to the act that cannot hold it. Its twin
