@@ -50,6 +50,18 @@ public sealed record DentalRecordCollectedRow(
 public sealed record DentalRecordPlanLinkRow(
     Guid DentalRecordId,
     Guid TreatmentPlanId,
+    /// <summary>
+    /// The devis <b>act</b> this fiche is a séance of.
+    ///
+    /// <para>
+    /// ⚠️ <b>The id, and not only the designation beside it, because a reopened fiche has to re-establish the
+    /// link and a name cannot address an act.</b> Without it `patient-record-modal` could not hydrate
+    /// « Acte planifié » when editing a saved record: `linkedPlanItemId` stayed unset, so the séance read as
+    /// un-carried and the act card announced the catalogue tarif as a « geste » — a discount nobody granted,
+    /// one press from re-charging the devis — while « Encaissé sur le traitement » was withheld entirely.
+    /// </para>
+    /// </summary>
+    Guid TreatmentPlanItemId,
     string? PlanNumber,
     /// <summary>
     /// The act this fiche is a séance of — « Implant dentaire ». Carried so the history can say what the

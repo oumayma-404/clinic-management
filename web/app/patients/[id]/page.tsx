@@ -1166,55 +1166,87 @@ export default function PatientDetailsPage() {
 
   // Open (not-yet-done) steps of the patient's active plans — offered in the record modal to close the
   // plan→record loop, and completed automatically when a linked record is saved.
-  const openPlanItems: PlanItemOption[] = treatmentPlans
-    .filter((p) => isPlanLive(p.status))
-    .flatMap((p) =>
-      schedulablePlanItems(p).map((it) => ({
-        itemId: it.id,
-        planId: p.id,
-        /*
-         * ⚠️ **A followed treatment's title IS its act's name, so the obvious `number ?? title` prints it
-         * twice.** `StartTreatmentCommand` sets the plan title from the procedure (« the dentist named it by
-         * picking it »), and such a plan has no number — so « Acte planifié » read
-         * « Couronne / bridge (par élément) · Couronne / bridge (par élément) », which is what a dentist
-         * reported as « pourquoi l'acte est écrit deux fois ». Five rows in the live database were in exactly
-         * that shape, and every future followed treatment is.
-         *
-         * A hand-written Draft devis whose title is genuinely something else (« Plan esthétique ») keeps it —
-         * only the duplicate is replaced, and it is replaced by what the object actually is.
-         */
-        label: `${planItemHeading(p, it)} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
-        designationFr: it.designationFr,
-        plannedCost: it.plannedCost,
-        /*
-         * ⚠️ **The teeth already treated win over the devis LINE's, and the line is very often empty.** A row
-         * reading « Implant dentaire — acte général » carries no teeth at all, so séance 2 opened on a blank
-         * chart and the dentist re-picked — or, as measured on a real implant, did not: its three fiches
-         * recorded the teeth once between them, on whichever séance they happened to fill in.
-         *
-         * It stopped being a convenience when the odontogram stopped being charted from the FIRST séance
-         * (`ToothChartingRules`): the chart is written when the act finishes, so teeth entered early and absent
-         * from the last fiche would now chart nothing at all.
-         */
-        toothNumbers:
-          it.treatedToothNumbers && it.treatedToothNumbers.length > 0
-            ? it.treatedToothNumbers
-            : it.toothNumbers,
-        // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
-        // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
-        planNumber: p.number,
-        billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
-        planOutstanding: p.outstanding,
-        // The protocol, so the fiche can say WHICH séance it is and name it — « Cette séance : étape 1 sur 3 ·
-        // Préparation ». The steps themselves rather than counts: the séance's step is the one the appointment
-        // booked, which `stepsDone + 1` only happens to equal when the séances are carried out in order. Empty
-        // for an act with no protocol, which is what keeps the ordinary fiche's banner unchanged.
-        steps: it.steps ?? [],
-        // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
-        // already pays for, so that act's 0 is not read back as a discount the dentist granted.
-        procedureTypeId: it.procedureTypeId ?? null,
-      })),
-    )
+  const planItemOptionOf = (
+    p: TreatmentPlanDto,
+    it: TreatmentPlanDto["items"][number],
+  ): PlanItemOption => ({
+    itemId: it.id,
+    planId: p.id,
+    /*
+     * ⚠️ **A followed treatment's title IS its act's name, so the obvious `number ?? title` prints it
+     * twice.** `StartTreatmentCommand` sets the plan title from the procedure (« the dentist named it by
+     * picking it »), and such a plan has no number — so « Acte planifié » read
+     * « Couronne / bridge (par élément) · Couronne / bridge (par élément) », which is what a dentist
+     * reported as « pourquoi l'acte est écrit deux fois ». Five rows in the live database were in exactly
+     * that shape, and every future followed treatment is.
+     *
+     * A hand-written Draft devis whose title is genuinely something else (« Plan esthétique ») keeps it —
+     * only the duplicate is replaced, and it is replaced by what the object actually is.
+     */
+    label: `${planItemHeading(p, it)} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+    designationFr: it.designationFr,
+    plannedCost: it.plannedCost,
+    /*
+     * ⚠️ **The teeth already treated win over the devis LINE's, and the line is very often empty.** A row
+     * reading « Implant dentaire — acte général » carries no teeth at all, so séance 2 opened on a blank
+     * chart and the dentist re-picked — or, as measured on a real implant, did not: its three fiches
+     * recorded the teeth once between them, on whichever séance they happened to fill in.
+     *
+     * It stopped being a convenience when the odontogram stopped being charted from the FIRST séance
+     * (`ToothChartingRules`): the chart is written when the act finishes, so teeth entered early and absent
+     * from the last fiche would now chart nothing at all.
+     */
+    toothNumbers:
+      it.treatedToothNumbers && it.treatedToothNumbers.length > 0
+        ? it.treatedToothNumbers
+        : it.toothNumbers,
+    // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
+    // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
+    planNumber: p.number,
+    billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
+    planOutstanding: p.outstanding,
+    // The protocol, so the fiche can say WHICH séance it is and name it — « Cette séance : étape 1 sur 3 ·
+    // Préparation ». The steps themselves rather than counts: the séance's step is the one the appointment
+    // booked, which `stepsDone + 1` only happens to equal when the séances are carried out in order. Empty
+    // for an act with no protocol, which is what keeps the ordinary fiche's banner unchanged.
+    steps: it.steps ?? [],
+    // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
+    // already pays for, so that act's 0 is not read back as a discount the dentist granted.
+procedureTypeId: it.procedureTypeId ?? null,
+  })
+
+  const openPlanItems: PlanItemOption[] = (() => {
+    const options = treatmentPlans
+      .filter((p) => isPlanLive(p.status))
+      .flatMap((p) => schedulablePlanItems(p).map((it) => planItemOptionOf(p, it)))
+
+    /*
+     * ⚠️ **The act a fiche being EDITED already points at, whatever its status and whatever its plan's — and
+     * without it the fix above reached only half the fiches.** `schedulablePlanItems` is the *offer* list: it
+     * drops a `Done` act, correctly, because proposing one for a new fiche is what `MarkDone` refuses. But an
+     * existing record's link is a historical fact, not an offer, and the last séance of every finished
+     * treatment has exactly that shape — measured on the dev database, a « Facette » fiche whose act was Done
+     * had no « Acte planifié » control at all (the Select renders only for a non-empty list), no
+     * « Déjà facturé » notice, and its card announced « Tarif catalogue 700,000 DT — geste de 700,000 DT »
+     * beside a « remettre au tarif » link. The phantom discount, on a completed treatment, permanently.
+     *
+     * ⚠️ Neither `isPlanLive` nor `activeItems` here: a Completed plan is not live and a Withdrawn act is not
+     * active, yet the fiche that evidenced either still happened and must still read correctly. Appended only
+     * when a record is being edited, so nothing new is ever *offered* — a Select must contain its own value.
+     */
+    const linkedId = editingRecord?.treatmentPlanItemId
+    if (linkedId && !options.some((o) => o.itemId === linkedId)) {
+      for (const p of treatmentPlans) {
+        const it = p.items.find((i) => i.id === linkedId)
+        if (it) {
+          options.push(planItemOptionOf(p, it))
+          break
+        }
+      }
+    }
+
+    return options
+  })()
 
   /**
    * The appointment the record documents, so its booked procedure can be PROPOSED in the record modal and its

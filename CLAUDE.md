@@ -156,7 +156,7 @@ how it was built, `notes.md` is what shipped.
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
-- [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu
+- [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu · Deux surfaces annonçaient l'étape SUIVANTE comme si elle avait eu lieu
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
@@ -319,6 +319,14 @@ touching the area.
   `Installment.IsAutoRaised` is what tells it from a schedule a dentist typed, and `InstallmentLateness` is the
   one rule — it needs the plan's status, its note, its unrealised work and the clinic's day, so it is computed
   server-side onto `InstallmentDto.IsOverdue` and never re-derived from `dueDate`.
+- **A step rank derived as `stepsDone + 1` is the step still to COME, and a bare « 2 / 3 » is read as
+  progress.** The odontogramme's tooth tooltip printed « séance 2 sur 3 · essai de l'armature à planifier » on a
+  couronne whose only delivered séance was the préparation — a false clinical claim on the one diagram read at a
+  glance — and the arithmetic is wrong outright when the séances are recorded out of protocol order, which
+  `DentalRecordLinker` deliberately allows. State a **count phrased as a count** plus the *name* of the step
+  actually carried out (« 1 étape sur 3 faite : Préparation »), and keep « prochaine étape » to the planning
+  surfaces that say so. The word goes beside the **visible** figure — an `sr-only` label was already right on
+  both surfaces where this was measured while the sighted reader had nothing. `check:responsive`'s N31 holds it.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill

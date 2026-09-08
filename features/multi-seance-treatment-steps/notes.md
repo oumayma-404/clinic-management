@@ -429,3 +429,163 @@ latéral.
 ⚠️ **Trois des cinq « échecs » du premier passage étaient la sonde** — un `/Séance \d+ sur \d+/` sensible à la
 casse contre une ligne en `uppercase`, un seuil `< 400` contre une carte de 400, et un `/0,000/` qui compte
 aussi « 500,000 ». Le quatrième (l'anneau sur trois dents de trop) était réel et est corrigé ci-dessus.
+
+---
+
+## Deux surfaces annonçaient l'étape SUIVANTE comme si elle avait eu lieu
+
+Reported from use, in one breath: « i went to add a new fiche dentaire for the first step, nothing in the fiche
+modal mentions the step that was done, only the act name … then in odontogramme, when i hover on the teeth
+worked, i see couronne/bridge … étape 2/3 essai de l'armature à planifier, i just did étape 1 ». Two defects
+with one cause, and the cause is a habit rather than a bug: **a rank derived from a count**.
+
+### L'odontogramme (`teeth-under-treatment.ts`)
+
+`toothTreatmentSummary` printed `séance ${Math.min(stepsDone + 1, stepsTotal)} sur ${stepsTotal}` followed by
+`${nextStepLabel} à planifier`. Both halves were about the future and neither said so, on the one diagram a
+dentist reads at a glance for what is **in the mouth** — so every word of it is taken as a clinical fact.
+Measured on the dev database, the two readings it produced:
+
+| Data | Was printed | Is printed |
+|---|---|---|
+| Couronne/bridge, `Préparation` done of 3 | séance 2 sur 3 · essai de l'armature à planifier | 1 étape sur 3 faite : Préparation |
+| Parodontal 5 séances, only step **2** done | séance 2 sur 5 · Surfaçage 1er quadrant à planifier | 1 étape sur 5 faite : Surfaçage 2e quadrant |
+| Bridge 3 séances, steps 1 **and 3** done | séance 3 sur 3 (i.e. « finished ») | 2 étapes sur 3 faites : Scellement |
+
+The last two rows are why the fix is **a count phrased as a count** and not a corrected rank: `DentalRecordLinker`
+deliberately allows a séance to be recorded out of protocol order (« the dentist may legitimately book the
+scellement before the essayage »), so *any* ordinal is a guess. A count plus the name of the last séance
+actually carried out — by `sequenceNumber`, matching what the aggregate does when one fiche closes two steps —
+is true under every ordering.
+
+⚠️ **The future was removed rather than reworded.** « Prochaine étape » already has three homes that say so in
+as many words (`PlanStepStrip`, `patient-plans-strip`, « Traitements en cours »), and `patient-plans-strip` sits
+directly under this chart. Nothing is lost; a planning instruction simply stops being the thing a tooth says.
+
+### La fiche de soins (`patient-record-modal.tsx`)
+
+It said « Séance 1 sur 3 » in small caps and never the step's **name**, so the préparation and the scellement of
+one couronne produced identical screens six weeks apart. `TreatmentPlanItemStep.Label` had the answer all along —
+`RecordActsSummary` reads it back on the *saved* fiche — so the screen that could not name the séance is the
+screen that creates it. It now leads with « Cette séance : étape 1 sur 3 · Préparation », and `PlanItemOption`
+carries the **steps** rather than the `stepsTotal`/`stepsDone` pair it printed `stepsDone + 1` from: which steps
+a fiche closes is decided server-side from the appointment's own procedure rows (several of them when
+« préparation + empreinte » share a visit), falling back to `NextStep`. The memo mirrors
+`ResolveStepsOfTheSeanceAsync` exactly, because a second opinion here would name one séance while the save
+recorded another.
+
+⚠️ Two gates, each fixing a wrong-séance reading found while verifying the first fix:
+
+- **A reopened fiche answers from ITSELF.** The page passes no appointment when a record is being edited, so
+  with nothing booked to read the fallback resolved « the next pending step » — on a fiche that recorded the
+  préparation, that is the empreinte. The same defect, one door further in. It reads `treatmentStepLabel`.
+- **The line is gated on itself, never on `carriedByDevis`.** `linkedPlanItemId` is never hydrated from a saved
+  record, so `billedPlanItem` is null on an edited fiche and every money statement below is absent there.
+  « Which séance is this » is not a money statement.
+
+### La règle, et le fait qu'elle avait déjà été trouvée
+
+« Traitements en cours » prints « étape 2 / 2 **à faire** » and `patient-plans-strip` « étape 2 / 6 **à faire** »,
+both because *three reviewers each* read the bare fraction as progress and took the treatment for finished. That
+fix reached two surfaces and not the third — this repo's dominant defect shape. Two more bare counters were
+found while writing the guard and given their word: `plan-step-strip`'s « 2 / 3 **faites** » (whose `sr-only`
+« Étapes réalisées : » was already correct, so only the sighted reader was left guessing) and
+`treatment-plan-form-modal`'s « 6 / 6 **incluses** ».
+
+`check:responsive`'s **N31 `step-counter-says-done-or-to-do`** now fails on a printed step counter carrying no
+word saying which question it answers. Two things about it are load-bearing:
+
+- **It blanks `sr-only` spans before scanning.** With them included, the guard passed a deliberately-stripped
+  `plan-step-strip` — satisfied by the offscreen « Prochaine étape : … » two lines under the bare figure.
+- **« prochaine » and « en cours » are not accepted words.** Either can sit beside either counter, so neither
+  tells them apart.
+
+⚠️ And the 320 px eye pass earned its place: adding « incluses » widened a `shrink-0` cell by ~47 px, which left
+the act name ~63 px beside its `[overflow-wrap:anywhere]` and broke « Prothèse amovible (partielle / complète) »
+to **one word per line** — a 160 px row where 76 px was needed. `basis-full sm:flex-1` (§ 10.1) fixed it. `tsc`,
+`check:responsive` and `build` were all green over that regression.
+
+---
+
+## Une fiche réouverte avait perdu son devis — et offrait une remise que personne n'avait accordée
+
+The step fix above exposed this and the browser found it: a **reopened** fiche of a devis-carried act read as
+un-carried. `linkedPlanItemId` had three writers and none was the record — the open effect resets it to
+`NO_PLAN_ITEM`, the appointment effect is guarded by `|| record ||`, and the page passes no appointment when a
+record is being edited. So `billedPlanItem` was null, `carriedByDevis` false, and:
+
+- « Acte planifié : **Aucun** » on a fiche the server *has* linked;
+- no « Suivi comme traitement » / « Déjà facturé » notice;
+- no « Encaissé sur le traitement » field — the séance could not take the patient's money at all;
+- and `markBilledOnPlan` could never fire, so the card read its stored 0 against the catalogue tarif and
+  announced « **Tarif catalogue 700,000 DT — geste de 700,000 DT** » beside a « remettre au tarif » link. A
+  discount nobody granted, one press from re-charging the devis — which is verbatim what that back-fill's own
+  docstring says it exists to prevent.
+
+`DentalRecordPlanLinkRow` and `DentalRecordDto` now carry `TreatmentPlanItemId` (the id, because an act is
+addressed by id and two lines of one devis may share a name), a fourth writer hydrates
+`linkedPlanItemId` from it, and `markBilledOnPlan` takes the record as a second, independent input — never
+`carriedByDevis`, which reads the very flag it sets.
+
+⚠️ **The act id is cleared server-side when the money read names a different plan than the clinical link.**
+`DentalRecordCollectedRow` carries no act, so an id left standing beside another plan's number would be a pair
+that cannot both be true — and the modal resolves the plan *from the act*, so the fiche would quietly re-link
+itself to the other treatment.
+
+⚠️ **`schedulablePlanItems` was the wrong list, and that half of the fix reached only half the fiches.** It is
+the *offer* list and drops a `Done` act, correctly, because proposing one for a new fiche is what `MarkDone`
+refuses. But an existing record's link is a historical fact — and the last séance of every finished treatment
+has exactly that shape. Measured: a « Facette » fiche whose act was `Done` had **no « Acte planifié » control
+at all** (the Select renders only for a non-empty list) and the phantom discount intact. `page.tsx` therefore
+appends the edited record's own act from **any** plan and **any** status — neither `isPlanLive` nor
+`activeItems`, since a Completed plan and a Withdrawn act both still have fiches that happened.
+
+### Deux défauts trouvés *dans* le correctif, tous deux au navigateur
+
+1. **Hiding « Payé » would have hidden money already recorded.** `seanceIsWhollyOnTreatment` withdraws
+   « Payé », « Mode » and « Total » because on such a séance they can only be 0 — true of a fiche composed
+   today, false of one saved before that rule existed, and those fiches are the direct product of this very
+   defect. **23** single-act fiches in the dev database carry a non-zero `AmountPaid` on a plan-linked act. The
+   value was never at risk (the save sends it back from state) but unseen money that cannot be corrected is
+   worse than a field reading 0, so the withhold takes a `hasStoredSeancePayment` exception — keyed on the
+   **record's stored** figure, never the live state, which would un-hide the field the moment a digit was
+   typed. « Total » takes no exception: it holds no recorded money and `distributeSessionTotal` has no eligible
+   act, so un-hiding it would restore a control that accepts a figure and changes nothing. ⚠️ The exception
+   also made the two `PaymentMethodField` instances reachable at once — it hard-codes `id="paid-method"` — so
+   the lower one is now gated on the exact complement.
+
+2. **« Payé » displayed the session total over a stored payment of 999,000 DT.** The open effect sets the field
+   from the record and then `setPaidDirty(true)`, but the mirror effect runs in the **same commit** and reads
+   the `paidDirty` of the render it was scheduled from — still `false` — and being declared later its update
+   lands last. Whether it wins is ordering luck, which is why the defect surfaced only once the hydration
+   changed the timing. The row was untouched (`AmountPaid` 999.000, written weeks earlier), so this was a
+   *display* defect on a money field with the save enabled: one press would have written 40,000 over it. The
+   mirror now gates on `record` — a saved amount is never a mirror of anything, which is what the flag was
+   already trying to say from one commit too late.
+
+⚠️ It also replaced advice that was actively wrong. That fiche's overpaid line used to read « Corrigez le
+montant, ou **ajoutez l'acte qui manque** » — on a devis séance there is no missing act, and a dentist
+following it literally adds one and prices the treatment twice. With the link hydrated it now reads « Cette
+séance est portée par le devis 2026-0031 : l'argent remis au fauteuil s'encaisse sur son échéancier, pas ici. »
+
+### Trois défauts de largeur, tous à 320 px, tous révélés par la même valeur devenue longue
+
+The hydration replaced « Aucun » with « 2026-0027 · Couronne / bridge (par élément) », and a long value is what
+finds a missing width rule. All three were measured, not reasoned about:
+
+- **`SelectTrigger` is `w-fit`**, so the trigger sized to its content and the cell's `min-w-0` had nothing to
+  shrink: **380 px in a 257 px cell**, pushing the Patient/Date/Acte row 108 px past the dialog. The primitive's
+  value was already `block min-w-0 truncate` — correct, and unreachable while the box grew instead. The call
+  site passes `w-full`. Any Select whose value can be long needs it.
+- **The devis form's act row had no `min-w-0`**, so the `Input`'s placeholder (« Désignation de l'acte (ou
+  choisir au catalogue) ») set an intrinsic floor of ~316 px and pushed « Supprimer l'acte » to a right edge of
+  **343** against a scrollport ending at **296**. A capability reachable only by a sideways drag nobody tries
+  (§ 0). Pre-existing, and unrelated to the counter word above it.
+- **`DialogBody` was `position: static`** — and a scroll container that is not positioned does not clip its own
+  `absolute` children, which is the rule the root guide already states for `AppShell`'s `<main>`. Tailwind's
+  `sr-only` *is* `position: absolute`, so an offscreen label widened the scrollable area: `scrollWidth` 275
+  against a 257 px box with **nothing painted out there**, i.e. a horizontal scrollbar onto blank space on the
+  narrowest supported screen. One word, in the primitive, for every sheet dialog.
+
+⚠️ The fiche's arch still scrolls sideways inside its **own** `overflow-x-auto`, and that is § 11 working as
+intended, not a fourth defect — a detector that flags it is measuring against the wrong box.

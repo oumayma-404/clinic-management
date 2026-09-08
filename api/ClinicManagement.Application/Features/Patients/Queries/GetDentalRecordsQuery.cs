@@ -85,6 +85,9 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
                 {
                     dto.TreatmentPlanId = link.TreatmentPlanId;
                     dto.TreatmentPlanNumber = link.PlanNumber;
+                    // The act's own id, so a reopened fiche can re-establish « Acte planifié » — without it the
+                    // séance reads as un-carried and its locked 0 is announced as a discount. See the DTO.
+                    dto.TreatmentPlanItemId = link.TreatmentPlanItemId;
                     dto.TreatmentActDesignation = link.ActDesignationFr;
                     dto.TreatmentStepLabel = link.StepLabel;
                     dto.TreatmentStepNumber = link.StepNumber;
@@ -100,6 +103,20 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
                 dto.CollectedOnTreatment = row.Amount;
                 // The money read wins on identity too: a payment names the plan it was posted to, which is the
                 // plan whose échéancier the figure came off.
+                /*
+                 * ⚠️ **The act id goes with the plan it belongs to, or it goes.** This row carries no act — a
+                 * payment is posted to an échéancier, not to a line — so when the money names a *different*
+                 * plan from the clinical link, an act id left standing beside it would be a pair that cannot
+                 * both be true: `patient-record-modal` resolves the plan from the ACT, so the fiche would
+                 * quietly re-link itself to the other treatment. Rare (a fiche whose séance is on one devis and
+                 * whose money went to another) and silent, which is exactly the shape this file's other two
+                 * comments were written about.
+                 */
+                if (dto.TreatmentPlanId != row.TreatmentPlanId)
+                {
+                    dto.TreatmentPlanItemId = null;
+                }
+
                 dto.TreatmentPlanId = row.TreatmentPlanId;
                 dto.TreatmentPlanNumber = row.PlanNumber;
             }

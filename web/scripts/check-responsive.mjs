@@ -2702,6 +2702,94 @@ check(
   },
 );
 
+check(
+  "step-counter-says-done-or-to-do",
+  "N31",
+  "A printed step counter carries the word that says whether it counts what is DONE or what is still to do",
+  "A multi-séance act has TWO counters of the identical shape — « how many séances are behind us » and " +
+    "« which séance comes next » — and a bare « 2 / 3 » does not say which one you are reading. Unlabelled it " +
+    "is read as progress, every time, and it has now been measured three separate times in this product. " +
+    "« Traitements en cours » shipped a bare « étape 2 / 2 » and three reviewers read it cold on a treatment " +
+    "with one of two séances done: all three took it for finished. `patient-plans-strip` had the same bare " +
+    "« 2 / 6 » and the same three readers made the same mistake. And the odontogramme's tooth tooltip printed " +
+    "« séance 2 sur 3 · essai de l'armature à planifier » on a treatment whose only delivered séance was the " +
+    "préparation — the worst of the three, because a chart of the mouth is where a dentist looks for what is " +
+    "IN the mouth, so the reader takes every word of it as a clinical fact. The rank was `stepsDone + 1`, i.e. " +
+    "the step still to come, and it read as the step just carried out. The first two were fixed by adding the " +
+    "visible word « à faire »; the fix never reached the third, which is this repo's dominant defect shape. " +
+    "So: any counter built from the step tokens must carry one of « faite(s) » · « réalisée(s) » · « à faire » " +
+    "· « à planifier » · « incluse(s) » · « restante(s) » · « cette séance » within sight of the figure — " +
+    "visible, not `sr-only`, which was already right in both of the first two cases while the sighted reader " +
+    "had nothing. « prochaine » and « en cours » are NOT accepted: both sit beside either counter, so neither " +
+    "tells them apart — and with « prochaine » allowed this check passed a stripped-down `plan-step-strip`, " +
+    "satisfied by the `sr-only` « Prochaine étape : … » two lines under the bare figure.",
+  () => {
+    const offenders = [];
+
+    /*
+     * A ratio PRINTED for a reader: « {a} / {b} » in JSX, « ${a} / ${b} » in a template literal, or the two
+     * joined by « sur » with prose between them (« ${done} étapes sur ${total} »). `[^{}]` keeps the prose
+     * short and brace-free, so this cannot span from one interpolation to an unrelated one further down.
+     */
+    const RATIO = /\}\s*\/\s*\$?\{|\}[^{}]{0,40}?\bsur\b[^{}]{0,20}?\$?\{/g;
+    // Derived from the QUANTITY, not from a file list: the counter is a step counter whatever it is called.
+    const STEP_TOKEN = /\bstepsDone\b|\bstepsTotal\b|\bnextStepNumber\b|\bdoneSteps\b|\bsteps\.length\b|\bsequenceNumber\s*\+\s*1\b/;
+    /*
+     * ⚠️ « prochaine » and « en cours » are deliberately NOT here. Both were, and the guard then passed a
+     * stripped-down `plan-step-strip` whose figure said nothing: the `sr-only` « Prochaine étape : … » two
+     * lines below satisfied it. A word that can sit beside EITHER counter cannot tell them apart.
+     */
+    const READING =
+      /faites?\b|réalisées?\b|à\s+faire|à\s+planifier|incluses?\b|restantes?\b|cette\s+séance/i;
+    /*
+     * ⚠️ **An `sr-only` word does not count, and that is the point of this check rather than a detail of it.**
+     * In both surfaces where this defect was measured the screen-reader label was already correct — « Étapes
+     * réalisées : » on the strip, « étape N sur M à faire » announced on the worklist — while the sighted
+     * reader had a bare fraction. So the offscreen text is blanked before the scan (newlines kept, so the
+     * reported line number is still the real one) and only what is painted can satisfy the rule.
+     */
+    const SR_ONLY = /<span[^>]*\bsr-only\b[^>]*>[\s\S]*?<\/span>/g;
+    const blank = (m) => m.replace(/[^\n]/g, " ");
+
+    let candidates = 0;
+
+    for (const f of tsx()) {
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n").replace(SR_ONLY, blank);
+
+      RATIO.lastIndex = 0;
+      let m;
+      while ((m = RATIO.exec(code)) !== null) {
+        const window = code.slice(Math.max(0, m.index - 200), m.index + m[0].length + 380);
+        if (!STEP_TOKEN.test(window)) continue;
+        candidates++;
+        if (READING.test(window)) continue;
+        offenders.push({
+          file: rel(f),
+          line: lineAt(code, m.index),
+          text:
+            "prints a step counter with no word saying whether it counts séances DONE or the one still to " +
+            "come — add « faites » / « à faire » beside the figure",
+          full: code.slice(m.index, m.index + m[0].length).replace(/\s+/g, " "),
+        });
+      }
+    }
+
+    // Tripwire: the token names moved, so the scan is measuring nothing rather than finding nothing.
+    if (candidates === 0) {
+      offenders.push({
+        file: "components/treatment-plans/",
+        text:
+          "found no printed step counter at all — the scan is broken, and a guard that matches nothing " +
+          "cannot hold anything",
+      });
+    }
+
+    return offenders;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

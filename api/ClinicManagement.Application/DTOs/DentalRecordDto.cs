@@ -101,6 +101,26 @@ public class DentalRecordDto
     public string? TreatmentPlanNumber { get; set; }
 
     /// <summary>
+    /// The devis <b>act</b> this séance carries out — the id, beside the designation below.
+    ///
+    /// <para>
+    /// ⚠️ <b>It is what lets a REOPENED fiche re-establish its own link, and its absence was a money defect.</b>
+    /// `patient-record-modal` resets « Acte planifié » on open and only the *appointment* effect sets it — and
+    /// the page passes no appointment when a record is being edited — so an edited fiche of a devis-carried act
+    /// read as un-carried: no « Suivi comme traitement » notice, no « Encaissé sur le traitement » field at all,
+    /// and the act card reading its stored 0 against the catalogue tarif as « geste de 500,000 DT » with a
+    /// « remettre au tarif » link beside it. That is a discount nobody granted, one press from re-charging the
+    /// devis, and `markBilledOnPlan`'s own docstring says it exists to prevent exactly it.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ The designation could not stand in for it: an act is addressed by id, two lines of one devis may share
+    /// a name, and `planItems` is keyed on the id. See <c>DentalRecordPlanLinkRow.TreatmentPlanItemId</c>.
+    /// </para>
+    /// </summary>
+    public Guid? TreatmentPlanItemId { get; set; }
+
+    /// <summary>
     /// What this séance actually WAS — the devis act it carries out and, when the act is cut into séances, the
     /// step it carried out with its rank (« Pose de l'implant », 3 of 6).
     ///
