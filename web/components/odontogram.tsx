@@ -100,7 +100,7 @@ interface OdontogramProps {
    * largely a property of the patient, and a child's chart opened on the wrong teeth until someone flipped it. So
    * it became a pure derivation from this field — which then made the *mixed* stage unchartable, because a mouth
    * with both sets had no arch that showed it. Both halves are kept now: this seeds the view, and the
-   * `DentitionViewSwitch` (Adulte / Enfant / **Mixte**) lets the dentist say otherwise. A charted tooth outside the
+   * `DentitionViewSwitch` (Temporaire / Mixte / **Définitive**) lets the dentist say otherwise. A charted tooth outside the
    * seeded view widens the seed on its own, so an existing diagnosis can never be hidden by the default.
    */
   dentition: string
@@ -297,7 +297,7 @@ export function Odontogram({
    *
    * ⚠️ **A chart that silently omits a recorded state is the one failure a clinical chart may not have.** The
    * default view widens to Mixte on its own when the charted teeth need it, so this is only ever reached by an
-   * explicit switch — pressing « Adulte » on a patient with a charted deciduous 55 dropped it from the chart with
+   * explicit switch — pressing « Définitive » on a patient with a charted deciduous 55 dropped it from the chart with
    * no notice at all, and the chart then read as « nothing recorded there ». It is a `role="status"` line rather
    * than a toast: the omission is true for as long as the view is, and a message that expires after four seconds
    * would leave the wrong chart on screen saying nothing.
@@ -502,9 +502,12 @@ export function Odontogram({
           className="flex flex-col items-center gap-4 rounded-lg border border-dashed bg-muted/40 px-4 py-8 text-center"
         >
           <div>
-            <p className="text-sm font-medium text-foreground">Quelle dentition charter ?</p>
+            {/* « charter » was an anglicism (to chart), and « dentition » is not the word the rest of the product
+                uses — the patient field, its captions and this switch all say « denture ». One sentence, in the
+                clinic's own vocabulary. */}
+            <p className="text-sm font-medium text-foreground">Quelle denture afficher ?</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Ce patient n&apos;a pas de date de naissance enregistrée, donc l&apos;arcade ne peut pas être déduite.
+              Ce patient n&apos;a pas de date de naissance enregistrée, la denture ne peut donc pas être déduite.
               Choisissez-la — vous pourrez en changer à tout moment.
             </p>
           </div>

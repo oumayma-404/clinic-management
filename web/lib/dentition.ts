@@ -79,15 +79,30 @@ export function isAdultDentition(value: string | null | undefined): boolean {
  * the instruction that naming the treated tooth is « indispensable »). Nothing stores a `DentitionView`: it is
  * seeded from the patient (or, when editing, from the fiche's own acts) and then belongs to the user.
  */
-export const DENTITION_VIEWS = ["adult", "child", "mixed"] as const
+/**
+ * ⚠️ **Display order — temporaire → mixte → définitive — not the union's "natural" order.** It mirrors
+ * {@link DENTITIONS} so the arch switch and the patient field list the same three dentitions in the same
+ * sequence; a reader who sets « Denture mixte » on the fiche and then meets « Mixte » in a different slot of
+ * the chart's switch has to re-read the control every time. Nothing persists a `DentitionView`, so this array
+ * is free to be ordered for the eye.
+ */
+export const DENTITION_VIEWS = ["child", "mixed", "adult"] as const
 
 export type DentitionView = (typeof DENTITION_VIEWS)[number]
 
-/** Short French captions for the chart's arch switch. */
+/**
+ * Short French captions for the chart's arch switch.
+ *
+ * ⚠️ **These name the DENTITION, never the patient** — « Temporaire » / « Mixte » / « Définitive », the same
+ * vocabulary as {@link DENTITION_SHORT_FR} and for the same reason the patient field abandoned « Adulte » /
+ * « Enfant »: the switch chooses which set of teeth is drawn, and a mouth is what has a dentition. « Adulte »
+ * over a deciduous arch also reads as a claim about the person, which is wrong twice over on the mixed view —
+ * a 9-year-old is neither, and the arch showing both sets is precisely « mixte ».
+ */
 export const DENTITION_VIEW_LABELS_FR: Record<DentitionView, string> = {
-  adult: "Adulte",
-  child: "Enfant",
+  child: "Temporaire",
   mixed: "Mixte",
+  adult: "Définitive",
 }
 
 /**
