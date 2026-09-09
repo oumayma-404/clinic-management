@@ -10,6 +10,15 @@ import type { AppointmentDto } from "@/lib/api/types"
 export const AGENDA_SNAP_MINUTES = 15
 
 /**
+ * The unit a plain **click** on an empty cell snaps to — the half hour, not {@link AGENDA_SNAP_MINUTES}.
+ *
+ * A drag paints a band, so it can honestly snap finer than anything drawn; a click paints nothing, so it must land
+ * on a time the user can see they aimed at — and `HALF_HOUR_GUIDE` is the only sub-hour line the grid draws (it is
+ * also the default booking length). The top half of the 11 row is 11:00, the bottom half 11:30.
+ */
+export const AGENDA_CLICK_SNAP_MINUTES = 30
+
+/**
  * How long a finger must rest before a drag begins.
  *
  * ⚠️ **The threshold is what keeps the grid usable at all on a phone.** The same container scrolls 24 hours
@@ -95,10 +104,11 @@ interface UseAgendaGridDragOptions {
   /** A completed span. `durationMinutes` is always a positive multiple of {@link AGENDA_SNAP_MINUTES}. */
   onCreateSpan: (dayKey: string, startMinutes: number, durationMinutes: number) => void
   /**
-   * A press on a cell that never became a drag — today's plain click, and deliberately carrying the **hour**
-   * rather than the snapped quarter, so « cliquer sur une heure » keeps meaning exactly what it always has.
+   * A press on a cell that never became a drag — the plain click, carrying the minute of the day it landed on,
+   * snapped to {@link AGENDA_CLICK_SNAP_MINUTES}. It used to carry the cell's **hour**, so a click halfway down
+   * the 11 row booked 11:00 and the user had to retype the half hour they had just aimed at.
    */
-  onCellClick: (dayKey: string, hour: number) => void
+  onCellClick: (dayKey: string, minutes: number) => void
   /** A completed move. The caller persists it; this hook never touches the network. */
   onMoveDrop: (appointment: AppointmentDto, target: AgendaCellTarget) => void
 }
@@ -112,7 +122,8 @@ type Gesture =
       startX: number
       startY: number
       origin: AgendaCellTarget
-      originHour: number
+      /** Where a click — as opposed to a drag — would book, resolved at press time from the same point. */
+      originClickMinutes: number
       last: AgendaCellTarget
     }
   | {
@@ -128,8 +139,8 @@ type Gesture =
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
-/** The snapped minute of `cell` a viewport `clientY` falls on. */
-function minutesWithinCell(cell: HTMLElement, clientY: number): number | null {
+/** The snapped minute of `cell` a viewport `clientY` falls on, to `snapMinutes`. */
+function minutesWithinCell(cell: HTMLElement, clientY: number, snapMinutes = AGENDA_SNAP_MINUTES): number | null {
   const dayKey = cell.dataset.agendaDay
   const hour = Number(cell.dataset.agendaHour)
   if (!dayKey || !Number.isFinite(hour)) return null
@@ -138,7 +149,7 @@ function minutesWithinCell(cell: HTMLElement, clientY: number): number | null {
   // `0.999`, not `1`: a pointer exactly on the row's bottom edge belongs to the last unit of THIS hour, not to
   // the first unit of a row it is not yet over.
   const within = clamp((clientY - rect.top) / rect.height, 0, 0.999)
-  return hour * 60 + Math.floor((within * 60) / AGENDA_SNAP_MINUTES) * AGENDA_SNAP_MINUTES
+  return hour * 60 + Math.floor((within * 60) / snapMinutes) * snapMinutes
 }
 
 /**
@@ -299,7 +310,7 @@ export function useAgendaGridDrag({
       // An unarmed release on a block is left to the block's own `onClick` (see the hook's note above); an
       // unarmed release on a cell is this hook's, because a cell is a plain div with no click handler of its own.
       if (!gesture.armed) {
-        if (gesture.kind === "create") onCellClick(gesture.origin.dayKey, gesture.originHour)
+        if (gesture.kind === "create") onCellClick(gesture.origin.dayKey, gesture.originClickMinutes)
         return
       }
 
@@ -324,7 +335,7 @@ export function useAgendaGridDrag({
         const to = Math.max(gesture.origin.minutes, target.minutes)
         // A drag that never left its own quarter-hour is a click that wobbled, and must behave as one — with no
         // duration override, which is what a span of zero would otherwise assert.
-        if (to <= from) onCellClick(gesture.origin.dayKey, gesture.originHour)
+        if (to <= from) onCellClick(gesture.origin.dayKey, gesture.originClickMinutes)
         else onCreateSpan(gesture.origin.dayKey, from, to - from)
         return
       }
@@ -368,6 +379,7 @@ export function useAgendaGridDrag({
     (event: React.PointerEvent<HTMLElement>, dayKey: string, hour: number) => {
       if (!enabled || !event.isPrimary) return
       const minutes = minutesWithinCell(event.currentTarget, event.clientY)
+      const clickMinutes = minutesWithinCell(event.currentTarget, event.clientY, AGENDA_CLICK_SNAP_MINUTES)
       const origin: AgendaCellTarget = { dayKey, minutes: minutes ?? hour * 60 }
       consumedRef.current = false
       cancelLongPress()
@@ -379,7 +391,7 @@ export function useAgendaGridDrag({
         startX: event.clientX,
         startY: event.clientY,
         origin,
-        originHour: hour,
+        originClickMinutes: clickMinutes ?? hour * 60,
         last: origin,
       }
       if (coarsePointer) longPressTimerRef.current = setTimeout(arm, AGENDA_LONG_PRESS_MS)

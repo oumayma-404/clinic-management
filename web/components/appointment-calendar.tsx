@@ -1446,16 +1446,17 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     (dayKey: string, startMinutes: number, durationMinutes: number) => {
       const day = gridDayByKey.get(dayKey)
       if (!day) return
-      const time = `${String(Math.floor(startMinutes / 60)).padStart(2, "0")}:${String(startMinutes % 60).padStart(2, "0")}`
-      onTimeSlotClick?.(day, time, durationMinutes)
+      onTimeSlotClick?.(day, clockOfMinutes(startMinutes), durationMinutes)
     },
     [gridDayByKey, onTimeSlotClick],
   )
 
   const handleCellClick = useCallback(
-    (dayKey: string, hour: number) => {
+    (dayKey: string, minutes: number) => {
       const day = gridDayByKey.get(dayKey)
-      if (day) onTimeSlotClick?.(day, hourSlot(hour))
+      // The half hour the press landed on, never the row's hour: `clockOfMinutes` is the same reader the span
+      // gesture uses, so a click and a one-cell drag cannot disagree about what 11:30 is called.
+      if (day) onTimeSlotClick?.(day, clockOfMinutes(minutes))
     },
     [gridDayByKey, onTimeSlotClick],
   )
