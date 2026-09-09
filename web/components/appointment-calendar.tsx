@@ -246,13 +246,32 @@ const CLOSED_HATCH =
  * One hour cell's `background-image`, guide first so it paints above the hatch.
  *
  * ⚠️ Today's band is deliberately **not** folded in here as an inline `background-color`. An inline style beats
- * a class in every state, including `:hover` — so painting the band inline would silently delete
- * `hover:bg-accent/30` on today's column, i.e. remove the click affordance from the one column most likely to
- * be clicked. It stays a class (`bg-[var(--agenda-today)]`), and it no longer collides with anything because
- * "closed" is now an image rather than a competing background colour.
+ * a class in every state, including `:hover` — which is how painting the band inline once deleted the hover
+ * affordance from the one column most likely to be clicked. It stays a class (`bg-[var(--agenda-today)]`), and it
+ * no longer collides with anything because "closed" is now an image and the hover fill has moved down onto
+ * {@link HOUR_CELL_HALVES}.
  */
 const hourCellBackground = (isOpenHour: boolean): string =>
   isOpenHour ? HALF_HOUR_GUIDE : `${HALF_HOUR_GUIDE}, ${CLOSED_HATCH}`
+
+/**
+ * The cell's hover fill, on two half-height children rather than on the cell itself.
+ *
+ * A click books the **half hour** it lands on (`AGENDA_CLICK_SNAP_MINUTES`), so a highlight covering the whole row
+ * promises a slot the click will not take — reported as « the mouse was seeing the whole 60 mins » while the
+ * dialog correctly opened at 11:30. Hovering now lights exactly the half that is about to be booked, along the
+ * `HALF_HOUR_GUIDE` the cell already draws.
+ *
+ * ⚠️ Purely decorative: no data attributes and no handlers, so `elementFromPoint(…).closest('[data-agenda-cell]')`
+ * still resolves to the cell and both gestures keep measuring the cell's own rect. Their parent must be
+ * `flex flex-col` — a percentage height would resolve against a cell sized by `min-height` alone and collapse.
+ */
+const HOUR_CELL_HALVES = (
+  <>
+    <div className="flex-1 transition-colors hover:bg-accent/30 dark:hover:bg-muted/50" />
+    <div className="flex-1 transition-colors hover:bg-accent/30 dark:hover:bg-muted/50" />
+  </>
+)
 
 /**
  * Mois on a phone is a **continuous scroll into the following months**, and these three numbers bound it.
@@ -3309,7 +3328,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                               <div
                                 key={`${day.toISOString()}-${time}`}
                                 className={cn(
-                                  "min-w-0 cursor-pointer border-b border-r transition-colors last:border-r-0 hover:bg-accent/30 dark:hover:bg-muted/50",
+                                  "flex min-w-0 cursor-pointer flex-col border-b border-r last:border-r-0",
                                   /*
                                    * Today's COLUMN, not just its date pill.
                                    *
@@ -3336,13 +3355,15 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                   gridDrag.beginCellGesture(event, format(day, "yyyy-MM-dd"), hour)
                                 }
                                 {...cellDataProps(day, hour)}
-                              />
+                              >
+                                {HOUR_CELL_HALVES}
+                              </div>
                             )
                           })
                         : (
                             <div
                               className={cn(
-                                "cursor-pointer border-b transition-colors hover:bg-accent/30 dark:hover:bg-muted/50",
+                                "flex cursor-pointer flex-col border-b",
                                 !isNarrow && "border-r",
                                 // Jour paints the band too: the column IS the day, so when that day is today the
                                 // grid should say so without the reader checking the header.
@@ -3353,7 +3374,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                 gridDrag.beginCellGesture(event, format(selectedDate, "yyyy-MM-dd"), hour)
                               }
                               {...cellDataProps(selectedDate, hour)}
-                            />
+                            >
+                              {HOUR_CELL_HALVES}
+                            </div>
                           )}
                     </div>
                   )
