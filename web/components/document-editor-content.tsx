@@ -24,16 +24,21 @@ import {
   ClipboardList,
   AlertTriangle,
   ExternalLink,
+  Trash2,
 } from "lucide-react"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
-import { formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
-  formatPrescriptionLine,
+  DURATION_UNITS,
   formatRenewalMention,
+  patientCivility,
+  durationUnitLabel,
+  durationUnitOf,
+  prescriptionLineParts,
   type MedicationLine,
 } from "@/lib/documents"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -49,6 +54,7 @@ import { estimateReimbursements, parseCotation } from "@/lib/api/dental-acts"
 import { CnamCeilingNotice } from "@/components/cnam/cnam-ceiling-notice"
 import { dentalActsApi } from "@/lib/api/dental-acts"
 import { medicationsApi } from "@/lib/api/medications"
+import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
   CNAM_IDENTIFIANT_DIGITS,
   cnamIdentifiantDigitCount,
@@ -57,7 +63,7 @@ import {
   isKnownCnamRegime,
   isValidCnamIdentifiant,
 } from "@/lib/cnam"
-import type { PatientDto, DentalRecordDto, DentalActDto, MedicationDto } from "@/lib/api/types"
+import type { PatientDto, DentalRecordDto, DentalActDto, MedicationDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { getErrorMessage } from "@/lib/errors"
 import { useDoctors } from "@/lib/hooks/use-doctors"
@@ -67,17 +73,16 @@ import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
 import { downloadBlob } from "@/lib/download"
-import { Document, Packer, Paragraph, HeadingLevel, AlignmentType } from "docx"
+import { Document, Packer, Paragraph, HeadingLevel, AlignmentType, TextRun, BorderStyle } from "docx"
 
-// Certificat médical (FR-2). The ordre label (FR-2.4) and the mandatory deontological mention (FR-2.3) —
-// kept in sync with the backend PdfGenerationService/CertificatTextBuilder so the preview, the Word export,
-// and the generated PDF read identically.
-const CERTIFICAT_ORDRE_LABEL = "Ordre National des Médecins Dentistes (CNOMDT)"
-// Carries both halves the CNOM requires: the remise en main propre AND the finality — « pour faire valoir ce
-// que de droit » is what states the certificate serves whatever lawful use the patient needs, rather than a
-// purpose the practitioner has vouched for.
-const CERTIFICAT_MANDATORY_MENTION =
-  "Certificat établi à la demande de l'intéressé(e) et remis en main propre pour faire valoir ce que de droit."
+/*
+ * Certificat médical — ONE sentence, and `CertificatTextBuilder` (which renders the PDF) is the authority on
+ * its wording. `CERTIFICAT_ORDRE_LABEL` (« Ordre National des Médecins Dentistes ») and
+ * `CERTIFICAT_MANDATORY_MENTION` (« … remis en main propre pour faire valoir ce que de droit. ») were here and
+ * are gone with the spécialité, the date de naissance and the objet/motif: read the tombstone on the server
+ * builder before putting any of them back. The practitioner and the cabinet are still identified — in the
+ * letterhead, on every document type.
+ */
 
 /*
  * The prescription line type and its two formatters now live in `lib/documents.ts` — see the imports at the
@@ -86,6 +91,61 @@ const CERTIFICAT_MANDATORY_MENTION =
  *
  * `MedicationLine` is re-exported from there under its old name, so every call site below reads unchanged.
  */
+
+/** One priced line of a note d'honoraires document. Strings, because they are what the inputs hold. */
+type HonorairesActLine = {
+  designation: string
+  quantity: string
+  unitPrice: string
+  /** The price shown came from the catalogue, not the keyboard — so picking another act may replace it. */
+  pricedFromCatalog: boolean
+}
+
+/**
+ * A line's total, and the document's — the browser half of `HonorairesContent` on the server.
+ *
+ * <p>⚠️ The server is the authority: it recomputes both from the stored quantities and prices at render time, so
+ * the printed sheet cannot disagree with its own lines. This exists only so the A4 on screen shows the figure
+ * before the save, and it must read a price the same three ways round the server does — a JSON number,
+ * « 75.500 », and the Tunisian « 75,500 » these very inputs produce.</p>
+ */
+function honorairesAmount(raw: string): number {
+  const parsed = Number(String(raw ?? "").replace(/\s/g, "").replace(",", "."))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/** Quantité defaults to 1, not 0: an unparsable one must never silently zero a priced act. */
+function honorairesQuantity(raw: string): number {
+  const text = String(raw ?? "").trim()
+  if (text === "") return 1
+  const parsed = Number(text.replace(/\s/g, "").replace(",", "."))
+  return Number.isFinite(parsed) ? parsed : 1
+}
+
+/** The named lines only — a line with no désignation bills nothing and prints as an empty priced row. */
+function honorairesNamedLines(acts: HonorairesActLine[]): HonorairesActLine[] {
+  return acts.filter((act) => act.designation.trim() !== "")
+}
+
+/**
+ * What actually goes into `ContentJson` — the three fields `HonorairesContent` reads, and not `pricedFromCatalog`,
+ * which is a fact about this form's session rather than about the document.
+ */
+function honorairesContentActs(acts: HonorairesActLine[]) {
+  return honorairesNamedLines(acts).map(({ designation, quantity, unitPrice }) => ({
+    designation,
+    quantity,
+    unitPrice,
+  }))
+}
+
+function honorairesLineTotal(act: HonorairesActLine): number {
+  return honorairesQuantity(act.quantity) * honorairesAmount(act.unitPrice)
+}
+
+function honorairesTotal(acts: HonorairesActLine[]): number {
+  return honorairesNamedLines(acts).reduce((sum, act) => sum + honorairesLineTotal(act), 0)
+}
 
 /**
  * What a clinical picker shows when its catalogue **failed to load** — never the same thing as an empty one.
@@ -228,6 +288,18 @@ function MedicationItem({
           */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
+              <Label className="text-xs text-muted-foreground min-h-4">Dose par prise</Label>
+              <Input
+                type="text"
+                placeholder="Ex : 1 comprimé"
+                value={medication.dose || ""}
+                onChange={(e) => {
+                  onUpdate({ ...medication, dose: e.target.value })
+                }}
+                className="h-10 w-full"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
               <Label className="text-xs text-muted-foreground min-h-4">Fois par jour</Label>
               <Input
                 type="number"
@@ -240,8 +312,11 @@ function MedicationItem({
                 className="h-10 w-full"
               />
             </div>
+          </div>
+          {/* Durée + son unité — un traitement de fond se compte en MOIS, pas en 180 jours. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label className="text-xs text-muted-foreground min-h-4">Durée (jours)</Label>
+              <Label className="text-xs text-muted-foreground min-h-4">Durée</Label>
               <Input
                 type="number"
                 min="1"
@@ -252,6 +327,19 @@ function MedicationItem({
                 }}
                 className="h-10 w-full"
               />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label className="text-xs text-muted-foreground min-h-4">Unité de durée</Label>
+              <select
+                value={durationUnitOf(medication.durationUnit)}
+                onChange={(e) => {
+                  onUpdate({ ...medication, durationUnit: e.target.value })
+                }}
+                className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value={DURATION_UNITS.jours}>jours</option>
+                <option value={DURATION_UNITS.mois}>mois</option>
+              </select>
             </div>
           </div>
           {/* Voie + quantité — required of a prescription (R.5132-3): a posologie with no route and no quantity
@@ -361,7 +449,10 @@ export function DocumentEditorContent() {
      * Legacy documents keep both keys in their ContentJson; nothing reads them any more.
      */
     doctorOrderNumber: "", // Certificat: CNOMDT ordre (FR-2.5 — pre-filled from the doctor's profile, read-only)
-    startDate: "", // Certificat: repos médical start date (FR-2.1 — optional)
+    startDate: "", // Certificat: repos médical start date
+    // Certificat: « jours » | « mois ». Shared vocabulary with an ordonnance's durée — see `DURATION_UNITS`.
+    // Widened to `string`: a stored document's value arrives as one, and `durationUnitOf` is the reader.
+    durationUnit: DURATION_UNITS.jours as string,
     objetMotif: "", // Certificat: free objet/motif body (FR-2.1)
     // Liaison — external confrère destinataire (free text) + the norm sections, ALL optional. Only the
     // destinataire is ever required: the doctor writes the letter in `content` and fills whichever of these
@@ -380,6 +471,17 @@ export function DocumentEditorContent() {
     examensEnAttente: "",
     consignesSuivi: "",
     piecesJointes: "",
+    /*
+     * Note d'honoraires — the priced lines and the sentence under them.
+     *
+     * ⚠️ This is a DOCUMENT, not an `Invoice`. It mints no number, enters no balance and reaches no money read:
+     * saving one moves nothing in « Solde patient », « Créances », la caisse or the dashboard. The fiscal note —
+     * the numbered one every one of those sums — is raised in the Factures module, and the two must never be
+     * conflated. `HonorairesContent` on the server is the authority for the arithmetic; what is here computes the
+     * same sum for the on-screen A4, and that is the only place the two may both exist.
+     */
+    honorairesActs: [] as HonorairesActLine[],
+    honorairesNote: "",
   })
 
   // Bulletin de soins CNAM (BS1) — care type + acts table (pre-filled from the patient's dental records).
@@ -449,13 +551,17 @@ export function DocumentEditorContent() {
   const [dentalActCatalogReload, setDentalActCatalogReload] = useState(0)
   const [medicationCatalogFailed, setMedicationCatalogFailed] = useState(false)
   const [medicationCatalogReload, setMedicationCatalogReload] = useState(0)
-  // Certificat: whether the optional "Repos médical" block is expanded (opened automatically when editing a
-  // document that already carries repos data).
-  const [reposOpen, setReposOpen] = useState(false)
-  // Liaison: whether the optional norm sections are expanded. Collapsed by default so the free-text body is
-  // what the doctor meets first; opened automatically when a loaded letter already fills one of them, since
-  // collapsing a section that holds text would hide content rather than merely fold it away.
-  const [liaisonExtrasOpen, setLiaisonExtrasOpen] = useState(false)
+  /*
+   * The clinic's OWN act catalogue, for the note d'honoraires' lines — `procedureTypesApi`, not `dentalActsApi`:
+   * the DCH nomenclature is what a CNAM bulletin is coded in and carries no price, while what a fee note bills is
+   * the practice's own act at the practice's own tarif.
+   */
+  const [procedureCatalog, setProcedureCatalog] = useState<ProcedureTypeDto[]>([])
+  const [procedureCatalogFailed, setProcedureCatalogFailed] = useState(false)
+  const [procedureCatalogReload, setProcedureCatalogReload] = useState(0)
+  const [actPickerOpenIndex, setActPickerOpenIndex] = useState<number | null>(null)
+  // `reposOpen` / `liaisonExtrasOpen` are gone with the two folds they drove: the repos fields ARE the
+  // certificat now, and the liaison's guided sections are no longer offered.
   // « Envoyer par e-mail » — only reachable once the document has been saved and therefore has an id.
   const [emailOpen, setEmailOpen] = useState(false)
 
@@ -762,6 +868,7 @@ export function DocumentEditorContent() {
             doctorOrderNumber: content.doctorOrderNumber || "",
             renewals: content.renewals || "",
             startDate: content.startDate || "",
+            durationUnit: durationUnitOf(content.durationUnit),
             objetMotif: content.objetMotif || "",
             // Liaison: recipient name/specialty come from the snapshot columns (works for legacy internal-
             // recipient letters too, LIA-5); address + guided fields from ContentJson (FR-4.1/FR-4.2).
@@ -779,21 +886,22 @@ export function DocumentEditorContent() {
             examensEnAttente: content.examensEnAttente || "",
             consignesSuivi: content.consignesSuivi || "",
             piecesJointes: content.piecesJointes || "",
+            // Stored as strings, and read back as strings: a number would print « 75 » where the practitioner
+            // typed « 75,000 », and the server parses both anyway.
+            honorairesActs: Array.isArray(content.acts)
+              ? content.acts.map((act: Partial<HonorairesActLine>) => ({
+                  designation: String(act?.designation ?? ""),
+                  quantity: String(act?.quantity ?? "1"),
+                  unitPrice: String(act?.unitPrice ?? ""),
+                  // A stored price is a decision already taken — picking an act must not overwrite it.
+                  pricedFromCatalog: false,
+                }))
+              : [],
+            honorairesNote: content.note || "",
           })
 
-          // Expand the optional repos block when the loaded certificat already carries repos data.
-          if (documentType === "certificat") {
-            setReposOpen(Boolean(content.startDate || content.duration))
-          }
-
-          // Same rule for the liaison's optional norm sections: a section holding text must not open collapsed.
-          if (documentType === "liaison") {
-            setLiaisonExtrasOpen(Boolean(
-              content.examenClinique || content.examenRadiologique || content.actesRealises ||
-              content.traitementEnCours || content.prescriptions || content.examensEnAttente ||
-              content.consignesSuivi || content.piecesJointes || content.medecinTraitant
-            ))
-          }
+          // Nothing to expand any more: the certificat's repos fields and the liaison's free text are both
+          // unfolded, and the liaison's guided sections have no controls to open.
 
           // Arrêt de travail: restore the practitioner half. The identity half is re-derived from the patient's
           // fiche on every render, deliberately — a stored address that has since changed on the fiche would
@@ -914,6 +1022,27 @@ export function DocumentEditorContent() {
     return () => { cancelled = true }
   }, [documentType, medicationCatalogReload])
 
+  // The clinic's own acts, for the note d'honoraires' line picker.
+  useEffect(() => {
+    if (documentType !== "honoraires") return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const acts = await procedureTypesApi.list()
+        if (!cancelled) {
+          setProcedureCatalog(acts)
+          setProcedureCatalogFailed(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setProcedureCatalog([])
+          setProcedureCatalogFailed(true)
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [documentType, procedureCatalogReload])
+
   const resetForm = () => {
     setSelectedPatient("")
     setDocumentId(null)
@@ -925,6 +1054,7 @@ export function DocumentEditorContent() {
       doctorOrderNumber: "",
       renewals: "",
       startDate: "",
+      durationUnit: DURATION_UNITS.jours,
       objetMotif: "",
       recipientName: "",
       recipientSpecialty: "",
@@ -940,6 +1070,8 @@ export function DocumentEditorContent() {
       examensEnAttente: "",
       consignesSuivi: "",
       piecesJointes: "",
+      honorairesActs: [],
+      honorairesNote: "",
     })
     setBulletinFields({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
   }
@@ -1426,29 +1558,40 @@ export function DocumentEditorContent() {
       ? new Date(value).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
       : ""
 
-  const certificatBodyParagraphs = (): string[] => {
-    const specialty =
-      formData.doctorSpecialty && formData.doctorSpecialty !== "[Spécialité]"
-        ? formData.doctorSpecialty
-        : "médecin dentiste"
+  /**
+   * The certificat's body, as bold-aware runs. Mirrors the server's `CertificatTextBuilder`, which renders the
+   * PDF — one sentence, the repos clause included, and nothing else.
+   *
+   * ⚠️ Four facts are bold and the list is exactly what a reader must find: the patient's name, the count, its
+   * unit and the start date. The certificat carries **no patient identity block**, so the bold name in the
+   * sentence is the only place it appears.
+   */
+  const certificatBodyParagraphs = (): { text: string; bold?: boolean }[][] => {
     const patientName = patientData ? getPatientName(patientData) : "[Nom du patient]"
-    const dob = patientData?.dateOfBirth ? formatFrDate(patientData.dateOfBirth) : "[JJ/MM/AAAA]"
+    const civility = patientCivility(patientData?.gender)
 
-    // Mirrors the server's CertificatTextBuilder: the attestation formula names the registering body, and no
-    // longer restates the ordre NUMBER or the cabinet address — both render once in the shared identity block
-    // (the letterhead above), which every document type now carries.
-    const paras = [
-      `Je soussigné(e), Docteur ${formData.doctorName}, ${specialty}, inscrit(e) à l'${CERTIFICAT_ORDRE_LABEL}, certifie avoir examiné ce jour ${patientName}, né(e) le ${dob}.`,
+    const sentence: { text: string; bold?: boolean }[] = [
+      { text: `Je soussigné(e) Docteur ${formData.doctorName}, certifie avoir examiné ce jour ${civility} ` },
+      { text: patientName, bold: true },
     ]
-    if (formFields.objetMotif && formFields.objetMotif.trim()) {
-      paras.push(formFields.objetMotif.trim())
+    const duration = formFields.duration?.trim()
+    if (duration) {
+      const unit = durationUnitLabel(formFields.durationUnit, duration)
+      sentence.push({ text: ", et atteste que son état de santé nécessite un repos de " })
+      sentence.push({ text: `${duration} ${unit}`, bold: true })
+      if (formFields.startDate) {
+        sentence.push({ text: " à compter du " })
+        sentence.push({ text: formatFrDate(formFields.startDate), bold: true })
+      }
+      sentence.push({ text: ", sauf complications" })
     }
-    if (formFields.duration && formFields.duration.trim()) {
-      const plural = parseInt(formFields.duration) > 1 ? "s" : ""
-      let repos = `Son état de santé nécessite un repos médical d'une durée de ${formFields.duration.trim()} jour${plural}`
-      if (formFields.startDate) repos += ` à compter du ${formatFrDate(formFields.startDate)}`
-      repos += "."
-      paras.push(repos)
+    sentence.push({ text: "." })
+
+    const paras = [sentence]
+    // Legacy only — the objet/motif field is gone from the form, but a certificat already issued with one
+    // must not lose the paragraph when it is re-rendered.
+    if (formFields.objetMotif && formFields.objetMotif.trim()) {
+      paras.push([{ text: formFields.objetMotif.trim() }])
     }
     return paras
   }
@@ -1513,10 +1656,11 @@ export function DocumentEditorContent() {
       content.doctorOrderNumber = formFields.doctorOrderNumber || "";
       content.startDate = formFields.startDate || "";
       content.duration = formFields.duration || "";
-      // Add patient date of birth for certificat
-      if (patientData?.dateOfBirth) {
-        content.patientDateOfBirth = patientData.dateOfBirth;
-      }
+      content.durationUnit = durationUnitOf(formFields.durationUnit);
+      content.patientCivility = patientCivility(patientData?.gender);
+    } else if (documentType === "honoraires") {
+      content.acts = honorairesContentActs(formFields.honorairesActs);
+      content.note = formFields.honorairesNote || "";
     } else if (documentType === "bulletin-cnam") {
       Object.assign(content, buildBulletinContent(patientData));
     } else if (documentType === "arret-travail") {
@@ -1647,25 +1791,8 @@ export function DocumentEditorContent() {
         }),
       ];
 
-      // Add recipient for liaison
-      if (documentType === "liaison" && recipientDoctorName) {
-        paragraphs.push(
-          new Paragraph({
-            text: "À l'attention de:",
-          }),
-          new Paragraph({
-            text: recipientDoctorName,
-            heading: HeadingLevel.HEADING_2,
-          })
-        );
-        if (recipientDoctorSpecialty) {
-          paragraphs.push(new Paragraph({ text: recipientDoctorSpecialty }));
-        }
-        if (formFields.recipientAddress) {
-          paragraphs.push(new Paragraph({ text: formFields.recipientAddress }));
-        }
-        paragraphs.push(new Paragraph({ text: "" }));
-      }
+      // No « À l'attention de » block: a lettre de liaison is a blank letterhead the practitioner writes on,
+      // and the confrère is addressed in the prose. Mirrors the PDF renderer.
 
       // Date
       paragraphs.push(
@@ -1686,35 +1813,51 @@ export function DocumentEditorContent() {
         new Paragraph({ text: "" })
       );
 
-      // Patient info
-      paragraphs.push(
-        new Paragraph({
-          text: "Patient:",
-        }),
-        new Paragraph({
-          text: patientName,
-          heading: HeadingLevel.HEADING_2,
-        })
-      );
-      if (patientDobFormatted) {
-        paragraphs.push(new Paragraph({ text: `Date de naissance: ${patientDobFormatted}` }));
+      // Patient info — withheld on the two types that name their own patient in the prose (see the PDF
+      // renderer): the lettre de liaison and the certificat.
+      if (documentType !== "liaison" && documentType !== "certificat") {
+        paragraphs.push(
+          new Paragraph({
+            text: "Patient:",
+          }),
+          new Paragraph({
+            text: patientName,
+            heading: HeadingLevel.HEADING_2,
+          })
+        );
+        if (patientDobFormatted) {
+          paragraphs.push(new Paragraph({ text: `Date de naissance: ${patientDobFormatted}` }));
+        }
       }
       paragraphs.push(new Paragraph({ text: "" }));
 
       // Document-specific content
       if (documentType === "prescription") {
-        paragraphs.push(
-          new Paragraph({
-            text: "Prescription:",
-            heading: HeadingLevel.HEADING_2,
-          })
-        );
-        
         if (Array.isArray(formFields.medications) && formFields.medications.length > 0) {
-          formFields.medications.forEach((med) => {
-            const medText = formatPrescriptionLine(med);
-            paragraphs.push(new Paragraph({ text: medText }));
+          // « 1/ Augmentin (1 g) » then the posologie indented under it, both underlined, then a rule closing
+          // the list — the same three rules the PDF renderer applies. See `prescriptionLineParts`.
+          formFields.medications.forEach((med, index) => {
+            const printed = prescriptionLineParts(med);
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: `${index + 1}/ ${printed.heading}`, underline: {} })],
+              })
+            );
+            // Plain — the underline stops at the médicament. See `prescriptionLineParts`.
+            if (printed.posology) {
+              paragraphs.push(new Paragraph({ indent: { left: 720 }, text: printed.posology }));
+            }
+            if (printed.details) {
+              paragraphs.push(new Paragraph({ indent: { left: 720 }, text: printed.details }));
+            }
+            paragraphs.push(new Paragraph({ text: "" }));
           });
+          paragraphs.push(
+            new Paragraph({
+              text: "",
+              border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "000000", space: 1 } },
+            })
+          );
         } else {
           paragraphs.push(new Paragraph({ text: "Aucune prescription" }));
         }
@@ -1735,15 +1878,38 @@ export function DocumentEditorContent() {
           });
         }
       } else if (documentType === "certificat") {
-        // FR-2: mirror the PDF renderer — objet/motif body + optional repos clause + CNOMDT label +
-        // mandatory deontological mention. Keeps the Word export consistent with the generated PDF.
-        certificatBodyParagraphs().forEach((text) =>
-          paragraphs.push(new Paragraph({ text }))
+        // Mirrors the PDF renderer: one sentence, and nothing under it.
+        certificatBodyParagraphs().forEach((runs) =>
+          paragraphs.push(
+            new Paragraph({
+              children: runs.map((run) => new TextRun({ text: run.text, bold: run.bold })),
+            })
+          )
         );
-        paragraphs.push(
-          new Paragraph({ text: "" }),
-          new Paragraph({ text: CERTIFICAT_MANDATORY_MENTION })
-        );
+      } else if (documentType === "honoraires") {
+        const lines = honorairesNamedLines(formFields.honorairesActs);
+        if (lines.length === 0) {
+          paragraphs.push(new Paragraph({ text: "Aucun acte" }));
+        } else {
+          lines.forEach((act) => {
+            paragraphs.push(
+              new Paragraph({
+                text: `${act.designation} — ${honorairesQuantity(act.quantity)} × ${formatDT(honorairesAmount(act.unitPrice))} = ${formatDT(honorairesLineTotal(act))}`,
+              })
+            );
+          });
+          paragraphs.push(
+            new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              children: [
+                new TextRun({ text: `Total : ${formatDT(honorairesTotal(formFields.honorairesActs))}`, bold: true }),
+              ],
+            })
+          );
+        }
+        if (formFields.honorairesNote.trim()) {
+          paragraphs.push(new Paragraph({ text: "" }), new Paragraph({ text: formFields.honorairesNote.trim() }));
+        }
       }
 
       // Signature
@@ -2081,15 +2247,8 @@ export function DocumentEditorContent() {
       return
     }
 
-    // FR-4.1: the confrère destinataire name is the only required liaison field — enforce it client-side so
-    // the user gets immediate feedback (the backend also rejects it on create/update). Pairs with the label's "*".
-    if (documentType === "liaison" && !recipientDoctorName.trim()) {
-      toast.error("Destinataire requis", {
-        description: "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.",
-        duration: 3000,
-      })
-      return
-    }
+    // No « destinataire requis » refusal any more: a lettre de liaison has no recipient field to fill, so the
+    // only thing that guard could do is refuse every letter this editor can now write.
 
     // K2 — the same refusal the disabled button already explains above the form. Kept as a guard rather than
     // relying on `disabled` alone: this function is also reachable by keyboard submit, and the authoritative gate
@@ -2135,10 +2294,16 @@ export function DocumentEditorContent() {
         content.doctorOrderNumber = formFields.doctorOrderNumber
         content.startDate = formFields.startDate
         content.duration = formFields.duration
-        // Persist the patient DOB so the background-job PDF renders it (not only the download path).
-        if (patientData?.dateOfBirth) {
-          content.patientDateOfBirth = patientData.dateOfBirth
-        }
+        content.durationUnit = durationUnitOf(formFields.durationUnit)
+        // « M. » / « Mme » / « M./Mme » — snapshotted, so the background-job PDF prints the same civilité the
+        // download path does without reading the patient row. See `patientCivility` for why it travels in the
+        // document's own content and not as a field on the PDF model.
+        content.patientCivility = patientCivility(patientData?.gender)
+      } else if (documentType === "honoraires") {
+        // The keys `HonorairesContent` reads. No total is stored: the server sums the lines at render time, so
+        // a figure on the paper cannot disagree with the rows above it.
+        content.acts = honorairesContentActs(formFields.honorairesActs)
+        content.note = formFields.honorairesNote
       } else if (documentType === "bulletin-cnam") {
         Object.assign(content, buildBulletinContent(patientData))
       } else if (documentType === "arret-travail") {
@@ -2246,6 +2411,8 @@ export function DocumentEditorContent() {
         return "Lettre de liaison"
       case "certificat":
         return "Certificat médical"
+      case "honoraires":
+        return "Note d'honoraires"
       case "bulletin-cnam":
         return "Bulletin de soins CNAM"
       case "arret-travail":
@@ -2489,58 +2656,14 @@ export function DocumentEditorContent() {
             */}
             {patientData && <PatientAlertPanel patient={patientData} />}
 
-            {/* FR-4.1: external confrère destinataire — free text, no longer chosen from the clinic's doctors. */}
-            {documentType === "liaison" && (
-              <div className="space-y-3">
-                <Label className="text-sm font-semibold text-foreground">Confrère destinataire</Label>
-                <div className="space-y-2">
-                  <Label htmlFor="recipientName" className="text-xs text-muted-foreground">Nom *</Label>
-                  <Input
-                    id="recipientName"
-                    type="text"
-                    placeholder="Ex : Dr Ahmed Ben Salah"
-                    value={formFields.recipientName}
-                    onChange={(e) => setFormFields({ ...formFields, recipientName: e.target.value })}
-                    className="h-11"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="recipientSpecialty" className="text-xs text-muted-foreground">Spécialité</Label>
-                  <Input
-                    id="recipientSpecialty"
-                    type="text"
-                    placeholder="Ex : Chirurgien maxillo-facial"
-                    value={formFields.recipientSpecialty}
-                    onChange={(e) => setFormFields({ ...formFields, recipientSpecialty: e.target.value })}
-                    className="h-11"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="recipientAddress" className="text-xs text-muted-foreground">Adresse</Label>
-                  <Textarea
-                    id="recipientAddress"
-                    placeholder="Ex : 12 rue de la Santé, Tunis"
-                    value={formFields.recipientAddress}
-                    onChange={(e) => setFormFields({ ...formFields, recipientAddress: e.target.value })}
-                    className="min-h-[60px]"
-                  />
-                </div>
-                {/* Not printed on the letter — it prefills the recipient when the letter is sent by email. */}
-                <div className="space-y-2">
-                  <Label htmlFor="recipientEmail" className="text-xs text-muted-foreground">
-                    E-mail (pour l'envoi de la lettre)
-                  </Label>
-                  <Input
-                    id="recipientEmail"
-                    type="email"
-                    placeholder="Ex : confrere@cabinet.tn"
-                    value={formFields.recipientEmail}
-                    onChange={(e) => setFormFields({ ...formFields, recipientEmail: e.target.value })}
-                    className="h-11"
-                  />
-                </div>
-              </div>
-            )}
+            {/*
+              The liaison's « Confrère destinataire » fieldset (nom, spécialité, adresse, e-mail) is gone with
+              the « À l'attention de » block it fed. A lettre de liaison is now a blank letterhead: entête,
+              date, titre, texte libre — the practitioner addresses the confrère in their own words and types
+              the address in « Envoyer par e-mail ». `recipientName` / `recipientSpecialty` /
+              `recipientAddress` / `recipientEmail` stay in `formFields` so a letter saved with them keeps
+              them; nothing writes them any more.
+            */}
 
             <Separator />
 
@@ -2631,171 +2754,284 @@ export function DocumentEditorContent() {
               </div>
             )}
 
-            {/* Lettre de liaison — free text is the primary body; every norm section below is optional and
-                folded away, so the doctor is never obliged to fill a form to write a letter. */}
-            {documentType === "liaison" && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="motif" className="text-sm font-semibold text-foreground">Motif de la liaison</Label>
-                  <Textarea
-                    id="motif"
-                    placeholder="Demande d'avis spécialisé, de prise en charge, suite d'hospitalisation…"
-                    value={formFields.motif}
-                    onChange={(e) => setFormFields({ ...formFields, motif: e.target.value })}
-                    className="min-h-[70px]"
-                  />
-                </div>
+            {/*
+              Note d'honoraires — a printable sheet, and NOTHING it does touches the money path.
 
+              ⚠️ Saving this creates a `MedicalDocument`, never an `Invoice`: no number is minted, no balance
+              moves, la caisse does not see it. The numbered, fiscal note — the one « Solde patient »,
+              « Créances », la caisse and the dashboard all sum — is raised in the Factures module, and the
+              documents module minting one is exactly the defect that got this type withdrawn once already.
+            */}
+            {documentType === "honoraires" && (
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="liaisonBody" className="text-sm font-semibold text-foreground">
-                    Corps de la lettre / Synthèse clinique
-                  </Label>
-                  <Textarea
-                    id="liaisonBody"
-                    placeholder={"Cher Confrère,\n\nJe vous adresse ce patient pour…"}
-                    value={formFields.content}
-                    onChange={(e) => setFormFields({ ...formFields, content: e.target.value })}
-                    className="min-h-[220px]"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Rédigez librement. Les sections ci-dessous sont facultatives — elles reprennent les éléments
-                    attendus d'une lettre de liaison, à remplir uniquement si vous le souhaitez.
+                  <Label className="text-sm font-semibold text-foreground">Actes</Label>
+                  {formFields.honorairesActs.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Aucun acte pour l&apos;instant — ajoutez la première ligne.
+                    </p>
+                  )}
+                  {formFields.honorairesActs.map((act, index) => {
+                    const update = (patch: Partial<HonorairesActLine>) =>
+                      setFormFields((prev) => ({
+                        ...prev,
+                        honorairesActs: prev.honorairesActs.map((row, i) =>
+                          i === index ? { ...row, ...patch } : row,
+                        ),
+                      }))
+                    return (
+                      // One column at 320 px, four from `sm:` — a désignation, a quantité and two prices side
+                      // by side on a phone would each be ~60 px wide.
+                      <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_5rem_7rem_auto]">
+                        {/* The clinic's own act, or free text. Both, deliberately: the catalogue carries the
+                            tarif so a fee note stops being retyped from memory, and a one-off still has to be
+                            writable. A Popover is right here — this is a page, not a dialog, so nothing else
+                            has a claim on Enter (see `record/act-catalog-picker.tsx` for the dialog case). */}
+                        <div className="flex min-w-0 gap-1">
+                          <Input
+                            aria-label={`Désignation de l'acte ${index + 1}`}
+                            placeholder="Ex. Détartrage"
+                            value={act.designation}
+                            onChange={(e) => update({ designation: e.target.value, pricedFromCatalog: false })}
+                            className="min-w-0 flex-1 md:text-sm"
+                          />
+                          <Popover
+                            open={actPickerOpenIndex === index}
+                            onOpenChange={(open) => setActPickerOpenIndex(open ? index : null)}
+                            modal
+                          >
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="shrink-0 coarse:size-11"
+                                aria-label={`Choisir un acte du catalogue pour la ligne ${index + 1}`}
+                              >
+                                <Search className="h-4 w-4" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-0">
+                              {procedureCatalogFailed ? (
+                                <div className="p-3">
+                                  <CatalogLoadFailed
+                                    label="Le catalogue des actes"
+                                    onRetry={() => setProcedureCatalogReload((n) => n + 1)}
+                                  />
+                                </div>
+                              ) : (
+                                <Command>
+                                  <CommandInput placeholder="Rechercher un acte…" />
+                                  <CommandList>
+                                    <CommandEmpty>Aucun acte ne correspond.</CommandEmpty>
+                                    <CommandGroup>
+                                      {procedureCatalog.map((procedure) => (
+                                        <CommandItem
+                                          key={procedure.id}
+                                          value={procedure.name}
+                                          onSelect={() => {
+                                            // The tarif fills the price only when the field is empty or still
+                                            // holds a catalogue figure — a fee the user typed is theirs and
+                                            // survives picking the act it belongs to.
+                                            const tarif = procedure.defaultCost
+                                            const takeTarif =
+                                              tarif != null && (act.unitPrice.trim() === "" || act.pricedFromCatalog)
+                                            update({
+                                              designation: procedure.name,
+                                              unitPrice: takeTarif ? formatAmount(tarif) : act.unitPrice,
+                                              pricedFromCatalog: takeTarif,
+                                            })
+                                            setActPickerOpenIndex(null)
+                                          }}
+                                        >
+                                          <span className="min-w-0 flex-1 truncate">{procedure.name}</span>
+                                          {procedure.defaultCost != null && (
+                                            <span className="ms-2 shrink-0 text-xs tabular-nums text-muted-foreground">
+                                              {formatDT(procedure.defaultCost)}
+                                            </span>
+                                          )}
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        {/* Stacked below `sm:`, the two number fields are side by side with nothing naming
+                            them, and a placeholder disappears the moment a value is in — so each carries a
+                            visible inline label at that width (`invoice-form-modal`'s « Qté » shape). Above it
+                            the four columns read as a row and the label would eat a 5 rem cell. */}
+                        <div className="flex items-center gap-1.5">
+                          <span className="shrink-0 text-xs text-muted-foreground sm:hidden">Qté</span>
+                          <Input
+                            aria-label={`Quantité de l'acte ${index + 1}`}
+                            inputMode="decimal"
+                            placeholder="Qté"
+                            value={act.quantity}
+                            onChange={(e) => update({ quantity: e.target.value })}
+                            className="min-w-0 flex-1 md:text-sm"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="shrink-0 text-xs text-muted-foreground sm:hidden">P.U. (DT)</span>
+                          <Input
+                            aria-label={`Prix unitaire de l'acte ${index + 1} (DT)`}
+                            inputMode="decimal"
+                            placeholder="P.U. (DT)"
+                            value={act.unitPrice}
+                            onChange={(e) => update({ unitPrice: e.target.value, pricedFromCatalog: false })}
+                            className="min-w-0 flex-1 md:text-sm"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="coarse:size-11"
+                          aria-label={`Retirer l'acte ${index + 1}`}
+                          onClick={() =>
+                            setFormFields((prev) => ({
+                              ...prev,
+                              honorairesActs: prev.honorairesActs.filter((_, i) => i !== index),
+                            }))
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )
+                  })}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full coarse:h-11"
+                    onClick={() =>
+                      setFormFields((prev) => ({
+                        ...prev,
+                        honorairesActs: [
+                          ...prev.honorairesActs,
+                          { designation: "", quantity: "1", unitPrice: "", pricedFromCatalog: false },
+                        ],
+                      }))
+                    }
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Ajouter un acte
+                  </Button>
+                  <p className="text-right text-sm font-semibold tabular-nums">
+                    Total : {formatDT(honorairesTotal(formFields.honorairesActs))}
                   </p>
                 </div>
 
-                <details
-                  className="rounded-lg border px-4 py-3"
-                  open={liaisonExtrasOpen}
-                  onToggle={(e) => setLiaisonExtrasOpen(e.currentTarget.open)}
-                >
-                  <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    Sections complémentaires (facultatives)
-                  </summary>
-                  <div className="mt-4 space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="medecinTraitant" className="text-sm font-semibold text-foreground">
-                        Médecin traitant / praticien adresseur
-                      </Label>
-                      <Input
-                        id="medecinTraitant"
-                        type="text"
-                        placeholder="Dr …"
-                        value={formFields.medecinTraitant}
-                        onChange={(e) => setFormFields({ ...formFields, medecinTraitant: e.target.value })}
-                        className="h-11"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="examenClinique" className="text-sm font-semibold text-foreground">Examen clinique</Label>
-                      <Textarea
-                        id="examenClinique"
-                        placeholder="Constatations cliniques"
-                        value={formFields.examenClinique}
-                        onChange={(e) => setFormFields({ ...formFields, examenClinique: e.target.value })}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="examenRadiologique" className="text-sm font-semibold text-foreground">Examen radiologique</Label>
-                      <Textarea
-                        id="examenRadiologique"
-                        placeholder="Résultats radiologiques (panoramique, rétro-alvéolaire…)"
-                        value={formFields.examenRadiologique}
-                        onChange={(e) => setFormFields({ ...formFields, examenRadiologique: e.target.value })}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="actesRealises" className="text-sm font-semibold text-foreground">Actes réalisés</Label>
-                      <Textarea
-                        id="actesRealises"
-                        placeholder="Actes déjà effectués au cabinet"
-                        value={formFields.actesRealises}
-                        onChange={(e) => setFormFields({ ...formFields, actesRealises: e.target.value })}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="traitementEnCours" className="text-sm font-semibold text-foreground">
-                        Traitement en cours et allergies connues
-                      </Label>
-                      <Textarea
-                        id="traitementEnCours"
-                        placeholder="Médicaments en cours, allergies, antécédents pouvant interférer avec les soins"
-                        value={formFields.traitementEnCours}
-                        onChange={(e) => setFormFields({ ...formFields, traitementEnCours: e.target.value })}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="prescriptions" className="text-sm font-semibold text-foreground">Prescriptions</Label>
-                      <Textarea
-                        id="prescriptions"
-                        placeholder="Prescriptions (posologie, durée)"
-                        value={formFields.prescriptions}
-                        onChange={(e) => setFormFields({ ...formFields, prescriptions: e.target.value })}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="examensEnAttente" className="text-sm font-semibold text-foreground">
-                        Résultats d'examens en attente
-                      </Label>
-                      <Textarea
-                        id="examensEnAttente"
-                        placeholder="Examens demandés dont les résultats ne sont pas encore disponibles"
-                        value={formFields.examensEnAttente}
-                        onChange={(e) => setFormFields({ ...formFields, examensEnAttente: e.target.value })}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="consignesSuivi" className="text-sm font-semibold text-foreground">
-                        Consignes de suivi / avis attendu
-                      </Label>
-                      <Textarea
-                        id="consignesSuivi"
-                        placeholder="Ce que vous attendez du confrère, suivi à établir"
-                        value={formFields.consignesSuivi}
-                        onChange={(e) => setFormFields({ ...formFields, consignesSuivi: e.target.value })}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="piecesJointes" className="text-sm font-semibold text-foreground">Pièces jointes</Label>
-                      <Textarea
-                        id="piecesJointes"
-                        placeholder="Radiographies, comptes rendus, photographies remis au patient"
-                        value={formFields.piecesJointes}
-                        onChange={(e) => setFormFields({ ...formFields, piecesJointes: e.target.value })}
-                        className="min-h-[70px]"
-                      />
-                    </div>
-                  </div>
-                </details>
-              </>
-            )}
-
-            {documentType === "certificat" && (
-              <>
-                {/* FR-2.1: the free objet/motif is the primary body (présence, soins en cours, aptitude…). */}
                 <div className="space-y-2">
-                  <Label htmlFor="objetMotif" className="text-sm font-semibold text-foreground">
-                    Objet / motif du certificat
+                  <Label htmlFor="honorairesNote" className="text-sm font-semibold text-foreground">
+                    Mention (facultatif)
                   </Label>
                   <Textarea
-                    id="objetMotif"
-                    placeholder="Ex : certifie la présence de l'intéressé(e) ce jour ; soins dentaires en cours ; aptitude à la pratique sportive…"
-                    value={formFields.objetMotif}
-                    onChange={(e) => setFormFields({ ...formFields, objetMotif: e.target.value })}
-                    className="min-h-[120px]"
+                    id="honorairesNote"
+                    placeholder="Ex. Règlement à réception."
+                    value={formFields.honorairesNote}
+                    onChange={(e) => setFormFields({ ...formFields, honorairesNote: e.target.value })}
+                    className="min-h-[80px]"
                   />
                 </div>
 
-                {/* FR-2.5: CNOMDT ordre — pre-filled from the doctor's profile, not retyped per certificat. */}
+                <p className="text-xs text-muted-foreground">
+                  Ce document s&apos;imprime et se télécharge comme les autres. Il n&apos;entre ni dans la caisse
+                  ni dans les factures — pour une facture numérotée, passez par le module Factures.
+                </p>
+              </div>
+            )}
+
+            {/*
+              Lettre de liaison — ONE free-text field, and no guidance at all.
+
+              ⚠️ The ten guided norm sections (motif, examen clinique, examen radiologique, actes réalisés,
+              traitement en cours, prescriptions, examens en attente, consignes de suivi, pièces jointes,
+              médecin traitant) are gone from this form, deliberately: the letter is a blank sheet with the
+              cabinet's letterhead, its date and its title, and a practitioner writes on it. Their keys stay in
+              `formFields` and are still saved and still rendered, so a letter already written with them keeps
+              every word — nothing new writes one. `LiaisonContent` (the PDF) says the same thing on its side.
+            */}
+            {documentType === "liaison" && (
+              <div className="space-y-2">
+                <Label htmlFor="liaisonBody" className="text-sm font-semibold text-foreground">
+                  Corps de la lettre
+                </Label>
+                <Textarea
+                  id="liaisonBody"
+                  placeholder={"Cher Confrère,\n\nJe vous adresse ce patient pour…"}
+                  value={formFields.content}
+                  onChange={(e) => setFormFields({ ...formFields, content: e.target.value })}
+                  className="min-h-[420px]"
+                />
+              </div>
+            )}
+
+
+            {/*
+              Certificat médical — le repos EST le certificat.
+
+              ⚠️ « Objet / motif du certificat » is gone: the document is one sentence (see
+              `CertificatTextBuilder`), so a free body had nowhere to print. `objetMotif` stays in `formFields`
+              and is still saved and still rendered, so a certificat already issued with one keeps its
+              paragraph. ⚠️ The repos fields are no longer folded behind a `<details>` — they were « facultatif »
+              when the certificate had another body, and they are now the only thing on it.
+            */}
+            {documentType === "certificat" && (
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="duration" className="text-sm font-semibold text-foreground">
+                      Durée du repos
+                    </Label>
+                    {/* Le compte et son unité sur une ligne : « 5 jours » est une seule réponse. */}
+                    <div className="flex gap-2">
+                      <Input
+                        id="duration"
+                        type="number"
+                        min="1"
+                        placeholder="Ex : 3"
+                        value={formFields.duration}
+                        onChange={(e) => setFormFields({ ...formFields, duration: e.target.value })}
+                        className="h-11 min-w-0 flex-1 md:text-sm"
+                      />
+                      <select
+                        aria-label="Unité de la durée du repos"
+                        value={durationUnitOf(formFields.durationUnit)}
+                        onChange={(e) => setFormFields({ ...formFields, durationUnit: e.target.value })}
+                        className="h-11 shrink-0 rounded-md border border-input bg-background px-3 text-base md:text-sm"
+                      >
+                        <option value={DURATION_UNITS.jours}>jours</option>
+                        <option value={DURATION_UNITS.mois}>mois</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="startDate" className="text-sm font-semibold text-foreground">
+                      À compter du
+                    </Label>
+                    <Input
+                      id="startDate"
+                      type="date"
+                      value={formFields.startDate}
+                      onChange={(e) => setFormFields({ ...formFields, startDate: e.target.value })}
+                      className="h-11 md:text-sm"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Laissez la durée vide pour un certificat sans repos : la phrase s&apos;arrête alors après
+                  «&nbsp;certifie avoir examiné ce jour&nbsp;».
+                </p>
+
+                {/* FR-2.5: CNOMDT ordre — pre-filled from the doctor's profile, printed in the letterhead. */}
                 <div className="space-y-2">
                   <Label htmlFor="doctorOrderNumber" className="text-sm font-semibold text-foreground">
-                    Numéro d'ordre (CNOMDT)
+                    Numéro d&apos;ordre (CNOMDT)
                   </Label>
                   <Input
                     id="doctorOrderNumber"
@@ -2812,47 +3048,9 @@ export function DocumentEditorContent() {
                       : "Aucun numéro d'ordre sur votre profil. Ajoutez-le dans « Mon profil »."}
                   </p>
                 </div>
-
-                {/* FR-2.1: the repos médical block is one optional use, not the only template. */}
-                <details
-                  className="rounded-lg border px-4 py-3"
-                  open={reposOpen}
-                  onToggle={(e) => setReposOpen(e.currentTarget.open)}
-                >
-                  <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    Repos médical (facultatif)
-                  </summary>
-                  <div className="space-y-4 pt-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="duration" className="text-sm font-semibold text-foreground">
-                        Durée du repos médical (en jours)
-                      </Label>
-                      <Input
-                        id="duration"
-                        type="number"
-                        min="1"
-                        placeholder="Ex : 3"
-                        value={formFields.duration}
-                        onChange={(e) => setFormFields({ ...formFields, duration: e.target.value })}
-                        className="h-11"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="startDate" className="text-sm font-semibold text-foreground">
-                        Date de début du repos médical
-                      </Label>
-                      <Input
-                        id="startDate"
-                        type="date"
-                        value={formFields.startDate}
-                        onChange={(e) => setFormFields({ ...formFields, startDate: e.target.value })}
-                        className="h-11"
-                      />
-                    </div>
-                  </div>
-                </details>
               </>
             )}
+
 
             {documentType === "arret-travail" && (
               <div className="space-y-5">
@@ -3651,29 +3849,7 @@ export function DocumentEditorContent() {
                   )}
                 </div>
 
-                {/* Recipient (for liaison) */}
-                {documentType === "liaison" && (
-                  <div className="space-y-1 py-3 px-3">
-                    <p style={{ fontSize: '11pt' }}>À l'attention de:</p>
-                    <div
-                      className="rounded px-1"
-                    >
-                      {recipientDoctorName ? (
-                        <>
-                          <p className="font-bold" style={{ fontSize: '12pt' }}>{recipientDoctorName}</p>
-                          {recipientDoctorSpecialty && (
-                            <p className="text-muted-foreground" style={{ fontSize: '11pt' }}>{recipientDoctorSpecialty}</p>
-                          )}
-                          {formFields.recipientAddress && (
-                            <p className="text-muted-foreground whitespace-pre-wrap" style={{ fontSize: '11pt' }}>{formFields.recipientAddress}</p>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-muted-foreground italic" style={{ fontSize: '11pt' }}>Entrez le nom du confrère destinataire</p>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {/* No « À l'attention de » block — the letter is a blank letterhead. See the PDF renderer. */}
 
                 {/* Date */}
                 <div className="text-right pb-2">
@@ -3695,7 +3871,8 @@ export function DocumentEditorContent() {
                   <h2 className="font-bold uppercase" style={{ fontSize: '16pt' }}>{getDocumentTitle()}</h2>
                 </div>
 
-                {/* Patient Info */}
+                {/* Patient Info — withheld on the two types that name their own patient in the prose. */}
+                {documentType !== "liaison" && documentType !== "certificat" && (
                 <div className="space-y-2 py-3 px-3">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -3723,15 +3900,8 @@ export function DocumentEditorContent() {
                       </div>
                     )}
                   </div>
-                  {/* Mirrors the PDF's identity block: the norms keep the professionals' identity with the
-                      patient's, not in the clinical synthèse. */}
-                  {documentType === "liaison" && formFields.medecinTraitant.trim() && (
-                    <div>
-                      <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Médecin traitant / praticien adresseur</p>
-                      <p className="px-1" style={{ fontSize: '12pt' }}>{formFields.medecinTraitant.trim()}</p>
-                    </div>
-                  )}
                 </div>
+                )}
 
                 <Separator />
 
@@ -3739,17 +3909,26 @@ export function DocumentEditorContent() {
                 <div className="space-y-4 flex-1">
                   {documentType === "prescription" && (
                     <div className="space-y-2">
-                      <h3 className="font-bold pb-2" style={{ fontSize: '12pt' }}>Prescription:</h3>
                       {Array.isArray(formFields.medications) && formFields.medications.length > 0 ? (
-                        <div className="space-y-2 pl-1">
+                        <div className="space-y-1">
                           {formFields.medications.map((med, idx) => {
-                            const medText = formatPrescriptionLine(med);
+                            const printed = prescriptionLineParts(med);
                             return (
-                              <div key={idx} className="py-1" style={{ fontSize: '11pt' }}>
-                                {medText}
+                              /* « 1/ », the médicament underlined, its posologie and whatever else the
+                                 prescriber filled in indented plain under it — the PDF renderer's own rules,
+                                 from the same composer. The underline stops at the médicament. */
+                              <div key={idx} className="flex gap-2 py-1" style={{ fontSize: '11pt' }}>
+                                <span className="shrink-0">{idx + 1}/</span>
+                                <div className="min-w-0 space-y-0.5">
+                                  <p className="underline">{printed.heading}</p>
+                                  {printed.posology && <p className="ps-5">{printed.posology}</p>}
+                                  {printed.details && <p className="ps-5">{printed.details}</p>}
+                                </div>
                               </div>
                             );
                           })}
+                          {/* Closes the list, so nothing can be written under the last médicament. */}
+                          <div className="border-b border-foreground pt-1" />
                         </div>
                       ) : (
                         // Deliberately NOT an `EmptyState`: this is inside the paper, and `handlePrint` clones
@@ -3792,10 +3971,58 @@ export function DocumentEditorContent() {
                     // FR-6.3: read-only preview — the left-hand form is the single source of truth. Rendered
                     // from the same shared builder as the Word export / PDF so all three read identically.
                     <div style={{ fontSize: '11pt', lineHeight: '1.8', textAlign: 'justify' }} className="space-y-3">
-                      {certificatBodyParagraphs().map((paragraph, index) => (
-                        <p key={index}>{paragraph}</p>
+                      {certificatBodyParagraphs().map((runs, index) => (
+                        <p key={index}>
+                          {runs.map((run, runIndex) =>
+                            run.bold ? <strong key={runIndex}>{run.text}</strong> : <span key={runIndex}>{run.text}</span>,
+                          )}
+                        </p>
                       ))}
-                      <p className="italic">{CERTIFICAT_MANDATORY_MENTION}</p>
+                    </div>
+                  )}
+
+                  {documentType === "honoraires" && (
+                    // Read-only preview of the priced table — the left-hand form is the single source of truth,
+                    // and the server recomputes every figure at render time (see `honorairesAmount`).
+                    <div style={{ fontSize: '11pt' }} className="space-y-3">
+                      {honorairesNamedLines(formFields.honorairesActs).length === 0 ? (
+                        // Deliberately not an `EmptyState`: `handlePrint` clones this subtree into the print
+                        // window, so an icon chip and a call to action would be printed onto the note.
+                        <div className="min-h-[120px] p-4 border-2 border-dashed border-border rounded-lg text-muted-foreground">
+                          Aucun acte ajouté
+                        </div>
+                      ) : (
+                        <>
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b border-foreground/40">
+                                <th className="py-1 text-left font-bold">Désignation</th>
+                                <th className="py-1 text-right font-bold">Qté</th>
+                                <th className="py-1 text-right font-bold">P.U.</th>
+                                <th className="py-1 text-right font-bold">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {honorairesNamedLines(formFields.honorairesActs).map((act, index) => (
+                                <tr key={index} className="border-b border-foreground/10">
+                                  <td className="py-1">{act.designation}</td>
+                                  <td className="py-1 text-right">{honorairesQuantity(act.quantity)}</td>
+                                  <td className="py-1 text-right">{formatDT(honorairesAmount(act.unitPrice))}</td>
+                                  <td className="py-1 text-right">{formatDT(honorairesLineTotal(act))}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <p className="text-right font-bold" style={{ fontSize: '12pt' }}>
+                            Total : {formatDT(honorairesTotal(formFields.honorairesActs))}
+                          </p>
+                        </>
+                      )}
+                      {formFields.honorairesNote.trim() && (
+                        <p className="whitespace-pre-wrap pt-2" style={{ fontSize: '10pt' }}>
+                          {formFields.honorairesNote.trim()}
+                        </p>
+                      )}
                     </div>
                   )}
 

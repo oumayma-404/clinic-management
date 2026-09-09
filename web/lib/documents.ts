@@ -31,13 +31,18 @@ export interface DocumentTemplate {
   icon: LucideIcon
   tile: string
   /**
-   * Whether the gallery offers this template. Defaults to true; only `examens` sets it false.
+   * Whether the gallery offers this template. Defaults to true.
    *
    * <p>⚠️ <b>It is not a soft delete.</b> The type still needs a row here — `documentTypeLabel` is derived from
-   * this array, so a type missing from it renders its raw key (« examens ») in the patient's Documents tab.
-   * What the flag says is « the fiche de soins is the only writer », which is why the standalone editor has no
-   * form for it: a demande d'examens is prescribed at a séance. Flipping this to true is the whole of « let a
-   * dentist write one without recording a fiche », and it needs the editor's form and preview first.</p>
+   * this array, so a type missing from it renders its raw key (« examens ») in the patient's Documents tab, and
+   * `check:responsive`'s `document-type-set-has-one-owner` compares this array against the server's set in both
+   * directions.</p>
+   *
+   * <p>Three types set it false, for two different reasons. `examens`: the fiche de soins is its only writer, so
+   * there is no blank form to start from. `arret-travail` and `bulletin-cnam`: the two official CNAM forms are
+   * <b>withheld until they are finished</b> — their editors, validators, overlay renderers and tests are all
+   * still here and still build, they are simply not offered, because a form filled today would be filed at a
+   * caisse that rejects it. Flipping either back to true is the whole of « ship it ».</p>
    */
   creatable?: boolean
 }
@@ -89,18 +94,23 @@ export const DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = [
     tile: "bg-chart-3/12 text-chart-3",
   },
   {
+    // ⚠️ Withheld, not retired — see `creatable`. The P 061 overlay renderer, the validation and the editor
+    // form all still exist and still build; the form is not offered because it is not finished.
     type: "arret-travail",
     title: "Arrêt de travail",
     description: "Certificat médical d'arrêt de travail sur le formulaire officiel CNAM P 061",
     icon: CalendarX,
     tile: "bg-chart-3/12 text-chart-3",
+    creatable: false,
   },
   {
+    // ⚠️ Withheld, not retired — same as the arrêt de travail above.
     type: "bulletin-cnam",
     title: "Bulletin de soins CNAM",
     description: "Bulletin de remboursement des frais de soins (BS1) à déposer à la CNAM",
     icon: FileText,
     tile: "bg-chart-2/12 text-chart-2",
+    creatable: false,
   },
 ]
 
@@ -118,11 +128,13 @@ export const documentTypeLabel = (type: string): string =>
  * The templates a user may start from scratch — every surface that offers « nouveau document » reads this,
  * never {@link DOCUMENT_TEMPLATES} directly.
  *
- * <p>⚠️ <b>`honoraires` is deliberately still here.</b> The type is retired and both server paths reject it,
- * but its tile is a <i>signpost</i>: `app/documents/[type]/page.tsx` intercepts it and says the honoraires
- * live in the Factures module. Dropping the tile would leave whoever is looking for one with nothing to click
- * and nowhere to be told. What this list removes is `examens`, and for a different reason — it is a live
- * document that the <b>fiche de soins alone</b> writes, so there is no blank form to start from.</p>
+ * <p>⚠️ <b>`honoraires` is a real editor again, and it creates a DOCUMENT — never an <c>Invoice</c>.</b> It was
+ * retired, then routed into invoice creation, and that is what made the documents module a second writer of the
+ * money ledger: it minted draft factures every balance in the app sums. Now it saves a printable sheet like an
+ * ordonnance — no number, no ledger row, nothing in la caisse. The numbered fiscal note is still raised in the
+ * Factures module. What this list removes is `examens` (the <b>fiche de soins alone</b> writes it, so
+ * there is no blank form to start from) and the two CNAM forms, `arret-travail` and `bulletin-cnam`, which are
+ * withheld until they are finished — see `creatable`.</p>
  */
 export const CREATABLE_DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = DOCUMENT_TEMPLATES.filter(
   (template) => template.creatable !== false,
@@ -144,6 +156,25 @@ export const EXAMENS_INTRO_PLURAL = "Prière de bien vouloir faire pratiquer les
 /** Singular below two, exactly as the renderer decides it. */
 export const examensIntro = (count: number): string =>
   count === 1 ? EXAMENS_INTRO_SINGULAR : EXAMENS_INTRO_PLURAL
+
+/**
+ * The civilité printed before a patient's name on a certificat médical — « M. », « Mme », or « M./Mme » when
+ * the record does not say, so the practitioner can strike one out rather than be given a guess.
+ *
+ * <p>⚠️ It is computed HERE and shipped as the certificat's `patientCivility` content key, deliberately not as
+ * a field on `MedicalDocumentPdfData`: `PatientSex` was withdrawn from that model on purpose (see the tombstone
+ * in `DocumentIdentity.PatientLines`), because it printed « Sexe » on every ordonnance ever issued. A civilité
+ * inside one document's own content is not that field coming back.</p>
+ *
+ * <p>The server's fallback is the same string — `CertificatTextBuilder.UnknownCivility` — so a legacy certificat
+ * with no stored key still reads correctly.</p>
+ */
+export const patientCivility = (gender: string | null | undefined): string => {
+  const value = gender?.trim().toLowerCase()
+  if (value === "male") return "M."
+  if (value === "female") return "Mme"
+  return "M./Mme"
+}
 
 /*
  * ── The ordonnance's lines ────────────────────────────────────────────────────────────────────────────────
@@ -189,44 +220,94 @@ export type PrescriptionLine = {
   kind?: string
   name: string
   dosage: string
+  /** Dose par prise — « 1 comprimé », « 5 gouttes ». The first half of the printed posologie. */
+  dose?: string
   timesPerDay: string
   /** Voie d'administration — « par voie orale », « en application locale »… Free text: the norms name no closed list. */
   route?: string
   /** Quantité à délivrer (boîtes / unités) — what makes the line dispensable. */
   quantity?: string
   duration: string
+  /** « jours » | « mois ». Absent reads as jours — see {@link durationUnitOf}. */
+  durationUnit?: string
   medicationId?: string
   dci?: string[]
+}
+
+/**
+ * The unit a duration is counted in on a document a practitioner issues — a médicament's durée, a certificat's
+ * repos. Mirrors the server's `DurationUnits`, and shared by both for the same reason: one question, two answers.
+ *
+ * ⚠️ An absent unit is **jours**: every value written before this key existed holds a day count, and the printed
+ * sentence appended « jour(s) » unconditionally. Read it through {@link durationUnitOf}.
+ */
+export const DURATION_UNITS = { jours: "jours", mois: "mois" } as const
+
+export type DurationUnit =
+  (typeof DURATION_UNITS)[keyof typeof DURATION_UNITS]
+
+export const durationUnitOf = (unit: string | null | undefined): DurationUnit =>
+  unit?.trim().toLowerCase() === DURATION_UNITS.mois
+    ? DURATION_UNITS.mois
+    : DURATION_UNITS.jours
+
+/** The word printed after the count — « mois » is invariable, « jour » takes the plural. */
+export const durationUnitLabel = (
+  unit: string | null | undefined,
+  count: string | null | undefined,
+): string => {
+  if (durationUnitOf(unit) === DURATION_UNITS.mois) return "mois"
+  const days = Number.parseInt((count ?? "").trim(), 10)
+  return Number.isFinite(days) && days <= 1 ? "jour" : "jours"
 }
 
 /** @deprecated The old name, kept so the document editor's existing call sites read unchanged. */
 export type MedicationLine = PrescriptionLine
 
 /**
- * The one client-side rendering of a prescribed line, shared by the read-only preview and the Word export.
+ * The one client-side rendering of a prescribed line, shared by the read-only A4 preview and the Word export.
  *
- * ⚠️ Must stay identical to the server's `PrescriptionContent.FormatLine`, which renders the PDF — the two are
- * the same ordonnance seen twice. It exists because the preview and the Word export each carried their own copy
- * of this formatting, so adding the voie and the quantité would have made three implementations of what a
- * prescription line says.
+ * ⚠️ Must stay identical to the server's `PrescriptionContent`, which renders the PDF — the two are the same
+ * ordonnance seen twice. It exists because the preview and the Word export each carried their own copy of this
+ * formatting, so adding the voie and the quantité would have made three implementations of what a prescription
+ * line says.
  *
- * ⚠️ An **examen** needs no branch here and must not get one: its line carries only a `name`, so every clause
- * below is skipped and the text comes out verbatim — which is precisely why the fiche's examens print
- * correctly without touching any of the three formatters.
+ * ⚠️ **A line is THREE parts, not one sentence.** The médicament prints on its own line, underlined, under a
+ * « 1/ » number; the posologie prints indented under it; whatever else the prescriber filled in (la voie, la
+ * quantité) prints under that; and a rule closes the list so nothing can be written below the last one.
+ * Flattening them back into a sentence undoes the whole shape — which is what this replaced.
+ *
+ * ⚠️ **Only the médicament is underlined.** It is the one thing a pharmacist has to find on the sheet, and
+ * underlining the posologie with it underlines neither.
+ *
+ * ⚠️ **The DCI is not printed.** It is still on the line (a catalogue entry going inactive must not rewrite an
+ * issued ordonnance) and still read by the fiche's row label — it is simply not on the paper, where
+ * « (DCI : Amoxicilline) » after the brand name duplicates it for every catalogue médicament.
+ *
+ * ⚠️ An **examen** needs no branch here and must not get one: its line carries only a `name`, so both lower
+ * parts come out empty and the heading is the request verbatim — which is why the fiche's examens print
+ * correctly without touching any formatter.
  */
-export const formatPrescriptionLine = (med: PrescriptionLine): string => {
-  let text = med.name?.trim() || "Médicament"
-  if (med.dosage?.trim()) text += ` ${med.dosage.trim()}`
-  if (med.timesPerDay?.trim()) text += `, ${med.timesPerDay.trim()}x par jour`
-  if (med.route?.trim()) text += `, ${med.route.trim()}`
-  if (med.duration?.trim()) {
-    const days = Number.parseInt(med.duration, 10)
-    text += ` pendant ${med.duration.trim()} jour${days > 1 ? "s" : ""}`
+export const prescriptionLineParts = (
+  med: PrescriptionLine,
+): { heading: string; posology: string; details: string } => {
+  const heading = med.name?.trim() || "Médicament"
+  const dosage = med.dosage?.trim()
+
+  let posology = med.dose?.trim() ?? ""
+  const times = med.timesPerDay?.trim()
+  if (times) posology = posology ? `${posology} * ${times} / jour` : `${times} / jour`
+  const duration = med.duration?.trim()
+  if (duration) {
+    const unit = durationUnitLabel(med.durationUnit, duration)
+    posology += posology ? ` pendant ${duration} ${unit}` : `Pendant ${duration} ${unit}`
   }
-  if (med.quantity?.trim()) text += ` — quantité : ${med.quantity.trim()}`
-  const dci = (med.dci ?? []).map((d) => d?.trim()).filter(Boolean).join(", ")
-  if (dci) text += ` (DCI : ${dci})`
-  return text
+
+  let details = med.route?.trim() ?? ""
+  const quantity = med.quantity?.trim()
+  if (quantity) details = details ? `${details} — quantité : ${quantity}` : `quantité : ${quantity}`
+
+  return { heading: dosage ? `${heading} (${dosage})` : heading, posology, details }
 }
 
 /**
@@ -261,6 +342,8 @@ export const emptyPrescriptionLine = (kind: PrescriptionKind): PrescriptionLine 
   kind,
   name: "",
   dosage: "",
+  dose: "",
   timesPerDay: "",
   duration: "",
+  durationUnit: DURATION_UNITS.jours,
 })

@@ -40,7 +40,9 @@ public class PrescriptionRenderContentTests
             "\"dosage\":\"\",\"timesPerDay\":\"\",\"duration\":\"\"}]");
 
         var line = Assert.Single(body.Lines);
-        Assert.Equal("Radiographie panoramique dentaire — bilan pré-implantaire", line.Text);
+        Assert.Equal("Radiographie panoramique dentaire — bilan pré-implantaire", line.Heading);
+        Assert.Equal(string.Empty, line.Posology);
+        Assert.Equal(string.Empty, line.Details);
     }
 
     /// <summary>
@@ -51,16 +53,49 @@ public class PrescriptionRenderContentTests
     public void The_Kind_Key_Changes_Nothing_About_A_Medicament_Line()
     {
         const string fields =
-            "\"name\":\"Augmentin Comprimé\",\"dosage\":\"1 g\",\"timesPerDay\":\"3\"," +
-            "\"route\":\"par voie orale\",\"quantity\":\"1 boîte\",\"duration\":\"7\"";
+            "\"name\":\"Augmentin Comprimé\",\"dosage\":\"1 g\",\"dose\":\"1 comprimé\"," +
+            "\"timesPerDay\":\"3\",\"route\":\"par voie orale\",\"quantity\":\"1 boîte\"," +
+            "\"duration\":\"7\"";
 
         var withKind = Build("[{\"kind\":\"medicament\"," + fields + "}]");
         var without = Build("[{" + fields + "}]");
 
-        Assert.Equal(without.Lines[0].Text, withKind.Lines[0].Text);
-        Assert.Equal(
-            "Augmentin Comprimé 1 g, 3x par jour, par voie orale pendant 7 jours — quantité : 1 boîte",
-            withKind.Lines[0].Text);
+        Assert.Equal(without.Lines[0], withKind.Lines[0]);
+        // Three parts, printed on three lines — and only the first two are underlined.
+        Assert.Equal("Augmentin Comprimé (1 g)", withKind.Lines[0].Heading);
+        Assert.Equal("1 comprimé * 3 / jour pendant 7 jours", withKind.Lines[0].Posology);
+        Assert.Equal("par voie orale — quantité : 1 boîte", withKind.Lines[0].Details);
+    }
+
+    /// <summary>
+    /// A durée counted in months, and the absence of the key reading as jours — which is what keeps every line
+    /// written before <c>durationUnit</c> existed printing the words it always did.
+    /// </summary>
+    [Fact]
+    public void The_Duration_Unit_Is_Jours_Unless_The_Line_Says_Mois()
+    {
+        var months = Build("[{\"name\":\"Fluor\",\"dose\":\"1 comprimé\",\"timesPerDay\":\"1\"," +
+                           "\"duration\":\"6\",\"durationUnit\":\"mois\"}]");
+        var legacy = Build("[{\"name\":\"Fluor\",\"dose\":\"1 comprimé\",\"timesPerDay\":\"1\"," +
+                           "\"duration\":\"6\"}]");
+
+        Assert.Equal("1 comprimé * 1 / jour pendant 6 mois", months.Lines[0].Posology);
+        Assert.Equal("1 comprimé * 1 / jour pendant 6 jours", legacy.Lines[0].Posology);
+    }
+
+    /// <summary>
+    /// The DCI stays on the line — a catalogue entry going inactive must not rewrite an issued ordonnance — and
+    /// stays off the paper: after the brand name the dentist chose, it duplicates it on every catalogue
+    /// médicament, on the one part of the sheet that has to be read at a glance.
+    /// </summary>
+    [Fact]
+    public void The_Dci_Is_Snapshotted_But_Never_Printed()
+    {
+        var body = Build("[{\"name\":\"Augmentin\",\"dosage\":\"1 g\",\"dose\":\"1 comprimé\"," +
+                         "\"timesPerDay\":\"3\",\"duration\":\"7\",\"dci\":[\"Amoxicilline\"]}]");
+
+        var line = Assert.Single(body.Lines);
+        Assert.DoesNotContain("DCI", line.Heading + line.Posology + line.Details);
     }
 
     [Fact]
@@ -69,7 +104,9 @@ public class PrescriptionRenderContentTests
         var body = Build("Amoxicilline 1g, 2 fois par jour pendant 6 jours");
 
         var line = Assert.Single(body.Lines);
-        Assert.Equal("Amoxicilline 1g, 2 fois par jour pendant 6 jours", line.Text);
+        Assert.Equal("Amoxicilline 1g, 2 fois par jour pendant 6 jours", line.Heading);
+        Assert.Equal(string.Empty, line.Posology);
+        Assert.Equal(string.Empty, line.Details);
     }
 
     [Fact]

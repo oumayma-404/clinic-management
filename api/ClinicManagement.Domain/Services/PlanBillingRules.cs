@@ -47,16 +47,35 @@ public static class PlanBillingRules
     {
         TreatmentPlanStatus.Accepted,
         TreatmentPlanStatus.InProgress,
-        TreatmentPlanStatus.Completed
+        TreatmentPlanStatus.Completed,
+        /*
+         * ⚠️ A **stopped** treatment owes what was delivered. `StopTreatment` parks the acts with no séance
+         * behind them and re-spreads the schedule onto what is kept, so the plan's total is already the honest
+         * one by the time this list is consulted — omitting the status here would erase that balance from
+         * « Créances », « Solde patient », la caisse, the dashboard and « Chèques à encaisser » at once, with
+         * no error and no screen saying so.
+         */
+        TreatmentPlanStatus.Stopped
     };
 
-    /// <summary>True when a plan in this status contributes to what the patient owes.</summary>
+    /// <summary>
+    /// True when a plan in this status contributes to what the patient owes.
+    /// <para>
+    /// ⚠️ <b>Every member is listed and there is no <c>_</c> arm</b>, deliberately: a discard would classify
+    /// the next appended status as « owes nothing » silently, and the two statuses that reach this method by
+    /// way of a closed treatment (<c>Completed</c>, <c>Stopped</c>) are precisely the ones a reader expects to
+    /// be false. Without the discard the compiler names this file the day a member is added, and
+    /// <c>TreatmentPlanStatusCoverageTests</c> fails the build if the answer is left unconsidered.
+    /// </para>
+    /// </summary>
     public static bool CarriesDebt(TreatmentPlanStatus status) => status switch
     {
+        TreatmentPlanStatus.Draft => false,
         TreatmentPlanStatus.Accepted => true,
         TreatmentPlanStatus.InProgress => true,
         TreatmentPlanStatus.Completed => true,
-        _ => false
+        TreatmentPlanStatus.Stopped => true,
+        TreatmentPlanStatus.Cancelled => false
     };
 
     /// <summary>

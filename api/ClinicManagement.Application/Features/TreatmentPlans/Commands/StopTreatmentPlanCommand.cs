@@ -39,12 +39,27 @@ public class StopTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
     /// colleague recording a séance in between would change which of them have delivered work.
     /// </summary>
     public uint Version { get; set; }
+
+    /// <summary>
+    /// The motif, required <b>only</b> when this stop is really a cancellation — see
+    /// <see cref="Domain.Entities.TreatmentPlan.StopWouldCancel"/>. Optional otherwise and ignored.
+    /// <para>
+    /// ⚠️ <b>This is what folded « Annuler le devis » into « Arrêter le traitement ».</b> The two were separate
+    /// buttons asking the user a question the system had already answered: nothing delivered on a numbered
+    /// devis ⇒ cancellation (the number is spent, the document may be in the patient's hands, a motif is owed);
+    /// anything delivered ⇒ stop (park the rest, keep what was done). The old stop dialog even flipped its own
+    /// confirm button to « Annuler le devis… » on that exact condition and then made the dentist start again in
+    /// the other dialog.
+    /// </para>
+    /// </summary>
+    public string? Reason { get; set; }
 }
 
 public class StopTreatmentPlanCommandHandler
     : IRequestHandler<StopTreatmentPlanCommand, Result<TreatmentPlanDto>>
 {
     private readonly ITreatmentPlanRepository _planRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
@@ -52,12 +67,14 @@ public class StopTreatmentPlanCommandHandler
 
     public StopTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
+        IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<StopTreatmentPlanCommandHandler> logger)
     {
         _planRepository = planRepository;
+        _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
@@ -82,6 +99,40 @@ public class StopTreatmentPlanCommandHandler
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
+            /*
+             * The branch, decided from the aggregate and never from the user. `StopWouldCancel` is true only
+             * for a NUMBERED devis with no delivered work: nothing can be kept, so closing it on what was
+             * carried out is not available and the spent number needs a motif instead. An un-numbered Draft
+             * answers false and stops normally — « le patient ne revient plus » before anyone asked for a quote
+             * is the most ordinary outcome there is, and refusing it was a dead end.
+             */
+            if (plan.StopWouldCancel)
+            {
+                if (string.IsNullOrWhiteSpace(request.Reason))
+                {
+                    return Result<TreatmentPlanDto>.Failure(
+                        "Aucun acte de ce devis n'a été réalisé : indiquez le motif pour l'annuler.");
+                }
+
+                plan.Cancel(request.Reason);
+
+                // Same save as the void — a note left naming a cancelled devis is a permanent dead end. Shared
+                // with `CancelTreatmentPlanCommand` rather than copied; see `TreatmentPlanBridgeRelease`.
+                var released = await TreatmentPlanBridgeRelease.DetachAsync(
+                    _invoiceRepository, clinicResult.Value, plan.Id, cancellationToken);
+
+                _unitOfWork.SetExpectedVersion(plan, request.Version);
+                await _planRepository.UpdateAsync(plan, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "Cancelled treatment plan {PlanId} through the stop path: nothing delivered, {Released} note(s) released",
+                    plan.Id, released);
+
+                var cancelledPatient = await _patientRepository.GetByIdAsync(plan.PatientId, cancellationToken);
+                return Result<TreatmentPlanDto>.Success(plan.ToDto(cancelledPatient?.GetFullName()));
+            }
+
             // `ClinicClock`, never `DateTime.Today` — the re-spread échéance is a calendar day in Tunisia, and
             // the client used to build it from the browser's own clock, which dates it to yesterday for the
             // first hour of every Tunisian day and makes it « En retard » the moment it is written.
@@ -100,6 +151,12 @@ public class StopTreatmentPlanCommandHandler
         }
         catch (InvalidOperationException ex)
         {
+            return Result<TreatmentPlanDto>.Failure(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            // `Cancel` throws this on a blank motif. Reachable only through the cancel branch, and it must not
+            // be flattened into the generic sentence below.
             return Result<TreatmentPlanDto>.Failure(ex.Message);
         }
         catch (Exception ex) when (ex is not ConflictException)

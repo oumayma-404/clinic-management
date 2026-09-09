@@ -67,6 +67,10 @@ public class PrescriptionLineInput
     public string? Name { get; set; }
 
     public string? Dosage { get; set; }
+
+    /// <summary>Dose par prise — « 1 comprimé », « 5 gouttes ». The first half of the printed posologie.</summary>
+    public string? Dose { get; set; }
+
     public string? TimesPerDay { get; set; }
 
     /// <summary>Voie d'administration — free text, because the norms name no closed list.</summary>
@@ -76,6 +80,9 @@ public class PrescriptionLineInput
     public string? Quantity { get; set; }
 
     public string? Duration { get; set; }
+
+    /// <summary>« jours » or « mois » — see <c>DurationUnits</c>. Absent reads as jours.</summary>
+    public string? DurationUnit { get; set; }
 
     /// <summary>
     /// The catalogue entry this line was picked from, when it was. Absent for a free-text drug — which is a

@@ -14,33 +14,16 @@ export default async function DocumentEditorPage({ params }: { params: Promise<{
           gutter and no page scroller — both branches below stretch through their own `flex-1`.
           ⚠️ `AppShell` is intentionally not a client component, which is what lets this page stay `async`. */}
       <AppShell width="none" gutter={false} mainClassName="flex flex-col overflow-hidden">
-        {type === "honoraires" ? (
-          // The honoraires editor is retired (finding #13): notes d'honoraires are now created as invoices
-          // in the Factures module. Guard the route so a direct/legacy link lands on a clear notice instead
-          // of the old euro-denominated form (whose save/PDF path is rejected server-side).
-          <div className="flex-1 flex items-center justify-center p-6">
-            <div className="max-w-md space-y-4 text-center">
-              <h1 className="text-xl font-semibold text-foreground">Note d&apos;honoraires</h1>
-              <p className="text-muted-foreground">
-                Les notes d&apos;honoraires sont désormais gérées dans le module Factures.
-              </p>
-              <Link
-                href="/factures"
-                className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                Aller aux Factures
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <Suspense
-            fallback={
-              <AppLoader className="flex-1" />
-            }
-          >
-            <DocumentEditorContent />
-          </Suspense>
-        )}
+        {/* ⚠️ `honoraires` used to be intercepted here and sent to Factures. It is an ordinary printable
+            document again — TND, no number, no ledger row — so it goes through the editor like every other
+            type. The numbered fiscal note is still the Factures module's, and nothing here creates one. */}
+        <Suspense
+          fallback={
+            <AppLoader className="flex-1" />
+          }
+        >
+          <DocumentEditorContent />
+        </Suspense>
       </AppShell>
     </ClinicGuard>
   )

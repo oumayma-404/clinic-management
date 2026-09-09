@@ -2297,6 +2297,26 @@ check(
 
     // The hand-written shape, in either order and with either operand spelling.
     const HAND_WRITTEN = /===\s*"(Accepted|InProgress)"\s*\|\|[^\n]*===\s*"(Accepted|InProgress)"/g;
+    /*
+     * ⚠️ **The NEGATIVE form, added 2026-09-09, and it is the one that actually shipped a defect.**
+     *
+     * `isPlanLive` itself was written as `status !== "Cancelled" && status !== "Completed"` — phrased that way
+     * deliberately, because enumerating the OPEN statuses is what left `Draft` out when it became one. That
+     * reasoning was sound and the phrasing still failed: appending `Stopped` (so « Arrêter le traitement » stops
+     * writing `Completed`, and a stopped treatment can be told from a finished one) made a stopped plan read as
+     * **live** — bookable, listed under « Traitements suivis », ringed on the odontogramme, its acts offered in
+     * the booking dialogs — with no error anywhere. Both phrasings fail for the same reason: the set is not
+     * closed. The answer is one deliberate list inside `isPlanLive`, with the server's twin held by
+     * `TreatmentPlanStatusCoverageTests`.
+     *
+     * ⚠️ **It is anchored on a PLAN subject, and the first version was not.** `AppointmentStatus` has its own
+     * `Cancelled` / `Completed` members, so an unanchored pattern flagged two entirely correct lines —
+     * `patients/[id]/page.tsx`'s « can this visit still be recorded? » and the agenda's « is this block
+     * draggable? » — neither of which has anything to do with a devis. A guard that fires on correct code is
+     * one somebody deletes.
+     */
+    const HAND_WRITTEN_NEGATIVE =
+      /\b(?:\w*[Pp]lan|p)\.status\s*!==\s*"(?:Cancelled|Completed|Stopped)"\s*&&[^\n]*!==\s*"(?:Cancelled|Completed|Stopped)"/g;
     let candidates = 0;
 
     for (const f of tsx()) {
@@ -2310,15 +2330,27 @@ check(
       const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
 
       const hits = [...code.matchAll(HAND_WRITTEN)];
-      if (hits.length === 0) continue;
-      candidates += hits.length;
-      offenders.push({
-        file: relPath,
-        line: lineAt(code, hits[0].index),
-        text:
-          "writes the live-treatment test out by hand — call `isPlanLive(plan.status)` instead, or an " +
-          "un-numbered treatment silently loses its actions here",
-      });
+      const negatives = [...code.matchAll(HAND_WRITTEN_NEGATIVE)];
+      if (hits.length === 0 && negatives.length === 0) continue;
+      candidates += hits.length + negatives.length;
+      if (hits.length > 0) {
+        offenders.push({
+          file: relPath,
+          line: lineAt(code, hits[0].index),
+          text:
+            "writes the live-treatment test out by hand — call `isPlanLive(plan.status)` instead, or an " +
+            "un-numbered treatment silently loses its actions here",
+        });
+      }
+      if (negatives.length > 0) {
+        offenders.push({
+          file: relPath,
+          line: lineAt(code, negatives[0].index),
+          text:
+            "excludes the closed statuses by hand — call `isPlanLive(plan.status)` instead. The status set is " +
+            "not closed: `Stopped` was appended and this shape read it as LIVE, with no error anywhere",
+        });
+      }
     }
 
     /*
@@ -2796,23 +2828,24 @@ check(
   "prescription-line-has-one-owner",
   "N32",
   "The printed ordonnance line is composed in one place — no surface re-derives it",
-  "A prescription line is one sentence assembled from six optional parts in a fixed order the norms care " +
-    "about (le médicament, le dosage, la posologie, la voie, la durée, la quantité, then the DCI). It is " +
-    "rendered THREE times by contract — `PrescriptionContent.FormatLine` for the PDF, `formatPrescriptionLine` " +
-    "for the on-screen A4 preview, and the same function for the Word export — and the file that owns the " +
-    "browser half says in as many words that this formatting had already existed in three copies once, before " +
-    "the voie and the quantité were added to two of them. Now that the fiche de soins writes the same " +
-    "ordonnance, a fourth copy is exactly what a séance history row or a section summary invites: both want a " +
-    "short label, and the tempting way to get one is to paste the sentence and trim it. The consequence is not " +
-    "cosmetic — the two renderings drift, and the ordonnance a pharmacist reads stops matching the one the " +
-    "dentist proof-read on screen. `, Nx par jour` is the fragment only that assembly produces, so it is the " +
-    "marker: a real string literal outside `lib/documents.ts` is a second composer. Prose is fine — comments " +
-    "are masked — because only code can disagree.",
+  "A prescription line is THREE parts assembled from the optional fields the norms care about — the " +
+    "médicament and its dosage, then the posologie (la dose, la fréquence, la durée in jours or mois), then " +
+    "la voie and la quantité — printed on three lines under a « 1/ » number, with only the first two " +
+    "underlined. It is rendered THREE times by contract: `PrescriptionContent` for the PDF, " +
+    "`prescriptionLineParts` for the on-screen A4 preview, and the same function for the Word export. The " +
+    "file that owns the browser half says in as many words that this formatting had already existed in three " +
+    "copies once, before the voie and the quantité were added to two of them. Now that the fiche de soins " +
+    "writes the same ordonnance, a fourth copy is exactly what a séance history row or a section summary " +
+    "invites: both want a short label, and the tempting way to get one is to paste the parts and trim them. " +
+    "The consequence is not cosmetic — the two renderings drift, and the ordonnance a pharmacist reads stops " +
+    "matching the one the dentist proof-read on screen. `<n> / jour` is the fragment only that assembly " +
+    "produces, so it is the marker: a real string literal outside `lib/documents.ts` is a second composer. " +
+    "Prose is fine — comments are masked — because only code can disagree.",
   () => {
     const OWNER = "lib/documents.ts";
     // Derived, not listed: whichever file composes the line, there must be exactly one — and it must be the
     // registry, because that is the module both writing surfaces already import.
-    const hits = scanLines(tsx(), /x par jour/);
+    const hits = scanLines(tsx(), /\/ jour/);
     const offenders = hits.filter((hit) => hit.file !== OWNER);
 
     if (hits.length === 0) {

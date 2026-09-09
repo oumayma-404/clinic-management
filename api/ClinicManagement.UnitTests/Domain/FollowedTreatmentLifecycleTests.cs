@@ -52,6 +52,11 @@ public class FollowedTreatmentLifecycleTests
     [InlineData(TreatmentPlanStatus.InProgress, true)]
     [InlineData(TreatmentPlanStatus.Completed, false)]
     [InlineData(TreatmentPlanStatus.Cancelled, false)]
+    // ⚠️ `Stopped` was appended after this Theory was written, and its absence here is exactly how the rule got
+    // out of date silently: `IsLive` read « not Cancelled and not Completed », so the new member came back TRUE
+    // and this table went on passing. `TreatmentPlanStatusCoverageTests` is the guard that cannot be out of date
+    // this way — it enumerates the enum — but the case belongs here too, beside the ones it sits with.
+    [InlineData(TreatmentPlanStatus.Stopped, false)]
     public void IsLive_admits_everything_that_is_not_finished(TreatmentPlanStatus status, bool expected) =>
         Assert.Equal(expected, TreatmentPlanLifecycle.IsLive(status));
 
@@ -174,9 +179,15 @@ public class FollowedTreatmentLifecycleTests
     }
 
     /// <summary>
-    /// The reachable one, and the worst: « Arrêter le traitement » leaves a plan <c>Completed</c> and admits a
-    /// Draft, so stop-then-reopen turned a followed treatment into an <c>Accepted</c> devis with a null number —
-    /// a live créance for a total nobody ever quoted, with no error and nothing on screen saying so.
+    /// The reachable one, and the worst: « Arrêter le traitement » admits a Draft, so stop-then-reopen turned a
+    /// followed treatment into an <c>Accepted</c> devis with a null number — a live créance for a total nobody
+    /// ever quoted, with no error and nothing on screen saying so.
+    /// <para>
+    /// ⚠️ The intermediate status is <c>Stopped</c> since 2026-09-09, not <c>Completed</c>. The assertion was
+    /// updated rather than dropped because the transition it pins — a stop must not promote an un-numbered
+    /// treatment on the way back — is the same one, and it now also pins the new status against a regression to
+    /// the old collision.
+    /// </para>
     /// </summary>
     [Fact]
     public void Stopping_then_reopening_a_followed_treatment_leaves_it_a_draft()
@@ -186,7 +197,8 @@ public class FollowedTreatmentLifecycleTests
         plan.MarkItemStepDone(item.Id, item.Steps.First().Id, Today, Guid.NewGuid());
 
         plan.StopTreatment(Today);
-        Assert.Equal(TreatmentPlanStatus.Completed, plan.Status);
+        Assert.Equal(TreatmentPlanStatus.Stopped, plan.Status);
+        Assert.NotEqual(TreatmentPlanStatus.Completed, plan.Status);
 
         plan.Reopen();
 

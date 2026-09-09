@@ -1,85 +1,91 @@
+using ClinicManagement.Application.Features.Documents;
+
 namespace ClinicManagement.Infrastructure.Services;
 
+/// <summary>One run of the certificat's sentence. <see cref="Bold"/> marks the facts a reader must find.</summary>
+public sealed record CertificatSegment(string Text, bool Bold = false);
+
 /// <summary>
-/// Builds the body text of a certificat médical (FR-2, Part D). Pure and deterministic so it can be
-/// unit-tested without rendering a PDF (REND-1/REND-2, CERT-2/CERT-3). The certificat is lightly
-/// generalized: a free objet/motif body with the repos médical block as one *optional* clause (rendered
-/// only when a rest duration is present). It always carries the mandatory deontological mention above the
-/// signature (FR-2.3) and the CNOMDT ordre label (FR-2.4) — never the old "Ordre des Médecins".
+/// Builds the body text of a certificat médical. Pure and deterministic so it can be unit-tested without
+/// rendering a PDF.
+/// <para>
+/// ⚠️ <b>The certificat is ONE sentence</b>, and it is the practice owner's own wording: « Je soussigné(e)
+/// Docteur … certifie avoir examiné ce jour M. <b>Nom</b> et atteste que son état de santé nécessite un repos
+/// de <b>5 jours</b> à compter du <b>21/07/2026</b>, sauf complications. » What it used to carry and no longer
+/// does — the spécialité, « inscrit(e) à l'Ordre National … », the patient's date de naissance, a free
+/// objet/motif and the deontological « remis en main propre » mention — was withdrawn deliberately, not lost:
+/// the practitioner and the cabinet are already identified in the shared letterhead
+/// (<see cref="DocumentIdentity"/>).
+/// </para>
+/// <para>
+/// ⚠️ <b>Four facts are bold, and the list is exactly what a reader has to find</b>: the patient's name, the
+/// count, its unit and the start date. The certificat carries <b>no patient identity block</b> either (unlike
+/// every other type) — the name is in the sentence, and printing it twice made the paper read as a form.
+/// </para>
+/// <para>
+/// ⚠️ A stored <c>objetMotif</c> is still printed when a legacy certificat carries one. The field is gone from
+/// the editor, so nothing new writes it — but re-rendering an issued certificate must not silently drop a
+/// paragraph a practitioner wrote.
+/// </para>
 /// </summary>
 public static class CertificatTextBuilder
 {
-    /// <summary>
-    /// The mandatory deontological mention rendered above the signature block. It carries both halves the CNOM
-    /// requires: the <b>remise en main propre</b> (a certificate is handed to the patient, never to a third
-    /// party) <b>and</b> the <b>finality</b> — « pour faire valoir ce que de droit » is what states the
-    /// certificate is issued for whatever use the patient lawfully needs, rather than for a purpose the
-    /// practitioner has vouched for.
-    /// </summary>
-    public const string MandatoryMention =
-        "Certificat établi à la demande de l'intéressé(e) et remis en main propre pour faire valoir ce que de droit.";
-
-    /// FR-2.4 — the ordre label (replaces the old, incorrect "Ordre des Médecins").
-    public const string OrdreLabel = "Ordre National des Médecins Dentistes (CNOMDT)";
+    /// <summary>Printed when the patient's civilité is unknown, so the practitioner can strike one out.</summary>
+    public const string UnknownCivility = "M./Mme";
 
     /// <summary>
     /// Compose the certificat body. All date values are expected pre-formatted (dd/MM/yyyy); empty optional
-    /// inputs are omitted from the output rather than rendered as placeholders (except the identity line,
-    /// which keeps bracketed placeholders when a value is genuinely missing).
+    /// inputs are omitted from the output rather than rendered as placeholders.
     /// </summary>
     public static CertificatText Build(
         string doctorName,
-        string? doctorSpecialty,
         string patientName,
-        string? patientDobFormatted,
+        string? patientCivility,
         string? objetMotif,
         string? duration,
+        string? durationUnit,
         string? startDateFormatted)
     {
-        var specialty = string.IsNullOrWhiteSpace(doctorSpecialty) ? "médecin dentiste" : doctorSpecialty!.Trim();
-        var dob = string.IsNullOrWhiteSpace(patientDobFormatted) ? "[JJ/MM/AAAA]" : patientDobFormatted!.Trim();
-
-        // The attestation formula, which is what makes this a certificate: it names the registering body (the
-        // legal form) and states that the practitioner personally examined the patient — the « faits médicaux
-        // personnellement constatés » rule.
-        //
-        // ⚠️ It deliberately no longer repeats the ordre NUMBER or the cabinet address: both now render in the
-        // shared identity block (DocumentIdentity), which every document type carries. They lived here because
-        // the header had nowhere to put them — which is also why an ordonnance carried no ordre number at all.
-        // Naming the body while printing the number once is what keeps the formula legally intact without
-        // stating the same fact twice on one page.
-        var paragraphs = new List<string>
+        var civility = string.IsNullOrWhiteSpace(patientCivility) ? UnknownCivility : patientCivility!.Trim();
+        var sentence = new List<CertificatSegment>
         {
-            $"Je soussigné(e), Docteur {doctorName}, {specialty}, inscrit(e) à l'{OrdreLabel}, " +
-            $"certifie avoir examiné ce jour {patientName}, né(e) le {dob}."
+            new($"Je soussigné(e) Docteur {doctorName}, certifie avoir examiné ce jour {civility} "),
+            new(patientName, Bold: true),
         };
 
-        // FR-2.1: the free objet/motif body (présence, soins en cours, aptitude…). Rendered only when filled.
-        if (!string.IsNullOrWhiteSpace(objetMotif))
-        {
-            paragraphs.Add(objetMotif!.Trim());
-        }
-
-        // FR-2.1: the repos médical clause is one *optional* use — rendered only when a rest duration is set.
         if (!string.IsNullOrWhiteSpace(duration))
         {
-            var plural = int.TryParse(duration, out var days) && days > 1 ? "s" : "";
-            var repos = $"Son état de santé nécessite un repos médical d'une durée de {duration!.Trim()} jour{plural}";
+            var count = duration!.Trim();
+            var unit = DurationUnits.Label(durationUnit, count);
+            sentence.Add(new(", et atteste que son état de santé nécessite un repos de "));
+            sentence.Add(new($"{count} {unit}", Bold: true));
+
             if (!string.IsNullOrWhiteSpace(startDateFormatted))
             {
-                repos += $" à compter du {startDateFormatted!.Trim()}";
+                sentence.Add(new(" à compter du "));
+                sentence.Add(new(startDateFormatted!.Trim(), Bold: true));
             }
-            repos += ".";
-            paragraphs.Add(repos);
+
+            sentence.Add(new(", sauf complications"));
         }
 
-        return new CertificatText(paragraphs, MandatoryMention);
+        sentence.Add(new("."));
+
+        var paragraphs = new List<IReadOnlyList<CertificatSegment>> { sentence };
+
+        if (!string.IsNullOrWhiteSpace(objetMotif))
+        {
+            paragraphs.Add(new[] { new CertificatSegment(objetMotif!.Trim()) });
+        }
+
+        return new CertificatText(paragraphs);
     }
 }
 
-/// <summary>The composed certificat text: body paragraphs plus the mandatory deontological mention.</summary>
-public sealed record CertificatText(IReadOnlyList<string> BodyParagraphs, string Mention)
+/// <summary>The composed certificat text: one paragraph per run list.</summary>
+public sealed record CertificatText(IReadOnlyList<IReadOnlyList<CertificatSegment>> BodyParagraphs)
 {
-    /// The full rendered text (body paragraphs followed by the mandatory mention) — convenient for assertions.
-    public string FullText => string.Join(" ", BodyParagraphs.Concat(new[] { Mention }));
+    /// The full rendered text, formatting dropped — convenient for assertions.
+    public string FullText =>
+        string.Join(" ", BodyParagraphs.Select(p => string.Concat(p.Select(s => s.Text))));
 }

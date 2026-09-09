@@ -298,12 +298,27 @@ export function planItemToPreset(
  * beside no button, so the treatment the dentist had just started could not be booked. `check:responsive`'s
  * N23 fails on a fifth hand-written copy.</p>
  *
- * <p>⚠️ Phrased as « not finished » rather than « accepted or in progress », deliberately: the states that
- * refuse work are the closed ones (`Cancelled`, `Completed`), and listing the open ones is what left `Draft`
- * out when it became one of them.</p>
+ * <p>⚠️ <b>It is a POSITIVE list, and it was phrased as « not Cancelled and not Completed » until 2026-09-09.</b>
+ * That phrasing is safe only while the closed statuses are the ones that exist. Appending `Stopped` — so that
+ * « Arrêter le traitement » stops writing `Completed` and a stopped treatment can be told from a finished one —
+ * made a stopped plan read as <b>live</b> here: bookable, listed under « Traitements suivis », ringed on the
+ * odontogramme, its acts offered in the booking dialogs. No error, nothing on screen. The earlier phrasing was
+ * chosen for a real reason (listing the open ones is what left `Draft` out when it became one), and the answer
+ * to both is the same: enumerate deliberately, and let a guard fail when a member is unclassified. The server's
+ * twin is `TreatmentPlanLifecycle.LiveStatuses`, held by `TreatmentPlanStatusCoverageTests`.</p>
  */
 export function isPlanLive(status: TreatmentPlanDto["status"]): boolean {
-  return status !== "Cancelled" && status !== "Completed"
+  return status === "Draft" || status === "Accepted" || status === "InProgress"
+}
+
+/**
+ * Has this treatment been closed by « Arrêter le traitement » rather than carried to term?
+ *
+ * <p>Read it instead of comparing the status where the two mean different things to the reader — the header's
+ * primary action, the badge, the banner. Everywhere else `isPlanLive` is the question worth asking.</p>
+ */
+export function isPlanStopped(status: TreatmentPlanDto["status"]): boolean {
+  return status === "Stopped"
 }
 
 /**

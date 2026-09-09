@@ -13,6 +13,13 @@ export const PLAN_STATUS_LABELS: Record<string, string> = {
   Accepted: "Accepté",
   InProgress: "En cours",
   Completed: "Terminé",
+  /*
+   * ⚠️ « Arrêté » exists because « Arrêter le traitement » used to write `Completed`, so a treatment the patient
+   * abandoned wore the badge « Terminé » — the same word as one carried to term, in the database and on screen
+   * alike. « Le patient ne poursuit pas » and « le travail est fini » are opposite facts about a mouth and about
+   * a devis; a dentist reading the list has to be able to tell them apart at a glance.
+   */
+  Stopped: "Arrêté",
   Cancelled: "Annulé",
 };
 
@@ -21,6 +28,13 @@ export const PLAN_STATUS_TONE: Record<string, StatusTone> = {
   Accepted: "accepted",
   InProgress: "active",
   Completed: "positive",
+  /*
+   * `negative`, not `neutral`. An arrêt is not a neutral outcome — work was quoted, some of it delivered, and
+   * the balance is still owed — and it is the one closed state a dentist may want to act on (« Reprendre »).
+   * It shares the tone with « Annulé » rather than with « Terminé », which is the honest grouping: both are
+   * outcomes nobody wanted, and only « Terminé » is the green one.
+   */
+  Stopped: "negative",
   Cancelled: "negative",
 };
 

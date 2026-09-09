@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import {
-  formatPrescriptionLine,
+  DURATION_UNITS,
   isExamenLine,
+  durationUnitOf,
+  prescriptionLineParts,
   shortPrescriptionLabel,
   type PrescriptionLine,
 } from "@/lib/documents"
@@ -19,10 +21,11 @@ import { EXAM_SUGGESTIONS } from "./exam-suggestions"
 /**
  * One prescribed line inside the fiche's « Prescription » section.
  *
- * <p><b>At rest it is ONE row, and that is the whole density argument.</b> The row carries the exact sentence
- * that will be printed on the ordonnance — « Augmentin Comprimé 1 g, 3x par jour pendant 7 jours » — so three
+ * <p><b>At rest it is ONE row, and that is the whole density argument.</b> The row carries the two parts that
+ * will be printed on the ordonnance — « Augmentin (1 g) · 1 comprimé * 3 / jour pendant 7 jours » — so three
  * prescriptions cost ~108 px in a dialog whose two heaviest blocks already run to 213 and 258 lines of markup.
- * It also removes the need for a separate « aperçu » field: the collapsed row <i>is</i> the proof-read.</p>
+ * It also removes the need for a separate « aperçu » field: the collapsed row <i>is</i> the proof-read. The
+ * « · » is the ROW's separator only: on paper the posologie is indented under its médicament.</p>
  *
  * <p>Only the line being typed opens. That is <b>the act card's gesture, one section down</b>
  * (`record/act-card.tsx`): a pile of records of which exactly one is armed. Re-deriving a different idiom for
@@ -95,8 +98,10 @@ export function PrescriptionLineRow({
 
   // ── At rest ───────────────────────────────────────────────────────────────────────────────────────────────
   if (!armed) {
+    // The two printed parts on one line — the row is a proof-read, and it must not invent a third rendering.
+    const printed = prescriptionLineParts(line)
     const summary = line.name?.trim()
-      ? formatPrescriptionLine(line)
+      ? [printed.heading, printed.posology, printed.details].filter(Boolean).join(" · ")
       : examen
         ? "Examen à préciser"
         : "Médicament à préciser"
@@ -317,11 +322,24 @@ export function PrescriptionLineRow({
 
             {/*
               Two columns at every width, deliberately. § 10's rule targets a 2-up grid of FIELDS; these two
-              hold one or two digits and their labels are short by design (« Fois/jour » is ~54 px at 12 px),
-              so at 320 px each cell is ~120 px and neither label wraps — which is the failure the ordonnance
-              editor already met with « Voie d'administration ». Stacking them costs 62 px for nothing.
+              hold a short phrase and one or two digits and their labels are short by design (« Fois/jour » is
+              ~54 px at 12 px), so at 320 px each cell is ~120 px and neither label wraps — which is the failure
+              the ordonnance editor already met with « Voie d'administration ». Stacking them costs 62 px for
+              nothing.
             */}
             <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`dose-${lineKey(line)}`} className="text-xs text-muted-foreground">
+                  Dose/prise
+                </Label>
+                <Input
+                  id={`dose-${lineKey(line)}`}
+                  placeholder="Ex : 1 comprimé"
+                  value={line.dose ?? ""}
+                  onChange={(e) => onChange({ ...line, dose: e.target.value })}
+                  disabled={disabled}
+                />
+              </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor={`times-${lineKey(line)}`} className="text-xs text-muted-foreground">
                   Fois/jour
@@ -336,12 +354,16 @@ export function PrescriptionLineRow({
                   disabled={disabled}
                 />
               </div>
+            </div>
+
+            {/* Durée + son unité. Un traitement de fond se compte en MOIS, pas en 180 jours. */}
+            <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor={`days-${lineKey(line)}`} className="text-xs text-muted-foreground">
-                  Jours
+                <Label htmlFor={`duration-${lineKey(line)}`} className="text-xs text-muted-foreground">
+                  Durée
                 </Label>
                 <Input
-                  id={`days-${lineKey(line)}`}
+                  id={`duration-${lineKey(line)}`}
                   type="number"
                   min="1"
                   placeholder="Ex : 7"
@@ -349,6 +371,23 @@ export function PrescriptionLineRow({
                   onChange={(e) => onChange({ ...line, duration: e.target.value })}
                   disabled={disabled}
                 />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`unit-${lineKey(line)}`} className="text-xs text-muted-foreground">
+                  Unité
+                </Label>
+                {/* A native select, like the rest of this row's controls: two options inside a Dialog do not
+                    need a third component with a claim on Enter (see the catalogue note above). */}
+                <select
+                  id={`unit-${lineKey(line)}`}
+                  value={durationUnitOf(line.durationUnit)}
+                  onChange={(e) => onChange({ ...line, durationUnit: e.target.value })}
+                  disabled={disabled}
+                  className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm coarse:h-11"
+                >
+                  <option value={DURATION_UNITS.jours}>jours</option>
+                  <option value={DURATION_UNITS.mois}>mois</option>
+                </select>
               </div>
             </div>
 
