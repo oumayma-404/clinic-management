@@ -97,13 +97,8 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 }
             }
 
-            // FR-1.4: the "note d'honoraires" document type is retired. Existing (legacy) honoraires
-            // documents remain readable via Get/List, but are no longer updated/re-rendered here.
-            if (document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Honoraires)
-            {
-                return Result<MedicalDocumentDto>.Failure(
-                    "Le type « note d'honoraires » n'est plus disponible. Créez une facture depuis le module Factures.");
-            }
+            // ⚠️ « note d'honoraires » is editable again — it is a printable document, never an Invoice. Its
+            // legacy rows, saved before the type was retired, become editable with it. See HonorairesContent.
 
             // FR-4.1/FR-4.2: mirror the create-path guard — a lettre de liaison must keep a recipient name
             // on edit (the only required field). A valid liaison always carries one, so the background job's

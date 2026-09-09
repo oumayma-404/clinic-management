@@ -16,9 +16,11 @@ namespace ClinicManagement.Infrastructure.Services;
 /// entirely, so no empty heading is ever printed, and nothing here is ever required of the practitioner.
 /// </para>
 /// <para>
-/// ⚠️ « Médecin traitant / praticien adresseur » is deliberately <b>not</b> a section: the norms place the
-/// identity of the professionals involved alongside the patient's, so it is rendered in the identity block by
-/// <c>PdfGenerationService</c>, not in the body.
+/// ⚠️ <b>Only the free text is written any more.</b> The editor's guided sections are gone — a lettre de
+/// liaison is a blank letterhead the practitioner writes on, with no « à l'attention de », no patient identity
+/// block and no headings to fill. Every labelled section below is therefore <b>legacy-only</b>: kept so a
+/// letter already issued still prints every word it was saved with. Re-adding a control that writes one of
+/// these keys puts the form back.
 /// </para>
 /// </summary>
 public static class LiaisonContent

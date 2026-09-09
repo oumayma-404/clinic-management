@@ -19,7 +19,7 @@ namespace ClinicManagement.Application.Features.Documents;
 ///
 /// <para>
 /// ⚠️ <b>This is NOT a fourth copy of the printed-line format, and it must never become one.</b>
-/// <c>PrescriptionContent.FormatLine</c> is the one authority for what a line looks like on paper — the
+/// <c>PrescriptionContent</c> is the one authority for what a line looks like on paper — the
 /// posologie, the voie, the quantité, the durée, the DCI, in the order R.5132-3 wants them — and this file
 /// deliberately does not know any of that. What it produces is a <see cref="ShortLabel"/>: five or six words
 /// for a table row, « Augmentin Comprimé 1 g », where the printed line runs to a full sentence. Two different
@@ -320,10 +320,12 @@ public static class PrescriptionLines
         public string? Kind { get; set; }
         public string? Name { get; set; }
         public string? Dosage { get; set; }
+        public string? Dose { get; set; }
         public string? TimesPerDay { get; set; }
         public string? Route { get; set; }
         public string? Quantity { get; set; }
         public string? Duration { get; set; }
+        public string? DurationUnit { get; set; }
         public string? MedicationId { get; set; }
         public List<string>? Dci { get; set; }
 
@@ -342,6 +344,12 @@ public static class PrescriptionLines
                 TimesPerDay = isExamen ? string.Empty : line.TimesPerDay?.Trim() ?? string.Empty,
                 Duration = isExamen ? string.Empty : line.Duration?.Trim() ?? string.Empty,
                 // The optional ones are omitted when absent (WhenWritingNull), as the editor omits them.
+                Dose = isExamen ? null : Blank(line.Dose),
+                // Written only when it is « mois »: an absent unit reads as jours everywhere, so writing the
+                // default would put a key on every line for no change on the paper.
+                DurationUnit = isExamen || DurationUnits.Normalize(line.DurationUnit) != DurationUnits.Months
+                    ? null
+                    : DurationUnits.Months,
                 Route = isExamen ? null : Blank(line.Route),
                 Quantity = isExamen ? null : Blank(line.Quantity),
                 MedicationId = isExamen || !line.MedicationId.HasValue
@@ -358,10 +366,12 @@ public static class PrescriptionLines
             Kind = PrescriptionLineKinds.Normalize(Kind),
             Name = Name,
             Dosage = Dosage,
+            Dose = Dose,
             TimesPerDay = TimesPerDay,
             Route = Route,
             Quantity = Quantity,
             Duration = Duration,
+            DurationUnit = DurationUnit,
             MedicationId = Guid.TryParse(MedicationId, out var id) ? id : null,
             Dci = Dci?.Where(d => !string.IsNullOrWhiteSpace(d)).Select(d => d.Trim()).ToList() ?? new List<string>(),
         };

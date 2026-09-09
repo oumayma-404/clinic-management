@@ -94,13 +94,8 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
     {
         try
         {
-            // FR-1.4: the "note d'honoraires" document type is retired — compliant honoraires are now issued
-            // through the Invoice pipeline (module Factures). No new honoraires MedicalDocument is created.
-            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Honoraires)
-            {
-                return Result<MedicalDocumentDto>.Failure(
-                    "Le type « note d'honoraires » n'est plus disponible. Créez une facture depuis le module Factures.");
-            }
+            // ⚠️ « note d'honoraires » is a document again, and it is NOT an Invoice. It mints no number, enters
+            // no balance and reaches no money read — see HonorairesContent. The fiscal note lives in Factures.
 
             // FR-4.1/FR-4.2: a lettre de liaison addresses an external confrère — the recipient name is the
             // only required field (specialty/address and the guided clinical fields are all optional).

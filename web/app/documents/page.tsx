@@ -1,18 +1,18 @@
 "use client"
 
-import { useState } from "react"
+
 import { Card } from "@/components/ui/card"
 import { useRouter } from "next/navigation"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
-import { HonorairesLauncher } from "@/components/documents/honoraires-launcher"
+
 import { PageHeader } from "@/components/ui/page-header"
 import { CREATABLE_DOCUMENT_TEMPLATES } from "@/lib/documents"
 
 
 export default function DocumentsPage() {
   const router = useRouter()
-  const [honorairesOpen, setHonorairesOpen] = useState(false)
+
 
   // Any caller may deep-link here with ?appointmentId=… to have the chosen template's editor associate the
   // document with that visit; it is forwarded verbatim. (The post-visit review prompt used to be that caller,
@@ -30,9 +30,12 @@ export default function DocumentsPage() {
   return (
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
+        {/* Derived from the offer, never a count typed here: the subtitle read « Six modèles — … arrêt de
+            travail, bulletin CNAM » while the grid showed four, because the two CNAM forms were withheld
+            (`DOCUMENT_TEMPLATES`' `creatable: false`) and nothing told this line. */}
         <PageHeader
           title="Documents médicaux"
-          subtitle="Six modèles — ordonnance, liaison, honoraires, certificat, arrêt de travail, bulletin CNAM."
+          subtitle={`${CREATABLE_DOCUMENT_TEMPLATES.length} modèles — ${CREATABLE_DOCUMENT_TEMPLATES.map((t) => t.title.toLowerCase()).join(", ")}.`}
         />
 
         {/* Template Grid. AC-P3.38 — every clickable Card is keyboard-operable: it is the click target, so
@@ -40,8 +43,7 @@ export default function DocumentsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
           {CREATABLE_DOCUMENT_TEMPLATES.map((template) => {
             const Icon = template.icon
-            const open = () =>
-              template.type === "honoraires" ? setHonorairesOpen(true) : openTemplate(template.type)
+            const open = () => openTemplate(template.type)
             return (
               <Card
                 key={template.type}
@@ -97,8 +99,6 @@ export default function DocumentsPage() {
           })}
         </div>
       </AppShell>
-      {/* FR-1: honoraires → patient picker → compliant invoice draft (no document editor) */}
-      <HonorairesLauncher open={honorairesOpen} onOpenChange={setHonorairesOpen} />
     </ClinicGuard>
   )
 }

@@ -50,27 +50,29 @@ public class DocumentTypeAndFilenameTests
             new Mock<IUnitOfWork>().Object,
             NullLogger<CreateMedicalDocumentCommandHandler>.Instance);
 
-    // [TYPE-1] Creating a document of the retired "honoraires" type is rejected.
+    // [TYPE-1] « note d'honoraires » is a document type again — a printable sheet, never an Invoice. It reaches
+    // the patient lookup like any other type instead of being refused before it. ⚠️ This test asserted the exact
+    // opposite while the type was retired; what makes the reversal safe is that nothing here touches money —
+    // `HonorairesContent` mints no number and no money read sums a MedicalDocument.
     [Theory]
     [InlineData("honoraires")]
     [InlineData("HONORAIRES")]
     [InlineData("  honoraires  ")]
-    public async Task Create_With_Honoraires_Type_Is_Rejected(string type)
+    public async Task Create_With_Honoraires_Type_Is_Accepted(string type)
     {
         var patients = new Mock<IPatientRepository>();
         var handler = CreateHandler(patients);
 
-        var result = await handler.Handle(
+        await handler.Handle(
             new CreateMedicalDocumentCommand { PatientId = Guid.NewGuid(), DocumentType = type, ContentJson = "{}" },
             CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        // Rejected up-front — no patient lookup, so no honoraires MedicalDocument is ever created.
-        patients.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        // Past the type guard: with an unconfigured mock it goes on to fail as "patient not found".
+        patients.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // A still-supported type is NOT rejected by the honoraires guard (it proceeds to the patient lookup,
-    // which — with an unconfigured mock — resolves to "patient not found", i.e. past the type guard).
+    // A still-supported type proceeds to the patient lookup, which — with an unconfigured mock — resolves to
+    // "patient not found", i.e. past the type guard.
     [Fact]
     public async Task Create_With_Supported_Type_Passes_The_Type_Guard()
     {

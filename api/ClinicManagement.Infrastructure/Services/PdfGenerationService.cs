@@ -76,15 +76,6 @@ public class PdfGenerationService : IPdfGenerationService
         {
             _logger.LogInformation("Generating PDF for document type: {DocumentType}", documentData.DocumentType);
 
-            // FR-1.4: the "note d'honoraires" type is retired (compliant honoraires are issued as Invoices).
-            // Reject it explicitly so a legacy/hand-crafted honoraires request fails loudly instead of
-            // rendering a document titled "NOTE D'HONORAIRES" with an empty body.
-            if (string.Equals(documentData.DocumentType, DocumentTypes.Honoraires, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    "Le type « note d'honoraires » n'est plus pris en charge. Créez une facture depuis le module Factures.");
-            }
-
             // bulletin-cnam is stamped onto the genuine BS1 form (fails fast if the asset is missing).
             if (string.Equals(documentData.DocumentType, BulletinCnamType, StringComparison.OrdinalIgnoreCase))
             {
@@ -128,12 +119,6 @@ public class PdfGenerationService : IPdfGenerationService
                                 // Header - Clinic Info
                                 column.Item().Element(ComposeHeader(documentData));
 
-                                // Recipient (for liaison)
-                                if (documentData.DocumentType == DocumentTypes.Liaison && !string.IsNullOrEmpty(documentData.RecipientDoctorName))
-                                {
-                                    column.Item().Element(ComposeRecipient(documentData));
-                                }
-
                                 // Place + date (FR-6.1): the cabinet city (never a hardcoded "Paris"), with
                                 // French month names forced via fr-FR. Falls back to "Le …" when no city is set.
                                 var dateStr = documentData.DocumentDate.ToString("dd MMMM yyyy", FrCulture);
@@ -146,8 +131,16 @@ public class PdfGenerationService : IPdfGenerationService
                                 // Document Title
                                 column.Item().Element(ComposeTitle(documentData.DocumentType));
 
-                                // Patient Info
-                                column.Item().Element(ComposePatientInfo(documentData));
+                                // Patient Info — withheld on the two types that name their own patient in the
+                                // prose. A lettre de liaison is a blank letterhead the practitioner writes on
+                                // (entête, date, titre, texte libre) and a certificat is one sentence with the
+                                // name in bold inside it; on either, an identity block above made the paper
+                                // read as a form and printed the name twice.
+                                if (documentData.DocumentType != DocumentTypes.Liaison &&
+                                    documentData.DocumentType != DocumentTypes.Certificat)
+                                {
+                                    column.Item().Element(ComposePatientInfo(documentData));
+                                }
 
                                 // Document Content
                                 column.Item().Element(ComposeContent(documentData));
@@ -721,6 +714,13 @@ public class PdfGenerationService : IPdfGenerationService
     private static string FormatDt(decimal amount) =>
         amount.ToString("#,##0.000", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) + " DT";
 
+    // A quantité prints as a whole number when it is one — « 2 », not « 2,00 » — since that is what it almost
+    // always is, while a per-tooth fraction still prints its decimals rather than rounding to a wrong count.
+    private static string FormatQuantity(decimal quantity) =>
+        quantity == decimal.Truncate(quantity)
+            ? quantity.ToString("0", FrCulture)
+            : quantity.ToString("0.##", FrCulture);
+
     private static IContainer HeaderCell(IContainer container) =>
         container.PaddingVertical(5).PaddingHorizontal(4).Background(Colors.Grey.Lighten3)
             .BorderBottom(1).BorderColor(Colors.Grey.Medium).DefaultTextStyle(x => x.Bold().FontSize(10).FontFamily("Helvetica"));
@@ -749,28 +749,10 @@ public class PdfGenerationService : IPdfGenerationService
         };
     }
 
-    private Action<IContainer> ComposeRecipient(MedicalDocumentPdfData data)
-    {
-        return container =>
-        {
-            container.Padding(12).PaddingBottom(15).Column(column =>
-            {
-                column.Spacing(4);
-                column.Item().Text("À l'attention de:").FontSize(11).FontFamily("Helvetica");
-                column.Item().Text(data.RecipientDoctorName ?? "").FontSize(12).Bold().FontFamily("Helvetica");
-                if (!string.IsNullOrEmpty(data.RecipientDoctorSpecialty))
-                {
-                    column.Item().Text(data.RecipientDoctorSpecialty).FontSize(11).FontFamily("Helvetica");
-                }
-                // FR-4.1: the external confrère's free-text address (snapshotted in ContentJson), when present.
-                var recipientAddress = data.Content.GetValueOrDefault("recipientAddress", "");
-                if (!string.IsNullOrWhiteSpace(recipientAddress))
-                {
-                    column.Item().Text(recipientAddress).FontSize(11).FontFamily("Helvetica");
-                }
-            });
-        };
-    }
+    // `ComposeRecipient` — the lettre de liaison's « À l'attention de » block — is gone. The letter is now a
+    // blank letterhead: the practitioner addresses the confrère in the prose, which is where a letter does it.
+    // `RecipientDoctorName` / `RecipientDoctorSpecialty` stay on the document (columns, DTO) and are simply not
+    // printed; nothing new writes them.
 
     private Action<IContainer> ComposeTitle(string documentType)
     {
@@ -783,7 +765,7 @@ public class PdfGenerationService : IPdfGenerationService
             DocumentTypes.Examens => "ORDONNANCE",
             DocumentTypes.Liaison => "LETTRE DE LIAISON",
             DocumentTypes.Certificat => "CERTIFICAT MÉDICAL",
-            // "honoraires" is intentionally absent — the type is retired and rejected before rendering.
+            DocumentTypes.Honoraires => "NOTE D'HONORAIRES",
             _ => "DOCUMENT MÉDICAL"
         };
 
@@ -853,11 +835,10 @@ public class PdfGenerationService : IPdfGenerationService
                 switch (data.DocumentType.ToLowerInvariant())
                 {
                     case DocumentTypes.Prescription:
-                        // PrescriptionContent owns the whole body — the per-line norm formatting (DCI, posologie,
-                        // voie, quantité, durée) and the per-ordonnance renewal mention. It also absorbs the
-                        // legacy-string and malformed-JSON fallbacks that used to be three catch/else branches here.
+                        // PrescriptionContent owns the whole body — the médicament heading, the posologie under
+                        // it, and the per-ordonnance renewal mention. It also absorbs the legacy-string and
+                        // malformed-JSON fallbacks that used to be three catch/else branches here.
                         var prescription = PrescriptionContent.Build(data.Content);
-                        column.Item().PaddingBottom(8).Text("Prescription:").FontSize(12).Bold().FontFamily("Helvetica");
 
                         if (prescription.Lines.Count == 0)
                         {
@@ -865,10 +846,55 @@ public class PdfGenerationService : IPdfGenerationService
                         }
                         else
                         {
+                            var rank = 0;
                             foreach (var line in prescription.Lines)
                             {
-                                column.Item().PaddingBottom(4).Text(line.Text).FontSize(11).FontFamily("Helvetica");
+                                var number = ++rank;
+                                column.Item().PaddingBottom(10).Row(row =>
+                                {
+                                    row.ConstantItem(26).Text($"{number}/").FontSize(11).FontFamily("Helvetica");
+                                    row.RelativeItem().Column(entry =>
+                                    {
+                                        entry.Spacing(3);
+                                        // ⚠️ The MÉDICAMENT is underlined and nothing else is. It is the one
+                                        // thing a pharmacist has to find on the sheet, and underlining the
+                                        // posologie with it underlines neither.
+                                        //
+                                        // ⚠️ The rule is DRAWN — an `AutoItem` shrink-wrapped to the text with
+                                        // a bottom border — because QuestPDF's own text decoration does not
+                                        // paint here: both `.Text(x).Underline()` and
+                                        // `.Style(TextStyle.Default.…Underline())` compile, report nothing and
+                                        // produce a PDF with no underline anywhere, measured twice on the
+                                        // rendered sheet while every other change on it (the numbering, the
+                                        // indent, the closing rule, the certificat's bold runs) came out. The
+                                        // `RelativeItem` after it is the slack: without it the auto item would
+                                        // be free to run past the column on a long médicament name.
+                                        entry.Item().Row(heading =>
+                                        {
+                                            heading.AutoItem().BorderBottom(1).BorderColor(Colors.Black)
+                                                .Text(line.Heading).FontSize(11).FontFamily("Helvetica");
+                                            heading.RelativeItem();
+                                        });
+                                        if (!string.IsNullOrEmpty(line.Posology))
+                                        {
+                                            // Indented under the médicament it belongs to — a posologie flush
+                                            // with the name reads as a second médicament.
+                                            entry.Item().PaddingLeft(18).Text(line.Posology)
+                                                .FontSize(11).FontFamily("Helvetica");
+                                        }
+
+                                        if (!string.IsNullOrEmpty(line.Details))
+                                        {
+                                            entry.Item().PaddingLeft(18).Text(line.Details)
+                                                .FontSize(11).FontFamily("Helvetica");
+                                        }
+                                    });
+                                });
                             }
+
+                            // Closes the list, so nothing can be written under the last médicament. Not a
+                            // decoration: blank space below the last line is space a patient can add a drug in.
+                            column.Item().PaddingTop(2).LineHorizontal(1).LineColor(Colors.Black);
                         }
 
                         // Governs the document, so it renders once below the lines rather than against one of them.
@@ -924,14 +950,58 @@ public class PdfGenerationService : IPdfGenerationService
                         }
                         break;
 
-                    // FR-1.4: the "honoraires" document type is retired (compliant honoraires are issued as
-                    // Invoices). The old euro-denominated QuestPDF block is removed; no generic doc renders "€".
+                    case DocumentTypes.Honoraires:
+                        // HonorairesContent owns the lines and the arithmetic. ⚠️ Amounts are TND — the block
+                        // this replaces was euro-denominated, which is half of why the type was withdrawn.
+                        var honoraires = HonorairesContent.Build(data.Content);
+
+                        if (honoraires.Lines.Count == 0)
+                        {
+                            column.Item().PaddingBottom(4).Text("Aucun acte").FontSize(11).FontFamily("Helvetica");
+                        }
+                        else
+                        {
+                            column.Item().Table(table =>
+                            {
+                                table.ColumnsDefinition(columns =>
+                                {
+                                    columns.RelativeColumn(5);
+                                    columns.RelativeColumn(1);
+                                    columns.RelativeColumn(2);
+                                    columns.RelativeColumn(2);
+                                });
+
+                                table.Header(header =>
+                                {
+                                    header.Cell().Element(HeaderCell).Text("Désignation");
+                                    header.Cell().Element(HeaderCell).AlignRight().Text("Qté");
+                                    header.Cell().Element(HeaderCell).AlignRight().Text("P.U.");
+                                    header.Cell().Element(HeaderCell).AlignRight().Text("Total");
+                                });
+
+                                foreach (var line in honoraires.Lines)
+                                {
+                                    table.Cell().Element(BodyCell).Text(line.Designation);
+                                    table.Cell().Element(BodyCell).AlignRight().Text(FormatQuantity(line.Quantity));
+                                    table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(line.UnitPrice));
+                                    table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(line.Total));
+                                }
+                            });
+
+                            column.Item().PaddingTop(10).AlignRight()
+                                .Text($"Total : {FormatDt(honoraires.Total)}")
+                                .FontSize(12).Bold().FontFamily("Helvetica");
+                        }
+
+                        if (honoraires.Note != null)
+                        {
+                            column.Item().PaddingTop(10).Text(honoraires.Note).FontSize(10).FontFamily("Helvetica");
+                        }
+                        break;
 
                     case DocumentTypes.Certificat:
-                        // Free objet/motif body + optional repos clause. The practitioner's ordre number and the
-                        // cabinet address are NOT passed here any more — DocumentIdentity renders them in the
-                        // shared header for every document type, so the attestation formula names the registering
-                        // body without restating the number.
+                        // One sentence — the repos clause IS the certificat. Read CertificatTextBuilder before
+                        // adding a mention, a spécialité or an objet back to it.
                         var objetMotif = data.Content.GetValueOrDefault("objetMotif", "");
                         var startDate = data.Content.GetValueOrDefault("startDate", "");
                         var duration = data.Content.GetValueOrDefault("duration", "");
@@ -942,24 +1012,28 @@ public class PdfGenerationService : IPdfGenerationService
                             startDateFormatted = startDateParsed.ToString("dd/MM/yyyy", FrCulture);
                         }
 
-                        string? patientDobFormatted = null;
-                        var patientDobStr = data.Content.GetValueOrDefault("patientDateOfBirth", "");
-                        if (!string.IsNullOrEmpty(patientDobStr) && DateTime.TryParse(patientDobStr, out var patientDobParsed))
-                        {
-                            patientDobFormatted = patientDobParsed.ToString("dd/MM/yyyy", FrCulture);
-                        }
-
                         var certificat = CertificatTextBuilder.Build(
-                            data.DoctorName, data.DoctorSpecialty,
-                            data.PatientName, patientDobFormatted, objetMotif, duration, startDateFormatted);
+                            data.DoctorName, data.PatientName,
+                            data.Content.GetValueOrDefault("patientCivility", ""),
+                            objetMotif, duration,
+                            data.Content.GetValueOrDefault("durationUnit", ""),
+                            startDateFormatted);
 
                         foreach (var paragraph in certificat.BodyParagraphs)
                         {
-                            column.Item().PaddingVertical(2).Text(paragraph).FontSize(11).FontFamily("Helvetica");
+                            column.Item().PaddingVertical(2).Text(text =>
+                            {
+                                text.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
+                                foreach (var segment in paragraph)
+                                {
+                                    var span = text.Span(segment.Text);
+                                    if (segment.Bold)
+                                    {
+                                        span.Bold();
+                                    }
+                                }
+                            });
                         }
-
-                        // FR-2.3: the mandatory deontological mention, above the signature block (the footer).
-                        column.Item().PaddingTop(12).Text(certificat.Mention).FontSize(11).Italic().FontFamily("Helvetica");
                         break;
                 }
             });

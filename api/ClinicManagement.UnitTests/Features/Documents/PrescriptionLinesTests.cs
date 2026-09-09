@@ -312,14 +312,16 @@ public class PrescriptionLinesTests
     [Fact]
     public void The_Row_Label_Is_Shorter_Than_The_Printed_Line()
     {
-        var printed = ClinicManagement.Infrastructure.Services.PrescriptionContent.FormatLine(
-            "Augmentin Comprimé", "1 g", "3", "par voie orale", "1 boîte", "7",
-            new[] { "Amoxicilline" });
+        var heading = ClinicManagement.Infrastructure.Services.PrescriptionContent.FormatHeading(
+            "Augmentin Comprimé", "1 g");
+        var posology = ClinicManagement.Infrastructure.Services.PrescriptionContent.FormatPosology(
+            "1 comprimé", "3", "7", null);
         var label = PrescriptionLines.ShortLabel(PrescriptionLineKinds.Medicament, "Augmentin Comprimé", "1 g");
 
         Assert.Equal("Augmentin Comprimé 1 g", label);
-        Assert.Contains(label, printed);
-        Assert.True(printed.Length > label.Length);
+        // The row label carries the name and the dosage and stops; the sheet adds the whole posologie under it.
+        Assert.Equal("Augmentin Comprimé (1 g)", heading);
+        Assert.True((heading + posology).Length > label.Length);
     }
 
     // ── The examens wire shape — the second sheet ──────────────────────────────────────────────────────────────
