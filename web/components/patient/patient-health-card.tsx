@@ -90,6 +90,16 @@ interface PatientHealthCardProps {
    * worth reading. The amber in `PatientAlertPanel` is the *warning*, a different job on a different surface.
    */
   tobacco?: string | null
+  /**
+   * « Antécédents médicaux » — the descriptions alone, already read and ordered by the caller.
+   *
+   * ⚠️ Descriptions only, not the date or the notes each entry may carry: this card is the glance before the
+   * work, and the record card at the foot of the page is where an antécédent is read in full. Cramming a date
+   * into a 220 px column turns a list into a paragraph.
+   */
+  medicalHistory: string[]
+  /** « Antécédents familiaux », already composed by the caller as « Père : maladie cardiaque ». */
+  familyHistory: string[]
   /** Opens the patient form scrolled to « Informations médicales ». */
   onEdit: () => void
   className?: string
@@ -100,6 +110,8 @@ export function PatientHealthCard({
   diseases,
   medications,
   tobacco,
+  medicalHistory,
+  familyHistory,
   onEdit,
   className,
 }: PatientHealthCardProps) {
@@ -110,23 +122,35 @@ export function PatientHealthCard({
   // ⚠️ Tabac is ONE sentence the app composes (`tobaccoSummary`), never a list the user typed — so it is a
   // single item here rather than being split, or « Fumeur · 20 cigarettes/j » would render as two bullets.
   if (tobacco) facts.push({ key: "tobacco", label: "Tabac", items: [tobacco] })
+  // ⚠️ Last, and after tabac: the four above are what the patient IS today, these two are history. A dentist
+  // scanning this card left-to-right should meet the live facts before the background ones.
+  if (medicalHistory.length > 0) {
+    facts.push({ key: "medicalHistory", label: "Antécédents médicaux", items: medicalHistory })
+  }
+  if (familyHistory.length > 0) {
+    facts.push({ key: "familyHistory", label: "Antécédents familiaux", items: familyHistory })
+  }
 
   /*
-    ⚠️ **The column count follows the number of facts, and every step is a DIVISOR of that count.** This is the
-    `dashboard/kpi-grid.tsx` technique — `gap-px` over a `bg-border` container, each cell painting its own
-    `bg-card`, so the gaps show through as hairlines — and its documented trap is that an *unfilled* cell shows
-    the container's `bg-border` as a grey slab. `kpi-grid` pads with `aria-hidden` filler cells; here the row is
-    at most four items, so the holes can simply be made unreachable: 2 facts step 1 → 2, 4 facts step 1 → 2 → 4,
-    and 3 facts skip the two-column step entirely rather than leaving a hole at `sm:`.
+    ⚠️ **`gap-px` over a `bg-border` container with each cell painting its own `bg-card`** — the
+    `dashboard/kpi-grid.tsx` technique, so the gaps show through as hairline dividers. Its documented trap is
+    that an *unfilled* cell shows the container's `bg-border` as a grey slab.
+
+    ⚠️ **This used to dodge that by choosing column counts that DIVIDE the fact count, and that stopped working
+    at six.** With four facts the steps 1 → 2 → 4 all divide; add « Antécédents médicaux » and « Antécédents
+    familiaux » and five is prime — no useful step divides it — so the trick has to give way to `kpi-grid`'s own
+    answer: pad the last row with `aria-hidden` fillers.
+
+    ⚠️ **A filler is computed per breakpoint and only rendered at the one that needs it**, which is what stops a
+    filler becoming a blank row somewhere else: at one column every cell already fills its row, so a filler there
+    would paint an empty white band under the list. `twoUp` shows only between `sm:` and `xl:`, `threeUp` only
+    from `xl:`. Checked at every count from 1 to 6, both grids come out exactly full.
 
     ⚠️ Never `divide-x`: it draws from DOM order, so it mis-aligns the moment a row wraps — the same reason
     `kpi-grid` refuses it.
   */
-  const columns = cn(
-    facts.length === 2 && "sm:grid-cols-2",
-    facts.length === 3 && "lg:grid-cols-3",
-    facts.length === 4 && "sm:grid-cols-2 xl:grid-cols-4",
-  )
+  const twoUpFillers = facts.length % 2 === 0 ? 0 : 1
+  const threeUpFillers = (3 - (facts.length % 3)) % 3
 
   return (
     <section className={cn("min-w-0 overflow-hidden rounded-lg border bg-card", className)}>
@@ -157,7 +181,7 @@ export function PatientHealthCard({
               (« Informations personnelles » and « Informations médicales » at its foot). Beside them, a
               free-text médicaments value wraps under the label track and stops aligning with anything.
             */
-            className={cn("grid gap-px bg-border", columns)}
+            className="grid gap-px bg-border sm:grid-cols-2 xl:grid-cols-3"
           >
             {facts.map((fact) => (
               <div key={fact.key} className="min-w-0 bg-card px-3 py-2.5">
@@ -195,6 +219,14 @@ export function PatientHealthCard({
                   )}
                 </dd>
               </div>
+            ))}
+
+            {/* See the note above: visible only at the width whose grid they complete. */}
+            {Array.from({ length: twoUpFillers }, (_, i) => (
+              <div key={`f2-${i}`} aria-hidden="true" className="hidden bg-card sm:block xl:hidden" />
+            ))}
+            {Array.from({ length: threeUpFillers }, (_, i) => (
+              <div key={`f3-${i}`} aria-hidden="true" className="hidden bg-card xl:block" />
             ))}
           </dl>
         )}

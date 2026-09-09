@@ -1212,7 +1212,45 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
             left instead of subtracting an assumed 200 px. */}
         <DialogBody>
           <form onSubmit={handleSave} className="p-6 space-y-6">
-            <FormErrorBanner message={conflict.error} />
+            {/*
+              ⚠️ **A 409 here MUST carry the « Recharger » its own sentence tells the user to press.** This banner
+              rendered without an `action` — the only dialog in the app that round-trips a version and did — so
+              the server's « cet enregistrement a été modifié par quelqu'un d'autre pendant votre saisie » named
+              a remedy the screen did not offer. That is the documented amplifier of the concurrency trap, and it
+              is expensive: the version this form holds never moves on its own, so every later click repeats the
+              refusal (measured in production at six over 81 minutes, until the user reloaded the page by hand).
+
+              ⚠️ **It re-reads by closing, and must not merely `resync()`.** `useFreshVersion` deliberately takes
+              the VERSION alone and never the field values, so resyncing in place would hand this form a fresh
+              token while it still holds what the user typed over the colleague's edit — the next save would then
+              succeed and silently overwrite them, which is worse than the refusal. Re-opening is what re-reads
+              the row. Same shape as `expense-form-dialog` and `dental-act-form-modal`.
+
+              ⚠️ The RAW `onOpenChange`, never `guard.onOpenChange`: the dirty guard would ask whether to discard
+              the entries, and « voulez-vous abandonner ? » immediately after pressing « Recharger » is a second
+              question about a decision already taken.
+
+              ⚠️ **The fiche de soins recovers differently on purpose, and the difference is not an inconsistency.**
+              Its « Recharger » re-reads the record's version *and* both documents in place, because what is stale
+              there is a document's CONTENT and the server's sentence promises to show it. This form has no such
+              thing to re-read — every value in it is the patient row the conflict is about — so re-opening IS the
+              re-read, and doing it in place would be the silent overwrite described above wearing a button.
+            */}
+            <FormErrorBanner
+              message={conflict.error}
+              action={
+                conflict.isConflict
+                  ? {
+                      label: "Recharger",
+                      onClick: () => {
+                        onSuccess?.()
+                        onOpenChange(false)
+                      },
+                      disabled: loading,
+                    }
+                  : undefined
+              }
+            />
             {/* ⚠️ A summary as well as the per-field messages, because on a form this long the first refusal can
                 be off screen — and on a phone it always is. `FormErrorBanner` is the shared aria-live region, so
                 this announces too. It names the fields; the fields themselves carry the reason. */}
