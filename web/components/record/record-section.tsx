@@ -19,7 +19,7 @@ interface RecordSectionProps {
   highlight?: boolean
   /**
    * `sm` is the fiche de soins' density (this component's original and only caller). `md` is the patient form's:
-   * that surface has ~40 fields over six sections and is filled at a reception desk, not read at the chair, so
+   * that surface has ~29 controls over four sections and is filled at a reception desk, not read at the chair, so
    * its headers carry a real label rather than a 12 px one.
    *
    * <p>A size prop rather than a second component: the folding, the chevron, the `touch-target` reasoning above
@@ -29,6 +29,14 @@ interface RecordSectionProps {
   size?: "sm" | "md"
   /** Optional leading icon, so a section reads at a glance in a long form. */
   icon?: ReactNode
+  /**
+   * DOM id on the section's own box, so a caller can scroll the form to it.
+   *
+   * ⚠️ It goes on the **wrapper**, not on the header button: `scrollIntoView({ block: "start" })` aligns the
+   * element's top edge, and anchoring the button would put the box's border and its own padding above the
+   * scrollport rather than the section's first line.
+   */
+  anchorId?: string
 }
 
 export function RecordSection({
@@ -40,11 +48,12 @@ export function RecordSection({
   highlight,
   size = "sm",
   icon,
+  anchorId,
 }: RecordSectionProps) {
   const md = size === "md"
 
   return (
-    <div className={cn("rounded-lg border", highlight && "border-amber-400 dark:border-amber-700")}>
+    <div id={anchorId} className={cn("rounded-lg border", highlight && "border-amber-400 dark:border-amber-700")}>
       <button
         type="button"
         onClick={onToggle}

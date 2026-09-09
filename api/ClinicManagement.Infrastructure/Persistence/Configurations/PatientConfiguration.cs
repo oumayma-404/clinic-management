@@ -114,6 +114,10 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.Property(p => p.MedicalHistory)
             .HasColumnType("text");
 
+        // « Médicaments ». `text` like the two lists it sits with — see Patient.Medications for why it is uncapped.
+        builder.Property(p => p.Medications)
+            .HasColumnType("text");
+
         builder.Property(p => p.Allergies)
             .HasColumnType("text");
 

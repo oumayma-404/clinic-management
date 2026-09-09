@@ -1,4 +1,4 @@
-﻿using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common;
 using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
@@ -140,6 +140,7 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
 
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
+    public string? Medications { get; set; }
     // Emergency contact (finding #11). null (omitted) = leave unchanged; a present value (even empty) sets/clears.
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
@@ -307,11 +308,16 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             }
 
             // Update medical history if provided
-            if (request.MedicalHistory != null || request.Allergies != null)
+            // ⚠️ Tri-state, per field: an ABSENT key means « leave it alone » and an empty string means « clear it »,
+            // which is why each of the three falls back to the stored value rather than to null. `Medications` joined
+            // the block and had to join this fallback with it — sending only `allergies` would otherwise have wiped a
+            // patient's anticoagulant list on every save from a caller that does not know the field yet.
+            if (request.MedicalHistory != null || request.Allergies != null || request.Medications != null)
             {
                 var medicalHistory = request.MedicalHistory ?? patient.MedicalHistory;
                 var allergies = request.Allergies ?? patient.Allergies;
-                patient.UpdateMedicalHistory(medicalHistory, allergies);
+                var medications = request.Medications ?? patient.Medications;
+                patient.UpdateMedicalHistory(medicalHistory, allergies, medications);
             }
 
             // Emergency contact (finding #11): a present block (either field non-null) sets or clears both;

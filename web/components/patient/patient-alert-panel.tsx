@@ -50,6 +50,13 @@ export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps
   const allergies = patient.allergies?.trim()
   const medicalHistory = patient.medicalHistory?.trim()
   /*
+   * ⚠️ « Médicaments » had to reach THIS panel, not only the patient's file. This is the block the fiche de
+   * soins, the document editor and the summary modal each render before work is recorded — it is where « sous
+   * anticoagulants » was being written by hand into `importantNotes` because there was no field for it. Adding
+   * it to the record without adding it here would have left the note as the only thing these three surfaces see.
+   */
+  const medications = patient.medications?.trim()
+  /*
    * ⚠️ A **current** smoker only. « Non-fumeur » is reassurance and « Ancien fumeur » is history, and a warning
    * panel that fires on every patient is a panel the eye learns to skip — both stay readable in the patient's
    * own file. It replaced the retired « signalement » badges here: those were a second, weaker mechanism for the
@@ -58,7 +65,7 @@ export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps
    */
   const tobacco = isActiveSmoker(patient.tobaccoUse) ? tobaccoSummary(patient.tobaccoUse) : null
 
-  if (!allergies && !medicalHistory && !tobacco) return null
+  if (!allergies && !medicalHistory && !medications && !tobacco) return null
 
   return (
     <div
@@ -81,9 +88,18 @@ export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps
             <span className="font-semibold">Tabac :</span> {tobacco}
           </p>
         )}
+        {/* ⚠️ « Maladies », not « Antécédents ». This label was the third name one column carried — the patient
+            file called it « Maladies chroniques / affections », the form called it that too, and here it was
+            « Antécédents », which is ALSO the name of a different list from a different table rendered a few
+            centimetres away on that page. One column, one word. */}
         {medicalHistory && (
           <p className="text-amber-800 dark:text-amber-200">
-            <span className="font-semibold">Antécédents :</span> {medicalHistory}
+            <span className="font-semibold">Maladies :</span> {medicalHistory}
+          </p>
+        )}
+        {medications && (
+          <p className="text-amber-800 dark:text-amber-200">
+            <span className="font-semibold">Médicaments :</span> {medications}
           </p>
         )}
       </div>

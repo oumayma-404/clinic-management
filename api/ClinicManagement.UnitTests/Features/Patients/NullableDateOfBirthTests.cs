@@ -80,9 +80,14 @@ public class NullableDateOfBirthTests
         Assert.Null(DentitionRules.FromDateOfBirth(null));
     }
 
+    // ⚠️ `12 → Child` used to be asserted here and is now `Mixed`: the field grew a third value, and twelve is
+    // squarely inside the « denture mixte » band (6–12). The old row was not wrong when it was written — it was
+    // the two-band rule stated correctly — so it is corrected rather than deleted, and 5 and 13 stay to hold both
+    // outer bands. `DentitionBandsTests` asserts every year individually; these four are the AC-18 case, which is
+    // about a date of birth still driving the answer at all.
     [Theory] // [AC-18]
     [InlineData(5, DentitionType.Child)]
-    [InlineData(12, DentitionType.Child)]
+    [InlineData(12, DentitionType.Mixed)]
     [InlineData(13, DentitionType.Adult)]
     [InlineData(40, DentitionType.Adult)]
     public void Dentition_Still_Follows_Age_When_A_Date_Is_Supplied(int ageYears, DentitionType expected)
