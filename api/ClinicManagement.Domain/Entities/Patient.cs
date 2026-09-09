@@ -47,8 +47,25 @@ public class Patient : AggregateRoot<Guid>
     /// </summary>
     public string? ConsultationReason { get; private set; }
 
+    /// <summary>« Maladies » — chronic or passing, in one free-text list. The interface used to call this
+    /// « Maladies chroniques / affections », which was three words for one column and disagreed with the two other
+    /// names the same value carries elsewhere.</summary>
     public string? MedicalHistory { get; private set; }
     public string? Allergies { get; private set; }
+
+    /// <summary>
+    /// « Médicaments » — what the patient is taking, free text.
+    ///
+    /// <para>Its absence is what this field is for. There was nowhere to record an anticoagulant, so practices wrote
+    /// it into <see cref="ImportantNotes"/>, where it is a sentence rather than a field: it reaches no document, no
+    /// summary and no structured read. Beside <see cref="Allergies"/> and <see cref="MedicalHistory"/> it is the
+    /// third of the three lists a practitioner checks before touching the patient, and the three are now written,
+    /// stored and displayed as a set.</para>
+    ///
+    /// <para>Uncapped <c>text</c> for the same reason as <see cref="ConsultationReason"/>: a length-capped column
+    /// turns a long paste into a <c>SaveChanges</c> failure that names no field, and the display clamps instead.</para>
+    /// </summary>
+    public string? Medications { get; private set; }
 
     /// <summary>
     /// « Tabac ». Null means nobody has asked — see <see cref="ValueObjects.TobaccoUse"/>, which is where the
@@ -311,10 +328,21 @@ public class Patient : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public void UpdateMedicalHistory(string? medicalHistory, string? allergies)
+    /// <summary>
+    /// The three free-text health lists — « Maladies », « Allergies », « Médicaments » — written together.
+    ///
+    /// <para>⚠️ <b>All three are positional and all three are always written</b>, so a caller that has only one of
+    /// them must re-send the other two as they stand. That is the shape this method already had for two fields; the
+    /// third joins it rather than getting a setter of its own, because « on a mis à jour les allergies sans
+    /// toucher aux médicaments » is precisely the tri-state confusion <see cref="UpdateContactDetails"/> exists to
+    /// avoid, and there is no caller that wants it here — both writers (the create builder and the update handler)
+    /// send the whole block.</para>
+    /// </summary>
+    public void UpdateMedicalHistory(string? medicalHistory, string? allergies, string? medications)
     {
         MedicalHistory = medicalHistory;
         Allergies = allergies;
+        Medications = medications;
         UpdatedAt = DateTime.UtcNow;
     }
 

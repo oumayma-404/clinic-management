@@ -78,9 +78,11 @@ public static class PatientFromRequest
             address);
 
         // Set medical history and allergies after creation
-        if (!string.IsNullOrWhiteSpace(request.MedicalHistory) || !string.IsNullOrWhiteSpace(request.Allergies))
+        if (!string.IsNullOrWhiteSpace(request.MedicalHistory)
+            || !string.IsNullOrWhiteSpace(request.Allergies)
+            || !string.IsNullOrWhiteSpace(request.Medications))
         {
-            patient.UpdateMedicalHistory(request.MedicalHistory, request.Allergies);
+            patient.UpdateMedicalHistory(request.MedicalHistory, request.Allergies, request.Medications);
         }
 
         // Optional CNAM identity (ToDomain returns null for an omitted/empty block).

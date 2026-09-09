@@ -44,6 +44,7 @@ public class PatientDto
     public string? PhoneE164 { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
+    public string? Medications { get; set; }
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
 

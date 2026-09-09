@@ -1,0 +1,204 @@
+import { HeartPulse, Pencil } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+
+/**
+ * The ceiling the card's body scrolls past — the same technique and the same figure as `PatientNotesStrip`'s
+ * `PANEL_BODY_MAX_PX`, one band below.
+ *
+ * <p>⚠️ <b>Without it this block has no growth control, and it is the first thing on the page.</b> Allergies,
+ * maladies and médicaments are free text: a patient on six drugs with three conditions would push the
+ * odontogramme — the chart the whole consultation is read off — below the fold, which is the exact defect the
+ * notes strip was capped for and the reason the treatment band was moved *under* the chart.</p>
+ *
+ * <p>⚠️ Bounded and <b>scrolling</b>, never collapsible: a « voir plus » on the one block a practitioner checks
+ * before injecting is a click between them and an allergy.</p>
+ *
+ * <p>⚠️ <b>192, not the notes strip's 120</b>, and every step of that figure was measured rather than chosen.
+ * The values became bulleted <i>lists</i> rather than comma runs, so a cell is now as tall as the list inside it:
+ * a real patient (1 allergy · 2 maladies · 3 médicaments · tabac) lays out 2 × 2 at 820 px and 1180 px and comes
+ * to <b>183 px</b> of content. At 120 and again at 160 that ordinary tablet case scrolled by a couple of dozen
+ * pixels — which reads as a clipped card rather than as a deliberate bound, on the device this product is used
+ * on most. 192 clears it.</p>
+ *
+ * <p>⚠️ <b>It still bites where it matters.</b> The same patient at 390 px is one column and 301 px of content,
+ * so a phone scrolls — which is the whole point: the odontogramme must stay reachable on the first screen.</p>
+ */
+const BODY_MAX_PX = 192
+
+/**
+ * « Santé » — the four facts a practitioner checks before touching the patient, as one full-width card.
+ *
+ * <p>⚠️ <b>This block has been rebuilt several times and every earlier shape is the reason for this one.</b> It
+ * began as a single line, « Aucune allergie signalée », which was true and incomplete — maladies, médicaments and
+ * tabac were equally unrecorded and it said nothing about any of them, so a blank read as « rien à signaler »
+ * when it meant « on n'a rien demandé ». Naming all four turned it into a run of loose lines under an identity
+ * strip already carrying five more (« it looks scattered »). Framing those overspent on decoration — uppercase
+ * tracked labels at one size, values at another, four ink colours, a border *and* a fill (« too many fonts,
+ * colours … extremely unprofessional »). Splitting it into two half-width panels then gave « Motif » a section of
+ * its own it did not need, wasted the right half on one line, and tinted the left half a destructive wash that
+ * read as alarming rather than as informative.</p>
+ *
+ * <p>So: <b>one card across the whole line</b>, and the width is spent on the four facts rather than on a second
+ * panel. « Motif de consultation » went back under the patient's name, where it belongs — it is the reason this
+ * person is on the books, not a health fact.</p>
+ *
+ * <p>⚠️ <b>The body is the page's own `dl` grammar</b> — `dt` small and muted above `dd`, in a responsive grid —
+ * the same shape as « Informations personnelles » and « Informations médicales » at the foot of this page. A
+ * fifth way of drawing a label and a value on the one screen that already has two is what made the earlier
+ * versions feel foreign; this one is the app's.</p>
+ *
+ * <p>⚠️ <b>No wash, no tint, no coloured frame.</b> The card is an ordinary `bg-card`. The single accent is the
+ * allergy <i>value</i>, in destructive ink, because it is the one of the four that changes what may be injected
+ * in the next five minutes — three coloured things side by side and nothing alerts, and a whole panel tinted for
+ * a patient who is merely allergic to penicillin reads as an emergency.</p>
+ *
+ * <p>⚠️ <b>« Tabac » belongs here, not in the identity strip.</b> It sat beside the telephone number for
+ * historical reasons (it took the retired assureur's slot), and that was half of why the header read as mixed: a
+ * risk factor rendered exactly like a contact detail.</p>
+ *
+ * <p>⚠️ <b>A cell with no value is not rendered</b> (`frontend-web.md` § 6: an absent field is omitted, never
+ * printed as « — »), so a patient with nothing on file costs one line rather than four. Only when all four are
+ * empty does the card say so, once, naming all four — the original defect was a sentence that spoke about
+ * allergies alone, and every rebuild has kept that fix.</p>
+ *
+ * <p>⚠️ Deliberately <b>not</b> told whether the read failed. A caller that could not load the patient must not
+ * render this at all, or an empty card becomes a claim of « aucune allergie » made on the strength of a network
+ * error. On the patient page the patient object is the page's own gate, so reaching here means the read
+ * succeeded.</p>
+ */
+interface HealthFact {
+  key: string
+  label: string
+  /** Already split and de-bulleted by `splitHealthList` — one entry per line the practitioner typed. */
+  items: string[]
+  /** The one fact allowed to carry ink. */
+  alert?: boolean
+}
+
+interface PatientHealthCardProps {
+  /** Comma-split « Allergies ». */
+  allergies: string[]
+  /** Comma-split « Maladies » — the column the wire still calls `medicalHistory`. */
+  diseases: string[]
+  /** Comma-split « Médicaments ». */
+  medications: string[]
+  /**
+   * The tobacco summary sentence, or null when nobody has asked.
+   *
+   * ⚠️ Every answered status shows, not only a current smoker's: this is the *record*, and « Non-fumeur » is
+   * worth reading. The amber in `PatientAlertPanel` is the *warning*, a different job on a different surface.
+   */
+  tobacco?: string | null
+  /** Opens the patient form scrolled to « Informations médicales ». */
+  onEdit: () => void
+  className?: string
+}
+
+export function PatientHealthCard({
+  allergies,
+  diseases,
+  medications,
+  tobacco,
+  onEdit,
+  className,
+}: PatientHealthCardProps) {
+  const facts: HealthFact[] = []
+  if (allergies.length > 0) facts.push({ key: "allergies", label: "Allergies", items: allergies, alert: true })
+  if (diseases.length > 0) facts.push({ key: "diseases", label: "Maladies", items: diseases })
+  if (medications.length > 0) facts.push({ key: "medications", label: "Médicaments", items: medications })
+  // ⚠️ Tabac is ONE sentence the app composes (`tobaccoSummary`), never a list the user typed — so it is a
+  // single item here rather than being split, or « Fumeur · 20 cigarettes/j » would render as two bullets.
+  if (tobacco) facts.push({ key: "tobacco", label: "Tabac", items: [tobacco] })
+
+  /*
+    ⚠️ **The column count follows the number of facts, and every step is a DIVISOR of that count.** This is the
+    `dashboard/kpi-grid.tsx` technique — `gap-px` over a `bg-border` container, each cell painting its own
+    `bg-card`, so the gaps show through as hairlines — and its documented trap is that an *unfilled* cell shows
+    the container's `bg-border` as a grey slab. `kpi-grid` pads with `aria-hidden` filler cells; here the row is
+    at most four items, so the holes can simply be made unreachable: 2 facts step 1 → 2, 4 facts step 1 → 2 → 4,
+    and 3 facts skip the two-column step entirely rather than leaving a hole at `sm:`.
+
+    ⚠️ Never `divide-x`: it draws from DOM order, so it mis-aligns the moment a row wraps — the same reason
+    `kpi-grid` refuses it.
+  */
+  const columns = cn(
+    facts.length === 2 && "sm:grid-cols-2",
+    facts.length === 3 && "lg:grid-cols-3",
+    facts.length === 4 && "sm:grid-cols-2 xl:grid-cols-4",
+  )
+
+  return (
+    <section className={cn("min-w-0 overflow-hidden rounded-lg border bg-card", className)}>
+      {/* `min-h-8` floors the header so the body starts at the same y whether or not anything is recorded. */}
+      <div className="flex min-h-8 items-center gap-2 px-3 py-2">
+        <HeartPulse className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <h2 className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Santé</h2>
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="Modifier les informations médicales du patient"
+          className="ms-auto inline-flex min-h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground underline-offset-2 hover-hover:hover:underline coarse:min-h-11"
+        >
+          <Pencil className="h-3 w-3" aria-hidden="true" />
+          Modifier
+        </button>
+      </div>
+
+      <div className="min-h-0 overflow-y-auto border-t" style={{ maxHeight: BODY_MAX_PX }}>
+        {facts.length === 0 ? (
+          <p className="px-3 py-2.5 text-sm text-muted-foreground">
+            Aucune allergie, maladie, médicament ni tabac renseigné.
+          </p>
+        ) : (
+          <dl
+            /*
+              ⚠️ Values sit UNDER their labels rather than beside them, which is this page's own `dl` grammar
+              (« Informations personnelles » and « Informations médicales » at its foot). Beside them, a
+              free-text médicaments value wraps under the label track and stops aligning with anything.
+            */
+            className={cn("grid gap-px bg-border", columns)}
+          >
+            {facts.map((fact) => (
+              <div key={fact.key} className="min-w-0 bg-card px-3 py-2.5">
+                <dt className="text-xs font-medium text-muted-foreground">{fact.label}</dt>
+                <dd
+                  className={cn(
+                    "mt-0.5 text-sm [overflow-wrap:anywhere]",
+                    fact.alert ? "font-medium text-destructive" : "text-foreground",
+                  )}
+                >
+                  {/*
+                    ⚠️ A real `<ul>` past one item, and a bare line at exactly one. A single-item list still
+                    announces « liste, 1 élément » to a screen reader and pays a marker's indent for nothing —
+                    and « Tabac » is always one item, so the common card would otherwise carry a lone bullet
+                    beside three real lists.
+
+                    ⚠️ `list-none` with a typographic « • » in a `::marker`-free span rather than
+                    `list-disc list-inside`: the built-in marker sits outside the text box, so a wrapped second
+                    line hangs under the bullet instead of aligning with the first character. The explicit span
+                    plus `ps-3 -indent-3` is the hanging indent this needs at 200 px of column width.
+                  */}
+                  {fact.items.length === 1 ? (
+                    fact.items[0]
+                  ) : (
+                    <ul className="list-none space-y-0.5">
+                      {fact.items.map((item, index) => (
+                        <li key={index} className="-indent-3 ps-3">
+                          <span aria-hidden="true" className="me-1.5 text-muted-foreground">
+                            •
+                          </span>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    </section>
+  )
+}

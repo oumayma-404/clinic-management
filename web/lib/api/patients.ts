@@ -76,6 +76,7 @@ export const patientsApi = {
     phoneNumber?: string | null;
     medicalHistory?: string;
     allergies?: string;
+    medications?: string;
     /**
      * `null` is accepted so one expression can serve create and update — on create it is simply "no address".
      *

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import {
   Dialog,
   DialogBody,
@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
 import { CNAM_LIENS, CNAM_REGIMES } from "@/lib/cnam"
 import {
   MAX_TOBACCO_PER_DAY,
@@ -43,7 +42,7 @@ import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
-import { User, Phone, Heart, CreditCard, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
+import { User, MapPin, Heart, Pill, CreditCard, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
 import { RecordSection } from "@/components/record/record-section"
 import { cn } from "@/lib/utils"
 import { patientsApi } from "@/lib/api/patients"
@@ -65,9 +64,12 @@ import { PhoneField } from "@/components/ui/phone-field"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes } from "@/lib/format"
 import { CNAM_DENTAL_ALLOWANCE, CNAM_PLAFOND_SUPPLEMENTS, cnamBaseCeiling, cnamDefaultCeiling } from "@/lib/cnam"
 import { SELECTABLE_GENDERS, genderLabel } from "@/components/appointment-labels"
+import { handleHealthBulletKeyDown } from "@/lib/health-list"
 import {
   DENTITIONS,
-  DENTITION_LABELS_FR,
+  DENTITION_BANDS_FR,
+  DENTITION_SHORT_FR,
+  ageFromBirthdate,
   dentitionFromBirthdate,
   dentitionFromAge,
   type Dentition,
@@ -131,6 +133,18 @@ interface EditPatientDialogProps {
   patient: PatientDto | null
   /** Called on success; receives the saved patient (used to open a newly-created patient). */
   onSuccess?: (patient?: PatientDto) => void
+  /**
+   * Which block to unfold and scroll to on opening, or null for « as it comes ».
+   *
+   * ⚠️ It exists because the patient file's two summary panels each carry their own « Modifier »: a reader who
+   * spots a wrong allergy presses the one beside it, and landing at the top of a form to hunt for the section
+   * is the failure that makes such a button worse than no button. `"essentiel"` is not a `SectionKey` — that
+   * block is never folded — so it scrolls and unfolds nothing.
+   *
+   * ⚠️ Typed as the anchor map's own keys, not `SectionKey`: only a block that HAS an id can be scrolled to, so
+   * asking for « cnam » must be a compile error rather than a button that opens the form and goes nowhere.
+   */
+  focusSection?: PatientFormAnchor | null
 }
 
 /**
@@ -148,17 +162,52 @@ const FIELD_LABELS_FR: Record<string, string> = {
   dentition: "Denture",
   phone: "Numéro de téléphone",
   email: "E-mail",
+  // ⚠️ `smokingPerDay` is the only OTHER key `validateForm` sets, and it was missing here — so when the tobacco
+  // quantity was the sole refusal the banner printed « Corrigez « smokingPerDay » ci-dessous. » It also breaks
+  // this map's old claim that every field it names lives in « L'essentiel »: this one is in « Informations
+  // médicales », which is open on arrival, so the summary still names something on screen.
+  smokingPerDay: "Tabac — quantité par jour",
 }
+
+/**
+ * DOM ids the two summary panels on the patient file scroll this form to.
+ *
+ * ⚠️ A map rather than a template literal at each site, so a renamed key is a `tsc` error rather than a button
+ * that opens the form and silently scrolls nowhere.
+ */
+const SECTION_ANCHOR = {
+  essentiel: "patient-form-essentiel",
+  medical: "patient-form-medical",
+} as const
+
+export type PatientFormAnchor = keyof typeof SECTION_ANCHOR
 
 /** The four foldable sections of the patient form, in the order they appear. */
-type SectionKey = "notes" | "adresse" | "medical" | "cnam"
+type SectionKey = "medical" | "notes" | "coordonnees" | "cnam"
 
-/** Every section open, or every section folded — see `openSections` for why the default is open. */
-function allSections(open: boolean): Record<SectionKey, boolean> {
-  return { notes: open, adresse: open, medical: open, cnam: open }
+/**
+ * The opening state of each foldable section.
+ *
+ * ⚠️ **Two sections are folded on arrival and two are open, and the split is by SUBJECT, not by convenience.**
+ * The rule this form has always been held to is that a folded section is a question the desk never sees, and
+ * « Informations médicales » folded on a new patient is how a smoker, an allergy and a chronic condition go
+ * unrecorded at the one moment somebody is sitting there answering. That still holds, so the two blocks carrying a
+ * clinical question stay open.
+ *
+ * What is folded is the pair the practice itself describes as rarely filled — the postal address with the e-mail
+ * and the reminder consent, and the CNAM identity. Both keep a summary that states what they hold, so folding
+ * makes a value read-only rather than invisible.
+ *
+ * ⚠️ This is the second reversal on this line and the first one is worth keeping in view: every section used to be
+ * open, which was itself a reversal of every section being folded. Neither extreme was the answer — the form was
+ * simply too long, and the fix was to shorten it (33 controls over 28 rows became 29 over 11) rather than to hide
+ * more or less of it.
+ */
+function defaultSections(): Record<SectionKey, boolean> {
+  return { medical: true, notes: true, coordonnees: false, cnam: false }
 }
 
-export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: EditPatientDialogProps) {
+export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focusSection }: EditPatientDialogProps) {
   // Personal Info State
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -192,13 +241,22 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   // survive the next keystroke (see `PhoneField`). Seeded from the stored value on hydration below.
   const [phoneCountry, setPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
   const [email, setEmail] = useState("")
-  const [addressStreet, setAddressStreet] = useState("")
-  const [addressGovernorate, setAddressGovernorate] = useState("")
-  const [addressCity, setAddressCity] = useState("")
-  const [addressPostalCode, setAddressPostalCode] = useState("")
-  const [emergencyName, setEmergencyName] = useState("")
-  const [emergencyPhone, setEmergencyPhone] = useState("")
-  const [emergencyPhoneCountry, setEmergencyPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
+  /**
+   * The whole address, on one line, exactly as the desk wants to write it.
+   *
+   * ⚠️ **This replaces four boxes — rue, gouvernorat, ville, code postal — and the fold is one-way.** Every
+   * surface that displays an address already joins the parts with « , » (the patient file's `formatAddress`, the
+   * summary modal, the lettre de liaison), so nothing on screen changes shape; what is lost is the
+   * *decomposition*, which only the CSV export and the dossier archive still read as separate columns. Those go
+   * empty for any patient saved through this form from now on.
+   *
+   * The alternative — keeping the three hidden and editing only the street — was worse in the way that matters:
+   * the desk could see « La Marsa » in the field and be unable to correct it.
+   *
+   * On the wire it is `Address.street`, and the other three are sent blank. `Address.OfAny` refuses only an
+   * address with *no* side at all, so one filled line is a valid address and an empty box clears the record.
+   */
+  const [addressLine, setAddressLine] = useState("")
   // « Adressé par » — the referring practitioner. Optional, free text (usually a doctor outside this clinic).
   const [referredBy, setReferredBy] = useState("")
   const [reminderConsent, setReminderConsent] = useState<ReminderConsent>("NotRecorded")
@@ -221,8 +279,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [patientImportantNotes, setPatientImportantNotes] = useState("")
 
   // Medical Info State
+  //
+  // ⚠️ `chronicDiseases` is the state name for the column the wire calls `medicalHistory` and the interface now
+  // calls « Maladies » — three names for one value, and the middle one is the wire's so it cannot move. The label
+  // was « Maladies chroniques / affections », which was three words for one column and disagreed with what the
+  // patient's file and the shared alert panel each called it.
   const [chronicDiseases, setChronicDiseases] = useState("")
   const [allergies, setAllergies] = useState("")
+  // « Médicaments » — new. It had nowhere to live, so practices wrote it into « Notes importantes », where it is
+  // prose rather than a field and reaches no document and no structured read.
+  const [medications, setMedications] = useState("")
   
   // Medical History Entries (replaces Past Surgeries)
   const [medicalHistoryEntries, setMedicalHistoryEntries] = useState<Array<{
@@ -321,7 +387,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
    * (assurance, signalements), the form is shorter, and the footer is sticky, so the button is reachable at any
    * scroll position. Everything stays foldable; only the default moved.
    */
-  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(() => allSections(true))
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(defaultSections)
 
   const toggleSection = (key: SectionKey) =>
     setOpenSections((current) => ({ ...current, [key]: !current[key] }))
@@ -356,17 +422,27 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       filled(patientImportantNotes, patientNotes) > 0
         ? [patientImportantNotes.trim() && "alertes", patientNotes.trim() && "notes"].filter(Boolean).join(" · ")
         : "aucune note",
-    adresse:
-      filled(addressStreet, addressCity, addressGovernorate, emergencyName) > 0
-        ? [addressCity.trim() || addressGovernorate, emergencyName.trim() && "contact d'urgence"]
-            .filter(Boolean)
-            .join(" · ")
-        : "à renseigner",
+    // ⚠️ This section is FOLDED on arrival, so its summary is the only thing most users will ever read of it —
+    // and it has to be true about all three of its fields. « non renseignés » on the rappels is deliberately
+    // spelled out rather than omitted: an unrecorded consent still SENDS, which is the half people misread.
+    coordonnees:
+      [
+        addressLine.trim(),
+        email.trim(),
+        reminderConsent === "Granted"
+          ? "rappels acceptés"
+          : reminderConsent === "Refused"
+            ? "rappels refusés"
+            : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || "adresse et rappels non renseignés",
     medical:
-      filled(chronicDiseases, allergies) > 0 || smokingStatus !== null
+      filled(chronicDiseases, allergies, medications) > 0 || smokingStatus !== null
         ? [
-            chronicDiseases.trim() && "affections",
             allergies.trim() && "allergies",
+            chronicDiseases.trim() && "maladies",
+            medications.trim() && "médicaments",
             // The label itself, not the word « tabac »: « Fumeur » is the fact worth reading on a folded section.
             smokingStatus !== null && smokingStatusLabel(smokingStatus).toLowerCase(),
           ]
@@ -401,7 +477,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       // ⚠️ Re-set on every open, not only on mount: this component is reused for both modes from the same
       // parent, so a section somebody folded on the previous patient would stay folded on the next one —
       // and the initial state alone cannot reach a second opening.
-      setOpenSections(allSections(true))
+      // ⚠️ Applied ON TOP of the defaults, never instead of them: a caller asking for « médical » must not
+      // also fold « notes », which the default opens.
+      setOpenSections(
+        focusSection && focusSection !== "essentiel"
+          ? { ...defaultSections(), [focusSection]: true }
+          : defaultSections(),
+      )
       if (patient) {
         // Edit mode: populate with existing patient data
       setFirstName(patient.firstName || "")
@@ -421,23 +503,22 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       setPhoneCountry(regionOf(patient.phoneNumber) ?? DEFAULT_REGION)
       setEmail(patient.email || "")
       
-      // Set address fields from address object
-      if (patient.address) {
-        setAddressStreet(patient.address.street || "")
-        setAddressGovernorate(patient.address.state || "")
-        setAddressCity(patient.address.city || "")
-        setAddressPostalCode(patient.address.zipCode || "")
-      } else {
-        setAddressStreet("")
-        setAddressGovernorate("")
-        setAddressCity("")
-        setAddressPostalCode("")
-      }
-
-      // Emergency contact (finding #11)
-      setEmergencyName(patient.emergencyContactName || "")
-      setEmergencyPhone(patient.emergencyContactPhone || "")
-      setEmergencyPhoneCountry(regionOf(patient.emergencyContactPhone) ?? DEFAULT_REGION)
+      // ⚠️ Folded, not truncated. A stored « 12 rue de Carthage / Tunis / La Marsa / 2070 » must come back into
+      // the one box in FULL, or opening this form and pressing « Enregistrer » would quietly drop three quarters
+      // of the address — the exact silent-drop shape `Address.OfAny` was written to end. Same join and same
+      // separator as every surface that already displays one.
+      // ⚠️ **Adjacent duplicates are dropped**, the same way the patient file's `formatAddress` does it: a
+      // patient in Ariana has « Ariana » as both ville and gouvernorat, and a naive join reads « Ariana,
+      // Ariana » — which looks like a bug in the record rather than a true statement about Tunisian
+      // administrative naming. Adjacent only, and case-insensitively: two identical parts far apart in a long
+      // address are far likelier to be real than a typo.
+      setAddressLine(
+        [patient.address?.street, patient.address?.city, patient.address?.state, patient.address?.zipCode]
+          .map((part) => part?.trim())
+          .filter((part): part is string => Boolean(part))
+          .filter((part, index, all) => index === 0 || part.toLowerCase() !== all[index - 1].toLowerCase())
+          .join(", "),
+      )
 
       // « Adressé par »
       setReferredBy(patient.referredBy || "")
@@ -467,6 +548,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
       // Medical info - parse from strings
       setAllergies(patient.allergies || "")
+      setMedications(patient.medications || "")
       setChronicDiseases(patient.medicalHistory || "")
       
       // « Tabac ». A null block is « jamais renseigné » — never seeded as « Non-fumeur ».
@@ -492,18 +574,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setPhone("")
         setPhoneCountry(DEFAULT_REGION)
         setEmail("")
-        setAddressStreet("")
-        setAddressGovernorate("")
-        setAddressCity("")
-        setAddressPostalCode("")
-        setEmergencyName("")
-        setEmergencyPhone("")
-        setEmergencyPhoneCountry(DEFAULT_REGION)
+        setAddressLine("")
         setReferredBy("")
         setPatientNotes("")
         setPatientImportantNotes("")
         setChronicDiseases("")
         setAllergies("")
+        setMedications("")
         setConsultationReason("")
         setCnam({ identifiantUnique: "", regime: "", assureFirstName: "", assureLastName: "", assureAddress: "", assurePostalCode: "", maladeLien: "", maladeLienRang: "", dependantCount: "", annualCeilingOverride: "" })
         // ⚠️ `null`, not `"NonSmoker"` — a fresh form has asked nobody anything.
@@ -528,6 +605,47 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     if (dentitionTouched) return
     setDentition(birthdateMode === "age" ? dentitionFromAge(approximateAge) : dentitionFromBirthdate(birthdate))
   }, [birthdate, approximateAge, birthdateMode, dentitionTouched])
+
+  /**
+   * The age a typed date of birth makes today, printed beside the « Naissance » label.
+   *
+   * ⚠️ Derived on render, never held in state and never seeded by an effect — it is a pure function of the date
+   * beside it, and a second copy in state is a second thing that can disagree with the field. `null` whenever the
+   * box is empty or unparseable, in which case nothing is printed at all rather than « 0 ans ».
+   *
+   * ⚠️ Only in `date` mode. In `age` mode the box IS the age, so repeating it beside the label would be the same
+   * number twice.
+   */
+  /**
+   * Scroll the requested block into view once the dialog has actually painted.
+   *
+   * ⚠️ **Two frames, not one, and not zero.** Radix mounts `DialogContent` in a portal and runs its own entry
+   * animation, so on the tick `open` flips the scroller has no height and `scrollIntoView` is a no-op — the same
+   * shape as the patient page's own deferred tab scroll. `block: "start"` rather than `"center"`, because the
+   * point is to put the section's HEADING at the top of the scroller, and centring a short block leaves its
+   * title above the fold.
+   *
+   * ⚠️ `behavior: "auto"`: a smooth scroll on opening reads as the dialog sliding out from under the reader, and
+   * `prefers-reduced-motion` would have to be honoured by hand.
+   */
+  useEffect(() => {
+    if (!open || !focusSection) return
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        document.getElementById(SECTION_ANCHOR[focusSection])?.scrollIntoView({ block: "start", behavior: "auto" })
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [open, focusSection])
+
+  const derivedAge = useMemo(
+    () => (birthdateMode === "date" ? ageFromBirthdate(birthdate) : null),
+    [birthdate, birthdateMode],
+  )
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -814,12 +932,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
        * the two are equivalent (there is nothing stored to keep), so one expression serves both paths.
        */
       const addressObj =
-        addressStreet.trim() || addressCity.trim() || addressGovernorate.trim() || addressPostalCode.trim()
+        addressLine.trim()
           ? {
-              street: addressStreet.trim(),
-              city: addressCity.trim(),
-              state: addressGovernorate.trim(),
-              zipCode: addressPostalCode.trim(),
+              street: addressLine.trim(),
+              city: "",
+              state: "",
+              zipCode: "",
               country: "Tunisia", // Default country, can be made configurable
             }
           : null
@@ -847,8 +965,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           // silent overwrite of their work, and our own previous save is not mistaken for one.
           version: freshPatient?.version ?? patient.version,
           address: addressObj,
-          emergencyContactName: emergencyName.trim(),
-          emergencyContactPhone: emergencyPhone.trim(),
           // Always present (possibly ""), so emptying the box clears the stored value instead of
           // reading as "leave it alone" — same reason as the two contact fields above.
           referredBy: referredBy.trim(),
@@ -874,6 +990,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
            */
           medicalHistory: chronicDiseases.trim(),
           allergies: allergies.trim(),
+          medications: medications.trim(),
           // Always present (possibly ""), so clearing the box clears the stored motif — the same reason
           // `notes`/`importantNotes` above are sent that way.
           consultationReason: consultationReason.trim(),
@@ -981,9 +1098,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           phoneNumber: phone.trim() || null,
           medicalHistory: chronicDiseases.trim() || undefined,
           allergies: allergies.trim() || undefined,
+          medications: medications.trim() || undefined,
           address: addressObj,
-          emergencyContactName: emergencyName.trim() || undefined,
-          emergencyContactPhone: emergencyPhone.trim() || undefined,
           referredBy: referredBy.trim() || undefined,
           // Omitted at « non renseigné » so a new patient is created with an honest « nobody has asked »
           // rather than a recorded answer with today's date on it.
@@ -1113,7 +1229,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             />
 
             {/* Personal Information Section */}
-            <div className="space-y-4">
+            <div className="space-y-4" id={SECTION_ANCHOR.essentiel}>
               <div className="flex items-center gap-2 pb-2">
                 <User className="h-5 w-5 text-primary" />
                 <h3 className="text-lg font-semibold">L&apos;essentiel</h3>
@@ -1125,13 +1241,18 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
                 {/*
-                  Autofill tokens run across the identity and address fields below. This form is filled at a
-                  reception desk on a shared tablet, and thirty inputs with no `autocomplete` means the browser
-                  can offer nothing at all — every address retyped by hand.
+                  Autofill tokens run across the identity fields below. This form is filled at a reception desk on a
+                  shared tablet, and inputs with no `autocomplete` mean the browser can offer nothing at all.
 
-                  ⚠️ Deliberately NOT on the emergency contact or the CNAM assuré: those describe a *different*
-                  person from the patient, so a `tel`/`postal-code` suggestion there would be a confidently wrong
-                  answer written into a clinical record.
+                  ⚠️ Deliberately NOT on the CNAM assuré: those fields describe a *different* person from the
+                  patient, so a `tel`/`postal-code` suggestion there would be a confidently wrong answer written
+                  into a clinical record.
+
+                  ⚠️ **No « (facultatif) » markers inside this box, and that is deliberate.** The heading already
+                  says « suffit à enregistrer le patient » and exactly two fields carry an asterisk; six repetitions
+                  of the same word are then noise that costs horizontal room in a three-up row. The markers stay on
+                  the folded sections, where no such heading is in view. Where an empty field has a real
+                  *consequence* — the telephone — that consequence is still stated, which is the half that matters.
                 */}
                 {/* First Name */}
                 <div className="space-y-2">
@@ -1166,60 +1287,243 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 </div>
 
                 {/*
-                  « Motif de consultation » — why this patient came in the first place, immediately after the two
-                  names because that is the order the question is asked in at the desk, and because it is read
-                  beside the patient's name on their own page.
+                  « Motif de consultation » and « Adressé par » — the second row, side by side, directly under the
+                  two names.
 
-                  Optional like everything but the two names: a walk-in whose reason is « je ne sais pas, ça fait
-                  mal » is a record worth keeping, and a required field the desk cannot answer is a fabrication
-                  generator — the same reasoning that made the sexe, the date de naissance and the denture optional.
+                  ⚠️ **They used to be the third control and the tenth**, the second of them at the very bottom of
+                  the block under CNAM-adjacent fields nobody scrolls to. Both are what the practice actually asks
+                  at the desk (« pourquoi venez-vous ? », « qui vous envoie ? »), both are read beside the patient's
+                  name on their own page, and the pair costs one row rather than two full-width ones.
 
-                  ⚠️ An `Input`, not a `Textarea`: it renders on one line beside the name, so the control's shape
-                  states the length expected rather than inviting a paragraph the page will clamp away.
+                  ⚠️ `Input`s, not `Textarea`s: each renders on one line beside the name on the patient page, so the
+                  control's shape states the length expected rather than inviting a paragraph the page will clamp.
                 */}
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="consultationReason">
-                    Motif de consultation <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
+                <div className="space-y-2">
+                  <Label htmlFor="consultationReason">Motif de consultation</Label>
                   <Input
                     id="consultationReason"
                     value={consultationReason}
                     onChange={(e) => setConsultationReason(e.target.value)}
-                    placeholder="Douleur 36, contrôle, suivi orthodontique…"
+                    placeholder="Douleur 36, contrôle, suivi ortho…"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="referredBy">Adressé par</Label>
+                  <Input
+                    id="referredBy"
+                    value={referredBy}
+                    onChange={(e) => setReferredBy(e.target.value)}
+                    placeholder="Dr Ben Salah, Sfax — vide si le patient vient de lui-même"
+                  />
+                </div>
+
+                {/*
+                  Téléphone · Sexe · Naissance — one row of three.
+
+                  ⚠️ **`md:items-start` plus a `min-h-8` label box on all three, and both halves are load-bearing.**
+                  The naissance label carries a segmented control and the other two carry plain text, so without a
+                  shared label height its input starts ~12 px below its neighbours' and the three boxes visibly stop
+                  lining up. `items-start` then keeps that alignment when one column grows a message the others do
+                  not have (the phone's « ni rappel ni relance », a validation error).
+
+                  ⚠️ The labels are short — « Téléphone », « Naissance », and « Date » / « Âge » on the switch —
+                  because at this width « Date de naissance » beside the switch wraps to a second line, which is the
+                  row this arrangement exists to avoid.
+                */}
+                <div className="grid grid-cols-1 gap-4 md:col-span-2 md:grid-cols-3 md:items-start">
+                  {/* Phone */}
+                  <div className="space-y-2">
+                    <div className="flex min-h-8 items-center">
+                      <Label htmlFor="phone">Téléphone</Label>
+                    </div>
+                    <PhoneField
+                      id="phone"
+                      value={phone}
+                      onChange={(next) => {
+                        setPhone(next)
+                        // ⚠️ The error MUST clear on change. Only `birthdate`/`approximateAge` were cleared
+                        // imperatively, so a corrected number kept its red border and its message until the next
+                        // submit — tolerable beside a plain input, and with a country control next to it it reads
+                        // as a broken control the user is fighting.
+                        if (errors.phone) {
+                          setErrors((prev) => {
+                            const rest = { ...prev }
+                            delete rest.phone
+                            return rest
+                          })
+                        }
+                      }}
+                      country={phoneCountry}
+                      onCountryChange={setPhoneCountry}
+                      invalid={!!errors.phone}
+                    />
+                    {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
+                    {/* Optional does not mean consequence-free. Saying it here beats a neutral blank the user
+                        only understands weeks later, when the patient misses an appointment. */}
+                    {!phone.trim() && !errors.phone && (
+                      <p className="text-xs text-muted-foreground">
+                        Sans numéro, ce patient ne recevra ni rappel ni relance.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Gender */}
+                  <div className="space-y-2">
+                    <div className="flex min-h-8 items-center">
+                      <Label htmlFor="gender">Sexe</Label>
+                    </div>
+                    <Select value={gender} onValueChange={setGender}>
+                      <SelectTrigger id="gender" className={cn("w-full", errors.gender && "border-destructive")}>
+                        <SelectValue placeholder="Non précisé" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {/* AC-P1.45: values stay the English storage keys; labels come from the shared map. */}
+                        {SELECTABLE_GENDERS.map((g) => (
+                          <SelectItem key={g} value={g}>
+                            {genderLabel(g)}
+                          </SelectItem>
+                        ))}
+                        {/* AC-P1.46: an existing "Unknown" row hydrated the Select with a value no option
+                            matched, so the trigger fell back to the placeholder and looked unset. */}
+                        {gender && !SELECTABLE_GENDERS.includes(gender as (typeof SELECTABLE_GENDERS)[number]) && (
+                          <SelectItem value={gender}>{genderLabel(gender)}</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {errors.gender && <p className="text-sm text-destructive">{errors.gender}</p>}
+                  </div>
+
+                  {/*
+                    Date of birth — or, when the patient does not know it, an age.
+
+                    ⚠️ The two are one field with two ways of answering, not two fields. Offering an « Âge » box
+                    beside a « Date de naissance » box invites both to be filled with statements that disagree, and
+                    nothing on the record could then say which one the desk meant. The segmented control makes the
+                    choice explicit and leaves exactly one answer on screen.
+                  */}
+                  <div className="space-y-2">
+                    <div className="flex min-h-8 items-center justify-between gap-2">
+                      <Label htmlFor={birthdateMode === "age" ? "approximate-age" : "birthdate"}>
+                        Naissance
+                        {/* The derived age, beside the date rather than on a help line under it: one fewer row,
+                            and it lands where the reader is already looking. It states what IS — the age this
+                            date makes today — and never what the denture will be, which the control below says
+                            for itself. */}
+                        {birthdateMode === "date" && derivedAge !== null && (
+                          <span className="ms-1.5 text-xs font-normal text-muted-foreground">· {derivedAge} ans</span>
+                        )}
+                      </Label>
+                      {/* The switch itself. `role="radiogroup"` and not two independent toggles: they are the two
+                          answers to one question, and a screen reader has to hear it that way. */}
+                      <div
+                        role="radiogroup"
+                        aria-label="Renseigner la naissance par"
+                        className="flex shrink-0 items-center gap-1 rounded-md border bg-muted/40 p-0.5"
+                      >
+                        {([
+                          ["date", "Date"],
+                          ["age", "Âge"],
+                        ] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={birthdateMode === value}
+                            onClick={() => {
+                              setBirthdateMode(value)
+                              // Switching answers clears the other box, so the record can never carry a date the
+                              // desk has just said it does not have — nor an age beside a date it does.
+                              if (value === "age") setBirthdate("")
+                              else setApproximateAge("")
+                              setErrors((prev) => {
+                                const next = { ...prev }
+                                delete next.birthdate
+                                delete next.approximateAge
+                                return next
+                              })
+                            }}
+                            className={cn(
+                              "touch-target rounded px-2 py-1 text-xs font-medium transition-colors",
+                              birthdateMode === value
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover-hover:hover:text-foreground",
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {birthdateMode === "date" ? (
+                      <Input
+                        id="birthdate"
+                        type="date"
+                        value={birthdate}
+                        onChange={(e) => setBirthdate(e.target.value)}
+                        aria-invalid={!!errors.birthdate}
+                        className={cn(errors.birthdate && "border-destructive")}
+                      />
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="approximate-age"
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            max={120}
+                            step={1}
+                            value={approximateAge}
+                            onChange={(e) => setApproximateAge(e.target.value)}
+                            placeholder="Ex. 42"
+                            aria-invalid={!!errors.approximateAge}
+                            className={cn("w-24", errors.approximateAge && "border-destructive")}
+                          />
+                          <span className="text-sm text-muted-foreground">ans</span>
+                        </div>
+                        {/* Said where the consequence is. The age is a form input: it picks the denture below and
+                            is then discarded, so the fiche will read « âge inconnu » — which is the truth, and much
+                            better than a birthday nobody stated printed on a bulletin CNAM. */}
+                        <p className="text-xs text-muted-foreground">
+                          Aucune date de naissance ne sera enregistrée.
+                        </p>
+                      </>
+                    )}
+                    {errors.birthdate && <p className="text-sm text-destructive">{errors.birthdate}</p>}
+                    {errors.approximateAge && <p className="text-sm text-destructive">{errors.approximateAge}</p>}
+                  </div>
                 </div>
 
                 {/*
                   Denture — asked once, here, because it is a property of the patient and not of a visit.
 
-                  It replaces two toggles that asked the same question about the same patient every time anyone opened
-                  the odontogram or the fiche editor, plus a per-fiche badge in the actes dentaires table. Pre-selected
-                  from the age so the common case is already right; changeable because the age rule is a heuristic
-                  and a growing child has to be switchable.
+                  It replaces two toggles that asked the same question about the same patient every time anyone
+                  opened the odontogram or the fiche editor, plus a per-fiche badge in the actes dentaires table.
+                  Pre-selected from the age so the common case is already right; changeable because the age rule is
+                  a heuristic and a growing child has to be switchable.
 
-                  ⚠️ Directly under the two names, and it is **no longer required** — « L'essentiel suffit à
-                  enregistrer le patient » now means exactly two fields, the prénom and the nom. It stays third
-                  because it is still the most *useful* answer on the form (it decides the chart every future séance
-                  is recorded on), not because the form refuses to save without it. See the validator above for why
-                  demanding a two-valued enum from a desk that does not know is a fabrication generator rather than a
-                  data-quality guarantee, and why nothing downstream breaks when it is left blank.
+                  ⚠️ **Three options now, and each carries its own age band as a caption.** The band is the rule, and
+                  printed inside the control it is read — the sentence « Proposé d'après l'âge. » that used to sit
+                  under the group was not, and it stated the mechanism rather than the threshold. It also replaces
+                  it: the « Déduit de l'âge » chip above says the same thing where it belongs, beside the answer it
+                  qualifies, and disappears the moment the dentist chooses for themselves.
 
-                  It is above the date of birth it is seeded from, and that is fine in both directions: answering it
-                  here is an explicit choice and `dentitionTouched` rightly stops the derivation, while leaving it
-                  alone lets a date typed lower down still fill it in — the hint below updates live when that happens.
+                  ⚠️ The captions use `DENTITION_SHORT_FR`, not the full labels: inside a control already named
+                  « Denture », three buttons each beginning with the word « Denture » is the word three times over
+                  and costs the row its width. The full labels are what the patient's own file prints.
                 */}
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="dentition-Child">
-                    Denture <span className="text-muted-foreground text-xs">(recommandé)</span>
-                  </Label>
-                  <div
-                    role="radiogroup"
-                    aria-label="Denture"
-                    className={cn(
-                      "flex flex-col gap-2 sm:flex-row",
-                      errors.dentition && "rounded-md ring-1 ring-destructive",
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <Label htmlFor={`dentition-${DENTITIONS[0]}`}>Denture</Label>
+                    {!dentitionTouched && dentition && (
+                      <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-medium text-accent-foreground">
+                        Déduit de l&apos;âge
+                      </span>
                     )}
-                  >
+                  </div>
+                  <div role="radiogroup" aria-label="Denture" className="flex flex-col gap-2 sm:flex-row">
                     {DENTITIONS.map((value) => {
                       const selected = dentition === value
                       return (
@@ -1238,21 +1542,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                             The fill: `bg-card`, not `bg-background`. Page-ground fill under `text-muted-foreground`
                             is how this app paints an *inert* surface, so on « Ajouter un patient » — where no
-                            birthdate has been typed yet and therefore neither option is pre-selected from the age —
-                            a required field rendered as two greyed-out boxes that read as disabled inputs.
+                            birthdate has been typed yet and therefore no option is pre-selected from the age — the
+                            field rendered as greyed-out boxes that read as disabled inputs.
 
                             The marker: a real radio dot. `bg-card` alone was not enough, because the geometry here
-                            is an input's — full width, bordered, left-aligned text — so once it went white it read
-                            as a *text field* instead. The durée presets in `create-appointment-dialog` get away
-                            with `bg-card` and no marker only because they are short, centred, button-shaped chips;
-                            these labels are sentences and cannot be. With neither option chosen, the two hollow
-                            circles are also the only thing on screen saying an answer is still owed.
+                            is an input's — bordered, left-aligned text — so once it went white it read as a *text
+                            field* instead. With no option chosen, the hollow circles are also the only thing on
+                            screen saying an answer is still owed.
                           */
                           className={cn(
-                            "flex flex-1 items-center gap-2.5 rounded-md border px-3 py-2 text-left text-sm transition-colors duration-150 ease-out motion-reduce:transition-none",
+                            "flex flex-1 items-center gap-2.5 rounded-md border px-3 py-2 text-left transition-colors duration-150 ease-out motion-reduce:transition-none",
                             selected
-                              ? "border-primary bg-primary/10 font-medium text-foreground"
-                              : "bg-card text-foreground hover:bg-muted/60",
+                              ? "border-primary bg-primary/10 text-foreground"
+                              : "bg-card text-foreground hover-hover:hover:bg-muted/60",
                           )}
                         >
                           <span
@@ -1264,240 +1566,24 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                           >
                             {selected && <span className="size-2 rounded-full bg-primary" />}
                           </span>
-                          {DENTITION_LABELS_FR[value]}
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium">{DENTITION_SHORT_FR[value]}</span>
+                            <span
+                              className={cn(
+                                "block text-xs",
+                                selected ? "text-primary" : "text-muted-foreground",
+                              )}
+                            >
+                              {DENTITION_BANDS_FR[value]}
+                            </span>
+                          </span>
                         </button>
                       )
                     })}
                   </div>
-                  {errors.dentition ? (
-                    <p className="text-sm text-destructive">{errors.dentition}</p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Détermine les dents affichées dans l&apos;odontogramme et les fiches de soins.
-                      {!dentitionTouched && dentition && " Proposé d'après l'âge."}
-                    </p>
-                  )}
-                </div>
-
-                {/* Phone */}
-                <div className="space-y-2">
-                  {/* « recommandé » in both modes: an asterisk here contradicted the sentence directly below it,
-                      which only makes sense for a field that may be left empty. */}
-                  <Label htmlFor="phone">
-                    Numéro de téléphone <span className="text-muted-foreground text-xs">(recommandé)</span>
-                  </Label>
-                  <PhoneField
-                    id="phone"
-                    value={phone}
-                    onChange={(next) => {
-                      setPhone(next)
-                      // ⚠️ The error MUST clear on change. Only `birthdate`/`approximateAge` were cleared
-                      // imperatively, so a corrected number kept its red border and its message until the next
-                      // submit — tolerable beside a plain input, and with a country control next to it it reads
-                      // as a broken control the user is fighting.
-                      if (errors.phone) {
-                        setErrors((prev) => {
-                          const rest = { ...prev }
-                          delete rest.phone
-                          return rest
-                        })
-                      }
-                    }}
-                    country={phoneCountry}
-                    onCountryChange={setPhoneCountry}
-                    invalid={!!errors.phone}
-                  />
-                  {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
-                  {/* Optional does not mean consequence-free. Saying it here beats a neutral blank the user
-                      only understands weeks later, when the patient misses an appointment. */}
-                  {!phone.trim() && !errors.phone && (
-                    <p className="text-xs text-muted-foreground">
-                      Sans numéro de téléphone, ce patient ne recevra ni rappel ni relance.
-                    </p>
-                  )}
-                </div>
-
-                {/*
-                  Date of birth — or, when the patient does not know it, an age.
-
-                  ⚠️ The two are one field with two ways of answering, not two fields. Offering an « Âge » box
-                  beside a « Date de naissance » box invites both to be filled with statements that disagree, and
-                  nothing on the record could then say which one the desk meant. The segmented control makes the
-                  choice explicit and leaves exactly one answer on screen.
-                */}
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <Label htmlFor={birthdateMode === "age" ? "approximate-age" : "birthdate"}>
-                      Date de naissance <span className="text-muted-foreground text-xs">(recommandé)</span>
-                    </Label>
-                    {/* The switch itself. `role="radiogroup"` and not two independent toggles: they are the two
-                        answers to one question, and a screen reader has to hear it that way. */}
-                    <div
-                      role="radiogroup"
-                      aria-label="Renseigner la naissance par"
-                      className="flex items-center gap-1 rounded-md border bg-muted/40 p-0.5"
-                    >
-                      {([
-                        ["date", "Date exacte"],
-                        ["age", "Âge"],
-                      ] as const).map(([value, label]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          role="radio"
-                          aria-checked={birthdateMode === value}
-                          onClick={() => {
-                            setBirthdateMode(value)
-                            // Switching answers clears the other box, so the record can never carry a date the
-                            // desk has just said it does not have — nor an age beside a date it does.
-                            if (value === "age") setBirthdate("")
-                            else setApproximateAge("")
-                            setErrors((prev) => {
-                              const next = { ...prev }
-                              delete next.birthdate
-                              delete next.approximateAge
-                              return next
-                            })
-                          }}
-                          className={cn(
-                            "touch-target rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                            birthdateMode === value
-                              ? "bg-background text-foreground shadow-sm"
-                              : "text-muted-foreground hover-hover:hover:text-foreground",
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {birthdateMode === "date" ? (
-                    <Input
-                      id="birthdate"
-                      type="date"
-                      value={birthdate}
-                      onChange={(e) => setBirthdate(e.target.value)}
-                      aria-invalid={!!errors.birthdate}
-                      className={cn(errors.birthdate && "border-destructive")}
-                    />
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          id="approximate-age"
-                          type="number"
-                          inputMode="numeric"
-                          min={0}
-                          max={120}
-                          step={1}
-                          value={approximateAge}
-                          onChange={(e) => setApproximateAge(e.target.value)}
-                          placeholder="Ex. 42"
-                          aria-invalid={!!errors.approximateAge}
-                          className={cn("w-28", errors.approximateAge && "border-destructive")}
-                        />
-                        <span className="text-sm text-muted-foreground">ans</span>
-                      </div>
-                      {/* Said where the consequence is. The age is a form input: it picks the denture below and
-                          is then discarded, so the fiche will read « âge inconnu » — which is the truth, and much
-                          better than a birthday nobody stated printed on a bulletin CNAM. */}
-                      <p className="text-xs text-muted-foreground">
-                        Sert à pré-sélectionner la denture. Aucune date de naissance ne sera enregistrée.
-                      </p>
-                    </>
-                  )}
-                  {errors.birthdate && <p className="text-sm text-destructive">{errors.birthdate}</p>}
-                  {errors.approximateAge && <p className="text-sm text-destructive">{errors.approximateAge}</p>}
-                </div>
-
-                {/* Email */}
-                <div className="space-y-2">
-                  <Label htmlFor="email">
-                    E-mail <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                    aria-invalid={!!errors.email}
-                    className={cn(errors.email && "border-destructive")}
-                  />
-                  {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
-                </div>
-
-                {/* Gender */}
-                <div className="space-y-2">
-                  <Label htmlFor="gender">
-                    Sexe <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  <Select value={gender} onValueChange={setGender}>
-                    <SelectTrigger id="gender" className={cn("w-full", errors.gender && "border-destructive")}>
-                      <SelectValue placeholder="Sélectionner le sexe" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* AC-P1.45: values stay the English storage keys; labels come from the shared map. */}
-                      {SELECTABLE_GENDERS.map((g) => (
-                        <SelectItem key={g} value={g}>
-                          {genderLabel(g)}
-                        </SelectItem>
-                      ))}
-                      {/* AC-P1.46: an existing "Unknown" row hydrated the Select with a value no option
-                          matched, so the trigger fell back to the placeholder and looked unset. */}
-                      {gender && !SELECTABLE_GENDERS.includes(gender as (typeof SELECTABLE_GENDERS)[number]) && (
-                        <SelectItem value={gender}>{genderLabel(gender)}</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {errors.gender && <p className="text-sm text-destructive">{errors.gender}</p>}
-                </div>
-
-                {/* Rappels automatiques — on this form rather than in a settings screen. Recording a number
-                    used to enrol the patient into SMS/WhatsApp with no way out; the answer is taken while somebody
-                    is actually speaking to the patient, and a separate screen would be a control nobody opens. */}
-                <div className="space-y-2">
-                  <Label htmlFor="reminderConsent">Rappels automatiques (SMS / WhatsApp)</Label>
-                  <Select
-                    value={reminderConsent}
-                    onValueChange={(v) => setReminderConsent(v as ReminderConsent)}
-                  >
-                    <SelectTrigger id="reminderConsent" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NotRecorded">Non renseigné</SelectItem>
-                      <SelectItem value="Granted">Le patient accepte</SelectItem>
-                      <SelectItem value="Refused">Le patient refuse</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {/* Each state says what will actually happen, because « non renseigné » is the one people
-                      misread — it sends, and a cabinet that assumes otherwise is the whole risk here. */}
                   <p className="text-xs text-muted-foreground">
-                    {reminderConsent === "Refused"
-                      ? "Aucun rappel ni relance ne sera envoyé à ce patient, même avec un numéro valide."
-                      : reminderConsent === "Granted"
-                        ? "Ce patient recevra les rappels de rendez-vous et les relances."
-                        : "Tant que la question n'a pas été posée, ce patient reçoit les rappels. Enregistrez sa réponse dès que possible."}
+                    Détermine les dents affichées dans l&apos;odontogramme et les fiches de soins.
                   </p>
-                  {consentRecordedLabel && (
-                    <p className="text-xs text-muted-foreground">{consentRecordedLabel}</p>
-                  )}
-                </div>
-
-                {/* « Adressé par » — after the identity fields, not before them: it is a fact *about* the patient,
-                    and nothing should stand between opening this form and typing who the patient is. */}
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="referredBy">
-                    Adressé par <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  <Input
-                    id="referredBy"
-                    value={referredBy}
-                    onChange={(e) => setReferredBy(e.target.value)}
-                    placeholder="Dr Ben Salah, Sfax — laisser vide si le patient vient de lui-même"
-                  />
                 </div>
               </div>
             </div>
@@ -1511,155 +1597,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
               the box you will read.
             */}
             <RecordSection
-              size="md"
-              icon={<StickyNote className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
-              title="Notes du patient"
-              summary={sectionSummary.notes}
-              open={openSections.notes}
-              onToggle={() => toggleSection("notes")}
-            >
-
-              <div className="grid grid-cols-1 gap-4">
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="patientImportantNotes"
-                    className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300"
-                  >
-                    <AlertTriangle className="h-4 w-4" />
-                    Notes importantes <span className="text-muted-foreground text-xs">(facultatives)</span>
-                  </Label>
-                  <Textarea
-                    id="patientImportantNotes"
-                    value={patientImportantNotes}
-                    onChange={(e) => setPatientImportantNotes(e.target.value)}
-                    placeholder="Ce qu'il faut voir avant chaque soin — ex. : sous anticoagulants, prémédication requise"
-                    className="min-h-[70px] resize-none border-amber-300 bg-amber-50/60 text-amber-950 placeholder:text-amber-700/60 focus-visible:ring-amber-500 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-50 dark:placeholder:text-amber-300/50"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Toujours visibles en haut du dossier du patient.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="patientNotes">
-                    Notes <span className="text-muted-foreground text-xs">(facultatives)</span>
-                  </Label>
-                  <Textarea
-                    id="patientNotes"
-                    value={patientNotes}
-                    onChange={(e) => setPatientNotes(e.target.value)}
-                    placeholder="Contexte utile au fil des visites — ex. : patient anxieux, préfère les rendez-vous du matin"
-                    className="min-h-[70px] resize-none"
-                  />
-                </div>
-              </div>
-            </RecordSection>
-
-            {/* Contact Information Section */}
-            <RecordSection
-              size="md"
-              icon={<Phone className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
-              title="Adresse et contact d&apos;urgence"
-              summary={sectionSummary.adresse}
-              open={openSections.adresse}
-              onToggle={() => toggleSection("adresse")}
-            >
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Address - Street */}
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="addressStreet">Adresse</Label>
-                  <Input
-                    id="addressStreet"
-                    value={addressStreet}
-                    onChange={(e) => setAddressStreet(e.target.value)}
-                    autoComplete="street-address"
-                  />
-                </div>
-
-                {/* Governorate (finding #17: Tunisian dropdown, not free text) */}
-                <div className="space-y-2">
-                  <Label htmlFor="addressGovernorate">Gouvernorat</Label>
-                  {/* `w-full`: the primitive ships `w-fit`, so an unqualified trigger renders as a short pill in
-                      a column of full-width Inputs — it reads as a different kind of control than it is. */}
-                  <Select value={addressGovernorate} onValueChange={setAddressGovernorate}>
-                    <SelectTrigger id="addressGovernorate" className="w-full">
-                      <SelectValue placeholder="Sélectionner un gouvernorat" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TUNISIAN_GOVERNORATES.map((gov) => (
-                        <SelectItem key={gov} value={gov}>{gov}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* City */}
-                <div className="space-y-2">
-                  <Label htmlFor="addressCity">Ville</Label>
-                  <Input
-                    id="addressCity"
-                    value={addressCity}
-                    onChange={(e) => setAddressCity(e.target.value)}
-                    autoComplete="address-level2"
-                  />
-                </div>
-
-                {/* Postal Code */}
-                <div className="space-y-2">
-                  <Label htmlFor="addressPostalCode">
-                    Code postal <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  {/* ⚠️ `inputMode="numeric"`, NOT `type="number"`. A postal code is an IDENTIFIER, not a
-                      quantity: `type="number"` adds spinners, lets the scroll wheel silently change it, and
-                      drops a leading zero. `inputMode` raises the digit keypad and changes nothing else. */}
-                  <Input
-                    id="addressPostalCode"
-                    value={addressPostalCode}
-                    onChange={(e) => setAddressPostalCode(e.target.value)}
-                    placeholder="1000"
-                    inputMode="numeric"
-                    autoComplete="postal-code"
-                  />
-                </div>
-
-                {/* Emergency contact (finding #11) */}
-                <div className="space-y-2">
-                  <Label htmlFor="emergencyName">
-                    Contact d'urgence <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  <Input
-                    id="emergencyName"
-                    value={emergencyName}
-                    onChange={(e) => setEmergencyName(e.target.value)}
-                    placeholder="Nom du contact"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="emergencyPhone">
-                    Téléphone d'urgence <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  {/* ⚠️ A country control here is an AID, never a gate (AC-14): this field accepts whatever is
-                      typed, including « 71 555 (bureau) ». Nothing dispatches to it — a human reads it in an
-                      emergency — and refusing it would lose the patient's record to protect a field nobody
-                      sends to, reversing the import's own documented decision.
-                      `PhoneField` supplies `type="tel"`, which this input lacked: it was the one field in the
-                      form opening the alphabet keyboard for a value that is entirely digits. */}
-                  <PhoneField
-                    id="emergencyPhone"
-                    value={emergencyPhone}
-                    onChange={setEmergencyPhone}
-                    country={emergencyPhoneCountry}
-                    onCountryChange={setEmergencyPhoneCountry}
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-            </RecordSection>
-
-            {/* Medical Information Section */}
-            <RecordSection
+              anchorId={SECTION_ANCHOR.medical}
               size="md"
               icon={<Heart className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
               title="Informations médicales"
@@ -1669,28 +1607,69 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
             >
 
               <div className="grid grid-cols-1 gap-4">
-                {/* Chronic Diseases */}
-                <div className="space-y-2">
-                  <Label htmlFor="chronicDiseases">Maladies chroniques / affections</Label>
-                  <Textarea
-                    id="chronicDiseases"
-                    value={chronicDiseases}
-                    onChange={(e) => setChronicDiseases(e.target.value)}
-                    placeholder="Hypertension, diabète de type 2"
-                    className="min-h-[60px] resize-none"
-                  />
-                </div>
+                {/*
+                  Allergies · Maladies · Médicaments — one row of three.
 
-                {/* Allergies */}
-                <div className="space-y-2">
-                  <Label htmlFor="allergies">Allergies</Label>
-                  <Textarea
-                    id="allergies"
-                    value={allergies}
-                    onChange={(e) => setAllergies(e.target.value)}
-                    placeholder="Pénicilline, fruits de mer"
-                    className="min-h-[60px] resize-none"
-                  />
+                  ⚠️ **They are three lists of the same kind and they are read as a set**, which is why they are
+                  now side by side rather than stacked three deep: it is the same question asked three ways
+                  (« qu'est-ce qui pourrait mal se passer ? »), and the answer is checked in one glance before an
+                  injection rather than by scrolling.
+
+                  ⚠️ **Only the allergies are tinted**, and the restraint is the point. It is the one of the three
+                  that changes what may be injected in the next five minutes; three coloured panels side by side
+                  and none of them alerts. Same reasoning as `act-card`'s single amber field.
+                */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive-wash p-3">
+                    <Label htmlFor="allergies" className="flex items-center gap-1.5 font-semibold text-destructive">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      Allergies
+                    </Label>
+                    {/* ⚠️ Enter opens the next bullet — see `handleHealthBulletKeyDown`. The placeholder shows
+                        the shape rather than describing it, which is why it is two bulleted lines and not a
+                        sentence explaining that Enter makes a list. */}
+                    <Textarea
+                      id="allergies"
+                      value={allergies}
+                      onChange={(e) => setAllergies(e.target.value)}
+                      onKeyDown={(e) => handleHealthBulletKeyDown(e, setAllergies)}
+                      placeholder={"• Pénicilline\n• Fruits de mer"}
+                      className="min-h-[66px] resize-none border-destructive/25 bg-card [&::placeholder]:whitespace-pre-line"
+                    />
+                  </div>
+
+                  {/* ⚠️ « Maladies », not « Maladies chroniques / affections ». One column had three names across
+                      the product — this label, « Antécédents » in the shared alert panel, and a third list called
+                      « Antécédents médicaux » that is a different table entirely. Chronic or passing, it is the
+                      same list to the person writing it. */}
+                  <div className="space-y-2">
+                    <Label htmlFor="chronicDiseases">Maladies</Label>
+                    <Textarea
+                      id="chronicDiseases"
+                      value={chronicDiseases}
+                      onChange={(e) => setChronicDiseases(e.target.value)}
+                      onKeyDown={(e) => handleHealthBulletKeyDown(e, setChronicDiseases)}
+                      placeholder={"• Hypertension\n• Diabète de type 2"}
+                      className="min-h-[66px] resize-none [&::placeholder]:whitespace-pre-line"
+                    />
+                  </div>
+
+                  {/* « Médicaments » — new. It had nowhere to live, so an anticoagulant was written into
+                      « Notes importantes » as prose, where no document and no structured read can reach it. */}
+                  <div className="space-y-2">
+                    <Label htmlFor="medications" className="flex items-center gap-1.5">
+                      <Pill className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      Médicaments
+                    </Label>
+                    <Textarea
+                      id="medications"
+                      value={medications}
+                      onChange={(e) => setMedications(e.target.value)}
+                      onKeyDown={(e) => handleHealthBulletKeyDown(e, setMedications)}
+                      placeholder={"• Kardégic 75 mg — 1/j\n• Metformine 850 mg — 2/j"}
+                      className="min-h-[66px] resize-none [&::placeholder]:whitespace-pre-line"
+                    />
+                  </div>
                 </div>
 
                 {/*
@@ -1709,9 +1688,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   object drops it server-side too, so a figure typed and then corrected to « Non-fumeur » cannot
                   survive as a contradiction.
                 */}
+                {/* ⚠️ The label sits INSIDE the row rather than above it: one word on a line of its own cost a
+                    whole row for three buttons that leave two thirds of the width empty. `me-1` and the shared
+                    `items-center` keep it reading as this group's name rather than as a first chip. */}
                 <div className="space-y-2">
-                  <Label htmlFor="smoking-status">Tabac</Label>
-                  <div id="smoking-status" className="flex flex-wrap gap-2">
+                  <div
+                    id="smoking-status"
+                    role="group"
+                    aria-label="Tabac"
+                    className="flex flex-wrap items-center gap-2"
+                  >
+                    {/* A `<Label htmlFor>` pointing at this div never labelled anything — it is not a form
+                        control. The group carries its own `aria-label`; this is the visible name. */}
+                    <span className="me-1 text-sm font-medium">Tabac</span>
                     {SMOKING_STATUSES.map((status) => (
                       <button
                         key={status}
@@ -1784,34 +1773,53 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   {errors.smokingPerDay && <p className="text-sm text-destructive">{errors.smokingPerDay}</p>}
                 </div>
 
-                {/* Medical History (replaces Past Surgeries) */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Antécédents médicaux</Label>
+                {/*
+                  Antécédents médicaux — ⚠️ **an empty list costs ONE line here, not three.**
+
+                  The title, the count and « Ajouter » share the bar, and the body below it exists only when
+                  there is something to put in it. It used to be a title row, then a button row, then a
+                  full-width sentence explaining how to use the button — three rows to say « rien », twice over
+                  (the familial list did the same), on a form whose whole defect was its height. The count
+                  replaces that sentence: « aucun » IS the empty state, and the control it refers to is on the
+                  same line as the word.
+
+                  ⚠️ The failure branch keeps its own full-width panel. « Aucun » and « je n'ai pas pu lire »
+                  are different claims and only one of them is safe to compress.
+                */}
+                <div className="rounded-md border">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-muted/50 px-3 py-2">
+                    <Label className="font-medium">Antécédents médicaux</Label>
+                    {!medicalHistoryFailed && (
+                      <span className="text-xs text-muted-foreground">
+                        {medicalHistoryEntries.length === 0
+                          ? "aucun"
+                          : `${medicalHistoryEntries.length} entrée${medicalHistoryEntries.length > 1 ? "s" : ""}`}
+                      </span>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={addMedicalHistoryEntry}
-                      className="gap-1"
+                      className="ms-auto gap-1"
                     >
                       <Plus className="h-3 w-3" />
-                      Ajouter une entrée
+                      Ajouter
                     </Button>
                   </div>
                   
                   {/* ⚠️ « Aucun antécédent » is only ever shown when the read SUCCEEDED. */}
                   {medicalHistoryFailed && (
+                    <div className="border-t p-3">
                     <HistoryLoadFailure
                       message="Les antécédents médicaux n'ont pas pu être chargés. Ne considérez pas cette liste comme complète."
                       onRetry={() => { if (patient?.id) void loadMedicalHistoryEntries(patient.id) }}
                     />
+                    </div>
                   )}
 
-                  {!medicalHistoryFailed && medicalHistoryEntries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucun antécédent médical enregistré. Utilisez « Ajouter une entrée » pour en saisir un.</p>
-                  ) : medicalHistoryEntries.length === 0 ? null : (
-                    <div className="space-y-3">
+                  {medicalHistoryEntries.length === 0 ? null : (
+                    <div className="space-y-3 border-t p-3">
                       {medicalHistoryEntries.map((entry, index) => (
                         <div key={index} className="p-3 border rounded-lg space-y-2 bg-background">
                           <div className="flex items-start justify-between gap-2">
@@ -1855,33 +1863,40 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   )}
                 </div>
 
-                {/* Family Medical History */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Antécédents familiaux</Label>
+                {/* Antécédents familiaux — the same one-line-when-empty bar; see the médicaux block above. */}
+                <div className="rounded-md border">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-muted/50 px-3 py-2">
+                    <Label className="font-medium">Antécédents familiaux</Label>
+                    {!familyHistoryFailed && (
+                      <span className="text-xs text-muted-foreground">
+                        {familyHistoryEntries.length === 0
+                          ? "aucun"
+                          : `${familyHistoryEntries.length} entrée${familyHistoryEntries.length > 1 ? "s" : ""}`}
+                      </span>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={addFamilyHistoryEntry}
-                      className="gap-1"
+                      className="ms-auto gap-1"
                     >
                       <Plus className="h-3 w-3" />
-                      Ajouter une entrée
+                      Ajouter
                     </Button>
                   </div>
                   
                   {familyHistoryFailed && (
+                    <div className="border-t p-3">
                     <HistoryLoadFailure
                       message="Les antécédents familiaux n'ont pas pu être chargés. Ne considérez pas cette liste comme complète."
                       onRetry={() => { if (patient?.id) void loadFamilyHistoryEntries(patient.id) }}
                     />
+                    </div>
                   )}
 
-                  {!familyHistoryFailed && familyHistoryEntries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucun antécédent familial enregistré. Utilisez « Ajouter une entrée » pour en saisir un.</p>
-                  ) : familyHistoryEntries.length === 0 ? null : (
-                    <div className="space-y-3">
+                  {familyHistoryEntries.length === 0 ? null : (
+                    <div className="space-y-3 border-t p-3">
                       {familyHistoryEntries.map((entry, index) => (
                         <div key={index} className="p-3 border rounded-lg space-y-2 bg-background">
                           <div className="flex items-start justify-between gap-2">
@@ -1925,6 +1940,149 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 </div>
               </div>
             </RecordSection>
+
+            <RecordSection
+              size="md"
+              icon={<StickyNote className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Notes du patient"
+              summary={sectionSummary.notes}
+              open={openSections.notes}
+              onToggle={() => toggleSection("notes")}
+            >
+
+              {/* ⚠️ The two notes share a ROW from `md:` up. They are the same kind of thing written at two weights,
+                  they are short, and stacked they cost two rows on a form whose defect was its height —
+                  `md:items-start` because the amber box carries a hint line the plain one does not. */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="patientImportantNotes"
+                    className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300"
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                    Notes importantes <span className="text-muted-foreground text-xs">(facultatives)</span>
+                  </Label>
+                  <Textarea
+                    id="patientImportantNotes"
+                    value={patientImportantNotes}
+                    onChange={(e) => setPatientImportantNotes(e.target.value)}
+                    placeholder="Ce qu'il faut voir avant chaque soin — ex. : sous anticoagulants, prémédication requise"
+                    className="min-h-[70px] resize-none border-amber-300 bg-amber-50/60 text-amber-950 placeholder:text-amber-700/60 focus-visible:ring-amber-500 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-50 dark:placeholder:text-amber-300/50"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Toujours visibles en haut du dossier du patient.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="patientNotes">
+                    Notes <span className="text-muted-foreground text-xs">(facultatives)</span>
+                  </Label>
+                  <Textarea
+                    id="patientNotes"
+                    value={patientNotes}
+                    onChange={(e) => setPatientNotes(e.target.value)}
+                    placeholder="Contexte utile au fil des visites — ex. : patient anxieux, préfère les rendez-vous du matin"
+                    className="min-h-[70px] resize-none"
+                  />
+                </div>
+              </div>
+            </RecordSection>
+
+            {/* Contact Information Section */}
+            <RecordSection
+              size="md"
+              icon={<MapPin className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Coordonnées et rappels"
+              summary={sectionSummary.coordonnees}
+              open={openSections.coordonnees}
+              onToggle={() => toggleSection("coordonnees")}
+            >
+              {/*
+                Folded on arrival, and holding the three fields the practice describes as rarely filled: where the
+                patient lives, their e-mail, and whether they may be texted.
+
+                ⚠️ **The e-mail moved here out of « L'essentiel ».** Nothing in this product sends to it — not a
+                rappel, not a relance, not a note d'honoraires — so it is an archive field, and it was occupying a
+                slot beside the telephone, which is the field reception actually needs.
+
+                ⚠️ **The reminder consent moved here too, and its summary above states what happens when it is
+                unanswered.** Folding a consent question would be indefensible if the folded state were silent
+                about it; « non renseignés » is on the closed header precisely because an unrecorded consent still
+                sends.
+              */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {/*
+                  One box, whatever the desk wants to write in it — « Sfax » is as complete an answer as
+                  « 12 rue de Carthage, La Marsa 2070 ». It replaces a rue / gouvernorat / ville / code postal
+                  questionnaire whose four boxes asked for a precision nobody had and nothing reads.
+                */}
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="addressLine">
+                    Adresse <span className="text-muted-foreground text-xs">(facultatif)</span>
+                  </Label>
+                  <Input
+                    id="addressLine"
+                    value={addressLine}
+                    onChange={(e) => setAddressLine(e.target.value)}
+                    placeholder="Ville, quartier ou adresse complète — comme vous voulez"
+                    autoComplete="street-address"
+                  />
+                </div>
+
+                {/* Email */}
+                <div className="space-y-2">
+                  <Label htmlFor="email">
+                    E-mail <span className="text-muted-foreground text-xs">(facultatif)</span>
+                  </Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                    aria-invalid={!!errors.email}
+                    className={cn(errors.email && "border-destructive")}
+                  />
+                  {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
+                </div>
+
+                {/* Rappels automatiques — on this form rather than in a settings screen. Recording a number
+                    used to enrol the patient into SMS/WhatsApp with no way out; the answer is taken while somebody
+                    is actually speaking to the patient, and a separate screen would be a control nobody opens. */}
+                <div className="space-y-2">
+                  <Label htmlFor="reminderConsent">Rappels automatiques (SMS / WhatsApp)</Label>
+                  <Select
+                    value={reminderConsent}
+                    onValueChange={(v) => setReminderConsent(v as ReminderConsent)}
+                  >
+                    <SelectTrigger id="reminderConsent" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NotRecorded">Non renseigné</SelectItem>
+                      <SelectItem value="Granted">Le patient accepte</SelectItem>
+                      <SelectItem value="Refused">Le patient refuse</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* Each state says what will actually happen, because « non renseigné » is the one people
+                      misread — it sends, and a cabinet that assumes otherwise is the whole risk here. */}
+                  <p className="text-xs text-muted-foreground">
+                    {reminderConsent === "Refused"
+                      ? "Aucun rappel ni relance ne sera envoyé à ce patient, même avec un numéro valide."
+                      : reminderConsent === "Granted"
+                        ? "Ce patient recevra les rappels de rendez-vous et les relances."
+                        : "Tant que la question n'a pas été posée, ce patient reçoit les rappels."}
+                  </p>
+                  {consentRecordedLabel && (
+                    <p className="text-xs text-muted-foreground">{consentRecordedLabel}</p>
+                  )}
+                </div>
+              </div>
+            </RecordSection>
+
+            {/* Medical Information Section */}
+
 
             {/* CNAM Identity Section */}
             <RecordSection

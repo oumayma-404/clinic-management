@@ -31,6 +31,7 @@ public static class PatientMappingExtensions
             PhoneE164 = PhoneNumber.ToE164(patient.PhoneNumber?.Value),
             MedicalHistory = patient.MedicalHistory,
             Allergies = patient.Allergies,
+            Medications = patient.Medications,
             EmergencyContactName = patient.EmergencyContactName,
             EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
             ReferredBy = patient.ReferredBy,
