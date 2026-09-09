@@ -145,6 +145,13 @@ Non-negotiables for either:
 Below its hinge, a table renders as a **card list** — `ui/card-list.tsx` with `CARDS_ONLY`/`TABLE_ONLY`
 (`md:`) for four columns or fewer, or `CARDS_ONLY_LG`/`TABLE_ONLY_LG` from five up (§ 1 for the measurements).
 
+⚠️ **Five columns is a FLOOR, not a setting.** At five a table *must* go to `lg:` or its Actions column falls
+outside the box; below five, nothing obliges it to hinge at `md:` — and **a table sitting beside sibling tables
+takes theirs**. The patient file's Documents panel (4 columns, measured at 451/451 — the exact fit above) was
+the only one of six on `md:`, so an iPad in portrait rendered five panels as cards and that one as a grid:
+swiping between two tabs changed the *form* of the content. Reported as « tables are not same, not same ui, so
+it feels unrelated ». Match the neighbours, and check the card tree carries the same actions (§ 0).
+
 ```tsx
 // ✅ Two trees. A real <table> above, a semantic list below.
 <div className={TABLE_ONLY}><Table>…</Table></div>

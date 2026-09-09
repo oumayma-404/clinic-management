@@ -60,16 +60,27 @@ interface ExportButtonProps {
  * <p>Downloads through `downloadBlob`, which is not a convenience: on iOS Safari an `<a download>` on a `blob:`
  * URL is **ignored**, so a hand-rolled anchor would silently deliver nothing on the tablet a dentist holds.</p>
  */
-export function ExportButton({
+/**
+ * The export behaviour, without a trigger.
+ *
+ * ⚠️ **Extracted so an export can live inside a `DropdownMenu`.** `ExportButton` renders its own
+ * `StepUpDialog`, and Radix unmounts `DropdownMenuContent` in the same tick `onSelect` closes the menu — so
+ * dropping the whole component into a menu item destroys the dialog as it is asked to open, and the item does
+ * nothing at all (the defect `caisse/expense-movement-actions.tsx` documents). With the hook, the caller puts
+ * a plain `DropdownMenuItem` in the menu and renders `dialog` as a **sibling** of that menu, which is the shape
+ * that works.
+ *
+ * `ExportButton` below is this hook plus the ordinary button, so there is still one owner for the request, the
+ * in-flight state, the second-factor probe and the iOS-safe delivery.
+ */
+export function useCsvExport({
   path,
   params,
   label = "lignes",
-  className,
-  compact,
   stepUpAction,
   stepUpPurpose,
   fallbackFilename = "export.csv",
-}: ExportButtonProps) {
+}: Omit<ExportButtonProps, "className" | "compact">) {
   const [working, setWorking] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
@@ -122,12 +133,33 @@ export function ExportButton({
     await runExport()
   }
 
+  const dialog = stepUpAction ? (
+    <StepUpDialog
+      open={confirming}
+      onOpenChange={setConfirming}
+      action={stepUpAction}
+      purpose={stepUpPurpose ?? "Exporter cette liste"}
+      hasTotp={totpKnown ? hasTotp : true}
+      onConfirmed={(token) => {
+        setConfirming(false)
+        void runExport(token)
+      }}
+    />
+  ) : null
+
+  return { start: handleExport, working, dialog }
+}
+
+export function ExportButton({ className, compact, ...rest }: ExportButtonProps) {
+  const { start, working, dialog } = useCsvExport(rest)
+  const label = rest.label ?? "lignes"
+
   const button = (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      onClick={handleExport}
+      onClick={start}
       disabled={working}
       /*
        * ⚠️ `coarse:h-11` ON TOP of `touch-target`, because this control is NOT isolated in practice.
@@ -154,24 +186,10 @@ export function ExportButton({
     </Button>
   )
 
-  if (!stepUpAction) {
-    return button
-  }
-
   return (
     <>
       {button}
-      <StepUpDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        action={stepUpAction}
-        purpose={stepUpPurpose ?? "Exporter cette liste"}
-        hasTotp={totpKnown ? hasTotp : true}
-        onConfirmed={(token) => {
-          setConfirming(false)
-          void runExport(token)
-        }}
-      />
+      {dialog}
     </>
   )
 }

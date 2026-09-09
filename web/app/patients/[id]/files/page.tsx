@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,10 @@ const getPatientName = (patient: PatientDto | null) => {
 export default function PatientFilesPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const patientId = params.id as string
+  // `?folder=` — set by the patient page's Fichiers tab so « Gérer les fichiers » keeps the open folder.
+  const initialFolderId = searchParams.get("folder")
   const [patient, setPatient] = useState<PatientDto | null>(null)
   const [loading, setLoading] = useState(true)
   // AC-P3.27 — the load failure used to be a bare console.error, so the page rendered the file manager under

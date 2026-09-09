@@ -164,6 +164,11 @@ export function PatientOutstandingStrip({
                   <TableHead>Document</TableHead>
                   <TableHead>Concerne</TableHead>
                   <TableHead>Depuis</TableHead>
+                  {/* ⚠️ « Encaissé » was a CARD field and not a column, so a desktop settled a partially-paid
+                      note reading « Reste 120,000 DT » with nothing saying 380,000 had already been taken —
+                      while the same row on a tablet said so. Five columns is inside the measured `lg:` budget
+                      for this table. */}
+                  <TableHead className="text-right">Encaissé</TableHead>
                   <TableHead className="text-right">Reste</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -179,6 +184,13 @@ export function PatientOutstandingStrip({
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       <SinceCell line={line} />
+                    </TableCell>
+                    <TableCell numeric>
+                      {line.collected > 0 ? (
+                        formatDT(line.collected)
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell numeric>
                       <span className="font-semibold text-warning-ink">{formatDT(line.outstanding)}</span>
@@ -305,7 +317,18 @@ export function PatientOutstandingStrip({
                 <span className="whitespace-nowrap font-medium tabular-nums">
                   {formatDateFr(visit.appointmentDateTime)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-muted-foreground" title={actsOf(visit)}>
+                {/*
+                  ⚠️ **Wraps to two lines; it used to `truncate` behind a hover-only `title=`, at EVERY width.**
+                  Unlike the debt list above it this group is a plain `<ul>` with no card tree, so that was the
+                  only rendering there is — and at 320 px the date (~90 px) and « Facturer » (~110 px) leave it
+                  about 60 px, i.e. « Détart… ». This is the row somebody presses « Facturer » on: deciding
+                  whether to bill it means knowing what the séance was. `line-clamp-2` bounds the growth without
+                  needing a pointer to recover the rest, and the `title` stays for the rare third line.
+                */}
+                <span
+                  className="min-w-0 flex-1 basis-full text-muted-foreground [overflow-wrap:anywhere] line-clamp-2 sm:basis-auto"
+                  title={actsOf(visit)}
+                >
                   {actsOf(visit)}
                 </span>
                 <Button

@@ -152,6 +152,59 @@ export function PatientHealthCard({
   const twoUpFillers = facts.length % 2 === 0 ? 0 : 1
   const threeUpFillers = (3 - (facts.length % 3)) % 3
 
+  /*
+    ⚠️ **With nothing recorded at all, this is ONE dashed line — the shape `patient-notes-strip.tsx` already
+    settled one band below, for the reason it wrote down there.** Framed, the empty state cost 86 px: a header
+    row carrying « SANTÉ » and a « Modifier », a border, and the body's own padding, all to deliver a single
+    sentence — directly under the patient's name and above the odontogramme, i.e. the most expensive band on
+    the page.
+
+    ⚠️ **The sentence itself is unchanged and names all four facts.** That is the whole point of this card and
+    the reason it was rebuilt five times: « Aucune allergie » alone reads as « rien à signaler » when what is
+    true is « personne n'a posé la question ». Shrinking the frame must not shrink the claim.
+
+    ⚠️ **Only the EMPTY state collapses.** A card with anything in it keeps its frame and its `BODY_MAX_PX`
+    scroller — a « voir plus » on the one block a practitioner reads before injecting is a click between them
+    and an allergy, and that is still forbidden.
+
+    ⚠️ The caller is responsible for never rendering an empty card off a FAILED read: the page passes
+    `HISTORY_UNREADABLE` for that, which is a non-empty fact, so this branch cannot be reached by a network
+    error asserting « aucune allergie ».
+  */
+  if (facts.length === 0) {
+    return (
+      <section
+        /*
+          ⚠️ **One row, and `flex-wrap` with a basis was tried and reverted.** Measured: plain, this is 46 px
+          from 1180 px up and 58 px at 390 px. Giving the sentence `basis-[14rem]` so it could take a row of its
+          own pushed the control onto a second line at 390 px too and made it **90 px** — worse at the width
+          that matters most. At 320 px it is 98 px either way, because the sentence genuinely needs three or
+          four lines there; that is roughly what the framed card cost, so 320 px is the one width this change
+          does not improve. It does not regress it either, which is the bar.
+        */
+        className={cn(
+          "flex min-w-0 items-center gap-2 rounded-lg border border-dashed px-3 py-2",
+          className,
+        )}
+      >
+        <HeartPulse className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <h2 className="sr-only">Santé</h2>
+        <p className="min-w-0 text-sm text-muted-foreground">
+          Aucune allergie, maladie, médicament ni tabac renseigné.
+        </p>
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="Renseigner les informations médicales du patient"
+          className="ms-auto inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground underline-offset-2 hover-hover:hover:underline coarse:min-h-11"
+        >
+          <Pencil className="h-3 w-3" aria-hidden="true" />
+          Renseigner
+        </button>
+      </section>
+    )
+  }
+
   return (
     <section className={cn("min-w-0 overflow-hidden rounded-lg border bg-card", className)}>
       {/* `min-h-8` floors the header so the body starts at the same y whether or not anything is recorded. */}

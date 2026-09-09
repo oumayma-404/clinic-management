@@ -65,6 +65,7 @@ import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { activateOnKey, FOCUS_CLASSES } from "@/lib/a11y"
 
 import { FilePreviewDialog } from "@/components/patients/files/file-preview-dialog"
 import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
@@ -79,7 +80,22 @@ type FilesView = "grid" | "list"
 
 const VIEW_STORAGE_KEY = "clinic:patient-files-view"
 
-export function PatientFilesManager({ patientName }: { patientName: string }) {
+export function PatientFilesManager({
+  patientName,
+  initialFolderId,
+}: {
+  patientName: string
+  /**
+   * The folder to open on arrival, from `?folder=` on the route.
+   *
+   * ⚠️ **It exists because the patient page's Fichiers tab lost your place.** « Gérer les fichiers » is that
+   * tab's only route to a real action (upload, rename, move, delete), and pressed from inside a folder it
+   * landed here at the root — so the operator re-opened the folder by hand every time. Seeded, not controlled:
+   * the manager owns the folder from the first render on, so the breadcrumb and « Retour » behave exactly as
+   * before.
+   */
+  initialFolderId?: string | null
+}) {
   const params = useParams()
   const patientId = params.id as string
 
@@ -99,7 +115,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const [filePage, setFilePage] = useState<PagedResponse<PatientFileDto>>(emptyPage<PatientFileDto>())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(initialFolderId ?? null)
   const [isDragging, setIsDragging] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -930,17 +946,6 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   )
 }
 
-const FOCUS_CLASSES =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-
-// The file/folder cards are the click target, so they must also be a keyboard target: Enter and Space, a
-// visible focus ring, and an accessible name.
-const activateOnKey = (action: () => void) => (event: React.KeyboardEvent) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault()
-    action()
-  }
-}
 
 function ViewButton({
   current,
