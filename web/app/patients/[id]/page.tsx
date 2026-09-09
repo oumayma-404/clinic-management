@@ -171,6 +171,17 @@ const getPatientName = (patient: PatientDto) => {
  * the text box, so a wrapped second line hangs under the bullet instead of aligning with the first character.
  * `ps-3 -indent-3` is that hanging indent.</p>
  */
+/**
+ * What an antécédents column says when its read failed.
+ *
+ * ⚠️ It exists because this card **omits an empty column**, which is right for « ce patient n'en a aucun » and
+ * wrong for « je n'ai pas pu lire » — the two arrive identically as `[]`. Omitting on a failure would let a
+ * network blip render as a confident « aucun antécédent » on the block a dentist checks before injecting, which
+ * is the failure `frontend-web.md` § 13 names outright. A short sentence in the column is the honest version;
+ * the record card at the foot of the page offers the « Réessayer ».
+ */
+const HISTORY_UNREADABLE = "Non chargés — voir plus bas"
+
 function HealthItems({ items }: { items: string[] }) {
   if (items.length === 1) return <>{items[0]}</>
 
@@ -1803,6 +1814,26 @@ procedureTypeId: it.procedureTypeId ?? null,
           diseases={diseasesList}
           medications={medicationsList}
           tobacco={tobaccoSummary(patient.tobaccoUse)}
+          /*
+            ⚠️ **An empty list is passed as empty ONLY when the read succeeded.** These two live in their own
+            tables behind their own endpoints, so `[]` means both « ce patient n'en a aucun » and « je n'ai pas
+            pu lire » — and this card omits a column that is empty, which would turn the second into a silent
+            claim of the first on the one block a dentist checks before injecting. `sectionFailed` short-circuits
+            to a non-empty marker instead, so the column stays and says so; the record card at the foot already
+            routes the same two reads through `renderSectionEmpty` for this reason.
+          */
+          medicalHistory={
+            sectionFailed("medicalHistory")
+              ? [HISTORY_UNREADABLE]
+              : medicalHistoryEntries.map((entry) => entry.description).filter(Boolean)
+          }
+          familyHistory={
+            sectionFailed("familyHistory")
+              ? [HISTORY_UNREADABLE]
+              : familyHistoryEntries
+                  .map((entry) => [entry.relationship, entry.condition].filter(Boolean).join(" : "))
+                  .filter(Boolean)
+          }
           onEdit={() => { setEditSection("medical"); setEditDialogOpen(true) }}
         />
 
