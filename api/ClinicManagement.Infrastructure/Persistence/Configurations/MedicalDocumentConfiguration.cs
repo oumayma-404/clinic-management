@@ -77,6 +77,11 @@ public class MedicalDocumentConfiguration : IEntityTypeConfiguration<MedicalDocu
         builder.Property(d => d.AppointmentId);
         builder.HasIndex(d => d.AppointmentId);
 
+        // The fiche de soins that emitted this ordonnance (no FK — see entity). Indexed because the patient's
+        // whole séance history is read in one pass and each row asks « does this fiche have an ordonnance? ».
+        builder.Property(d => d.DentalRecordId);
+        builder.HasIndex(d => d.DentalRecordId);
+
         // Relationships
         builder.HasOne(d => d.Patient)
             .WithMany()

@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { formatDT, formatDate, formatDateFr, formatDateTime, formatFileSize, quoteFr } from "@/lib/format"
-import { DOCUMENT_TEMPLATES, documentTypeLabel } from "@/lib/documents"
+import { CREATABLE_DOCUMENT_TEMPLATES, documentTypeLabel } from "@/lib/documents"
 import {
   ArrowLeft,
   Flag,
@@ -86,6 +86,9 @@ import { InvoicesTable } from "@/components/factures/invoices-table"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
 import { PatientNotesStrip } from "@/components/patient/patient-notes-strip"
+import { PatientHealthCard } from "@/components/patient/patient-health-card"
+import { dentitionLabel } from "@/lib/dentition"
+import { splitHealthList } from "@/lib/health-list"
 import { PatientUndocumentedVisits } from "@/components/patient/patient-undocumented-visits"
 import { isActiveSmoker, tobaccoSummary } from "@/lib/tobacco"
 import { cn } from "@/lib/utils"
@@ -116,6 +119,10 @@ import {
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
 import { FilePreviewDialog } from "@/components/patients/files/file-preview-dialog"
+import {
+  DocumentPreviewDialog,
+  type DocumentPreviewTarget,
+} from "@/components/documents/document-preview-dialog"
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
 import { isImageFile, isPdfFile, isPreviewableFile } from "@/components/patients/files/file-kind"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
@@ -152,6 +159,35 @@ const getPatientName = (patient: PatientDto) => {
  * ⚠️ Returns `null` rather than « Non renseigné »: since every part became optional this is the one formatter
  * that has to distinguish « no address » from a partial one, and the caller decides how an absence is worded.
  */
+/**
+ * A health list — allergies, maladies, médicaments — inside a `RecordField`.
+ *
+ * <p>⚠️ A real `<ul>` past one item and a bare line at exactly one: a single-item list still announces « liste,
+ * 1 élément » to a screen reader and pays a marker's indent for nothing. Same rule, same shape, as
+ * `PatientHealthCard` at the top of this page — these are the same three values twice on one screen, so they
+ * must not be drawn two ways.</p>
+ *
+ * <p>⚠️ `list-none` plus an explicit « • » rather than `list-disc list-inside`: the built-in marker sits outside
+ * the text box, so a wrapped second line hangs under the bullet instead of aligning with the first character.
+ * `ps-3 -indent-3` is that hanging indent.</p>
+ */
+function HealthItems({ items }: { items: string[] }) {
+  if (items.length === 1) return <>{items[0]}</>
+
+  return (
+    <ul className="list-none space-y-0.5">
+      {items.map((item, index) => (
+        <li key={index} className="-indent-3 ps-3">
+          <span aria-hidden="true" className="me-1.5 text-muted-foreground">
+            •
+          </span>
+          {item}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 const formatAddress = (address: PatientDto["address"]): string | null => {
   if (!address) return null
 
@@ -219,7 +255,9 @@ function RecordField({
  * away the most frequent, and burying it in a menu to make the six symmetrical would cost a click on the
  * common path to save one on the rare path.
  */
-const OTHER_DOCUMENT_TEMPLATES = DOCUMENT_TEMPLATES.filter((template) => template.type !== "prescription")
+const OTHER_DOCUMENT_TEMPLATES = CREATABLE_DOCUMENT_TEMPLATES.filter(
+  (template) => template.type !== "prescription",
+)
 
 /**
  * The placeholder for a section whose request has not answered yet.
@@ -539,7 +577,20 @@ export default function PatientDetailsPage() {
    */
   const [error, setError] = useState<string | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  /**
+   * Which block of the edit dialog to unfold and scroll to when it opens, or null for « as it comes ».
+   *
+   * ⚠️ Set together with `setEditDialogOpen(true)` by the panels' own « Modifier » buttons, so a reader who
+   * spots a wrong allergy lands on the allergies rather than at the top of a form and hunting. The plain
+   * « Modifier » in the header leaves it null and opens the form as normal.
+   */
+  const [editSection, setEditSection] = useState<"essentiel" | "medical" | null>(null)
   const [recordModalOpen, setRecordModalOpen] = useState(false)
+  /**
+   * The document being READ, if any. A clinical surface opens a document to read it in place; the Documents
+   * module still opens the editor. See `openPrescription`.
+   */
+  const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | null>(null)
   const [editingRecord, setEditingRecord] = useState<DentalRecordDto | null>(null)
   // Appointment carried by the post-visit "record the visit" deep-link, threaded into the record modal so
   // saving the dental record closes that appointment's post-visit prompt (findings #4 + #10).
@@ -550,8 +601,34 @@ export default function PatientDetailsPage() {
    * legacy rows route to the Factures module instead of the dead editor (#13) — one implementation, because the
    * table and the card list both offer « Ouvrir » and a second copy is a second place to forget the redirect.
    */
-  const openMedicalDocument = (doc: MedicalDocumentDto) =>
-    router.push(doc.documentType === "honoraires" ? "/factures" : `/documents/${doc.documentType}?id=${doc.id}`)
+  const openMedicalDocument = (doc: MedicalDocumentDto) => {
+    if (doc.documentType === "honoraires") {
+      router.push("/factures")
+      return
+    }
+    // ⚠️ A « demande d'examens » has no form in the standalone editor — the fiche de soins is its only writer
+    // (`DOCUMENT_TEMPLATES`' `creatable: false`) — so routing there would open a paper the editor cannot
+    // render. It opens the read dialog instead, which prints it, sends it, and points at the fiche to change it.
+    if (doc.documentType === "examens") {
+      setPreviewTarget({ mode: "saved", documentId: doc.id })
+      return
+    }
+    router.push(`/documents/${doc.documentType}?id=${doc.id}`)
+  }
+
+  /**
+   * Open a séance's ordonnance — or its demande d'examens — from its history row, IN PLACE.
+   *
+   * ⚠️ **It used to `router.push` to the document editor**, which meant leaving the patient file to look at one
+   * sheet and then finding your way back. The rule now is: a CLINICAL surface opens a document to READ (this
+   * dialog: aperçu, Imprimer, Télécharger, Envoyer), and the Documents module opens it to EDIT — with
+   * « Modifier » inside the dialog as the door between them. Two different questions, two different doors.
+   *
+   * ⚠️ A fiche owns up to **two** documents, so this takes the id rather than assuming the prescription: a
+   * médicament and an examen may not share a sheet. See `DocumentTypes.Examens`.
+   */
+  const openPrescription = (documentId: string) =>
+    setPreviewTarget({ mode: "saved", documentId })
 
   /**
    * Open the record modal already bound to a finished visit — exactly the state the
@@ -1424,10 +1501,11 @@ procedureTypeId: it.procedureTypeId ?? null,
     />
   )
 
-  // Parse allergies from string (comma-separated)
-  const allergiesList = patient.allergies
-    ? patient.allergies.split(',').map(a => a.trim()).filter(Boolean)
-    : []
+  // One splitter for all three, shared with the form that writes them (`lib/health-list.ts`): they are read as
+  // a set, and a value that looks different from its neighbour reads as a different KIND of fact.
+  const allergiesList = splitHealthList(patient.allergies)
+  const diseasesList = splitHealthList(patient.medicalHistory)
+  const medicationsList = splitHealthList(patient.medications)
   
   // Parse medical history (if it contains structured data, otherwise show as text)
   
@@ -1476,6 +1554,18 @@ procedureTypeId: it.procedureTypeId ?? null,
 
             {/*
               « Motif de consultation » — why this patient came in the first place, directly under their name.
+
+              ⚠️ Clamped to one line with the full value in the `title`, never truncated away entirely: the column
+              is unbounded server-side (a capped one would turn a long paste into a save that fails naming no
+              field), so the display is what keeps it to a line rather than the storage.
+            */}
+            {/*
+              « Motif de consultation » — why this patient came in the first place, directly under their name.
+
+              ⚠️ It was briefly moved into a « Consultation » panel of its own and that was wrong twice over: it
+              is one short line, so a half-width panel spent the whole right side of the band on it, and it is
+              not a health fact — it is the reason this person is on the books, which is exactly what belongs
+              beside their name.
 
               ⚠️ Clamped to one line with the full value in the `title`, never truncated away entirely: the column
               is unbounded server-side (a capped one would turn a long paste into a save that fails naming no
@@ -1534,16 +1624,13 @@ procedureTypeId: it.procedureTypeId ?? null,
                 fumeur » is history, so tinting either would spend a warning colour on a patient nothing is wrong
                 with — the same rule `PatientAlertPanel` applies one component over.
               */}
-              {tobaccoSummary(patient.tobaccoUse) && (
-                <span
-                  className={cn(
-                    "text-muted-foreground",
-                    isActiveSmoker(patient.tobaccoUse) && "text-warning-ink",
-                  )}
-                >
-                  {tobaccoSummary(patient.tobaccoUse)}
-                </span>
-              )}
+              {/*
+                ⚠️ **« Tabac » used to sit here and has moved into the « Santé » panel.** It took the slot the
+                assureur vacated and earned it on this strip's own terms — one short phrase, a fact that changes
+                what the practitioner does. What that reasoning missed is the *company* it keeps: beside the age,
+                the sexe, the telephone and the solde dû, a risk factor is rendered exactly like a contact
+                detail. It is a health fact and it now reads with the health facts.
+              */}
               {/*
                 Rendered only when something is actually owed. A « Solde dû 0,000 DT » on every settled patient
                 is a line that trains the eye to skip the line — and this strip's whole convention is that a
@@ -1579,6 +1666,10 @@ procedureTypeId: it.procedureTypeId ?? null,
                   the referrer a lettre de liaison, and that obligation has to be visible on opening the file
                   rather than three screens down. Rendered only when there is one — a patient who came on
                   their own has nothing to state. */}
+              {/* « Adressé par » belongs in the strip and not only in the card below: a referred patient owes
+                  the referrer a lettre de liaison, and that obligation has to be visible on opening the file
+                  rather than three screens down. Rendered only when there is one — a patient who came on
+                  their own has nothing to state. */}
               {patient.referredBy && (
                 <span className="text-muted-foreground">
                   Adressé par <span className="font-medium text-foreground">{patient.referredBy}</span>
@@ -1586,22 +1677,12 @@ procedureTypeId: it.procedureTypeId ?? null,
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {allergiesList.length > 0 ? (
-                <>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-destructive">
-                    Allergies
-                  </span>
-                  {allergiesList.map((allergy: string, index: number) => (
-                    <Badge key={index} variant="destructive" className="text-xs">
-                      {allergy}
-                    </Badge>
-                  ))}
-                </>
-              ) : (
-                <span className="text-xs text-muted-foreground">Aucune allergie signalée</span>
-              )}
-            </div>
+            {/*
+              ⚠️ **The allergy badges that used to close this column are now the « Santé » panel below.** The
+              line they replaced — « Aucune allergie signalée » — was true and incomplete: maladies, médicaments
+              and tabac were equally unrecorded and it said nothing about any of them, so a blank under the name
+              read as « rien à signaler » when it meant « on n'a rien demandé ».
+            */}
           </div>
 
           {/*
@@ -1646,7 +1727,7 @@ procedureTypeId: it.procedureTypeId ?? null,
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setEditDialogOpen(true)}
+              onClick={() => { setEditSection(null); setEditDialogOpen(true) }}
               className="gap-2 coarse:h-11"
               aria-label="Modifier le patient"
             >
@@ -1707,6 +1788,23 @@ procedureTypeId: it.procedureTypeId ?? null,
             </Button>
           </div>
         </div>
+
+        {/*
+          « Santé » — one card across the whole line, above « À compléter » and the notes.
+
+          ⚠️ **It sits OUTSIDE the name/actions row, and that is a constraint rather than a preference.** Inside
+          the header's left column it is a full-width block, so the column demanded the whole line and the five
+          action buttons — pinned beside the name from `xl:` up — wrapped to a row of their own at every width.
+          As a sibling band it takes the width it wants and the buttons keep the place that pin exists to give
+          them.
+        */}
+        <PatientHealthCard
+          allergies={allergiesList}
+          diseases={diseasesList}
+          medications={medicationsList}
+          tobacco={tobaccoSummary(patient.tobaccoUse)}
+          onEdit={() => { setEditSection("medical"); setEditDialogOpen(true) }}
+        />
 
         {/* Past visits with no fiche yet. Renders nothing when there are none, so it costs no space in the
             steady state — and when it does appear it is the most actionable thing on the page, which is why it
@@ -2044,6 +2142,26 @@ procedureTypeId: it.procedureTypeId ?? null,
                               <span className="text-muted-foreground">{formatDT(0)}</span>
                             ),
                           },
+                          // A card has room for a labelled row, so the prescription is a FIELD here rather
+                          // than a line inside « Actes ». Omitted entirely when there is none — a field with no
+                          // value is absent, never « — » (§ 6).
+                          (record.prescriptionSummary?.length ?? 0) > 0 && {
+                            label: "Prescription",
+                            value: (
+                              <span className="text-end">
+                                {record.prescriptionSummary!.join(", ")}
+                              </span>
+                            ),
+                          },
+                          // Its own field, never folded into the one above: an examen is on a separate sheet,
+                          // and « Prescription » listing a panoramique beside an antibiotic would say the
+                          // patient has one paper to hand over when they have two.
+                          (record.examensSummary?.length ?? 0) > 0 && {
+                            label: "Examens",
+                            value: (
+                              <span className="text-end">{record.examensSummary!.join(", ")}</span>
+                            ),
+                          },
                           hasNotes && {
                             label: "Notes",
                             value: (
@@ -2067,6 +2185,25 @@ procedureTypeId: it.procedureTypeId ?? null,
                             {!invoicedDentalRecordIds.has(record.id) && (
                               <DropdownMenuItem onSelect={() => setBillingRecord(record)}>
                                 Facturer cette intervention
+                              </DropdownMenuItem>
+                            )}
+                            {record.prescriptionDocumentId && (
+                              // The card's own route to the ordonnance. The desktop row puts it on the
+                              // « Prescrit : … » line inside « Actes »; a card lists that as a field, and
+                              // every card action lives in this one menu (§ 6).
+                              <DropdownMenuItem
+                                onSelect={() => openPrescription(record.prescriptionDocumentId!)}
+                              >
+                                Ouvrir l&apos;ordonnance
+                              </DropdownMenuItem>
+                            )}
+                            {record.examensDocumentId && (
+                              // A SECOND item, not a variant of the first: the séance may have issued both,
+                              // and each is a separate paper the patient hands to a different place.
+                              <DropdownMenuItem
+                                onSelect={() => openPrescription(record.examensDocumentId!)}
+                              >
+                                Ouvrir la demande d&apos;examens
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuItem
@@ -2111,7 +2248,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                               {formatDate(record.interventionDate)}
                             </TableCell>
                             <TableCell>
-                              <RecordActsSummary record={record} />
+                              <RecordActsSummary record={record} onOpenPrescription={openPrescription} />
                             </TableCell>
                             <TableCell>
                               {invoicedDentalRecordIds.has(record.id) ? (
@@ -3034,17 +3171,18 @@ procedureTypeId: it.procedureTypeId ?? null,
                     )
                   }
                 />
+                {/* The denture was stored, drove every chart, and appeared NOWHERE on the patient's own file.
+                    The record card is where a stored fact nothing else prints belongs. Full label
+                    (« Denture mixte »), not the form control's short caption: here there is no group heading to
+                    borrow the noun from. */}
+                <RecordField label="Denture" value={dentitionLabel(patient.dentition)} />
                 <RecordField label="E-mail" value={patient.email} />
                 <RecordField label="Adresse" value={formatAddress(patient.address)} wide />
                 <RecordField label="Adressé par" value={patient.referredBy} />
-                <RecordField
-                  label="Contact d'urgence"
-                  value={
-                    patient.emergencyContactName
-                      ? `${patient.emergencyContactName}${patient.emergencyContactPhone ? ` — ${patient.emergencyContactPhone}` : ""}`
-                      : null
-                  }
-                />
+                {/* ⚠️ « Contact d'urgence » is gone from this card because it is gone from the form. The two
+                    columns are still on the record and still populated for older patients — nothing has been
+                    dropped from the database — but a field nobody can edit any more has no business being the
+                    last thing this card shows. */}
               </dl>
             </CardContent>
           </Card>
@@ -3062,10 +3200,11 @@ procedureTypeId: it.procedureTypeId ?? null,
                 {/* Half width so it pairs with « Tabac » rather than leaving it alone on its own row. It is
                     free text and can run long, which `whitespace-pre-wrap` + the field's own
                     `[overflow-wrap:anywhere]` handle inside the column. */}
-                <RecordField label="Maladies chroniques / affections">
-                  {patient.medicalHistory?.trim() ? (
-                    <span className="whitespace-pre-wrap">{patient.medicalHistory}</span>
-                  ) : null}
+                {/* « Maladies », not « Maladies chroniques / affections » — one column carried three names
+                    across the product (this one, « Antécédents » in the shared alert panel, and a real
+                    « Antécédents médicaux » list from a different table a few centimetres below). */}
+                <RecordField label="Maladies">
+                  {diseasesList.length > 0 ? <HealthItems items={diseasesList} /> : null}
                 </RecordField>
                 {/*
                   « Tabac » belongs in this card and had no home in it — the modal records it under Informations
@@ -3077,6 +3216,11 @@ procedureTypeId: it.procedureTypeId ?? null,
                   panel is the *warning*, this is the *record*, and « Non-fumeur » is worth reading.
                 */}
                 <RecordField label="Tabac" value={tobaccoSummary(patient.tobaccoUse)} />
+                {/* « Médicaments » — the third of the three lists, `wide` because a posology runs long and a
+                    half-width column wraps « Kardégic 75 mg — 1/j » onto three lines. */}
+                <RecordField label="Médicaments" wide>
+                  {medicationsList.length > 0 ? <HealthItems items={medicationsList} /> : null}
+                </RecordField>
                 <div className="min-w-0 sm:col-span-2">
                   <p className="text-xs font-medium text-muted-foreground mb-2">Antécédents médicaux</p>
                 {medicalHistoryEntries.length > 0 ? (
@@ -3155,7 +3299,13 @@ procedureTypeId: it.procedureTypeId ?? null,
 
       <EditPatientDialog
         open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
+        focusSection={editSection}
+        onOpenChange={(open) => {
+          setEditDialogOpen(open)
+          // Cleared on close, never on open: leaving it set would send the NEXT plain « Modifier » to whichever
+          // panel was used last.
+          if (!open) setEditSection(null)
+        }}
         patient={patient}
         onSuccess={handleEditSuccess}
       />
@@ -3333,6 +3483,33 @@ procedureTypeId: it.procedureTypeId ?? null,
       </AlertDialog>
 
       {/* AC-5.3 — one preview, shared with the files manager. */}
+      {/*
+        The document read surface. `onEditInFiche` is what makes « Modifier » safe: a document a fiche owns is
+        recomposed from the section on that fiche's next save, so editing it in the standalone editor is work
+        that gets silently overwritten — the dialog sends you to the fiche instead.
+      */}
+      <DocumentPreviewDialog
+        target={previewTarget}
+        onClose={() => setPreviewTarget(null)}
+        onEditInFiche={(dentalRecordId) => {
+          const owner = dentalRecords.find((r) => r.id === dentalRecordId)
+          setPreviewTarget(null)
+          if (!owner) {
+            // The fiche is not on the page (a filter, or it has since been deleted). Say so rather than
+            // opening a blank « Nouvelle fiche », which would invite recording the séance a second time.
+            toast.error("La fiche de cette séance n'est pas dans la liste affichée.")
+            return
+          }
+          setEditingRecord(owner)
+          setRecordModalOpen(true)
+        }}
+        onEditInEditor={(doc) => {
+          setPreviewTarget(null)
+          openMedicalDocument(doc)
+        }}
+        patientEmail={patient?.email ?? null}
+      />
+
       <FilePreviewDialog
         preview={preview}
         patientId={patientId}

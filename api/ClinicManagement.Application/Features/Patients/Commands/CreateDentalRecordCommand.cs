@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
@@ -88,6 +89,18 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// practitioner is used, else the caller's own <c>Doctor</c> record.
     /// </summary>
     public Guid? DoctorId { get; set; }
+
+    /// <summary>
+    /// What was prescribed at this séance — médicaments and/or examens. Becomes the séance's own ordonnance
+    /// (a <c>MedicalDocument</c>), emitted <b>inside this save's transaction</b>: see
+    /// <see cref="Documents.FicheOrdonnanceEmitter"/> for why it is not one of the post-commit side effects.
+    /// <para>
+    /// Tri-state, like every other update payload here: <b>absent</b> means « unchanged » and is not even read;
+    /// <b>present and empty</b> means « nothing prescribed »; a populated list is the prescription. The fiche
+    /// modal always sends it — a field a routine re-save forgets is how this product has lost data before.
+    /// </para>
+    /// </summary>
+    public PrescriptionInput? Prescription { get; set; }
 }
 
 public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalRecordCommand, Result<DentalRecordDto>>
@@ -97,6 +110,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
+    private readonly IMedicalDocumentRepository _documentRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -113,6 +128,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
+        IMedicalDocumentRepository documentRepository,
         IClinicContext clinicContext,
         IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
@@ -128,6 +145,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
+        _documentRepository = documentRepository;
         _clinicContext = clinicContext;
         _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
@@ -283,6 +302,25 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 await _toothStateRepository.AddAsync(toothState, cancellationToken);
             }
 
+            /*
+             * The séance's ordonnance — médicaments and examens — emitted as a real MedicalDocument.
+             *
+             * ⚠️ HERE, before the commit, and deliberately NOT with the post-commit side effects below. Those
+             * are derived (stock, the note d'honoraires, marking the visit complete) and may fail without the
+             * clinical record being wrong. A prescription is entered clinical data: a dentist who types an
+             * antibiotic, reads « fiche enregistrée » and has no ordonnance has lost work silently. Either
+             * both land or neither does. See FicheOrdonnanceEmitter.
+             */
+            // ⚠️ An ABSENT payload is skipped outright — no read, no write. Omitting a key means « unchanged »
+            // here as everywhere else, and it is what keeps every caller that predates prescriptions (and every
+            // server-internal writer) from touching a document. An empty-but-present payload is a statement and
+            // does go through. See FicheOrdonnanceResult.None.
+            var ordonnance = request.Prescription is null
+                ? FicheOrdonnanceResult.None
+                : await FicheOrdonnanceEmitter.EmitAsync(
+                    request.Prescription, record, patient, clinicResult.Value, _clinicContext.GetUserId(),
+                    _documentRepository, _clinicRepository, _doctorRepository, _unitOfWork, _logger, cancellationToken);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             // If this record documents a scheduled appointment, close its post-visit-review loop
@@ -311,6 +349,14 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             // and last, after the two side effects above have finished with the DbContext — the billing opens its
             // own transaction. Best-effort for the record, never silent about the cash (see DentalRecordAutoBilling).
             var dto = record.ToDto();
+            // Read back so the modal can round-trip the document (and its own version) on the next save, and
+            // so the séance row can name what was prescribed without a second request.
+            dto.PrescriptionDocumentId = ordonnance.DocumentId;
+            dto.PrescriptionSummary = ordonnance.Summary.ToList();
+            // The second sheet. Independent of the first: a seance may prescribe medicaments, examens,
+            // both or neither, and the two are separate papers with separate ids.
+            dto.ExamensDocumentId = ordonnance.ExamensDocumentId;
+            dto.ExamensSummary = ordonnance.ExamensSummary.ToList();
             dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
                 _sender, record, request.AmountPaid, _logger, cancellationToken);
 

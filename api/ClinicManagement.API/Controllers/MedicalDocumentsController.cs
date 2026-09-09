@@ -298,6 +298,50 @@ public class MedicalDocumentsController : ApiControllerBase
         return Ok(new { JobId = jobId, Message = "PDF generation queued successfully" });
     }
 
+    /// <summary>
+    /// The PDF of a document that already exists, by id — what every « voir / imprimer ce document » surface
+    /// needs, and what was missing: the only renderer before this took the whole document in the body, so a
+    /// caller had to re-compose it in the browser.
+    /// </summary>
+    [HttpGet("{id}/pdf")]
+    public async Task<ActionResult> GetDocumentPdf(Guid id, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetMedicalDocumentPdfQuery { Id = id }, cancellationToken);
+        if (!result.IsSuccess || result.Value is null)
+        {
+            // 404 for consistency with GET {id}: a document this cabinet cannot see is introuvable, not refused.
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        return File(result.Value.Pdf, "application/pdf", result.Value.FileName);
+    }
+
+    /// <summary>
+    /// Renders the ordonnance a fiche de soins is <b>about to</b> emit, so the practitioner can read the real
+    /// sheet before saving. Persists nothing and needs no document id — on a first save there is no fiche yet,
+    /// which is exactly when « montre-moi l'ordonnance » is asked.
+    ///
+    /// <para>
+    /// ⚠️ <b>Deliberately NOT <c>[AllowsWithoutSubscription]</c></b>, unlike <c>generate-pdf-download</c> beneath
+    /// it. That one takes the whole document in the body and looks nothing up; this one reads a patient from the
+    /// cabinet's own record and previews a document whose save an expired cabinet cannot perform — so exempting
+    /// it would offer a sheet that cannot be issued.
+    /// </para>
+    /// </summary>
+    [HttpPost("fiche-ordonnance-preview")]
+    public async Task<ActionResult> PreviewFicheOrdonnance(
+        [FromBody] PreviewFicheOrdonnanceQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(query, cancellationToken);
+        if (!result.IsSuccess || result.Value is null)
+        {
+            return HandleFailure(result);
+        }
+
+        return File(result.Value.Pdf, "application/pdf", result.Value.FileName);
+    }
+
     [HttpPost("generate-pdf-download")]
     [AllowsWithoutSubscription(
         "AC-4.9 — a request that looks like a write but only renders: it takes the document in the BODY, loads "

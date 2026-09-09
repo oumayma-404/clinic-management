@@ -42,10 +42,9 @@ public static class MedicalDocumentPdfMapping
             DoctorOrdreNumber = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorOrdreNumberKey),
             DoctorCachetKey = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetKeyKey),
             DoctorCachetContentType = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetContentTypeKey),
-            // Norm values captured on the document itself (AC-7): read from ContentJson so the unauthenticated
-            // background job renders exactly what the download path does, with no live patient lookup.
-            PatientSex = contentStrings.GetValueOrDefault("patientSex"),
-            PatientWeightKg = contentStrings.GetValueOrDefault("patientWeightKg"),
+            // `patientSex` / `patientWeightKg` were mapped here and are not any more — see the tombstone in
+            // `DocumentIdentity.PatientLines`. The keys survive in legacy ContentJson and reach `Content`
+            // below like every other unmapped key, so nothing throws; they simply no longer print.
             Content = contentStrings
         };
     }

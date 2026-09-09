@@ -777,6 +777,10 @@ public class PdfGenerationService : IPdfGenerationService
         var title = documentType.ToLowerInvariant() switch
         {
             DocumentTypes.Prescription => "ORDONNANCE",
+            // Deliberately the same word as its médicament sibling: a demande d'examens IS an ordonnance, and
+            // that is what a laboratoire or a CNAM clerk reads at the top of the sheet. What tells the two apart
+            // is the body's own opening sentence, and — in the app rather than on paper — the type's label.
+            DocumentTypes.Examens => "ORDONNANCE",
             DocumentTypes.Liaison => "LETTRE DE LIAISON",
             DocumentTypes.Certificat => "CERTIFICAT MÉDICAL",
             // "honoraires" is intentionally absent — the type is retired and rejected before rendering.
@@ -872,6 +876,33 @@ public class PdfGenerationService : IPdfGenerationService
                         {
                             column.Item().PaddingTop(6).Text(prescription.RenewalMention)
                                 .FontSize(11).Italic().FontFamily("Helvetica");
+                        }
+                        break;
+
+                    case DocumentTypes.Examens:
+                        // ExamenContent owns this body: the opening formula (which is singular or plural) and
+                        // the requested examens, each printed verbatim. No posologie and no renouvellement —
+                        // see the type remark there for why neither belongs on this sheet.
+                        var examens = ExamenContent.Build(data.Content);
+                        column.Item().PaddingBottom(8).Text(examens.Intro).FontSize(12).FontFamily("Helvetica");
+
+                        if (examens.Lines.Count == 0)
+                        {
+                            column.Item().PaddingBottom(4).Text("Aucun examen demandé").FontSize(11).FontFamily("Helvetica");
+                        }
+                        else
+                        {
+                            foreach (var line in examens.Lines)
+                            {
+                                // Bulleted, unlike a médicament line: an examen is often a phrase carrying its
+                                // own commas (« Bilan sanguin : NFS, glycémie »), so the reader needs to see
+                                // where one request ends and the next begins.
+                                column.Item().PaddingBottom(4).Row(row =>
+                                {
+                                    row.ConstantItem(14).Text("—").FontSize(11).FontFamily("Helvetica");
+                                    row.RelativeItem().Text(line.Text).FontSize(11).FontFamily("Helvetica");
+                                });
+                            }
                         }
                         break;
 

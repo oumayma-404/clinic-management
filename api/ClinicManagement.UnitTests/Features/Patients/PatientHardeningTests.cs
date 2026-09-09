@@ -292,12 +292,26 @@ public class GetDentalRecordsQueryHandlerTests
     // message pointing nowhere near the missing stub.
     private readonly Mock<ITreatmentPlanRepository> _plans = new();
 
+    /// <summary>
+    /// The séance-history « quelle ordonnance ? » read-back. Stubbed to an empty set for exactly the reason
+    /// spelled out above <c>_plans</c>: an unstubbed collection-returning mock hands back null here, and the
+    /// handler's catch-all would turn the resulting dereference into a French business failure whose message
+    /// says nothing about a missing stub.
+    /// </summary>
+    private readonly Mock<IMedicalDocumentRepository> _medicalDocuments = new();
+
     private GetDentalRecordsQueryHandler Handler()
     {
         _plans.Setup(r => r.GetCollectedByDentalRecordAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<DentalRecordCollectedRow>());
-        return new(_dentalRecords.Object, _patients.Object, _plans.Object, _clinicResolver.Object);
+        _medicalDocuments.Setup(r => r.GetFicheOrdonnancesForDentalRecordsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<MedicalDocument>());
+        return new(
+            _dentalRecords.Object, _patients.Object, _plans.Object, _medicalDocuments.Object,
+            _clinicResolver.Object);
     }
 
     private void Authenticated() =>

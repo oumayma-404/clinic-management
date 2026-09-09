@@ -2792,6 +2792,227 @@ check(
 
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
+check(
+  "prescription-line-has-one-owner",
+  "N32",
+  "The printed ordonnance line is composed in one place — no surface re-derives it",
+  "A prescription line is one sentence assembled from six optional parts in a fixed order the norms care " +
+    "about (le médicament, le dosage, la posologie, la voie, la durée, la quantité, then the DCI). It is " +
+    "rendered THREE times by contract — `PrescriptionContent.FormatLine` for the PDF, `formatPrescriptionLine` " +
+    "for the on-screen A4 preview, and the same function for the Word export — and the file that owns the " +
+    "browser half says in as many words that this formatting had already existed in three copies once, before " +
+    "the voie and the quantité were added to two of them. Now that the fiche de soins writes the same " +
+    "ordonnance, a fourth copy is exactly what a séance history row or a section summary invites: both want a " +
+    "short label, and the tempting way to get one is to paste the sentence and trim it. The consequence is not " +
+    "cosmetic — the two renderings drift, and the ordonnance a pharmacist reads stops matching the one the " +
+    "dentist proof-read on screen. `, Nx par jour` is the fragment only that assembly produces, so it is the " +
+    "marker: a real string literal outside `lib/documents.ts` is a second composer. Prose is fine — comments " +
+    "are masked — because only code can disagree.",
+  () => {
+    const OWNER = "lib/documents.ts";
+    // Derived, not listed: whichever file composes the line, there must be exactly one — and it must be the
+    // registry, because that is the module both writing surfaces already import.
+    const hits = scanLines(tsx(), /x par jour/);
+    const offenders = hits.filter((hit) => hit.file !== OWNER);
+
+    if (hits.length === 0) {
+      return [{ file: OWNER, text: "nothing composes a prescription line any more — the formatter moved, or this check needs retargeting" }];
+    }
+
+    return offenders.map((hit) => ({
+      ...hit,
+      text: "a second composer of the printed ordonnance line",
+      full: `the printed line has one owner (${OWNER}); for a row-sized label use \`shortPrescriptionLabel\`, and for the sentence import \`formatPrescriptionLine\` — ${hit.full}`,
+    }));
+  }
+);
+
+check(
+  "specialty-labels-have-one-owner",
+  "N32",
+  "The French label for a practitioner's specialty is the same map on both sides of the wire",
+  "`Doctor.Specialty` stores an ENGLISH key, deliberately and permanently: those are the values already on " +
+    "every row and snapshotted onto every `MedicalDocument` ever issued, so the display label is a map rather " +
+    "than a migration. That map used to exist only in the browser, which was sound while every document was " +
+    "composed by the browser too — the editor sent an already-translated `doctorSpecialty`. The fiche de soins " +
+    "now issues its own ordonnance SERVER-side, so `DoctorSpecialtyLabels` is the second half of the pair, and " +
+    "the halves must hold the same keys and the same labels. Drift is silent and lands on paper: a specialty " +
+    "added here and not there prints « Orthodontist » under the prescriber's name on a French legal document, " +
+    "while reading correctly on every screen. Compared in BOTH directions, because a key removed from one side " +
+    "is the same defect as a key added to the other.",
+  () => {
+    const TS = "lib/specialties.ts";
+    const CS = "../api/ClinicManagement.Application/Features/Documents/DoctorSpecialtyLabels.cs";
+
+    const tsFile = ALL_FILES.find((f) => rel(f) === TS);
+    if (!tsFile) {
+      return [{ file: TS, text: "the browser's specialty map is gone — the pair needs retargeting" }];
+    }
+
+    let csSrc;
+    try {
+      csSrc = readFileSync(join(WEB_ROOT, CS), "utf8");
+    } catch {
+      return [{ file: TS, text: `the server's half is unreadable at ${CS} — a moved file breaks the pairing silently, which is what this check exists to prevent` }];
+    }
+
+    // Both maps are plain literal tables on purpose: one line per entry, so a regex is the whole parser and
+    // there is nothing to keep in step but the entries themselves.
+    const tsBody = read(tsFile).split("SPECIALTY_LABELS_FR")[1] ?? "";
+    const tsPairs = new Map(
+      [...tsBody.matchAll(/"?([A-Za-z ]+)"?\s*:\s*"([^"]+)"/g)].map((m) => [m[1].trim(), m[2]])
+    );
+    const csPairs = new Map(
+      [...csSrc.matchAll(/\["([^"]+)"\]\s*=\s*"([^"]+)"/g)].map((m) => [m[1], m[2]])
+    );
+
+    if (tsPairs.size === 0 || csPairs.size === 0) {
+      return [{ file: TS, text: `one half parsed empty (browser ${tsPairs.size}, server ${csPairs.size}) — the shape changed and this check can no longer see drift` }];
+    }
+
+    const problems = [];
+    for (const [key, label] of tsPairs) {
+      if (!csPairs.has(key)) {
+        problems.push({ file: TS, text: `« ${key} » has no server label`, full: `add ["${key}"] = "${label}" to DoctorSpecialtyLabels, or an ordonnance issued by the fiche prints the English key` });
+      } else if (csPairs.get(key) !== label) {
+        problems.push({ file: TS, text: `« ${key} » reads differently on the two sides`, full: `browser "${label}" vs server "${csPairs.get(key)}"` });
+      }
+    }
+    for (const [key] of csPairs) {
+      if (!tsPairs.has(key)) {
+        problems.push({ file: TS, text: `« ${key} » exists only on the server`, full: "the browser would render the raw English key for it" });
+      }
+    }
+
+    return problems;
+  }
+);
+
+
+check(
+  "document-type-set-has-one-owner",
+  "N33",
+  "The set of document types is one set, and every surface that names a type knows all of them",
+  "A `MedicalDocument.DocumentType` is a bare string the server never validates against a closed list, and " +
+    "the set is mirrored in FIVE places: `DocumentTypes` on the server, `DOCUMENT_TEMPLATES` in the browser, " +
+    "`DocumentFileNaming`, the PDF renderer's title map and the editor's heading map. Nothing fails when one " +
+    "of them is behind — the type simply renders as its raw key, and that shipped: a saved arret de travail " +
+    "was labelled `arret-travail` in the patient's own Documents tab for as long as the third copy of the set " +
+    "existed, because `documentTypeLabel` falls back to the key. Compared in BOTH directions against the two " +
+    "mirrors that have a total mapping, since a type removed from one side is the same defect as one added to " +
+    "the other. It fires on the day a seventh type is written, which is the only day anyone would remember.",
+  () => {
+    const TS = "lib/documents.ts";
+    const TYPES_CS = "../api/ClinicManagement.Application/Features/Documents/DocumentTypes.cs";
+    const NAMING_CS = "../api/ClinicManagement.Application/Features/Documents/DocumentFileNaming.cs";
+
+    const tsFile = ALL_FILES.find((f) => rel(f) === TS);
+    if (!tsFile) {
+      return [{ file: TS, text: "the browser's document registry is gone - the pairing needs retargeting" }];
+    }
+
+    let typesSrc, namingSrc;
+    try {
+      typesSrc = readFileSync(join(WEB_ROOT, TYPES_CS), "utf8");
+      namingSrc = readFileSync(join(WEB_ROOT, NAMING_CS), "utf8");
+    } catch {
+      return [{ file: TS, text: "a server half is unreadable - a moved file breaks the pairing silently, which is what this check exists to prevent" }];
+    }
+
+    const serverTypes = new Set(
+      [...typesSrc.matchAll(/public\s+const\s+string\s+\w+\s*=\s*"([^"]+)"/g)].map((m) => m[1])
+    );
+    // Templates are one object per line with the key first, so the type token is the whole parse.
+    const browserTypes = new Set(
+      [...read(tsFile).matchAll(/^\s*type:\s*"([^"]+)"/gm)].map((m) => m[1])
+    );
+    const namedTypes = new Set(
+      [...namingSrc.matchAll(/DocumentTypes\.(\w+)\s*=>/g)].map((m) => m[1])
+    );
+    const serverConstNames = new Map(
+      [...typesSrc.matchAll(/public\s+const\s+string\s+(\w+)\s*=\s*"([^"]+)"/g)].map((m) => [m[2], m[1]])
+    );
+
+    if (serverTypes.size === 0 || browserTypes.size === 0) {
+      return [{ file: TS, text: "one half parsed empty (server " + serverTypes.size + ", browser " + browserTypes.size + ") - the shape changed and this check can no longer see drift" }];
+    }
+
+    const problems = [];
+    for (const t of serverTypes) {
+      if (!browserTypes.has(t)) {
+        problems.push({ file: TS, text: "the type " + t + " has no template entry", full: "add it to DOCUMENT_TEMPLATES (with creatable: false when the gallery must not offer it), or a saved one renders its raw key in the patient's Documents tab" });
+      }
+      const constName = serverConstNames.get(t);
+      if (constName && !namedTypes.has(constName)) {
+        problems.push({ file: TS, text: "the type " + t + " has no French filename", full: "add a DocumentTypes." + constName + " arm to DocumentFileNaming, or its PDF is filed under the raw type name" });
+      }
+    }
+    for (const t of browserTypes) {
+      if (!serverTypes.has(t)) {
+        problems.push({ file: TS, text: "the template " + t + " names no server type", full: "the gallery offers a type the server has no constant for" });
+      }
+    }
+
+    return problems;
+  }
+);
+
+check(
+  "examens-intro-has-one-owner",
+  "N33",
+  "The demande d'examens' opening sentence is the same on paper as on screen",
+  "A demande d'examens carries no posologie and no dosage, so its opening formula - « Priere de bien vouloir " +
+    "faire pratiquer ... » - is the ONLY thing on the sheet that says what is being prescribed rather than " +
+    "merely listing it. It is written twice by contract: `ExamenContent` composes the PDF and " +
+    "`web/lib/documents.ts` holds the browser's copy. A drift between them is the medicament line's own " +
+    "three-copies problem with a worse consequence, because there is no second sentence to fall back on. Both " +
+    "forms are compared, singular and plural: the renderer picks between them on the line count, so a browser " +
+    "that keeps only one of them shows a sentence the paper does not use.",
+  () => {
+    const TS = "lib/documents.ts";
+    const CS = "../api/ClinicManagement.Infrastructure/Services/ExamenContent.cs";
+
+    const tsFile = ALL_FILES.find((f) => rel(f) === TS);
+    if (!tsFile) {
+      return [{ file: TS, text: "the browser's document vocabulary is gone - the pairing needs retargeting" }];
+    }
+
+    let csSrc;
+    try {
+      csSrc = readFileSync(join(WEB_ROOT, CS), "utf8");
+    } catch {
+      return [{ file: TS, text: "the server's half is unreadable at " + CS + " - a moved file breaks the pairing silently" }];
+    }
+
+    // Deliberately indexOf rather than a built RegExp: the declaration form is fixed on both sides
+    // (`Name = "…"`), and a constructed pattern here needs escaped escapes, which is how the first version of
+    // this helper shipped matching nothing at all and reporting both sentences as missing.
+    const grab = (src, name) => {
+      const at = src.indexOf(name + ' = "');
+      if (at < 0) return null;
+      const open = src.indexOf('"', at);
+      const close = src.indexOf('"', open + 1);
+      return close < 0 ? null : src.slice(open + 1, close);
+    };
+
+    const pairs = [
+      ["singular", grab(csSrc, "IntroSingular"), grab(read(tsFile), "EXAMENS_INTRO_SINGULAR")],
+      ["plural", grab(csSrc, "IntroPlural"), grab(read(tsFile), "EXAMENS_INTRO_PLURAL")],
+    ];
+
+    const problems = [];
+    for (const [form, server, browser] of pairs) {
+      if (!server || !browser) {
+        problems.push({ file: TS, text: "the " + form + " opening formula is missing on one side", full: "server " + (server ? "ok" : "MISSING") + ", browser " + (browser ? "ok" : "MISSING") + " - one half of a printed sentence cannot be dropped silently" });
+      } else if (server !== browser) {
+        problems.push({ file: TS, text: "the " + form + " opening formula differs between paper and screen", full: 'server "' + server + '" vs browser "' + browser + '"' });
+      }
+    }
+
+    return problems;
+  }
+);
+
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
 
 let failed = 0;

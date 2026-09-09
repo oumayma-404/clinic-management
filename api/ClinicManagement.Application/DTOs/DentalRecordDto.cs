@@ -141,6 +141,60 @@ public class DentalRecordDto
 
     /// <inheritdoc cref="TreatmentActDesignation"/>
     public int? TreatmentStepTotal { get; set; }
+
+    /// <summary>
+    /// The ordonnance this séance produced — a <c>MedicalDocument</c> of type <c>prescription</c>. Null when
+    /// nothing was prescribed.
+    ///
+    /// <para>
+    /// ⚠️ It is what lets a REOPENED fiche edit the ordonnance it already issued instead of writing a second
+    /// one, and the modal reads the document itself (and its <c>version</c>) from this id rather than trusting
+    /// this list read — because the same document can be edited from <c>/documents/prescription</c>, and a
+    /// stale copy round-tripped from a history row would silently overwrite whatever that door wrote.
+    /// </para>
+    /// </summary>
+    public Guid? PrescriptionDocumentId { get; set; }
+
+    /// <summary>
+    /// Row-sized labels of what was prescribed — « Augmentin Comprimé 1 g », « Radiographie panoramique
+    /// dentaire ». Served, never re-derived in the browser: the séance history says <i>what</i> was prescribed
+    /// rather than merely that something was, and the printed sentence lives in one place
+    /// (<c>PrescriptionContent.FormatLine</c>) that a list row has no business reimplementing.
+    /// <para>Empty when nothing was prescribed. See <c>PrescriptionLines.ShortLabels</c>.</para>
+    /// </summary>
+    public List<string> PrescriptionSummary { get; set; } = new();
+
+    /// <summary>
+    /// The <b>demande d'examens</b> this séance produced — a second, separate <c>MedicalDocument</c>, of type
+    /// <c>examens</c>. Null when no examen was requested.
+    ///
+    /// <para>
+    /// ⚠️ <b>A séance can carry both, one, or neither, and the four fields are independent.</b> A médicament
+    /// and an examen may not share a sheet (see <c>DocumentTypes.Examens</c>), so this is not an alternative
+    /// to <see cref="PrescriptionDocumentId"/> — a visit that prescribes an antibiotic and a panoramique
+    /// produces two papers with two ids, and both doors have to be offered.
+    /// </para>
+    /// </summary>
+    public Guid? ExamensDocumentId { get; set; }
+
+    /// <summary>
+    /// Row-sized labels of the examens requested — « Radiographie panoramique dentaire », « Bilan sanguin :
+    /// NFS, glycémie ». Served for <see cref="PrescriptionSummary"/>'s reasons.
+    /// <para>Empty when none was. See <c>PrescriptionLines.ExamenShortLabels</c>.</para>
+    /// </summary>
+    public List<string> ExamensSummary { get; set; } = new();
+
+    /// <summary>
+    /// The practitioner the seance attributes the work to, as PractitionerAttribution resolved it.
+    ///
+    /// <para>
+    /// Served so the fiche's ordonnance APERCU is composed in the same practitioner's name as the document
+    /// the save will emit. Without it the browser has nothing to send and the preview falls back to the
+    /// caller's own Doctor record - correct on a new fiche, and quietly wrong on one reopened from a
+    /// colleague's seance, which is the one case where a cachet on a prescription matters.
+    /// </para>
+    /// </summary>
+    public Guid? DoctorId { get; set; }
 }
 
 /// <summary>

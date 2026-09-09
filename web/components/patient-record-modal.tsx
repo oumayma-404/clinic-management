@@ -42,6 +42,15 @@ import { ApiError } from "@/lib/api/client"
 import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON, type CorrectionPreview } from "@/components/factures/correct-invoice-dialog"
 import { ActCard } from "@/components/record/act-card"
 import { RecordSection } from "@/components/record/record-section"
+import { PrescriptionSection } from "@/components/record/prescription-section"
+import {
+  DocumentPreviewDialog,
+  type DocumentPreviewTarget,
+} from "@/components/documents/document-preview-dialog"
+import { medicationsApi } from "@/lib/api/medications"
+import { medicalDocumentsApi } from "@/lib/api/medical-documents"
+import { PRESCRIPTION_KINDS, prescriptionKind, type PrescriptionLine } from "@/lib/documents"
+import type { MedicationDto } from "@/lib/api/types"
 import {
   actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs, type BookedActPrefill, type PlanItemPrefill,
 } from "@/components/record/use-session-acts"
@@ -285,6 +294,57 @@ export function PatientRecordModal({
   // The chart's condition legend. Folded by default — the colours stay visible collapsed, so what folds is the
   // labelling, and a dentist who knows the palette does not pay a permanent nine-entry row for it.
   const [legendOpen, setLegendOpen] = useState(false)
+  /*
+   * ── « Prescription » ──────────────────────────────────────────────────────────────────────────────────────
+   *
+   * What this séance prescribed, and the ordonnance it becomes. Folded by default like « Notes de séance »,
+   * and auto-opened on a fiche that already carries one (below) — the same rule, for the same reason: a value
+   * on record must not need a click to be discovered.
+   */
+  const [prescriptionOpen, setPrescriptionOpen] = useState(false)
+  const [prescriptionLines, setPrescriptionLines] = useState<PrescriptionLine[]>([])
+  const [renewals, setRenewals] = useState("")
+  /** Exactly one line is being typed. Null when every line is at rest — which is how a reopened fiche opens. */
+  const [armedPrescriptionIndex, setArmedPrescriptionIndex] = useState<number | null>(null)
+  /**
+   * The ordonnance this fiche already issued, if any. Read from the DOCUMENT rather than trusted from the
+   * history row that opened this modal: the same ordonnance is editable at `/documents/prescription`, so a
+   * copy carried in on a list read can be stale, and re-saving it would overwrite whatever that door wrote.
+   */
+  const [prescriptionDocumentId, setPrescriptionDocumentId] = useState<string | null>(null)
+  /**
+   * The demande d'examens this fiche already issued, if any — a <b>second</b> document, because a médicament
+   * and an examen may not share a sheet. Tracked separately for the same reason the id above is: the fiche
+   * updates the document it already owns rather than minting another.
+   */
+  const [examensDocumentId, setExamensDocumentId] = useState<string | null>(null)
+  /**
+   * The two documents' concurrency tokens, as read when this modal opened, round-tripped on save.
+   *
+   * ⚠️ **The document's own xmin does not cover this.** The server loads the document inside the fiche's
+   * transaction, so its copy always carries the current token; the stale one is here. Measured: a
+   * colleague's correction made in `/documents/prescription` while this modal sat open was silently
+   * reverted by the next save. 0 means « not read », which turns the check off.
+   */
+  const [prescriptionDocumentVersion, setPrescriptionDocumentVersion] = useState(0)
+  const [examensDocumentVersion, setExamensDocumentVersion] = useState(0)
+  /** Bumped by « Recharger » so the document read runs again with the versions the server now holds. */
+  const [prescriptionReload, setPrescriptionReload] = useState(0)
+  /**
+   * The sheet being looked at, if any. « Aperçu » renders what is about to be saved — composed by the SERVER
+   * through the emitter's own path, so the letterhead cannot differ from the real paper (see
+   * `PreviewFicheOrdonnanceQuery`). It works before the first save, which is when it is asked for.
+   */
+  const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | null>(null)
+  const [medicationCatalog, setMedicationCatalog] = useState<MedicationDto[]>([])
+  /** The catalogue READ failed. Kept apart from an empty catalogue, exactly as `catalogFailed` is for acts. */
+  const [medicationCatalogFailed, setMedicationCatalogFailed] = useState(false)
+  const [medicationCatalogReload, setMedicationCatalogReload] = useState(0)
+  /**
+   * The ordonnance exists but could not be READ. Distinct from « nothing prescribed », which is what an empty
+   * list would otherwise assert on the one screen where a wrong answer gets re-saved over the right one.
+   */
+  const [prescriptionReadFailed, setPrescriptionReadFailed] = useState(false)
   const [loading, setLoading] = useState(false)
   const guard = useDirtyGuard(open, onOpenChange)
   // A save conflict stays in the form; everything else keeps the existing toast.
@@ -301,6 +361,17 @@ export function PatientRecordModal({
     record,
     async () => (await dentalRecordsApi.list(patientId!)).find((r) => r.id === record!.id) ?? null,
   )
+
+  /**
+   * What « Recharger » does: take the server's current copy of the record's version and of both ordonnances,
+   * then take the banner down. `clearMessage` rather than `setError(null)` on purpose - it keeps the
+   * consecutive-conflict count, so a second 409 still escalates to « coordonnez-vous ».
+   */
+  const reloadFromServer = useCallback(async () => {
+    await resync()
+    setPrescriptionReload((n) => n + 1)
+    conflict.clearMessage()
+  }, [resync, conflict])
 
   /**
    * The refusal that blocked the last « Confirmer », **anchored to the act that caused it**.
@@ -368,6 +439,134 @@ export function PatientRecordModal({
     void loadCatalog()
   }, [open, loadCatalog])
 
+  /*
+   * The medication catalogue, for the prescription section's picker.
+   *
+   * ⚠️ Read WHOLE (`paging: null`) and filtered in the browser, exactly as the ordonnance editor does: it is a
+   * per-clinic list of a few dozen entries, and a server round trip per keystroke on a screen used at the chair
+   * would be worse than the bytes. ⚠️ A failure is recorded rather than written back as `[]`, for the reason
+   * `loadCatalog` above gives at length — an empty picker reads as « this clinic never configured one », so the
+   * dentist free-texts the drug and the line loses its DCI snapshot.
+   */
+  const loadMedicationCatalog = useCallback(async () => {
+    try {
+      setMedicationCatalog((await medicationsApi.list()) || [])
+      setMedicationCatalogFailed(false)
+    } catch {
+      setMedicationCatalogFailed(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    void loadMedicationCatalog()
+  }, [open, medicationCatalogReload, loadMedicationCatalog])
+
+  /*
+   * The ordonnance this fiche already issued, read from the DOCUMENT.
+   *
+   * ⚠️ Read fresh rather than hydrated from `record.prescriptionSummary`: that summary is row-sized labels for
+   * the history, not the lines, and the document is editable from `/documents/prescription` — so the only
+   * honest source for what to put back in the form is the document itself. Same reasoning as `useFreshVersion`
+   * one field over, and the same failure rule as the two catalogues: a failed read leaves the section EMPTY and
+   * says nothing was prescribed, which would be a lie, so it is recorded as a failure instead.
+   */
+  useEffect(() => {
+    if (!open) return
+    const documentId = record?.prescriptionDocumentId ?? null
+    const examensId = record?.examensDocumentId ?? null
+    if (!documentId && !examensId) {
+      setPrescriptionDocumentId(null)
+      setExamensDocumentId(null)
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      try {
+        /*
+         * ⚠️ BOTH sheets, in parallel, and one section holding the union of their lines. A médicament and an
+         * examen may not share a document, but they are one thing to the dentist — « qu'est-ce que j'ai
+         * prescrit à cette séance » — so the split is the server's business and the form stays single. Reading
+         * only the médicament one is how a reopened fiche would silently drop every examen and then, on save,
+         * leave a demande d'examens on file that the section had never shown.
+         */
+        const [doc, examensDoc] = await Promise.all([
+          documentId ? medicalDocumentsApi.get(documentId) : Promise.resolve(null),
+          examensId ? medicalDocumentsApi.get(examensId) : Promise.resolve(null),
+        ])
+        if (cancelled) return
+
+        const content = JSON.parse(doc?.contentJson || "{}") as {
+          medications?: unknown
+          renewals?: unknown
+        }
+        // The array shape is what both writers persist. A pre-array ordonnance holds one plain string; it
+        // becomes a single free-text médicament line rather than being dropped, which is how the document
+        // editor absorbs the same legacy shape.
+        //
+        // ⚠️ `prescriptionKind(line.kind)` is what makes the split need no migration: an ordonnance written
+        // before it holds its examens here, each marked `kind: "examen"`, and they come back as examen lines —
+        // so the next save moves them onto their own sheet. Dropping the kind read would print a panoramique
+        // on a médicament form for ever.
+        const medicationLines: PrescriptionLine[] = Array.isArray(content.medications)
+          ? (content.medications as PrescriptionLine[]).map((line) => ({
+              ...line,
+              kind: prescriptionKind(line.kind),
+            }))
+          : typeof content.medications === "string" && content.medications.trim()
+            ? [
+                {
+                  kind: PRESCRIPTION_KINDS.medicament,
+                  name: content.medications.trim(),
+                  dosage: "",
+                  timesPerDay: "",
+                  duration: "",
+                },
+              ]
+            : []
+
+        const examensContent = JSON.parse(examensDoc?.contentJson || "{}") as { examens?: unknown }
+        // One field per entry, by design — an examen is a sentence. The blanks are what `emptyPrescriptionLine`
+        // writes, so a line read back is indistinguishable from one just typed.
+        const examenLines: PrescriptionLine[] = Array.isArray(examensContent.examens)
+          ? (examensContent.examens as { name?: unknown }[])
+              .map((entry) => (typeof entry?.name === "string" ? entry.name.trim() : ""))
+              .filter((name) => name.length > 0)
+              .map((name) => ({
+                kind: PRESCRIPTION_KINDS.examen,
+                name,
+                dosage: "",
+                timesPerDay: "",
+                duration: "",
+              }))
+          : []
+
+        const lines = [...medicationLines, ...examenLines]
+        setPrescriptionDocumentId(documentId)
+        setExamensDocumentId(examensId)
+        setPrescriptionDocumentVersion(doc?.version ?? 0)
+        setExamensDocumentVersion(examensDoc?.version ?? 0)
+        setPrescriptionLines(lines)
+        setRenewals(typeof content.renewals === "string" ? content.renewals : "")
+        // A section holding a value opens itself — « Notes de séance »' rule, one section over.
+        setPrescriptionOpen(lines.length > 0)
+        setArmedPrescriptionIndex(null)
+      } catch {
+        if (cancelled) return
+        // Both ids are kept: the fiche still HAS these documents, and forgetting that would let the next save
+        // mint duplicates. The section is told the read failed so it can say so rather than show an empty list.
+        setPrescriptionDocumentId(documentId)
+        setExamensDocumentId(examensId)
+        setPrescriptionReadFailed(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, record, prescriptionReload])
+
   // Load the patient's odontogram so the chart shows what is already on record (incl. « à traiter »
   // diagnoses) while the dentist charts today's work. Failure is silent — it is an overlay, not a gate.
   useEffect(() => {
@@ -424,6 +623,16 @@ export function PatientRecordModal({
       setImportantNotes([...record.importantNotes])
       // A section holding a value opens itself, so editing can never look like it lost data.
       setNotesOpen(record.notes.length > 0 || record.importantNotes.length > 0)
+      // The prescription is hydrated by its own effect (it needs a second read); this only clears what a
+      // previous opening left behind, so a fiche with no ordonnance never shows the last one's lines.
+      setPrescriptionLines([])
+      setRenewals("")
+      setPrescriptionOpen(false)
+      setArmedPrescriptionIndex(null)
+      setPrescriptionReadFailed(false)
+      setPrescriptionDocumentVersion(0)
+      setExamensDocumentVersion(0)
+      setPreviewTarget(null)
     } else {
       setInterventionDate(todayLocalIso())
       setAmountPaid("")
@@ -434,6 +643,16 @@ export function PatientRecordModal({
       setNotes([])
       setImportantNotes([])
       setNotesOpen(false)
+      setPrescriptionLines([])
+      setRenewals("")
+      setPrescriptionOpen(false)
+      setArmedPrescriptionIndex(null)
+      setPrescriptionDocumentId(null)
+      setExamensDocumentId(null)
+      setPrescriptionDocumentVersion(0)
+      setExamensDocumentVersion(0)
+      setPrescriptionReadFailed(false)
+      setPreviewTarget(null)
     }
   }, [open, initialPatientName, record, dispatch])
 
@@ -1087,6 +1306,26 @@ export function PatientRecordModal({
             ?.treatmentPlanItemStepId ?? null,
         // Only carried on create — links the new record to the appointment it documents (closes the prompt).
         appointmentId: appointmentId ?? null,
+        /*
+         * What this séance prescribed. **Always sent**, `[]` included — the same discipline as `acts` and the
+         * two bridge role lists above, and for the same reason: a field a routine re-save forgets is how this
+         * product has lost data before. An empty list means « nothing prescribed », never « leave it alone »,
+         * and it still does not delete an ordonnance already issued (see `FicheOrdonnanceEmitter`).
+         *
+         * ⚠️ A line with no name is dropped here rather than sent: a blank trailing row is the ordinary state
+         * of a form somebody has just clicked « + Médicament » on, and refusing the save over it would be the
+         * act list's own rejected behaviour.
+         */
+        prescription: {
+          lines: prescriptionLines
+            .filter((line) => line.name?.trim())
+            .map((line) => ({ ...line, name: line.name.trim() })),
+          renewals: renewals.trim() || undefined,
+          // The tokens read when this modal opened. Without them the server cannot tell that the document
+          // changed underneath the section, and it silently writes this copy over the other door's edit.
+          prescriptionDocumentVersion: prescriptionDocumentVersion || undefined,
+          examensDocumentVersion: examensDocumentVersion || undefined,
+        },
       }
 
       const saved = record
@@ -1190,6 +1429,30 @@ export function PatientRecordModal({
         default:
           break
       }
+
+      /*
+       * The ordonnances this save emitted, named — for the same reason the money is. A fiche that issues a legal
+       * prescription and confirms « Fiche dentaire enregistrée » has told the dentist nothing about the document
+       * now sitting in the patient's file, which is the silence the two switches above exist to end.
+       *
+       * ⚠️ It says which SHEETS, plural when both were written: two separate papers leave this save and the
+       * patient hands one to the pharmacie and the other to the laboratoire. It is a toast with no action on
+       * purpose — the fiche is closing, so the door is the séance's own row behind it, which opens the document
+       * in place.
+       */
+      const emitted = [
+        saved.prescriptionDocumentId ? "ordonnance" : null,
+        saved.examensDocumentId ? "demande d'examens" : null,
+      ].filter(Boolean) as string[]
+      if (emitted.length > 0) {
+        toast.success(base, {
+          description:
+            emitted.length === 2
+              ? "Ordonnance et demande d'examens au dossier — imprimables depuis la séance."
+              : `${emitted[0] === "ordonnance" ? "Ordonnance" : "Demande d'examens"} au dossier — imprimable depuis la séance.`,
+        })
+      }
+
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
@@ -1315,7 +1578,27 @@ export function PatientRecordModal({
         </DialogHeader>
 
         <DialogBody className="flex flex-col gap-3">
-        <FormErrorBanner message={conflict.error} />
+        {/*
+          ⚠️ « Recharger » is not decoration - without it a 409 leaves this form POISONED: the versions it holds
+          never move, so every later press repeats the refusal, which is the trap the root guide describes (six
+          refusals over 81 minutes until the user reloaded the page). Every other dialog in the app already
+          offers this action and the fiche was the one that did not - which mattered less while the only 409 came
+          from the fiche's own row, and matters now that a colleague editing the ordonnance through
+          `/documents/prescription` raises one too.
+
+          It re-reads the record's version AND both documents, which is exactly what the server's own sentence
+          promises (« Rechargez pour voir la version a jour, puis appliquez a nouveau votre modification ») - so
+          the prescription section is repopulated from the server and the user re-applies. Nothing else typed in
+          the fiche is touched.
+        */}
+        <FormErrorBanner
+          message={conflict.error}
+          action={
+            conflict.isConflict
+              ? { label: "Recharger", onClick: () => void reloadFromServer(), disabled: loading }
+              : undefined
+          }
+        />
 
         {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
         {/* Extracted to `patient/patient-alert-panel.tsx` — it lived here, inline, which is why the document editor
@@ -1885,6 +2168,46 @@ export function PatientRecordModal({
           </div>
         </RecordSection>
 
+        {/*
+          « Prescription » — the second folding section, deliberately AFTER the notes and last in the body.
+          A séance is recorded before it is prescribed for, and the money band in the sticky footer is the one
+          block already documented as barely fitting 320 px, so nothing new goes there.
+        */}
+        <PrescriptionSection
+          lines={prescriptionLines}
+          renewals={renewals}
+          armedIndex={armedPrescriptionIndex}
+          open={prescriptionOpen}
+          onToggle={() => setPrescriptionOpen((v) => !v)}
+          onLinesChange={setPrescriptionLines}
+          onRenewalsChange={setRenewals}
+          onArmedIndexChange={setArmedPrescriptionIndex}
+          catalog={medicationCatalog}
+          catalogFailed={medicationCatalogFailed}
+          onRetryCatalog={() => setMedicationCatalogReload((n) => n + 1)}
+          existingDocumentId={prescriptionDocumentId}
+          existingExamensDocumentId={examensDocumentId}
+          onPreview={
+            patientId
+              ? (kind) =>
+                  setPreviewTarget({
+                    mode: "apercu",
+                    kind,
+                    patientId,
+                    // Served on the DTO precisely so the aperçu is issued in the same practitioner's name as
+                    // the document the save will emit. Absent on a new fiche, where the server attributes it
+                    // to the caller — which is what it will do on the save too.
+                    doctorId: record?.doctorId ?? undefined,
+                    interventionDate,
+                    lines: prescriptionLines,
+                    renewals,
+                  })
+              : undefined
+          }
+          readFailed={prescriptionReadFailed}
+          disabled={loading}
+        />
+
         </DialogBody>
 
         {/*
@@ -2265,6 +2588,12 @@ export function PatientRecordModal({
       />
     )}
     <DiscardChangesDialog guard={guard} />
+    {/*
+      The aperçu, over the fiche. A sibling of the Dialog rather than a child so it stacks above it — and it
+      carries no `onEditInFiche`, deliberately: the fiche IS what is open behind it, so a door back to it
+      would be a control that closes one dialog to reveal the same one.
+    */}
+    <DocumentPreviewDialog target={previewTarget} onClose={() => setPreviewTarget(null)} />
     </>
   )
 }

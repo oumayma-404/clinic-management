@@ -37,6 +37,22 @@ public class MedicalDocument : Entity<Guid>, IAuditable
     // appointment Completed (post-visit review flow). No FK — deleting the appointment leaves the record.
     public Guid? AppointmentId { get; private set; }
 
+    /// <summary>
+    /// The fiche de soins that produced this document — set only on an ordonnance emitted by the séance itself.
+    /// No FK, exactly like <see cref="AppointmentId"/>: deleting the fiche must leave the document standing,
+    /// because it may already have been printed and handed to the patient.
+    ///
+    /// <para>
+    /// ⚠️ <b><see cref="AppointmentId"/> could not do this job, and that is why the column exists.</b> It is
+    /// null on any fiche entered outside the agenda, and on every day where <c>DentalRecordVisitLink</c>
+    /// deliberately refuses to guess between several visits — so joining a séance to its ordonnance through the
+    /// appointment loses precisely the fiches charted from the patient's own page. The read still falls back to
+    /// the appointment for documents written before this column existed; nothing was backfilled, because
+    /// inferring the link would freeze an inference into data.
+    /// </para>
+    /// </summary>
+    public Guid? DentalRecordId { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
     
@@ -63,7 +79,8 @@ public class MedicalDocument : Entity<Guid>, IAuditable
         string? recipientDoctorName = null,
         string? recipientDoctorSpecialty = null,
         Guid? fileId = null,
-        Guid? appointmentId = null)
+        Guid? appointmentId = null,
+        Guid? dentalRecordId = null)
     {
         if (string.IsNullOrWhiteSpace(documentType))
             throw new ArgumentException("Document type cannot be null or empty", nameof(documentType));
@@ -92,6 +109,7 @@ public class MedicalDocument : Entity<Guid>, IAuditable
         IsDraft = isDraft;
         FileId = fileId;
         AppointmentId = appointmentId;
+        DentalRecordId = dentalRecordId;
         CreatedAt = DateTime.UtcNow;
     }
     

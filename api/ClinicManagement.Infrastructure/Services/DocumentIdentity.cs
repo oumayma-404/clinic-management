@@ -78,8 +78,20 @@ public static class DocumentIdentity
 
         // PatientAge holds a formatted date de naissance despite its name — see the field's own remark.
         AddLine(lines, "Date de naissance", data.PatientAge);
-        AddLine(lines, "Sexe", data.PatientSex);
-        AddLine(lines, "Poids", Suffixed(data.PatientWeightKg, " kg"));
+        /*
+         * ⚠️ « Sexe » and « Poids » are DELIBERATELY GONE, and this comment is here so nobody puts them back
+         * by reading `ordonnance-certificat-norms`' spec, which added them as R.5132-3 mentions for listes
+         * I/II and is otherwise still accurate.
+         *
+         * The practice owner's decision: a Tunisian dental ordonnance does not carry them, and « Sexe » was
+         * the one that actually showed — it was prefilled from the patient record, so it printed on every
+         * ordonnance ever issued, while « Poids » was optional and almost always blank. The two form fields
+         * are gone from the editor with them.
+         *
+         * Nothing was migrated. Documents issued before this still hold `patientSex` / `patientWeightKg` in
+         * their ContentJson; those keys are simply no longer read, so re-rendering an old ordonnance now
+         * omits two lines it used to print. That is the intended behaviour, not a regression.
+         */
         AddLine(lines, "Médecin traitant / praticien adresseur", data.Content.GetValueOrDefault("medecinTraitant"));
 
         return lines;
@@ -109,20 +121,8 @@ public static class DocumentIdentity
         return trimmed == null ? null : prefix + trimmed;
     }
 
-    /// <summary>
-    /// Appends a unit only when the value does not already carry one — a dentist who types « 32 kg » must not
-    /// get « 32 kg kg », and one who types « 32 » should still read as kilograms.
-    /// </summary>
-    private static string? Suffixed(string? value, string suffix)
-    {
-        var trimmed = Trimmed(value);
-        if (trimmed == null)
-        {
-            return null;
-        }
-
-        return trimmed.EndsWith("kg", StringComparison.OrdinalIgnoreCase) ? trimmed : trimmed + suffix;
-    }
+    // `Suffixed(value, " kg")` lived here and is gone with the « Poids » line above: it existed only to avoid
+    // printing « 32 kg kg », and nothing else ever needed a unit appended.
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
