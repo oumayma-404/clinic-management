@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
@@ -119,6 +119,23 @@ interface TreatmentPlansTableProps {
   reloadKey?: number
   /** Called after any mutation so the parent can refresh dependent views. */
   onChanged?: () => void
+  /**
+   * Render no toolbar of our own — the host supplies the create action, and there is no search.
+   *
+   * ⚠️ Set by the **patient file**, whose panels put their one action in the card header beside the title
+   * (`PatientTabSection`), so our own row was a second bank of controls directly under a header that already
+   * has an action slot. `externalSearch` does not cover this case: it hides the input and keeps the button,
+   * which on the patient page left a lone right-aligned control on a row of its own — the exact shape the
+   * neighbouring « Factures » tab was corrected out of.
+   *
+   * `/treatment-plans` passes nothing and is unchanged.
+   */
+  hideToolbar?: boolean
+  /**
+   * Bumped by the host when its own « Nouveau plan » is pressed. A counter, not a boolean: two presses in a
+   * row must both arrive. `suppliers-table.tsx` is the template.
+   */
+  createRequest?: number
 }
 
 /**
@@ -144,6 +161,8 @@ export function TreatmentPlansTable({
   externalSearch,
   reloadKey = 0,
   onChanged,
+  hideToolbar = false,
+  createRequest = 0,
 }: TreatmentPlansTableProps) {
   const [ownSearch, setOwnSearch] = useState("")
   // The parent's term wins outright when it is supplied — never merged with the local one.
@@ -202,6 +221,17 @@ export function TreatmentPlansTable({
     [RealtimeResource.TreatmentPlans, RealtimeResource.Appointments, RealtimeResource.Invoices],
     load,
   )
+
+  // The host's own create action. Skipped on mount (`createRequest` starts at 0) so the dialog does not open
+  // itself on arrival, which a plain effect on a boolean would do.
+  const lastCreateRequest = useRef(createRequest)
+  useEffect(() => {
+    if (createRequest !== lastCreateRequest.current) {
+      lastCreateRequest.current = createRequest
+      setEditing(null)
+      setFormOpen(true)
+    }
+  }, [createRequest])
 
   const afterMutation = () => {
     load()
@@ -275,6 +305,8 @@ export function TreatmentPlansTable({
   }
 
   const colSpan = showPatientColumn ? 8 : 7
+  /** How many placeholder rows the desktop table shows while the first page loads (`invoices-table`'s figure). */
+  const SKELETON_ROWS = 6
 
   /*
    * Whose brouillon is being deleted. The row's own `patientName` first; the `patientName` prop is the fallback
@@ -372,27 +404,29 @@ export function TreatmentPlansTable({
         `flex-wrap` + `flex-1` rather than a fixed two-column grid, so below ~420px the button drops to its own
         line instead of squeezing the input down to a few characters.
       */}
-      <div className="flex flex-wrap items-center gap-2">
-        {!controlled && (
-          <>
-            <Label htmlFor="plans-search" className="sr-only">
-              Rechercher un devis
-            </Label>
-            <Input
-              id="plans-search"
-              value={ownSearch}
-              onChange={(e) => setOwnSearch(e.target.value)}
-              placeholder="Rechercher un devis (numéro, titre, patient)…"
-              className="min-w-[200px] flex-1 sm:max-w-sm"
-            />
-          </>
-        )}
-        {/* `ms-auto` only when the search has gone: without it the lone button would sit at the start of the
-            row, where nothing else on the page puts a primary action. */}
-        <Button onClick={openCreate} className={cn("gap-2", controlled && "ms-auto")}>
-          <Plus className="h-4 w-4" /> Nouveau plan
-        </Button>
-      </div>
+      {!hideToolbar && (
+        <div className="flex flex-wrap items-center gap-2">
+          {!controlled && (
+            <>
+              <Label htmlFor="plans-search" className="sr-only">
+                Rechercher un devis
+              </Label>
+              <Input
+                id="plans-search"
+                value={ownSearch}
+                onChange={(e) => setOwnSearch(e.target.value)}
+                placeholder="Rechercher un devis (numéro, titre, patient)…"
+                className="min-w-[200px] flex-1 sm:max-w-sm"
+              />
+            </>
+          )}
+          {/* `ms-auto` only when the search has gone: without it the lone button would sit at the start of the
+              row, where nothing else on the page puts a primary action. */}
+          <Button onClick={openCreate} className={cn("gap-2", controlled && "ms-auto")}>
+            <Plus className="h-4 w-4" /> Nouveau plan
+          </Button>
+        </div>
+      )}
 
       {/* Band C — the banner used to be the ONLY signal, above a table still rendering « Aucun devis ». The
           failed-read state now replaces the table's empty state (see `emptyState`), so this row is no longer
@@ -437,8 +471,15 @@ export function TreatmentPlansTable({
             return (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
+                  {/* ⚠️ The spinner is the table tree's, brought over: the card tree only *disabled* the
+                      trigger while a devis PDF downloaded, so on a phone the press produced no visible change
+                      at all for the length of the request. */}
                   <Button variant="ghost" size="icon" disabled={busyId === p.id} aria-label="Actions du plan">
-                    <MoreHorizontal className="h-4 w-4" />
+                    {busyId === p.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <MoreHorizontal className="h-4 w-4" />
+                    )}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -477,7 +518,9 @@ export function TreatmentPlansTable({
           empty={emptyState}
         />
         <Table containerClassName={TABLE_ONLY_LG}>
-          <TableHeader>
+          {/* `sticky`, as `invoices-table` already was: these two render as adjacent tabs of the patient file
+              and a devis list is long enough to lose its column heads. */}
+          <TableHeader sticky>
             <TableRow>
               <TableHead>Numéro</TableHead>
               {showPatientColumn && <TableHead>Patient</TableHead>}
@@ -491,11 +534,18 @@ export function TreatmentPlansTable({
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-8">
-                  Chargement...
-                </TableCell>
-              </TableRow>
+              /* Skeleton ROWS, not a one-line « Chargement... » that a 25-row table then shoves off the
+                 screen — the card list beside this already renders skeletons, so the desktop half jumped.
+                 `invoices-table` carried this fix and it was never brought across. */
+              Array.from({ length: SKELETON_ROWS }).map((_, rowIndex) => (
+                <TableRow key={`skeleton-${rowIndex}`} aria-hidden="true">
+                  {Array.from({ length: colSpan }).map((__, cellIndex) => (
+                    <TableCell key={cellIndex}>
+                      <span className="block h-4 animate-pulse rounded bg-muted" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
             ) : plans.length === 0 ? (
               <TableRow>
                 {/* `py-0`: `EmptyState` owns its own vertical rhythm, and the cell's `py-8` on top of it would
@@ -549,9 +599,12 @@ export function TreatmentPlansTable({
                         </span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">{formatDT(plan.totalPlanned)}</TableCell>
-                    <TableCell className="text-right">{formatDT(plan.amountPaid)}</TableCell>
-                    <TableCell className="text-right">
+                    {/* `numeric`, not a bare `text-right`: it adds `tabular-nums`, without which these
+                        three columns of dinars do not line up digit-for-digit — the neighbouring Factures
+                        tab has had it all along. */}
+                    <TableCell numeric>{formatDT(plan.totalPlanned)}</TableCell>
+                    <TableCell numeric>{formatDT(plan.amountPaid)}</TableCell>
+                    <TableCell numeric>
                       {resteValue(plan) ?? "—"}
                       {isPlanBilled(plan) && (
                         <span className="block text-2xs font-normal text-muted-foreground">
@@ -573,6 +626,17 @@ export function TreatmentPlansTable({
                             <DropdownMenuItem onSelect={() => openWorkspace(plan)}>
                               Ouvrir le plan
                             </DropdownMenuItem>
+                            {/*
+                              ⚠️ **This item existed in the card menu and not here**, so booking the next séance
+                              from the devis list was a capability a desktop did not have — the same list, the
+                              same data, the action available only below the `lg:` hinge. § 0 does not care which
+                              tree renders. The gate is `bookableItemOf`, exactly as above.
+                            */}
+                            {bookableItemOf(plan) && (
+                              <DropdownMenuItem onSelect={() => startBooking(plan)}>
+                                Planifier la prochaine séance
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onSelect={() => handleDownloadPdf(plan)}>
                               Télécharger le devis (PDF)
                             </DropdownMenuItem>

@@ -5,12 +5,12 @@ import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CardList, CARDS_ONLY, CARDS_ONLY_LG, TABLE_ONLY, TABLE_ONLY_LG } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import type { PagedResponse } from "@/lib/api/paging"
 import {
@@ -44,7 +44,6 @@ import {
   Pencil,
   X,
   Loader2,
-  Trash2,
 } from "lucide-react"
 import {
   Dialog,
@@ -76,22 +75,24 @@ import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto, InvoiceDto, InstallmentDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
-import { ExportButton } from "@/components/ui/export-button"
+import { ExportButton, useCsvExport } from "@/components/ui/export-button"
 import { PatientRecordModal } from "@/components/patient-record-modal"
 import { RecordActsSummary } from "@/components/patient/record-acts-summary"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
-import { Smile, ClipboardCheck, FolderOpen, CalendarPlus } from "lucide-react"
+import { Smile, ClipboardCheck, FolderOpen, CalendarPlus, Plus } from "lucide-react"
 import { InvoicesTable } from "@/components/factures/invoices-table"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
 import { PatientNotesStrip } from "@/components/patient/patient-notes-strip"
 import { PatientHealthCard } from "@/components/patient/patient-health-card"
+import { PatientTabSection } from "@/components/patient/patient-tab-section"
 import { dentitionLabel } from "@/lib/dentition"
 import { splitHealthList } from "@/lib/health-list"
 import { PatientUndocumentedVisits } from "@/components/patient/patient-undocumented-visits"
 import { isActiveSmoker, tobaccoSummary } from "@/lib/tobacco"
 import { cn } from "@/lib/utils"
+import { activateOnKey, FOCUS_CLASSES } from "@/lib/a11y"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -124,7 +125,7 @@ import {
   type DocumentPreviewTarget,
 } from "@/components/documents/document-preview-dialog"
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
-import { isImageFile, isPdfFile, isPreviewableFile } from "@/components/patients/files/file-kind"
+import { isImageFile, isPreviewableFile } from "@/components/patients/files/file-kind"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import { useVault } from "@/lib/hooks/use-vault"
 
@@ -234,6 +235,7 @@ function RecordField({
   children,
   wide,
   hint,
+  omitWhenEmpty,
 }: {
   label: string
   /** Rendered muted as « Non renseigné » when blank. Ignored when `children` is supplied. */
@@ -242,8 +244,21 @@ function RecordField({
   wide?: boolean
   /** A consequence of the value, under it — e.g. that no reminder can reach this patient. */
   hint?: React.ReactNode
+  /**
+   * Render nothing at all when there is no value, instead of « Non renseigné » (§ 6: a field with no value is
+   * omitted).
+   *
+   * ⚠️ **Opt-in, and it must stay opt-in — the default is load-bearing on the medical card.** « Informations
+   * médicales » is the card a dentist reads before extracting a tooth from somebody on Sintrom, and there an
+   * absent line and « aucun antécédent » are opposite facts: silence would read as « rien à signaler » when
+   * what is true is « personne n'a posé la question ». That is the exact distinction `patient-health-card.tsx`
+   * was rebuilt five times to protect. So this is passed only where the blank carries no clinical claim — a
+   * missing e-mail, a missing « Adressé par » — and never on a health field.
+   */
+  omitWhenEmpty?: boolean
 }) {
   const filled = children ?? (value?.trim() ? value : null)
+  if (!filled && omitWhenEmpty) return null
 
   return (
     <div className={cn("min-w-0", wide && "sm:col-span-2")}>
@@ -375,6 +390,21 @@ type PatientSection =
  * six other surfaces reached for `.catch(() => setX([]))` instead and rendered their failures as « aucun ». This
  * wrapper is kept because « cette section » is the page's own wording and nine call sites share it.</p>
  */
+/**
+ * « 12 fichiers dans ce dossier », « 1 dossier », « 0 fichier à la racine ».
+ *
+ * <p>French agreement is on the noun **and** nowhere else here, so the singular/plural pair is passed rather than
+ * derived: « fichier / fichiers » is regular and « bilan / bilans » is too, but the caller owns the word. The
+ * optional `scope` is the half that matters — a bare count on this page had claimed to cover « tous les
+ * fichiers » while counting one folder's worth.</p>
+ */
+function countLabel(n: number, one: string, many: string, scope?: string): string {
+  // ⚠️ **Zero takes the SINGULAR in French** — « 0 fichier », not « 0 fichiers ». The `=== 1` test that reads
+  // naturally to an English eye is wrong here, and it is wrong in the same way elsewhere in this file (the
+  // folder card's own `fileCount === 1` says « 0 fichiers »); this helper is the version to copy.
+  return [`${n} ${n < 2 ? one : many}`, scope].filter(Boolean).join(" ")
+}
+
 function SectionLoadFailure({ onRetry }: { onRetry: () => void }) {
   return (
     <LoadFailureNotice
@@ -521,11 +551,25 @@ const PATIENT_TABS = [
   "medical-records",
   "treatment-plans",
   "appointments",
-  "notes",
   "documents",
   "files",
   "factures",
 ]
+
+/**
+ * `?tab=` values that no longer name a panel, and where they land instead.
+ *
+ * ⚠️ **« Notes » was retired as a tab, and this is what keeps every old link working.** It was a strict subset
+ * of two surfaces that are both on this page already: `PatientNotesStrip` — directly above the strip, showing
+ * the patient's own alerts *and* every séance note, each dated and named by its act, with « Modifier » on both
+ * halves — and the « Notes » field on every fiche row of « Dossiers médicaux », which carries
+ * `DentalRecordNotes` and « Ouvrir la fiche ». The tab's one distinct property was rendering the same notes
+ * unbounded rather than in a 120 px scroller: a scroll ceiling, not a capability (§ 0). A seventh destination
+ * that shows nothing the sixth does not is what makes a screen feel complicated.
+ */
+const RETIRED_PATIENT_TABS: Record<string, string> = {
+  notes: "medical-records",
+}
 
 /**
  * Rows per page in « Actes dentaires ».
@@ -535,6 +579,16 @@ const PATIENT_TABS = [
  * patient's forty séances pushed everything below them off the screen.
  */
 const DENTAL_RECORDS_PAGE_SIZE = 5
+
+/**
+ * The page size for the three tabs that had no bound at all — Rendez-vous, Fichiers and Documents.
+ *
+ * ⚠️ **Ten, not the fiches' five, and the difference is the row.** A fiche row is three lines and carries
+ * actions, so five fills a screen; an appointment, a file and a document are one line each and are read as a
+ * history, so five would turn one scroll into four clicks. Ten is also `PAGE_SIZE_OPTIONS`' first step, which
+ * is what lets these pagers offer the size selector the fiches' deliberately cannot.
+ */
+const TAB_PAGE_SIZE = 10
 
 export default function PatientDetailsPage() {
   const params = useParams()
@@ -691,10 +745,85 @@ export default function PatientDetailsPage() {
       hasNextPage: page < totalPages,
     }
   }, [dentalRecords, recordsPageRequest])
+
+  /**
+   * « Rendez-vous » pages in the browser too, and it is the same `PagedResult.FromSource` case for the same
+   * reason: `appointmentsApi.list` takes no paging parameters, and three other things on this page read the
+   * whole list anyway (« À compléter », the visit-state derivations, the record modal's booked acts).
+   *
+   * ⚠️ **It was the ONE list tab on this page with no bound at all**, and the measurement is why it now has
+   * one: 23 visits rendered 1 556 px at 1440 px and **3 518 px — 4,2 écrans — at 820 px**. Both trees are in
+   * the DOM at once (the hinge is CSS-only), so that is ~46 row subtrees for a three-year patient and ~100 for
+   * a five-year one. `ui/card-list.tsx` states the invariant this broke in as many words: « the doubled DOM is
+   * bounded because every list is paged ».
+   *
+   * ⚠️ **Ten, not the fiches' five.** A fiche row is three lines and carries actions; an appointment row is one
+   * line and is read as a history, so a page of five would turn one scroll into four clicks. Ten also matches
+   * `PAGE_SIZE_OPTIONS`' first step, which is what lets this pager offer the size selector the fiches' cannot.
+   */
+  const [appointmentsPageRequest, setAppointmentsPageRequest] = useState(1)
+  const [appointmentsPageSize, setAppointmentsPageSize] = useState(10)
+
+  /**
+   * The « Exporter le dossier » behaviour, shared by the desktop button and the phone menu item.
+   *
+   * ⚠️ **A hook, so it lives above this component's early returns** — the same rule the appointments pager
+   * below was moved for. It keys on `patientId` rather than `patient.id` because it must run on the render
+   * where the patient has not arrived yet.
+   */
+  const dossierExport = useCsvExport({
+    path: `/patients/${patientId}/dossier`,
+    label: "dossier",
+    stepUpAction: "export-patient-dossier",
+    stepUpPurpose: "Exporter le dossier complet de ce patient, pour le lui remettre",
+  })
+
+  /**
+   * The slice the « Rendez-vous » tab renders.
+   *
+   * ⚠️ **It lives HERE, above this component's early returns, and that is not tidiness.** Placed beside the
+   * tab's own JSX it sat after the `loading` and `!patient` branches, so on the render where the patient
+   * arrived React counted one more hook than the render before it and threw « Rendered more hooks than during
+   * the previous render » — a blank page. `tsc` cannot see it and the production build compiles it happily;
+   * the browser rejects it on the first paint, which is why the eye pass is the half that matters.
+   *
+   * The sort is inside the memo rather than read from a const below for the same reason.
+   */
+  const appointmentsPage = useMemo<PagedResponse<AppointmentDto>>(() => {
+    const newestFirst = [...appointments].sort(
+      (a, b) => new Date(b.appointmentDateTime).getTime() - new Date(a.appointmentDateTime).getTime(),
+    )
+    const totalCount = newestFirst.length
+    const totalPages = Math.max(1, Math.ceil(totalCount / appointmentsPageSize))
+    // Clamped at render, never corrected by an effect — the fiches pager's own reasoning: a page that has just
+    // stopped existing must not be painted before being fixed.
+    const page = Math.min(Math.max(1, appointmentsPageRequest), totalPages)
+    const start = (page - 1) * appointmentsPageSize
+    return {
+      items: newestFirst.slice(start, start + appointmentsPageSize),
+      page,
+      pageSize: appointmentsPageSize,
+      totalCount,
+      totalPages,
+      hasPreviousPage: page > 1,
+      hasNextPage: page < totalPages,
+    }
+  }, [appointments, appointmentsPageRequest, appointmentsPageSize])
+
   // A different patient is a different history. Navigating between two patients does **not** remount this page
   // (only `params.id` changes), so without this the header search would open the next file on page 3.
+  //
+  // ⚠️ **`currentFolderId` is reset here for the same reason, and its absence was worse than a wrong page.**
+  // The Fichiers tab keeps the open folder in state and its read is keyed on `[patientId, currentFolderId]`, so
+  // arriving at patient B while inside a folder of patient A asked the server for A's folder under B — which
+  // `GetPatientFilesQuery` refuses with « Dossier introuvable. ». The tab then rendered « Fichiers du dossier »
+  // and a « Retour » button for a folder that is not this patient's.
   useEffect(() => {
     setRecordsPageRequest(1)
+    setCurrentFolderId(null)
+    setFilesPageRequest(1)
+    setDocumentsPageRequest(1)
+    setAppointmentsPageRequest(1)
   }, [patientId])
   // Dental records already tied to a non-cancelled invoice (guards against double-invoicing).
   const [invoicedDentalRecordIds, setInvoicedDentalRecordIds] = useState<Set<string>>(new Set())
@@ -788,6 +917,14 @@ export default function PatientDetailsPage() {
   const [deleting, setDeleting] = useState(false)
   // When in a folder, every loaded file belongs to it; at root, only the files in no folder.
   const currentFiles = currentFolderId ? files : files.filter((f) => !f.folderId)
+  /**
+   * The folder currently open, or null at the root.
+   *
+   * ⚠️ It exists because three surfaces said « Fichiers du dossier » about a folder they could name: the header,
+   * the list heading and its `ariaLabel`. `folders` has carried `name` all along — a screen reader announcing
+   * « Fichiers du dossier » on every folder in turn is the icon-with-no-label defect in prose form.
+   */
+  const currentFolder = currentFolderId ? folders.find((f) => f.id === currentFolderId) ?? null : null
 
   /*
    * Newest first, sorted ONCE. Sorting inline in the JSX sorts the state array **in place**, and two trees
@@ -796,6 +933,34 @@ export default function PatientDetailsPage() {
   const filesNewestFirst = [...currentFiles].sort(
     (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
   )
+
+  /**
+   * The page of files this tab renders — and the same slice the preview's arrows walk.
+   *
+   * ⚠️ **The read is the unpaged one on purpose** (`getFiles`, not the manager's `getFilesPaged`): the tab has
+   * no search and no sort of its own, and the preview needs a sequence. What it did not have was a *bound* —
+   * 60 root files rendered 60 rows and 60 cards, both trees in the DOM, with nothing to turn.
+   *
+   * ⚠️ **The preview is fed `items`, not the whole list, so the two agree.** Arrowing past the end of a page
+   * would otherwise open a file the list underneath is not showing.
+   */
+  const [filesPageRequest, setFilesPageRequest] = useState(1)
+  const filesPage = useMemo<PagedResponse<PatientFileDto>>(() => {
+    const totalCount = filesNewestFirst.length
+    const totalPages = Math.max(1, Math.ceil(totalCount / TAB_PAGE_SIZE))
+    const page = Math.min(Math.max(1, filesPageRequest), totalPages)
+    const start = (page - 1) * TAB_PAGE_SIZE
+    return {
+      items: filesNewestFirst.slice(start, start + TAB_PAGE_SIZE),
+      page,
+      pageSize: TAB_PAGE_SIZE,
+      totalCount,
+      totalPages,
+      hasPreviousPage: page > 1,
+      hasNextPage: page < totalPages,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentFiles, filesPageRequest])
 
   // AC-5.3 — the preview lives in one place now; this page held a byte-identical second copy of the hook and
   // the dialog, only the PDF frame having ever been extracted. The sequence is what the viewer's arrows walk:
@@ -806,11 +971,24 @@ export default function PatientDetailsPage() {
   // pass neither, so the two surfaces onto the same drawer disagreed about what could be opened.
   const filesPolicy = useUploadPolicy("patient-file")
   const { vault } = useVault()
-  const preview = useFilePreview(patientId, filesPolicy, { files: filesNewestFirst }, vault)
+  const preview = useFilePreview(patientId, filesPolicy, { files: filesPage.items }, vault)
   const [refreshKey, setRefreshKey] = useState(0)
   /** Band C — the identity read answered 404 (the patient really is gone), as opposed to failing. */
   const [identityMissing, setIdentityMissing] = useState(false)
   const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
+  /**
+   * The two panels whose body is a shared table (`TreatmentPlansTable`, `InvoicesTable`) put their create
+   * action in `PatientTabSection`'s header slot, like every other panel — so the button lives here and the
+   * table is told about the press through a counter (`suppliers-table.tsx`'s pattern).
+   *
+   * ⚠️ Both tables also render `hideToolbar`, which drops the search box **on this page only**: a patient has
+   * a handful of devis and a handful of notes, every neighbouring tab lists its rows with no search at all,
+   * and the row it sat on was a second bank of controls directly under a header that already has one.
+   * `/treatment-plans` and `/factures` pass neither prop and are untouched — there the search is clinic-wide
+   * and server-side, which is the case it exists for.
+   */
+  const [newPlanRequest, setNewPlanRequest] = useState(0)
+  const [newInvoiceRequest, setNewInvoiceRequest] = useState(0)
   // Controlled so PatientPlansStrip can send the user to the plans tab.
   const [activeTab, setActiveTab] = useState("medical-records")
   // The tab strip sits below the odontogram, so a control *above* it that only calls setActiveTab appears to do
@@ -843,6 +1021,25 @@ export default function PatientDetailsPage() {
     list.scrollTo({ left: Math.max(0, active.offsetLeft - (list.clientWidth - active.offsetWidth) / 2) })
   }, [activeTab])
   const [medicalDocuments, setMedicalDocuments] = useState<MedicalDocumentDto[]>([])
+
+  /** The page of documents the Documents tab renders — it had no bound either. */
+  const [documentsPageRequest, setDocumentsPageRequest] = useState(1)
+  const documentsPage = useMemo<PagedResponse<MedicalDocumentDto>>(() => {
+    const totalCount = medicalDocuments.length
+    const totalPages = Math.max(1, Math.ceil(totalCount / TAB_PAGE_SIZE))
+    const page = Math.min(Math.max(1, documentsPageRequest), totalPages)
+    const start = (page - 1) * TAB_PAGE_SIZE
+    return {
+      items: medicalDocuments.slice(start, start + TAB_PAGE_SIZE),
+      page,
+      pageSize: TAB_PAGE_SIZE,
+      totalCount,
+      totalPages,
+      hasPreviousPage: page > 1,
+      hasNextPage: page < totalPages,
+    }
+  }, [medicalDocuments, documentsPageRequest])
+
   const [planSeeds, setPlanSeeds] = useState<TreatmentPlanSeedLine[]>([])
   const [seededPlanOpen, setSeededPlanOpen] = useState(false)
   // Both delete endpoints are AdminOrDoctor (A-12). Offer the action only to those roles so a secretary is
@@ -958,7 +1155,6 @@ export default function PatientDetailsPage() {
           medicalHistory,
           familyHistory,
           dentalRecordsData,
-          filesData,
           foldersData,
           invoicesData,
           plansData,
@@ -970,7 +1166,13 @@ export default function PatientDetailsPage() {
           attempt("medicalHistory", patientMedicalHistoryApi.list(patientId)),
           attempt("familyHistory", patientFamilyHistoryApi.list(patientId)),
           attempt("dentalRecords", dentalRecordsApi.list(patientId)),
-          attempt("files", patientFilesApi.getFiles(patientId)),
+          /*
+            ⚠️ **`getFiles` is deliberately NOT here — it was fetched twice on every page open.**
+            The dedicated folder effect below runs on mount with `currentFolderId === null`, which is the
+            identical request; both landed on `setFiles`, so the second answer simply overwrote the first. That
+            effect owns the read (it is the one that has to re-run when a folder is opened) and it records its
+            own `"files"` failure, so nothing about the three-state rendering changes.
+          */
           attempt("folders", patientFilesApi.getFolders(patientId)),
           attempt("invoices", invoicesApi.list({ patientId })),
           attempt("plans", treatmentPlansApi.list({ patientId })),
@@ -988,7 +1190,6 @@ export default function PatientDetailsPage() {
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
         setDentalRecords(dentalRecordsData)
-        setFiles(filesData)
         setFolders(foldersData)
         setBillingSummary(billingData)
         /*
@@ -1095,7 +1296,11 @@ export default function PatientDetailsPage() {
   // bookmark or a stale link falls back to the default rather than to a blank page.
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab")
-    if (tab && PATIENT_TABS.includes(tab)) setActiveTab(tab)
+    if (!tab) return
+    // A retired value resolves to the panel that absorbed it, so an old bookmark lands on the content rather
+    // than silently on the default tab — see `RETIRED_PATIENT_TABS`.
+    const resolved = RETIRED_PATIENT_TABS[tab] ?? tab
+    if (PATIENT_TABS.includes(resolved)) setActiveTab(resolved)
   }, [patientId])
 
   /*
@@ -1358,9 +1563,6 @@ procedureTypeId: it.procedureTypeId ?? null,
       ? null
       : (appointments.find((a) => a.id === reviewAppointmentId) ?? null)
 
-  const appointmentsNewestFirst = [...appointments].sort(
-    (a, b) => new Date(b.appointmentDateTime).getTime() - new Date(a.appointmentDateTime).getTime(),
-  )
 
 
   const handleDownloadFile = async (file: PatientFileDto) => {
@@ -1496,21 +1698,6 @@ procedureTypeId: it.procedureTypeId ?? null,
     if (sectionFailed(...sections)) return <SectionLoadFailure onRetry={retrySections} />
     return empty
   }
-
-  /**
-   * The Notes tab reaches "nothing to show" two different ways — no fiches at all, and fiches that carry no
-   * notes — and both are the same fact to the reader, so they share one element rather than two near-identical
-   * blocks that would drift.
-   */
-  const notesEmptyState = (
-    <EmptyState
-      icon={FileText}
-      size="compact"
-      chipClassName={zoneChipClass(ZONES.daily)}
-      title="Aucune note de séance"
-      description="Les notes saisies dans une fiche de soins apparaissent ici."
-    />
-  )
 
   // One splitter for all three, shared with the form that writes them (`lib/health-list.ts`): they are read as
   // a set, and a value that looks different from its neighbour reads as a different KIND of fact.
@@ -1729,17 +1916,46 @@ procedureTypeId: it.procedureTypeId ?? null,
             **y = 698** with **18 buttons** above it. Icon-only the row is 5 × 44 px + gaps = ~252 px, i.e. a
             single row at 390 px *and* at 320 px (288 px of content box).
 
-            ⚠️ **Not a « ⋯ » menu**, which was the other candidate: it puts four controls one tap deeper and, on
-            this row specifically, `ExportButton` carries its own step-up dialog — and a dialog rendered inside a
-            `DropdownMenuContent` is unmounted in the same tick `onSelect` closes the menu, the defect
-            `expense-movement-actions.tsx` documents. Nothing here is hidden, so § 0 is not engaged at all.
+            ⚠️ **REVERSED below `sm:`: it IS a menu now, and a labelled one.** The note here used to reject that
+            on two grounds. The first — that `ExportButton` carries its own step-up dialog, which Radix unmounts
+            in the same tick `onSelect` closes the menu — was real and is now answered: `useCsvExport` splits the
+            behaviour from the trigger, so the menu holds a plain item and the dialog is a **sibling** of the
+            menu, which is the shape `expense-movement-actions.tsx` prescribes. The second — « nothing here is
+            hidden, so § 0 is not engaged » — was true and beside the point: what the icon-only row hid was not
+            the controls but their **names**. Five glyphs with no words, on the one device that has no hover to
+            reveal a `title`, is the « mystery meat » NN/g measures a 39 % task-time cost for.
+
+            So from `sm:` up nothing changes at all — four labelled buttons, no menu, no extra tap. Below it the
+            row becomes « Actions ▾ » + « Planifier un RDV », two controls that both carry their words.
           */}
           <div className="flex min-w-0 basis-full flex-wrap gap-2 xl:basis-auto xl:shrink-0">
+            {/* Below `sm:` the three secondaries fold into one labelled menu; from `sm:` they are buttons. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2 coarse:h-11 sm:hidden">
+                  Actions
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[min(16rem,calc(100vw-2rem))]">
+                <DropdownMenuItem onSelect={() => { setEditSection(null); setEditDialogOpen(true) }}>
+                  Modifier le patient
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => router.push(`/patients/${patient.id}/files`)}>
+                  Fichiers et dossiers
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={dossierExport.working} onSelect={() => dossierExport.start()}>
+                  {dossierExport.working ? "Export…" : "Exporter le dossier"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* ⚠️ The step-up dialog is a SIBLING of the menu, never inside `DropdownMenuContent`. */}
+            {dossierExport.dialog}
             <Button
               variant="outline"
               size="sm"
               onClick={() => { setEditSection(null); setEditDialogOpen(true) }}
-              className="gap-2 coarse:h-11"
+              className="hidden gap-2 coarse:h-11 sm:inline-flex"
               aria-label="Modifier le patient"
             >
               <Edit className="h-4 w-4" />
@@ -1752,25 +1968,24 @@ procedureTypeId: it.procedureTypeId ?? null,
               variant="outline"
               size="sm"
               onClick={() => router.push(`/patients/${patient.id}/files`)}
-              className="gap-2 coarse:h-11"
+              className="hidden gap-2 coarse:h-11 sm:inline-flex"
               aria-label="Fichiers et dossiers du patient"
             >
               <FolderOpen className="h-4 w-4" />
               <span className="sr-only sm:not-sr-only">Fichiers</span>
             </Button>
-            {/* The plans of THIS patient, one tap from the top of their page — the tab is the destination rather
-                than the clinic-wide devis list, which has no patient filter and would answer a different
-                question. Goes through `openTab` so the strip is scrolled into view; see its own note. */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => openTab("treatment-plans")}
-              className="gap-2 coarse:h-11"
-              aria-label="Plans de traitement du patient"
-            >
-              <ClipboardCheck className="h-4 w-4" />
-              <span className="sr-only sm:not-sr-only">Plans de traitement</span>
-            </Button>
+            {/*
+              ⚠️ **« Plans de traitement » stood HERE and was removed — it was the third route to one tab.**
+              It called `openTab("treatment-plans")`, which is also what the tab strip itself does 200 px below
+              and what « Tous les plans » does in `PatientPlansStrip` between the two. Three doors, one room.
+
+              It was also the widest control in the row at **175 px** — wider than « Planifier un RDV », the one
+              action that is not navigation — and that width is what made the group wrap: measured at 820 px the
+              five buttons came to 654 px against the ~532 px the column has, so they took two rows on the device
+              this product is used on most. At four they measure 471 px and fit on one.
+
+              Nothing is unreachable: the tab, the strip's own link and `?tab=treatment-plans` all still work.
+            */}
             {/*
               « Dossier » — the patient's own copy of their record, as one archive.
               This is the right of access under la loi organique 2004-63, and it is also the request a cabinet
@@ -1781,9 +1996,9 @@ procedureTypeId: it.procedureTypeId ?? null,
             <ExportButton
               path={`/patients/${patient.id}/dossier`}
               label="dossier"
-              compact
               stepUpAction="export-patient-dossier"
               stepUpPurpose="Exporter le dossier complet de ce patient, pour le lui remettre"
+              className="hidden sm:inline-flex"
             />
             {/* `coarse:h-11` across the whole row, matching `ExportButton`'s own painted floor: on a coarse
                 pointer one 44 px control beside four 32 px ones was visibly misaligned, and their `touch-target`
@@ -2006,9 +2221,19 @@ procedureTypeId: it.procedureTypeId ?? null,
               stops scrolling and becomes a grid — a gradient over a grid would shade a tab for no reason. It is
               `pointer-events-none`, so it never intercepts a tap on the tab underneath it. */}
           <div className="relative">
+          {/*
+            ⚠️ **Six columns, and `sm:grid-cols-3` — the counts are tied to the number of triggers.** With seven
+            it was `sm:grid-cols-4 lg:grid-cols-7`, which on a tablet meant a row of four over a row of three:
+            a ragged block whose last row's tabs are wider than the first's, so the strip read as two unrelated
+            groups. Six divides into two equal rows of three, and into one row at `lg:`.
+
+            ⚠️ **Every trigger's icon is distinct, and each one repeats in its own panel's header** (see
+            `PatientTabSection`). Notes, Documents and Fichiers all carried `FileText`, which told the reader
+            nothing and actively suggested three views of one thing.
+          */}
           <TabsList
             ref={tabsListRef}
-            className="flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible lg:grid-cols-7"
+            className="flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:overflow-visible lg:grid-cols-6"
           >
             <TabsTrigger value="medical-records" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileCheck className="h-4 w-4" />
@@ -2023,16 +2248,12 @@ procedureTypeId: it.procedureTypeId ?? null,
               <Calendar className="h-4 w-4" />
               Rendez-vous
             </TabsTrigger>
-            <TabsTrigger value="notes" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
-              <FileText className="h-4 w-4" />
-              Notes
-            </TabsTrigger>
             <TabsTrigger value="documents" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileText className="h-4 w-4" />
               Documents
             </TabsTrigger>
             <TabsTrigger value="files" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
-              <FileText className="h-4 w-4" />
+              <FolderOpen className="h-4 w-4" />
               Fichiers
             </TabsTrigger>
             <TabsTrigger value="factures" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
@@ -2048,38 +2269,26 @@ procedureTypeId: it.procedureTypeId ?? null,
 
           {/* Medical Records Tab - Unified View */}
           <TabsContent value="medical-records" className="space-y-4">
-            {/* Dental Records Section */}
-            <Card>
-              {/*
-                ⚠️ `flex-wrap` + `min-w-0 flex-1` + a full-width action below `sm:`.
-
-                A Card's content box is ~310px on a 390px phone, and « Ajouter un acte dentaire » at
-                `size="sm"` is ~218px of unwrappable French — so the un-wrapped row left the title block ~92px,
-                which wrapped « Actes dentaires » onto three lines and its description onto eight. All three
-                tab headers on this page carried the same construction.
-              */}
-              <CardHeader>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <CardTitle className="flex items-center gap-2">
-                      <FileCheck className="h-5 w-5" />
-                      Actes dentaires
-                    </CardTitle>
-                    <CardDescription>Historique complet des actes et interventions dentaires</CardDescription>
-                  </div>
-                  <Button
-                    onClick={() => {
-                      setEditingRecord(null)
-                      setRecordModalOpen(true)
-                    }}
-                    size="sm"
-                    className="w-full sm:w-auto"
-                  >
-                    Ajouter un acte dentaire
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
+            {/* Dental Records Section. The header construction — wrap, `min-w-0 flex-1`, a full-width action
+                below `sm:` — is `PatientTabSection`'s now, and it explains itself there; it was hand-copied
+                into three of these panels and missing from the four that had no action yet. */}
+            <PatientTabSection
+              icon={FileCheck}
+              title="Actes dentaires"
+              description="Historique complet des actes et interventions dentaires"
+              action={
+                <Button
+                  onClick={() => {
+                    setEditingRecord(null)
+                    setRecordModalOpen(true)
+                  }}
+                  size="sm"
+                  className="w-full sm:w-auto"
+                >
+                  Ajouter un acte dentaire
+                </Button>
+              }
+            >
                 {dentalRecords.length === 0 ? (
                   renderSectionEmpty(
                     ["dentalRecords"],
@@ -2138,7 +2347,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                             label: (record.acts?.length ?? 0) > 1 ? "Actes" : "Dents",
                             value:
                               (record.acts?.length ?? 0) > 1 || record.toothNumbers.length > 0 ? (
-                                <RecordActsSummary record={record} align="end" hideSingleName />
+                                <RecordActsSummary record={record} align="end" hideSingleName hidePrescription />
                               ) : null,
                           },
                           {
@@ -2208,7 +2417,15 @@ procedureTypeId: it.procedureTypeId ?? null,
                       actions={(record) => (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label="Actions de l'acte dentaire">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              /* Names the fiche, not the verb: ten cards otherwise announce « Actions de l'acte
+                                 dentaire » ten times over (§ 13). `icon-button-is-named` only checks that a
+                                 name exists, which is why the table's five buttons were fixed and the card
+                                 trees were missed. */
+                              aria-label={`Actions de la fiche du ${formatDate(record.interventionDate)}`}
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -2366,17 +2583,39 @@ procedureTypeId: it.procedureTypeId ?? null,
                                 >
                                   <Pencil className="h-4 w-4" />
                                 </Button>
+                                {/*
+                                  ⚠️ **The destructive action left the row for a menu, and this is a SAFETY fix
+                                  rather than a density one — the control count does not change.** It was a
+                                  third unlabelled glyph sitting 4 px from « Modifier », on a row scanned five
+                                  times per patient: NN/g names exactly that shape (« Consequential Options
+                                  Close to Benign Options »), and the note above this block was already worried
+                                  about it in as many words. Behind the « ⋯ » it is named in full instead of
+                                  being a red icon, and it can no longer be hit by a slip aimed at its
+                                  neighbour. `Facturer` and `Modifier` stay one gesture away, because both are
+                                  frequent and NN/g is equally clear that a frequent action must not be hidden.
+                                  The card tree has carried this same menu all along.
+                                */}
                                 {canDeleteClinicalRecords && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 coarse:size-11 text-destructive hover:text-destructive"
-                                    onClick={() => setRecordToDelete(record)}
-                                    title="Supprimer la fiche de soins"
-                                    aria-label={`Supprimer la fiche de soins du ${formatDate(record.interventionDate)}`}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 coarse:size-11"
+                                        aria-label={`Autres actions sur la fiche du ${formatDate(record.interventionDate)}`}
+                                      >
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onSelect={() => setRecordToDelete(record)}
+                                      >
+                                        Supprimer la fiche de soins du {formatDate(record.interventionDate)}
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 )}
                               </div>
                             </TableCell>
@@ -2421,8 +2660,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                     />
                   </>
                 )}
-              </CardContent>
-            </Card>
+            </PatientTabSection>
 
             {/*
               « Reste à payer » — **under** l'historique des actes, in the same tab, and both halves of that
@@ -2448,123 +2686,50 @@ procedureTypeId: it.procedureTypeId ?? null,
 
           {/* Plan de traitement Tab */}
           <TabsContent value="treatment-plans" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ClipboardCheck className="h-5 w-5" />
-                  Plans de traitement
-                </CardTitle>
-                <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Notes Tab */}
-          <TabsContent value="notes">
-            <Card>
-              <CardHeader>
-                <CardTitle>Notes des dossiers médicaux</CardTitle>
-                <CardDescription>Notes et notes importantes des actes dentaires</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {dentalRecords.length === 0 ? (
-                  // Same read as « Actes dentaires », so the same failure band — but the copy describes what
-                  // THIS tab shows. « Aucun dossier médical » answered a question the tab does not ask.
-                  renderSectionEmpty(["dentalRecords"], notesEmptyState)
-                ) : (
-                  <div className="space-y-4">
-                    {dentalRecords
-                      .filter(record => 
-                        (record.notes && record.notes.length > 0) || 
-                        (record.importantNotes && record.importantNotes.length > 0)
-                      )
-                      .map((record) => (
-                      <div key={record.id} className="rounded-lg border bg-card p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-foreground">
-                              {record.procedureType}
-                            </p>
-                            <Badge variant="outline" className="text-xs">
-                              {formatDate(record.interventionDate)}
-                            </Badge>
-                          </div>
-                        </div>
-                            
-                        {/* Important Notes - Highlighted */}
-                        {record.importantNotes && record.importantNotes.length > 0 && (
-                          <div className="space-y-2">
-                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                              Notes importantes
-                            </p>
-                            <div className="space-y-2">
-                              {record.importantNotes.map((note, idx) => (
-                                <div 
-                                  key={idx} 
-                                  className="text-sm font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 rounded border border-amber-200 dark:border-amber-800"
-                                >
-                                  ⚠ {note}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Regular Notes */}
-                        {record.notes && record.notes.length > 0 && (
-                          <div className="space-y-2">
-                            {record.importantNotes && record.importantNotes.length > 0 && (
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                Notes
-                              </p>
-                            )}
-                            <div className="space-y-2">
-                              {record.notes.map((note, idx) => (
-                                <p 
-                                  key={idx} 
-                                  className="text-sm text-foreground bg-muted/50 px-3 py-2 rounded"
-                                >
-                                  {note}
-                                </p>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {dentalRecords.filter(record => 
-                      (record.notes && record.notes.length > 0) || 
-                      (record.importantNotes && record.importantNotes.length > 0)
-                    ).length === 0 && notesEmptyState}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <PatientTabSection
+              icon={ClipboardCheck}
+              title="Plans de traitement"
+              description="Devis, actes planifiés et échéanciers de paiement du patient."
+              action={
+                <Button
+                  size="sm"
+                  className="w-full gap-2 sm:w-auto"
+                  onClick={() => setNewPlanRequest((n) => n + 1)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Nouveau plan
+                </Button>
+              }
+            >
+                {/*
+                  ⚠️ **`onChanged` was missing here, and the Factures tab three panels down carries a comment
+                  describing this exact bug being fixed for `InvoicesTable`.** Creating a devis, deleting a
+                  brouillon or booking the next séance all fire `afterMutation()`, so without it
+                  `PatientPlansStrip`, the odontogramme's `teethUnderTreatment` rings, « Solde dû » and
+                  « Reste à payer » all kept their pre-mutation figures. Realtime masks it whenever the hub
+                  answers — and `use-clinic-realtime` is explicit that realtime is *additive*, so on a LAN
+                  install with the hub down the band silently states the old numbers.
+                */}
+                <TreatmentPlansTable
+                  patientId={patientId}
+                  patientName={patientName}
+                  showPatientColumn={false}
+                  hideToolbar
+                  createRequest={newPlanRequest}
+                  onChanged={() => setRefreshKey((k) => k + 1)}
+                />
+            </PatientTabSection>
           </TabsContent>
 
           {/* Documents Tab — saved medical documents; reopen the editor to edit / reprint. */}
           <TabsContent value="documents">
-            <Card>
-              <CardHeader>
-                {/* Same wrap/flex-1/full-width-action fix as « Actes dentaires » above. */}
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Documents médicaux
-                    </CardTitle>
-                    <CardDescription>
-                      Tous les documents enregistrés pour ce patient. Cliquez sur « Ouvrir » pour modifier ou réimprimer.
-                    </CardDescription>
-                  </div>
-                  {/* P2-A: prescribe for the open patient without leaving the page / re-searching them. */}
-                  {documentTemplateActions}
-                </div>
-              </CardHeader>
-              <CardContent>
+            <PatientTabSection
+              icon={FileText}
+              title="Documents médicaux"
+              description="Tous les documents enregistrés pour ce patient. Cliquez sur « Ouvrir » pour modifier ou réimprimer."
+              /* P2-A: prescribe for the open patient without leaving the page / re-searching them. */
+              action={documentTemplateActions}
+            >
                 {medicalDocuments.length === 0 ? (
                   renderSectionEmpty(
                     ["documents"],
@@ -2582,9 +2747,9 @@ procedureTypeId: it.procedureTypeId ?? null,
                     {/* Tapping the card opens the document — « Ouvrir » is what the row already did, so the menu
                         exists only for the destructive second action and is omitted when the user cannot delete. */}
                     <CardList
-                      className={CARDS_ONLY}
+                      className={CARDS_ONLY_LG}
                       ariaLabel="Documents médicaux"
-                      items={medicalDocuments}
+                      items={documentsPage.items}
                       getKey={(doc) => doc.id}
                       title={(doc) => documentTypeLabel(doc.documentType)}
                       onSelect={(doc) => openMedicalDocument(doc)}
@@ -2606,14 +2771,25 @@ procedureTypeId: it.procedureTypeId ?? null,
                           ) : null,
                         },
                       ]}
-                      // ⚠️ The role gate is on the **delete item**, not on the menu. It used to wrap the whole
-                      // `DropdownMenu`, so a secretary lost « Ouvrir le document » along with it — on the phone
-                      // tree only; the table below gates just its delete button (§ 0: no capability removed by a
-                      // layout decision, and here one tree quietly removed one the other kept).
-                      actions={(doc) => (
+                      /*
+                        ⚠️ **The whole menu is gated, and that is a REVERSAL of the note that stood here — read
+                        this before putting the old shape back.** The gate used to wrap the `DropdownMenu` and
+                        was moved onto the delete item because wrapping it lost « Ouvrir le document » for a
+                        secretary. That reasoning is now obsolete: the card carries `onSelect`, so tapping it
+                        opens the document for everyone. What the per-item gate left behind was a « ⋯ » whose
+                        only entry, for reception, was « Ouvrir le document » — one tap deeper than the tap that
+                        already does it. A menu with a single item duplicating its own card is a dead control.
+                        The capability is untouched either way (§ 0), and the table tree agrees: there a
+                        secretary sees « Ouvrir » and no delete.
+                      */
+                      actions={(doc) => (!canDeleteClinicalRecords ? null : (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label="Actions du document">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Actions du document ${documentTypeLabel(doc.documentType)} du ${formatDate(doc.documentDate)}`}
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -2631,9 +2807,28 @@ procedureTypeId: it.procedureTypeId ?? null,
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      )}
+                      ))}
                     />
-                    <Table containerClassName={TABLE_ONLY}>
+                    {/*
+                      ⚠️ **`_LG`, at four columns, and that is a DELIBERATE step past `frontend-web.md` § 6's
+                      threshold** — read this before putting `TABLE_ONLY` back on the strength of the rule.
+
+                      That rule reads « `md:` for four columns or fewer, `lg:` from five up », and its own
+                      measurement table records this table as the one that fits exactly (451 px in a 451 px box
+                      at 820×1024). The threshold is a **floor** — five columns *must* go to `lg:` or the
+                      Actions column falls outside the scrollport — and nothing about it obliges a smaller
+                      table to hinge earlier than its neighbours.
+
+                      Hinging earlier is precisely what it did, and it was the loudest inconsistency on this
+                      page. Every other panel here is `_LG`, so on an iPad in portrait — the device this
+                      product is used on most — five tabs rendered a card list and this one rendered a grid.
+                      Swiping between two tabs changed the *form* of the content, which reads as two screens
+                      bolted together. Reported as « tables are not same, not same ui, so it feels unrelated ».
+
+                      Nothing is lost (§ 0): the card tree above carries the same « Ouvrir » (the card's own
+                      tap) and the same « Supprimer » menu item, gated identically.
+                    */}
+                    <Table containerClassName={TABLE_ONLY_LG}>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Type</TableHead>
@@ -2643,7 +2838,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {medicalDocuments.map((doc) => (
+                        {documentsPage.items.map((doc) => (
                           <TableRow key={doc.id}>
                             <TableCell className="font-medium">{documentTypeLabel(doc.documentType)}</TableCell>
                             <TableCell className="text-muted-foreground">{formatDate(doc.documentDate)}</TableCell>
@@ -2662,47 +2857,75 @@ procedureTypeId: it.procedureTypeId ?? null,
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="gap-1"
-                                onClick={() => openMedicalDocument(doc)}
-                                title="Ouvrir le document"
-                              >
-                                <Eye className="h-4 w-4" />
-                                Ouvrir
-                              </Button>
-                              {canDeleteClinicalRecords && (
+                              {/*
+                                ⚠️ **One frequent action inline, the destructive one behind « ⋯ » — the same
+                                shape « Actes dentaires » carries, and this row is why that fix had to
+                                propagate.** « Ouvrir » and « Supprimer » were two labelled buttons side by
+                                side (with no `gap` at all at first, since JSX strips the whitespace-only line
+                                between siblings), the destructive one second, on the tab a secretary opens to
+                                reprint an ordonnance. That is NN/g's « Consequential Options Close to Benign
+                                Options » — named in as many words in the fiches table's own comment one tab
+                                over, and fixed only there. Behind the menu it keeps its full name and cannot
+                                be hit by a slip aimed at « Ouvrir ».
+
+                                The control count does not change, and neither does the capability (§ 0).
+                              */}
+                              <div className="flex items-center justify-end gap-2">
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="gap-1 text-destructive hover:text-destructive"
-                                  onClick={() => setDocumentToDelete(doc)}
-                                  title="Supprimer le document"
+                                  className="gap-1 coarse:h-11"
+                                  onClick={() => openMedicalDocument(doc)}
+                                  aria-label={`Ouvrir le document ${documentTypeLabel(doc.documentType)} du ${formatDate(doc.documentDate)}`}
                                 >
-                                  <Trash2 className="h-4 w-4" />
-                                  Supprimer
+                                  <Eye className="h-4 w-4" />
+                                  Ouvrir
                                 </Button>
-                              )}
+                                {canDeleteClinicalRecords && (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 coarse:size-11"
+                                        aria-label={`Autres actions sur le document ${documentTypeLabel(doc.documentType)} du ${formatDate(doc.documentDate)}`}
+                                      >
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onSelect={() => setDocumentToDelete(doc)}
+                                      >
+                                        Supprimer le document du {formatDate(doc.documentDate)}
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
+                    <DataTablePagination
+                      page={documentsPage}
+                      onPageChange={setDocumentsPageRequest}
+                      label={["document", "documents"]}
+                    />
                   </>
                 )}
-              </CardContent>
-            </Card>
+            </PatientTabSection>
           </TabsContent>
 
           {/* Appointments Tab - Merged with Procedures */}
           <TabsContent value="appointments">
-            <Card>
-              <CardHeader>
-                <CardTitle>Historique des rendez-vous</CardTitle>
-                <CardDescription>Historique complet des rendez-vous et des actes</CardDescription>
-              </CardHeader>
-              <CardContent>
+            <PatientTabSection
+              icon={Calendar}
+              title="Historique des rendez-vous"
+              description="Historique complet des rendez-vous et des actes"
+            >
                 {appointments.length === 0 ? (
                   renderSectionEmpty(
                     ["appointments"],
@@ -2726,7 +2949,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                     <CardList
                       className={CARDS_ONLY_LG}
                       ariaLabel="Historique des rendez-vous"
-                      items={appointmentsNewestFirst}
+                      items={appointmentsPage.items}
                       getKey={(appointment) => appointment.id}
                       title={(appointment) => formatDateTime(appointment.appointmentDateTime)}
                       subtitle={(appointment) =>
@@ -2790,7 +3013,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {appointmentsNewestFirst
+                        {appointmentsPage.items
                           .map((appointment) => {
                             /*
                              * « Enregistrer la fiche » — the same action the post-visit notification offers,
@@ -2860,11 +3083,14 @@ procedureTypeId: it.procedureTypeId ?? null,
                                     {appointmentStatusLabel(appointment.status)}
                                   </Badge>
                                 </TableCell>
-                            <TableCell className="max-w-xs">
+                            {/* ⚠️ `clamp`, never `truncate`: § 6 forbids truncation in a cell, and the card
+                                field directly above already carries the comment diagnosing this exact defect
+                                (« the table clipped it behind a hover-only `title=`, which no touch device can
+                                reach, and a visit note is read at the chair ») while fixing only the card. This
+                                table renders from 1024 px — an iPad landscape is 1180 px, with a finger. */}
+                            <TableCell className="max-w-xs" clamp title={appointment.notes ?? undefined}>
                               {appointment.notes ? (
-                                <p className="text-sm truncate" title={appointment.notes}>
-                                  {appointment.notes}
-                                </p>
+                                <p className="text-sm">{appointment.notes}</p>
                               ) : (
                                 <span className="text-muted-foreground text-sm">-</span>
                               )}
@@ -2890,51 +3116,92 @@ procedureTypeId: it.procedureTypeId ?? null,
                           })}
                       </TableBody>
                     </Table>
+                    {/*
+                      The bound this tab never had. Unlike the fiches' pager this one DOES offer the size
+                      selector: its page size is 10, which is `PAGE_SIZE_OPTIONS`' first step, so the `<Select>`
+                      has a value that matches one of its items. Below eleven visits the pager hides itself
+                      entirely, which is most patients.
+                    */}
+                    <DataTablePagination
+                      page={appointmentsPage}
+                      onPageChange={setAppointmentsPageRequest}
+                      onPageSizeChange={(size) => {
+                        setAppointmentsPageSize(size)
+                        setAppointmentsPageRequest(1)
+                      }}
+                      label={["rendez-vous", "rendez-vous"]}
+                    />
                   </>
                 )}
-              </CardContent>
-            </Card>
+            </PatientTabSection>
           </TabsContent>
 
           {/* Files Tab */}
           <TabsContent value="files">
-            <Card>
-              <CardHeader>
-                {/* The third header carrying the same construction — and the only one with TWO actions, so the
-                    wrapper takes the full width below `sm:` and its buttons share it. */}
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <CardTitle>Fichiers du patient</CardTitle>
-                    <CardDescription>
-                      {currentFolderId
-                        ? `Fichiers du dossier`
-                        : `Tous les fichiers et documents téléversés (${files.length} fichier${files.length !== 1 ? 's' : ''})`}
-                    </CardDescription>
-                  </div>
-                  <div className="flex w-full items-center gap-2 sm:w-auto">
-                    {currentFolderId && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentFolderId(null)}
-                        className="flex-1 gap-2 sm:flex-none"
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                        Retour
-                      </Button>
-                    )}
+            <PatientTabSection
+              icon={FolderOpen}
+              title={currentFolder ? currentFolder.name : "Fichiers du patient"}
+              /*
+                ⚠️ **« Tous les fichiers … (N) » counted only the ROOT, and said « tous ».**
+                `GET /patients/{id}/files` with no `folderId` filters on `FolderId == null`, so a patient whose
+                scanners are filed in « Radiographies » read « (0 fichier) » directly above a folder card
+                announcing « 12 fichiers ». The count names its own scope, and the folders are counted beside it
+                so the root never reads as an empty drawer.
+
+                ⚠️ It is the one panel description that is a **count** rather than a sentence, and that is the
+                point of it — it is the only one whose subject changes as you navigate into a folder.
+              */
+              description={
+                currentFolder
+                  ? countLabel(currentFiles.length, "fichier", "fichiers", "dans ce dossier")
+                  : [
+                      countLabel(folders.length, "dossier", "dossiers"),
+                      countLabel(currentFiles.length, "fichier", "fichiers", "à la racine"),
+                    ].join(" · ")
+              }
+              /* The only panel with TWO actions — `PatientTabSection` gives the pair the full width below
+                 `sm:` and they share it. */
+              action={
+                <>
+                  {currentFolderId && (
                     <Button
-                      onClick={() => router.push(`/patients/${patientId}/files`)}
-                      variant="default"
-                      className="flex-1 sm:flex-none"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentFolderId(null)}
+                      className="flex-1 gap-2 sm:flex-none"
                     >
-                      Gérer les fichiers
+                      <ArrowLeft className="h-4 w-4" />
+                      Retour
                     </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {files.length === 0 && folders.length === 0 ? (
+                  )}
+                  <Button
+                    onClick={() =>
+                      router.push(
+                        currentFolderId
+                          ? `/patients/${patientId}/files?folder=${encodeURIComponent(currentFolderId)}`
+                          : `/patients/${patientId}/files`,
+                      )
+                    }
+                    variant="default"
+                    className="flex-1 sm:flex-none"
+                  >
+                    Gérer les fichiers
+                  </Button>
+                </>
+              }
+            >
+                {/*
+                  ⚠️ **The failure branch is tested BEFORE emptiness, and that ordering is the whole fix.**
+                  `renderSectionEmpty` already ranks loading → failed → empty correctly, but it was only reached
+                  when `files.length === 0 && folders.length === 0` — and inside a folder there is a folder by
+                  construction, so a patient with any folder at all could never reach it. A folder of radiographs
+                  the server refused to list rendered as « Aucun fichier dans ce dossier »: the toast expires in
+                  four seconds and the sentence stays. The `.catch(() => [])` was removed and the flag recorded
+                  (see the read's own note); nothing rendered the flag.
+                */}
+                {detailsLoading || sectionFailed("files", "folders") ? (
+                  renderSectionEmpty(["files", "folders"], null)
+                ) : files.length === 0 && folders.length === 0 ? (
                   renderSectionEmpty(
                     ["files", "folders"],
                     <EmptyState
@@ -2958,10 +3225,25 @@ procedureTypeId: it.procedureTypeId ?? null,
                         <h3 className="text-sm font-semibold mb-3 text-foreground">Dossiers</h3>
                         <div className="space-y-2">
                           {folders.map((folder) => (
+                            /*
+                              ⚠️ A folder card is the ONLY route this tab has to a filed file, so a bare
+                              `onClick` closed the whole branch to a keyboard or a screen reader — not a
+                              discoverability nuisance, an unreachable capability (§ 0). The four pieces § 13
+                              requires are `role`, `tabIndex`, Enter/Space and a name; the same control in
+                              `patient-files-manager.tsx` already carried all four, which is why the helpers now
+                              live in `lib/a11y.ts` rather than being written twice.
+                            */
                             <Card
                               key={folder.id}
-                              className="p-3 cursor-pointer hover:bg-accent transition-colors hover:border-primary/40"
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Ouvrir le dossier ${folder.name}`}
+                              className={cn(
+                                "p-3 cursor-pointer hover:bg-accent transition-colors hover:border-primary/40",
+                                FOCUS_CLASSES,
+                              )}
                               onClick={() => setCurrentFolderId(folder.id)}
+                              onKeyDown={activateOnKey(() => setCurrentFolderId(folder.id))}
                             >
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -2971,7 +3253,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-semibold truncate text-foreground">{folder.name}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {folder.fileCount} {folder.fileCount === 1 ? "fichier" : "fichiers"}
+                                      {countLabel(folder.fileCount, "fichier", "fichiers")}
                                     </p>
                                   </div>
                                 </div>
@@ -2987,29 +3269,58 @@ procedureTypeId: it.procedureTypeId ?? null,
                     {currentFiles.length === 0 ? (
                       <div>
                         <h3 className="text-sm font-semibold mb-3 text-foreground">
-                          {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
+                          {currentFolder ? `Fichiers — ${currentFolder.name}` : "Fichiers"}
                         </h3>
-                        <Card className="p-8 border-dashed">
-                          <div className="text-center text-muted-foreground">
-                            <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                            <p className="text-sm">
-                              {currentFolderId ? "Aucun fichier dans ce dossier" : "Aucun fichier à la racine"}
-                            </p>
-                          </div>
-                        </Card>
+                        {/*
+                          ⚠️ `EmptyState`, not a hand-rolled dashed Card with a 48 px icon at 50 % opacity.
+                          This was the one empty state on the page that did not come from the shared
+                          primitive — five panels used `EmptyState size="compact"` with the zone chip and this
+                          one drew its own, twice the height, in a different type size, with no zone hue. Two
+                          empty tabs looking like two different products is exactly the « feels unrelated »
+                          complaint, and it lands hardest here because an empty drawer is what a new patient
+                          shows.
+
+                          It is an *invite*, so it carries the action that creates the first record (§ 13's
+                          three kinds) — the branch above it already holds the failed-read case.
+                        */}
+                        <EmptyState
+                          icon={FolderOpen}
+                          size="compact"
+                          chipClassName={zoneChipClass(ZONES.daily)}
+                          title={currentFolderId ? "Aucun fichier dans ce dossier" : "Aucun fichier à la racine"}
+                          description={
+                            currentFolderId
+                              ? "Téléversez une radiographie ou un scan dans ce dossier."
+                              : "Les fichiers non classés apparaissent ici."
+                          }
+                          action={
+                            <Button
+                              variant="outline"
+                              onClick={() =>
+                                router.push(
+                                  currentFolderId
+                                    ? `/patients/${patientId}/files?folder=${encodeURIComponent(currentFolderId)}`
+                                    : `/patients/${patientId}/files`,
+                                )
+                              }
+                            >
+                              Téléverser des fichiers
+                            </Button>
+                          }
+                        />
                       </div>
                     ) : (
                       <div>
                         <h3 className="text-sm font-semibold mb-3 text-foreground">
-                          {currentFolderId ? "Fichiers du dossier" : "Fichiers"}
+                          {currentFolder ? `Fichiers — ${currentFolder.name}` : "Fichiers"}
                         </h3>
                         {/* AC-17's truncate case. The name is the title, so it truncates to one line and the
                             whole value is reachable by tapping the card — which opens the preview. The table's
                             `title=` tooltip did the same job on a desktop and nothing at all on a phone. */}
                         <CardList
                             className={CARDS_ONLY_LG}
-                            ariaLabel={currentFolderId ? "Fichiers du dossier" : "Fichiers du patient"}
-                            items={filesNewestFirst}
+                            ariaLabel={currentFolder ? `Fichiers du dossier ${currentFolder.name}` : "Fichiers du patient"}
+                            items={filesPage.items}
                             getKey={(file) => file.id}
                             title={(file) => file.fileName}
                             onSelect={(file) => preview.open(file)}
@@ -3025,6 +3336,16 @@ procedureTypeId: it.procedureTypeId ?? null,
                               { label: "Taille", value: formatFileSize(file.fileSize) },
                               { label: "Téléversé le", value: formatDate(file.uploadedAt) },
                             ]}
+                            /*
+                              ⚠️ **« Aperçu du fichier » is gone from this menu, and the reasoning is the
+                              Documents card's, one tab over.** The card carries `onSelect`, so tapping it
+                              already opens the preview — the menu item was a second, slower route to the
+                              gesture the card itself performs. That note ends « A menu with a single item
+                              duplicating its own card is a dead control »; here it was the first of two,
+                              which is the same defect with the evidence one line further away.
+
+                              The menu stays because « Télécharger » has no other route on a card (§ 0).
+                            */
                             actions={(file) => (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -3037,11 +3358,6 @@ procedureTypeId: it.procedureTypeId ?? null,
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  {isPreviewableFile(file, filesPolicy) && (
-                                    <DropdownMenuItem onSelect={() => preview.open(file)}>
-                                      Aperçu du fichier
-                                    </DropdownMenuItem>
-                                  )}
                                   <DropdownMenuItem onSelect={() => handleDownloadFile(file)}>
                                     Télécharger le fichier
                                   </DropdownMenuItem>
@@ -3060,10 +3376,9 @@ procedureTypeId: it.procedureTypeId ?? null,
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {filesNewestFirst
+                              {filesPage.items
                                 .map((file) => {
                                   const isImage = isImageFile(file)
-                                  const isPdf = isPdfFile(file)
                                   const isPreviewable = isPreviewableFile(file, filesPolicy)
 
                                   return (
@@ -3074,10 +3389,10 @@ procedureTypeId: it.procedureTypeId ?? null,
                                     >
                                       <TableCell className="font-medium">
                                         <div className="flex items-center gap-2">
+                                          {/* The PDF arm and the fallback arm drew the same icon, so `isPdf`
+                                              decided nothing here and could never render differently. */}
                                           {isImage ? (
                                             <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                                          ) : isPdf ? (
-                                            <FileText className="h-4 w-4 text-muted-foreground" />
                                           ) : (
                                             <FileText className="h-4 w-4 text-muted-foreground" />
                                           )}
@@ -3098,12 +3413,22 @@ procedureTypeId: it.procedureTypeId ?? null,
                                         {formatDate(file.uploadedAt)}
                                       </TableCell>
                                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                        {/*
+                                          ⚠️ **`coarse:size-11` on BOTH, not `.touch-target` on either.**
+                                          `buttonVariants` already centres a 44 px overlay on every Button, so
+                                          two 32 px controls 8 px apart overhang each other by ~6 px — and the
+                                          later sibling paints last, so a thumb aimed at the right edge of
+                                          « Aperçu » fired « Télécharger ». This table is `TABLE_ONLY_LG`, i.e.
+                                          it renders from 1024 px, which is an iPad in landscape at 1180 px with
+                                          a gloved hand. Growing the painted box is the fix `patients-table.tsx`
+                                          and `patient-files-manager.tsx` both already carry.
+                                        */}
                                         <div className="flex items-center justify-end gap-2">
                                           {isPreviewable && (
                                             <Button
                                               variant="ghost"
                                               size="sm"
-                                              className="h-8 w-8 p-0"
+                                              className="h-8 w-8 p-0 coarse:size-11"
                                               onClick={() => preview.open(file)}
                                               title="Aperçu du fichier"
                                               aria-label={`Aperçu de ${file.fileName}`}
@@ -3114,7 +3439,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="h-8 w-8 p-0"
+                                            className="h-8 w-8 p-0 coarse:size-11"
                                             onClick={() => handleDownloadFile(file)}
                                             title="Télécharger le fichier"
                                             aria-label={`Télécharger ${file.fileName}`}
@@ -3128,35 +3453,46 @@ procedureTypeId: it.procedureTypeId ?? null,
                                 })}
                             </TableBody>
                           </Table>
+                          <DataTablePagination
+                            page={filesPage}
+                            onPageChange={setFilesPageRequest}
+                            label={["fichier", "fichiers"]}
+                          />
                       </div>
                     )}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+            </PatientTabSection>
           </TabsContent>
 
           {/* Factures Tab */}
           <TabsContent value="factures" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Receipt className="h-5 w-5" />
-                  Factures
-                </CardTitle>
-                <CardDescription>Notes d'honoraires du patient — création, émission, paiement et PDF.</CardDescription>
-              </CardHeader>
-              <CardContent>
+            <PatientTabSection
+              icon={Receipt}
+              title="Factures"
+              description="Notes d'honoraires du patient — création, émission, paiement et PDF."
+              action={
+                <Button
+                  size="sm"
+                  className="w-full gap-2 sm:w-auto"
+                  onClick={() => setNewInvoiceRequest((n) => n + 1)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Nouvelle facture
+                </Button>
+              }
+            >
                 {/* onChanged was missing: recording a payment here left the plan card above showing the
                     pre-payment figures until a manual refresh. */}
                 <InvoicesTable
                   patientId={patientId}
                   patientName={patientName}
                   showPatientColumn={false}
+                  hideToolbar
+                  createRequest={newInvoiceRequest}
                   onChanged={() => setRefreshKey((k) => k + 1)}
                 />
-              </CardContent>
-            </Card>
+            </PatientTabSection>
           </TabsContent>
 
         </Tabs>
@@ -3183,7 +3519,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                 <RecordField label="Nom complet" value={patientName} />
                 {/* The reason the patient is on the books at all — beside their name above, and here in the
                     record. `wide`, because it is a sentence rather than a field. */}
-                <RecordField label="Motif de consultation" value={patient.consultationReason} wide />
+                <RecordField label="Motif de consultation" value={patient.consultationReason} wide omitWhenEmpty />
                 <RecordField
                   label="Date de naissance"
                   value={`${formatDate(patient.dateOfBirth)} ${age !== null ? `(${age} ans)` : "(âge inconnu)"}`}
@@ -3207,9 +3543,9 @@ procedureTypeId: it.procedureTypeId ?? null,
                     (« Denture mixte »), not the form control's short caption: here there is no group heading to
                     borrow the noun from. */}
                 <RecordField label="Denture" value={dentitionLabel(patient.dentition)} />
-                <RecordField label="E-mail" value={patient.email} />
-                <RecordField label="Adresse" value={formatAddress(patient.address)} wide />
-                <RecordField label="Adressé par" value={patient.referredBy} />
+                <RecordField label="E-mail" value={patient.email} omitWhenEmpty />
+                <RecordField label="Adresse" value={formatAddress(patient.address)} wide omitWhenEmpty />
+                <RecordField label="Adressé par" value={patient.referredBy} omitWhenEmpty />
                 {/* ⚠️ « Contact d'urgence » is gone from this card because it is gone from the form. The two
                     columns are still on the record and still populated for older patients — nothing has been
                     dropped from the database — but a field nobody can edit any more has no business being the

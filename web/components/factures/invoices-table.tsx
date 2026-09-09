@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
@@ -27,6 +27,7 @@ import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,6 +79,21 @@ interface InvoicesTableProps {
   reloadKey?: number
   /** Called after any mutation so the parent can refresh dependent views (e.g. revenue totals). */
   onChanged?: () => void
+  /**
+   * Render no toolbar of our own — the host supplies the search (if any) and the create action.
+   *
+   * ⚠️ Set by the **patient file**, whose panels put their one action in the card header beside the title
+   * (`PatientTabSection`). Inside that panel our own toolbar was a second control row under a header that
+   * already has an action slot, and its search box narrowed a list that is one patient's few devis — every
+   * neighbouring tab shows its rows with no search at all. `/factures` passes nothing and is unchanged: there
+   * the search is clinic-wide and server-side, which is the case it was built for.
+   */
+  hideToolbar?: boolean
+  /**
+   * Bumped by the host when its own « Nouvelle facture » is pressed. A counter, not a boolean: two presses in
+   * a row must both arrive. `suppliers-table.tsx` is the template.
+   */
+  createRequest?: number
 }
 
 export function InvoicesTable({
@@ -90,6 +106,8 @@ export function InvoicesTable({
   showPatientColumn = true,
   reloadKey = 0,
   onChanged,
+  hideToolbar = false,
+  createRequest = 0,
 }: InvoicesTableProps) {
   const router = useRouter()
   const [search, setSearch] = useState("")
@@ -157,6 +175,17 @@ export function InvoicesTable({
   const load = useCallback(() => setLocalRefresh((n) => n + 1), [])
 
   useClinicRealtime(RealtimeResource.Invoices, load)
+
+  // The host's own create action. Skipped on mount (`createRequest` starts at 0) so the dialog does not open
+  // itself on arrival, which a plain effect on a boolean would do.
+  const lastCreateRequest = useRef(createRequest)
+  useEffect(() => {
+    if (createRequest !== lastCreateRequest.current) {
+      lastCreateRequest.current = createRequest
+      setEditing(null)
+      setFormOpen(true)
+    }
+  }, [createRequest])
 
   const afterMutation = () => {
     load()
@@ -336,7 +365,10 @@ export function InvoicesTable({
     setFormOpen(true)
   }
 
-  const colSpan = showPatientColumn ? 9 : 8
+  // ⚠️ Counted off the header row below: Numéro · [Patient] · Date · Statut · Total · Encaissé · Reste ·
+  // Actions = 8 with the patient column and 7 without. It said 9/8, so the loading skeleton emitted one cell
+  // per row too many and the table painted a phantom column that vanished when the real rows landed.
+  const colSpan = showPatientColumn ? 8 : 7
 
   /*
    * ONE actions menu, rendered by both halves of the responsive pair.
@@ -361,6 +393,20 @@ export function InvoicesTable({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDetailInvoiceId(inv.id)}>Voir le détail</DropdownMenuItem>
+          {/*
+            ⚠️ **The devis→facture link existed in the table tree only**, so below `lg:` — every phone and every
+            tablet in portrait — a note born of a devis had no route back to it. The table wraps its « Devis »
+            badge in a `Link`; the card list renders the same badge as inert text, and it cannot simply be
+            wrapped there because `card-list` stretches the title button's `after:inset-0` over the whole card,
+            which would swallow the tap. The menu is the slot that sits above that overlay, so the capability
+            comes back here — one route on each tree, which is what the table's own comment asked for
+            (« closing the loop from both ends »).
+          */}
+          {inv.treatmentPlanId && (
+            <DropdownMenuItem onSelect={() => router.push(`/treatment-plans/${inv.treatmentPlanId}`)}>
+              Voir le devis d&apos;origine
+            </DropdownMenuItem>
+          )}
           {isDraft && (
             <>
               <DropdownMenuItem onSelect={() => openEdit(inv)}>Modifier</DropdownMenuItem>
@@ -416,7 +462,28 @@ export function InvoicesTable({
    * raise a duplicate note d'honoraires, which consumes a gapless fiscal number.
    */
   const hasParentFilter = Boolean(from || to || status)
-  const emptyState = isSearching ? (
+  /*
+   * ⚠️ **A FAILED first read is a fourth case, and it used to paint the first-run invite.** `usePagedList`
+   * leaves `data` at an empty page and clears `loading` on a failed fetch, so both trees fell through to the
+   * invite above — « Aucune facture pour X » plus a « Nouvelle facture » button — under the error banner. § 13
+   * is explicit that a failed read must never render as empty data, and here the offered action mints a gapless
+   * fiscal number, so the wrong answer is expensive. The banner already carries « Réessayer »; this stops the
+   * invitation being printed beside it.
+   */
+  const emptyState = error ? (
+    /*
+     * ⚠️ `LoadFailureNotice`, not an `EmptyState` — a failed read is not an emptiness (§ 13), and it now
+     * carries the « Réessayer » that used to live on the banner above the toolbar. Same component and same
+     * shape as `treatment-plans-table`'s band C, so the two tabs answer a dead network identically.
+     */
+    <div className="p-4">
+      <LoadFailureNotice
+        message="Les factures n'ont pas pu être chargées."
+        detail="Cette liste n'est pas forcément vide : aucun total et aucune absence ne peuvent être affirmés tant qu'elle n'est pas lue."
+        onRetry={load}
+      />
+    </div>
+  ) : isSearching ? (
     <EmptyState
       size="compact"
       icon={SearchX}
@@ -455,32 +522,45 @@ export function InvoicesTable({
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="h-4 w-4" /> Nouvelle facture
-        </Button>
-      </div>
+      {/*
+        ⚠️ **ONE toolbar row — the search grows, the action sits at the end — and this is `treatment-plans-table`'s
+        shape, adopted here because the two render as adjacent tabs of the patient file.**
 
-      {/* The shared banner, on `--destructive-wash` — not a fifth hand-maintained `red-50 / dark:red-950` pair. */}
-      {/* ⚠️ With a « Réessayer », like the revenue banner ~30 px above it on the same screen. Without one, recovery
-          from a failed list read meant changing a filter or reloading the page by hand — on the screen whose own
-          neighbour already had the button. */}
-      <FormErrorBanner
-        message={error}
-        action={error ? { label: "Réessayer", onClick: load, disabled: refreshing } : undefined}
-      />
+        It was three stacked blocks: a right-aligned « Nouvelle facture » on its own line, then the error banner,
+        then a full-width search box. That is two rows of chrome where the neighbouring tab has one, so switching
+        between « Plan de traitement » and « Factures » moved the whole table down by a row — reported as
+        « plan de traitement and factures tabs are still different ui ». The plans table's own comment had
+        already fixed exactly this and said why: « The two used to be separate stacked rows with the error banner
+        between them, which cost a whole row of height and put a problem message in the middle of the controls. »
+        It was never carried across.
+      */}
+      {!hideToolbar && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Label htmlFor="invoices-search" className="sr-only">
+            Rechercher une facture
+          </Label>
+          <Input
+            id="invoices-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher une facture (numéro, patient)…"
+            className="min-w-[200px] flex-1 sm:max-w-sm"
+          />
+          <Button onClick={openCreate} className="gap-2">
+            <Plus className="h-4 w-4" /> Nouvelle facture
+          </Button>
+        </div>
+      )}
 
-      <div>
-        <Label htmlFor="invoices-search" className="sr-only">
-          Rechercher une facture
-        </Label>
-        <Input
-          id="invoices-search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher une facture (numéro, patient)…"
-        />
-      </div>
+      {/*
+        ⚠️ **The error banner is gone, and the failure is stated ONCE, inside the table.** It used to sit here
+        *and* be restated by the `error ?` empty state below — two announcements of one failure, with the empty
+        state's own text (« Réessayez depuis le bandeau ci-dessus ») pointing at the banner because it had no
+        control of its own. The plans table carries the note for this in as many words: « the banner used to be
+        the ONLY signal, above a table still rendering « Aucun devis ». The failed-read state now replaces the
+        table's empty state, so this row is no longer needed and would restate it. » The « Réessayer » moved
+        with it, so nothing is lost (§ 0).
+      */}
 
       <div className={`rounded-md border overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
         {/*
@@ -515,19 +595,19 @@ export function InvoicesTable({
             </>
           )}
           fields={(inv) => [
-            { label: "Total TTC", value: `${formatAmount(inv.totalTtc)} DT` },
+            { label: "Total TTC", value: formatDT(inv.totalTtc) },
             {
               label: "Encaissé",
               value: (
                 <span className="inline-flex flex-col items-end">
-                  <span>{formatAmount(inv.amountCollected)} DT</span>
+                  <span>{formatDT(inv.amountCollected)}</span>
                   {inv.creditedTotal > 0 && (
                     <span className="text-xs text-primary">−{formatAmount(inv.creditedTotal)} avoir</span>
                   )}
                 </span>
               ),
             },
-            { label: "Reste", value: `${formatAmount(inv.outstanding)} DT` },
+            { label: "Reste", value: formatDT(inv.outstanding) },
             {
               label: "Date",
               value: inv.issueDate ? formatDateFr(inv.issueDate) : formatDateFr(inv.createdAt),
@@ -545,9 +625,9 @@ export function InvoicesTable({
               {showPatientColumn && <TableHead>Patient</TableHead>}
               <TableHead>Date</TableHead>
               <TableHead>Statut</TableHead>
-              <TableHead className="text-right">Total TTC (DT)</TableHead>
-              <TableHead className="text-right">Encaissé (DT)</TableHead>
-              <TableHead className="text-right">Reste (DT)</TableHead>
+              <TableHead className="text-right">Total TTC</TableHead>
+              <TableHead className="text-right">Encaissé</TableHead>
+              <TableHead className="text-right">Reste</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -624,10 +704,10 @@ export function InvoicesTable({
                         {invoiceStatusLabel(invoice.status)}
                       </Badge>
                     </TableCell>
-                    <TableCell numeric>{formatAmount(invoice.totalTtc)}</TableCell>
+                    <TableCell numeric>{formatDT(invoice.totalTtc)}</TableCell>
                     <TableCell numeric>
                       <div className="flex flex-col items-end">
-                        <span>{formatAmount(invoice.amountCollected)}</span>
+                        <span>{formatDT(invoice.amountCollected)}</span>
                         {/* An avoir was invisible everywhere once established. The row is where a user
                             notices that money went back — and why « Encaissé » no longer matches the caisse. */}
                         {invoice.creditedTotal > 0 && (
@@ -640,7 +720,7 @@ export function InvoicesTable({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell numeric>{formatAmount(invoice.outstanding)}</TableCell>
+                    <TableCell numeric>{formatDT(invoice.outstanding)}</TableCell>
                     <TableCell>
                       {/*
                         Two shortcuts and a menu, not eleven glyphs. « Enregistrer un paiement » and
@@ -683,13 +763,17 @@ export function InvoicesTable({
             )}
           </TableBody>
         </Table>
-        <DataTablePagination
-          page={pageInfo}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-          loading={refreshing}
-          label={["facture", "factures"]}
-        />
+        {/* No counter over a failed read: `pageInfo` falls back to an empty page, so this printed
+            « 0 facture » as a fact about the practice. The plans table already withheld it. */}
+        {!error && (
+          <DataTablePagination
+            page={pageInfo}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            loading={refreshing}
+            label={["facture", "factures"]}
+          />
+        )}
       </div>
 
       <InvoiceFormModal

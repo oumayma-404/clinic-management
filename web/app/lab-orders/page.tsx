@@ -947,7 +947,10 @@ export default function LabOrdersPage() {
                   loading={loading}
                   getKey={(o) => o.id}
                   title={(o) => o.patientName ?? "Patient inconnu"}
-                  href={(o) => `/patients/${o.patientId}`}
+                  // The table tree's second defect, in the other tree: with no `patientId` this built
+                  // `/patients/undefined`. `CardList` reads an undefined href as « not a link », so the card
+                  // stops being clickable rather than offering a route that cannot resolve.
+                  href={(o) => (o.patientId ? `/patients/${o.patientId}` : undefined)}
                   subtitle={(o) => o.workDescription}
                   status={(o) => <Badge variant={statusVariant(o.status)}>{statusLabel(o.status)}</Badge>}
                   fields={(o) => [
@@ -1072,16 +1075,33 @@ export default function LabOrdersPage() {
                               the one thing a prothésiste's call always needs. « Voir le RDV » goes on its own
                               line rather than inline: beside the name it widened this column by its own length. */}
                           <TableCell className="max-w-[9.5rem] font-medium">
-                            <Link
-                              href={`/patients/${order.patientId}`}
-                              className="block truncate text-foreground underline-offset-4 hover:underline"
-                            >
-                              {order.patientId && order.patientName ? (
-                                <PatientNameLink patientId={order.patientId} name={order.patientName} />
-                              ) : (
-                                (order.patientName ?? "Patient inconnu")
-                              )}
-                            </Link>
+                            {/*
+                              ⚠️ **No wrapping `<Link>` here, and it was wrong in BOTH arms of this ternary.**
+
+                              With a patient it put `PatientNameLink` — which is itself an `<a>` — inside an
+                              `<a>`. That is invalid HTML: the browser unpicks the nesting while parsing, so
+                              the tree it builds does not match the one React rendered and React logs a
+                              hydration error on every load of this page. With no `patientId` it linked to
+                              `/patients/undefined`, a route that cannot resolve — so the arm written to
+                              handle a bon whose patient is unknown produced the one link guaranteed to 404.
+
+                              `PatientNameLink` already carries the href, the accessible name, the truncation
+                              and the 44 px coarse target, so there is nothing left for an outer link to add;
+                              and a bon with no patient id has nothing to link to, so that arm is plain text.
+                              `flex` (over the component's own `inline-flex`) keeps « Voir le RDV » on its own
+                              line below — the reason the outer link carried `block` in the first place.
+                            */}
+                            {order.patientId && order.patientName ? (
+                              <PatientNameLink
+                                patientId={order.patientId}
+                                name={order.patientName}
+                                className="flex"
+                              />
+                            ) : (
+                              <span className="block truncate text-muted-foreground">
+                                {order.patientName ?? "Patient inconnu"}
+                              </span>
+                            )}
                             {order.appointmentId && (
                               <Link
                                 href={`/appointments?appointmentId=${order.appointmentId}`}

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { ClipboardPlus } from "lucide-react"
 import {
   Dialog,
@@ -137,6 +137,26 @@ export function PostVisitReviewPopup() {
    * that decision re-run when somebody else's dialog closes, which a render-time read could not do.
    */
   const [mayPrompt, setMayPrompt] = useState(false)
+
+  /**
+   * Silent on a patient's own file.
+   *
+   * ⚠️ **The prompt used to interrupt the very page that already offers what it asks for.** Standing on a
+   * patient's fiche, above an « À compléter — séances sans fiche » band listing eight visits with an
+   * « Enregistrer la fiche » on each, a modal opened to say « la visite de … est terminée. Ajoutez son dossier
+   * médical. » The component knew how to stand down for another *dialog* (that guard is a few lines below, and
+   * it was written for this same class of interruption) and nothing about the *route*.
+   *
+   * ⚠️ **Route-wide, not per-patient, and that is a knowing trade.** `PendingReviewDto` carries no `patientId`
+   * — the click handler resolves it by fetching the appointment — so suppressing only the reviews belonging to
+   * the open file would mean a fetch per pending review on every poll. Suppressing on any patient file can
+   * therefore hold back a *different* patient's prompt while one is open; the prompt is a nudge, it re-polls
+   * every 60 s and nothing is marked read, so it fires as soon as the file is left. The alternative — a modal
+   * over the page that answers it — is the worse of the two. Give the DTO a `patientId` and this narrows to an
+   * equality check.
+   */
+  const pathname = usePathname()
+  const onAPatientFile = /^\/patients\/[^/]+/.test(pathname ?? "")
   const [busyTick, setBusyTick] = useState(0)
 
   useEffect(() => {
@@ -315,7 +335,7 @@ export function PostVisitReviewPopup() {
     // `mayPrompt` is the same latch the dialog uses — one source for « nothing else was on screen when we
     // decided to speak », so the two paths cannot drift apart again. A toast sets no scroll lock, so it was
     // never at risk of the self-reference the dialog was; sharing the latch is for the drift, not the race.
-    if (isPhone || !isCoarse || active === null || dismissed || !mayPrompt) return
+    if (isPhone || !isCoarse || active === null || dismissed || !mayPrompt || onAPatientFile) return
 
     toast(active.title ?? "Compte rendu de visite", {
       id: `pvr-${active.id}`,
@@ -326,7 +346,7 @@ export function PostVisitReviewPopup() {
       onDismiss: handleLater,
       onAutoClose: handleLater,
     })
-  }, [isPhone, isCoarse, active, dismissed, mayPrompt, handleAddRecord, handleLater])
+  }, [isPhone, isCoarse, active, dismissed, mayPrompt, onAPatientFile, handleAddRecord, handleLater])
 
   // On a phone the header bell *is* the prompt; on a tablet the toast above is. Either way the dialog would be
   // a second copy of a reminder the user has already been given.
@@ -334,7 +354,7 @@ export function PostVisitReviewPopup() {
 
   return (
     <Dialog
-      open={active !== null && !dismissed && mayPrompt}
+      open={active !== null && !dismissed && mayPrompt && !onAPatientFile}
       onOpenChange={(next) => {
         if (!next) handleLater()
       }}

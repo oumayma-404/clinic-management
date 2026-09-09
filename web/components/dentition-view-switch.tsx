@@ -11,7 +11,7 @@ interface DentitionViewSwitchProps {
 }
 
 /**
- * Adulte / Enfant / **Mixte** — which arch the tooth chart draws.
+ * Temporaire / Mixte / **Définitive** — which arch the tooth chart draws.
  *
  * ## Why this exists at all
  *
@@ -37,12 +37,20 @@ export function DentitionViewSwitch({ value, onChange, disabled, className }: De
     <div
       role="group"
       aria-label="Dentition affichée"
-      /* ⚠️ `gap-0.5` below `sm:` is a measured 2 px, and it is only defensible because the row it lives in now
-         WRAPS rather than overflows. Side by side the two switches need 128 + 159 + 8 = 295 px against the
-         294 px the odontogramme's control row has at 390 px — short by one pixel, which is not a fit anybody
-         should rely on. Tightening the two internal gaps and the wrapper's brings it to 287, a 7 px margin;
-         and if a relabel ever eats that margin the pair drops to a second row instead of painting a segment
-         outside the card, which is what the previous `min-w-0` attempt did. */
+      /* ⚠️ `gap-0.5` below `sm:` is a measured 2 px, and it is only defensible because the row it lives in
+         WRAPS rather than overflows — which is now the phone's actual behaviour, not a contingency.
+
+         The margin this note used to record is **spent**. « Adulte / Enfant / Mixte » measured 159 px and the
+         pair fitted one row at 390 px with 7 px to spare; naming the dentures instead — « Temporaire / Mixte /
+         Définitive », the vocabulary the patient field and the fiche already use — takes this switch to 213 px,
+         so the pair needs 136 + 213 + 8 = **357 px** against the **308 px** the odontogramme's control row has
+         at 390 px (238 px at 320 px). Measured in the browser: it drops to a second row at both, one row from
+         820 px up, with no horizontal scroll on `<main>` at any width.
+
+         That costs the chart ~44 px of chrome on a phone, and it is accepted rather than worked around: the
+         alternative is abbreviating a clinical label, and § 10.1 is explicit that the label is the control's
+         name. Do **not** add `min-w-0` to buy the row back — that is the previous attempt, and it painted
+         « Mixte » outside the card and gave `<main>` a horizontal scrollbar (see `odontogram.tsx:551-568`). */
       className={cn("flex items-center gap-0.5 rounded-md border bg-muted/40 p-1 sm:gap-1", className)}
     >
       {DENTITION_VIEWS.map((view) => (

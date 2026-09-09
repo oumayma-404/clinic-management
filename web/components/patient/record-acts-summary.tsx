@@ -21,6 +21,16 @@ interface RecordActsSummaryProps {
    * the prescription line then renders as plain text rather than as a dead control.
    */
   onOpenPrescription?: (documentId: string) => void
+  /**
+   * Drop the prescription and examens lines entirely — for a surface that states them as its own labelled
+   * fields.
+   *
+   * ⚠️ **The patient page's card tree did exactly that and did not pass this**, so every fiche carrying an
+   * ordonnance printed its médicaments twice: once unlabelled inside « Actes » (as plain text, since the card
+   * tree passes no `onOpenPrescription`) and again under « Prescription » directly beneath. The card's own
+   * comment already claimed the field was there « rather than » the line; only half of that had been done.
+   */
+  hidePrescription?: boolean
 }
 
 /**
@@ -144,6 +154,7 @@ export function RecordActsSummary({
   hideSingleName,
   className,
   onOpenPrescription,
+  hidePrescription,
 }: RecordActsSummaryProps) {
   const acts = record.acts ?? []
   const justify = align === "end" ? "justify-end" : "justify-start"
@@ -170,8 +181,12 @@ export function RecordActsSummary({
         {!hideSingleName && <span className="text-sm">{name}</span>}
         <SeanceIdentity record={record} />
         {teeth(numbers)}
-        <PrescriptionLine record={record} onOpen={onOpenPrescription} />
-        <PrescriptionLine record={record} onOpen={onOpenPrescription} kind="examens" />
+        {!hidePrescription && (
+          <>
+            <PrescriptionLine record={record} onOpen={onOpenPrescription} />
+            <PrescriptionLine record={record} onOpen={onOpenPrescription} kind="examens" />
+          </>
+        )}
       </div>
     )
   }
@@ -195,12 +210,12 @@ export function RecordActsSummary({
         </li>
       ))}
       {/* Last, and once for the whole séance — an ordonnance is written for the visit, not per act. */}
-      {(record.prescriptionSummary?.length ?? 0) > 0 && (
+      {!hidePrescription && (record.prescriptionSummary?.length ?? 0) > 0 && (
         <li className={cn("flex", justify)}>
           <PrescriptionLine record={record} onOpen={onOpenPrescription} />
         </li>
       )}
-      {(record.examensSummary?.length ?? 0) > 0 && (
+      {!hidePrescription && (record.examensSummary?.length ?? 0) > 0 && (
         <li className={cn("flex", justify)}>
           <PrescriptionLine record={record} onOpen={onOpenPrescription} kind="examens" />
         </li>

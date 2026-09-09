@@ -136,7 +136,9 @@ export function ToothMultiSelect({ value, onChange, disabled, isAdult }: ToothMu
       <PopoverContent className="w-80 space-y-3 coarse:w-[22rem]" align="start">
         {showAdult && (
           <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">Adulte</p>
+            {/* Names the denture, not the patient — the same vocabulary as `DENTITION_SHORT_FR` and the chart's
+                own arch switch. « Adulte » over a grid of permanent teeth read as a claim about the person. */}
+            <p className="text-xs font-medium text-muted-foreground">Définitive</p>
             <div className="flex flex-wrap gap-1">
               {ADULT_FDI.map((n) => (
                 <Button
@@ -171,7 +173,7 @@ export function ToothMultiSelect({ value, onChange, disabled, isAdult }: ToothMu
         )}
         {showChild && (
           <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">Enfant</p>
+            <p className="text-xs font-medium text-muted-foreground">Temporaire</p>
             <div className="flex flex-wrap gap-1">
               {CHILD_FDI.map((n) => (
                 <Button
