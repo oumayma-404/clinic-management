@@ -51,6 +51,7 @@ import { PaymentModal } from "./payment-modal"
 import { PatientNameLink } from "@/components/patient-name-link"
 import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON } from "@/components/factures/correct-invoice-dialog"
 import { InvoiceDetailModal } from "./invoice-detail-modal"
+import { InvoicePdfDialog } from "./invoice-pdf-dialog"
 import {
   invoiceStatusLabel, invoiceStatusBadgeClass,
   paymentMethodLabel, PAYMENT_METHODS,
@@ -124,6 +125,8 @@ export function InvoicesTable({
   // The invoice detail modal — the app's first invoice detail surface, and the only place a specific
   // payment can be voided.
   const [detailInvoiceId, setDetailInvoiceId] = useState<string | null>(null)
+  /** The note framed as the paper it is — « Voir le PDF ». A draft has none, so the item is gated on a number. */
+  const [pdfInvoice, setPdfInvoice] = useState<InvoiceDto | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<InvoiceDto | null>(null)
   const [cancelTarget, setCancelTarget] = useState<InvoiceDto | null>(null)
   // Which note d'honoraires « Envoyer par e-mail » was clicked for (a draft has no PDF, so it is never offered).
@@ -393,6 +396,11 @@ export function InvoicesTable({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDetailInvoiceId(inv.id)}>Voir le détail</DropdownMenuItem>
+          {/* « Le détail » is the ledger behind the note — acts, paiements, avoirs. This is the NOTE: the paper
+              the patient is handed. The menu offered a download and no way to look at it first. */}
+          {!isDraft && (
+            <DropdownMenuItem onSelect={() => setPdfInvoice(inv)}>Voir le PDF</DropdownMenuItem>
+          )}
           {/*
             ⚠️ **The devis→facture link existed in the table tree only**, so below `lg:` — every phone and every
             tablet in portrait — a note born of a devis had no route back to it. The table wraps its « Devis »
@@ -818,6 +826,8 @@ export function InvoicesTable({
         invoiceId={detailInvoiceId}
         onChanged={afterMutation}
       />
+
+      <InvoicePdfDialog invoice={pdfInvoice} onClose={() => setPdfInvoice(null)} />
 
       <AlertDialog
         open={!!deleteTarget}
