@@ -1,5 +1,6 @@
 "use client"
 
+import { FlaskConical, Pill } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { DentalRecordDto } from "@/lib/api/types"
@@ -15,6 +16,11 @@ interface RecordActsSummaryProps {
    */
   hideSingleName?: boolean
   className?: string
+  /**
+   * Opens the séance's ordonnance. Omitted on a surface with no route to it (the read-only summary modal), and
+   * the prescription line then renders as plain text rather than as a dead control.
+   */
+  onOpenPrescription?: (documentId: string) => void
 }
 
 /**
@@ -63,7 +69,82 @@ function SeanceIdentity({ record }: { record: DentalRecordDto }) {
   )
 }
 
-export function RecordActsSummary({ record, align = "start", hideSingleName, className }: RecordActsSummaryProps) {
+/**
+ * What the séance prescribed, on the history row — one 11 px line under the séance identity.
+ *
+ * <p><b>It NAMES what was prescribed</b> (« Prescrit : Augmentin Comprimé 1 g, Ibuprofène 400 mg ») rather than
+ * merely marking that something was, which is what makes it worth 16 px: « quel antibiotique lui ai-je
+ * donné ? » is answered without opening anything. The full ordonnance is one tap away.</p>
+ *
+ * <p>⚠️ <b>The word « Prescrit » is VISIBLE, not only in the accessible name.</b> A pill glyph alone is not a
+ * label, and this product has already shipped the mirror of that mistake — a count whose only qualifier lived
+ * in an `sr-only` span, leaving the sighted reader with a bare figure to guess at (N31).</p>
+ *
+ * <p>⚠️ The labels come from the SERVER (`prescriptionSummary`). The printed sentence has one owner and a table
+ * cell has no business reimplementing it.</p>
+ */
+function PrescriptionLine({
+  record,
+  onOpen,
+  kind = "prescription",
+}: {
+  record: DentalRecordDto
+  onOpen?: (documentId: string) => void
+  /**
+   * Which of the séance's two sheets this line names. ⚠️ **One component, two instances — never one line
+   * merging both**: a médicament and an examen are separate documents going to separate places, so a row
+   * reading « Prescrit : Augmentin, Panoramique » would say the patient has one paper to hand over when they
+   * have two, and clicking it could only ever open one of them.
+   */
+  kind?: "prescription" | "examens"
+}) {
+  const isExamens = kind === "examens"
+  const labels = (isExamens ? record.examensSummary : record.prescriptionSummary) ?? []
+  const documentId = isExamens ? record.examensDocumentId : record.prescriptionDocumentId
+  if (labels.length === 0 || !documentId) return null
+
+  const noun = isExamens ? "la demande d'examens" : "l'ordonnance"
+  const text = `${isExamens ? "Examens" : "Prescrit"} : ${labels.join(", ")}`
+  const Icon = isExamens ? FlaskConical : Pill
+
+  const body = (
+    <>
+      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+      {/* Truncates to one line: the whole list is on the ordonnance, and a history row that grows with a
+          six-drug prescription stops being a row. */}
+      <span className="min-w-0 truncate">{text}</span>
+    </>
+  )
+
+  if (!onOpen) {
+    return (
+      <span className="flex max-w-full items-center gap-1.5 text-2xs text-muted-foreground" title={text}>
+        {body}
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(documentId)}
+      // Grows its own box rather than taking `.touch-target`: it sits directly under the séance-identity line
+      // inside a table cell, so an overlay would overhang the row above it.
+      className="flex min-h-6 max-w-full items-center gap-1.5 text-start text-2xs text-primary hover:underline coarse:min-h-11"
+      aria-label={`Ouvrir ${noun} — ${labels.join(", ")}`}
+    >
+      {body}
+    </button>
+  )
+}
+
+export function RecordActsSummary({
+  record,
+  align = "start",
+  hideSingleName,
+  className,
+  onOpenPrescription,
+}: RecordActsSummaryProps) {
   const acts = record.acts ?? []
   const justify = align === "end" ? "justify-end" : "justify-start"
 
@@ -89,6 +170,8 @@ export function RecordActsSummary({ record, align = "start", hideSingleName, cla
         {!hideSingleName && <span className="text-sm">{name}</span>}
         <SeanceIdentity record={record} />
         {teeth(numbers)}
+        <PrescriptionLine record={record} onOpen={onOpenPrescription} />
+        <PrescriptionLine record={record} onOpen={onOpenPrescription} kind="examens" />
       </div>
     )
   }
@@ -111,6 +194,17 @@ export function RecordActsSummary({ record, align = "start", hideSingleName, cla
           {teeth(act.toothNumbers ?? [])}
         </li>
       ))}
+      {/* Last, and once for the whole séance — an ordonnance is written for the visit, not per act. */}
+      {(record.prescriptionSummary?.length ?? 0) > 0 && (
+        <li className={cn("flex", justify)}>
+          <PrescriptionLine record={record} onOpen={onOpenPrescription} />
+        </li>
+      )}
+      {(record.examensSummary?.length ?? 0) > 0 && (
+        <li className={cn("flex", justify)}>
+          <PrescriptionLine record={record} onOpen={onOpenPrescription} kind="examens" />
+        </li>
+      )}
     </ul>
   )
 }

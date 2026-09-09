@@ -31,6 +31,11 @@ import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
+import {
+  formatPrescriptionLine,
+  formatRenewalMention,
+  type MedicationLine,
+} from "@/lib/documents"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -74,54 +79,13 @@ const CERTIFICAT_ORDRE_LABEL = "Ordre National des Médecins Dentistes (CNOMDT)"
 const CERTIFICAT_MANDATORY_MENTION =
   "Certificat établi à la demande de l'intéressé(e) et remis en main propre pour faire valoir ce que de droit."
 
-// A prescription medication line. `medicationId` + `dci` are set when the line is picked from the catalog
-// (dci is a snapshot of the drug's molecules at selection time); both are absent for a free-text entry.
-type MedicationLine = {
-  name: string
-  dosage: string
-  timesPerDay: string
-  /** Voie d'administration — « par voie orale », « en application locale »… Free text: the norms name no closed list. */
-  route?: string
-  /** Quantité à délivrer (boîtes / unités) — what makes the line dispensable. */
-  quantity?: string
-  duration: string
-  medicationId?: string
-  dci?: string[]
-}
-
-/**
- * The one client-side rendering of a prescribed line, shared by the read-only preview and the Word export.
+/*
+ * The prescription line type and its two formatters now live in `lib/documents.ts` — see the imports at the
+ * top of this file. They moved because the fiche de soins writes the same ordonnance, and a private copy in
+ * here is how this formatting came to exist in three places once already.
  *
- * ⚠️ Must stay identical to the server's `PrescriptionContent.FormatLine`, which renders the PDF — the two are
- * the same ordonnance seen twice. It exists because the preview and the Word export each carried their own copy
- * of this formatting, so adding the voie and the quantité would have made three implementations of what a
- * prescription line says.
+ * `MedicationLine` is re-exported from there under its old name, so every call site below reads unchanged.
  */
-const formatMedicationLine = (med: MedicationLine): string => {
-  let text = med.name?.trim() || "Médicament"
-  if (med.dosage?.trim()) text += ` ${med.dosage.trim()}`
-  if (med.timesPerDay?.trim()) text += `, ${med.timesPerDay.trim()}x par jour`
-  if (med.route?.trim()) text += `, ${med.route.trim()}`
-  if (med.duration?.trim()) {
-    const days = Number.parseInt(med.duration, 10)
-    text += ` pendant ${med.duration.trim()} jour${days > 1 ? "s" : ""}`
-  }
-  if (med.quantity?.trim()) text += ` — quantité : ${med.quantity.trim()}`
-  const dci = (med.dci ?? []).map((d) => d?.trim()).filter(Boolean).join(", ")
-  if (dci) text += ` (DCI : ${dci})`
-  return text
-}
-
-/**
- * The renewal mention, mirroring the server's `PrescriptionContent`. Blank ⇒ the ordonnance is silent on
- * renewal (the default); "0"/"non" ⇒ explicitly non-renewable; anything else ⇒ a count.
- */
-const formatRenewalMention = (renewals: string): string | null => {
-  const value = renewals?.trim()
-  if (!value) return null
-  if (value === "0" || value.toLowerCase() === "non") return "Ordonnance non renouvelable."
-  return `Ordonnance à renouveler ${value} fois.`
-}
 
 /**
  * What a clinical picker shows when its catalogue **failed to load** — never the same thing as an empty one.
@@ -387,11 +351,15 @@ export function DocumentEditorContent() {
     duration: "",
     // Ordonnance: renouvellement — governs the whole document, so it is not per medication line.
     renewals: "",
-    // Norm identity values captured on the document (R.5132-3). Sexe is prefilled from the patient record;
-    // poids is typed per-document and deliberately never stored on the patient (a stale weight that looks
-    // verified is worse than a blank field).
-    patientSex: "",
-    patientWeightKg: "",
+    /*
+     * `patientSex` / `patientWeightKg` were here and are gone. A Tunisian dental ordonnance does not carry
+     * them: « Sexe » was prefilled from the patient record and so printed on every ordonnance ever issued,
+     * and « Poids » was optional and nearly always blank. The tombstone that matters is in
+     * `DocumentIdentity.PatientLines` — read it before putting them back on the strength of
+     * `ordonnance-certificat-norms`' spec, which is otherwise still accurate.
+     *
+     * Legacy documents keep both keys in their ContentJson; nothing reads them any more.
+     */
     doctorOrderNumber: "", // Certificat: CNOMDT ordre (FR-2.5 — pre-filled from the doctor's profile, read-only)
     startDate: "", // Certificat: repos médical start date (FR-2.1 — optional)
     objetMotif: "", // Certificat: free objet/motif body (FR-2.1)
@@ -544,16 +512,6 @@ export function DocumentEditorContent() {
       setFormFields((prev) => (prev.doctorOrderNumber ? prev : { ...prev, doctorOrderNumber: ordre }))
     }
   }, [currentUserDoctor, documentId])
-
-  // Pre-fill the patient's sexe from their record, same fill-if-empty rule as the ordre above: a legacy
-  // document's stored value wins, and the field stays editable because the value is *shown* on the document —
-  // a box the practitioner reads must be a box they can correct.
-  useEffect(() => {
-    const gender = patients.find((p) => p.id === selectedPatient)?.gender
-    if (gender) {
-      setFormFields((prev) => (prev.patientSex ? prev : { ...prev, patientSex: gender }))
-    }
-  }, [patients, selectedPatient, documentId])
 
   /*
    * ── K3: the treating practitioner is chosen, never guessed ──────────────────────────────────────────────────
@@ -803,8 +761,6 @@ export function DocumentEditorContent() {
             // stored on a legacy document is still read back so an older certificat keeps rendering its ordre.
             doctorOrderNumber: content.doctorOrderNumber || "",
             renewals: content.renewals || "",
-            patientSex: content.patientSex || "",
-            patientWeightKg: content.patientWeightKg || "",
             startDate: content.startDate || "",
             objetMotif: content.objetMotif || "",
             // Liaison: recipient name/specialty come from the snapshot columns (works for legacy internal-
@@ -968,8 +924,6 @@ export function DocumentEditorContent() {
       duration: "",
       doctorOrderNumber: "",
       renewals: "",
-      patientSex: "",
-      patientWeightKg: "",
       startDate: "",
       objetMotif: "",
       recipientName: "",
@@ -1569,12 +1523,6 @@ export function DocumentEditorContent() {
       Object.assign(content, buildArretContent(patientData));
     }
 
-    // Written for EVERY type, not per type: the identity block is shared, so a value stored only on the
-    // ordonnance would vanish from any other document that carries the same block. Snapshotted so the
-    // background PDF job renders them with no live patient lookup (AC-7).
-    content.patientSex = formFields.patientSex || "";
-    content.patientWeightKg = formFields.patientWeightKg || "";
-
     // Format patient date of birth for PDF
     const patientDobFormatted = patientData?.dateOfBirth
       ? new Date(patientData.dateOfBirth).toLocaleDateString("fr-FR", {
@@ -1589,8 +1537,6 @@ export function DocumentEditorContent() {
       documentDate: formFields.date,
       patientName: getPatientName(patientData),
       patientAge: patientDobFormatted, // Use date of birth instead of age
-      patientSex: formFields.patientSex || undefined,
-      patientWeightKg: formFields.patientWeightKg || undefined,
       clinicName: formData.clinicName,
       clinicAddress: formData.clinicAddress,
       clinicPhone: formData.clinicPhone,
@@ -1766,7 +1712,7 @@ export function DocumentEditorContent() {
         
         if (Array.isArray(formFields.medications) && formFields.medications.length > 0) {
           formFields.medications.forEach((med) => {
-            const medText = formatMedicationLine(med);
+            const medText = formatPrescriptionLine(med);
             paragraphs.push(new Paragraph({ text: medText }));
           });
         } else {
@@ -2198,12 +2144,6 @@ export function DocumentEditorContent() {
       } else if (documentType === "arret-travail") {
         Object.assign(content, buildArretContent(patientData))
       }
-
-      // Same shape buildDocumentData writes, for every type — the identity block is shared. Persisted so the
-      // background-job PDF renders these with no live patient lookup (AC-7); the download path would otherwise
-      // show a sexe the re-rendered document silently lost.
-      content.patientSex = formFields.patientSex
-      content.patientWeightKg = formFields.patientWeightKg
 
       const contentJson = JSON.stringify(content)
 
@@ -2686,40 +2626,6 @@ export function DocumentEditorContent() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Laissez vide pour ne rien mentionner. « non » ou « 0 » imprime « Ordonnance non renouvelable ».
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Patient identity the norms require on a prescription (R.5132-3): the sexe is pre-rempli from the
-                record and stays correctable; the poids is per-document and never stored on the patient. */}
-            {documentType === "prescription" && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="patientSex" className="text-sm font-semibold text-foreground">Sexe</Label>
-                  <Input
-                    id="patientSex"
-                    type="text"
-                    placeholder="Ex : Femme"
-                    value={formFields.patientSex}
-                    onChange={(e) => setFormFields({ ...formFields, patientSex: e.target.value })}
-                    className="h-11"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="patientWeightKg" className="text-sm font-semibold text-foreground">
-                    Poids (kg)
-                  </Label>
-                  <Input
-                    id="patientWeightKg"
-                    type="text"
-                    placeholder="Ex : 32"
-                    value={formFields.patientWeightKg}
-                    onChange={(e) => setFormFields({ ...formFields, patientWeightKg: e.target.value })}
-                    className="h-11"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Utile pour une posologie pédiatrique. Renseigné pour cette ordonnance uniquement.
                   </p>
                 </div>
               </div>
@@ -3817,28 +3723,6 @@ export function DocumentEditorContent() {
                       </div>
                     )}
                   </div>
-                  {/* Mirrors DocumentIdentity.PatientLines: sexe and poids belong with the patient's identity,
-                      and an unset value prints no label at all rather than an empty one. */}
-                  {(formFields.patientSex.trim() || formFields.patientWeightKg.trim()) && (
-                    <div className="grid grid-cols-2 gap-4">
-                      {formFields.patientSex.trim() && (
-                        <div>
-                          <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Sexe</p>
-                          <p className="px-1" style={{ fontSize: '12pt' }}>{formFields.patientSex.trim()}</p>
-                        </div>
-                      )}
-                      {formFields.patientWeightKg.trim() && (
-                        <div>
-                          <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Poids</p>
-                          <p className="px-1" style={{ fontSize: '12pt' }}>
-                            {/^.*kg\s*$/i.test(formFields.patientWeightKg.trim())
-                              ? formFields.patientWeightKg.trim()
-                              : `${formFields.patientWeightKg.trim()} kg`}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
                   {/* Mirrors the PDF's identity block: the norms keep the professionals' identity with the
                       patient's, not in the clinical synthèse. */}
                   {documentType === "liaison" && formFields.medecinTraitant.trim() && (
@@ -3859,7 +3743,7 @@ export function DocumentEditorContent() {
                       {Array.isArray(formFields.medications) && formFields.medications.length > 0 ? (
                         <div className="space-y-2 pl-1">
                           {formFields.medications.map((med, idx) => {
-                            const medText = formatMedicationLine(med);
+                            const medText = formatPrescriptionLine(med);
                             return (
                               <div key={idx} className="py-1" style={{ fontSize: '11pt' }}>
                                 {medText}

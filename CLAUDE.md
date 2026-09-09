@@ -152,12 +152,14 @@ how it was built, `notes.md` is what shipped.
 
 **The clinical loop**
 
+- [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
 - [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu · Deux surfaces annonçaient l'étape SUIVANTE comme si elle avait eu lieu
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
+- [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
 - [`dicom-interactive-viewer`](features/dicom-interactive-viewer/notes.md) — A radiograph you can read, not just look at: window/level, zoom, frame scrolling and a ruler that refuses to invent millimetres
@@ -327,6 +329,109 @@ touching the area.
   actually carried out (« 1 étape sur 3 faite : Préparation »), and keep « prochaine étape » to the planning
   surfaces that say so. The word goes beside the **visible** figure — an `sr-only` label was already right on
   both surfaces where this was measured while the sighted reader had nothing. `check:responsive`'s N31 holds it.
+- **A dentition is THREE states, and `isAdultDentition` is not the one that picks an arch.** `DentitionType`
+  gained `Mixed` (« denture mixte », 6–12 ans, beside « temporaire » under 6 and « définitive » from 13), and
+  the trap is that `isAdultDentition` answers `value !== "Child"` — so `Mixed` reads as **adult** there, which
+  is right for its own question (« may permanent teeth be charted? ») and catastrophic for the other one: an
+  eight-year-old's chart would open on the permanent arch with her deciduous teeth unreachable, **and nothing
+  would error**. `dentitionViewFor` is the reader that maps all three one-to-one; `isAdultDentition` has no
+  call sites outside `lib/dentition.ts` and should stay that way. ⚠️ `Mixed = 2`, **appended never inserted** —
+  the enum persists through `HasConversion<int>()`, so slotting it between `Child` and `Adult` where it belongs
+  in reading order would repoint every stored row. ⚠️ The stored keys stay `Child`/`Adult`; only the **labels**
+  became « Denture temporaire / mixte / définitive ».
+- **The fiche de soins EMITS the séance's ordonnance, inside its own transaction, and never deletes it.**
+  `FicheOrdonnanceEmitter` runs *before* `SaveChangesAsync` in both fiche commands — deliberately not with
+  the post-commit side effects beside it, because those (stock, the note d'honoraires, marking the visit
+  complete) are **derived** and may fail without the record being wrong, while a prescription is **entered
+  clinical data**: a dentist who types an antibiotic, reads « fiche enregistrée » and has no ordonnance has
+  lost work silently. ⚠️ Clearing the section and re-saving leaves the existing ordonnance **standing** —
+  the paper may be in the patient's hand, `DeleteMedicalDocumentCommand` is `AdminOrDoctor` while the fiche
+  is open to reception, and patient records resist destruction. ⚠️ `Prescription` is **tri-state**: absent
+  means « unchanged » and is not even read (which is what keeps every older caller clear of a document),
+  present-and-empty means « nothing prescribed ». Calling the emitter unconditionally failed **15** existing
+  tests, every one a fiche with no prescription at all.
+- **A médicament and an examen may NOT share a sheet, so one fiche emits up to TWO ordonnances.**
+  Médicaments → `prescription`; examens (bilan, radio, avis) → the `examens` type. « Le médecin formule sur des
+  **ordonnances distinctes** les prescriptions de médicaments … et les examens de laboratoire », and three
+  practical facts make that a rule: the sheets go to different people (pharmacie, laboratoire, imagerie), an
+  examen prescription is single-use so one sheet cannot serve two destinations, and CNAM reimburses per line
+  against *that* line's prescription. Our `prescription` document is specifically a **médicament form** —
+  `ordonnance-certificat-norms` built it to R.5132-3 with voie, quantité and renouvellement — so a panoramique
+  printed on it is an imaging request on a drug prescription. ⚠️ **This reverses the version that shipped
+  first** (« an examen is a line of the same ordonnance »), which was chosen because it touched no line
+  formatter; cheapness is not a medical argument. `FicheOrdonnanceEmitter.Split` is the only place the sorting
+  lives, and the aperçu shares it. ⚠️ **Still no line formatter changed** — `ExamenContent` prints an examen
+  verbatim, so the printed médicament sentence's **three** contractually-identical copies are untouched.
+  ⚠️ **No migration**: a pre-split ordonnance holds its examens in `content.medications` marked
+  `kind: "examen"`, the fiche reads them back as examens, and the next save moves them onto their own sheet —
+  nothing is touched until a human reopens the séance. `kind` therefore stays on the médicament wire (an
+  **absent** kind is a médicament, and `Normalize` is the only place that lives) while the `examens` array
+  carries none. ⚠️ **No `renewals` on the examens sheet** — renewal is a dispensing concept and an examen
+  prescription is single-use. ⚠️ Both sheets print the title « ORDONNANCE »; only the app label
+  (« Demande d'examens ») separates them, because that is where a human has to choose. ⚠️ The JSON is
+  **camelCase** and that is a requirement: the document editor reads it back with `med.timesPerDay`,
+  case-sensitively, while the C# reader is case-**insensitive** — so a PascalCase write empties every posology
+  and no server test notices. ⚠️ And `PractitionerRenderSnapshot.ApplyTo` re-serialises with the default
+  encoder, so the stored bytes hold non-ASCII as `\uXXXX` escapes; a relaxed encoder upstream is undone, and
+  only a test asserting on the raw string breaks. `check:responsive`'s N32 `prescription-line-has-one-owner`
+  holds the one-composer half; N33 `document-type-set-has-one-owner` holds the **five** mirrors of the type set
+  (`DocumentTypes`, `DOCUMENT_TEMPLATES`, `DocumentFileNaming`, the PDF title map, the editor heading map),
+  because a type missing from one renders as its raw key with no error — which shipped once, as
+  `arret-travail` in a patient's own Documents tab.
+- **A document is READ where it is referred to, and EDITED in the Documents module.**
+  `components/documents/document-preview-dialog.tsx` is the read surface — before it, the only thing in this
+  app that rendered a saved `MedicalDocument` was the full editor page, so « Ouvrir l'ordonnance » on a séance
+  row navigated away from the patient file. It frames the **server-rendered PDF**, never a second HTML
+  rendering: the editor's A4 block was the tempting source and would have been a fourth copy of a legal
+  document's layout. ⚠️ Its `apercu` mode renders what the fiche is **about to** save, composed by
+  `FicheOrdonnanceEmitter.ComposeAsync` — the save's own method — so it works before the first save and cannot
+  differ from the paper; it carries **no Imprimer and no Envoyer**, because a printed ordonnance for an unsaved
+  séance is a legal paper with no record behind it. ⚠️ **« Modifier » routes by `MedicalDocumentDto.DentalRecordId`**:
+  a document a fiche owns is recomposed from the section on that fiche's next save. ⚠️ `GET /medical-documents/{id}/pdf`
+  was missing until this — the only renderer took the whole document *in the body*, so every surface wanting to
+  show a saved one had to re-implement `MedicalDocumentPdfMapping.FlattenContent` in the browser.
+- **A document's own `xmin` does NOT protect it from the fiche's save, and believing it did cost a real
+  overwrite.** `FicheOrdonnanceEmitter` loads the document *inside* the fiche's transaction, so its tracked copy
+  always carries the CURRENT token and the update always succeeds; the stale copy lives in the browser's
+  section state, where `xmin` can never see it. Measured end to end: a colleague's correction to a médicament's
+  name, made through `/documents/prescription` while the fiche modal sat open, was reverted by the next fiche
+  save — green toast, no refusal, edit gone. The fix is the ordinary one for this codebase — the modal
+  round-trips `prescriptionDocumentVersion` / `examensDocumentVersion` (the tokens it read on open) and the
+  emitter declares them through `SetExpectedVersion`; **0 means « not supplied »**, so every older caller and
+  every server-internal writer is unaffected. ⚠️ Each sheet carries its **own** token: one document's edit must
+  not refuse the other's save. ⚠️ And a 409 is only half a fix — the fiche modal was the one dialog in the app
+  rendering `FormErrorBanner` **without** the `action` that `useConflict.isConflict` exists to drive, so the
+  refusal said « Rechargez » with no control to do it. That is the poisoned-dialog trap two bullets up, and it
+  mattered less while the only 409 came from the fiche's own row.
+- **`MedicalDocument.AppointmentId` cannot join a séance to its ordonnance, and `DentalRecordId` is why.**
+  The appointment is null on any fiche entered outside the agenda and on every day `DentalRecordVisitLink`
+  refuses to guess — precisely the fiches charted from the patient's own page. The new column is nullable,
+  un-FK'd and indexed (`AppointmentId`'s exact shape); **nothing was backfilled**, and the read falls back to
+  `DentalRecordId IS NULL AND AppointmentId IN (…)` for legacy rows. ⚠️ That null test is load-bearing: drop
+  it and an ordonnance already claimed by one fiche is claimed again by every fiche sharing its visit.
+- **`Doctor.Specialty` is an English key, and the server needed its own French map the day it began issuing
+  documents.** Until the fiche emitted an ordonnance, every document was composed by the browser, which sent
+  an already-translated `doctorSpecialty` through `web/lib/specialties.ts`. A server-composed one has only
+  the stored key, so without `DoctorSpecialtyLabels` an ordonnance prints « Orthodontist » under the
+  prescriber's name on a French legal document. The two maps are a **pair**, held in both directions by
+  `check:responsive`'s N32 `specialty-labels-have-one-owner`.
+- **« Sexe » and « Poids » are gone from the ordonnance, deliberately.** A Tunisian dental ordonnance does
+  not carry them, and `patientSex` was prefilled from the patient record so it printed on every one ever
+  issued. Withdrawn from `DocumentIdentity.PatientLines` (the one render owner), `MedicalDocumentPdfData`,
+  `MedicalDocumentPdfMapping` and the editor's nine sites. ⚠️ **No migration**: legacy documents keep both
+  keys in `ContentJson` and re-rendering one now omits two lines it used to print. ⚠️ Read the tombstone at
+  the render site before putting them back — `ordonnance-certificat-norms`' spec calls sexe R.5132-3-mandatory
+  and is otherwise still accurate, so a reader working from it will re-add them.
+- **Inside a `RecordSection`, one un-shrinkable child sets the width of EVERY sibling.** Its body is a
+  `display: grid`, so the single implicit track is sized by the widest child's min-content — and `Button` is
+  `whitespace-nowrap shrink-0`, which `flex-1` does **not** remove (different tailwind-merge groups, so the
+  element gets `flex: 1 1 0%` *and* `flex-shrink: 0`). Two add buttons whose labels could neither shrink nor
+  wrap measured **253 px** of min-content in a **231 px** box at 320 px, and every other row of the section —
+  the prescription lines, the renouvellement field, the closing sentence — was pushed to 253 px with them and
+  ran past the dialog's edge. Reported as « it's beyond bounds, the writing and cards ». Spell out `shrink`,
+  give the buttons a real `basis-*` with `flex-wrap`, and put `min-w-0` on any row holding a `truncate`
+  descendant — `white-space: nowrap` makes its min-content the whole string. ⚠️ `tsc`, `check:responsive` and
+  `npm run build` were **all green** while this was live; only the eye pass at 320 px found it.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill

@@ -128,10 +128,27 @@ public class DentalRecordCorrectionTests
         /// </summary>
         public Mock<IAppointmentRepository> Appointments { get; } = new();
 
+        /// <summary>
+        /// The séance's ordonnance (<c>FicheOrdonnanceEmitter</c>). Unstubbed on purpose: every command this
+        /// fixture builds leaves <c>Prescription</c> null, and an absent payload is never read — so nothing
+        /// about the correction path changes.
+        /// </summary>
+        public Mock<IMedicalDocumentRepository> MedicalDocuments { get; } = new();
+
+        /// <inheritdoc cref="MedicalDocuments"/>
+        public Mock<IClinicRepository> Clinics { get; } = new();
+
+        /// <inheritdoc cref="MedicalDocuments"/>
+        public Mock<IDoctorRepository> Doctors { get; } = new();
+
+        /// <inheritdoc cref="MedicalDocuments"/>
+        public Mock<IClinicContext> Context { get; } = new();
+
         public UpdateDentalRecordCommandHandler Handler() => new(
             Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Appointments.Object,
             Invoices.Object,
-            CreditNotes.Object, Resolver.Object, Uow.Object, Stock.Object, Sender.Object,
+            CreditNotes.Object, MedicalDocuments.Object, Clinics.Object, Doctors.Object, Context.Object,
+            Resolver.Object, Uow.Object, Stock.Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommand Command(decimal cost, decimal paid, DateTime? on = null,

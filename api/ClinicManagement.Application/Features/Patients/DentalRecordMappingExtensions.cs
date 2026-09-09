@@ -11,6 +11,7 @@ public static class DentalRecordMappingExtensions
         Id = record.Id,
         PatientId = record.PatientId,
         AppointmentId = record.AppointmentId,
+        DoctorId = record.DoctorId,
         InterventionDate = record.InterventionDate,
         ProcedureType = record.ProcedureType,
         Cost = record.Cost,

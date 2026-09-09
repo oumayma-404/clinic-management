@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Enums;
@@ -90,6 +91,19 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// </para>
     /// </summary>
     public Guid? TreatmentPlanItemStepId { get; set; }
+
+    /// <summary>
+    /// What was prescribed at this séance. Creates the ordonnance, or updates the one this fiche already
+    /// issued — <b>inside this save's transaction</b>, and never deleting it. See
+    /// <see cref="Documents.FicheOrdonnanceEmitter"/>.
+    /// <para>
+    /// ⚠️ Tri-state. <b>Absent</b> means « unchanged » — the document is not even looked up, which is what
+    /// keeps every caller predating prescriptions clear of it. <b>Present and empty</b> means « nothing
+    /// prescribed at this séance », and an ordonnance already issued still survives it. The fiche modal always
+    /// sends it, like <c>Acts</c>: a field a routine re-save forgets is how this product has lost data before.
+    /// </para>
+    /// </summary>
+    public PrescriptionInput? Prescription { get; set; }
 }
 
 public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalRecordCommand, Result<DentalRecordDto>>
@@ -102,6 +116,11 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICreditNoteRepository _creditNoteRepository;
+    // Read only to compose the séance's ordonnance — see FicheOrdonnanceEmitter.
+    private readonly IMedicalDocumentRepository _documentRepository;
+    private readonly IClinicRepository _clinicRepository;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicContext _clinicContext;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStockConsumptionService _stockConsumption;
@@ -116,6 +135,10 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         ICreditNoteRepository creditNoteRepository,
+        IMedicalDocumentRepository documentRepository,
+        IClinicRepository clinicRepository,
+        IDoctorRepository doctorRepository,
+        IClinicContext clinicContext,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IStockConsumptionService stockConsumption,
@@ -129,6 +152,10 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _creditNoteRepository = creditNoteRepository;
+        _documentRepository = documentRepository;
+        _clinicRepository = clinicRepository;
+        _doctorRepository = doctorRepository;
+        _clinicContext = clinicContext;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _stockConsumption = stockConsumption;
@@ -335,6 +362,21 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 await _toothStateRepository.AddAsync(toothState, cancellationToken);
             }
 
+            /*
+             * The séance's ordonnance — created, or updated in place. Pre-commit for the same reason as on the
+             * create path: a prescription is entered clinical data, not a derived side effect.
+             *
+             * ⚠️ The document carries its own xmin, so an ordonnance edited meanwhile through
+             * /documents/prescription surfaces here as a 409 — which is exactly right, and is what the modal's
+             * `useConflict` turns into a « Recharger » rather than a dead form.
+             */
+            // Absent → skipped entirely; empty → a statement. See FicheOrdonnanceResult.None.
+            var ordonnance = request.Prescription is null
+                ? FicheOrdonnanceResult.None
+                : await FicheOrdonnanceEmitter.EmitAsync(
+                    request.Prescription, dentalRecord, patient, clinicResult.Value, _clinicContext.GetUserId(),
+                    _documentRepository, _clinicRepository, _doctorRepository, _unitOfWork, _logger, cancellationToken);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             // Post-commit and best-effort, exactly as on create (AC-P4.13). Removing an act deliberately
@@ -350,6 +392,12 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // raise a second note d'honoraires. The guard lives in
             // BillDentalRecordCommand, which is why this delegates rather than re-deciding.
             var dto = dentalRecord!.ToDto();
+            dto.PrescriptionDocumentId = ordonnance.DocumentId;
+            dto.PrescriptionSummary = ordonnance.Summary.ToList();
+            // The second sheet. Independent of the first: a seance may prescribe medicaments, examens,
+            // both or neither, and the two are separate papers with separate ids.
+            dto.ExamensDocumentId = ordonnance.ExamensDocumentId;
+            dto.ExamensSummary = ordonnance.ExamensSummary.ToList();
             // ⚠️ `isAutomatic: false` when correcting. The automatic path deliberately refuses to raise a note for
             // a fiche whose note is spent (A-1) — that refusal is what stops a routine re-save from quietly
             // producing a second document — but here the cancellation was asked for, so raising the replacement

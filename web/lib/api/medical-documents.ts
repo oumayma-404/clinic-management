@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPostBlob, apiPut, apiDelete, apiPostFormData, apiPutFormData } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPostBlob, apiPut, apiDelete, apiPostFormData, apiPutFormData } from './client';
 import type { MedicalDocumentDto } from './types';
 
 export interface CreateMedicalDocumentRequest {
@@ -101,6 +101,17 @@ export const medicalDocumentsApi = {
     return apiDelete<void>(`/medical-documents/${id}`);
   },
 
+  /**
+   * The PDF of a document that already exists. The server renders it from the stored `contentJson`, so the
+   * bytes are the ones the background job attaches and the e-mail sends — nothing about the layout is
+   * composed here.
+   *
+   * ⚠️ Prefer this over `generatePdfForDownload` whenever the document is saved. That one exists for the
+   * editor's unsaved draft and needs the whole document in the body, which means a second copy of the
+   * server's `FlattenContent` in whichever component calls it.
+   */
+  getPdf: async (id: string): Promise<Blob> => apiGetBlob(`/medical-documents/${id}/pdf`),
+
   generatePdf: async (id: string): Promise<{ jobId: string; message: string }> => {
     return apiPost<{ jobId: string; message: string }>(`/medical-documents/${id}/generate-pdf`, {});
   },
@@ -121,5 +132,39 @@ export const medicalDocumentsApi = {
     recipientDoctorSpecialty?: string;
     content: Record<string, string>;
   }): Promise<Blob> => apiPostBlob('/medical-documents/generate-pdf-download', documentData),
+
+  /**
+   * The PDF of the ordonnance a fiche de soins is **about to** emit. Nothing is saved, and no document id is
+   * needed — on a first save there is no fiche yet, which is exactly when « montre-moi l'ordonnance » is asked
+   * at the chair.
+   *
+   * ⚠️ **Notice what this does NOT send**: no `clinicName`, no `doctorName`, no `content`. Unlike
+   * `generatePdfForDownload` above — which composes the whole document in the browser and posts it, literal
+   * `"[Nom du cabinet]"` fallbacks included — this sends only what the practitioner typed. The server composes
+   * the sheet through the emitter's own code path, so the aperçu is the bytes the save will produce rather
+   * than a rendering that resembles them.
+   */
+  previewFicheOrdonnance: async (request: {
+    patientId: string;
+    /** The practitioner the séance attributes the work to. The sheet is issued in their name, not the caller's. */
+    doctorId?: string | null;
+    interventionDate: string;
+    /** `medicament` | `examen` — which of the two sheets to render. */
+    kind: string;
+    prescription: {
+      lines: {
+        kind?: string;
+        name: string;
+        dosage?: string;
+        timesPerDay?: string;
+        route?: string;
+        quantity?: string;
+        duration?: string;
+        medicationId?: string;
+        dci?: string[];
+      }[];
+      renewals?: string;
+    };
+  }): Promise<Blob> => apiPostBlob('/medical-documents/fiche-ordonnance-preview', request),
 };
 

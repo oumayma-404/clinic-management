@@ -1,5 +1,8 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { DentalRecordDto, DentalActInput } from './types';
+// The ordonnance's line shape has ONE owner and it is the document registry — the fiche and the document
+// editor write the same `content.medications` array, and a private copy here would be the fourth.
+import type { PrescriptionLine } from '../documents';
 
 export interface CreateDentalRecordRequest {
   interventionDate: string;
@@ -50,6 +53,44 @@ export interface CreateDentalRecordRequest {
   amountCollectedOnPlan?: number;
   // Optional: the appointment this record documents — completes it + dismisses its post-visit prompt.
   appointmentId?: string | null;
+
+  /**
+   * What was prescribed at this séance — médicaments and/or examens. Becomes the séance's own **ordonnance**
+   * (a real `MedicalDocument`, printable and e-mailable from the patient's Documents tab), created inside the
+   * fiche's own save.
+   *
+   * ⚠️ Tri-state, and the modal always sends it. **Absent** means « unchanged » and the server does not even
+   * look for a document — which is what keeps every older caller clear of one. **Present and empty** means
+   * « nothing prescribed at this séance ». Neither ever deletes an ordonnance already issued: that paper may
+   * be in the patient's hand, so deletion stays on the document's own role-gated, named confirmation.
+   *
+   * ⚠️ A field a routine re-save forgets is how this product has lost data before (`SetActs` and
+   * `SetProcedures` both replace their whole list), so send it on every save rather than only when it changed.
+   */
+  prescription?: PrescriptionInput;
+}
+
+/** @see CreateDentalRecordRequest.prescription */
+export interface PrescriptionInput {
+  lines: PrescriptionLine[];
+  /**
+   * The renouvellement mention — it governs the whole ordonnance and never one line. Blank prints nothing;
+   * « 0 » / « non » prints « Ordonnance non renouvelable. »
+   */
+  renewals?: string;
+  /**
+   * The `version` of the ordonnance the modal read when it opened, round-tripped so this save cannot overwrite
+   * an edit made through `/documents/prescription` in the meantime. Omit (or 0) to skip the check.
+   *
+   * ⚠️ **The document's own `xmin` does not cover this, and assuming it did was a real defect.** The server
+   * loads the document inside the fiche's transaction, so its tracked copy always carries the current token;
+   * the stale copy is *here*, in the section's state. Measured: a colleague's correction to a médicament's
+   * name, made in the editor while the fiche modal sat open, was silently reverted by the next fiche save.
+   * A mismatch is now a 409, which `useConflict` turns into « Recharger ».
+   */
+  prescriptionDocumentVersion?: number;
+  /** @see prescriptionDocumentVersion — the demande d'examens' own token. */
+  examensDocumentVersion?: number;
 }
 
 export const dentalRecordsApi = {

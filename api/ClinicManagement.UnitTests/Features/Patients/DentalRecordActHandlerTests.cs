@@ -121,6 +121,16 @@ public class DentalRecordActHandlerTests
         public Mock<IDoctorRepository> Doctors { get; } = new();
         public Mock<IClinicContext> Context { get; } = new();
 
+        /// <summary>
+        /// The séance's ordonnance (<c>FicheOrdonnanceEmitter</c>). Unstubbed on purpose: every command in this
+        /// fixture leaves <c>Prescription</c> null, and an absent payload is never even read — so these two
+        /// reproduce this harness's original behaviour exactly.
+        /// </summary>
+        public Mock<IClinicRepository> Clinics { get; } = new();
+
+        /// <inheritdoc cref="Clinics"/>
+        public Mock<IMedicalDocumentRepository> MedicalDocuments { get; } = new();
+
         public CreateDentalRecordCommandHandler CreateHandler()
         {
             Doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -130,14 +140,16 @@ public class DentalRecordActHandlerTests
         }
 
         private CreateDentalRecordCommandHandler CreateHandlerCore() => new(
-            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Doctors.Object, Context.Object,
+            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Doctors.Object,
+            Clinics.Object, MedicalDocuments.Object, Context.Object,
             Appointments.Object, Resolver.Object, Uow.Object, Generator.Object, StockConsumption.Object,
             Realtime.Object, Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
             Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Appointments.Object,
             Invoices.Object,
-            CreditNotes.Object, Resolver.Object, Uow.Object, StockConsumption.Object, Sender.Object,
+            CreditNotes.Object, MedicalDocuments.Object, Clinics.Object, Doctors.Object, Context.Object,
+            Resolver.Object, Uow.Object, StockConsumption.Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
         public CreateDentalRecordCommand CreateCommand(params DentalActInput[] acts) => new()

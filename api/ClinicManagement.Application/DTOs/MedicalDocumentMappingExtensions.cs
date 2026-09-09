@@ -32,6 +32,7 @@ public static class MedicalDocumentMappingExtensions
         IsDraft = document.IsDraft,
         FileId = document.FileId,
         AppointmentId = document.AppointmentId,
+        DentalRecordId = document.DentalRecordId,
         Version = document.Version,
         CreatedAt = document.CreatedAt,
         UpdatedAt = document.UpdatedAt,

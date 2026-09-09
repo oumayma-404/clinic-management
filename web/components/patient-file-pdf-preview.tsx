@@ -1,5 +1,6 @@
 "use client"
 
+import type { Ref } from "react"
 import { ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -44,9 +45,23 @@ interface PatientFilePdfPreviewProps {
   fileName: string
   /** The parent's own file delivery — the same one its « Télécharger » button calls. */
   onDeliver: () => void
+  /**
+   * The frame itself, for a parent that prints it (`contentWindow.print()` on a rendered frame is the only way
+   * to print a PDF without leaving the page).
+   *
+   * <p>⚠️ Optional, and a parent that takes it must still test `offsetParent !== null` before printing: below a
+   * coarse pointer the frame is `hidden` by CSS, so the ref is non-null and the window is unprintable. That is
+   * the whole reason the two trees exist.</p>
+   */
+  frameRef?: Ref<HTMLIFrameElement>
 }
 
-export function PatientFilePdfPreview({ previewUrl, fileName, onDeliver }: PatientFilePdfPreviewProps) {
+export function PatientFilePdfPreview({
+  previewUrl,
+  fileName,
+  onDeliver,
+  frameRef,
+}: PatientFilePdfPreviewProps) {
   return (
     <div className="flex size-full min-h-full justify-center">
       {/* ⚠️ The frame FILLS the panel — it holds no A4 shape of its own, either way round. Width-driven made the
@@ -54,6 +69,7 @@ export function PatientFilePdfPreview({ previewUrl, fileName, onDeliver }: Patie
           viewer already fits, zooms and scrolls, so the only useful thing to give it is every available pixel. */}
       <div className="size-full min-h-[24rem] overflow-hidden rounded-lg bg-white shadow-2xl dark:bg-slate-800">
         <iframe
+          ref={frameRef}
           src={previewUrl}
           title={fileName}
           className="block h-full w-full border-0 coarse:hidden"

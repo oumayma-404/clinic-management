@@ -67,6 +67,11 @@ public class ClinicalRecordAccessTests
         (typeof(MedicalDocumentsController), nameof(MedicalDocumentsController.UpdateDocument)),
         (typeof(MedicalDocumentsController), nameof(MedicalDocumentsController.GeneratePdf)),
         (typeof(MedicalDocumentsController), nameof(MedicalDocumentsController.GeneratePdfForDownload)),
+        (typeof(MedicalDocumentsController), nameof(MedicalDocumentsController.GetDocumentPdf)),
+        // Previewing the ordonnance a fiche is about to emit. Every clinic role deliberately: the fiche de
+        // soins itself is open to reception, and a section whose « Aperçu » 403'd for the person typing it
+        // would be the « the whole Documents screen 403'd for a secretary » defect one surface over.
+        (typeof(MedicalDocumentsController), nameof(MedicalDocumentsController.PreviewFicheOrdonnance)),
     };
 
     /// <summary>

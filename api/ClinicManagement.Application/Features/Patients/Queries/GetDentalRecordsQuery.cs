@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Repositories;
 
@@ -19,17 +20,20 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IMedicalDocumentRepository _documentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
 
     public GetDentalRecordsQueryHandler(
         IDentalRecordRepository dentalRecordRepository,
         IPatientRepository patientRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IMedicalDocumentRepository documentRepository,
         ICurrentClinicResolver clinicResolver)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _documentRepository = documentRepository;
         _clinicResolver = clinicResolver;
     }
 
@@ -119,6 +123,78 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
 
                 dto.TreatmentPlanId = row.TreatmentPlanId;
                 dto.TreatmentPlanNumber = row.PlanNumber;
+            }
+
+            /*
+             * What each séance prescribed — ONE batched read for the whole history, like the two above. The
+             * patient page loads every fiche in a single pass (four other things on that screen need the full
+             * list), so a per-row lookup here would be an N+1 over a list that routinely runs to dozens.
+             *
+             * ⚠️ The appointment ids go with the record ids because ordonnances written before
+             * MedicalDocument.DentalRecordId existed carry only the visit, and nothing was backfilled — see
+             * the repository method for why matching on the appointment alone would be wrong.
+             */
+            var visitIds = dtos.Where(d => d.AppointmentId.HasValue).Select(d => d.AppointmentId!.Value).Distinct().ToList();
+            var ordonnances = await _documentRepository.GetFicheOrdonnancesForDentalRecordsAsync(
+                clinicResult.Value, recordIds, visitIds, cancellationToken);
+
+            /*
+             * ⚠️ Both of a séance's ordonnance types arrive from that one read and are matched INDEPENDENTLY.
+             * A visit that prescribes an antibiotic and a panoramique owns two documents — a médicament and an
+             * examen may not share a sheet (DocumentTypes.Examens) — so this is two assignments per fiche, not
+             * a choice between them.
+             */
+            foreach (var documentType in new[] { DocumentTypes.Prescription, DocumentTypes.Examens })
+            {
+                var ofType = ordonnances
+                    .Where(p => string.Equals(p.DocumentType, documentType, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (ofType.Count == 0)
+                {
+                    continue;
+                }
+
+                var byRecordId = ofType
+                    .Where(p => p.DentalRecordId.HasValue)
+                    .GroupBy(p => p.DentalRecordId!.Value)
+                    .ToDictionary(g => g.Key, g => g.First());
+                var legacyByVisit = ofType
+                    .Where(p => !p.DentalRecordId.HasValue && p.AppointmentId.HasValue)
+                    .GroupBy(p => p.AppointmentId!.Value)
+                    .ToDictionary(g => g.Key, g => g.First());
+
+                // Only the médicament ordonnance can be legacy: the examens type is newer than
+                // MedicalDocument.DentalRecordId, so a demande with a null fiche id does not exist, and
+                // running the fallback for it would let one fiche report another's document.
+                var allowLegacy = documentType == DocumentTypes.Prescription;
+
+                foreach (var dto in dtos)
+                {
+                    // The fiche's own document wins over a legacy one sharing its visit: a séance that has
+                    // issued its own ordonnance must not report the older document instead.
+                    var document = byRecordId.GetValueOrDefault(dto.Id);
+                    if (document is null && allowLegacy && dto.AppointmentId.HasValue)
+                    {
+                        document = legacyByVisit.GetValueOrDefault(dto.AppointmentId.Value);
+                    }
+
+                    if (document is null)
+                    {
+                        continue;
+                    }
+
+                    if (documentType == DocumentTypes.Examens)
+                    {
+                        dto.ExamensDocumentId = document.Id;
+                        dto.ExamensSummary = PrescriptionLines.ExamenShortLabels(document.ContentJson).ToList();
+                    }
+                    else
+                    {
+                        dto.PrescriptionDocumentId = document.Id;
+                        dto.PrescriptionSummary = PrescriptionLines.ShortLabels(document.ContentJson).ToList();
+                    }
+                }
             }
 
             return Result<IEnumerable<DentalRecordDto>>.Success(dtos);

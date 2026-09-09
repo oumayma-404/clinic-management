@@ -7,7 +7,7 @@ import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { HonorairesLauncher } from "@/components/documents/honoraires-launcher"
 import { PageHeader } from "@/components/ui/page-header"
-import { DOCUMENT_TEMPLATES } from "@/lib/documents"
+import { CREATABLE_DOCUMENT_TEMPLATES } from "@/lib/documents"
 
 
 export default function DocumentsPage() {
@@ -38,7 +38,7 @@ export default function DocumentsPage() {
         {/* Template Grid. AC-P3.38 — every clickable Card is keyboard-operable: it is the click target, so
             it has to be a tab stop with Enter/Space and a visible focus ring, not a mouse-only div. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-          {DOCUMENT_TEMPLATES.map((template) => {
+          {CREATABLE_DOCUMENT_TEMPLATES.map((template) => {
             const Icon = template.icon
             const open = () =>
               template.type === "honoraires" ? setHonorairesOpen(true) : openTemplate(template.type)

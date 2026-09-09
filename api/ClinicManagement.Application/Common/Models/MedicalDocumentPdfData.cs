@@ -18,19 +18,15 @@ public class MedicalDocumentPdfData
     public string? PatientAge { get; set; }
     public string? PatientId { get; set; }
 
-    /// <summary>
-    /// Patient sex — mandatory on a prescription for listes I/II medicines (R.5132-3), which covers most
-    /// antibiotics and analgesics a dentist prescribes. Snapshotted from <c>Patient.Gender</c>, printed
-    /// verbatim (a historical row may hold a free-text value).
-    /// </summary>
-    public string? PatientSex { get; set; }
-
-    /// <summary>
-    /// Patient weight as entered on <b>this</b> document — never read from the patient record, because a
-    /// stored weight goes stale and a stale weight that looks verified is worse than a blank field. Free text:
-    /// it is a mention on a document, not an input to a calculation.
-    /// </summary>
-    public string? PatientWeightKg { get; set; }
+    /*
+     * ⚠️ `PatientSex` and `PatientWeightKg` were here and are gone — withdrawn deliberately, not lost. A
+     * Tunisian dental ordonnance does not carry them; « Sexe » was prefilled from `Patient.Gender` and so
+     * printed on every ordonnance issued, and « Poids » was optional and nearly always blank. See the
+     * tombstone in `DocumentIdentity.PatientLines`, which is where they used to be rendered, before adding
+     * them back on the strength of `ordonnance-certificat-norms`' spec.
+     *
+     * Legacy documents keep both keys in their ContentJson; nothing reads them any more.
+     */
 
     // Clinic Info
     public string ClinicName { get; set; } = string.Empty;

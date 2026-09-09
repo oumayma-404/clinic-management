@@ -17,6 +17,9 @@ public static class DocumentFileNaming
             DocumentTypes.Certificat => "certificat-medical",
             DocumentTypes.BulletinCnam => "bulletin-de-soins-cnam",
             DocumentTypes.ArretTravail => "arret-de-travail",
+            // Not "ordonnance-examens": the two ordonnances a séance emits land in the same folder and on the
+            // same e-mail, and a filename is the only thing distinguishing them there.
+            DocumentTypes.Examens => "demande-examens",
             _ => documentType.ToLowerInvariant()
         };
 }

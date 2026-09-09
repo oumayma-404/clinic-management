@@ -841,6 +841,13 @@ export interface PatientDto {
   medicalHistory?: string;
   /** @see medicalHistory — same tri-state, same reason. */
   allergies?: string;
+  /**
+   * « Médicaments » — what the patient is currently taking. @see medicalHistory for the tri-state.
+   *
+   * ⚠️ The third of the three free-text health lists, and the newest. An absent key means « unchanged » on
+   * update, so a caller that does not know this field cannot wipe it.
+   */
+  medications?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   /**
@@ -1239,6 +1246,49 @@ export interface DentalRecordDto {
   treatmentPlanId?: string | null;
   /** @see treatmentPlanId */
   treatmentPlanNumber?: string | null;
+
+  /**
+   * The ordonnance this séance produced (a `MedicalDocument` of type `prescription`), or null when nothing was
+   * prescribed.
+   *
+   * ⚠️ It is what lets a REOPENED fiche edit the ordonnance it already issued instead of writing a second one —
+   * and the modal reads that document (and its own `version`) fresh from this id rather than trusting the
+   * history row it was opened from, because the same document is editable from `/documents/prescription` and a
+   * stale copy round-tripped from a list read would silently overwrite whatever that door wrote.
+   */
+  prescriptionDocumentId?: string | null;
+
+  /**
+   * Row-sized labels of what was prescribed — « Augmentin Comprimé 1 g », « Radiographie panoramique ».
+   * Empty when nothing was.
+   *
+   * ⚠️ **Served, never re-derived here.** The printed sentence has one owner
+   * (`PrescriptionContent.FormatLine`) and a séance row has no business reimplementing it; what a row shows is
+   * a deliberately shorter label, and the server's `PrescriptionLines.ShortLabel` is the one that decides it.
+   */
+  prescriptionSummary?: string[];
+
+  /**
+   * The **demande d'examens** this seance produced (a `MedicalDocument` of type `examens`), or null when no
+   * examen was requested.
+   *
+   * ⚠️ **Independent of `prescriptionDocumentId`, not an alternative to it.** A medicament and an examen may
+   * not share a sheet, so a visit that prescribes an antibiotic and a panoramique produces TWO papers with two
+   * ids, and both doors have to be offered. See `DocumentTypes.Examens`.
+   */
+  examensDocumentId?: string | null;
+
+  /**
+   * Row-sized labels of the examens requested. Served, for `prescriptionSummary`'s reasons.
+   */
+  examensSummary?: string[];
+
+  /**
+   * The practitioner the seance attributes the work to. Served so the fiche's ordonnance APERCU is composed
+   * in the same name as the document the save emits - without it the preview falls back to the caller's own
+   * doctor record, which is right on a new fiche and quietly wrong on a colleague's reopened one.
+   */
+  doctorId?: string | null;
 }
 
 /** What saving a fiche did about the treatment it carries out. Mirrors the backend `TreatmentCollectionOutcome`. */
@@ -1436,6 +1486,15 @@ export interface MedicalDocumentDto {
   isDraft: boolean;
   fileId?: string;
   appointmentId?: string | null;
+  /**
+   * The fiche de soins that emitted this document, when one did.
+   *
+   * ⚠️ **Not the same fact as `appointmentId`.** The appointment is null on every fiche charted outside the
+   * agenda, so the Documents tab's « Seance » column printed « — » for exactly those rows. It also decides
+   * which door « Modifier » offers: a document a fiche owns must be edited IN that fiche, because the next
+   * fiche save recomposes its `contentJson` and would silently overwrite a standalone edit.
+   */
+  dentalRecordId?: string | null;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
   version: number;
   createdAt: string;
