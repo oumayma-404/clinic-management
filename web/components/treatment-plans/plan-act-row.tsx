@@ -147,6 +147,17 @@ export function PlanActStateBadge({ item }: { item: TreatmentPlanItemDto }) {
       {state !== "done" && scheduledAt && (
         <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDateFr(scheduledAt)}</span>
       )}
+      {/*
+        TODO(treatment-plan-lifecycle AC-12): state the protocol's own earliest date here — « dès le 3 juin » —
+        in the cell that already answers « when? ».
+        ⚠️ **It must be SERVED, not derived here.** `TreatmentPlanItemStep.DueFrom(previousStepDoneOn)` is the
+        rule and it lives in the domain; the wire carries only `minDaysAfterPrevious`, so a browser-side
+        `previous.doneDate + N` would be a second implementation of it — this repository's dominant defect
+        shape. The fix is one projected field (`earliestOn`) on `TreatmentPlanItemStepDto`, fed by that method.
+        ⚠️ And it is « dès le », never « en retard »: `MinDaysAfterPrevious` says *pas avant*, not *pas après*,
+        so calling a step late once the date passes invents a promise nobody made — the exact error
+        `InstallmentLateness` was rewritten to stop making about an auto-raised échéance.
+      */}
     </>
   )
 }
@@ -307,20 +318,30 @@ export function PlanActStepsAction({
   onEditSteps: (item: TreatmentPlanItemDto) => void
 }) {
   const count = item.steps?.length ?? 0
+  /*
+   * ⚠️ **A word, not a mute icon.** This was `size="icon"` with a `ListOrdered` glyph and a `title` — and a
+   * `title` needs a hover, which the device this product is used on most does not have (§ 9.2), so on a tablet
+   * the only editor of an act's protocol was an unlabelled square. The nine operations behind it (renommer ·
+   * minutes · jours · monter · descendre · supprimer · ajouter · rétablir · tout-en-une) are all still there;
+   * what changed is that a dentist can now see that they are.
+   *
+   * « Séances », never « Étapes »: the rest of this feature says séance everywhere a human reads it, and the
+   * dialog it opens is titled « Séances de l'acte ».
+   */
   return (
     <Button
       variant="ghost"
-      size="icon"
-      className="size-8 shrink-0 text-muted-foreground coarse:size-10 hover-hover:hover:text-foreground"
+      size="sm"
+      className="h-8 shrink-0 gap-1.5 px-2 text-muted-foreground coarse:h-10 hover-hover:hover:text-foreground"
       onClick={() => onEditSteps(item)}
       aria-label={
         count > 0
           ? `Modifier les ${count} séances de ${quoteFr(item.designationFr)}`
           : `Définir les séances de ${quoteFr(item.designationFr)}`
       }
-      title={count > 0 ? "Modifier les séances" : "Définir des séances"}
     >
       <ListOrdered className="h-4 w-4" />
+      <span className="hidden sm:inline">Séances</span>
     </Button>
   )
 }

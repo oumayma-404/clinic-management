@@ -276,8 +276,8 @@ export const treatmentPlansApi = {
    * were deleted rather than parked, taking their step rows and the links to the fiches that evidenced them;
    * and the clôture threw *after* the removals had committed, leaving the plan half-stopped with no way back.
    */
-  stopTreatment: async (id: string, version?: number): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/stop`, { version }),
+  stopTreatment: async (id: string, version?: number, reason?: string): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/stop`, { version, reason }),
 
   /**
    * « Reprendre le traitement » — the patient came back. Reopens a stopped devis and restores every parked act

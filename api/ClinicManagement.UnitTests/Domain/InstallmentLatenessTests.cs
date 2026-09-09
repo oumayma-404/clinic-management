@@ -48,14 +48,38 @@ public class InstallmentLatenessTests
         Assert.True(Late(Yesterday, unrealisedWork: true));
     }
 
-    /// <summary>An échéance due today still has the day to run.</summary>
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Today_And_Later_Are_Never_Late(bool auto)
+    /// <summary>An échéance <b>somebody agreed</b> and due today still has the day to run.</summary>
+    [Fact]
+    public void An_Agreed_Date_Today_Or_Later_Is_Never_Late()
     {
-        Assert.False(Late(Today, isAutoRaised: auto));
-        Assert.False(Late(Tomorrow, isAutoRaised: auto));
+        Assert.False(Late(Today));
+        Assert.False(Late(Tomorrow));
+    }
+
+    /// <summary>
+    /// ⚠️ <b>An auto-raised row's own date is never consulted, and this used to be a <c>[Theory]</c> asserting
+    /// the opposite for it.</b>
+    ///
+    /// <para>
+    /// That row's <c>DueDate</c> is the acceptance instant — a value <c>Accept</c> has to write because a
+    /// payment needs somewhere to attach, not a day anybody agreed. Comparing it made « en retard » mean « this
+    /// devis was signed before today », which is true of every devis; the <c>unrealisedWork</c> short-circuit
+    /// was a patch over that rather than the rule. The rule is: <b>the work is finished and the balance is
+    /// unpaid</b>, whatever date the container row happens to carry. The frontend renders it as
+    /// « Solde à régler » with no date for the same reason — a fabricated date must be neither shown nor read.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void An_Auto_Raised_Row_Ignores_Its_Own_Date()
+    {
+        // Work finished: late whatever the date says — yesterday, today, or a date still in the future.
+        Assert.True(Late(Yesterday, isAutoRaised: true));
+        Assert.True(Late(Today, isAutoRaised: true));
+        Assert.True(Late(Tomorrow, isAutoRaised: true));
+
+        // Work outstanding: never late, again whatever the date says.
+        Assert.False(Late(Yesterday, isAutoRaised: true, unrealisedWork: true));
+        Assert.False(Late(Tomorrow, isAutoRaised: true, unrealisedWork: true));
     }
 
     /// <summary>

@@ -45,7 +45,13 @@ public static class TreatmentPlanLifecycle
     /// <summary>
     /// True when a plan in this status is still being carried out — so its acts may be booked, recorded, and
     /// listed under « Traitements en cours ».
+    /// <para>
+    /// ⚠️ <b>Reads the positive list, and used to be written as « not Cancelled and not Completed ».</b> That
+    /// phrasing is safe only while the closed statuses are the ones that exist: appending
+    /// <see cref="TreatmentPlanStatus.Stopped"/> made a stopped treatment read as <b>live</b> — bookable,
+    /// listed under « Traitements en cours », ringed on the odontogramme — with no error anywhere. The
+    /// collection above is the single statement of the rule; this is a lookup into it, never a second copy.
+    /// </para>
     /// </summary>
-    public static bool IsLive(TreatmentPlanStatus status) =>
-        status != TreatmentPlanStatus.Cancelled && status != TreatmentPlanStatus.Completed;
+    public static bool IsLive(TreatmentPlanStatus status) => LiveStatuses.Contains(status);
 }

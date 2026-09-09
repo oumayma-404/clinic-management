@@ -305,9 +305,10 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // Item counts are computed in SQL (two correlated COUNTs), so no TreatmentPlanItem row is materialised.
         // Cancelled is void and Completed has nothing left to do, so neither can put a patient on the worklist.
         var rows = await _context.TreatmentPlans
+            // Through `LiveStatuses`, never a retyped exclusion: written as « not Cancelled and not Completed »
+            // this chased a treatment the patient had already abandoned the moment `Stopped` was appended.
             .Where(p => p.ClinicId == clinicId
-                        && p.Status != TreatmentPlanStatus.Cancelled
-                        && p.Status != TreatmentPlanStatus.Completed)
+                        && TreatmentPlanLifecycle.LiveStatuses.Contains(p.Status))
             .Select(p => new
             {
                 p.PatientId,

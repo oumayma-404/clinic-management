@@ -2101,7 +2101,11 @@ export interface RecurringSeriesResultDto {
 }
 
 // A treatment plan / devis for a patient. `status` is a TreatmentPlanStatus enum name: Draft | Accepted |
-// InProgress | Completed | Cancelled.
+// InProgress | Completed | Stopped | Cancelled.
+//
+// ⚠️ `Stopped` is what « Arrêter le traitement » writes. It used to write `Completed`, so a stopped treatment
+// was indistinguishable from a finished one — ask `isPlanLive` / `isPlanStopped` (plan-next-action.ts) rather
+// than comparing the string, and never test it as « not Completed and not Cancelled ».
 export interface TreatmentPlanDto {
   /**
    * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is

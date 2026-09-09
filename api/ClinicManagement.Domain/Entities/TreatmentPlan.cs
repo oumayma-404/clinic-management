@@ -673,6 +673,26 @@ public class TreatmentPlan : AggregateRoot<Guid>
     public IEnumerable<TreatmentPlanItem> ActiveItems => _items.Where(i => !i.IsWithdrawn);
 
     /// <summary>
+    /// Would « Arrêter le traitement » have to <b>cancel</b> this devis rather than stop it?
+    ///
+    /// <para>
+    /// True when a <b>numbered</b> devis has no delivered work at all: there is nothing to keep, so the plan
+    /// cannot be closed on what was carried out — the number is spent and the document may be in the patient's
+    /// hands, which is what a cancellation with a motif is for. <see cref="StopTreatment"/> refuses exactly this
+    /// case and names the remedy in its message.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>It is a question, not a second copy of the rule.</b> The predicate is the one
+    /// <see cref="StopTreatment"/> builds <c>kept</c> from, stated once so the caller can branch <i>before</i>
+    /// the throw instead of parsing French prose out of it — the trap this repo names « never recover an
+    /// outcome by matching French prose ». An un-numbered Draft answers false: it has no document, nothing to
+    /// explain, and stopping is the ordinary outcome for a treatment that never started.
+    /// </para>
+    /// </summary>
+    public bool StopWouldCancel =>
+        Number != null && !_items.Any(i => !i.IsWithdrawn && i.HasDeliveredWork);
+
+    /// <summary>
     /// Close the clinical side of the devis. Money is unaffected: « Terminé » means the work is over, not that
     /// the patient has paid, so the échéancier stays collectable (see <see cref="EnsurePayable"/>).
     /// </summary>
@@ -769,7 +789,18 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         RespreadSchedule(dueDate);
         RevisionNumber++;
-        Complete(leaveUnrealisedActs: true);
+
+        /*
+         * ⚠️ **This wrote `Completed` until 2026-09-09, and that is the defect this status exists for.** A
+         * stopped treatment wore the badge « Terminé », so nothing in the database or on the screen could tell
+         * « la patiente ne revient pas » from « le travail est fini » — and the workspace, testing « facturable »
+         * before « terminé », then offered « Facturer » and hid « Reprendre le traitement » everywhere.
+         *
+         * `Stopped` is closed clinically (`EnsureActive` refuses it) and open financially
+         * (`PlanBillingRules.CarriesDebt` includes it): the acts that were carried out are still owed.
+         */
+        Status = TreatmentPlanStatus.Stopped;
+        Touch();
         return parked;
     }
 
@@ -789,9 +820,15 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// </summary>
     public void Reopen()
     {
-        if (Status != TreatmentPlanStatus.Completed)
+        /*
+         * ⚠️ Both closed statuses, and `Completed` is the one that matters least. `Stopped` is what
+         * « Arrêter le traitement » now writes; `Completed` stays accepted because a treatment closed
+         * automatically on its last séance is routinely reopened by « Détacher la fiche », and because every
+         * plan stopped before 2026-09-09 is sitting in `Completed` with parked acts to restore.
+         */
+        if (Status != TreatmentPlanStatus.Completed && Status != TreatmentPlanStatus.Stopped)
         {
-            throw new InvalidOperationException("Seul un devis terminé peut être repris.");
+            throw new InvalidOperationException("Seul un traitement terminé ou arrêté peut être repris.");
         }
 
         // `ToList()` first: `Restore` mutates, and counting a lazy sequence would restore only what is enumerated.
@@ -1236,10 +1273,14 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// </summary>
     private void EnsureCorrectable()
     {
+        // ⚠️ `Stopped` belongs here for the same reason `Completed` does: detaching a fiche recorded by mistake
+        // is a correction, and refusing it on a stopped treatment would make the mistake permanent. Only a
+        // cancelled devis — a closed record kept for its number — is beyond correction.
         if (Status != TreatmentPlanStatus.Draft
             && Status != TreatmentPlanStatus.Accepted
             && Status != TreatmentPlanStatus.InProgress
-            && Status != TreatmentPlanStatus.Completed)
+            && Status != TreatmentPlanStatus.Completed
+            && Status != TreatmentPlanStatus.Stopped)
         {
             throw new InvalidOperationException("Ce devis est annulé : il ne peut plus être corrigé.");
         }
@@ -1253,9 +1294,13 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// </summary>
     private void EnsurePayable()
     {
+        // ⚠️ `Stopped` is payable, and this is the whole point of the status. The patient owes the séances that
+        // were carried out; refusing collection here would leave that money uncollectable on the one screen
+        // that reports it, while « Créances » went on claiming it.
         if (Status != TreatmentPlanStatus.Accepted
             && Status != TreatmentPlanStatus.InProgress
-            && Status != TreatmentPlanStatus.Completed)
+            && Status != TreatmentPlanStatus.Completed
+            && Status != TreatmentPlanStatus.Stopped)
         {
             throw new InvalidOperationException("Le plan doit être accepté pour enregistrer un paiement.");
         }

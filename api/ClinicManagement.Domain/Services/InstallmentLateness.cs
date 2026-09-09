@@ -62,7 +62,26 @@ public static class InstallmentLateness
         if (isPaid) return false;
         if (!PlanBillingRules.CarriesDebt(planStatus)) return false;
         if (planIsBilled) return false;
-        if (isAutoRaised && planHasUnrealisedWork) return false;
+
+        /*
+         * ⚠️ **An auto-raised row is never compared against its own date, and it used to be.** Its `DueDate` is
+         * the acceptance instant — a value `Accept` had to write because a payment needs somewhere to attach,
+         * not a day anybody agreed. Testing it made « en retard » mean « this devis was signed before today »,
+         * which is true of every devis, and the `planHasUnrealisedWork` short-circuit was a patch over that
+         * rather than the rule itself.
+         *
+         * The rule, stated once per row kind:
+         *   • solde à régler (auto-raised)   — the work is finished and the balance is unpaid.
+         *   • échéance convenue (typed)      — the agreed day has passed and the row is unpaid, whatever the
+         *                                      clinical progress; a schedule somebody signed says when.
+         *
+         * The frontend renders an auto-raised row as « Solde à régler » with no date for the same reason: a
+         * fabricated date must not be shown, and must not be read.
+         */
+        if (isAutoRaised)
+        {
+            return !planHasUnrealisedWork;
+        }
 
         return dueDate.Date < clinicToday.Date;
     }
