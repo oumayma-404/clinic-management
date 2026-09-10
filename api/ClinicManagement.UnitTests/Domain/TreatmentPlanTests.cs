@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Domain;
@@ -424,6 +425,64 @@ public class TreatmentPlanTests
         Assert.Equal(plan.TotalPlanned, plan.Installments.Sum(i => i.Amount));
         Assert.Equal(200m, plan.AmountPaid);
         Assert.Equal(2, plan.Installments.Count);
+    }
+
+    /*
+     * ⚠️ **The amend form round-trips the WHOLE échéancier, including the row nobody scheduled.**
+     * `treatment-plan-form-modal` seeds its installment rows from `plan.installments` — auto-raised lump sum
+     * included, id echoed back, date re-quantised to `dueDate.slice(0, 10) + "T00:00:00"` — so « ajouter un
+     * acte » or « corriger un prix » sent that row back as if a dentist had typed it. `Revise` clears
+     * `IsAutoRaised`, so every amendment silently turned `Accept`'s ledger container into an agreed échéance
+     * dated the acceptance day: the workspace stopped printing « Total dû — aucune échéance convenue » and
+     * started printing that fabricated date, and `InstallmentLateness` took the typed branch and called the
+     * devis « En retard » from the next morning. Reported by the owner as « why does money on this plan say
+     * en retard, i did not add a deadline ».
+     */
+    [Fact]
+    public void ReviseInstallments_Keeps_An_Untouched_Auto_Row_System_Raised()
+    {
+        var plan = AcceptedPlan();
+        var auto = plan.Installments.Single();
+        Assert.True(auto.IsAutoRaised);
+
+        // Exactly what the amend form sends back for a row nobody edited: the same day, at midnight.
+        plan.ReviseInstallments(new[] { ((Guid?)auto.Id, auto.DueDate.Date, plan.TotalPlanned) });
+
+        Assert.True(plan.Installments.Single().IsAutoRaised);
+    }
+
+    // …and a date the dentist actually MOVED is an agreement, which is the whole point of an échéancier.
+    [Fact]
+    public void ReviseInstallments_Promotes_An_Auto_Row_Whose_Date_Was_Moved()
+    {
+        var plan = AcceptedPlan();
+        var auto = plan.Installments.Single();
+
+        plan.ReviseInstallments(new[] { ((Guid?)auto.Id, auto.DueDate.Date.AddDays(30), plan.TotalPlanned) });
+
+        Assert.False(plan.Installments.Single().IsAutoRaised);
+    }
+
+    // The statement the two rules above exist to make, end to end: an amendment does not make a devis late.
+    [Fact]
+    public void An_Amendment_Does_Not_Make_An_Unscheduled_Devis_Late()
+    {
+        var plan = AcceptedPlan();
+        var auto = plan.Installments.Single();
+        plan.ReviseInstallments(new[] { ((Guid?)auto.Id, auto.DueDate.Date, plan.TotalPlanned) });
+
+        var row = plan.Installments.Single();
+        var late = InstallmentLateness.IsLate(
+            isPaid: row.IsPaid,
+            isAutoRaised: row.IsAutoRaised,
+            dueDate: row.DueDate,
+            planStatus: plan.Status,
+            planIsBilled: false,
+            // The act has not been carried out yet — nothing is owed for work still to come.
+            planHasUnrealisedWork: true,
+            clinicToday: row.DueDate.Date.AddDays(1));
+
+        Assert.False(late);
     }
 
     // [AC-22] An installment can never be pushed below what it has already collected.

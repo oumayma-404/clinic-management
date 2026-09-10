@@ -1094,7 +1094,25 @@ public class TreatmentPlan : AggregateRoot<Guid>
         {
             if (id.HasValue && existingById.TryGetValue(id.Value, out var existing))
             {
+                /*
+                 * ⚠️ **An auto-raised row echoed back on its own day was agreed to by NOBODY, and promoting it
+                 * put « En retard » back on devis nobody had scheduled.** `Revise` clears `IsAutoRaised` because
+                 * revising is normally a dentist looking at a date and settling on it — true of « Modifier
+                 * l'échéancier », false of the amend form, which round-trips the WHOLE échéancier on every save.
+                 * So « ajouter un acte » or « corriger un prix » silently turned `Accept`'s ledger container into
+                 * a promise dated the acceptance day: the workspace then printed that fabricated date instead of
+                 * « Total dû — aucune échéance convenue », and `InstallmentLateness` took the typed branch and
+                 * called it late from the next morning. Same defect as `RespreadSchedule`'s, one method over, and
+                 * the same remedy — remember what the row WAS.
+                 *
+                 * Keyed on the DAY, not the instant: the form sends `dueDate.slice(0, 10) + "T00:00:00"`, so an
+                 * untouched auto row comes back at midnight of the acceptance day rather than at the acceptance
+                 * instant `Accept` wrote. A date the dentist actually MOVED lands on another day and promotes the
+                 * row, which is the whole point of the échéancier.
+                 */
+                var untouchedAutoRow = existing.IsAutoRaised && existing.DueDate.Date == dueDate.Date;
                 existing.Revise(dueDate, amount); // guards amount >= AmountPaid
+                if (untouchedAutoRow) existing.MarkAutoRaised();
                 rebuilt.Add(existing);
             }
             else

@@ -1518,18 +1518,23 @@ export function TreatmentPlanFormModal({
             <div className="space-y-2">
               {installments.length === 0 && (
                 /*
-                  ⚠️ **« facultatif » was true and misleading, and it is what made every devis in the database
-                  read « En retard » from day one.** Leaving this empty does not mean « no schedule »: the
-                  server writes ONE échéance for the full total dated at the creation instant, so a 1 500 DT
-                  implant running six visits over months is recorded as payable the day the devis is signed —
-                  and, being dated in the past by the time anyone looks, it carries an « En retard » badge
-                  immediately. Every plan in the live database has that shape, which is a large part of why
-                  those badges mean nothing. The consequence is stated, with the one-press way out beside it.
+                  ⚠️ **« facultatif » was true and misleading.** Leaving this empty does not mean « no
+                  schedule »: the server writes ONE échéance for the full total dated at the creation instant,
+                  so a 1 500 DT implant running six visits over months is recorded as payable the day the devis
+                  is signed. The consequence is stated, with the one-press way out beside it.
+
+                  ⚠️ **It no longer says « qui apparaîtra en retard dès demain », and that sentence must not
+                  come back.** It described the behaviour `InstallmentLateness` exists to have removed: an
+                  auto-raised row is never compared against its own fabricated date, it renders as
+                  « Solde à régler » with no date at all, and it goes red only once the work is finished and the
+                  balance unpaid. Warning about a badge the product stopped showing teaches the dentist to
+                  distrust a badge that now means something.
                 */
                 <div className="space-y-2 rounded-md border border-dashed p-2.5">
                   <p className="text-sm text-muted-foreground">
-                    Sans échéancier, <b>le total est dû à la signature</b> — une seule échéance à la date du
-                    jour, qui apparaîtra « en retard » dès demain.
+                    Sans échéancier, <b>le total est dû à la signature</b> — une seule ligne
+                    « Solde à régler », sans date convenue. Elle ne passe « en retard » qu&apos;une fois tout le
+                    traitement terminé et le solde impayé.
                   </p>
                   {total > 0 && (
                     <Button
