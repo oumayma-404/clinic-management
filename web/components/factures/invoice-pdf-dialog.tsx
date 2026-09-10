@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Download, Loader2, Mail, Printer } from "lucide-react"
+import { Download, Loader2, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -14,8 +14,6 @@ import {
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { pdfSourceUrl } from "@/lib/pdf-sources"
-import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
-import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { invoicesApi } from "@/lib/api/invoices"
 import type { InvoiceDto } from "@/lib/api/types"
 import { downloadBlob } from "@/lib/download"
@@ -41,18 +39,14 @@ import { formatDate } from "@/lib/format"
 export function InvoicePdfDialog({
   invoice,
   onClose,
-  patientEmail,
 }: {
   /** The note to show; null closes the dialog. */
   invoice: InvoiceDto | null
   onClose: () => void
-  /** Prefills the e-mail recipient without a second read. */
-  patientEmail?: string | null
 }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-  const [emailOpen, setEmailOpen] = useState(false)
   const [reload, setReload] = useState(0)
 
   /** The rendered bytes, kept for « Télécharger » and for the coarse-pointer hand-off. */
@@ -189,31 +183,9 @@ export function InvoicePdfDialog({
               <Download className="me-2 h-4 w-4" aria-hidden="true" />
               Télécharger
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEmailOpen(true)}
-              disabled={!invoice}
-              className="coarse:h-11"
-            >
-              <Mail className="me-2 h-4 w-4" aria-hidden="true" />
-              Envoyer
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {invoice && (
-        <SendDocumentEmailDialog
-          open={emailOpen}
-          onOpenChange={setEmailOpen}
-          documentKind={DOCUMENT_EMAIL_KINDS.Invoice}
-          documentId={invoice.id}
-          documentLabel={`Note d'honoraires ${invoice.number ?? ""}`.trim()}
-          defaultRecipientEmail={patientEmail}
-          patientId={invoice.patientId}
-        />
-      )}
     </>
   )
 }

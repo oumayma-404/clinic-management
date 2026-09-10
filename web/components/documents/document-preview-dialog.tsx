@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Download, FileEdit, Loader2, Mail, Printer } from "lucide-react"
+import { Download, FileEdit, Loader2, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -14,8 +14,6 @@ import {
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { pdfSourceUrl } from "@/lib/pdf-sources"
-import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
-import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { MedicalDocumentDto } from "@/lib/api/types"
 import { downloadBlob } from "@/lib/download"
@@ -38,10 +36,10 @@ import { formatDate } from "@/lib/format"
  * <ul>
  *   <li><b>`saved`</b> — the document on file. Rendered server-side from its stored `contentJson`
  *       ({@link medicalDocumentsApi.getPdf}), so it is byte-for-byte what the e-mail attaches and the PDF job
- *       stores. Carries Imprimer / Télécharger / Envoyer / Modifier.</li>
+ *       stores. Carries Imprimer / Télécharger / Modifier.</li>
  *   <li><b>`apercu`</b> — the sheet the fiche is <i>about to</i> emit, composed by the server through the
  *       emitter's own path. It exists because on a first save there is no document yet. ⚠️ It deliberately
- *       carries <b>no</b> Imprimer, Télécharger or Envoyer: a printed ordonnance for an unsaved séance is a
+ *       carries <b>no</b> Imprimer and no Télécharger: a printed ordonnance for an unsaved séance is a
  *       legal paper with no record behind it, and the dialog says so in one line rather than refusing
  *       silently.</li>
  * </ul>
@@ -69,7 +67,6 @@ export type DocumentPreviewTarget =
       /** The séance's date, ISO — the document's date. */
       interventionDate: string
       lines: PrescriptionLine[]
-      renewals?: string
     }
 
 interface DocumentPreviewDialogProps {
@@ -82,8 +79,6 @@ interface DocumentPreviewDialogProps {
   onEditInFiche?: (dentalRecordId: string) => void
   /** Open the standalone editor, for a document no fiche owns. Omitted hides the control. */
   onEditInEditor?: (document: MedicalDocumentDto) => void
-  /** Prefills the e-mail recipient without a second read. */
-  patientEmail?: string | null
 }
 
 /** What the header calls an aperçu, which has no stored `documentType` to look up yet. */
@@ -94,13 +89,11 @@ export function DocumentPreviewDialog({
   onClose,
   onEditInFiche,
   onEditInEditor,
-  patientEmail,
 }: DocumentPreviewDialogProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [document, setDocument] = useState<MedicalDocumentDto | null>(null)
   const [loading, setLoading] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-  const [emailOpen, setEmailOpen] = useState(false)
   const [reload, setReload] = useState(0)
 
   /** The rendered bytes, kept for « Télécharger » and for the coarse-pointer hand-off. */
@@ -151,7 +144,6 @@ export function DocumentPreviewDialog({
             // from the document the save writes.
             prescription: {
               lines: target.lines.map((line) => ({ ...line, name: line.name.trim() })),
-              renewals: target.renewals?.trim() || undefined,
             },
           })
           if (cancelled) return
@@ -287,13 +279,13 @@ export function DocumentPreviewDialog({
           <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-4 py-3 md:px-6">
             {isApercu ? (
               /*
-               * ⚠️ No Imprimer and no Envoyer here, on purpose. Handing a patient a paper for a séance that
+               * ⚠️ No Imprimer and no Télécharger here, on purpose. Handing a patient a paper for a séance that
                * was never saved leaves a prescription with no clinical record behind it — and this product's
                * standing rule is that a prescription is entered clinical data. One sentence rather than a
                * disabled button, so the reader learns what to do instead of what is refused.
                */
               <p className="me-auto text-2xs text-muted-foreground sm:text-xs">
-                Enregistrez la fiche pour émettre ce document — vous pourrez alors l&apos;imprimer et l&apos;envoyer.
+                Enregistrez la fiche pour émettre ce document — vous pourrez alors l&apos;imprimer et le télécharger.
               </p>
             ) : (
               <>
@@ -304,16 +296,6 @@ export function DocumentPreviewDialog({
                 <Button type="button" variant="outline" onClick={deliver} disabled={!pdfUrl} className="coarse:h-11">
                   <Download className="me-2 h-4 w-4" aria-hidden="true" />
                   Télécharger
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setEmailOpen(true)}
-                  disabled={!document}
-                  className="coarse:h-11"
-                >
-                  <Mail className="me-2 h-4 w-4" aria-hidden="true" />
-                  Envoyer
                 </Button>
                 {document?.dentalRecordId && onEditInFiche ? (
                   <Button
@@ -335,18 +317,6 @@ export function DocumentPreviewDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {document && (
-        <SendDocumentEmailDialog
-          open={emailOpen}
-          onOpenChange={setEmailOpen}
-          documentKind={DOCUMENT_EMAIL_KINDS.MedicalDocument}
-          documentId={document.id}
-          documentLabel={`${documentTypeLabel(document.documentType)} — ${document.patientName}`}
-          defaultRecipientEmail={patientEmail}
-          patientId={document.patientId}
-        />
-      )}
     </>
   )
 }

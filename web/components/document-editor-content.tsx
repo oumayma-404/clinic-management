@@ -19,24 +19,20 @@ import {
   Loader2,
   Plus,
   X,
-  Mail,
   Pill,
   ClipboardList,
   AlertTriangle,
   ExternalLink,
   Trash2,
 } from "lucide-react"
-import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { BillableActsDialog } from "@/components/documents/billable-acts-dialog"
 import { DocumentPreviewDialog } from "@/components/documents/document-preview-dialog"
-import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { formatAmount, formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
   DURATION_UNITS,
-  formatRenewalMention,
   patientCivility,
   durationUnitLabel,
   durationUnitOf,
@@ -441,8 +437,6 @@ export function DocumentEditorContent() {
     medications: [] as MedicationLine[],
     content: "", // Liaison: the PRIMARY free-text body (« Corps de la lettre / Synthèse clinique »)
     duration: "",
-    // Ordonnance: renouvellement — governs the whole document, so it is not per medication line.
-    renewals: "",
     /*
      * `patientSex` / `patientWeightKg` were here and are gone. A Tunisian dental ordonnance does not carry
      * them: « Sexe » was prefilled from the patient record and so printed on every ordonnance ever issued,
@@ -570,8 +564,6 @@ export function DocumentEditorContent() {
   const [savedPreviewOpen, setSavedPreviewOpen] = useState(false)
   // `reposOpen` / `liaisonExtrasOpen` are gone with the two folds they drove: the repos fields ARE the
   // certificat now, and the liaison's guided sections are no longer offered.
-  // « Envoyer par e-mail » — only reachable once the document has been saved and therefore has an id.
-  const [emailOpen, setEmailOpen] = useState(false)
 
   // `documentRef` is gone with the DOM-clone print: nothing reads the A4 block's subtree any more, and
   // leaving a handle on it is an invitation to render this legal document a second way. See `handlePrint`.
@@ -875,7 +867,6 @@ export function DocumentEditorContent() {
             // FR-2.5: the ordre is pre-filled from the doctor's profile (set by the effect below); a value
             // stored on a legacy document is still read back so an older certificat keeps rendering its ordre.
             doctorOrderNumber: content.doctorOrderNumber || "",
-            renewals: content.renewals || "",
             startDate: content.startDate || "",
             durationUnit: durationUnitOf(content.durationUnit),
             objetMotif: content.objetMotif || "",
@@ -1061,7 +1052,6 @@ export function DocumentEditorContent() {
       content: "",
       duration: "",
       doctorOrderNumber: "",
-      renewals: "",
       startDate: "",
       durationUnit: DURATION_UNITS.jours,
       objetMotif: "",
@@ -1641,7 +1631,6 @@ export function DocumentEditorContent() {
       content.medications = Array.isArray(formFields.medications)
         ? JSON.stringify(formFields.medications)
         : "";
-      content.renewals = formFields.renewals || "";
     } else if (documentType === "liaison") {
       // The recipient's address/email + the norm sections ride in ContentJson (name/specialty go through the
       // recipient snapshot columns). `content` is the letter's primary free-text body.
@@ -1904,10 +1893,6 @@ export function DocumentEditorContent() {
           );
         } else {
           paragraphs.push(new Paragraph({ text: "Aucune prescription" }));
-        }
-        const renewalMention = formatRenewalMention(formFields.renewals);
-        if (renewalMention) {
-          paragraphs.push(new Paragraph({ text: renewalMention }));
         }
       } else if (documentType === "liaison") {
         const sections = liaisonSections();
@@ -2349,7 +2334,6 @@ export function DocumentEditorContent() {
 
       if (documentType === "prescription") {
         content.medications = formFields.medications // Array will be serialized as JSON
-        content.renewals = formFields.renewals
     } else if (documentType === "liaison") {
       // Same ContentJson shape the renderer reads (buildDocumentData) — the free-text body, the recipient's
       // address/email and the norm sections. Recipient name/specialty go through the update payload.
@@ -2812,24 +2796,6 @@ export function DocumentEditorContent() {
                   </div>
                 )}
 
-                {/* Renouvellement governs the whole ordonnance, so it sits with the document and not on a
-                    medication row. Blank = the ordonnance says nothing about renewal, which is the default. */}
-                <div className="space-y-2 pt-2">
-                  <Label htmlFor="renewals" className="text-sm font-semibold text-foreground">
-                    Renouvellement
-                  </Label>
-                  <Input
-                    id="renewals"
-                    type="text"
-                    placeholder="Ex : 2 — ou « non » pour non renouvelable"
-                    value={formFields.renewals}
-                    onChange={(e) => setFormFields({ ...formFields, renewals: e.target.value })}
-                    className="h-11"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Laissez vide pour ne rien mentionner. « non » ou « 0 » imprime « Ordonnance non renouvelable ».
-                  </p>
-                </div>
               </div>
             )}
 
@@ -3754,19 +3720,6 @@ export function DocumentEditorContent() {
                   Renouveler (nouvelle ordonnance)
                 </Button>
               )}
-              {/* Only offered once the document is saved: the server renders the attachment from its id, so
-                  there is nothing to send while the document exists only in this form. */}
-              {documentId && (
-                <Button
-                  variant="outline"
-                  className="w-full h-11 bg-transparent"
-                  onClick={() => setEmailOpen(true)}
-                  disabled={saving}
-                >
-                  <Mail className="w-4 h-4 mr-2" />
-                  Envoyer par e-mail
-                </Button>
-              )}
               <div className="grid grid-cols-2 gap-3">
                 <Button variant="outline" onClick={resetForm} className="h-11 bg-transparent">
                   <RotateCcw className="w-4 h-4 mr-2" />
@@ -4096,12 +4049,6 @@ export function DocumentEditorContent() {
                           Aucun médicament ajouté
                         </div>
                       )}
-                      {/* Governs the document, so it renders once below the lines — never against one médicament. */}
-                      {formatRenewalMention(formFields.renewals) && (
-                        <p className="italic pt-2" style={{ fontSize: '11pt' }}>
-                          {formatRenewalMention(formFields.renewals)}
-                        </p>
-                      )}
                     </div>
                   )}
 
@@ -4215,26 +4162,12 @@ export function DocumentEditorContent() {
         </div>
       </div>
 
-      {documentId && (
-        <SendDocumentEmailDialog
-          open={emailOpen}
-          onOpenChange={setEmailOpen}
-          documentKind={DOCUMENT_EMAIL_KINDS.MedicalDocument}
-          documentId={documentId}
-          documentLabel={getDocumentTitle()}
-          // A lettre de liaison goes to the confrère, not the patient — which is the whole point of the letter.
-          defaultRecipientEmail={documentType === "liaison" ? formFields.recipientEmail : null}
-          patientId={documentType === "liaison" ? null : selectedPatient || null}
-        />
-      )}
-
       {/* ⚠️ `mode: "saved"` reads the document back from the server rather than composing it here, so what is
           framed is byte-for-byte the paper the e-mail attaches. No `onEditInEditor`: this IS the editor. */}
       {documentId && (
         <DocumentPreviewDialog
           target={savedPreviewOpen ? { mode: "saved", documentId } : null}
           onClose={() => setSavedPreviewOpen(false)}
-          patientEmail={patientData?.email ?? null}
         />
       )}
 

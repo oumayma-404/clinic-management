@@ -22,8 +22,6 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { FileDown, CreditCard, Plus, Loader2, ReceiptText, MoreHorizontal, SearchX } from "lucide-react"
-import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
-import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
@@ -129,8 +127,6 @@ export function InvoicesTable({
   const [pdfInvoice, setPdfInvoice] = useState<InvoiceDto | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<InvoiceDto | null>(null)
   const [cancelTarget, setCancelTarget] = useState<InvoiceDto | null>(null)
-  // Which note d'honoraires « Envoyer par e-mail » was clicked for (a draft has no PDF, so it is never offered).
-  const [emailTarget, setEmailTarget] = useState<InvoiceDto | null>(null)
   const [cancelReason, setCancelReason] = useState("")
   /*
    * Each destructive dialog keeps its OWN refusal, inline and persistent.
@@ -436,9 +432,6 @@ export function InvoicesTable({
           )}
           {!isDraft && (
             <DropdownMenuItem onSelect={() => handleDownloadPdf(inv)}>Télécharger le PDF</DropdownMenuItem>
-          )}
-          {!isDraft && (
-            <DropdownMenuItem onSelect={() => setEmailTarget(inv)}>Envoyer par e-mail</DropdownMenuItem>
           )}
           {(isDraft || inv.canCancel) && <DropdownMenuSeparator />}
           {isDraft && (
@@ -856,18 +849,7 @@ export function InvoicesTable({
         </AlertDialogContent>
       </AlertDialog>
 
-      {emailTarget && (
-        <SendDocumentEmailDialog
-          open={Boolean(emailTarget)}
-          onOpenChange={(next) => { if (!next) setEmailTarget(null) }}
-          documentKind={DOCUMENT_EMAIL_KINDS.Invoice}
-          documentId={emailTarget.id}
-          documentLabel={`Note d'honoraires ${emailTarget.number ?? ""}`.trim()}
-          patientId={emailTarget.patientId}
-        />
-      )}
-
-      <Dialog
+       <Dialog
         open={!!cancelTarget}
         onOpenChange={(open) => { if (!open) { setCancelTarget(null); setCancelReason(""); setCancelError(null) } }}
       >

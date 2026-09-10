@@ -137,6 +137,8 @@ public static class Extensions
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<ICreditNoteRepository, CreditNoteRepository>();
         services.AddScoped<IClinicReminderSettingsRepository, ClinicReminderSettingsRepository>();
+        // ⚠️ Kept after « Envoyer par e-mail » was withdrawn: GetOutboxDepthQuery still counts the rows the
+        // outbox holds, and the send history is a practice's record of documents that really did go out.
         services.AddScoped<IDocumentEmailRepository, DocumentEmailRepository>();
         services.AddScoped<IUserDashboardPreferenceRepository, UserDashboardPreferenceRepository>();
         services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
@@ -438,11 +440,6 @@ public static class Extensions
             provider.GetRequiredService<IOsPushAvailability>(),
             configuration,
             provider.GetRequiredService<ILogger<PushNotificationGeneratorDecorator>>()));
-
-        // Outbound document emails — the SMTP sender for the document-email outbox (DocumentEmailJob). It reads
-        // its host/credentials/from-identity from the same IReminderSettingsProvider the two message channels
-        // use, so a clinic configures every outbound channel in one place.
-        services.AddScoped<IDocumentEmailSender, SmtpDocumentEmailSender>();
 
         // clinic-self-signup — the first email path in the product bound to NO clinic. It reads the per-install
         // `Notification:Smtp:*` section directly, and must keep doing so: its one caller runs before any clinic

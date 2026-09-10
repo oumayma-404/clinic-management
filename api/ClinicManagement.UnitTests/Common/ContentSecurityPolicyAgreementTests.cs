@@ -129,7 +129,9 @@ public class ContentSecurityPolicyAgreementTests
     public void The_Guard_Rejects_A_Caddy_Site_Whose_Policy_Drifts()
     {
         var drifted = File.ReadAllText(CaddyfilePath())
-            .Replace("frame-ancestors 'none'", "frame-ancestors 'self'", StringComparison.Ordinal);
+            // ⚠️ The drift must be a REAL one: the policy is `frame-ancestors 'self'` now, so mutating
+            // 'none' → 'self' changed nothing and this proof passed while proving nothing.
+            .Replace("frame-ancestors 'self'", "frame-ancestors *", StringComparison.Ordinal);
 
         var policies = ExtractCaddyPolicies(drifted);
 

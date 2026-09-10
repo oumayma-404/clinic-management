@@ -295,7 +295,14 @@ export function CardList<T>({
                 )}
               >
                 {rowFields.map((f) => (
-                  <div key={f.label} className="flex items-baseline justify-between gap-3">
+                  /* ⚠️ `flex-wrap` — a value that cannot fit BESIDE its label takes the next line, rather
+                     than running out of the card. With the `<dt>` `shrink-0` and a value that cannot shrink
+                     either (`Badge` is `whitespace-nowrap shrink-0`), this row had nowhere to put the
+                     remainder: measured at 320 px on a fiche carried by a devis, the label took ~96 px of
+                     ~161 px and « traitement 2026-0027 » was clipped at the card’s edge as
+                     « traitement 202 » — the devis number the badge exists to state being the half cut off.
+                     It is inert wherever the pair already fits, which is every card at every other width. */
+                  <div key={f.label} className="flex flex-wrap items-baseline justify-between gap-3">
                     <dt className="shrink-0 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
                       {f.label}
                     </dt>
@@ -305,7 +312,11 @@ export function CardList<T>({
                         `break-words` still rescues a long unbreakable token (an email, a reference) from
                         overflowing, which is what this needed to do, without slicing values that have their own
                         internal punctuation. */}
-                    <dd className="min-w-0 break-words text-end text-sm text-foreground">
+                    {/* `grow` so a value that HAS wrapped onto its own line still reads from the right edge:
+                        `justify-between` puts a lone item on a wrapped line at the START, which would move the
+                        figure to the left of the card only in the narrow case. Inert on a line that fits —
+                        `text-end` already paints against the right edge. */}
+                    <dd className="min-w-0 grow break-words text-end text-sm text-foreground">
                       {f.value}
                     </dd>
                   </div>

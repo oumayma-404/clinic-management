@@ -172,7 +172,6 @@ public class PrescriptionLinesTests
         var json = PrescriptionLines.BuildPrescriptionContentJson(
             new PrescriptionInput
             {
-                Renewals = "2",
                 Lines = new List<PrescriptionLineInput>
                 {
                     new()
@@ -206,7 +205,6 @@ public class PrescriptionLinesTests
         Assert.Equal(new[] { "Amoxicilline" }, read[0].Dci);
         Assert.Equal(PrescriptionLineKinds.Examen, read[1].Kind);
         Assert.Equal("Bilan sanguin : NFS", read[1].Name);
-        Assert.Equal("2", PrescriptionLines.ReadRenewals(json));
     }
 
     [Fact]
@@ -220,19 +218,20 @@ public class PrescriptionLinesTests
         Assert.Equal("2026-09-08", (string?)Parse(json)["date"]);
     }
 
+    /// <summary>
+    /// ⚠️ The renouvellement was WITHDRAWN (« we do not need it »), so no ordonnance carries the key any more —
+    /// asserted rather than deleted, because the composer used to write it and a reader working from R.5132-3
+    /// would put it back. The legacy direction is left alone on purpose: a document saved before the withdrawal
+    /// keeps its stored `renewals` and simply prints one line fewer.
+    /// </summary>
     [Fact]
-    public void A_Blank_Renouvellement_Is_Not_Written_At_All()
+    public void No_Ordonnance_Carries_A_Renouvellement_Any_More()
     {
         var json = PrescriptionLines.BuildPrescriptionContentJson(
-            new PrescriptionInput
-            {
-                Renewals = "   ",
-                Lines = new List<PrescriptionLineInput> { Medicament("Ibuprofène") },
-            },
+            new PrescriptionInput { Lines = new List<PrescriptionLineInput> { Medicament("Ibuprofène") } },
             Intervention);
 
         Assert.False(Parse(json).ContainsKey("renewals"));
-        Assert.Null(PrescriptionLines.ReadRenewals(json));
     }
 
     // ── Reading what is already stored ────────────────────────────────────────────────────────────────────────
@@ -249,7 +248,6 @@ public class PrescriptionLinesTests
         // exception here would surface as a French business failure on the fiche.
         Assert.Empty(PrescriptionLines.Read(contentJson));
         Assert.Empty(PrescriptionLines.ShortLabels(contentJson));
-        Assert.Null(PrescriptionLines.ReadRenewals(contentJson));
     }
 
     /// <summary>
@@ -353,8 +351,7 @@ public class PrescriptionLinesTests
         var json = PrescriptionLines.BuildExamensContentJson(
             new[] { Examen("Panoramique") }, Intervention);
 
-        Assert.False(Parse(json).ContainsKey(PrescriptionLines.RenewalsKey));
-        Assert.Null(PrescriptionLines.ReadRenewals(json));
+        Assert.False(Parse(json).ContainsKey("renewals"));
     }
 
     [Fact]

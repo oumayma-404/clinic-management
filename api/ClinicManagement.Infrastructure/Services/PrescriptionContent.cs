@@ -15,7 +15,7 @@ namespace ClinicManagement.Infrastructure.Services;
 public sealed record PrescriptionLine(string Heading, string Posology, string Details);
 
 /// <summary>The composed ordonnance body: the prescribed lines plus the optional renewal mention.</summary>
-public sealed record PrescriptionBody(IReadOnlyList<PrescriptionLine> Lines, string? RenewalMention);
+public sealed record PrescriptionBody(IReadOnlyList<PrescriptionLine> Lines);
 
 /// <summary>
 /// Builds the body of an ordonnance from its <c>ContentJson</c>. Pure and deterministic so it can be
@@ -30,23 +30,24 @@ public sealed record PrescriptionBody(IReadOnlyList<PrescriptionLine> Lines, str
 /// </para>
 /// <para>
 /// Each line still carries what R.5132-3 requires of the paper: the médicament, la dose, la posologie, la voie,
-/// la durée and la quantité. The <b>renouvellement</b> mention is per-ordonnance, not per line: it governs the
-/// document, and printing it against one médicament would read as applying to that one only.
+/// la durée and la quantité.
+/// ⚠️ <b>The renouvellement mention is GONE, deliberately</b> — « let's remove the renouvellement logic, we do
+/// not need it ». It was per-ordonnance rather than per line and printed « Ordonnance non renouvelable. »
+/// below the lines. No migration: a legacy document keeps a <c>renewals</c> key in its <c>ContentJson</c> and
+/// re-rendering it now prints one line fewer. ⚠️ Read this before restoring it from R.5132-3, which does list
+/// renouvellement — the same trap the withdrawn « Sexe » and « Poids » left one file over.
 /// </para>
 /// Every element is optional and omitted when unset, so a legacy prescription still prints its médicament and
 /// whatever posologie it carried.
 /// </summary>
 public static class PrescriptionContent
 {
-    /// <summary>Printed when the prescriber marked the ordonnance non-renewable.</summary>
-    public const string NonRenewableMention = "Ordonnance non renouvelable.";
-
     public static PrescriptionBody Build(IReadOnlyDictionary<string, string> content)
     {
         ArgumentNullException.ThrowIfNull(content);
 
         var lines = ParseLines(content.GetValueOrDefault("medications"));
-        return new PrescriptionBody(lines, RenewalMention(content.GetValueOrDefault("renewals")));
+        return new PrescriptionBody(lines);
     }
 
     /// <summary>
@@ -108,28 +109,6 @@ public static class PrescriptionContent
         return quantityText == null ? text : Append(text, $"quantité : {quantityText}", " — ");
     }
 
-    /// <summary>
-    /// The renewal mention. A blank value prints nothing (the ordonnance is silent on renewal, which is the
-    /// default); the literal <c>"0"</c> or <c>"non"</c> is the explicit « non renouvelable »; anything else is
-    /// printed as a count.
-    /// </summary>
-    private static string? RenewalMention(string? renewals)
-    {
-        var value = Trimmed(renewals);
-        if (value == null)
-        {
-            return null;
-        }
-
-        if (value.Equals("0", StringComparison.Ordinal) || value.Equals("non", StringComparison.OrdinalIgnoreCase))
-        {
-            return NonRenewableMention;
-        }
-
-        return int.TryParse(value, out var times) && times == 1
-            ? "Ordonnance à renouveler 1 fois."
-            : $"Ordonnance à renouveler {value} fois.";
-    }
 
     /// <summary>
     /// Parses the medications blob. The new shape is a JSON array; a pre-existing document holds a plain string,

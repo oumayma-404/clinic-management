@@ -163,7 +163,6 @@ export const medicalDocumentsApi = {
         medicationId?: string;
         dci?: string[];
       }[];
-      renewals?: string;
     };
   }): Promise<Blob> => apiPostBlob('/medical-documents/fiche-ordonnance-preview', request),
 };

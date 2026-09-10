@@ -154,7 +154,8 @@ public class SecurityHeadersMiddlewareTests
         var headers = await HeadersFor(Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant))));
 
         Assert.Equal("nosniff", headers["X-Content-Type-Options"].ToString());
-        Assert.Equal("DENY", headers["X-Frame-Options"].ToString());
+        // SAMEORIGIN, not DENY: the app frames its own PDF preview — see the middleware's CSP docstring.
+        Assert.Equal("SAMEORIGIN", headers["X-Frame-Options"].ToString());
         Assert.Equal("strict-origin-when-cross-origin", headers["Referrer-Policy"].ToString());
     }
 

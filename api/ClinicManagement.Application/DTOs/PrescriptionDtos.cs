@@ -19,13 +19,6 @@ public class PrescriptionInput
     public List<PrescriptionLineInput> Lines { get; set; } = new();
 
     /// <summary>
-    /// The renouvellement mention, which governs the whole ordonnance and never a single line. Blank prints
-    /// nothing; <c>"0"</c> / <c>"non"</c> prints « Ordonnance non renouvelable. » See
-    /// <c>PrescriptionContent.RenewalMention</c>.
-    /// </summary>
-    public string? Renewals { get; set; }
-
-    /// <summary>
     /// The <c>Version</c> of the ordonnance the modal read when it opened, round-tripped so a save cannot
     /// overwrite an edit made through <c>/documents/prescription</c> in the meantime. <b>0 means « not
     /// supplied »</b> and turns the check off, which is the solution-wide rule.

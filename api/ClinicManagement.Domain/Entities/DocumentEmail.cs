@@ -22,6 +22,22 @@ namespace ClinicManagement.Domain.Entities;
 /// have — and doing it up-front means an unrenderable document is refused at the click instead of failing
 /// silently a minute later. The blob is deleted once the row reaches a terminal state.
 /// </para>
+///
+/// <para>
+/// ⚠️ <b>THE FEATURE IS WITHDRAWN. This type survives to keep its two tables mapped, and nothing else.</b>
+/// « let's remove send email feature from documents, from everywhere in the app, it's not gonna work » — and
+/// the reason it could not work is not in this code: a relay only sends as an address it has validated, the
+/// practitioners' addresses are on <c>gmail.com</c> and similar, and a domain you do not own cannot be
+/// authenticated. So the queue command, the attachment renderer, the controller, the minutely dispatcher, the
+/// SMTP sender, the repository and every « Envoyer par e-mail » control are gone; <c>Documents</c> offers
+/// <b>WhatsApp</b> instead, which shares the PDF from the device and needs no sender identity at all.
+/// </para>
+/// <para>
+/// ⚠️ <b>Do not delete this class without a migration.</b> The rows are a practice's send history and
+/// <c>verify-schema</c> compares the model against PostgreSQL's own catalog, so removing the entity alone
+/// reports the two tables as drift — and dropping them destroys the record of documents that really were sent.
+/// It has no readers by design; that is the withdrawal, not an oversight.
+/// </para>
 /// </summary>
 public class DocumentEmail : Entity<Guid>
 {
