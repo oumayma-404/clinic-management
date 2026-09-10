@@ -241,6 +241,36 @@ the *row* does not help when there is only one child. Either let that one child 
 (`ui/empty-state.tsx`'s action row) or shorten the *visible* half and keep the full phrase in `aria-label`
 (`odontogram.tsx`'s « Créer un plan »). Never truncate: the label is the control's name.
 
+## § 10.2 Inside a fixed-width panel, a viewport hinge measures the wrong box
+
+`sm:` / `md:` ask how wide the **window** is. Inside a panel that does not grow with it, that is not the
+question — and the two answers diverge in the direction nobody checks, because a **desktop ends up narrower
+than a phone**.
+
+The document editor is the measured case: its form column is `xl:w-[420px]` with `md:p-8`, so from 1280 px up
+its content box is **356 px**, while `sm:` has been true since 640. A `sm:grid-cols-[1fr_5rem_7rem_auto]` act
+row therefore laid out four tracks in 356 px and left the désignation input about **64 px** — at 390 px, where
+the panel is full width, the same row was one column and the field was 303 px. Reported as « the input fields
+are so tiny impossible to use », and invisible to `tsc`, to `check:responsive` and to an eye pass at the width
+you develop at, because at 820 px and 1180 px it is fine.
+
+Hinge on the **container** instead — Tailwind v4 ships container queries, and `card.tsx` / `table.tsx` already
+use them:
+
+```tsx
+<div className="@container">                          {/* the panel that owns the width */}
+  <div className="grid grid-cols-1 @lg:grid-cols-[1fr_5rem_7rem_auto]" />
+</div>
+```
+
+Pick the step by measuring, not by matching the viewport one: `@md` (448 px) still left that row's input ~156 px
+once its catalogue button was taken out, so it is `@lg` (512 px). Any inline label paired with the row
+(`sm:hidden`) moves to the same variant, or the two disagree about when the row exists.
+
+**The reach for this is: does this element's own width follow the viewport?** A page-level table does — keep
+`md:`/`lg:`. A sidebar form, a fixed rail, a dialog with a declared `md:max-w-*`, a two-column desk whose left
+side is pinned: those do not.
+
 ## § 11 Overflow scrolls in its own container
 
 The page body **never** scrolls horizontally at 320 px. Wide content (a table, the agenda grid, a code block,
