@@ -90,6 +90,17 @@ public class SecurityHeadersMiddleware
 /// <para>⚠️ <b>This covers only what Kestrel serves.</b> Behind the hosted reverse proxy that is <c>/api/*</c>
     /// alone, so the page-side copy of this policy lives in <c>deploy/Caddyfile</c>'s page-response block. The two
     /// are byte-identical and must be changed together.</para>
+    ///
+    /// <para>⚠️ <b><c>frame-ancestors 'self'</c>, not <c>'none'</c> — and the pair with it is
+    /// <c>X-Frame-Options: SAMEORIGIN</c>.</b> Both of those refuse <i>same-origin</i> framing when set to
+    /// <c>'none'</c>/<c>DENY</c>, and this application frames its own documents: « Voir le document » puts
+    /// <c>/bff/pdf/&lt;kind&gt;/&lt;id&gt;/&lt;name&gt;</c> in an iframe so a pharmacist's paper is previewed
+    /// as the bytes that will be printed. In production that arrived as « app.apexa.tn refused to connect »,
+    /// with the dialog's Imprimer — <c>contentWindow.print()</c> on that frame — silently doing nothing.
+    /// ⚠️ <b>Invisible in development</b>: Next emits no headers when <c>AUTH_MODE=local</c> and there is no
+    /// Caddy in front, so the whole feature was verified against a browser that had no policy at all. The
+    /// clickjacking threat these headers exist for is <i>cross-origin</i> framing, which <c>'self'</c> still
+    /// refuses outright.</para>
     /// </summary>
     public const string ContentSecurityPolicy =
         "default-src 'self'; "
@@ -101,7 +112,7 @@ public class SecurityHeadersMiddleware
         + "worker-src 'self' blob:; "
         + "object-src 'self' blob:; "
         + "frame-src 'self' blob:; "
-        + "frame-ancestors 'none'; "
+        + "frame-ancestors 'self'; "
         + "base-uri 'self'; "
         + "form-action 'self'; "
         + "report-uri /api/csp-report; "
@@ -153,7 +164,7 @@ public class SecurityHeadersMiddleware
             var headers = context.Response.Headers;
 
             headers["X-Content-Type-Options"] = "nosniff";
-            headers["X-Frame-Options"] = "DENY";
+            headers["X-Frame-Options"] = "SAMEORIGIN";
             headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
             headers["Permissions-Policy"] = PermissionsPolicy;
             headers["Reporting-Endpoints"] = ReportingEndpoints;
