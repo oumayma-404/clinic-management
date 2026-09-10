@@ -69,24 +69,28 @@ public class SmtpDocumentEmailSender : IDocumentEmailSender
                 client.Credentials = new NetworkCredential(settings.SmtpUsername, settings.SmtpPassword ?? string.Empty);
             }
 
-            var from = string.IsNullOrWhiteSpace(settings.SmtpFromName)
-                ? new MailAddress(settings.SmtpFromAddress)
-                : new MailAddress(settings.SmtpFromAddress, settings.SmtpFromName);
+            var identity = DocumentEmailIdentity.ForPractitioner(
+                settings.SmtpFromAddress, settings.SmtpFromName, message.SenderEmail, message.SenderName);
 
-            using var mail = new MailMessage
+            try
             {
-                From = from,
-                Subject = message.Subject,
-                Body = message.Body,
-                IsBodyHtml = false
-            };
-            mail.To.Add(new MailAddress(message.RecipientEmail));
-
-            using var attachmentStream = new MemoryStream(message.Attachment, writable: false);
-            mail.Attachments.Add(new Attachment(attachmentStream, message.AttachmentFileName, "application/pdf"));
-
-            await client.SendMailAsync(mail, cancellationToken);
-            return DocumentEmailSendResult.Sent;
+                await SendAsAsync(client, message, identity, cancellationToken);
+                return DocumentEmailSendResult.Sent;
+            }
+            catch (SmtpException ex) when (identity.SpeaksForSomeoneElse)
+            {
+                // ⚠️ **The one retry, and it is not a retry loop.** A relay that refuses a `From` its account
+                // is not authorised for answers 5.x.x and no amount of waiting changes it, so the row would
+                // burn every attempt and be marked failed — a document the practitioner was told had been
+                // sent. Falling back to the cabinet's own identity keeps them on `Reply-To`.
+                _logger.LogInformation(
+                    ex,
+                    "SMTP refused the practitioner's From address; resending as the cabinet with the practitioner on Reply-To.");
+                var fallback = DocumentEmailIdentity.Configured(
+                    settings.SmtpFromAddress, settings.SmtpFromName, message.SenderEmail, message.SenderName);
+                await SendAsAsync(client, message, fallback, cancellationToken);
+                return DocumentEmailSendResult.Sent;
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -104,4 +108,43 @@ public class SmtpDocumentEmailSender : IDocumentEmailSender
             return DocumentEmailSendResult.Transient(ex.Message);
         }
     }
+
+    /// <summary>
+    /// Builds and sends one message under the given identity. A fresh <see cref="MailMessage"/> and a fresh
+    /// attachment stream every call — a sent message's stream is at its end, so reusing either would attach
+    /// zero bytes on the retry above.
+    /// </summary>
+    private static async Task SendAsAsync(
+        SmtpClient client,
+        DocumentEmailMessage message,
+        DocumentEmailIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        using var mail = new MailMessage
+        {
+            From = Address(identity.FromAddress, identity.FromDisplayName),
+            Subject = message.Subject,
+            Body = message.Body,
+            IsBodyHtml = false
+        };
+        mail.To.Add(new MailAddress(message.RecipientEmail));
+
+        if (identity.SenderAddress != null)
+        {
+            mail.Sender = new MailAddress(identity.SenderAddress);
+        }
+
+        if (identity.ReplyToAddress != null)
+        {
+            mail.ReplyToList.Add(Address(identity.ReplyToAddress, identity.ReplyToDisplayName));
+        }
+
+        using var attachmentStream = new MemoryStream(message.Attachment, writable: false);
+        mail.Attachments.Add(new Attachment(attachmentStream, message.AttachmentFileName, "application/pdf"));
+
+        await client.SendMailAsync(mail, cancellationToken);
+    }
+
+    private static MailAddress Address(string address, string? displayName) =>
+        string.IsNullOrWhiteSpace(displayName) ? new MailAddress(address) : new MailAddress(address, displayName);
 }

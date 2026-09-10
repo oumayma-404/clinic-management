@@ -37,6 +37,8 @@ public class DocumentEmailJob
     private const int BlockedReviewBatchSize = 50;
 
     private readonly IDocumentEmailRepository _documentEmailRepository;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IUserRepository _userRepository;
     private readonly IDocumentEmailSender _sender;
     private readonly IReminderSettingsProvider _settingsProvider;
     private readonly IFileStorage _fileStorage;
@@ -48,6 +50,8 @@ public class DocumentEmailJob
 
     public DocumentEmailJob(
         IDocumentEmailRepository documentEmailRepository,
+        IDoctorRepository doctorRepository,
+        IUserRepository userRepository,
         IDocumentEmailSender sender,
         IReminderSettingsProvider settingsProvider,
         IFileStorage fileStorage,
@@ -58,6 +62,8 @@ public class DocumentEmailJob
         ILogger<DocumentEmailJob> logger)
     {
         _documentEmailRepository = documentEmailRepository;
+        _doctorRepository = doctorRepository;
+        _userRepository = userRepository;
         _sender = sender;
         _settingsProvider = settingsProvider;
         _fileStorage = fileStorage;
@@ -146,6 +152,48 @@ public class DocumentEmailJob
         }
     }
 
+    /// <summary>
+    /// The practitioner the mail is sent on behalf of — resolved at dispatch from the account that pressed
+    /// « Envoyer », never snapshotted, so a corrected address is the one used.
+    /// <para>
+    /// The praticien record's own address first and the login account's second: they are usually the same
+    /// mailbox, and when they differ the professional one is the address on the document's letterhead.
+    /// Everything here is best-effort — a row whose author has since been deleted still goes out under the
+    /// cabinet's identity, which is what happened for every document before this.
+    /// </para>
+    /// </summary>
+    private async Task<(string? Email, string? Name)> ResolveSenderIdentityAsync(DocumentEmail row)
+    {
+        if (string.IsNullOrWhiteSpace(row.RequestedByUserId))
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            var doctor = await _doctorRepository.GetByUserIdAsync(row.RequestedByUserId);
+            if (doctor != null && !string.IsNullOrWhiteSpace(doctor.Email))
+            {
+                return (doctor.Email, doctor.FullName);
+            }
+
+            var user = await _userRepository.GetByIdAsync(row.RequestedByUserId);
+            if (user != null && !string.IsNullOrWhiteSpace(user.Email))
+            {
+                return (user.Email, string.IsNullOrWhiteSpace(user.FullName) ? doctor?.FullName : user.FullName);
+            }
+
+            return (null, doctor?.FullName);
+        }
+        catch (Exception ex)
+        {
+            // PII: neither address nor name is logged — the row id finds them.
+            _logger.LogWarning(
+                ex, "Could not resolve the sender for document email {DocumentEmailId}; sending as the cabinet.", row.Id);
+            return (null, null);
+        }
+    }
+
     private async Task DispatchOneAsync(DocumentEmail row, int maxAttempts)
     {
         // The row's own clinic, not the caller's — the job has no clinic in scope, which is what lets one tick
@@ -180,8 +228,12 @@ public class DocumentEmailJob
             return;
         }
 
+        var (senderEmail, senderName) = await ResolveSenderIdentityAsync(row);
+
         var result = await _sender.SendAsync(
-            new DocumentEmailMessage(row.RecipientEmail, row.Subject, row.Body, attachment, row.AttachmentFileName),
+            new DocumentEmailMessage(
+                row.RecipientEmail, row.Subject, row.Body, attachment, row.AttachmentFileName,
+                senderEmail, senderName),
             settings);
 
         switch (result.Outcome)
