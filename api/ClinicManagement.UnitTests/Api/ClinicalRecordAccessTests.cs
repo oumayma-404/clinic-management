@@ -42,6 +42,11 @@ public class ClinicalRecordAccessTests
         (typeof(DentalRecordsController), nameof(DentalRecordsController.GetDentalRecords)),
         (typeof(DentalRecordsController), nameof(DentalRecordsController.CreateDentalRecord)),
         (typeof(DentalRecordsController), nameof(DentalRecordsController.UpdateDentalRecord)),
+        // The same fiches, priced — what the note d'honoraires editor offers under « Reprendre des actes
+        // réalisés ». `AnyClinicRole` because it is a strict projection of `GetDentalRecords` directly above,
+        // which every role may read: tightening it would refuse reception the acts they can already see on the
+        // patient's own page, and the fee note is a document the desk raises.
+        (typeof(DentalRecordsController), nameof(DentalRecordsController.GetBillableActLines)),
 
         // The odontogram. RemoveCondition is here rather than with the deletes: it removes a charted *diagnosis*
         // — charting's own undo, for the tooth someone just mis-clicked — and cannot touch a treatment entry,

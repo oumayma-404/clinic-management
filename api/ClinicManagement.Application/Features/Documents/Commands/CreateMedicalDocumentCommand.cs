@@ -97,14 +97,12 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             // ⚠️ « note d'honoraires » is a document again, and it is NOT an Invoice. It mints no number, enters
             // no balance and reaches no money read — see HonorairesContent. The fiscal note lives in Factures.
 
-            // FR-4.1/FR-4.2: a lettre de liaison addresses an external confrère — the recipient name is the
-            // only required field (specialty/address and the guided clinical fields are all optional).
-            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Liaison
-                && string.IsNullOrWhiteSpace(request.RecipientDoctorName))
-            {
-                return Result<MedicalDocumentDto>.Failure(
-                    "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
-            }
+            // ⚠️ A lettre de liaison has NO required recipient any more, and this is a tombstone, not an
+            // omission. The letter became a blank letterhead — entête, date, titre, texte libre — and the
+            // « Confrère destinataire » fieldset went with the « À l'attention de » block it fed, so the guard
+            // that used to stand here could only refuse every letter this editor can write.
+            // `RecipientDoctorName` / `RecipientDoctorSpecialty` stay on the command and the row so a letter
+            // saved with them keeps them; nothing writes them.
 
             // A bulletin de soins is the one document here that a third party refuses: the caisse rejects it on
             // any missing mandatory field, and every one of those fields degraded silently before this (a blank

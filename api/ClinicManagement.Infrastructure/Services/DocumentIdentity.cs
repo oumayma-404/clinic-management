@@ -1,4 +1,5 @@
-using ClinicManagement.Application.Common.Models;
+﻿using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Documents;
 
 namespace ClinicManagement.Infrastructure.Services;
 
@@ -51,13 +52,33 @@ public static class DocumentIdentity
         // practitioner snapshot existed carry a hand-typed ordre under that key, and the certificat branch used
         // to apply this fallback itself. Dropping it while moving the number into this block would silently
         // erase the ordre from every legacy certificat.
-        var ordre = !string.IsNullOrWhiteSpace(data.DoctorOrdreNumber)
-            ? data.DoctorOrdreNumber
-            : data.Content.GetValueOrDefault("doctorOrderNumber");
-        Add(lines, Prefixed("N° CNOMDT : ", ordre));
+        if (CarriesOrdreNumber(data.DocumentType))
+        {
+            var ordre = !string.IsNullOrWhiteSpace(data.DoctorOrdreNumber)
+                ? data.DoctorOrdreNumber
+                : data.Content.GetValueOrDefault("doctorOrderNumber");
+            Add(lines, Prefixed("N° CNOMDT : ", ordre));
+        }
 
         return lines;
     }
+
+    /// <summary>
+    /// Whether this document's letterhead carries the practitioner's CNOMDT number.
+    /// <para>
+    /// ⚠️ The <b>certificat médical</b> is the exception, on the practice owner's instruction: it is a single
+    /// sentence signed and stamped by its author, and the cachet already identifies them. Everything else keeps
+    /// it — an ordonnance is required to carry it (R.5132-3), and it is what makes a lettre de liaison or a
+    /// bulletin traceable to a registered practitioner.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>No migration.</b> A certificat issued before this still holds <c>doctorOrderNumber</c> in its
+    /// ContentJson; the key is simply no longer read for that type, so re-rendering an old one now prints one
+    /// line fewer. That is the intended behaviour. The editor stopped writing the key with this change.
+    /// </para>
+    /// </summary>
+    private static bool CarriesOrdreNumber(string documentType) =>
+        !string.Equals(documentType?.Trim(), DocumentTypes.Certificat, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The patient identity lines, labelled, in reading order: nom, date de naissance, sexe, poids — plus the

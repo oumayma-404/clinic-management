@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Invoices.Queries;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.Patients.Queries;
 
@@ -40,6 +41,32 @@ public class DentalRecordsController : ApiControllerBase
     {
         var query = new GetDentalRecordsQuery { PatientId = patientId };
         var result = await _mediator.Send(query);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Every act this patient's fiches have recorded, priced as billable lines — what the note d'honoraires
+    /// editor's « Reprendre des actes réalisés » offers.
+    /// <para>
+    /// ⚠️ Read-only, and it mints nothing: the editor writes a printable <c>MedicalDocument</c>, never an
+    /// <c>Invoice</c>. It lives on this route because the acts are the fiches' — and the pricing rule is
+    /// <c>DentalRecordInvoiceLines</c>', which is why this is a server read and not a helper in the browser.
+    /// </para>
+    /// <para>
+    /// Placed <b>above</b> <c>[HttpPut("{id}")]</c>'s sibling literal routes for readability only; a literal
+    /// segment outranks a parameterised one in ASP.NET routing whatever the declaration order.
+    /// </para>
+    /// </summary>
+    [HttpGet("billable-lines")]
+    public async Task<ActionResult<IEnumerable<BillableActLineDto>>> GetBillableActLines(Guid patientId)
+    {
+        var result = await _mediator.Send(new GetPatientBillableActLinesQuery { PatientId = patientId });
 
         if (result.IsFailure)
         {

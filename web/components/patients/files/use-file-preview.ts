@@ -16,7 +16,7 @@ import { showErrorToast } from "@/lib/errors"
 import type { UploadPolicy } from "@/lib/api/upload-policy"
 import type { PatientFileDto } from "@/lib/api/types"
 
-import { previewMode } from "./file-kind"
+import { previewMode, type PreviewMode } from "./file-kind"
 
 /**
  * Opening, holding, navigating and releasing a patient file's preview — **one copy** (AC-5.3).
@@ -190,11 +190,18 @@ export function useFilePreview(
   }, [release])
 
   /**
-   * Fetches the original and runs the decoder over it. The slow path — on a 51 Mpx HEIF this is about eleven
-   * seconds of libheif, which is why it is not what opening a file does by default.
+   * Fetches the original and paints it — straight for a format the browser renders unaided, through a decoder
+   * for one it does not. On a 51 Mpx HEIF the decode is about eleven seconds, which is why it is not what
+   * opening a file does by default.
+   *
+   * ⚠️ **`mode` is a parameter and not re-derived here, and the native branch it selects is load-bearing.**
+   * Extracting this function out of `open` dropped that branch, so every PDF, PNG and JPEG went to
+   * `decodeForViewing` — which has no decoder for any of them, answers null by contract, and made the dialog
+   * report « ce format ne s'affiche pas dans le navigateur » about a file the browser paints natively. Measured
+   * on a saved ordonnance's own PDF, in the folder the document module writes it to.
    */
-  const decodeOriginal = useCallback(
-    async (target: PatientFileDto, token: number) => {
+  const loadOriginal = useCallback(
+    async (target: PatientFileDto, mode: PreviewMode, token: number) => {
       setStage("fetching")
       const source = await sourceBytes(patientId, target, vaultRef.current ?? null)
       if (token !== requestId.current) return
@@ -203,6 +210,15 @@ export function useFilePreview(
         // ⚠️ Not an error, and not « undecodable » either. A coffre original lives on the machine that
         // recorded it, and a colleague's laptop legitimately has no copy.
         setUnavailable("elsewhere")
+        return
+      }
+
+      if (mode === "image" || mode === "pdf") {
+        release()
+        liveUrl.current = window.URL.createObjectURL(source)
+        setUrl(liveUrl.current)
+        setRender(mode)
+        setStandingIn(null)
         return
       }
 
@@ -291,7 +307,7 @@ export function useFilePreview(
             return
           }
 
-          await decodeOriginal(target, token)
+          await loadOriginal(target, mode, token)
         } catch (error) {
           if (token !== requestId.current) return
           // The dialog used to close itself with no explanation, which reads as « the click did nothing ».
@@ -305,7 +321,7 @@ export function useFilePreview(
         }
       })()
     },
-    [patientId, release, decodeOriginal],
+    [patientId, release, loadOriginal],
   )
 
   /** Runs the decode the fast path skipped, for the file currently on screen. */
@@ -317,7 +333,8 @@ export function useFilePreview(
     setLoading(true)
     void (async () => {
       try {
-        await decodeOriginal(target, token)
+        // Always the decoder: a stand-in only ever exists for a format the browser cannot paint.
+        await loadOriginal(target, "decode", token)
       } catch (error) {
         if (token !== requestId.current) return
         showErrorToast(error, "Impossible d'afficher cette image en pleine résolution.")
@@ -328,7 +345,7 @@ export function useFilePreview(
         }
       }
     })()
-  }, [standingIn, decodeOriginal])
+  }, [standingIn, loadOriginal])
 
   const loadSource = useCallback(async () => {
     if (!file) return null

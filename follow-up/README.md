@@ -24,6 +24,7 @@ Track incomplete work, bugs, and technical debt across all features.
 | [The sidecars' secrets still reach them as environment variables (FR-3.10, second half)](./hosted-secrets-to-files.md) | hosted-security-hardening | debt | medium | 2026-08-12 |
 | [The hosted security layer is running reduced on Render's free tier — restore it on a real VM](./render-free-tier-transit-relaxation.md) | hosted-security-hardening | debt | **high** | 2026-08-12 |
 | [The landing page shipped with its captures — five corrections deferred (a wrong phone capture, page weight)](./landing-v5-shipped-corrections.md) | landing-v2 | incomplete | medium | 2026-08-19 |
+| [The PDF viewer's own toolbar saves as a bare UUID, with no name or extension](./pdf-viewer-toolbar-saves-without-a-name.md) | documents | bug | medium | 2026-09-10 |
 
 ## Completed Items
 

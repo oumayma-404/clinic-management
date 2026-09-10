@@ -93,9 +93,33 @@ export interface PrescriptionInput {
   examensDocumentVersion?: number;
 }
 
+/**
+ * One act a fiche recorded, priced exactly as the Factures module would bill it.
+ *
+ * ⚠️ **Served, never derived here.** `DentalRecordActDto` already carries `cost`, `unitCost`, `isPerTooth` and
+ * `toothNumbers`, so the per-tooth-vs-forfait rule *could* be written in this file — and that is precisely the
+ * second pricing authority `DentalRecordInvoiceLines` was moved server-side to remove. The two documents would
+ * then be free to disagree about what the same séance costs.
+ */
+export interface BillableActLine {
+  /** Identifies the offered row to the picker, and nothing else. */
+  key: string;
+  dentalRecordId: string;
+  interventionDate: string;
+  /** « Composite (dents 16, 26) » — the act, never the diagnosis. */
+  designation: string;
+  quantity: number;
+  unitPriceHt: number;
+}
+
 export const dentalRecordsApi = {
   list: async (patientId: string): Promise<DentalRecordDto[]> => {
     return apiGet<DentalRecordDto[]>(`/patients/${patientId}/dental-records`);
+  },
+
+  /** @see BillableActLine — the note d'honoraires editor's « Reprendre des actes réalisés ». */
+  billableLines: async (patientId: string): Promise<BillableActLine[]> => {
+    return apiGet<BillableActLine[]>(`/patients/${patientId}/dental-records/billable-lines`);
   },
 
   create: async (patientId: string, data: CreateDentalRecordRequest): Promise<DentalRecordDto> => {
