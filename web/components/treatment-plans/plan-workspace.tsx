@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { EmptyState } from "@/components/ui/empty-state"
 import {
   ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
-  CalendarClock, CalendarPlus, ChevronRight, Layers, ListChecks, MoreHorizontal, X, Mail, Undo2,
+  CalendarClock, CalendarPlus, ChevronRight, Layers, ListChecks, MoreHorizontal, X, Undo2,
   Trash2,
   CircleSlash,
   RotateCcw,
@@ -73,17 +73,6 @@ import { ReviseInstallmentsModal } from "./revise-installments-modal"
 import { VoidInstallmentPayment } from "./void-installment-payment"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
-import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
-import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
-
-/** What « Envoyer par e-mail » was clicked for — the devis itself, or one échéance's receipt. */
-interface PlanEmailTarget {
-  kind: DocumentEmailKind
-  documentId: string
-  installmentId?: string
-  paymentId?: string
-  label: string
-}
 
 /**
  * A plan-level state change waiting for the user to say yes.
@@ -223,7 +212,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [voidTarget, setVoidTarget] = useState<{ installment: InstallmentDto; payment: InstallmentPaymentDto } | null>(
     null,
   )
-  const [emailTarget, setEmailTarget] = useState<PlanEmailTarget | null>(null)
   /** Bookings still to make, each element being one appointment. Only ever empty or a single group now — the bar's
    * « séparément » split (N groups of one) was removed as a duplicate of each act's own « Planifier ». */
   const [bookingQueue, setBookingQueue] = useState<PresetPlanAct[][]>([])
@@ -972,17 +960,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                     <FileDown className="h-4 w-4" />
                     Devis PDF
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={busy}
-                    onSelect={() => setEmailTarget({
-                      kind: DOCUMENT_EMAIL_KINDS.TreatmentPlan,
-                      documentId: plan.id,
-                      label: `Devis ${plan.number ?? ""}`.trim(),
-                    })}
-                  >
-                    <Mail className="h-4 w-4" />
-                    Envoyer par e-mail
-                  </DropdownMenuItem>
 
                   {/*
                     Le traitement. ⚠️ « Modifier les actes et les prix », not « Modifier le devis » — see the
@@ -1573,20 +1550,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                             Reçu — {formatDT(payment.amount)} du {formatDateFr(payment.paidOn)}
                           </DropdownMenuItem>
                         ))}
-                        {receipts.map((payment) => (
-                          <DropdownMenuItem
-                            key={`email-${payment.id}`}
-                            onSelect={() => setEmailTarget({
-                              kind: DOCUMENT_EMAIL_KINDS.InstallmentPaymentReceipt,
-                              documentId: plan.id,
-                              installmentId: inst.id,
-                              paymentId: payment.id,
-                              label: `Reçu d'échéance ${formatDT(payment.amount)}`,
-                            })}
-                          >
-                            Envoyer par e-mail — {formatDT(payment.amount)}
-                          </DropdownMenuItem>
-                        ))}
                         {/* AC-5 — the correction the échéancier never had. Offered per live payment, like the
                             receipts: an échéance can hold several and only one of them is the mis-keyed one. */}
                         {receipts.map((payment) => (
@@ -1697,22 +1660,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                     <ReceiptText className="h-4 w-4" />
                                     Reçu
                                   </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 gap-1"
-                                    disabled={busy}
-                                    onClick={() => setEmailTarget({
-                                      kind: DOCUMENT_EMAIL_KINDS.InstallmentPaymentReceipt,
-                                      documentId: plan.id,
-                                      installmentId: inst.id,
-                                      paymentId: payment.id,
-                                      label: `Reçu d'échéance ${formatDT(payment.amount)}`,
-                                    })}
-                                  >
-                                    <Mail className="h-4 w-4" />
-                                    Email
-                                  </Button>
                                   {/* AC-5. `text-destructive` rather than a `destructive` variant: it sits in a
                                       row of ghost/outline buttons and a filled red block there reads as the
                                       row's primary action, which annuler is not. */}
@@ -1785,19 +1732,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <PlanTimeline plan={plan} />
         </div>
       </details>
-
-      {emailTarget && (
-        <SendDocumentEmailDialog
-          open={Boolean(emailTarget)}
-          onOpenChange={(next) => { if (!next) setEmailTarget(null) }}
-          documentKind={emailTarget.kind}
-          documentId={emailTarget.documentId}
-          installmentId={emailTarget.installmentId}
-          paymentId={emailTarget.paymentId}
-          documentLabel={emailTarget.label}
-          patientId={plan.patientId}
-        />
-      )}
 
       <InstallmentPaymentModal
         open={!!paymentTarget}

@@ -1162,15 +1162,6 @@ try
         job => job.ProcessPendingNotifications(),
         Cron.Minutely);
 
-    // Document-email outbox dispatcher — minutely, connectivity-gated (see DocumentEmailJob). Sends the queued
-    // document PDFs only when the server has internet; otherwise no-ops and leaves them queued, which is what
-    // makes « Envoyer par email » meaningful on an offline LAN install. Safe to run unconditionally (does
-    // nothing until a clinic configures SMTP and queues a send).
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.DocumentEmailJob>(
-        "dispatch-document-emails",
-        job => job.DispatchQueuedEmails(),
-        Cron.Minutely);
-
     // Auto-start a visit once its own slot has begun — minutely, because the resolution the agenda shows is the
     // minute, and deliberately NOT connectivity-gated: it writes a status, so it must work on an offline LAN
     // install (StockExpiryJob's reasoning). Unconditional like the three passes that no-op until there is work:

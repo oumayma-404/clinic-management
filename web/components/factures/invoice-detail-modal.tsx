@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { FileDown, Undo2, CalendarClock, Mail } from "lucide-react"
+import { FileDown, Undo2, CalendarClock } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -27,17 +27,7 @@ import { canReverseFinancials, REVERSAL_FORBIDDEN_HINT } from "@/lib/auth/can"
 import {
   invoiceStatusBadgeClass, invoiceStatusLabel, paymentMethodLabel, VOIDED_PAYMENT_BADGE_CLASS,
 } from "./invoice-labels"
-import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
-import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
 import { PatientNameLink } from "@/components/patient-name-link"
-
-/** What « Envoyer par e-mail » was clicked for. One dialog serves the reçus and the avoirs of this modal. */
-interface EmailTarget {
-  kind: DocumentEmailKind
-  documentId: string
-  paymentId?: string
-  label: string
-}
 
 interface InvoiceDetailModalProps {
   open: boolean
@@ -69,7 +59,6 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
 
   // The in-place void confirm: which payment, and the required motif.
   const [voidTarget, setVoidTarget] = useState<PaymentDto | null>(null)
-  const [emailTarget, setEmailTarget] = useState<EmailTarget | null>(null)
   const [voidReason, setVoidReason] = useState("")
   const [voidError, setVoidError] = useState<string | null>(null)
 
@@ -319,20 +308,6 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                           >
                             <FileDown className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setEmailTarget({
-                              kind: DOCUMENT_EMAIL_KINDS.InvoicePaymentReceipt,
-                              documentId: invoice.id,
-                              paymentId: payment.id,
-                              label: `Reçu de paiement ${formatDT(payment.amount)}`,
-                            })}
-                            title="Envoyer le reçu par e-mail"
-                            aria-label={`Envoyer par e-mail le reçu du paiement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
-                          >
-                            <Mail className="h-4 w-4" />
-                          </Button>
                           {!payment.isVoided && (
                             <Button
                               variant="ghost"
@@ -441,19 +416,6 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                           >
                             <FileDown className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setEmailTarget({
-                              kind: DOCUMENT_EMAIL_KINDS.CreditNote,
-                              documentId: creditNote.id,
-                              label: `Avoir ${creditNote.number}`,
-                            })}
-                            title="Envoyer l'avoir par e-mail"
-                            aria-label={`Envoyer par e-mail l'avoir ${creditNote.number} de ${formatDT(creditNote.amount)}`}
-                          >
-                            <Mail className="h-4 w-4" />
-                          </Button>
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground">Motif : {creditNote.reason}</p>
@@ -501,18 +463,6 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Fermer</Button>
         </DialogFooter>
-
-        {emailTarget && (
-          <SendDocumentEmailDialog
-            open={Boolean(emailTarget)}
-            onOpenChange={(next) => { if (!next) setEmailTarget(null) }}
-            documentKind={emailTarget.kind}
-            documentId={emailTarget.documentId}
-            paymentId={emailTarget.paymentId}
-            documentLabel={emailTarget.label}
-            patientId={invoice?.patientId}
-          />
-        )}
       </DialogContent>
     </Dialog>
   )

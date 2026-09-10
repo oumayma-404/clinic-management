@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Download, FileEdit, Loader2, Mail, Printer } from "lucide-react"
+import { Download, FileEdit, Loader2, MessageCircle, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -14,12 +14,13 @@ import {
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { pdfSourceUrl } from "@/lib/pdf-sources"
-import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
-import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { MedicalDocumentDto } from "@/lib/api/types"
 import { downloadBlob } from "@/lib/download"
+import { shareDocumentToWhatsApp } from "@/lib/whatsapp"
 import { documentTypeLabel, isExamenLine, type PrescriptionLine } from "@/lib/documents"
+import { toast } from "sonner"
+
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatDate } from "@/lib/format"
 
@@ -81,8 +82,8 @@ interface DocumentPreviewDialogProps {
   onEditInFiche?: (dentalRecordId: string) => void
   /** Open the standalone editor, for a document no fiche owns. Omitted hides the control. */
   onEditInEditor?: (document: MedicalDocumentDto) => void
-  /** Prefills the e-mail recipient without a second read. */
-  patientEmail?: string | null
+  /** Addresses the WhatsApp conversation without a second read. Absent ⇒ WhatsApp opens on its contact picker. */
+  patientPhone?: string | null
 }
 
 /** What the header calls an aperçu, which has no stored `documentType` to look up yet. */
@@ -93,13 +94,13 @@ export function DocumentPreviewDialog({
   onClose,
   onEditInFiche,
   onEditInEditor,
-  patientEmail,
+  patientPhone,
 }: DocumentPreviewDialogProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [document, setDocument] = useState<MedicalDocumentDto | null>(null)
   const [loading, setLoading] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-  const [emailOpen, setEmailOpen] = useState(false)
+  const [sharing, setSharing] = useState(false)
   const [reload, setReload] = useState(0)
 
   /** The rendered bytes, kept for « Télécharger » and for the coarse-pointer hand-off. */
@@ -205,6 +206,34 @@ export function DocumentPreviewDialog({
   }, [fileName])
 
   /**
+   * « Envoyer » hands the rendered PDF to WhatsApp through the OS share sheet — no URL can attach a file to a
+   * conversation, so the sheet is the only route. See `lib/whatsapp.ts`.
+   */
+  const sendToWhatsApp = useCallback(async () => {
+    if (!blobRef.current || !document) return
+    setSharing(true)
+    try {
+      const outcome = await shareDocumentToWhatsApp(blobRef.current, fileName, {
+        phone: patientPhone,
+        message: `Bonjour, voici votre ${documentTypeLabel(document.documentType).toLowerCase()}.`,
+      })
+      if (outcome === "shared") {
+        toast.success("Document prêt à partager", { description: "Choisissez WhatsApp dans le menu de partage." })
+      } else if (outcome === "delivered-and-opened") {
+        toast.success("WhatsApp est ouvert", { description: "Le PDF est téléchargé — joignez-le à la conversation." })
+      } else {
+        toast.success("Document téléchargé", {
+          description: "WhatsApp n'a pas pu s'ouvrir. Joignez le fichier depuis vos téléchargements.",
+        })
+      }
+    } catch (error) {
+      showErrorToast(error, "Le partage a échoué.")
+    } finally {
+      setSharing(false)
+    }
+  }, [document, fileName, patientPhone])
+
+  /**
    * ⚠️ The frame is printed only when it is really rendered. Below a coarse pointer `PatientFilePdfPreview`
    * hides it in CSS and shows the hand-off instead, so the ref is non-null and the window unprintable — the
    * file is delivered to the platform viewer, which is where it can be printed on a phone anyway.
@@ -306,12 +335,12 @@ export function DocumentPreviewDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setEmailOpen(true)}
-                  disabled={!document}
+                  onClick={() => sendToWhatsApp()}
+                  disabled={!document || !pdfUrl || sharing}
                   className="coarse:h-11"
                 >
-                  <Mail className="me-2 h-4 w-4" aria-hidden="true" />
-                  Envoyer
+                  <MessageCircle className="me-2 h-4 w-4" aria-hidden="true" />
+                  {sharing ? "Préparation…" : "WhatsApp"}
                 </Button>
                 {document?.dentalRecordId && onEditInFiche ? (
                   <Button
@@ -333,18 +362,6 @@ export function DocumentPreviewDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {document && (
-        <SendDocumentEmailDialog
-          open={emailOpen}
-          onOpenChange={setEmailOpen}
-          documentKind={DOCUMENT_EMAIL_KINDS.MedicalDocument}
-          documentId={document.id}
-          documentLabel={`${documentTypeLabel(document.documentType)} — ${document.patientName}`}
-          defaultRecipientEmail={patientEmail}
-          patientId={document.patientId}
-        />
-      )}
     </>
   )
 }
