@@ -23,6 +23,41 @@ public class Patient : AggregateRoot<Guid>
     /// <see cref="DentitionType"/> for why it has only two values and what that costs.
     /// </summary>
     public DentitionType Dentition { get; private set; } = DentitionType.Adult;
+
+    /// <summary>
+    /// When a human last answered « quelle denture ? » for this patient — <c>null</c> while nobody ever has.
+    ///
+    /// <para>
+    /// ⚠️ <b>It exists because <see cref="Dentition"/> cannot answer that question, and a screen was asking
+    /// it every single visit as a result.</b> The column is NOT NULL with an entity default of
+    /// <see cref="DentitionType.Adult"/>, so « the dentist looked at the chart and said Définitive » and
+    /// « nobody has ever been asked » are the same stored row. The odontogramme's « Quelle denture afficher ? »
+    /// fires only when nothing can seed the chart — no date of birth, nothing charted — and had no way to know
+    /// it had already been answered, so it came back on every reload of the patient's page, for ever. Reported
+    /// as « je choisis, puis au rechargement il redemande ».
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ <b>A nullable marker rather than making <c>Dentition</c> nullable.</b> That was the other candidate and
+    /// it is a wider change than it looks: the column is read on every chart, every fiche and every document, and
+    /// « not recorded » would become a third state each of those readers has to answer for. This adds a fact
+    /// without changing one.
+    /// </para>
+    ///
+    /// <para>
+    /// Set by <see cref="SetDentition"/> and by nothing else, so any explicit answer marks it — the odontogramme's
+    /// prompt, the patient form's « Denture » control, an import. It is never cleared: un-answering is not an
+    /// operation anybody needs, and a null would put the prompt back on a patient whose dentition is on file.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ <b>Not backfilled.</b> Every existing patient reads null, so one whose dentition really was chosen
+    /// before this column existed is asked once more — and answering settles it. Inventing a timestamp for rows
+    /// nobody can prove were answered would be the opposite error: it would silence the prompt for the undated
+    /// walk-ins it exists to catch.
+    /// </para>
+    /// </summary>
+    public DateTime? DentitionAnsweredAtUtc { get; private set; }
     /// <summary>
     /// Optional. A walk-in with no e-mail is an ordinary patient, not a data-quality problem — the app used to
     /// require both and manufactured <c>noemail@example.com</c> / <c>0000000000</c> to satisfy itself, which
@@ -415,6 +450,7 @@ public class Patient : AggregateRoot<Guid>
     public void SetDentition(DentitionType dentition)
     {
         Dentition = dentition;
+        DentitionAnsweredAtUtc = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
     }
 

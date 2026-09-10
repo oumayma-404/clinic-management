@@ -241,6 +241,36 @@ the *row* does not help when there is only one child. Either let that one child 
 (`ui/empty-state.tsx`'s action row) or shorten the *visible* half and keep the full phrase in `aria-label`
 (`odontogram.tsx`'s « Créer un plan »). Never truncate: the label is the control's name.
 
+## § 10.2 Inside a fixed-width panel, a viewport hinge measures the wrong box
+
+`sm:` / `md:` ask how wide the **window** is. Inside a panel that does not grow with it, that is not the
+question — and the two answers diverge in the direction nobody checks, because a **desktop ends up narrower
+than a phone**.
+
+The document editor is the measured case: its form column is `xl:w-[420px]` with `md:p-8`, so from 1280 px up
+its content box is **356 px**, while `sm:` has been true since 640. A `sm:grid-cols-[1fr_5rem_7rem_auto]` act
+row therefore laid out four tracks in 356 px and left the désignation input about **64 px** — at 390 px, where
+the panel is full width, the same row was one column and the field was 303 px. Reported as « the input fields
+are so tiny impossible to use », and invisible to `tsc`, to `check:responsive` and to an eye pass at the width
+you develop at, because at 820 px and 1180 px it is fine.
+
+Hinge on the **container** instead — Tailwind v4 ships container queries, and `card.tsx` / `table.tsx` already
+use them:
+
+```tsx
+<div className="@container">                          {/* the panel that owns the width */}
+  <div className="grid grid-cols-1 @lg:grid-cols-[1fr_5rem_7rem_auto]" />
+</div>
+```
+
+Pick the step by measuring, not by matching the viewport one: `@md` (448 px) still left that row's input ~156 px
+once its catalogue button was taken out, so it is `@lg` (512 px). Any inline label paired with the row
+(`sm:hidden`) moves to the same variant, or the two disagree about when the row exists.
+
+**The reach for this is: does this element's own width follow the viewport?** A page-level table does — keep
+`md:`/`lg:`. A sidebar form, a fixed rail, a dialog with a declared `md:max-w-*`, a two-column desk whose left
+side is pinned: those do not.
+
 ## § 11 Overflow scrolls in its own container
 
 The page body **never** scrolls horizontally at 320 px. Wide content (a table, the agenda grid, a code block,
@@ -319,6 +349,20 @@ pass below are the whole gate — treat a missing runner as a fact to work with,
 Then **look at it**, at these widths: **320 / 390 / 820 / 1180 / 1440**, plus a landscape phone, plus with a
 keyboard. Record the result in the feature's `progress.md`. The manual walk is the load-bearing half; nothing
 in `web/` can assert a layout.
+
+⚠️ **Those are widths. A desktop pass also has a HEIGHT, and the honest one is ~730 px, not 900.** The
+practice owner's laptop is 1536 × 864 with a 816 px working area, so maximised Chrome leaves about
+**1536 × 730** of page — where `md:max-h-[85dvh]` is 620 px rather than the 765 px a 900-tall window gives. A
+dialog whose footer clears the fold in your window can still need scrolling in theirs. Check any dialog you
+touched at **730 px tall** as well as at its widths.
+
+⚠️ **And when driving their browser, size the viewport to the window, not to a round number.** Playwright
+cannot grow a maximised window past the working area, so a 900-tall viewport renders into a ~730-tall window
+and the bottom ~170 px is off screen — landing squarely on modal footers, and reported as « it's cutting me
+off in modals couldn't see the save buttons ». The page cannot tell you this: with a viewport emulated,
+`window.screen` and `outerWidth/Height` report the *emulated* values and look plausible. Ask the OS for the
+window's client rect and compare it with `innerHeight`; if `innerHeight` is larger, it is the harness and not
+the product.
 
 Adding a mechanical check: derive the surfaces (`card-fallback` derives its table list), never hand-maintain an
 expectation list, and **never add a per-file exemption** — an allow-list that grows is a check that has stopped

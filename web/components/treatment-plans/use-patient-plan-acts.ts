@@ -82,9 +82,34 @@ export function usePatientPlanActs(
   }, [])
 
   const saveActTotal = useCallback(async (treatmentPlanItemId: string, total: number) => {
-    const plan = plans.find((p) => p.items.some((i) => i.id === treatmentPlanItemId))
+    /*
+     * ⚠️ **`plans` is a SNAPSHOT, and « the act is not in it » used to mean « do nothing, say nothing ».**
+     * The read happens once, when the patient is picked. A devis created after that — the ordinary case, since
+     * two surfaces mint one from inside the booking dialog and a dentist may have written it a minute earlier
+     * in another tab — is simply absent, so a re-priced act hit `return false` and **no request was ever
+     * sent**. Measured on the live database: « Couronne sur implant » 2026-0203 typed from 500 to 700, zero
+     * `AmendTreatmentPlanCommand` in the API log for the whole day and `RevisionNumber` still 0. The field kept
+     * showing 700 because the draft is only cleared on success, so it looked saved until the dialog was
+     * reopened. Reported as « I changed the total and it did not persist », twice.
+     *
+     * So: re-read before giving up, and if it is still not there, SAY SO. A money edit that silently does
+     * nothing is the worst outcome available here — worse than a refusal, because nothing invites a retry.
+     */
+    let plan = plans.find((p) => p.items.some((i) => i.id === treatmentPlanItemId))
+    if (!plan && patientId) {
+      try {
+        const fresh = await treatmentPlansApi.list({ patientId })
+        setPlans(fresh)
+        plan = fresh.find((p) => p.items.some((i) => i.id === treatmentPlanItemId))
+      } catch {
+        /* fall through to the refusal below — the toast names it */
+      }
+    }
     const item = plan?.items.find((i) => i.id === treatmentPlanItemId)
-    if (!plan || !item) return false
+    if (!plan || !item) {
+      toast.error("Le devis de cet acte n'a pas pu être relu — le total n'a pas été modifié. Rechargez la page.")
+      return false
+    }
     try {
       const saved = await treatmentPlansApi.amend(plan.id, {
         updateItems: [
@@ -105,7 +130,7 @@ export function usePatientPlanActs(
       showErrorToast(err, "Le total n'a pas pu être modifié.")
       return false
     }
-  }, [plans, register])
+  }, [plans, register, patientId])
 
   useEffect(() => {
     if (!enabled || !patientId) {

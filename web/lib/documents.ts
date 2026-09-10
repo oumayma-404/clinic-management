@@ -141,6 +141,26 @@ export const CREATABLE_DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = DOCUMEN
 )
 
 /**
+ * The document types whose editor shows the patient's « Alertes médicales » panel.
+ *
+ * <p>⚠️ <b>This REVERSES a tombstone, and the tombstone's own reasoning is why it is a named set here rather
+ * than a `documentType ===` at the call site.</b> The panel used to render on every type, on the argument that
+ * « an allergy is not a property of the document being written, and a per-type copy is how the ordonnance came
+ * to be the one type without it ». The first half is true and the second is the failure this set prevents: a
+ * new prescribing template is added to {@link DOCUMENT_TEMPLATES} and classified <em>here</em>, in one place,
+ * or it is not offered the panel.</p>
+ *
+ * <p>What changed is the practice owner's call: an allergy list on a <b>note d'honoraires</b> — a money sheet
+ * that prescribes nothing — is noise on a document handed to a patient at the desk, and it was reported as
+ * such. The panel exists to protect prescribing, so it renders where a medication is chosen.</p>
+ */
+export const DOCUMENT_TYPES_WITH_MEDICAL_ALERTS: readonly string[] = ["prescription", "examens"]
+
+/** Whether this editor should show the patient's allergies, maladies and médicaments beside the form. */
+export const showsMedicalAlerts = (documentType: string): boolean =>
+  DOCUMENT_TYPES_WITH_MEDICAL_ALERTS.includes(documentType)
+
+/**
  * The demande d'examens' opening formula — the browser's half of `ExamenContent.IntroSingular` /
  * `IntroPlural`.
  *

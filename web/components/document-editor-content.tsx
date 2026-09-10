@@ -29,6 +29,8 @@ import {
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
+import { BillableActsDialog } from "@/components/documents/billable-acts-dialog"
+import { DocumentPreviewDialog } from "@/components/documents/document-preview-dialog"
 import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { formatAmount, formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -39,6 +41,7 @@ import {
   durationUnitLabel,
   durationUnitOf,
   prescriptionLineParts,
+  showsMedicalAlerts,
   type MedicationLine,
 } from "@/lib/documents"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -49,7 +52,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { clinicsApi } from "@/lib/api/clinics"
-import { dentalRecordsApi } from "@/lib/api/dental-records"
+import { dentalRecordsApi, type BillableActLine } from "@/lib/api/dental-records"
 import { estimateReimbursements, parseCotation } from "@/lib/api/dental-acts"
 import { CnamCeilingNotice } from "@/components/cnam/cnam-ceiling-notice"
 import { dentalActsApi } from "@/lib/api/dental-acts"
@@ -73,6 +76,7 @@ import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
 import { downloadBlob } from "@/lib/download"
+import { printPdfBlob } from "@/lib/print"
 import { Document, Packer, Paragraph, HeadingLevel, AlignmentType, TextRun, BorderStyle } from "docx"
 
 /*
@@ -448,15 +452,15 @@ export function DocumentEditorContent() {
      *
      * Legacy documents keep both keys in their ContentJson; nothing reads them any more.
      */
-    doctorOrderNumber: "", // Certificat: CNOMDT ordre (FR-2.5 — pre-filled from the doctor's profile, read-only)
+    doctorOrderNumber: "", // CNOMDT ordre for the letterhead (FR-2.5) — profile-filled, never typed, never on a certificat
     startDate: "", // Certificat: repos médical start date
     // Certificat: « jours » | « mois ». Shared vocabulary with an ordonnance's durée — see `DURATION_UNITS`.
     // Widened to `string`: a stored document's value arrives as one, and `durationUnitOf` is the reader.
     durationUnit: DURATION_UNITS.jours as string,
     objetMotif: "", // Certificat: free objet/motif body (FR-2.1)
-    // Liaison — external confrère destinataire (free text) + the norm sections, ALL optional. Only the
-    // destinataire is ever required: the doctor writes the letter in `content` and fills whichever of these
-    // the case calls for (décret n° 2016-995 + HAS).
+    // Liaison — external confrère destinataire (free text) + the norm sections, ALL optional, the
+    // destinataire included: the letter is a blank letterhead and nothing writes these any more. Kept in
+    // state so a letter saved with them keeps them (décret n° 2016-995 + HAS).
     recipientName: "",
     recipientSpecialty: "",
     recipientAddress: "",
@@ -560,12 +564,17 @@ export function DocumentEditorContent() {
   const [procedureCatalogFailed, setProcedureCatalogFailed] = useState(false)
   const [procedureCatalogReload, setProcedureCatalogReload] = useState(0)
   const [actPickerOpenIndex, setActPickerOpenIndex] = useState<number | null>(null)
+  /** « Reprendre des actes réalisés » — the note d'honoraires' second act source. */
+  const [billableActsOpen, setBillableActsOpen] = useState(false)
+  /** « Voir le document » — the saved sheet, read in place rather than navigated to. */
+  const [savedPreviewOpen, setSavedPreviewOpen] = useState(false)
   // `reposOpen` / `liaisonExtrasOpen` are gone with the two folds they drove: the repos fields ARE the
   // certificat now, and the liaison's guided sections are no longer offered.
   // « Envoyer par e-mail » — only reachable once the document has been saved and therefore has an id.
   const [emailOpen, setEmailOpen] = useState(false)
 
-  const documentRef = useRef<HTMLDivElement>(null)
+  // `documentRef` is gone with the DOM-clone print: nothing reads the A4 block's subtree any more, and
+  // leaving a handle on it is an invitation to render this legal document a second way. See `handlePrint`.
 
   // Load clinic and doctor info
   const { doctors, currentUserDoctor } = useDoctors()
@@ -607,11 +616,11 @@ export function DocumentEditorContent() {
     loadClinicInfo()
   }, [])
 
-  // FR-2.5: pre-fill the certificat CNOMDT ordre from the current doctor's profile (the field is read-only —
-  // no longer retyped per certificat). Only fills when empty, so a legacy document's stored ordre is kept.
-  // Re-runs on `documentId` too: when editing a legacy certificat with an empty stored ordre, the document
-  // load sets it to "" (possibly after the doctor already loaded); depending on `documentId` re-applies the
-  // profile fallback afterwards instead of leaving the read-only field blank ([Numéro] in the render).
+  // FR-2.5: the CNOMDT ordre from the current doctor's profile, for the A4 preview's letterhead — never
+  // retyped. Only fills when empty, so a legacy document's stored ordre is kept. Re-runs on `documentId` too:
+  // loading a document sets it to "" (possibly after the doctor already resolved), so depending on the id
+  // re-applies the profile fallback instead of leaving the preview's letterhead a line short of the PDF's.
+  // ⚠️ The certificat does not print it at all — see `DocumentIdentity.CarriesOrdreNumber`.
   useEffect(() => {
     const ordre = currentUserDoctor?.ordreNumberCnomdt
     if (ordre) {
@@ -1653,18 +1662,41 @@ export function DocumentEditorContent() {
       // FR-2.2: one consistent certificat content schema across save (handleSave) and render
       // (buildDocumentData) — objet/motif + ordre + repos start/duration all round-trip through ContentJson.
       content.objetMotif = formFields.objetMotif || "";
-      content.doctorOrderNumber = formFields.doctorOrderNumber || "";
       content.startDate = formFields.startDate || "";
       content.duration = formFields.duration || "";
       content.durationUnit = durationUnitOf(formFields.durationUnit);
       content.patientCivility = patientCivility(patientData?.gender);
     } else if (documentType === "honoraires") {
+      // The array goes in as an array; `contentStrings` below is what re-serialises it. It used to be sent
+      // raw and that was the whole of the « Ces champs ne sont pas valides » refusal — see below.
       content.acts = honorairesContentActs(formFields.honorairesActs);
       content.note = formFields.honorairesNote || "";
     } else if (documentType === "bulletin-cnam") {
       Object.assign(content, buildBulletinContent(patientData));
     } else if (documentType === "arret-travail") {
       Object.assign(content, buildArretContent(patientData));
+    }
+
+    /*
+     * ⚠️ **`MedicalDocumentPdfData.Content` is a `Dictionary<string, string>` on the wire, so EVERY value
+     * here has to be a string — and an array has to be a JSON string.** This mirrors the server's own
+     * `MedicalDocumentPdfMapping.FlattenContent`, whose summary states the contract: « a non-string node (the
+     * medications / acts arrays) is re-serialized rather than dropped, because the renderer parses those back
+     * out of the string. »
+     *
+     * It is enforced HERE, once, rather than trusted to each branch, because trusting the branches is exactly
+     * what failed: `prescription` stringified its medications and `buildBulletinContent` its acts, while
+     * `honoraires` sent a raw array — so `POST /medical-documents/generate-pdf-download` refused to bind the
+     * body and answered « Ces champs ne sont pas valides ou n'ont pas été envoyés : documentData, acts ».
+     * Both « Télécharger PDF » and « Imprimer » were dead on every note d'honoraires.
+     *
+     * ⚠️ The `typeof v === "string"` passthrough is load-bearing: stringifying an already-serialised value
+     * would double-encode it, and the renderer would parse a string where it expects a list.
+     */
+    const contentStrings: Record<string, string> = {};
+    for (const [key, value] of Object.entries(content)) {
+      contentStrings[key] =
+        typeof value === "string" ? value : value == null ? "" : JSON.stringify(value);
     }
 
     // Format patient date of birth for PDF
@@ -1700,7 +1732,8 @@ export function DocumentEditorContent() {
       issuingDoctorId: selectedDoctor?.id || undefined,
       recipientDoctorName: documentType === "liaison" ? recipientDoctorName : undefined,
       recipientDoctorSpecialty: documentType === "liaison" ? recipientDoctorSpecialty : undefined,
-      content,
+      // `contentStrings`, never `content` — see the contract note above.
+      content: contentStrings,
     };
   };
 
@@ -1720,6 +1753,17 @@ export function DocumentEditorContent() {
    * produced a letterhead-only file **and** a success toast.
    */
   const wordExportSupported = !isOfficialForm
+
+  /**
+   * ⚠️ **« Télécharger Word » is WITHDRAWN from the whole app, on purpose and for now.** The owner's call:
+   * « let's remove all download word buttons from app, just hide, we'll return to it later if we need to ».
+   * A `.docx` is a SECOND renderer of a legal document — hand-built paragraph by paragraph here while the PDF
+   * comes from the server — so the two drift, and only the PDF is the paper a pharmacist or a caisse reads.
+   * Everything below it (`generateWord`, the `docx` import, every branch) is left standing so putting the
+   * button back is one flag, not a rewrite.
+   */
+  const WORD_EXPORT_OFFERED = false
+  const wordExportOffered = wordExportSupported && WORD_EXPORT_OFFERED
 
   const generateWord = async () => {
     if (!wordExportSupported) {
@@ -2078,15 +2122,15 @@ export function DocumentEditorContent() {
   /*
    * K4 — printing a bulletin is a **different operation**, and conflating the two is what broke it.
    *
-   * « Imprimer » always failed on a BS1: `documentRef` is attached to the `<Card>` in the *else* branch of the
-   * `bulletin-cnam ? … : (…)` preview ternary, so for a bulletin `documentRef.current` was null and the guard below
-   * refused with « Le contenu du document n'est pas disponible pour l'impression » — on the one document a
-   * conventionné dentist prints all day.
+   * « Imprimer » always failed on a BS1: the print path read a ref attached to the `<Card>` in the *else* branch
+   * of the `bulletin-cnam ? … : (…)` preview ternary, so for a bulletin it was null and the guard refused with
+   * « Le contenu du document n'est pas disponible pour l'impression » — on the one document a conventionné
+   * dentist prints all day. The fix was to gate on the document type rather than move the ref.
    *
-   * The fix is to gate on the document type rather than to move the ref. For every other type the printable thing
-   * is a styled DOM subtree, cloned into a blank window. For a bulletin it is the **overlaid PDF itself**, already
-   * rendered by the server and already on screen in an iframe: there is no HTML to clone, and re-deriving the paper
-   * from the DOM would print something other than what the caisse receives.
+   * ⚠️ **That gate is now the only difference, and it is a small one**: `handlePrint` prints the server's PDF
+   * for every other type too, so neither branch clones any DOM. What still separates them is WHICH server
+   * rendering — a bulletin is an overlay on the pre-printed CNAM form, already on screen in this iframe, and
+   * re-requesting it would print something other than what the caisse receives.
    *
    * ⚠️ `contentWindow.print()` on the live preview iframe is the primary path (same-origin `blob:`, so it is
    * reachable) and is what keeps the printed sheet byte-identical to the preview. Chromium and Firefox honour it;
@@ -2148,7 +2192,25 @@ export function DocumentEditorContent() {
     }
   };
 
-  const handlePrint = () => {
+  /**
+   * Print the document — **the bytes the server renders, never a clone of the A4 block on screen**.
+   *
+   * <p>It used to `window.open('')` and write in a copy of `documentRef`'s subtree plus
+   * `document.querySelector('style')?.textContent`. That selector is the page's FIRST `<style>` element, which
+   * in a Tailwind v4 app is not the stylesheet — so the print preview arrived essentially unstyled: no
+   * margins, a collapsed table, labels at body size, everything against the left edge. Reported with a
+   * screenshot of `about:blank`.</p>
+   *
+   * <p>⚠️ It was also a second renderer of a legal document, which `DocumentPreviewDialog` already refuses
+   * for the reason that applies here twice over: what a patient is handed must be what the e-mail attaches and
+   * what the PDF job stores.</p>
+   *
+   * <p>⚠️ **It prints the form as it stands, not the last saved version** — the same
+   * `buildDocumentData()` that « Télécharger PDF » directly beside it sends. Printing the stored document
+   * instead would silently print a stale sheet after an edit, and would make « Imprimer » unavailable before
+   * the first save, which the DOM path did support.</p>
+   */
+  const handlePrint = async () => {
     if (saving) {
       return; // Prevent action while saving
     }
@@ -2161,72 +2223,89 @@ export function DocumentEditorContent() {
       return;
     }
 
-    if (!documentRef.current) {
-      toast.error("Impossible d'imprimer", {
-        description: "Le contenu du document n'est pas disponible pour l'impression",
+    if (!patientData) {
+      toast.error("Patient requis", {
+        description: "Sélectionnez un patient avant d'imprimer le document.",
         duration: 3000,
       });
       return;
     }
 
-    // Create a new window for printing
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      toast.error("Fenêtre bloquée", {
-        description: "Autorisez les fenêtres pop-up de votre navigateur pour lancer l'impression.",
-        duration: 4000,
-      });
-      return;
-    }
-
-    // Clone the document content
-    const content = documentRef.current.cloneNode(true) as HTMLElement;
-    
-    // Remove contentEditable attributes for cleaner print
-    content.querySelectorAll('[contenteditable]').forEach(el => {
-      el.removeAttribute('contenteditable');
+    const loadingToast = toast.loading("Préparation de l'impression…", {
+      description: "Le document se prépare.",
     });
 
-    // Write to print window
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${getDocumentTitle()}</title>
-          <style>
-            @media print {
-              @page {
-                size: A4;
-                margin: 0;
-              }
-              body {
-                margin: 0;
-                padding: 20mm;
-              }
-            }
-            body {
-              font-family: Arial, sans-serif;
-              margin: 0;
-              padding: 20mm;
-            }
-            ${document.querySelector('style')?.textContent || ''}
-          </style>
-        </head>
-        <body>
-          ${content.innerHTML}
-        </body>
-      </html>
-    `);
-    
-    printWindow.document.close();
-    
-    // Wait for content to load, then print
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print();
-      }, 250);
-    };
+    try {
+      const documentData = buildDocumentData();
+      if (!documentData) {
+        toast.dismiss(loadingToast);
+        toast.error("Données manquantes", {
+          description: "Impossible de préparer le document. Vérifiez que tous les champs obligatoires sont remplis.",
+          duration: 4000,
+        });
+        return;
+      }
+
+      const pdfBlob = await medicalDocumentsApi.generatePdfForDownload(documentData);
+      /*
+       * ⚠️ Dismissed BEFORE printing, not after. `print()` blocks until the dialog is closed, so awaiting
+       * it first left « Préparation de l'impression… » spinning behind an open print dialog — telling the
+       * user something is still being prepared while it is plainly in front of them, and clearing only once
+       * they had finished. The wait this toast describes ends when the bytes arrive.
+       */
+      toast.dismiss(loadingToast);
+      const outcome = await printPdfBlob(pdfBlob, buildPdfFileName());
+
+      // Said only where it is true: on a coarse pointer nothing was printed, the file was handed to the OS
+      // viewer, and telling somebody « impression lancée » there would be a claim about a dialog they never saw.
+      if (outcome === "delivered") {
+        toast.info("Document ouvert", {
+          description: "Utilisez l'impression de la visionneuse de votre appareil.",
+          duration: 5000,
+        });
+      }
+    } catch (error) {
+      console.error("Error in handlePrint:", error);
+      toast.dismiss(loadingToast);
+      const errorMessage = error instanceof ApiError ? error.message : "Une erreur est survenue";
+      toast.error("Impossible d'imprimer", {
+        description: errorMessage,
+        duration: 4000,
+      });
+    }
   };
+
+  /**
+   * Put the picked recorded acts onto the fee note.
+   *
+   * ⚠️ **Appends, never replaces**, and drops a blank trailing line rather than leaving a hole: lines
+   * already typed are the user's work and a picker that cleared them would lose it off screen. The prices are
+   * the server's (`DentalRecordInvoiceLines`), so `pricedFromCatalog` is **false** — this figure is what was
+   * charged for this patient, not a tarif a later act pick may overwrite.
+   *
+   * ⚠️ `formatAmount`, not `String(n)`: these strings go into the money inputs, which the rest of the
+   * product writes and reads in Tunisian millimes.
+   */
+  const addBillableActs = (lines: BillableActLine[]) => {
+    if (lines.length === 0) return
+    setFormFields((prev) => {
+      const kept = prev.honorairesActs.filter(
+        (act) => act.designation.trim() !== "" || act.unitPrice.trim() !== "",
+      )
+      return {
+        ...prev,
+        honorairesActs: [
+          ...kept,
+          ...lines.map((line) => ({
+            designation: line.designation,
+            quantity: String(line.quantity),
+            unitPrice: formatAmount(line.unitPriceHt),
+            pricedFromCatalog: false,
+          })),
+        ],
+      }
+    })
+  }
 
   const handleSave = async () => {
     // The stored content is still in flight (or its read failed): saving now would take the "create" path and
@@ -2291,7 +2370,8 @@ export function DocumentEditorContent() {
         // FR-2.2: same schema the renderer reads (buildDocumentData) — previously this path saved
         // reason/notes while the renderer read objetMotif/startDate/doctorOrderNumber, silently dropping data.
         content.objetMotif = formFields.objetMotif
-        content.doctorOrderNumber = formFields.doctorOrderNumber
+        // No `doctorOrderNumber`: a certificat's letterhead no longer prints one. A legacy certificat keeps
+        // its stored key untouched — nothing reads it for this type any more.
         content.startDate = formFields.startDate
         content.duration = formFields.duration
         content.durationUnit = durationUnitOf(formFields.durationUnit)
@@ -2641,20 +2721,19 @@ export function DocumentEditorContent() {
             </div>
 
             {/*
-              THE PATIENT'S ALERTS, on every document type.
+              THE PATIENT'S ALERTS, on the types that PRESCRIBE — see `DOCUMENT_TYPES_WITH_MEDICAL_ALERTS`,
+              which is the one owner of that list and carries the reversal it represents.
 
               ⚠️ This editor is where an **ordonnance** is written, and nothing on it read `patient.allergies`. The
               medication picker offers Clamoxyl and Augmentin, both of which carry `Amoxicilline` as a structured
               DCI in the seeded catalogue, and prescribing either to a penicillin-allergic patient raised nothing at
               all — the only allergy field in the whole editor was the liaison letter's empty textarea, which the
               prescriber was expected to retype from the patient's file in another tab.
-              It is deliberately not gated on `documentType`: an allergy is not a property of the document being
-              written, and a per-type copy is how the ordonnance came to be the one type without it.
               Read-only and outside the form: this is the patient's record, corrected in the patient's file. It does
               **not** block — a real DCI-vs-allergy check needs structured allergies (out of scope) — it makes the
               fact visible at the moment the decision is taken.
             */}
-            {patientData && <PatientAlertPanel patient={patientData} />}
+            {patientData && showsMedicalAlerts(documentType) && <PatientAlertPanel patient={patientData} />}
 
             {/*
               The liaison's « Confrère destinataire » fieldset (nom, spécialité, adresse, e-mail) is gone with
@@ -2763,12 +2842,40 @@ export function DocumentEditorContent() {
               documents module minting one is exactly the defect that got this type withdrawn once already.
             */}
             {documentType === "honoraires" && (
-              <div className="space-y-4">
+              /* ⚠️ `@container`, and the act rows below hinge on it rather than on the VIEWPORT — which is
+                 what made them unusable. This panel is `xl:w-[420px]` with `md:p-8`, so from 1280 px up its
+                 content box is **356 px** while `sm:` has been true since 640: the four-column row then
+                 measured auto (36) + 7rem + 5rem + gaps, leaving ~104 px for the désignation cell — an input
+                 of about 64 px beside its catalogue button. A desktop was narrower here than a phone, where the
+                 panel is full width. */
+              <div className="@container space-y-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-foreground">Actes</Label>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label className="text-sm font-semibold text-foreground">Actes</Label>
+                    {/*
+                      « Reprendre des actes réalisés » — the patient's own recorded work, beside the per-line
+                      catalogue picker rather than instead of it. The catalogue answers « what does a
+                      détartrage cost? »; this answers « what did we do for this patient, and for how much? »,
+                      which is the question a fee note is raised to answer. Disabled with no patient because
+                      there is no record to read — and it says so rather than being absent.
+                    */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="coarse:h-11"
+                      disabled={!selectedPatient}
+                      title={selectedPatient ? undefined : "Sélectionnez d'abord un patient."}
+                      onClick={() => setBillableActsOpen(true)}
+                    >
+                      <ClipboardList className="mr-2 h-4 w-4" />
+                      Reprendre des actes réalisés
+                    </Button>
+                  </div>
                   {formFields.honorairesActs.length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      Aucun acte pour l&apos;instant — ajoutez la première ligne.
+                      Aucun acte pour l&apos;instant — ajoutez la première ligne, ou reprenez les soins déjà
+                      enregistrés pour ce patient.
                     </p>
                   )}
                   {formFields.honorairesActs.map((act, index) => {
@@ -2780,9 +2887,11 @@ export function DocumentEditorContent() {
                         ),
                       }))
                     return (
-                      // One column at 320 px, four from `sm:` — a désignation, a quantité and two prices side
-                      // by side on a phone would each be ~60 px wide.
-                      <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_5rem_7rem_auto]">
+                      // One column until the SECTION is 32rem wide, four above it — see the `@container` note
+                      // on the wrapper. `@lg` rather than `@md` is measured: at 448 px the four tracks leave the
+                      // désignation input ~156 px once its catalogue button is taken out, which is a field you
+                      // cannot read an act name in.
+                      <div key={index} className="grid grid-cols-1 gap-2 @lg:grid-cols-[1fr_5rem_7rem_auto]">
                         {/* The clinic's own act, or free text. Both, deliberately: the catalogue carries the
                             tarif so a fee note stops being retyped from memory, and a one-off still has to be
                             writable. A Popover is right here — this is a page, not a dialog, so nothing else
@@ -2859,12 +2968,12 @@ export function DocumentEditorContent() {
                             </PopoverContent>
                           </Popover>
                         </div>
-                        {/* Stacked below `sm:`, the two number fields are side by side with nothing naming
-                            them, and a placeholder disappears the moment a value is in — so each carries a
-                            visible inline label at that width (`invoice-form-modal`'s « Qté » shape). Above it
-                            the four columns read as a row and the label would eat a 5 rem cell. */}
+                        {/* Stacked, the two number fields are side by side with nothing naming them, and a
+                            placeholder disappears the moment a value is in — so each carries a visible inline
+                            label at that width (`invoice-form-modal`'s « Qté » shape). Once the row forms, the
+                            four columns read as a row and the label would eat a 5 rem cell. */}
                         <div className="flex items-center gap-1.5">
-                          <span className="shrink-0 text-xs text-muted-foreground sm:hidden">Qté</span>
+                          <span className="shrink-0 text-xs text-muted-foreground @lg:hidden">Qté</span>
                           <Input
                             aria-label={`Quantité de l'acte ${index + 1}`}
                             inputMode="decimal"
@@ -2875,7 +2984,7 @@ export function DocumentEditorContent() {
                           />
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="shrink-0 text-xs text-muted-foreground sm:hidden">P.U. (DT)</span>
+                          <span className="shrink-0 text-xs text-muted-foreground @lg:hidden">P.U. (DT)</span>
                           <Input
                             aria-label={`Prix unitaire de l'acte ${index + 1} (DT)`}
                             inputMode="decimal"
@@ -3028,26 +3137,9 @@ export function DocumentEditorContent() {
                   «&nbsp;certifie avoir examiné ce jour&nbsp;».
                 </p>
 
-                {/* FR-2.5: CNOMDT ordre — pre-filled from the doctor's profile, printed in the letterhead. */}
-                <div className="space-y-2">
-                  <Label htmlFor="doctorOrderNumber" className="text-sm font-semibold text-foreground">
-                    Numéro d&apos;ordre (CNOMDT)
-                  </Label>
-                  <Input
-                    id="doctorOrderNumber"
-                    type="text"
-                    value={formFields.doctorOrderNumber}
-                    disabled
-                    readOnly
-                    placeholder="—"
-                    className="h-11 bg-muted"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {formFields.doctorOrderNumber
-                      ? "Renseigné automatiquement depuis votre profil."
-                      : "Aucun numéro d'ordre sur votre profil. Ajoutez-le dans « Mon profil »."}
-                  </p>
-                </div>
+                {/* ⚠️ No « Numéro d'ordre (CNOMDT) » field here, on the practice owner's instruction — a
+                    certificat is one signed, stamped sentence and the cachet already identifies its author.
+                    `DocumentIdentity.CarriesOrdreNumber` is the render half; the two move together. */}
               </>
             )}
 
@@ -3589,6 +3681,68 @@ export function DocumentEditorContent() {
                       ? "Mettre à jour"
                       : "Enregistrer le document"}
               </Button>
+              {/*
+                WHERE THE DOCUMENT NOW LIVES — the standing answer to « enregistré, mais où ? ».
+
+                ⚠️ It is a **persistent panel, not a toast action**, and that is the whole request: the save
+                toast is gone in three seconds and the question is asked later, when the patient is at the desk
+                and somebody wants the paper. It renders on `documentId`, so a document reopened to be edited
+                says it too — the fact is « this is on file », not « you have just saved ».
+
+                ⚠️ **No redirect.** Navigating away on save was the other candidate and it loses the editor
+                mid-correction: the ordinary next action after saving a certificat is to print it, which is two
+                controls below this. Two doors instead, both stated.
+
+                ⚠️ « Voir le document » frames the **server-rendered PDF** (`DocumentPreviewDialog`), never a
+                second HTML rendering of a legal document — see that component. It is withheld for the two
+                official CNAM forms, whose paper is the pre-printed overlay their own « Imprimer » produces
+                and which `GET /medical-documents/{id}/pdf` cannot render.
+              */}
+              {documentId && selectedPatient && (
+                <div className="space-y-2 rounded-lg border bg-muted/40 p-3" role="status">
+                  <p className="text-xs text-muted-foreground">
+                    Enregistré dans le dossier du patient. Le PDF est ajouté à ses fichiers dès qu&apos;il est
+                    généré.
+                  </p>
+                  {/* `flex-wrap` + a real basis on each: two French labels that can neither shrink nor wrap
+                      measure past this panel at 320 px — the `RecordSection` trap, one surface over. */}
+                  <div className="flex flex-wrap gap-2">
+                    {!isOfficialForm && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="min-w-0 shrink grow basis-40 coarse:h-11"
+                        onClick={() => setSavedPreviewOpen(true)}
+                      >
+                        <FileText className="mr-2 h-4 w-4 shrink-0" />
+                        Voir le document
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-w-0 shrink grow basis-40 coarse:h-11"
+                      /*
+                       * ⚠️ **The patient's FILE DRAWER, not `?tab=documents` on the patient page.** Reported
+                       * as « ouvrir le dossier du patient is not working properly … the patient folder with
+                       * all its files is better ». A route needs nothing to survive the navigation, unlike a
+                       * `?tab=` the destination reads from `window.location` on mount — and it is where the
+                       * document actually is: `CreateMedicalDocumentCommand` files every generated PDF as a
+                       * `PatientFile` in the « documents » folder, which this drawer shows with previews and
+                       * folders the tab has neither of. ⚠️ The drawer opens on the UNFILED files, so the
+                       * document is one « Documents » chip away rather than in the first view; landing on the
+                       * folder itself needs its id (`?folder=`), which this editor does not hold.
+                       */
+                      onClick={() => router.push(`/patients/${selectedPatient}/files`)}
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4 shrink-0" />
+                      Ouvrir le dossier du patient
+                    </Button>
+                  </div>
+                </div>
+              )}
               {documentId && documentType === "prescription" && (
                 <Button
                   variant="outline"
@@ -3636,7 +3790,7 @@ export function DocumentEditorContent() {
                 PDF » at half width beside a gap, which reads as a control that failed to render rather than as one
                 that does not apply.
               */}
-              <div className={`grid gap-3 ${wordExportSupported ? "grid-cols-2" : "grid-cols-1"}`}>
+              <div className={`grid gap-3 ${wordExportOffered ? "grid-cols-2" : "grid-cols-1"}`}>
                 <Button
                   variant="outline"
                   /* `--success` + its wash, not a `green-500/600/50/950` quartet with a hand-written dark twin.
@@ -3648,7 +3802,7 @@ export function DocumentEditorContent() {
                   <Download className="w-4 h-4 mr-2" />
                   Télécharger PDF
                 </Button>
-                {wordExportSupported && (
+                {wordExportOffered && (
                   <Button
                     variant="outline"
                     className="h-11 bg-transparent border-primary text-primary hover:bg-accent"
@@ -3661,8 +3815,10 @@ export function DocumentEditorContent() {
                 )}
               </div>
               {/* Says why rather than just omitting the control: a button that was there yesterday and is gone
-                  today reads as a bug. See `wordExportSupported`. */}
-              {!wordExportSupported && (
+                  today reads as a bug. See `wordExportSupported`. ⚠️ Gated on the withdrawal too: with Word
+                  offered nowhere, singling out the two CNAM forms for lacking it explains a contrast the
+                  reader can no longer see. */}
+              {WORD_EXPORT_OFFERED && !wordExportSupported && (
                 <p className="text-xs text-muted-foreground">
                   {documentType === "arret-travail"
                     ? "L'arrêt de travail n'a pas d'export Word : c'est une impression sur le formulaire officiel CNAM P 061."
@@ -3806,7 +3962,7 @@ export function DocumentEditorContent() {
               dark` comment in globals.css). `bg-white` stays and the `dark:bg-slate-900` twin goes: a certificat
               médical that is white-on-black on screen and black-on-white on paper is not a preview of anything.
             */}
-            <Card className="light p-6 sm:p-10 xl:p-16 bg-white shadow-2xl min-h-[1123px] flex flex-col" ref={documentRef} style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
+            <Card className="light p-6 sm:p-10 xl:p-16 bg-white shadow-2xl min-h-[1123px] flex flex-col" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
               <div className="flex-1 flex flex-col space-y-5" style={{ fontSize: '11pt', lineHeight: '1.5' }}>
                 {/* Letterhead */}
                 <div className="space-y-1 pb-4">
@@ -3842,7 +3998,8 @@ export function DocumentEditorContent() {
                   >
                     {formData.doctorName} — {formData.doctorSpecialty}
                   </p>
-                  {formFields.doctorOrderNumber && (
+                  {/* Mirrors `DocumentIdentity.CarriesOrdreNumber`: every type but the certificat. */}
+                  {formFields.doctorOrderNumber && documentType !== "certificat" && (
                     <p className="px-1" style={{ fontSize: '11pt' }}>
                       N° CNOMDT : {formFields.doctorOrderNumber}
                     </p>
@@ -4068,6 +4225,26 @@ export function DocumentEditorContent() {
           // A lettre de liaison goes to the confrère, not the patient — which is the whole point of the letter.
           defaultRecipientEmail={documentType === "liaison" ? formFields.recipientEmail : null}
           patientId={documentType === "liaison" ? null : selectedPatient || null}
+        />
+      )}
+
+      {/* ⚠️ `mode: "saved"` reads the document back from the server rather than composing it here, so what is
+          framed is byte-for-byte the paper the e-mail attaches. No `onEditInEditor`: this IS the editor. */}
+      {documentId && (
+        <DocumentPreviewDialog
+          target={savedPreviewOpen ? { mode: "saved", documentId } : null}
+          onClose={() => setSavedPreviewOpen(false)}
+          patientEmail={patientData?.email ?? null}
+        />
+      )}
+
+      {/* Mounted for the honoraires editor only — it reads that patient's fiches, which no other type bills. */}
+      {documentType === "honoraires" && (
+        <BillableActsDialog
+          open={billableActsOpen}
+          onOpenChange={setBillableActsOpen}
+          patientId={selectedPatient || null}
+          onConfirm={addBillableActs}
         />
       )}
     </div>

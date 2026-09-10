@@ -2160,6 +2160,7 @@ procedureTypeId: it.procedureTypeId ?? null,
             <Odontogram
               patientId={patientId}
               dentition={patient.dentition}
+              dentitionAnswered={patient.dentitionAnswered}
               dateOfBirth={patient.dateOfBirth}
               treatments={teethInTreatment}
               onCreatePlan={(seeds) => {

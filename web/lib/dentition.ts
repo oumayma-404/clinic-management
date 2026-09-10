@@ -119,6 +119,25 @@ export function dentitionViewFor(value: string | null | undefined): DentitionVie
 }
 
 /**
+ * The stored `Dentition` a chosen view corresponds to — {@link dentitionViewFor} read backwards.
+ *
+ * ⚠️ **This does NOT make a `DentitionView` persistable, and the distinction is the whole point.** The view stays
+ * what its own doc says it is: seeded, then the user's, never stored. There is exactly one moment where a view
+ * *is* an answer about the patient — the odontogramme's « Quelle denture afficher ? », which fires only when
+ * nothing can seed it (no date of birth, nothing charted) and is therefore the only time the product ever learns
+ * this patient's dentition. Answering it writes `Patient.Dentition`; the arch switch above the chart does not,
+ * because looking at the other arch for a moment is not a clinical statement.
+ *
+ * Its twin is directly above so the two cannot drift — a second inverse written at a call site is how
+ * « Mixed » would come back as `adult` on one screen and `mixed` on another.
+ */
+export function dentitionForView(view: DentitionView): Dentition {
+  if (view === "child") return "Child"
+  if (view === "mixed") return "Mixed"
+  return "Adult"
+}
+
+/**
  * The narrowest view that can display **every** one of these teeth, or `null` for an empty list (in which case the
  * caller must fall back to what it knows about the patient rather than guessing).
  *

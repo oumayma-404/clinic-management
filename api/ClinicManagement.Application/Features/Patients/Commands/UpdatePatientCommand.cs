@@ -332,10 +332,22 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     emergencyPhone);
             }
 
-            // Dentition: only ever changed when explicitly sent. See the property's remark on why there is no
-            // age fallback on this path.
+            /*
+             * Dentition: only ever changed when explicitly sent. See the property's remark on why there is no
+             * age fallback on this path.
+             *
+             * ⚠️ **No `!= patient.Dentition` guard, and removing it is the fix rather than a tidy-up.** Sending
+             * the value IS the answer, whether or not it differs from what is stored — and
+             * `Patient.DentitionAnsweredAtUtc` exists precisely because the stored value cannot say whether
+             * anybody ever answered. With the guard, an identical-value write was a no-op, so `SetDentition`
+             * never ran and the marker was never set: the odontogramme's « Quelle denture afficher ? » on a
+             * patient with no date of birth kept nagging for ever whenever the dentist answered
+             * **« Définitive »**, because that is the column's own default. Measured end to end — « Mixte »
+             * stuck, « Définitive » came back on every reload. The same shape as « an identical-value write
+             * never advances `xmin` »: « was it sent? » and « did the value change? » are two questions.
+             */
             var requestedDentition = DentitionRules.Parse(request.Dentition);
-            if (requestedDentition.HasValue && requestedDentition.Value != patient.Dentition)
+            if (requestedDentition.HasValue)
             {
                 patient.SetDentition(requestedDentition.Value);
             }

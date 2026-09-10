@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -214,6 +215,20 @@ export interface PlanStepOption {
   label: string
   /** Chair time, when the protocol estimates one — what the séance's duration is summed from. */
   estimatedDurationMinutes: number | null
+  /**
+   * Already carried out — **offered to no one, but still named.**
+   *
+   * <p>⚠️ `planItemToPreset` used to drop a réalisé step from this list entirely, and the reason was sound
+   * (« offering it would invite a second fiche against a step already evidenced by one ») while the remedy
+   * conflated two questions: what may be TICKED, and what this séance IS. Every label lookup in this file
+   * resolves the appointment's booked step against this list — so reopening a séance after its fiche was
+   * recorded made the step unresolvable, and the row read « Séance : étape ». Measured on the dev database:
+   * appointment `bfd2b503` books « Empreinte primaire », done on 2026-09-06, and the card named none of it.</p>
+   *
+   * <p>So the list carries the whole protocol and the flag says which are spent: the chips filter on it, and
+   * every label, ordering and duration lookup finally answers for the step actually booked.</p>
+   */
+  done: boolean
 }
 
 /**
@@ -534,6 +549,17 @@ export function AppointmentActsPicker({
   const [totalDrafts, setTotalDrafts] = useState<Record<number, string>>({})
   /** The plan item whose total is being saved, so the row can say so instead of looking inert. */
   const [savingTotal, setSavingTotal] = useState<string | null>(null)
+  /**
+   * ⚠️ **The in-flight guard, and the double submit it stops is SELF-INFLICTED.**
+   * `commitTotal` fires on Enter *and* on blur, and the row disables its own input while saving — so pressing
+   * Enter set `savingTotal`, React disabled the field, the browser blurred it because a disabled element
+   * cannot hold focus, and `onBlur` committed the same edit a second time. Measured end to end: two `POST
+   * /amend` calls, the first **200** and the second **409** on the version the first had just superseded, so a
+   * save that worked announced « Cet enregistrement a été modifié par quelqu'un d'autre » — the one sentence
+   * guaranteed to be read as « it did not save ».
+   * A ref rather than the state above, because both handlers run before React has re-rendered.
+   */
+  const savingTotalRef = useRef<string | null>(null)
 
   /**
    * Commit an edited « Total convenu » to the treatment.
@@ -547,18 +573,61 @@ export function AppointmentActsPicker({
     const typed = totalDrafts[index]
     const planItemId = row.act.treatmentPlanItemId
     if (typed === undefined || !planItemId || !onTotalChange) return
+    if (savingTotalRef.current === planItemId) return // see `savingTotalRef`
     const parsed = parseAmountInput(typed)
-    if (!Number.isFinite(parsed) || parsed < 0) return
+    // ⚠️ Not a silent return: this is a money field, and « nothing happened » is the one outcome a dentist
+    // cannot tell from « saved ». Same reasoning as `saveActTotal`'s refusal toast.
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      toast.error(`${quoteFr(typed)} n'est pas un montant — le total n'a pas été modifié.`)
+      return
+    }
     if (row.act.billedOnPlan && parsed === row.act.billedOnPlan.actCost) {
       setTotalDrafts((prev) => { const next = { ...prev }; delete next[index]; return next })
       return
     }
+    savingTotalRef.current = planItemId
     setSavingTotal(planItemId)
     try {
       const saved = await onTotalChange(planItemId, parsed)
       // Only drop the draft once the server has the value, or the field would snap back to the old figure.
-      if (saved) setTotalDrafts((prev) => { const next = { ...prev }; delete next[index]; return next })
+      if (saved) {
+        setTotalDrafts((prev) => { const next = { ...prev }; delete next[index]; return next })
+        /*
+         * ⚠️ **The row's own copy of the devis figure, which nothing refreshed — so a SUCCESSFUL save looked
+         * like a save that had not happened.** `billedOnPlan` is derived once, when the act is picked or
+         * hydrated, and both dialogs' back-fill effects skip an act that already carries it
+         * (`if (!act.treatmentPlanItemId || act.billedOnPlan) return act`). So dropping the draft above put
+         * the field straight back to the OLD figure, and the notice under it kept quoting the old total too:
+         * typed 700, green toast « Total mis à jour — 700,000 DT », field reads 600. Reported as « it did not
+         * persist ». The write had landed.
+         *
+         * ⚠️ Every clone of the act, not `indices[0]`: a two-étape séance renders the same plan act twice, and
+         * patching one card leaves the pair disagreeing about what the treatment costs.
+         *
+         * ⚠️ `outstanding` moves with it, by the delta. It is the DEVIS' balance, not this act's — raising a
+         * total raises what is left to collect by exactly the same amount, because the payments are untouched
+         * and the server re-spreads the schedule onto the new total (`RespreadScheduleToTotal`).
+         */
+        onChange(
+          value.map((act) =>
+            act.treatmentPlanItemId === planItemId && act.billedOnPlan
+              ? {
+                  ...act,
+                  billedOnPlan: {
+                    ...act.billedOnPlan,
+                    actCost: parsed,
+                    outstanding: Math.max(
+                      0,
+                      Math.round((act.billedOnPlan.outstanding + parsed - act.billedOnPlan.actCost) * 1000) / 1000,
+                    ),
+                  },
+                }
+              : act,
+          ),
+        )
+      }
     } finally {
+      savingTotalRef.current = null
       setSavingTotal(null)
     }
   }
@@ -837,7 +906,17 @@ export function AppointmentActsPicker({
               key={`${row.act.treatmentPlanItemId ?? row.act.procedureTypeId ?? "act"}-${row.group.indices[0]}`}
               className="rounded-md border bg-background px-3 py-2"
             >
-              <div className="flex items-center gap-2">
+              {/*
+                ⚠️ **`flex-wrap`, and the name has a floor — at 320 px it was breaking mid-word.** The row's
+                other four children are all `shrink-0` (the dot, the « devis » badge, « N min », the remove
+                button), so the name got whatever was left: ~60 px at 320, and `[overflow-wrap:anywhere]` then
+                did exactly what it is told to do — « Prothèse amovible (partielle / complèt / e) », one
+                fragment per line, on the row whose whole job is to say which act is being booked. Measured on
+                the eye pass; `check:responsive` and the overflow probe were both green, because nothing
+                overflowed: it fitted, unreadably. The floor is 9rem so the badges wrap to their own line at
+                320 and nothing changes at 390 and up.
+              */}
+              <div className="flex flex-wrap items-center gap-2">
               <span
                 className="h-3 w-3 shrink-0 rounded-full"
                 style={{ backgroundColor: row.colorHex }}
@@ -849,12 +928,20 @@ export function AppointmentActsPicker({
                   the row says which act is about to be booked. The act's name IS the row's identity. */}
               <span
                 className={cn(
-                  "min-w-0 flex-1 text-sm [overflow-wrap:anywhere]",
+                  "min-w-32 flex-1 text-sm [overflow-wrap:anywhere]",
                   row.missing && "text-muted-foreground italic",
                 )}
               >
                 {row.name}
               </span>
+              {/*
+                ⚠️ **The three trailing controls wrap as ONE group.** Left as siblings of a wrapping row they
+                broke apart: at 390 px the badge and « 30 min » stayed beside the name and the ✕ dropped alone
+                onto the next line, orphaned at the left margin under the act it removes. They are one cluster
+                — what this act is, how long it takes, and how to take it off — and a line break inside it says
+                nothing.
+              */}
+              <div className="flex shrink-0 items-center gap-2">
               {/* ⚠️ No `sm:` gate. Below 640 px the « devis » chip disappeared, and on the EDIT dialog it is the
                   only devis signal a row carries — so at 390 px a plan-billed act read as an ordinary one.
                   Five characters; there is nothing to save by hiding them. */}
@@ -893,6 +980,7 @@ export function AppointmentActsPicker({
                 <X className="h-4 w-4" />
               </Button>
               </div>
+              </div>
 
               {/*
                 ⚠️ Its own line, not another cell on the identity row. That row already wraps rather than
@@ -919,21 +1007,42 @@ export function AppointmentActsPicker({
               */}
               {row.act.stepOptions && row.act.stepOptions.length > 0 && (
                 <div className="mt-2 border-t border-dashed pt-2">
+                  {/*
+                    ⚠️ **The étape is read at `text-sm`, like the act's own name, and it was `text-2xs`.**
+                    « Couronne / bridge (par élément) » and « Essai de l'armature » answer two halves of one
+                    question — *what* is being done and *which séance of it* — and the second half was set four
+                    steps smaller than the first, in muted grey, under a dashed rule. Reported in as many words:
+                    « users will definitely miss it ». A dentist who misreads which séance they are booking
+                    books the wrong one, and the fiche then charts the wrong step as carried out.
+
+                    ⚠️ The étapes are **named, never counted**. « 2 étapes dans cette séance » says how many and
+                    not which, on the one line whose job is to say which — and a bare count beside a protocol is
+                    read as progress (see `never-state-the-next-step-as-a-fact`).
+                  */}
                   <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <p className="text-2xs text-muted-foreground">
-                      {row.group.stepIds.length === 0
-                        ? "Aucune étape pour cette séance"
-                        : row.group.stepIds.length === 1
-                          ? `Séance : ${
-                              row.act.stepOptions.find((s) => s.id === row.group.stepIds[0])?.label ?? "étape"
-                            }`
-                          : `${row.group.stepIds.length} étapes dans cette séance`}
+                    <p className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">
+                      {row.group.stepIds.length === 0 ? (
+                        <span className="text-muted-foreground">Aucune étape pour cette séance</span>
+                      ) : (
+                        <>
+                          <span className="text-muted-foreground">
+                            {row.group.stepIds.length === 1 ? "Séance : " : "Séances : "}
+                          </span>
+                          <span className="font-semibold">
+                            {row.group.stepIds
+                              .map((id) => row.act.stepOptions?.find((s) => s.id === id)?.label ?? "étape")
+                              .join(" · ")}
+                          </span>
+                        </>
+                      )}
                     </p>
+                    {/* `coarse:` — a bare text link is a 15 px-tall target on a thumb (§ 9.2 of the device
+                        contract); the act rows around it already carry the same treatment. */}
                     <button
                       type="button"
                       disabled={disabled}
                       onClick={() => toggleStepEditor(row.group.indices[0])}
-                      className="shrink-0 text-2xs text-primary underline decoration-dotted"
+                      className="-my-1 inline-flex shrink-0 items-center px-1 py-1 text-xs text-primary underline decoration-dotted coarse:min-h-11 coarse:px-2"
                       aria-expanded={openStepEditors.has(row.group.indices[0])}
                     >
                       {openStepEditors.has(row.group.indices[0]) ? "terminé" : "modifier"}
@@ -943,7 +1052,16 @@ export function AppointmentActsPicker({
                     className="flex flex-wrap gap-1.5"
                     hidden={!openStepEditors.has(row.group.indices[0])}
                   >
-                    {row.act.stepOptions.map((step) => {
+                    {/*
+                      ⚠️ **A réalisé step is offered to nobody — but one this séance already books stays on
+                      screen, disabled.** Hiding it outright would leave a ticked step the dentist can see in
+                      the line above and cannot untick, and « a capability removed by a layout decision » is
+                      exactly what this repo refuses. Untickable, because a second fiche against a step already
+                      evidenced by one is the thing the whole flag exists to prevent.
+                    */}
+                    {row.act.stepOptions
+                      .filter((step) => !step.done || row.group.stepIds.includes(step.id))
+                      .map((step) => {
                       // The GROUP's own steps. Read off `value` for the whole act it was the same answer for
                       // every clone, so both cards of a two-step bridge showed both chips ticked — each card
                       // claiming to be both steps.
@@ -952,7 +1070,8 @@ export function AppointmentActsPicker({
                         <button
                           key={step.id}
                           type="button"
-                          disabled={disabled}
+                          disabled={disabled || step.done}
+                          title={step.done ? "Séance déjà réalisée" : undefined}
                           onClick={() => toggleStep(row.group, step.id)}
                           aria-pressed={ticked}
                           className={cn(
@@ -1041,7 +1160,14 @@ export function AppointmentActsPicker({
                       aria-label={`Total convenu pour ${row.name}, tout le traitement`}
                     />
                   </div>
-                  <span className="shrink-0 text-2xs text-muted-foreground">
+                  {/*
+                    ⚠️ **`min-w-0`, never `shrink-0` — this caption is 257 px of unbreakable flex item and it
+                    set the width of the whole card.** Measured at 320 px: the row allows 231, the span refused
+                    to shrink below its max-content, and the overflow propagated up through the `<li>` (269 in
+                    255) to the acts section (270 in 257) — the RecordSection trap in CLAUDE.md, one component
+                    over. `flex-wrap` already gives it its own line; `min-w-0` is what lets it wrap inside it.
+                  */}
+                  <span className="min-w-0 text-2xs text-muted-foreground">
                     {savingTotal === row.act.treatmentPlanItemId
                       ? "enregistrement…"
                       : "pour tout le traitement — cette séance n'ajoute rien"}
@@ -1049,9 +1175,12 @@ export function AppointmentActsPicker({
                 </div>
               ) : (
               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                {/* `min-w-0`, not `shrink-0`: « Prix du traitement (6 séances) » beside a `w-28` field is the
+                    same un-shrinkable-child arithmetic the sibling branch's caption was measured failing at
+                    320 px. This label is dynamic, so its length is not something to eyeball once. */}
                 <Label
                   htmlFor={`${idPrefix}-price-${row.group.indices[0]}`}
-                  className="shrink-0 text-2xs font-normal text-muted-foreground"
+                  className="min-w-0 text-2xs font-normal text-muted-foreground"
                 >
                   {/* ⚠️ A followed act is priced ONCE, for the whole treatment — `StartTreatmentCommand`
                       documents it (« a séance of it has none: what a séance carries is an encaissement »). The
@@ -1264,20 +1393,40 @@ export function AppointmentActsPicker({
                 >
                   {/*
                     ⚠️ With no number there is no devis yet — « Suivre ce traitement » makes an un-numbered
-                    treatment on purpose — so « porté par le devis » and « Déjà facturé » both name a document
-                    that does not exist. The un-numbered case says « ce traitement » and claims nothing about
-                    billing; only a numbered devis can say « Déjà facturé ».
+                    treatment on purpose — so « porté par le devis » names a document that does not exist. The
+                    un-numbered case says « ce traitement » and claims nothing about a devis.
+
+                    ⚠️ **It said « Déjà facturé. », and that was wrong twice over.** Nothing has been facturé:
+                    a devis is a *quote*, and the document that bills in this product is the note d'honoraires
+                    — which is a different row on this same notice (`billedOnInvoiceNumber`). And « déjà »
+                    reads as « the money is settled », on a séance whose whole point may be to collect some.
+                    Reported as misleading. « Chiffré sur le devis » says the true thing: the act carries ONE
+                    price, for the whole treatment, and it lives over there.
+
+                    ⚠️ The mirror of this sentence is in `patient-record-modal`'s fiche banner and the two must
+                    be reworded together — this exact pair has already drifted once, over the un-numbered case.
                   */}
                   <span className="font-semibold text-primary">
-                    {row.act.billedOnPlan.planNumber ? "Déjà facturé." : "Suivi comme traitement."}
+                    {row.act.billedOnPlan.planNumber ? "Chiffré sur le devis." : "Suivi comme traitement."}
                   </span>{" "}
-                  {row.act.billedOnPlan.planNumber
-                    ? `Cet acte est porté par le devis ${row.act.billedOnPlan.planNumber} à `
-                    : "Cet acte est chiffré une fois, pour tout le traitement, à "}
+                  L&apos;acte entier est chiffré{" "}
                   <span className="font-mono tabular-nums">
                     {formatDT(row.act.billedOnPlan.actCost)}
                   </span>
-                  . Cette séance n&apos;ajoute pas d&apos;honoraires.
+                  {row.act.billedOnPlan.planNumber
+                    ? ` sur le devis ${row.act.billedOnPlan.planNumber}`
+                    : " pour tout le traitement"}
+                  {" "}— cette séance n&apos;ajoute aucun honoraire.
+                  {/*
+                    ⚠️ **Where the money goes is stated HERE and not on the fiche's own banner**, and the two
+                    are not the same call. On the fiche, « Encaissé sur le traitement » is the only money
+                    control on the screen and pointing at it is noise. Here there is no money control at all —
+                    the price field is withheld — so a dentist told « cette séance n&apos;ajoute aucun
+                    honoraire » while the patient is handing over cash has been told what NOT to do and not
+                    what to do.
+                  */}
+                  {" "}L&apos;argent encaissé pendant la séance se saisit ensuite sur la fiche de soins, dans
+                  «&nbsp;Encaissé sur le traitement&nbsp;».
                   {/*
                     ⚠️ The devis' own « reste » is stated ONLY while the devis is what collects. Once a note
                     d'honoraires holds the money, that figure is the plan's untouched auto-échéance and is simply
@@ -1378,8 +1527,11 @@ export function AppointmentActsPicker({
                 <CommandGroup heading="Actes du devis">
                   {planActs.map((preset) => {
                     const already = value.some((a) => a.treatmentPlanItemId === preset.planItemId)
+                    // ⚠️ `find(o => !o.done)`, never `steps[0]`: the list now carries the réalisé steps too
+                    // (see `PlanStepOption.done`), so `[0]` on a bridge whose préparation is finished would
+                    // announce — and search on — a séance that has already happened.
                     const nextStep = preset.steps?.find((o) => o.id === preset.preselectedStepId)
-                      ?? preset.steps?.[0]
+                      ?? preset.steps?.find((o) => !o.done)
                     const devis = preset.billedOnPlan?.planNumber
                     return (
                       <CommandItem

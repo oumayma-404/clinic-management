@@ -13,7 +13,8 @@ import {
   type PrescriptionKind,
   type PrescriptionLine,
 } from "@/lib/documents"
-import type { MedicationDto } from "@/lib/api/types"
+import type { MedicationDto, PatientDto } from "@/lib/api/types"
+import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { RecordSection } from "./record-section"
 import { PrescriptionLineRow } from "./prescription-line-row"
 
@@ -74,6 +75,14 @@ interface PrescriptionSectionProps {
    */
   readFailed?: boolean
   disabled?: boolean
+  /**
+   * The patient, for the « À vérifier avant de prescrire » panel — allergies, maladies, médicaments.
+   *
+   * <p>Optional and read-only: a caller with no patient in hand renders exactly as before, and nothing here
+   * writes to it. Allergies are corrected in the patient's file, and an editable copy on a fourth surface is
+   * a fourth way to disagree.</p>
+   */
+  patient?: PatientDto | null
 }
 
 /** What the folded header says. Named, never counted — see the type remark. */
@@ -99,6 +108,7 @@ export function PrescriptionSection({
   onPreview,
   readFailed,
   disabled,
+  patient,
 }: PrescriptionSectionProps) {
   const add = (kind: PrescriptionKind) => {
     const next = [...lines, emptyPrescriptionLine(kind)]
@@ -137,6 +147,21 @@ export function PrescriptionSection({
       highlight={readFailed}
       icon={<Pill className="h-3.5 w-3.5 shrink-0 text-chart-1" aria-hidden="true" />}
     >
+      {/*
+        ⚠️ **The allergy, the maladies and the current médicaments, beside the box they change.**
+        They are already stated at the top of this dialog — and that block is off screen by the time anyone is
+        typing « Augmentin », because the fiche scrolls and « Prescription » is the last section in it. This
+        panel's own doc has said since it was written that an ordonnance is exactly where it belongs; the
+        document editor renders it for that reason and the fiche's own prescription did not.
+
+        ⚠️ It is the SHARED panel with a `purpose`, never a fourth hand-written copy of the three lines — that
+        is the defect shape this component was extracted to end. Tabac is the one fact it drops there; see the
+        prop's remark. It renders above the failure branch too: not being able to read the existing ordonnance
+        is no reason to withhold the allergy.
+      */}
+      {patient && (
+        <PatientAlertPanel patient={patient} purpose="prescribing" className="mb-2" />
+      )}
       {readFailed ? (
         /*
          * Nothing else renders — no add buttons, no renouvellement — and that is the safe shape rather than a

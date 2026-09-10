@@ -23,13 +23,20 @@ public sealed record DocumentEmailSendResult(DocumentEmailSendOutcome Outcome, s
     public static DocumentEmailSendResult Transient(string error) => new(DocumentEmailSendOutcome.TransientFailure, error);
 }
 
-/// <summary>One outbound document email: the recipient, the wording, and the PDF to attach.</summary>
+/// <summary>
+/// One outbound document email: the recipient, the wording, the PDF to attach — and the practitioner it is
+/// sent on behalf of. The two sender fields are optional and default to null, so a caller that does not know
+/// who is sending gets the cabinet's configured identity, exactly as before. See
+/// <see cref="DocumentEmailIdentity"/> for what is done with them.
+/// </summary>
 public sealed record DocumentEmailMessage(
     string RecipientEmail,
     string Subject,
     string Body,
     byte[] Attachment,
-    string AttachmentFileName);
+    string AttachmentFileName,
+    string? SenderEmail = null,
+    string? SenderName = null);
 
 /// <summary>
 /// Sends one document email over SMTP, reading host/port/TLS/credentials/from-identity from the

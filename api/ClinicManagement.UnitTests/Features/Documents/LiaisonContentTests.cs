@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Documents.Commands;
@@ -13,7 +13,7 @@ namespace ClinicManagement.UnitTests.Features.Documents;
 
 /// <summary>
 /// Official-documents production-readiness, Part E (FR-4). A lettre de liaison now addresses an *external*
-/// confrère: the recipient name is free text (no clinic-doctor lookup, LIA-1) and required (LIA-2); the
+/// confrère: the recipient name is free text (no clinic-doctor lookup, LIA-1) and OPTIONAL (LIA-2); the
 /// guided clinical fields round-trip through ContentJson (LIA-3). Render-side omission of empty fields and
 /// legacy-letter compatibility (LIA-4/LIA-5) are covered by <c>LiaisonRenderContentTests</c>.
 /// </summary>
@@ -90,12 +90,14 @@ public class LiaisonContentTests
         h.Doctors.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // [LIA-2] the recipient name is the only required field — a liaison without one is rejected up-front.
+    // [LIA-2] a liaison needs NO recipient. The letter is a blank letterhead — the « Confrère destinataire »
+    // fieldset went with the « À l'attention de » block it fed — so the old guard could only refuse every
+    // letter the editor can now write, and it refused the PDF job's re-render of them too.
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task Missing_Recipient_Name_Is_Rejected(string? recipientName)
+    public async Task Missing_Recipient_Name_Is_Accepted(string? recipientName)
     {
         var h = new Harness();
 
@@ -108,11 +110,8 @@ public class LiaisonContentTests
             ContentJson = "{}"
         }, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Contains("confrère destinataire", result.Error);
-        // Rejected before any work — no patient lookup, no document persisted.
-        h.Patients.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
-        h.Docs.Verify(r => r.AddAsync(It.IsAny<MedicalDocument>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.True(result.IsSuccess);
+        h.Docs.Verify(r => r.AddAsync(It.IsAny<MedicalDocument>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // [LIA-3] the guided clinical fields round-trip through ContentJson.

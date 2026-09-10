@@ -39,7 +39,21 @@ import { Button } from "@/components/ui/button"
  */
 
 interface PatientFilePdfPreviewProps {
-  /** The `blob:` URL the parent already holds in state and revokes on close. */
+  /**
+   * What the frame loads.
+   *
+   * <p>⚠️ **For a PDF the SERVER renders, pass `pdfSourceUrl(kind, id, fileName)` — not a `blob:` URL.**
+   * Chrome's viewer names its own toolbar save from the URL's **last path segment** and ignores
+   * `Content-Disposition` entirely (measured: a document served with the filename in the header alone was
+   * still titled by the id in its URL). A blob's last segment is a bare UUID, which is how « download from
+   * the pdf tool, downloads without an extension » was reported. `document-preview-dialog` and
+   * `invoice-pdf-dialog` both do this.</p>
+   *
+   * <p>⚠️ A `blob:` URL is still right for the two cases that have no named URL to point at: an **aperçu**
+   * (composed by a POST, persisting nothing, so there is no id to name) and a **patient file**, whose bytes
+   * are whatever somebody uploaded and which the API deliberately serves `attachment` + `nosniff` so nothing
+   * renders in this origin.</p>
+   */
   previewUrl: string
   /** Used as the frame's accessible title, so a screen reader names the document rather than "iframe". */
   fileName: string

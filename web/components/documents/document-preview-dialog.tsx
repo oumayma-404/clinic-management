@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
+import { pdfSourceUrl } from "@/lib/pdf-sources"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
@@ -263,7 +264,19 @@ export function DocumentPreviewDialog({
               </div>
             ) : pdfUrl ? (
               <PatientFilePdfPreview
-                previewUrl={pdfUrl}
+                /*
+                 * ⚠️ A **named** URL for a saved document, the blob only for an aperçu.
+                 *
+                 * Chrome's viewer names its toolbar save from the URL's last path segment, so a blob URL
+                 * saves as a bare UUID with no extension — the whole of `pdfSourceUrl`. An aperçu has no
+                 * such URL and cannot get one: it is composed by a POST and persists nothing, so there is no
+                 * id to name. That is the right trade rather than a gap — an aperçu deliberately carries no
+                 * Télécharger and no Imprimer, because a printed ordonnance for an unsaved séance is a legal
+                 * paper with no record behind it.
+                 */
+                previewUrl={
+                  target?.mode === 'saved' ? pdfSourceUrl('document', target.documentId, fileName) : pdfUrl
+                }
                 fileName={fileName}
                 onDeliver={deliver}
                 frameRef={frameRef}

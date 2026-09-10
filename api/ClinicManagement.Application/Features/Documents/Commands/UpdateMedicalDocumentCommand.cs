@@ -100,15 +100,9 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             // ⚠️ « note d'honoraires » is editable again — it is a printable document, never an Invoice. Its
             // legacy rows, saved before the type was retired, become editable with it. See HonorairesContent.
 
-            // FR-4.1/FR-4.2: mirror the create-path guard — a lettre de liaison must keep a recipient name
-            // on edit (the only required field). A valid liaison always carries one, so the background job's
-            // re-render (which passes the stored recipient) is unaffected.
-            if (document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.Liaison
-                && string.IsNullOrWhiteSpace(request.RecipientDoctorName))
-            {
-                return Result<MedicalDocumentDto>.Failure(
-                    "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
-            }
+            // ⚠️ No recipient guard on a lettre de liaison — see the tombstone on the create path. It also
+            // refused the background PdfGenerationJob's own re-render of every letter written since the
+            // recipient fieldset was withdrawn, so those documents had no PDF and no patient file at all.
 
             // Mirror the create-path bulletin gate — but only for a genuine user edit. ⚠️ `user == null` is the
             // background PdfGenerationJob feeding a stored document's own ContentJson back through here to

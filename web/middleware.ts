@@ -25,9 +25,17 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Gate on the session cookie, redirect to /login.
+  //
+  // ⚠️ **The whole of `/bff/` is skipped, not just `/bff/auth/`, and the widening is deliberate.** These are
+  // API surfaces, and an API surface answers with a *status*; every route under it reads the session cookie
+  // itself and returns 401 when there is none. Redirecting one instead is silently wrong the moment the
+  // caller is not a page: `/bff/pdf/…` is the `src` of an `<iframe>`, so an absent session would have
+  // rendered the **login screen inside the PDF viewer**, and a pending forced password change would have
+  // rendered the change-password form there. Both look like a broken document rather than an expired
+  // session. The API re-checks the account on every call, so nothing here is the only gate.
   if (
     pathname.startsWith('/_next/') ||
-    pathname.startsWith('/bff/auth/') ||
+    pathname.startsWith('/bff/') ||
     isPublicRoute(pathname)
   ) {
     return NextResponse.next();
