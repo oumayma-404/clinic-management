@@ -18,6 +18,35 @@ export function hasPatientAlerts(patient: PatientDto | null | undefined): boolea
 interface PatientAlertPanelProps {
   patient: PatientDto
   className?: string
+  /**
+   * What decision this copy is standing next to.
+   *
+   * <p><b>`clinical`</b> (the default, and byte-identical to what every existing caller already renders) is the
+   * panel read before touching the patient: allergies, tabac, maladies, médicaments.</p>
+   *
+   * <p><b>`prescribing`</b> is the copy inside the fiche's « Prescription » section, asked for because the
+   * alerts sit at the top of a dialog that scrolls — by the time a dentist is typing « Augmentin » the block
+   * naming a penicillin allergy is off screen, and this panel's own doc already says an ordonnance is exactly
+   * where it belongs. It carries the three facts that change <i>what may be prescribed</i> and titles itself
+   * with the reason.</p>
+   *
+   * <p>⚠️ <b>Tabac is dropped there deliberately, and it is the only thing dropped.</b> It earns its place in
+   * the clinical panel for healing, implant survival and periodontal work — none of which is a question about
+   * a prescription — and a warning that fires on facts the reader cannot act on is how the eye learns to skip
+   * the whole block, which would cost the allergy line beside it. It stays in full in the panel above and in
+   * the patient's file.</p>
+   */
+  purpose?: "clinical" | "prescribing"
+}
+
+/** True when the prescribing copy would show anything — the three facts that bear on what may be prescribed. */
+export function hasPrescribingAlerts(patient: PatientDto | null | undefined): boolean {
+  if (!patient) return false
+  return (
+    Boolean(patient.allergies?.trim()) ||
+    Boolean(patient.medicalHistory?.trim()) ||
+    Boolean(patient.medications?.trim())
+  )
 }
 
 /**
@@ -46,7 +75,12 @@ interface PatientAlertPanelProps {
  * Allergies are `text-destructive` while the antécédents stay amber — within one warning panel the two are not the
  * same weight, and the allergy is the line that stops an injection.
  */
-export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps) {
+export function PatientAlertPanel({
+  patient,
+  className,
+  purpose = "clinical",
+}: PatientAlertPanelProps) {
+  const prescribing = purpose === "prescribing"
   const allergies = patient.allergies?.trim()
   const medicalHistory = patient.medicalHistory?.trim()
   /*
@@ -63,7 +97,8 @@ export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps
    * same job as `importantNotes`, while this is a fact that bears on the decision being taken on these three
    * surfaces (healing, implant survival, periodontal work).
    */
-  const tobacco = isActiveSmoker(patient.tobaccoUse) ? tobaccoSummary(patient.tobaccoUse) : null
+  const tobacco =
+    !prescribing && isActiveSmoker(patient.tobaccoUse) ? tobaccoSummary(patient.tobaccoUse) : null
 
   if (!allergies && !medicalHistory && !medications && !tobacco) return null
 
@@ -74,8 +109,13 @@ export function PatientAlertPanel({ patient, className }: PatientAlertPanelProps
         className,
       )}
     >
+      {/* ⚠️ The prescribing copy names the DECISION, not the category. « Alertes médicales » twice in one
+          scrolling dialog reads as the same block repeated — the complaint this product has already answered
+          once, on the fiche's own banner — while « À vérifier avant de prescrire » says why this copy is
+          here and is the sentence a dentist actually needs at that moment. */}
       <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-200">
-        <AlertTriangle className="h-4 w-4" aria-hidden="true" /> Alertes médicales
+        <AlertTriangle className="h-4 w-4" aria-hidden="true" />{" "}
+        {prescribing ? "À vérifier avant de prescrire" : "Alertes médicales"}
       </p>
       <div className="mt-2 space-y-1.5 text-xs">
         {allergies && (
