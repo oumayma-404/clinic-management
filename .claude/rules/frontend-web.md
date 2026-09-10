@@ -350,6 +350,20 @@ Then **look at it**, at these widths: **320 / 390 / 820 / 1180 / 1440**, plus a 
 keyboard. Record the result in the feature's `progress.md`. The manual walk is the load-bearing half; nothing
 in `web/` can assert a layout.
 
+⚠️ **Those are widths. A desktop pass also has a HEIGHT, and the honest one is ~730 px, not 900.** The
+practice owner's laptop is 1536 × 864 with a 816 px working area, so maximised Chrome leaves about
+**1536 × 730** of page — where `md:max-h-[85dvh]` is 620 px rather than the 765 px a 900-tall window gives. A
+dialog whose footer clears the fold in your window can still need scrolling in theirs. Check any dialog you
+touched at **730 px tall** as well as at its widths.
+
+⚠️ **And when driving their browser, size the viewport to the window, not to a round number.** Playwright
+cannot grow a maximised window past the working area, so a 900-tall viewport renders into a ~730-tall window
+and the bottom ~170 px is off screen — landing squarely on modal footers, and reported as « it's cutting me
+off in modals couldn't see the save buttons ». The page cannot tell you this: with a viewport emulated,
+`window.screen` and `outerWidth/Height` report the *emulated* values and look plausible. Ask the OS for the
+window's client rect and compare it with `innerHeight`; if `innerHeight` is larger, it is the harness and not
+the product.
+
 Adding a mechanical check: derive the surfaces (`card-fallback` derives its table list), never hand-maintain an
 expectation list, and **never add a per-file exemption** — an allow-list that grows is a check that has stopped
 working. **Then prove it fails**: feed it a deliberate violation in a throwaway file and confirm a red run before
