@@ -2777,7 +2777,9 @@ export function DocumentEditorContent() {
             {/* Document-specific fields */}
             {documentType === "prescription" && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                {/* ⚠️ `flex-wrap`: the button is `whitespace-nowrap shrink-0`, so at 320 px this row measured
+                    295 px of min-content in a 273 px box and pushed the whole editor pane sideways. */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Label className="text-sm font-semibold text-foreground">
                     Médicaments prescrits
                   </Label>
