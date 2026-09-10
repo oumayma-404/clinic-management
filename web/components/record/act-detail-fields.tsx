@@ -1,5 +1,7 @@
 "use client"
 
+import { useState } from "react"
+
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -30,6 +32,18 @@ interface ActDetailFieldsProps {
 export function ActDetailFields({ act, dispatch, disabled }: ActDetailFieldsProps) {
   const conditionChip = conditionStyle(act.resultingCondition ?? "Sain")
   const toothCount = act.toothNumbers.length
+  /*
+   * ⚠️ **The état résultant is READ at rest and corrected on purpose — it is the act's answer, not the fiche's.**
+   * An implant leaves an implant, and a picker sitting open beside every act invited a dentist to overwrite that
+   * with a keystroke on the one field the odontogramme is built from.
+   *
+   * ⚠️ It is folded and NOT removed, because the catalogue cannot answer it alone: `CategoryResultingConditions`
+   * gives all of « Prothèse fixe » the state `Couronne` and says so in as many words (« categories mixing states
+   * … rely on the admin/per-act override »). A bridge is that same catalogue act with a bridge état, and this
+   * control is what turns it into one — delete it and « Couronne / bridge (par élément) » can never chart a
+   * travée, whatever the pontique question below then asks.
+   */
+  const [correctingCondition, setCorrectingCondition] = useState(false)
   const patch = (p: Partial<SessionAct>) => dispatch({ type: "patchAct", key: act.key, patch: p })
 
   const toggleSurface = (code: string) => {
@@ -52,23 +66,37 @@ export function ActDetailFields({ act, dispatch, disabled }: ActDetailFieldsProp
           />
           {act.resultingCondition ? conditionChip.label : "Aucun"}
         </span>
-        <Select
-          value={act.resultingCondition ?? NO_CONDITION}
-          onValueChange={(v) => patch({ resultingCondition: v === NO_CONDITION ? null : v })}
-          disabled={disabled}
-        >
-          <SelectTrigger className="h-8 w-44 text-xs" aria-label={`État résultant de ${act.procedureName}`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_CONDITION}>Aucun</SelectItem>
-            {CONDITION_ORDER.map((c) => (
-              <SelectItem key={c} value={c}>
-                {conditionStyle(c).label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {correctingCondition ? (
+          <Select
+            value={act.resultingCondition ?? NO_CONDITION}
+            onValueChange={(v) => patch({ resultingCondition: v === NO_CONDITION ? null : v })}
+            disabled={disabled}
+          >
+            <SelectTrigger className="h-8 w-44 text-xs" aria-label={`État résultant de ${act.procedureName}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_CONDITION}>Aucun</SelectItem>
+              {CONDITION_ORDER.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {conditionStyle(c).label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-2xs text-muted-foreground coarse:h-11"
+            onClick={() => setCorrectingCondition(true)}
+            disabled={disabled}
+            aria-label={`Corriger l'état résultant de ${act.procedureName}`}
+          >
+            Corriger
+          </Button>
+        )}
         <span className="ml-auto text-2xs text-muted-foreground">alimente l&apos;odontogramme</span>
       </div>
 
