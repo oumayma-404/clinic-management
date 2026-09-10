@@ -270,13 +270,16 @@ export function planItemToPreset(
         ? `${item.designationFr} (dents ${item.toothNumbers.join(", ")})`
         : item.designationFr,
     plannedCost: item.plannedCost,
-    steps: item.steps
-      ?.filter((step) => !step.doneDate)
-      .map((step) => ({
-        id: step.id,
-        label: step.label,
-        estimatedDurationMinutes: step.estimatedDurationMinutes,
-      })),
+    // ⚠️ **The whole protocol, réalisé steps included — `PlanStepOption.done` is what withholds them.** This
+    // filtered them out, which is right for a chip somebody can tick and wrong for every label lookup that
+    // resolves an appointment's OWN booked step against this list: once the fiche was recorded the step
+    // vanished from here and the booking dialog printed « Séance : étape ».
+    steps: item.steps?.map((step) => ({
+      id: step.id,
+      label: step.label,
+      estimatedDurationMinutes: step.estimatedDurationMinutes,
+      done: step.doneDate != null,
+    })),
     preselectedStepId: item.nextStepId ?? null,
     billedOnPlan: {
       planNumber: plan.number,
