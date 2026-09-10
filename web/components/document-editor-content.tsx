@@ -76,6 +76,7 @@ import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
 import { downloadBlob } from "@/lib/download"
+import { printPdfBlob } from "@/lib/print"
 import { Document, Packer, Paragraph, HeadingLevel, AlignmentType, TextRun, BorderStyle } from "docx"
 
 /*
@@ -572,7 +573,8 @@ export function DocumentEditorContent() {
   // « Envoyer par e-mail » — only reachable once the document has been saved and therefore has an id.
   const [emailOpen, setEmailOpen] = useState(false)
 
-  const documentRef = useRef<HTMLDivElement>(null)
+  // `documentRef` is gone with the DOM-clone print: nothing reads the A4 block's subtree any more, and
+  // leaving a handle on it is an invitation to render this legal document a second way. See `handlePrint`.
 
   // Load clinic and doctor info
   const { doctors, currentUserDoctor } = useDoctors()
@@ -1665,12 +1667,36 @@ export function DocumentEditorContent() {
       content.durationUnit = durationUnitOf(formFields.durationUnit);
       content.patientCivility = patientCivility(patientData?.gender);
     } else if (documentType === "honoraires") {
+      // The array goes in as an array; `contentStrings` below is what re-serialises it. It used to be sent
+      // raw and that was the whole of the « Ces champs ne sont pas valides » refusal — see below.
       content.acts = honorairesContentActs(formFields.honorairesActs);
       content.note = formFields.honorairesNote || "";
     } else if (documentType === "bulletin-cnam") {
       Object.assign(content, buildBulletinContent(patientData));
     } else if (documentType === "arret-travail") {
       Object.assign(content, buildArretContent(patientData));
+    }
+
+    /*
+     * ⚠️ **`MedicalDocumentPdfData.Content` is a `Dictionary<string, string>` on the wire, so EVERY value
+     * here has to be a string — and an array has to be a JSON string.** This mirrors the server's own
+     * `MedicalDocumentPdfMapping.FlattenContent`, whose summary states the contract: « a non-string node (the
+     * medications / acts arrays) is re-serialized rather than dropped, because the renderer parses those back
+     * out of the string. »
+     *
+     * It is enforced HERE, once, rather than trusted to each branch, because trusting the branches is exactly
+     * what failed: `prescription` stringified its medications and `buildBulletinContent` its acts, while
+     * `honoraires` sent a raw array — so `POST /medical-documents/generate-pdf-download` refused to bind the
+     * body and answered « Ces champs ne sont pas valides ou n'ont pas été envoyés : documentData, acts ».
+     * Both « Télécharger PDF » and « Imprimer » were dead on every note d'honoraires.
+     *
+     * ⚠️ The `typeof v === "string"` passthrough is load-bearing: stringifying an already-serialised value
+     * would double-encode it, and the renderer would parse a string where it expects a list.
+     */
+    const contentStrings: Record<string, string> = {};
+    for (const [key, value] of Object.entries(content)) {
+      contentStrings[key] =
+        typeof value === "string" ? value : value == null ? "" : JSON.stringify(value);
     }
 
     // Format patient date of birth for PDF
@@ -1706,7 +1732,8 @@ export function DocumentEditorContent() {
       issuingDoctorId: selectedDoctor?.id || undefined,
       recipientDoctorName: documentType === "liaison" ? recipientDoctorName : undefined,
       recipientDoctorSpecialty: documentType === "liaison" ? recipientDoctorSpecialty : undefined,
-      content,
+      // `contentStrings`, never `content` — see the contract note above.
+      content: contentStrings,
     };
   };
 
@@ -2084,15 +2111,15 @@ export function DocumentEditorContent() {
   /*
    * K4 — printing a bulletin is a **different operation**, and conflating the two is what broke it.
    *
-   * « Imprimer » always failed on a BS1: `documentRef` is attached to the `<Card>` in the *else* branch of the
-   * `bulletin-cnam ? … : (…)` preview ternary, so for a bulletin `documentRef.current` was null and the guard below
-   * refused with « Le contenu du document n'est pas disponible pour l'impression » — on the one document a
-   * conventionné dentist prints all day.
+   * « Imprimer » always failed on a BS1: the print path read a ref attached to the `<Card>` in the *else* branch
+   * of the `bulletin-cnam ? … : (…)` preview ternary, so for a bulletin it was null and the guard refused with
+   * « Le contenu du document n'est pas disponible pour l'impression » — on the one document a conventionné
+   * dentist prints all day. The fix was to gate on the document type rather than move the ref.
    *
-   * The fix is to gate on the document type rather than to move the ref. For every other type the printable thing
-   * is a styled DOM subtree, cloned into a blank window. For a bulletin it is the **overlaid PDF itself**, already
-   * rendered by the server and already on screen in an iframe: there is no HTML to clone, and re-deriving the paper
-   * from the DOM would print something other than what the caisse receives.
+   * ⚠️ **That gate is now the only difference, and it is a small one**: `handlePrint` prints the server's PDF
+   * for every other type too, so neither branch clones any DOM. What still separates them is WHICH server
+   * rendering — a bulletin is an overlay on the pre-printed CNAM form, already on screen in this iframe, and
+   * re-requesting it would print something other than what the caisse receives.
    *
    * ⚠️ `contentWindow.print()` on the live preview iframe is the primary path (same-origin `blob:`, so it is
    * reachable) and is what keeps the printed sheet byte-identical to the preview. Chromium and Firefox honour it;
@@ -2154,7 +2181,25 @@ export function DocumentEditorContent() {
     }
   };
 
-  const handlePrint = () => {
+  /**
+   * Print the document — **the bytes the server renders, never a clone of the A4 block on screen**.
+   *
+   * <p>It used to `window.open('')` and write in a copy of `documentRef`'s subtree plus
+   * `document.querySelector('style')?.textContent`. That selector is the page's FIRST `<style>` element, which
+   * in a Tailwind v4 app is not the stylesheet — so the print preview arrived essentially unstyled: no
+   * margins, a collapsed table, labels at body size, everything against the left edge. Reported with a
+   * screenshot of `about:blank`.</p>
+   *
+   * <p>⚠️ It was also a second renderer of a legal document, which `DocumentPreviewDialog` already refuses
+   * for the reason that applies here twice over: what a patient is handed must be what the e-mail attaches and
+   * what the PDF job stores.</p>
+   *
+   * <p>⚠️ **It prints the form as it stands, not the last saved version** — the same
+   * `buildDocumentData()` that « Télécharger PDF » directly beside it sends. Printing the stored document
+   * instead would silently print a stale sheet after an edit, and would make « Imprimer » unavailable before
+   * the first save, which the DOM path did support.</p>
+   */
+  const handlePrint = async () => {
     if (saving) {
       return; // Prevent action while saving
     }
@@ -2167,71 +2212,56 @@ export function DocumentEditorContent() {
       return;
     }
 
-    if (!documentRef.current) {
-      toast.error("Impossible d'imprimer", {
-        description: "Le contenu du document n'est pas disponible pour l'impression",
+    if (!patientData) {
+      toast.error("Patient requis", {
+        description: "Sélectionnez un patient avant d'imprimer le document.",
         duration: 3000,
       });
       return;
     }
 
-    // Create a new window for printing
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      toast.error("Fenêtre bloquée", {
-        description: "Autorisez les fenêtres pop-up de votre navigateur pour lancer l'impression.",
-        duration: 4000,
-      });
-      return;
-    }
-
-    // Clone the document content
-    const content = documentRef.current.cloneNode(true) as HTMLElement;
-    
-    // Remove contentEditable attributes for cleaner print
-    content.querySelectorAll('[contenteditable]').forEach(el => {
-      el.removeAttribute('contenteditable');
+    const loadingToast = toast.loading("Préparation de l'impression…", {
+      description: "Le document se prépare.",
     });
 
-    // Write to print window
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${getDocumentTitle()}</title>
-          <style>
-            @media print {
-              @page {
-                size: A4;
-                margin: 0;
-              }
-              body {
-                margin: 0;
-                padding: 20mm;
-              }
-            }
-            body {
-              font-family: Arial, sans-serif;
-              margin: 0;
-              padding: 20mm;
-            }
-            ${document.querySelector('style')?.textContent || ''}
-          </style>
-        </head>
-        <body>
-          ${content.innerHTML}
-        </body>
-      </html>
-    `);
-    
-    printWindow.document.close();
-    
-    // Wait for content to load, then print
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print();
-      }, 250);
-    };
+    try {
+      const documentData = buildDocumentData();
+      if (!documentData) {
+        toast.dismiss(loadingToast);
+        toast.error("Données manquantes", {
+          description: "Impossible de préparer le document. Vérifiez que tous les champs obligatoires sont remplis.",
+          duration: 4000,
+        });
+        return;
+      }
+
+      const pdfBlob = await medicalDocumentsApi.generatePdfForDownload(documentData);
+      /*
+       * ⚠️ Dismissed BEFORE printing, not after. `print()` blocks until the dialog is closed, so awaiting
+       * it first left « Préparation de l'impression… » spinning behind an open print dialog — telling the
+       * user something is still being prepared while it is plainly in front of them, and clearing only once
+       * they had finished. The wait this toast describes ends when the bytes arrive.
+       */
+      toast.dismiss(loadingToast);
+      const outcome = await printPdfBlob(pdfBlob, buildPdfFileName());
+
+      // Said only where it is true: on a coarse pointer nothing was printed, the file was handed to the OS
+      // viewer, and telling somebody « impression lancée » there would be a claim about a dialog they never saw.
+      if (outcome === "delivered") {
+        toast.info("Document ouvert", {
+          description: "Utilisez l'impression de la visionneuse de votre appareil.",
+          duration: 5000,
+        });
+      }
+    } catch (error) {
+      console.error("Error in handlePrint:", error);
+      toast.dismiss(loadingToast);
+      const errorMessage = error instanceof ApiError ? error.message : "Une erreur est survenue";
+      toast.error("Impossible d'imprimer", {
+        description: errorMessage,
+        duration: 4000,
+      });
+    }
   };
 
   /**
@@ -3908,7 +3938,7 @@ export function DocumentEditorContent() {
               dark` comment in globals.css). `bg-white` stays and the `dark:bg-slate-900` twin goes: a certificat
               médical that is white-on-black on screen and black-on-white on paper is not a preview of anything.
             */}
-            <Card className="light p-6 sm:p-10 xl:p-16 bg-white shadow-2xl min-h-[1123px] flex flex-col" ref={documentRef} style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
+            <Card className="light p-6 sm:p-10 xl:p-16 bg-white shadow-2xl min-h-[1123px] flex flex-col" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
               <div className="flex-1 flex flex-col space-y-5" style={{ fontSize: '11pt', lineHeight: '1.5' }}>
                 {/* Letterhead */}
                 <div className="space-y-1 pb-4">
