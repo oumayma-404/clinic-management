@@ -3724,7 +3724,18 @@ export function DocumentEditorContent() {
                       variant="outline"
                       size="sm"
                       className="min-w-0 shrink grow basis-40 coarse:h-11"
-                      onClick={() => router.push(`/patients/${selectedPatient}?tab=documents`)}
+                      /*
+                       * ⚠️ **The patient's FILE DRAWER, not `?tab=documents` on the patient page.** Reported
+                       * as « ouvrir le dossier du patient is not working properly … the patient folder with
+                       * all its files is better ». A route needs nothing to survive the navigation, unlike a
+                       * `?tab=` the destination reads from `window.location` on mount — and it is where the
+                       * document actually is: `CreateMedicalDocumentCommand` files every generated PDF as a
+                       * `PatientFile` in the « documents » folder, which this drawer shows with previews and
+                       * folders the tab has neither of. ⚠️ The drawer opens on the UNFILED files, so the
+                       * document is one « Documents » chip away rather than in the first view; landing on the
+                       * folder itself needs its id (`?folder=`), which this editor does not hold.
+                       */
+                      onClick={() => router.push(`/patients/${selectedPatient}/files`)}
                     >
                       <ExternalLink className="mr-2 h-4 w-4 shrink-0" />
                       Ouvrir le dossier du patient
