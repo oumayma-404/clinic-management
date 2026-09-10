@@ -1098,6 +1098,16 @@ export function PatientRecordModal({
    */
   const collectsOnTreatment = carriedByDevis && !billedPlanItem?.billedOnInvoiceNumber
 
+  /**
+   * « sur cette séance », for the figures that describe the séance's own note while the treatment's money is on
+   * screen beside them — two scopes, each named, which is the rule the acts picker's own hint states.
+   *
+   * <p>⚠️ Reported from a mixed séance: « restera 1 000,000 DT sur ce traitement » and « Reste à payer :
+   * 0,000 DT » one line apart, both true, and only one of them about the same money. A wholly-carried séance
+   * already withdraws the séance figures, so this is the case that was left.</p>
+   */
+  const seanceScope = collectsOnTreatment ? " sur cette séance" : ""
+
   const treatmentOutstandingBefore = billedPlanItem
     ? roundMillimes(billedPlanItem.planOutstanding ?? billedPlanItem.plannedCost ?? 0)
     : 0
@@ -2399,7 +2409,14 @@ export function PatientRecordModal({
               raises a second, unlinked claim for work the treatment already prices.
             */}
             {collectsOnTreatment && (
-              <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+              // ⚠️ A rule above it whenever the séance keeps money of its own: the two live in one bordered box
+              // and nothing said where one ended, which is how « reste 0,000 » was read as the treatment's.
+              <div
+                className={cn(
+                  "flex w-full flex-wrap items-center gap-x-3 gap-y-2",
+                  !withholdSeanceMoneyFields && "border-t border-border/70 pt-2.5",
+                )}
+              >
                 <div className="flex min-w-[11rem] flex-1 items-center gap-2">
                   <Label
                     htmlFor="collected-on-plan"
@@ -2566,12 +2583,12 @@ export function PatientRecordModal({
                 </p>
               ) : isInvoiced ? (
                 <p className="text-muted-foreground">
-                  Facturé{reste > 0 ? ` — reste ${formatDT(reste)}` : ""}. Augmentez « Payé » pour encaisser un
+                  Facturé{reste > 0 ? ` — reste ${formatDT(reste)}${seanceScope}` : ""}. Augmentez « Payé » pour encaisser un
                   complément sur la même note.
                 </p>
               ) : (
                 <p className="text-muted-foreground">
-                  Reste à payer :{" "}
+                  Reste à payer{seanceScope} :{" "}
                   {/* `--warning-ink`, not `text-amber-600`: that literal had no `dark:` pair and measured
                       ~3.2:1 on the card — on an outstanding-balance figure. The token was minted for this. */}
                   <span className={reste > 0 ? "font-semibold text-warning-ink" : "font-medium text-foreground"}>
