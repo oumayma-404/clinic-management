@@ -73,6 +73,20 @@ export async function printPdfBlob(blob: Blob, fileName: string): Promise<'print
         finish(false);
         return;
       }
+      /*
+       * ⚠️ **An iframe fires `load` for its initial `about:blank`, and printing there prints a BLANK SHEET.**
+       * Inserting a frame creates that document synchronously and queues its load event, so the handler ran
+       * once on nothing and once on the PDF — reported as « quand je clique sur imprimer, au début ça ouvre
+       * une page vide à imprimer, puis ça montre la bonne ». Assigning `src` before insertion is most of the
+       * cure; this guard is what makes it certain, since an unreadable location can only be the real bytes.
+       */
+      let loaded = url;
+      try {
+        loaded = view.location.href;
+      } catch {
+        loaded = url;
+      }
+      if (loaded !== url) return;
       // Loading succeeded; how long the dialog stays open is the user's business, not a failure.
       window.clearTimeout(deadline);
       try {
@@ -86,8 +100,9 @@ export async function printPdfBlob(blob: Blob, fileName: string): Promise<'print
     };
     frame.onerror = () => finish(false);
 
-    document.body.appendChild(frame);
+    // `src` first, then insert: see the `about:blank` note in `onload`.
     frame.src = url;
+    document.body.appendChild(frame);
   });
 
   /*
