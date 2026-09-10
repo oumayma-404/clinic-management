@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readSessionCookie } from '@/lib/auth/session-cookie';
 import { clearSessionCookies, writeSessionCookies } from '@/lib/auth/session-cookie';
-import { forwardedForHeader } from '@/lib/auth/forwarded-for';
-
-// Server-side handler: must reach the .NET API with an ABSOLUTE URL. The browser-facing NEXT_PUBLIC_API_URL
-// is relative (`/api`) behind the same-origin front door and has no origin server-side.
-const API_INTERNAL_URL = process.env.API_INTERNAL_URL || 'http://localhost:5000/api';
+import { exchangeRefreshToken } from '@/lib/auth/api-token';
 
 // Force dynamic rendering to avoid build-time evaluation
 export const dynamic = 'force-dynamic';
@@ -28,29 +24,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Session absente. Reconnectez-vous.' }, { status: 401 });
     }
 
-    try {
-      const res = await fetch(`${API_INTERNAL_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...forwardedForHeader(request),
-        },
-        body: JSON.stringify({ refreshToken: sessionCredential }),
-      });
+    {
+      // The round trip itself lives in `lib/auth/api-token` — `/bff/pdf/…` makes the same one, and every
+      // branch below is still this route's own. `unreachable` replaces the try/catch that used to wrap this.
+      const res = await exchangeRefreshToken(sessionCredential, request);
+      const data = res.data;
 
-      const data = await res.json().catch(() => null);
+      if (res.unreachable) {
+        // The API is unreachable — distinct from "session invalid", so the client can retry rather than
+        // logging the user out over a transient blip (spec EC-10).
+        return NextResponse.json(
+          { error: 'Serveur injoignable. Veuillez réessayer.' },
+          { status: 503 }
+        );
+      }
 
-      if (res.ok && data?.isSuccess && data?.value?.accessToken) {
+      if (res.accessToken) {
         // The response body carries only the access token, exactly as before — the durable credential must
         // never reach browser JavaScript, which is the whole point of the HttpOnly cookie (AC-5.5).
+        const value = data?.value ?? {};
         const response = NextResponse.json({
-          accessToken: data.value.accessToken,
-          expiresAt: data.value.expiresAt,
+          accessToken: res.accessToken,
+          expiresAt: value.expiresAt,
         });
 
         // The half that used to be missing (AC-35): storing the freshly-minted credential is what makes the
         // session slide. An older API build sends no `refreshToken`, and then the cookie is left alone.
-        const { refreshToken, refreshExpiresAt, mustChangePassword } = data.value;
+        const { refreshToken, refreshExpiresAt, mustChangePassword } = value;
         if (refreshToken) {
           writeSessionCookies(response, request, {
             credential: refreshToken,
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
       if (res.status === 429) {
         // Renewal is automatic and unattended, so the client's job is to back off, not to sign the user
         // out. Pass the status and Retry-After straight through.
-        const retryAfter = res.headers.get('retry-after');
+        const retryAfter = res.retryAfter;
         return NextResponse.json(
           { error: data?.error || 'Trop de requêtes. Veuillez réessayer dans un instant.' },
           { status: 429, ...(retryAfter ? { headers: { 'Retry-After': retryAfter } } : {}) }
@@ -99,12 +99,5 @@ export async function GET(request: NextRequest) {
       );
       clearSessionCookies(response);
       return response;
-    } catch {
-      // The API is unreachable — distinct from "session invalid", so the client can retry rather than
-      // logging the user out over a transient blip (spec EC-10).
-      return NextResponse.json(
-        { error: 'Serveur injoignable. Veuillez réessayer.' },
-        { status: 503 }
-      );
     }
 }

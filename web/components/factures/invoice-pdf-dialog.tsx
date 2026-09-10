@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
+import { pdfSourceUrl } from "@/lib/pdf-sources"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
 import { invoicesApi } from "@/lib/api/invoices"
@@ -82,8 +83,15 @@ export function InvoicePdfDialog({
         if (cancelled) return
         blobRef.current = blob
         releaseUrl()
-        // ⚠️ The frame's OWN toolbar saves as the bare blob UUID, with no `.pdf` — Chrome names it from the URL
-        // and a named `File` here does not change that (measured). « Télécharger » below is the named route.
+        /*
+         * ⚠️ **The blob is for « Télécharger » and for the coarse hand-off — the FRAME is pointed at
+         * `pdfSourceUrl` instead**, because Chrome's viewer names its toolbar save from the URL's last path
+         * segment and a blob's is a bare UUID (measured; a named `File` changes nothing).
+         *
+         * This read is therefore not redundant even though the frame fetches the same document: an
+         * `<iframe>` reports no error for an HTTP failure — it would simply paint the JSON body as text —
+         * so this is also the only thing that can put « Réessayer » on screen instead of a broken document.
+         */
         const url = URL.createObjectURL(blob)
         urlRef.current = url
         setPdfUrl(url)
@@ -164,7 +172,7 @@ export function InvoicePdfDialog({
               </div>
             ) : pdfUrl ? (
               <PatientFilePdfPreview
-                previewUrl={pdfUrl}
+                previewUrl={pdfSourceUrl('invoice', invoiceId!, fileName)}
                 fileName={fileName}
                 onDeliver={deliver}
                 frameRef={frameRef}
