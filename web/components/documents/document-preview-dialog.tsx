@@ -69,7 +69,6 @@ export type DocumentPreviewTarget =
       /** The séance's date, ISO — the document's date. */
       interventionDate: string
       lines: PrescriptionLine[]
-      renewals?: string
     }
 
 interface DocumentPreviewDialogProps {
@@ -151,7 +150,6 @@ export function DocumentPreviewDialog({
             // from the document the save writes.
             prescription: {
               lines: target.lines.map((line) => ({ ...line, name: line.name.trim() })),
-              renewals: target.renewals?.trim() || undefined,
             },
           })
           if (cancelled) return

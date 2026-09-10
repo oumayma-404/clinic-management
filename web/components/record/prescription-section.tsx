@@ -41,13 +41,11 @@ import { PrescriptionLineRow } from "./prescription-line-row"
  */
 interface PrescriptionSectionProps {
   lines: PrescriptionLine[]
-  renewals: string
   /** Which line is being typed — its index, or null when every line is at rest. */
   armedIndex: number | null
   open: boolean
   onToggle: () => void
   onLinesChange: (lines: PrescriptionLine[]) => void
-  onRenewalsChange: (renewals: string) => void
   onArmedIndexChange: (index: number | null) => void
   catalog: MedicationDto[]
   catalogFailed: boolean
@@ -93,12 +91,10 @@ export function prescriptionSummary(lines: PrescriptionLine[]): string {
 
 export function PrescriptionSection({
   lines,
-  renewals,
   armedIndex,
   open,
   onToggle,
   onLinesChange,
-  onRenewalsChange,
   onArmedIndexChange,
   catalog,
   catalogFailed,
@@ -164,7 +160,7 @@ export function PrescriptionSection({
       )}
       {readFailed ? (
         /*
-         * Nothing else renders — no add buttons, no renouvellement — and that is the safe shape rather than a
+         * Nothing else renders — no add buttons — and that is the safe shape rather than a
          * degraded one. With no way to add a line the section sends an empty list, which by contract leaves
          * the existing ordonnance exactly as it is; offering to type into a document we could not read would
          * let one save replace a prescription nobody has seen.
@@ -206,7 +202,7 @@ export function PrescriptionSection({
        * tailwind-merge groups, so the element ends up `flex: 1 1 0%` **and** `flex-shrink: 0`. The two labels
        * then cannot shrink and cannot wrap, so their combined min-content (253 px) sized the section's grid
        * track — and because `RecordSection`'s body is a grid, that pushed **every** sibling to 253 px in a
-       * 231 px box: the rows, the renouvellement and the closing sentence all ran past the dialog's edge.
+       * 231 px box: the rows and the closing sentence all ran past the dialog's edge.
        * One un-shrinkable pair of buttons, the whole section over the boundary.
        *
        * `basis-32` is what decides where they stack: 2 × 128 + 8 > 231 at 320 px, so they take a row each
@@ -236,29 +232,6 @@ export function PrescriptionSection({
       </div>
       )}
 
-      {/*
-        Renouvellement — per-ORDONNANCE, never per line: it governs the document, and printed against one
-        médicament it would read as applying to that one only. One 18 px mention rather than a 62 px labelled
-        field, because it is filled on a small minority of ordonnances.
-      */}
-      {hasMedication && !readFailed && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Label htmlFor="prescription-renewals" className="text-2xs text-muted-foreground">
-            Renouvellement
-          </Label>
-          <Input
-            id="prescription-renewals"
-            value={renewals}
-            onChange={(e) => onRenewalsChange(e.target.value)}
-            disabled={disabled}
-            placeholder="Ex : 2 — ou « non »"
-            className="h-9 w-full sm:w-56"
-          />
-          <span className="text-2xs text-muted-foreground">
-            Laissez vide pour ne rien mentionner. « non » ou « 0 » imprime « Ordonnance non renouvelable ».
-          </span>
-        </div>
-      )}
 
       {/*
         « Aperçu » — the sheet as it will be printed, composed by the SERVER from what is typed (see

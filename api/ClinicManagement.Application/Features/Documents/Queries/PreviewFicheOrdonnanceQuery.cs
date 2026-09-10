@@ -137,8 +137,6 @@ public class PreviewFicheOrdonnanceQueryHandler
             var composed = await FicheOrdonnanceEmitter.ComposeAsync(
                 documentType,
                 lines,
-                // The renouvellement governs the médicament sheet only.
-                isExamen ? null : request.Prescription?.Renewals,
                 // No fiche and no appointment: nothing is saved, so the document belongs to nothing.
                 new FicheOrdonnanceContext(
                     patient.Id, request.DoctorId, null, null, request.InterventionDate),

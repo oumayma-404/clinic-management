@@ -74,11 +74,6 @@ export interface CreateDentalRecordRequest {
 export interface PrescriptionInput {
   lines: PrescriptionLine[];
   /**
-   * The renouvellement mention — it governs the whole ordonnance and never one line. Blank prints nothing;
-   * « 0 » / « non » prints « Ordonnance non renouvelable. »
-   */
-  renewals?: string;
-  /**
    * The `version` of the ordonnance the modal read when it opened, round-tripped so this save cannot overwrite
    * an edit made through `/documents/prescription` in the meantime. Omit (or 0) to skip the check.
    *

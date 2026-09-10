@@ -36,7 +36,6 @@ import { formatAmount, formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIs
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
   DURATION_UNITS,
-  formatRenewalMention,
   patientCivility,
   durationUnitLabel,
   durationUnitOf,
@@ -441,8 +440,6 @@ export function DocumentEditorContent() {
     medications: [] as MedicationLine[],
     content: "", // Liaison: the PRIMARY free-text body (« Corps de la lettre / Synthèse clinique »)
     duration: "",
-    // Ordonnance: renouvellement — governs the whole document, so it is not per medication line.
-    renewals: "",
     /*
      * `patientSex` / `patientWeightKg` were here and are gone. A Tunisian dental ordonnance does not carry
      * them: « Sexe » was prefilled from the patient record and so printed on every ordonnance ever issued,
@@ -875,7 +872,6 @@ export function DocumentEditorContent() {
             // FR-2.5: the ordre is pre-filled from the doctor's profile (set by the effect below); a value
             // stored on a legacy document is still read back so an older certificat keeps rendering its ordre.
             doctorOrderNumber: content.doctorOrderNumber || "",
-            renewals: content.renewals || "",
             startDate: content.startDate || "",
             durationUnit: durationUnitOf(content.durationUnit),
             objetMotif: content.objetMotif || "",
@@ -1061,7 +1057,6 @@ export function DocumentEditorContent() {
       content: "",
       duration: "",
       doctorOrderNumber: "",
-      renewals: "",
       startDate: "",
       durationUnit: DURATION_UNITS.jours,
       objetMotif: "",
@@ -1641,7 +1636,6 @@ export function DocumentEditorContent() {
       content.medications = Array.isArray(formFields.medications)
         ? JSON.stringify(formFields.medications)
         : "";
-      content.renewals = formFields.renewals || "";
     } else if (documentType === "liaison") {
       // The recipient's address/email + the norm sections ride in ContentJson (name/specialty go through the
       // recipient snapshot columns). `content` is the letter's primary free-text body.
@@ -1904,10 +1898,6 @@ export function DocumentEditorContent() {
           );
         } else {
           paragraphs.push(new Paragraph({ text: "Aucune prescription" }));
-        }
-        const renewalMention = formatRenewalMention(formFields.renewals);
-        if (renewalMention) {
-          paragraphs.push(new Paragraph({ text: renewalMention }));
         }
       } else if (documentType === "liaison") {
         const sections = liaisonSections();
@@ -2349,7 +2339,6 @@ export function DocumentEditorContent() {
 
       if (documentType === "prescription") {
         content.medications = formFields.medications // Array will be serialized as JSON
-        content.renewals = formFields.renewals
     } else if (documentType === "liaison") {
       // Same ContentJson shape the renderer reads (buildDocumentData) — the free-text body, the recipient's
       // address/email and the norm sections. Recipient name/specialty go through the update payload.
@@ -2812,24 +2801,6 @@ export function DocumentEditorContent() {
                   </div>
                 )}
 
-                {/* Renouvellement governs the whole ordonnance, so it sits with the document and not on a
-                    medication row. Blank = the ordonnance says nothing about renewal, which is the default. */}
-                <div className="space-y-2 pt-2">
-                  <Label htmlFor="renewals" className="text-sm font-semibold text-foreground">
-                    Renouvellement
-                  </Label>
-                  <Input
-                    id="renewals"
-                    type="text"
-                    placeholder="Ex : 2 — ou « non » pour non renouvelable"
-                    value={formFields.renewals}
-                    onChange={(e) => setFormFields({ ...formFields, renewals: e.target.value })}
-                    className="h-11"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Laissez vide pour ne rien mentionner. « non » ou « 0 » imprime « Ordonnance non renouvelable ».
-                  </p>
-                </div>
               </div>
             )}
 
@@ -4095,12 +4066,6 @@ export function DocumentEditorContent() {
                         <div className="min-h-[200px] p-4 border-2 border-dashed border-border rounded-lg text-muted-foreground" style={{ fontSize: '11pt' }}>
                           Aucun médicament ajouté
                         </div>
-                      )}
-                      {/* Governs the document, so it renders once below the lines — never against one médicament. */}
-                      {formatRenewalMention(formFields.renewals) && (
-                        <p className="italic pt-2" style={{ fontSize: '11pt' }}>
-                          {formatRenewalMention(formFields.renewals)}
-                        </p>
                       )}
                     </div>
                   )}

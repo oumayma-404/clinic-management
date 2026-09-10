@@ -303,7 +303,6 @@ export function PatientRecordModal({
    */
   const [prescriptionOpen, setPrescriptionOpen] = useState(false)
   const [prescriptionLines, setPrescriptionLines] = useState<PrescriptionLine[]>([])
-  const [renewals, setRenewals] = useState("")
   /** Exactly one line is being typed. Null when every line is at rest — which is how a reopened fiche opens. */
   const [armedPrescriptionIndex, setArmedPrescriptionIndex] = useState<number | null>(null)
   /**
@@ -499,7 +498,6 @@ export function PatientRecordModal({
 
         const content = JSON.parse(doc?.contentJson || "{}") as {
           medications?: unknown
-          renewals?: unknown
         }
         // The array shape is what both writers persist. A pre-array ordonnance holds one plain string; it
         // becomes a single free-text médicament line rather than being dropped, which is how the document
@@ -548,7 +546,6 @@ export function PatientRecordModal({
         setPrescriptionDocumentVersion(doc?.version ?? 0)
         setExamensDocumentVersion(examensDoc?.version ?? 0)
         setPrescriptionLines(lines)
-        setRenewals(typeof content.renewals === "string" ? content.renewals : "")
         // A section holding a value opens itself — « Notes de séance »' rule, one section over.
         setPrescriptionOpen(lines.length > 0)
         setArmedPrescriptionIndex(null)
@@ -635,7 +632,6 @@ export function PatientRecordModal({
       // The prescription is hydrated by its own effect (it needs a second read); this only clears what a
       // previous opening left behind, so a fiche with no ordonnance never shows the last one's lines.
       setPrescriptionLines([])
-      setRenewals("")
       setPrescriptionOpen(false)
       setArmedPrescriptionIndex(null)
       setPrescriptionReadFailed(false)
@@ -653,7 +649,6 @@ export function PatientRecordModal({
       setImportantNotes([])
       setNotesOpen(false)
       setPrescriptionLines([])
-      setRenewals("")
       setPrescriptionOpen(false)
       setArmedPrescriptionIndex(null)
       setPrescriptionDocumentId(null)
@@ -1356,7 +1351,6 @@ export function PatientRecordModal({
           lines: prescriptionLines
             .filter((line) => line.name?.trim())
             .map((line) => ({ ...line, name: line.name.trim() })),
-          renewals: renewals.trim() || undefined,
           // The tokens read when this modal opened. Without them the server cannot tell that the document
           // changed underneath the section, and it silently writes this copy over the other door's edit.
           prescriptionDocumentVersion: prescriptionDocumentVersion || undefined,
@@ -2218,12 +2212,10 @@ export function PatientRecordModal({
         */}
         <PrescriptionSection
           lines={prescriptionLines}
-          renewals={renewals}
           armedIndex={armedPrescriptionIndex}
           open={prescriptionOpen}
           onToggle={() => setPrescriptionOpen((v) => !v)}
           onLinesChange={setPrescriptionLines}
-          onRenewalsChange={setRenewals}
           onArmedIndexChange={setArmedPrescriptionIndex}
           catalog={medicationCatalog}
           catalogFailed={medicationCatalogFailed}
@@ -2246,7 +2238,6 @@ export function PatientRecordModal({
                     doctorId: record?.doctorId ?? undefined,
                     interventionDate,
                     lines: prescriptionLines,
-                    renewals,
                   })
               : undefined
           }

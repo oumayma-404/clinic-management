@@ -896,13 +896,6 @@ public class PdfGenerationService : IPdfGenerationService
                             // decoration: blank space below the last line is space a patient can add a drug in.
                             column.Item().PaddingTop(2).LineHorizontal(1).LineColor(Colors.Black);
                         }
-
-                        // Governs the document, so it renders once below the lines rather than against one of them.
-                        if (prescription.RenewalMention != null)
-                        {
-                            column.Item().PaddingTop(6).Text(prescription.RenewalMention)
-                                .FontSize(11).Italic().FontFamily("Helvetica");
-                        }
                         break;
 
                     case DocumentTypes.Examens:

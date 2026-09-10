@@ -88,8 +88,6 @@ public static class FicheOrdonnanceEmitter
         var ordonnance = await EmitOneAsync(
             DocumentTypes.Prescription,
             medicaments,
-            // The renouvellement governs the médicament sheet only — see BuildExamensContentJson.
-            prescription?.Renewals,
             prescription?.PrescriptionDocumentVersion ?? 0,
             Pick(owned, DocumentTypes.Prescription, record),
             record,
@@ -106,7 +104,6 @@ public static class FicheOrdonnanceEmitter
         var demande = await EmitOneAsync(
             DocumentTypes.Examens,
             examens,
-            renewals: null,
             prescription?.ExamensDocumentVersion ?? 0,
             Pick(owned, DocumentTypes.Examens, record),
             record,
@@ -158,7 +155,6 @@ public static class FicheOrdonnanceEmitter
     private static async Task<(Guid? DocumentId, IReadOnlyList<string> Summary)> EmitOneAsync(
         string documentType,
         IReadOnlyList<PrescriptionLineInput> lines,
-        string? renewals,
         uint expectedVersion,
         MedicalDocument? existing,
         DentalRecord record,
@@ -182,7 +178,6 @@ public static class FicheOrdonnanceEmitter
         var composed = await ComposeAsync(
             documentType,
             lines,
-            renewals,
             FicheOrdonnanceContext.From(record),
             patient,
             clinicId,
@@ -237,7 +232,6 @@ public static class FicheOrdonnanceEmitter
     public static async Task<(MedicalDocument Document, IReadOnlyList<string> Summary)> ComposeAsync(
         string documentType,
         IReadOnlyList<PrescriptionLineInput> lines,
-        string? renewals,
         FicheOrdonnanceContext context,
         Patient patient,
         Guid clinicId,
@@ -253,7 +247,7 @@ public static class FicheOrdonnanceEmitter
         var contentJson = documentType == DocumentTypes.Examens
             ? PrescriptionLines.BuildExamensContentJson(lines, context.InterventionDate)
             : PrescriptionLines.BuildPrescriptionContentJson(
-                new PrescriptionInput { Lines = lines.ToList(), Renewals = renewals },
+                new PrescriptionInput { Lines = lines.ToList() },
                 context.InterventionDate);
 
         // Derived from the SERIALISED content, not from the input, so the row and the paper can never disagree.

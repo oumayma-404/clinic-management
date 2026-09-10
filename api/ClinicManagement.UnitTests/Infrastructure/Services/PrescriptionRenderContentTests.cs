@@ -109,16 +109,23 @@ public class PrescriptionRenderContentTests
         Assert.Equal(string.Empty, line.Details);
     }
 
+    /// <summary>
+    /// ⚠️ The renouvellement is withdrawn, and <b>a legacy document still holds the key</b> — there was no
+    /// migration. So the property under test is that a stored value is now inert: the body is the lines and
+    /// nothing else, and re-rendering an old ordonnance simply prints one line fewer.
+    /// </summary>
     [Fact]
-    public void The_Renouvellement_Governs_The_Document_Not_A_Line()
+    public void A_Stored_Renouvellement_No_Longer_Renders()
     {
-        Assert.Equal(
-            PrescriptionContent.NonRenewableMention,
-            Build("[{\"name\":\"Augmentin\"}]", "non").RenewalMention);
-        Assert.Equal(
-            "Ordonnance à renouveler 2 fois.",
-            Build("[{\"name\":\"Augmentin\"}]", "2").RenewalMention);
-        Assert.Null(Build("[{\"name\":\"Augmentin\"}]").RenewalMention);
+        var withMention = Build("[{\"name\":\"Augmentin\"}]", "non");
+        var withCount = Build("[{\"name\":\"Augmentin\"}]", "2");
+        var without = Build("[{\"name\":\"Augmentin\"}]");
+
+        Assert.Equal(withoutRendering(without), withoutRendering(withMention));
+        Assert.Equal(withoutRendering(without), withoutRendering(withCount));
+
+        static string withoutRendering(PrescriptionBody body) =>
+            string.Join(" | ", body.Lines.Select(l => $"{l.Heading}/{l.Posology}/{l.Details}"));
     }
 
     // ── The withdrawn identity lines ──────────────────────────────────────────────────────────────────────────

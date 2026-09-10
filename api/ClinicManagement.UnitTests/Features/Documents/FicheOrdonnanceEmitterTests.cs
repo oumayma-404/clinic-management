@@ -416,11 +416,12 @@ public class FicheOrdonnanceEmitterTests
     }
 
     /// <summary>
-    /// ⚠️ Renewal is a dispensing concept. An examen prescription is single-use by default — one of the very
-    /// reasons the two cannot share a sheet — so « Ordonnance à renouveler 2 fois » must never reach it.
+    /// ⚠️ The renouvellement was withdrawn from the product (« we do not need it »), so <b>neither</b> sheet
+    /// carries it any more. Kept as a case rather than deleted: the médicament sheet used to write the key and
+    /// R.5132-3 still lists renouvellement, so this is what fails if somebody restores it from the norm.
     /// </summary>
     [Fact]
-    public async Task The_Renouvellement_Reaches_The_Medicament_Sheet_Only()
+    public async Task Neither_Sheet_Carries_A_Renouvellement()
     {
         var h = new Harness();
         var added = new List<MedicalDocument>();
@@ -429,15 +430,13 @@ public class FicheOrdonnanceEmitterTests
 
         var payload = OneDrug();
         payload.Lines.Add(Examen());
-        payload.Renewals = "2";
 
         await h.Emit(payload);
 
-        Assert.Equal(
-            "2",
-            PrescriptionLines.ReadRenewals(added.Single(d => d.DocumentType == DocumentTypes.Prescription).ContentJson));
-        Assert.Null(
-            PrescriptionLines.ReadRenewals(added.Single(d => d.DocumentType == DocumentTypes.Examens).ContentJson));
+        foreach (var document in added)
+        {
+            Assert.DoesNotContain("renewals", document.ContentJson);
+        }
     }
 
     /// <summary>

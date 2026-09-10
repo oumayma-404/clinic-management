@@ -331,17 +331,6 @@ export const prescriptionLineParts = (
 }
 
 /**
- * The renewal mention, mirroring the server's `PrescriptionContent.RenewalMention`. Blank ⇒ the ordonnance is
- * silent on renewal (the default); "0"/"non" ⇒ explicitly non-renewable; anything else ⇒ a count.
- */
-export const formatRenewalMention = (renewals: string | null | undefined): string | null => {
-  const value = renewals?.trim()
-  if (!value) return null
-  if (value === "0" || value.toLowerCase() === "non") return "Ordonnance non renouvelable."
-  return `Ordonnance à renouveler ${value} fois.`
-}
-
-/**
  * The five-or-six-word label a list row shows — « Augmentin Comprimé 1 g », « Radiographie panoramique ».
  *
  * ⚠️ Deliberately NOT {@link formatPrescriptionLine}: that one is the full printed sentence, which would blow

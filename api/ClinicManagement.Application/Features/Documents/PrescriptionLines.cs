@@ -38,7 +38,6 @@ public static class PrescriptionLines
 {
     /// <summary>The <c>ContentJson</c> keys the fiche writes. Same keys the document editor writes.</summary>
     public const string MedicationsKey = "medications";
-    public const string RenewalsKey = "renewals";
     public const string DateKey = "date";
 
     /// <summary>
@@ -101,12 +100,6 @@ public static class PrescriptionLines
             [MedicationsKey] = lines,
         };
 
-        var renewals = prescription.Renewals?.Trim();
-        if (!string.IsNullOrEmpty(renewals))
-        {
-            content[RenewalsKey] = renewals;
-        }
-
         return content.ToJsonString();
     }
 
@@ -167,15 +160,6 @@ public static class PrescriptionLines
         }
 
         return ReadWire(node).Select(w => w.ToInput()).ToList();
-    }
-
-    /// <summary>The renouvellement mention stored on a document, or null.</summary>
-    public static string? ReadRenewals(string? contentJson)
-    {
-        var node = ParseObject(contentJson);
-        var value = node?[RenewalsKey];
-        var text = value is JsonValue v && v.TryGetValue<string>(out var s) ? s : value?.ToString();
-        return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
     }
 
     /// <summary>
