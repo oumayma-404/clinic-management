@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+import type { ReactNode } from "react"
 import { FlaskConical, Pill } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -55,6 +57,13 @@ interface RecordActsSummaryProps {
  *
  * <p>Rendered under the act's name rather than replacing it: « Implant dentaire » is what the patient and the
  * devis both call the work, and « Pose de l'implant » alone would lose it.</p>
+ *
+ * <p>⚠️ <b>It is the way TO that treatment, not a note about it.</b> The line was inert text, so the one row
+ * that knows which treatment the séance belongs to sent the reader to « Plan de traitement » to find it again
+ * among all of them — and a Draft (« Suivre ce traitement ») has no number to search by at all. Shaped after
+ * {@link PatientNameLink}: underlined <b>at rest</b> so it is discoverable without a hover, and
+ * `coarse:min-h-11` rather than `.touch-target`, whose absolute overlay would overhang the row above in these
+ * dense tables.</p>
  */
 function SeanceIdentity({ record }: { record: DentalRecordDto }) {
   if (!record.treatmentPlanId) return null
@@ -62,20 +71,40 @@ function SeanceIdentity({ record }: { record: DentalRecordDto }) {
     record.treatmentStepNumber && record.treatmentStepTotal
       ? `étape ${record.treatmentStepNumber} / ${record.treatmentStepTotal}`
       : null
+  // Names the treatment when it HAS a name: a followed treatment is un-numbered (`Accept` is the only writer
+  // of `Number`), and « Ouvrir le traitement undefined » is what a template would have printed.
+  const label = `Ouvrir le traitement${record.treatmentPlanNumber ? ` ${record.treatmentPlanNumber}` : ""}`
+  const linked = (children: ReactNode) => (
+    <Link
+      href={`/treatment-plans/${record.treatmentPlanId}`}
+      // Several of these lists make the whole row or card clickable; without it the row handler wins the race
+      // and the link looks right while doing nothing.
+      onClick={(e) => e.stopPropagation()}
+      aria-label={label}
+      title={label}
+      // ⚠️ `w-fit` is a fix, not tidiness: the single-act tree is a `flex flex-col`, so a flex item
+      // STRETCHES — measured at 1440 px, a 119 px label sat in a 299 px anchor, i.e. 180 px of invisible
+      // clickable area to its right, and a click on the empty half of the cell navigated off the patient
+      // file with nothing having said it would. A link is as wide as its own label.
+      className="inline-flex w-fit max-w-full items-center rounded-sm text-2xs text-muted-foreground underline decoration-muted-foreground/50 underline-offset-2 transition-colors hover:text-primary hover:decoration-primary coarse:min-h-11"
+    >
+      {children}
+    </Link>
+  )
   // An act booked whole has no step, so it says only which treatment it belongs to — which is still the fact
   // the row was missing.
   if (!record.treatmentStepLabel && !rank) {
-    return (
-      <span className="text-2xs text-muted-foreground">
+    return linked(
+      <span>
         séance du traitement{record.treatmentPlanNumber ? ` ${record.treatmentPlanNumber}` : ""}
-      </span>
+      </span>,
     )
   }
-  return (
-    <span className="text-2xs text-muted-foreground">
+  return linked(
+    <span>
       {record.treatmentStepLabel}
       {rank ? <span className="opacity-80"> · {rank}</span> : null}
-    </span>
+    </span>,
   )
 }
 

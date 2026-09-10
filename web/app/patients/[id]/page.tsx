@@ -294,6 +294,22 @@ const OTHER_DOCUMENT_TEMPLATES = CREATABLE_DOCUMENT_TEMPLATES.filter(
  * appointments and no files, a beat before listing all three, is worse than one that took longer to appear.
  */
 /**
+ * What lets a badge in a card’s « Montant payé » cell stay inside the card.
+ *
+ * <p>⚠️ <b>Both badges below were clipped at 320 px</b>, measured on the card tree: `CardList` gives its `<dd>`
+ * `min-w-0 break-words`, but `Badge`’s base is `whitespace-nowrap shrink-0`, so with the `<dt>` label taking its
+ * share the value cell is ~86 px and a ~132 px pill simply ran past the card — « traitement 2026-0027 »
+ * rendered as « traitement 202 », i.e. the devis number the badge exists to state was the part cut off.
+ * `break-words` cannot rescue it, because the pill refuses to wrap in the first place.</p>
+ *
+ * <p>So the label breaks (§ 10.1: let the one child break its label, never truncate — it is the control’s name),
+ * `shrink` is <b>spelled out</b> because `whitespace-normal` alone leaves `shrink-0` standing (different
+ * tailwind-merge groups). The `justify-end` that keeps a wrapped line reading from the right edge belongs to
+ * the <i>wrapper</i> of each of the two, not here.</p>
+ */
+const MONEY_CELL_BADGE = "min-w-0 shrink whitespace-normal text-2xs font-normal"
+
+/**
  * The « Montant payé » of a fiche whose money has moved onto an invoice.
  *
  * ⚠️ **This used to be a strikethrough, and that is the defect it exists to fix.** `line-through` means
@@ -309,10 +325,17 @@ const OTHER_DOCUMENT_TEMPLATES = CREATABLE_DOCUMENT_TEMPLATES.filter(
  */
 function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber?: string }) {
   return (
-    <span className="inline-flex flex-wrap items-baseline gap-1.5">
+    <span className="inline-flex min-w-0 flex-wrap items-baseline justify-end gap-1.5">
       <span className="text-muted-foreground">{formatDT(amount)}</span>
-      <Badge variant="outline" className="text-2xs font-normal">
-        {invoiceNumber ? `facturé n° ${invoiceNumber}` : "facturé"}
+      <Badge variant="outline" className={MONEY_CELL_BADGE}>
+        {/* The number in its own `whitespace-nowrap` span: a hyphen is an ordinary break opportunity, so a
+            wrapping pill split « 2026-0016 » across two lines — the defect `card-list.tsx` already records
+            for a date (« 26/08 · /2026 reads as two dates »). The label may break; the number may not. */}
+        {invoiceNumber ? (
+          <>facturé n° <span className="whitespace-nowrap">{invoiceNumber}</span></>
+        ) : (
+          "facturé"
+        )}
       </Badge>
     </span>
   )
@@ -329,10 +352,32 @@ function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber
  *
  * <p>Shaped after {@link BilledAmount}: the amount, then a badge saying <i>where the money lives</i>. Not
  * muted, unlike that one — this figure IS the authority for the séance, it simply sits on another document.</p>
+ *
+ * <p>⚠️ <b>The badge is the way to that devis.</b> It names the document the money is on and was inert, so the
+ * one row that knows which treatment took the payment sent the reader to « Traitements » to find it again — and a
+ * followed treatment has no number to search by. Same destination as the séance-identity line inside
+ * {@link RecordActsSummary} on the row above: both mentions are links, because one of two identical mentions
+ * being clickable teaches nobody which one to press. Shaped after the « Devis » badge on
+ * <c>invoices-table</c>, the product’s existing badge-as-link.</p>
  */
-function CollectedOnTreatment({ amount, planNumber }: { amount: number; planNumber?: string | null }) {
+function CollectedOnTreatment({
+  amount,
+  planNumber,
+  planId,
+}: {
+  amount: number
+  planNumber?: string | null
+  /** Absent only for a caller with no plan in hand — the badge then stays the inert statement it was. */
+  planId?: string | null
+}) {
+  // See `BilledAmount`: the label may break, the devis number may not.
+  const badgeLabel = planNumber ? (
+    <>traitement <span className="whitespace-nowrap">{planNumber}</span></>
+  ) : (
+    "sur le traitement"
+  )
   return (
-    <span className="inline-flex flex-wrap items-baseline gap-1.5">
+    <span className="inline-flex min-w-0 flex-wrap items-baseline justify-end gap-1.5">
       {/* ⚠️ A séance that collected nothing prints « — », not « 0,000 DT ». Zero here is the ORDINARY case on a
           multi-séance act (the patient pays on some visits and not others) and « 0,000 DT » beside a patient
           owing 1 500 on the devis reads as « rien encaissé, rien dû » — the same misreading the « Reste »
@@ -340,9 +385,38 @@ function CollectedOnTreatment({ amount, planNumber }: { amount: number; planNumb
       <span className={amount > 0 ? undefined : "text-muted-foreground"}>
         {amount > 0 ? formatDT(amount) : "—"}
       </span>
-      <Badge variant="outline" className="text-2xs font-normal">
-        {planNumber ? `traitement ${planNumber}` : "sur le traitement"}
-      </Badge>
+      {planId ? (
+        <Link
+          href={`/treatment-plans/${planId}`}
+          // The rows are not clickable today; kept so a row handler added later cannot win the race and
+          // leave the badge looking right while doing nothing (`PatientNameLink`’s scar).
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Ouvrir le traitement${planNumber ? ` ${planNumber}` : ""}`}
+          title={`Ouvrir le traitement${planNumber ? ` ${planNumber}` : ""}`}
+          // Grows its own box rather than taking `.touch-target`: it sits inside a dense money cell whose
+          // 44 px overlay would overhang the row above it.
+          className="inline-flex items-center rounded-md coarse:min-h-11"
+        >
+          {/* ⚠️ The affordance at rest is a GLYPH, not an underline — `PatientNameLink`’s rule is right about
+              needing one (a pointer-less device never hovers) and wrong about the shape here: measured at
+              1440 px, an underline inside a 22 px pill lands ~2 px from its bottom border and reads as a
+              cramped double line, on « traitement 2026-0027 » running into the border’s curve. `Badge` is
+              built for this instead — `gap-1` and `[&>svg]:size-3` are in its base — and a chevron survives
+              greyscale and 11 px, which is what the card tree needs: a séance with no tooth recorded renders
+              no « Actes » field, so this badge is then the row’s only mention of the treatment.
+              ⚠️ Deliberately not `ArrowUpRight`: that glyph already means « sortie » in this product’s money
+              tables (`caisse-ledger-table`), and this is a money cell. `hover:bg-accent` is written out
+              because the variant’s own is `[a&]:` and the anchor here is the wrapper, not the badge. */}
+          <Badge variant="outline" className={cn(MONEY_CELL_BADGE, "transition-colors hover:bg-accent")}>
+            {badgeLabel}
+            <ChevronRight aria-hidden="true" className="shrink-0" />
+          </Badge>
+        </Link>
+      ) : (
+        <Badge variant="outline" className={MONEY_CELL_BADGE}>
+          {badgeLabel}
+        </Badge>
+      )}
     </span>
   )
 }
@@ -2362,6 +2436,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                               <CollectedOnTreatment
                                 amount={record.collectedOnTreatment!}
                                 planNumber={record.treatmentPlanNumber}
+                                planId={record.treatmentPlanId}
                               />
                             ) : (
                               formatDT(record.amountPaid)
@@ -2510,6 +2585,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                                 <CollectedOnTreatment
                                   amount={record.collectedOnTreatment ?? 0}
                                   planNumber={record.treatmentPlanNumber}
+                                  planId={record.treatmentPlanId}
                                 />
                               ) : (
                                 formatDT(record.amountPaid)
