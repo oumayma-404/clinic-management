@@ -62,7 +62,7 @@ public class DocumentEmailIdentityTests
         var identity = DocumentEmailIdentity.Configured(Cabinet, CabinetName, Doctor, DoctorName);
 
         Assert.Equal(Cabinet, identity.FromAddress); // a relay that refused the practitioner's From must not be given it twice
-        Assert.Equal(CabinetName, identity.FromDisplayName);
+        Assert.Equal(DoctorName, identity.FromDisplayName); // forbidden to send AS her, not to say she wrote it
         Assert.Null(identity.SenderAddress); // From is the authenticated mailbox again
         Assert.Equal(Doctor, identity.ReplyToAddress); // the whole point of the fallback is that a reply still reaches them
         Assert.Equal(DoctorName, identity.ReplyToDisplayName);

@@ -85,7 +85,11 @@ public sealed record DocumentEmailIdentity(
 
         return new DocumentEmailIdentity(
             configuredAddress.Trim(),
-            Trimmed(configuredName),
+            // ⚠️ The practitioner's NAME even though the address must stay the cabinet's. A relay may forbid us
+            // to send AS them; nothing forbids saying who wrote it, and « Dr Salma Ben Youssef
+            // <cabinet@…> » plus a Reply-To that reaches her is most of what « send from the doctor's mail »
+            // was asking for on a provider that will never allow the address itself.
+            Trimmed(practitionerName) ?? Trimmed(configuredName),
             null,
             samePerson ? null : practitioner,
             samePerson ? null : Trimmed(practitionerName));
