@@ -1754,6 +1754,17 @@ export function DocumentEditorContent() {
    */
   const wordExportSupported = !isOfficialForm
 
+  /**
+   * ⚠️ **« Télécharger Word » is WITHDRAWN from the whole app, on purpose and for now.** The owner's call:
+   * « let's remove all download word buttons from app, just hide, we'll return to it later if we need to ».
+   * A `.docx` is a SECOND renderer of a legal document — hand-built paragraph by paragraph here while the PDF
+   * comes from the server — so the two drift, and only the PDF is the paper a pharmacist or a caisse reads.
+   * Everything below it (`generateWord`, the `docx` import, every branch) is left standing so putting the
+   * button back is one flag, not a rewrite.
+   */
+  const WORD_EXPORT_OFFERED = false
+  const wordExportOffered = wordExportSupported && WORD_EXPORT_OFFERED
+
   const generateWord = async () => {
     if (!wordExportSupported) {
       return;
@@ -3768,7 +3779,7 @@ export function DocumentEditorContent() {
                 PDF » at half width beside a gap, which reads as a control that failed to render rather than as one
                 that does not apply.
               */}
-              <div className={`grid gap-3 ${wordExportSupported ? "grid-cols-2" : "grid-cols-1"}`}>
+              <div className={`grid gap-3 ${wordExportOffered ? "grid-cols-2" : "grid-cols-1"}`}>
                 <Button
                   variant="outline"
                   /* `--success` + its wash, not a `green-500/600/50/950` quartet with a hand-written dark twin.
@@ -3780,7 +3791,7 @@ export function DocumentEditorContent() {
                   <Download className="w-4 h-4 mr-2" />
                   Télécharger PDF
                 </Button>
-                {wordExportSupported && (
+                {wordExportOffered && (
                   <Button
                     variant="outline"
                     className="h-11 bg-transparent border-primary text-primary hover:bg-accent"
@@ -3793,8 +3804,10 @@ export function DocumentEditorContent() {
                 )}
               </div>
               {/* Says why rather than just omitting the control: a button that was there yesterday and is gone
-                  today reads as a bug. See `wordExportSupported`. */}
-              {!wordExportSupported && (
+                  today reads as a bug. See `wordExportSupported`. ⚠️ Gated on the withdrawal too: with Word
+                  offered nowhere, singling out the two CNAM forms for lacking it explains a contrast the
+                  reader can no longer see. */}
+              {WORD_EXPORT_OFFERED && !wordExportSupported && (
                 <p className="text-xs text-muted-foreground">
                   {documentType === "arret-travail"
                     ? "L'arrêt de travail n'a pas d'export Word : c'est une impression sur le formulaire officiel CNAM P 061."
