@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { ChevronDown, ChevronRight, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -65,6 +65,24 @@ interface ActCardProps {
   arch: ArchTeeth
   /** Set when this card holds the act the appointment booked and nothing has been changed. */
   proposedFromAppointment?: boolean
+  /**
+   * Which séance of its treatment THIS act is — « Cette séance : étape 1 sur 2 · Incision et drainage ».
+   *
+   * <p>⚠️ <b>It belongs on the card and it used to float above the pile.</b> The modal printed it once, over a
+   * list of every act of the séance, so on a fiche holding three acts nothing said which of them had séances
+   * or which séance was being recorded. Reported by the person who built the app, in those words. The modal
+   * still composes the sentence — it is the only thing that can, see `seanceStepLine` — and hands it to the
+   * one card it is about.</p>
+   */
+  seanceStepLine?: string | null
+  /**
+   * « Chiffré sur le devis / Suivi comme traitement » — the modal's own notice, rendered on the act it is about.
+   *
+   * <p>⚠️ A node rather than the figures, so the sentence has exactly one composer. When it is present the card
+   * shortens its own line to « Aucun honoraire sur cette séance. »: this notice already says the rest, with the
+   * amount, and the pair used to be the same fact twice on one card.</p>
+   */
+  planNotice?: ReactNode
   /** A save refusal this act caused, rendered where the offending field is. */
   error?: string | null
   /** Marked when another act in the séance names the same procedure on the same teeth. */
@@ -94,6 +112,8 @@ export function ActCard({
   color,
   arch,
   proposedFromAppointment,
+  seanceStepLine,
+  planNotice,
   error,
   duplicate,
   dispatch,
@@ -222,6 +242,13 @@ export function ActCard({
                 <span className="font-normal italic text-muted-foreground">Acte {index} — à compléter</span>
               )}
             </span>
+            {/* ⚠️ The whole sentence, never a bare rank: « étape 1 sur 2 » alone is read as progress — see N31,
+                and the modal's `seanceStepLine`, which is why « Cette séance » is inside the string. */}
+            {seanceStepLine && (
+              <span className="min-w-0 basis-full truncate text-2xs font-medium text-primary sm:basis-auto">
+                {seanceStepLine}
+              </span>
+            )}
             <span className="flex min-w-0 shrink-0 items-center gap-2 sm:ms-auto">
               <span
                 className="max-w-[20ch] truncate font-mono text-2xs text-muted-foreground"
@@ -264,6 +291,11 @@ export function ActCard({
             </div>
           ) : (
             <>
+              {/* Which séance of the treatment this is — the first thing on the card, because it is what the
+                  dentist is looking for when an act appears among several. */}
+              {seanceStepLine && (
+                <p className="text-2xs font-semibold text-primary">{seanceStepLine}</p>
+              )}
               {/*
                 ⚠️ **An act the treatment prices shows NO money row at all**, and that is a removal with a rule
                 behind it rather than a tidy-up. Read-only, the row still drew four things a dentist could
@@ -279,10 +311,13 @@ export function ActCard({
                 devis » would make that act unbillable.
               */}
               {act.billedOnPlan ? (
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">Aucun honoraire sur cette séance.</span>{" "}
-                  Cet acte est chiffré une fois, sur le traitement.
-                </p>
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Aucun honoraire sur cette séance.</span>
+                    {!planNotice && " Cet acte est chiffré une fois, sur le traitement."}
+                  </p>
+                  {planNotice}
+                </>
               ) : (
               <>
               {/* The price, on the card face. It used to be a read-only figure with the editable field two folds
