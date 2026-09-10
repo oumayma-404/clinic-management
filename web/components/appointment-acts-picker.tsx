@@ -697,7 +697,7 @@ export function AppointmentActsPicker({
           // kept here — the practice edits these in « Types de procédures » and this must follow.
           protocol: pt?.defaultSteps,
           name: pt?.name ?? act.fallbackName ?? "Acte indisponible",
-          durationMinutes: stepMinutes ?? pt?.defaultDurationMinutes ?? null,
+          durationMinutes: stepMinutes ?? unbookedActMinutes(act, pt),
           colorHex: pt?.colorHex ?? "#6C757D",
           missing: !pt,
           tariff: pt?.defaultCost ?? null,
@@ -1761,12 +1761,31 @@ export function AppointmentActsPicker({
 }
 
 /**
+ * The chair time an act books when no devis step is ticked — **the one place that rule lives**.
+ *
+ * <p>⚠️ A followed act books its <b>first séance only</b>; the other five are booked from the treatment, one at
+ * a time, and each of those already contributes its own step's minutes. So the visit is as long as
+ * « Bilan pré-implantaire · 45 min », never the 60 min the whole implant carries in the catalogue — and
+ * `ProcedureStepTemplateDto.durationMinutes` says in as many words that the two are different quantities.
+ * Falls back to the act's own duration when the séance states none: every act with no protocol, and every
+ * protocol nobody has timed.</p>
+ */
+export function unbookedActMinutes(
+  act: SelectedAct,
+  procedureType: ProcedureTypeDto | undefined,
+): number | null {
+  return act.plannedProtocol?.[0]?.durationMinutes ?? procedureType?.defaultDurationMinutes ?? null
+}
+
+/**
  * Total booked duration of a séance, in minutes — the default length the dialogs pre-fill. Link-only acts
  * contribute nothing, because nothing anywhere knows how long a hand-typed devis line takes.
  */
 export function totalActsDuration(acts: SelectedAct[], procedureTypes: ProcedureTypeDto[]): number {
   const byId = new Map(procedureTypes.map((p) => [p.id, p]))
-  return acts.reduce((sum, a) => {
+  // ⚠️ Resolved, because the split is the DEFAULT and nothing writes it back into the dialog's state: the card
+  // already says « ce rendez-vous est la 1re : Bilan pré-implantaire », so the length beside it must agree.
+  return resolvePlannedProtocols(acts, procedureTypes).reduce((sum, a) => {
     // ⚠️ A booked STEP contributes its own chair time, not the whole act's. « Empreinte, 30 min » inside a
     // « Bridge, 60 min » would otherwise book an hour for a half-hour sitting — and two steps of one act in
     // one séance would book two whole bridges.
@@ -1775,6 +1794,6 @@ export function totalActsDuration(acts: SelectedAct[], procedureTypes: Procedure
       : undefined
     if (step) return sum + (step.estimatedDurationMinutes ?? 0)
 
-    return sum + (a.procedureTypeId ? byId.get(a.procedureTypeId)?.defaultDurationMinutes ?? 0 : 0)
+    return sum + (unbookedActMinutes(a, a.procedureTypeId ? byId.get(a.procedureTypeId) : undefined) ?? 0)
   }, 0)
 }
