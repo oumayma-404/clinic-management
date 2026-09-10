@@ -23,6 +23,26 @@ public class PatientDto
     /// </para>
     /// </summary>
     public string Dentition { get; set; } = nameof(Domain.Enums.DentitionType.Adult);
+
+    /// <summary>
+    /// Whether a human has ever answered « quelle denture ? » for this patient — see
+    /// <c>Patient.DentitionAnsweredAtUtc</c>.
+    ///
+    /// <para>
+    /// ⚠️ <b>A bool, not the timestamp behind it.</b> The only question any client asks is « has this been
+    /// answered? » — the odontogramme's prompt fires on it — and serving an instant would invite a screen to
+    /// print « denture choisie le 10/09 », which is a fact about data entry that no clinical reader needs. The
+    /// timestamp stays on the entity, where it is worth having if this ever needs auditing.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ <b><see cref="Dentition"/> cannot answer this</b>, which is the whole reason the column exists: it is
+    /// NOT NULL with a default of <c>Adult</c>, so « the dentist said Définitive » and « nobody ever asked » are
+    /// the same value. False on every patient recorded before the column shipped — nothing was backfilled, so
+    /// they are asked once and answering settles it.
+    /// </para>
+    /// </summary>
+    public bool DentitionAnswered { get; set; }
     /// <summary>Null when the patient gave none — not an empty string, and never a placeholder address.</summary>
     public string? Email { get; set; }
 

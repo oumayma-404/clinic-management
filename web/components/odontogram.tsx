@@ -35,9 +35,12 @@ import { cn } from "@/lib/utils"
 import { odontogramApi } from "@/lib/api/odontogram"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { patientsApi } from "@/lib/api/patients"
+import { showErrorToast } from "@/lib/errors"
 import {
   DENTITION_VIEWS,
   DENTITION_VIEW_LABELS_FR,
+  dentitionForView,
   dentitionViewFor,
   dentitionViewForTeeth,
   type DentitionView,
@@ -114,6 +117,18 @@ interface OdontogramProps {
    * teeth. With nothing charted yet either, this asks instead.
    */
   dateOfBirth?: string | null
+  /**
+   * Has somebody already answered « quelle denture ? » for this patient — `PatientDto.dentitionAnswered`.
+   *
+   * <p>⚠️ <b>This is the half `dentition` cannot supply, and its absence is what made the prompt nag.</b> The
+   * stored dentition is NOT NULL and defaults to `Adult`, so answering « Définitive » is indistinguishable from
+   * never having been asked; the prompt therefore keyed on `dateOfBirth` alone and returned on every reload of
+   * an undated patient's page — for ever, however many times it was answered.</p>
+   *
+   * <p>Optional, and a missing value reads as « not answered »: a caller that has not been updated keeps
+   * exactly today's behaviour rather than silently suppressing the question.</p>
+   */
+  dentitionAnswered?: boolean
   /** Called with one seed per tooth carrying an open diagnosis, to pre-fill a new treatment plan. */
   onCreatePlan?: (seeds: OdontogramPlanSeed[]) => void
   /**
@@ -132,6 +147,7 @@ interface OdontogramProps {
 export function Odontogram({
   patientId,
   dentition,
+  dentitionAnswered,
   dateOfBirth,
   onCreatePlan,
   treatments,
@@ -372,12 +388,44 @@ export function Odontogram({
   }, [byTooth])
 
   /**
-   * Nothing tells us which arch to open on: no date of birth, nothing charted, and no choice made this session.
-   * The chart asks rather than opening on the adult set (AC-18) — a six-year-old's deciduous teeth are simply
-   * absent from that arch, so the wrong default is not a cosmetic default.
+   * Nothing tells us which arch to open on: no date of birth, **nobody has ever answered**, nothing charted, and
+   * no choice made this session. The chart asks rather than opening on the adult set (AC-18) — a six-year-old's
+   * deciduous teeth are simply absent from that arch, so the wrong default is not a cosmetic default.
+   *
+   * <p>⚠️ <b>`!dentitionAnswered` is the clause that stops it nagging</b>, and it had to be a served field rather
+   * than a test on `dentition`: that column is NOT NULL defaulting to `Adult`, so it cannot distinguish an answer
+   * from a default. Without it the question returned on every reload of an undated patient's page however many
+   * times it was answered — the whole reason `Patient.DentitionAnsweredAtUtc` exists.</p>
    */
   const mustAskDentition =
-    !dateOfBirth && chosenView === null && byTooth.size === 0
+    !dateOfBirth && !dentitionAnswered && chosenView === null && byTooth.size === 0
+
+  /**
+   * Answering « Quelle denture afficher ? » — the one place a chosen view is also an answer ABOUT THE PATIENT,
+   * so it is written to `Patient.Dentition` rather than kept for the session.
+   *
+   * <p>⚠️ **It used to be `setChosenView(view)` and nothing else, and the prompt said « vous pourrez en changer
+   * à tout moment » over a choice that was discarded on reload.** So the question came back on every visit to
+   * the page, for the same patient, for ever — reported as « je choisis, puis au rechargement il redemande ».
+   * The prompt fires only when nothing can seed the chart (no date of birth, nothing charted), which makes it
+   * the only moment this product ever learns the patient's dentition; throwing that away was the defect.</p>
+   *
+   * <p>⚠️ The **arch switch** above the chart deliberately still does not write: looking at the other arch for
+   * a moment is not a clinical statement, and `DentitionView`'s own doc keeps it a view. What is stored is the
+   * patient's dentition, and the patient form remains where it is corrected.</p>
+   *
+   * <p>⚠️ The view is set **before** the round trip and kept whatever the save does: the dentist asked for this
+   * arch and must get it. A failed write costs the memory, not the chart, and says so.</p>
+   */
+  const answerDentition = async (view: DentitionView) => {
+    setChosenView(view)
+    try {
+      await patientsApi.update(patientId, { dentition: dentitionForView(view) })
+      toast.success(`Denture enregistrée — ${DENTITION_VIEW_LABELS_FR[view]}`)
+    } catch (err) {
+      showErrorToast(err, "La denture n'a pas pu être enregistrée pour ce patient.")
+    }
+  }
 
   /**
    * Diagnosis → the acts this clinic offers for it, best first.
@@ -507,8 +555,12 @@ export function Odontogram({
                 clinic's own vocabulary. */}
             <p className="text-sm font-medium text-foreground">Quelle denture afficher ?</p>
             <p className="mt-1 text-sm text-muted-foreground">
+              {/* ⚠️ It says the answer is KEPT, because it is now — and because the old « vous pourrez en
+                  changer à tout moment » implied that over a choice that was discarded on reload, so the
+                  question came back every visit. Naming where it is stored is also what makes « modifiable »
+                  actionable rather than a promise with no address. */}
               Ce patient n&apos;a pas de date de naissance enregistrée, la denture ne peut donc pas être déduite.
-              Choisissez-la — vous pourrez en changer à tout moment.
+              Choisissez-la : elle sera enregistrée sur la fiche du patient, et reste modifiable à tout moment.
             </p>
           </div>
           <div className="flex flex-wrap justify-center gap-2">
@@ -516,7 +568,7 @@ export function Odontogram({
               <Button
                 key={view}
                 variant="outline"
-                onClick={() => setChosenView(view)}
+                onClick={() => void answerDentition(view)}
                 className="coarse:h-11 coarse:px-5"
               >
                 {DENTITION_VIEW_LABELS_FR[view]}

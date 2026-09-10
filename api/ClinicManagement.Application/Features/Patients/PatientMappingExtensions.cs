@@ -26,6 +26,7 @@ public static class PatientMappingExtensions
             DateOfBirth = patient.DateOfBirth,
             Gender = patient.Gender,
             Dentition = patient.Dentition.ToString(),
+            DentitionAnswered = patient.DentitionAnsweredAtUtc != null,
             Email = patient.Email?.Value,
             PhoneNumber = patient.PhoneNumber?.Value,
             PhoneE164 = PhoneNumber.ToE164(patient.PhoneNumber?.Value),

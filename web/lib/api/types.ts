@@ -820,6 +820,16 @@ export interface PatientDto {
    * limitation.
    */
   dentition: string;
+  /**
+   * Has a human ever answered « quelle denture ? » for this patient?
+   *
+   * ⚠️ **`dentition` cannot answer that**, which is why this is served separately: the column is NOT NULL with a
+   * default of `Adult`, so a deliberate « Définitive » and « nobody ever asked » are the same value. The
+   * odontogramme's prompt fires only when nothing can seed the chart (no date of birth, nothing charted) and
+   * used to have no way to know it had already been answered — so it came back on every reload. False on every
+   * patient recorded before the column shipped: nothing was backfilled, so they are asked once.
+   */
+  dentitionAnswered?: boolean;
   /** Null when the patient gave none — never a placeholder address. */
   email?: string | null;
   /** Null when the patient gave none. Such a patient receives no reminder and no relance. */
