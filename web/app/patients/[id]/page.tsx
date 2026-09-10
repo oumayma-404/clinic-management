@@ -3951,7 +3951,6 @@ procedureTypeId: it.procedureTypeId ?? null,
           setPreviewTarget(null)
           openMedicalDocument(doc)
         }}
-        patientPhone={patient?.phoneNumber ?? null}
       />
 
       <FilePreviewDialog

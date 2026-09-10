@@ -19,7 +19,6 @@ import {
   Loader2,
   Plus,
   X,
-  MessageCircle,
   Pill,
   ClipboardList,
   AlertTriangle,
@@ -74,7 +73,6 @@ import { fr } from "date-fns/locale"
 import { toast } from "sonner"
 import { downloadBlob } from "@/lib/download"
 import { printPdfBlob } from "@/lib/print"
-import { shareDocumentToWhatsApp } from "@/lib/whatsapp"
 import { Document, Packer, Paragraph, HeadingLevel, AlignmentType, TextRun, BorderStyle } from "docx"
 
 /*
@@ -566,8 +564,6 @@ export function DocumentEditorContent() {
   const [savedPreviewOpen, setSavedPreviewOpen] = useState(false)
   // `reposOpen` / `liaisonExtrasOpen` are gone with the two folds they drove: the repos fields ARE the
   // certificat now, and the liaison's guided sections are no longer offered.
-  // « Envoyer par WhatsApp » — only reachable once the document has been saved and therefore has an id.
-  const [sharing, setSharing] = useState(false)
 
   // `documentRef` is gone with the DOM-clone print: nothing reads the A4 block's subtree any more, and
   // leaving a handle on it is an invitation to render this legal document a second way. See `handlePrint`.
@@ -2199,81 +2195,6 @@ export function DocumentEditorContent() {
    * instead would silently print a stale sheet after an edit, and would make « Imprimer » unavailable before
    * the first save, which the DOM path did support.</p>
    */
-  /**
-   * « Envoyer par WhatsApp » — the same server-rendered bytes « Imprimer » sends to the printer.
-   *
-   * ⚠️ **It cannot open a conversation with the file already attached, and no application can**: `wa.me`
-   * carries text only, so the document reaches WhatsApp through the OS share sheet — which is why the outcome
-   * is reported back and worded honestly rather than claimed. See `lib/whatsapp.ts`.
-   */
-  const handleSendToWhatsApp = async () => {
-    if (saving || sharing || !documentId) return;
-
-    if (!patientData) {
-      toast.error("Patient requis", {
-        description: "Sélectionnez un patient avant d'envoyer le document.",
-        duration: 3000,
-      });
-      return;
-    }
-
-    setSharing(true);
-    const loadingToast = toast.loading("Préparation du document…", {
-      description: "Le PDF se prépare.",
-    });
-
-    try {
-      const documentData = buildDocumentData();
-      if (!documentData) {
-        toast.error("Données manquantes", {
-          description: "Impossible de préparer le document. Vérifiez que tous les champs obligatoires sont remplis.",
-          duration: 4000,
-        });
-        return;
-      }
-
-      const pdfBlob = await medicalDocumentsApi.generatePdfForDownload(documentData);
-      const fileName = buildPdfFileName();
-      // Dismissed before the sheet opens, for `handlePrint`'s reason: the sheet blocks and the wait is over.
-      toast.dismiss(loadingToast);
-
-      const outcome = await shareDocumentToWhatsApp(pdfBlob, fileName, {
-        phone: patientData.phoneNumber,
-        /*
-         * ⚠️ **The cabinet is deliberately NOT named here.** `formData.clinicName` falls back to the literal
-         * « [Nom du cabinet] » placeholder, and this string goes to a patient — measured in the probe, which
-         * produced « du cabinet [Nom du cabinet] ». It is the same trap that once posted that placeholder into
-         * a legal document. The letterhead on the attached PDF names the cabinet properly.
-         */
-        message: `Bonjour ${patientData.firstName}, voici votre ${getDocumentTitle().toLowerCase()}.`,
-      });
-
-      if (outcome === "shared") {
-        toast.success("Document prêt à partager", {
-          description: "Choisissez WhatsApp dans le menu de partage.",
-          duration: 4000,
-        });
-      } else if (outcome === "delivered-and-opened") {
-        toast.success("WhatsApp est ouvert", {
-          description: `Le fichier ${quoteFr(fileName)} est téléchargé — joignez-le à la conversation.`,
-          duration: 6000,
-        });
-      } else {
-        toast.success("Document téléchargé", {
-          description: "WhatsApp n'a pas pu s'ouvrir. Joignez le fichier depuis vos téléchargements.",
-          duration: 6000,
-        });
-      }
-    } catch (error) {
-      console.error("Error in handleSendToWhatsApp:", error);
-      toast.dismiss(loadingToast);
-      const message = error instanceof ApiError ? error.message : "Une erreur est survenue";
-      toast.error("Erreur lors de la préparation du document", { description: message, duration: 4000 });
-    } finally {
-      setSharing(false);
-    }
-  };
-
   const handlePrint = async () => {
     if (saving) {
       return; // Prevent action while saving
@@ -3799,19 +3720,6 @@ export function DocumentEditorContent() {
                   Renouveler (nouvelle ordonnance)
                 </Button>
               )}
-              {/* Only offered once the document is saved: the PDF is rendered from its id, so there is nothing
-                  to send while the document exists only in this form. */}
-              {documentId && (
-                <Button
-                  variant="outline"
-                  className="w-full h-11 bg-transparent"
-                  onClick={() => handleSendToWhatsApp()}
-                  disabled={saving || sharing}
-                >
-                  <MessageCircle className="w-4 h-4 mr-2" />
-                  {sharing ? "Préparation…" : "Envoyer par WhatsApp"}
-                </Button>
-              )}
               <div className="grid grid-cols-2 gap-3">
                 <Button variant="outline" onClick={resetForm} className="h-11 bg-transparent">
                   <RotateCcw className="w-4 h-4 mr-2" />
@@ -4260,7 +4168,6 @@ export function DocumentEditorContent() {
         <DocumentPreviewDialog
           target={savedPreviewOpen ? { mode: "saved", documentId } : null}
           onClose={() => setSavedPreviewOpen(false)}
-          patientPhone={patientData?.phoneNumber ?? null}
         />
       )}
 

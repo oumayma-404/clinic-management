@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Download, FileEdit, Loader2, MessageCircle, Printer } from "lucide-react"
+import { Download, FileEdit, Loader2, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -17,10 +17,7 @@ import { pdfSourceUrl } from "@/lib/pdf-sources"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { MedicalDocumentDto } from "@/lib/api/types"
 import { downloadBlob } from "@/lib/download"
-import { shareDocumentToWhatsApp } from "@/lib/whatsapp"
 import { documentTypeLabel, isExamenLine, type PrescriptionLine } from "@/lib/documents"
-import { toast } from "sonner"
-
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatDate } from "@/lib/format"
 
@@ -39,10 +36,10 @@ import { formatDate } from "@/lib/format"
  * <ul>
  *   <li><b>`saved`</b> — the document on file. Rendered server-side from its stored `contentJson`
  *       ({@link medicalDocumentsApi.getPdf}), so it is byte-for-byte what the e-mail attaches and the PDF job
- *       stores. Carries Imprimer / Télécharger / Envoyer / Modifier.</li>
+ *       stores. Carries Imprimer / Télécharger / Modifier.</li>
  *   <li><b>`apercu`</b> — the sheet the fiche is <i>about to</i> emit, composed by the server through the
  *       emitter's own path. It exists because on a first save there is no document yet. ⚠️ It deliberately
- *       carries <b>no</b> Imprimer, Télécharger or Envoyer: a printed ordonnance for an unsaved séance is a
+ *       carries <b>no</b> Imprimer and no Télécharger: a printed ordonnance for an unsaved séance is a
  *       legal paper with no record behind it, and the dialog says so in one line rather than refusing
  *       silently.</li>
  * </ul>
@@ -82,8 +79,6 @@ interface DocumentPreviewDialogProps {
   onEditInFiche?: (dentalRecordId: string) => void
   /** Open the standalone editor, for a document no fiche owns. Omitted hides the control. */
   onEditInEditor?: (document: MedicalDocumentDto) => void
-  /** Addresses the WhatsApp conversation without a second read. Absent ⇒ WhatsApp opens on its contact picker. */
-  patientPhone?: string | null
 }
 
 /** What the header calls an aperçu, which has no stored `documentType` to look up yet. */
@@ -94,13 +89,11 @@ export function DocumentPreviewDialog({
   onClose,
   onEditInFiche,
   onEditInEditor,
-  patientPhone,
 }: DocumentPreviewDialogProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [document, setDocument] = useState<MedicalDocumentDto | null>(null)
   const [loading, setLoading] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-  const [sharing, setSharing] = useState(false)
   const [reload, setReload] = useState(0)
 
   /** The rendered bytes, kept for « Télécharger » and for the coarse-pointer hand-off. */
@@ -206,34 +199,6 @@ export function DocumentPreviewDialog({
   }, [fileName])
 
   /**
-   * « Envoyer » hands the rendered PDF to WhatsApp through the OS share sheet — no URL can attach a file to a
-   * conversation, so the sheet is the only route. See `lib/whatsapp.ts`.
-   */
-  const sendToWhatsApp = useCallback(async () => {
-    if (!blobRef.current || !document) return
-    setSharing(true)
-    try {
-      const outcome = await shareDocumentToWhatsApp(blobRef.current, fileName, {
-        phone: patientPhone,
-        message: `Bonjour, voici votre ${documentTypeLabel(document.documentType).toLowerCase()}.`,
-      })
-      if (outcome === "shared") {
-        toast.success("Document prêt à partager", { description: "Choisissez WhatsApp dans le menu de partage." })
-      } else if (outcome === "delivered-and-opened") {
-        toast.success("WhatsApp est ouvert", { description: "Le PDF est téléchargé — joignez-le à la conversation." })
-      } else {
-        toast.success("Document téléchargé", {
-          description: "WhatsApp n'a pas pu s'ouvrir. Joignez le fichier depuis vos téléchargements.",
-        })
-      }
-    } catch (error) {
-      showErrorToast(error, "Le partage a échoué.")
-    } finally {
-      setSharing(false)
-    }
-  }, [document, fileName, patientPhone])
-
-  /**
    * ⚠️ The frame is printed only when it is really rendered. Below a coarse pointer `PatientFilePdfPreview`
    * hides it in CSS and shows the hand-off instead, so the ref is non-null and the window unprintable — the
    * file is delivered to the platform viewer, which is where it can be printed on a phone anyway.
@@ -314,13 +279,13 @@ export function DocumentPreviewDialog({
           <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-4 py-3 md:px-6">
             {isApercu ? (
               /*
-               * ⚠️ No Imprimer and no Envoyer here, on purpose. Handing a patient a paper for a séance that
+               * ⚠️ No Imprimer and no Télécharger here, on purpose. Handing a patient a paper for a séance that
                * was never saved leaves a prescription with no clinical record behind it — and this product's
                * standing rule is that a prescription is entered clinical data. One sentence rather than a
                * disabled button, so the reader learns what to do instead of what is refused.
                */
               <p className="me-auto text-2xs text-muted-foreground sm:text-xs">
-                Enregistrez la fiche pour émettre ce document — vous pourrez alors l&apos;imprimer et l&apos;envoyer.
+                Enregistrez la fiche pour émettre ce document — vous pourrez alors l&apos;imprimer et le télécharger.
               </p>
             ) : (
               <>
@@ -331,16 +296,6 @@ export function DocumentPreviewDialog({
                 <Button type="button" variant="outline" onClick={deliver} disabled={!pdfUrl} className="coarse:h-11">
                   <Download className="me-2 h-4 w-4" aria-hidden="true" />
                   Télécharger
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => sendToWhatsApp()}
-                  disabled={!document || !pdfUrl || sharing}
-                  className="coarse:h-11"
-                >
-                  <MessageCircle className="me-2 h-4 w-4" aria-hidden="true" />
-                  {sharing ? "Préparation…" : "WhatsApp"}
                 </Button>
                 {document?.dentalRecordId && onEditInFiche ? (
                   <Button

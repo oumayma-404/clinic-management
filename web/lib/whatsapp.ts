@@ -1,4 +1,3 @@
-import { downloadBlob } from "@/lib/download"
 import { toE164 } from "@/lib/phone"
 import { quoteFr } from "@/lib/format"
 
@@ -91,83 +90,4 @@ export function labOrderFollowUpMessage(
     `Bonjour, nous vous contactons au sujet du travail ${quoteFr(workDescription)}${forPatient}${due}. ` +
     `Pouvez-vous nous indiquer où il en est ? Merci.`
   )
-}
-
-/**
- * How a document reached WhatsApp, so a caller can word its toast honestly.
- *
- * ⚠️ **No URL can attach a file to a conversation, and that is why this is three outcomes rather than a
- * boolean.** `wa.me` carries text only — there is no parameter, on any platform, that attaches a document, and
- * WhatsApp will not add one because it would let any page push a file into a chat. The bytes reach WhatsApp
- * only through the **operating system's own share sheet**, where WhatsApp appears as a target.
- */
-export type WhatsAppShareOutcome =
-  /** The shell or the OS sheet took the file: the user picks WhatsApp and the document is attached. */
-  | "shared"
-  /** The file was delivered and the conversation opened; the user attaches it themselves. */
-  | "delivered-and-opened"
-  /** The file was delivered but the conversation could not be opened (a blocked pop-up). */
-  | "delivered"
-
-/**
- * Hand a PDF this app rendered to WhatsApp. The ladder mirrors {@link downloadBlob}'s, which is the same
- * problem for the same reasons:
- *
- * 1. **A native shell** → `saveFile`, whose open/share path *is* the platform sheet (`bridge.md`: « Write the
- *    file and offer to open or share it »).
- * 2. **`navigator.canShare({ files })`** → the share sheet with the PDF attached. True on Android Chrome and
- *    iOS Safari — the phone and the tablet this app is mostly used on — and sometimes on Windows Chrome.
- *    ⚠️ Asked as `canShare({ files })`, never « does `share` exist »: Android exposes `share` while refusing
- *    files on some versions, and it throws *after* the user has tapped.
- * 3. **Neither** (an ordinary desktop browser) → deliver the file **and** open the conversation with the
- *    message ready, so the two halves are one click apart. Reported as such rather than claimed as sent.
- *
- * ⚠️ **The number is a convenience, not a requirement**: `navigator.share` cannot choose the recipient — the
- * sheet does — so a patient with no phone on file still shares fine. Only branch 3 addresses the chat, and with
- * no usable number it opens WhatsApp on its contact picker rather than on an « invalid number » page.
- */
-/** A finger, not a mouse — the same test `download.ts` uses, and for the reason documented below. */
-function isCoarsePointer(): boolean {
-  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches
-}
-
-export async function shareDocumentToWhatsApp(
-  blob: Blob,
-  fileName: string,
-  options: { phone?: string | null; message: string },
-): Promise<WhatsAppShareOutcome> {
-  if (typeof window === "undefined") return "delivered"
-
-  const shell = window.__clinicShell
-  if (typeof shell?.saveFile === "function") {
-    await downloadBlob(blob, fileName)
-    return "shared"
-  }
-
-  /*
-   * ⚠️ **A COARSE pointer as well as `canShare`, and the pointer half is not belt-and-braces.** Measured on
-   * desktop Chrome for Windows: `canShare({ files: [pdf] })` answers **true** and `navigator.share()` then
-   * **never settles** — it neither resolves nor rejects — so this function would hang, its caller's toast would
-   * spin on « Préparation… » for ever and the file would never be delivered. `downloadBlob` gates its own share
-   * path the same way; this ladder was written without it and the probe caught it before it shipped.
-   */
-  if (isCoarsePointer() && typeof navigator !== "undefined" && "canShare" in navigator) {
-    const file = new File([blob], fileName, { type: blob.type || "application/pdf" })
-    if (navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], text: options.message })
-        return "shared"
-      } catch (err) {
-        // A dismissed sheet is the user's decision — never fall through and deliver a file they cancelled.
-        if (err instanceof DOMException && err.name === "AbortError") return "shared"
-        // Anything else (an OS refusal, a type it will not carry) falls to the desktop route.
-      }
-    }
-  }
-
-  await downloadBlob(blob, fileName)
-  // ⚠️ Opened AFTER the delivery, so a blocked pop-up cannot cost the file.
-  const url = whatsAppUrl(options.phone, options.message) ?? `https://wa.me/?text=${encodeURIComponent(options.message)}`
-  const opened = window.open(url, "_blank", EXTERNAL_LINK_REL)
-  return opened ? "delivered-and-opened" : "delivered"
 }
