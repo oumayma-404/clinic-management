@@ -270,7 +270,15 @@ export function PlanActPrimaryAction({
           variant="ghost"
           size="sm"
           className={cn("h-8 gap-1", block && "flex-1 justify-center")}
-          onClick={() => router.push(`/patients/${plan.patientId}?tab=medical-records`)}
+          // ⚠️ THAT fiche, through the `?editRecord=` door `/factures` already uses — not `?tab=medical-records`,
+          // which lands on a list of every séance the patient has and opens none of them.
+          onClick={() =>
+            router.push(
+              item.linkedDentalRecordId
+                ? `/patients/${plan.patientId}?editRecord=${encodeURIComponent(item.linkedDentalRecordId)}`
+                : `/patients/${plan.patientId}?tab=medical-records`,
+            )
+          }
         >
           <FileText className="h-4 w-4" />
           Voir la fiche
