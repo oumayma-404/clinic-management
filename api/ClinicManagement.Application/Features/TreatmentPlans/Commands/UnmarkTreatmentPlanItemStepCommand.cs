@@ -32,6 +32,9 @@ public class UnmarkTreatmentPlanItemStepCommand : IRequest<Result<TreatmentPlanD
     public Guid PlanId { get; set; }
     public Guid ItemId { get; set; }
     public Guid StepId { get; set; }
+
+    /// <inheritdoc cref="UnmarkTreatmentPlanItemDoneCommand.Version"/>
+    public uint Version { get; set; }
 }
 
 public class UnmarkTreatmentPlanItemStepCommandHandler
@@ -107,6 +110,7 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
 
             plan.UnmarkItemStep(request.ItemId, request.StepId);
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

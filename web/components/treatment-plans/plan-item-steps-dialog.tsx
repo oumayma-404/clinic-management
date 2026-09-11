@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Check, ChevronDown, ChevronUp, GripVertical, Plus, Trash2, Unlink } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -16,10 +17,10 @@ import {
 } from "@/components/ui/alert-dialog"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useConflict } from "@/lib/hooks/use-conflict"
 import { treatmentPlansApi, type TreatmentPlanItemStepInput } from "@/lib/api/treatment-plans"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDateFr, quoteFr } from "@/lib/format"
-import { showErrorToast } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
 /** One row of the editor. `id` present = an existing step whose identity must survive the save. */
@@ -39,6 +40,11 @@ interface StepRow {
    */
   minDays: string
   doneDate: string | null
+  /**
+   * The fiche that evidences this séance. Carried on the row for one reason: « Détacher » clears it
+   * server-side, so it has to be in hand *before* the call to offer « Ouvrir la fiche » afterwards.
+   */
+  linkedDentalRecordId: string | null
 }
 
 /**
@@ -71,9 +77,17 @@ export function PlanItemStepsDialog({
   onOpenChange: (open: boolean) => void
   onSaved: () => void
 }) {
+  const router = useRouter()
   const [rows, setRows] = useState<StepRow[]>([])
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  /*
+   * ⚠️ `useConflict`, not a plain `error` string — this dialog round-trips `plan.version` on **both** of its
+   * writes (« Enregistrer » and « Détacher »), so a 409 is a state it can genuinely reach, and a bare message
+   * is the poisoned-dialog shape this repo names outright: the version it holds never moves, so every later
+   * press repeats the same refusal. The hook is what puts « Recharger » on the banner and escalates the
+   * wording on a second consecutive conflict.
+   */
+  const conflict = useConflict()
 
   /*
    * ⚠️ Confirm-before-discard, and it was missing. Escape — and the ✕, and a tap on the overlay, which on a
@@ -99,15 +113,38 @@ export function PlanItemStepsDialog({
 
   const handleDetach = async () => {
     if (!item || !detaching?.id) return
+    /*
+     * ⚠️ Read BEFORE the call, because the call is what destroys it. Detaching clears the step's
+     * `linkedDentalRecordId`, and with it the only pointer this screen has to the fiche — while re-pointing
+     * that fiche at the right séance is the correction the dentist is in the middle of making. Without this,
+     * the row's next offer is « Enregistrer la fiche » on the same appointment, which opens a SECOND fiche
+     * for one visit; the detached one survives only in the patient's own records tab.
+     */
+    const recordId = detaching.linkedDentalRecordId
     setDetachBusy(true)
+    conflict.clearMessage()
     try {
-      await treatmentPlansApi.markStepUndone(plan.id, item.id, detaching.id)
-      toast.success(`${detaching.label} : la fiche a été détachée.`)
+      await treatmentPlansApi.markStepUndone(plan.id, item.id, detaching.id, plan.version)
+      toast.success(`${detaching.label} : la fiche a été détachée.`, {
+        action: recordId
+          ? {
+              label: "Ouvrir la fiche",
+              onClick: () =>
+                router.push(`/patients/${plan.patientId}?editRecord=${encodeURIComponent(recordId)}`),
+            }
+          : undefined,
+      })
       setDetaching(null)
       onSaved()
       // The dialog re-seeds from the refreshed act, so the step comes back editable in place — no close.
     } catch (err) {
-      showErrorToast(err)
+      /*
+       * Closed first, then reported in the banner: the refusal is a long sentence naming a remedy (« établissez
+       * un avoir pour la totalité des 60,000 DT… »), and a toast behind an open alert dialog is the one place it
+       * cannot be read. `capture` is also what turns a 409 into « Recharger » instead of a dead repeat.
+       */
+      setDetaching(null)
+      conflict.capture(err, "Échec du détachement de la fiche.")
     } finally {
       setDetachBusy(false)
     }
@@ -117,7 +154,7 @@ export function PlanItemStepsDialog({
   // dependency on `item` alone would discard typing whenever the parent refetched.
   useEffect(() => {
     if (!open || !item) return
-    setError(null)
+    conflict.reset()
     setRows(
       (item.steps ?? []).map((step) => ({
         key: step.id,
@@ -126,8 +163,12 @@ export function PlanItemStepsDialog({
         duration: step.estimatedDurationMinutes?.toString() ?? "",
         minDays: step.minDaysAfterPrevious?.toString() ?? "",
         doneDate: step.doneDate,
+        linkedDentalRecordId: step.linkedDentalRecordId,
       })),
     )
+    // `conflict.reset` is a stable useCallback; listing `conflict` itself would re-run this on every render
+    // and discard what the dentist is typing — matching `edit-patient-dialog`'s own seeding effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, item])
 
   const doneCount = useMemo(() => rows.filter((r) => r.doneDate).length, [rows])
@@ -142,7 +183,7 @@ export function PlanItemStepsDialog({
       ...prev,
       {
         key: `new-${Date.now()}-${prev.length}`, id: null, label: "", duration: "", minDays: "",
-        doneDate: null,
+        doneDate: null, linkedDentalRecordId: null,
       },
     ])
 
@@ -166,21 +207,21 @@ export function PlanItemStepsDialog({
 
     const trimmed = rows.map((r) => ({ ...r, label: r.label.trim() }))
     if (trimmed.some((r) => r.label.length === 0)) {
-      setError("Chaque séance doit porter un libellé.")
+      conflict.setError("Chaque séance doit porter un libellé.")
       return
     }
     const badDuration = trimmed.find(
       (r) => r.duration.trim() !== "" && !/^\d{1,3}$/.test(r.duration.trim()),
     )
     if (badDuration) {
-      setError(`La durée de ${quoteFr(badDuration.label)} doit être un nombre de minutes.`)
+      conflict.setError(`La durée de ${quoteFr(badDuration.label)} doit être un nombre de minutes.`)
       return
     }
     const badDelay = trimmed.find(
       (r) => r.minDays.trim() !== "" && !/^\d{1,4}$/.test(r.minDays.trim()),
     )
     if (badDelay) {
-      setError(`Le délai avant ${quoteFr(badDelay.label)} doit être un nombre de jours.`)
+      conflict.setError(`Le délai avant ${quoteFr(badDelay.label)} doit être un nombre de jours.`)
       return
     }
 
@@ -194,7 +235,9 @@ export function PlanItemStepsDialog({
     }))
 
     setSaving(true)
-    setError(null)
+    // `clearMessage`, not `setError(null)`: it keeps the consecutive-conflict count, which is what
+    // makes the escalated wording reachable on a second 409 in a row.
+    conflict.clearMessage()
     try {
       await treatmentPlansApi.setItemSteps(plan.id, item.id, payload, plan.version)
       toast.success(
@@ -207,9 +250,9 @@ export function PlanItemStepsDialog({
       guard.markClean()
       onOpenChange(false)
     } catch (err) {
-      // The dialog stays open with every field as typed (§ 13).
-      showErrorToast(err)
-      setError(err instanceof Error ? err.message : "L'enregistrement a échoué.")
+      // The dialog stays open with every field as typed (§ 13), and the banner is the only report — a toast
+      // beside it printed the same sentence twice and vanished after four seconds while the form sat there.
+      conflict.capture(err, "L'enregistrement a échoué.")
     } finally {
       setSaving(false)
     }
@@ -229,7 +272,21 @@ export function PlanItemStepsDialog({
         </DialogHeader>
 
         <DialogBody className="space-y-2 px-1 py-1">
-          {error && <FormErrorBanner message={error} className="mb-2" />}
+          {/*
+            ⚠️ The `action` is what `useConflict.isConflict` exists to drive. Without it the banner says
+            « Rechargez puis réessayez » beside no control that reloads, and the version this dialog holds
+            never moves — so every later press repeats the refusal. « Recharger » is `onSaved`, which is the
+            parent's refetch: the rows re-seed from the refreshed act in place, without closing.
+          */}
+          <FormErrorBanner
+            message={conflict.error}
+            className="mb-2"
+            action={
+              conflict.isConflict
+                ? { label: "Recharger", onClick: () => onSaved(), disabled: saving || detachBusy }
+                : undefined
+            }
+          />
 
           {rows.length === 0 && (
             <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">

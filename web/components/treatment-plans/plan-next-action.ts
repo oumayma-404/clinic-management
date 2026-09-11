@@ -43,6 +43,54 @@ export function nextStepOf(item: TreatmentPlanItemDto) {
   return steps.filter((s) => !s.doneDate).sort((a, b) => a.sequenceNumber - b.sequenceNumber)[0] ?? null
 }
 
+/** What « Détacher la fiche » will actually do to one act — see {@link detachOutcome}. */
+export interface DetachOutcome {
+  /** The séance being released, when the act is cut into séances. Null for an act done in one sitting. */
+  stepLabel: string | null
+  /**
+   * The fiche that will be released. **Read before the call, because the call is what clears the link** — it
+   * is the only pointer a devis surface has to that record, and re-pointing it is the correction the dentist
+   * is in the middle of making.
+   */
+  dentalRecordId: string | null
+  /** Séances still recorded afterwards, out of the act's total. Null for a step-less act. */
+  remaining: { done: number; total: number } | null
+}
+
+/**
+ * What « Détacher la fiche » will do to this act, stated rather than guessed.
+ *
+ * <p>⚠️ <b>On an act with steps it undoes the LAST séance recorded, not the whole act</b> — a three-séance
+ * couronne lands on « En cours · 2 étapes sur 3 faites », never on « Prévu ». Both the confirmation and the
+ * success toast said « Prévu » unconditionally, which is a false statement about the commonest case the
+ * control exists for; the workspace's own help paragraph had the truth and the dialog the user reads did
+ * not.</p>
+ *
+ * <p>This mirrors <c>TreatmentPlanItem.Unmark</c>: the step released is the last <i>done</i> one by rank, and
+ * the act's own <c>linkedDentalRecordId</c> is that step's once it is complete — so the two agree by
+ * construction rather than by coincidence. An act whose last step is the only one done returns to « Prévu »,
+ * which is why `remaining.done` may be 0 and the caller words that case as a step-less one.</p>
+ */
+export function detachOutcome(item: TreatmentPlanItemDto): DetachOutcome {
+  const steps = item.steps ?? []
+  if (steps.length === 0) {
+    return { stepLabel: null, dentalRecordId: item.linkedDentalRecordId, remaining: null }
+  }
+
+  const done = [...steps]
+    .filter((s) => s.doneDate)
+    .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+  const released = done[done.length - 1] ?? null
+
+  return {
+    stepLabel: released?.label ?? null,
+    // The step's own link is the specific fact; the act's is the same record once it is complete, and the
+    // fallback covers a response that predates per-step links.
+    dentalRecordId: released?.linkedDentalRecordId ?? item.linkedDentalRecordId,
+    remaining: { done: Math.max(0, done.length - 1), total: steps.length },
+  }
+}
+
 /**
  * True once a note d'honoraires **represents** this devis — it hides « Facturer » and it is what
  * {@link displayedOutstanding} keys on to name the note's balance instead of the plan's.

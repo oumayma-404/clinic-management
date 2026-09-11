@@ -329,6 +329,26 @@ touching the area.
   the aggregate can say whether the step just marked was the last. ⚠️ Its companion is
   `TreatmentPlanItemDto.TreatedToothNumbers`: with the chart written at the END, teeth entered on an early séance
   and absent from the last fiche would chart **nothing at all**.
+- **A CORRECTION must not decide a stopped treatment is running again, and `OpenStatusFromWork` has no `Stopped`
+  arm.** « Arrêter le traitement » parks every act with no delivered work, and `Reopen` — reachable only from
+  `Stopped`/`Completed` — is the **only** thing that brings them back. So « Détacher la fiche » on a stopped
+  devis wrote `InProgress`, which withdrew « Reprendre le traitement » from the header in the same breath and
+  left the parked acts outside `ActiveItems`, outside `TotalPlanned` (already re-spread by the stop) and outside
+  every count, with **no route back** — the devis reading as an ordinary live treatment that had silently shrunk,
+  with no error. `StatusFollowsTheWork` is the one predicate and **three** writers consult it: both unmarks and
+  `SetItemSteps`, whose own inline copy of the recompute is the save button of the very dialog that hosts the
+  step-level « Détacher ». ⚠️ `Reopen` deliberately does **not** consult it — that *is* the deliberate decision,
+  and it restores the acts before it asks. ⚠️ `EnsureCorrectable` admitting `Stopped` is right and is not the
+  bug; the bug was what happened after it passed, and the test that let it ship asserted the call **succeeded**
+  and nothing about the resulting status.
+- **« Détacher la fiche » on a stepped act releases the LAST séance only, and both surfaces said « Prévu ».**
+  `TreatmentPlanItem.Unmark` undoes the last *done* step by rank, so a three-séance couronne lands on « En
+  cours » with 2 of 3 faites — while the confirmation read « repassera à « Prévu » » and the toast « Acte ramené
+  à « Prévu » » whatever the act was. The workspace's own help paragraph had the truth and the dialog the user
+  reads did not. `detachOutcome` (TS) is the one reader: it names the séance being released, carries the
+  `dentalRecordId` **captured before the call** (detaching clears the only pointer the devis has to that fiche,
+  while re-pointing it is the correction being made — without it the row's next offer is « Enregistrer la
+  fiche » on the same appointment, i.e. a *second* fiche for one visit), and phrases the remainder as a count.
 - **An échéance the system raised is not a date anybody promised**, and reading it as one made every devis in the
   database « En retard » from the day after signature (25 of 27 unpaid rows, cancelled and already-invoiced ones
   included). `Accept` writes one lump-sum row dated at the acceptance instant so a payment has somewhere to live;

@@ -523,7 +523,17 @@ public class TreatmentPlanItem : Entity<Guid>
         RecomputeStatusFromSteps();
     }
 
-    /// <summary>Undo one named step. Returns <c>false</c> when it was already « à venir ».</summary>
+    /// <summary>
+    /// Undo one named step. Returns <c>false</c> when it was already « à venir ».
+    /// <para>
+    /// ⚠️ <b>Deliberately without <c>EnsureNotWithdrawn</c>, unlike <see cref="MarkStepDone"/>.</b> That guard
+    /// protects <i>doing</i> work on an act the patient stopped; this is the correction path, and a fiche
+    /// attached to the wrong step has to stay detachable on a parked act too — the same argument that puts
+    /// <c>Stopped</c> in <c>TreatmentPlan.EnsureCorrectable</c>. Nothing is promoted by it:
+    /// <see cref="RecomputeStatusFromSteps"/> returns immediately for a withdrawn act, so the act keeps
+    /// <see cref="TreatmentPlanItemStatus.Withdrawn"/> and only the step's own evidence is cleared.
+    /// </para>
+    /// </summary>
     internal bool UnmarkStep(Guid stepId)
     {
         var step = _steps.FirstOrDefault(s => s.Id == stepId)

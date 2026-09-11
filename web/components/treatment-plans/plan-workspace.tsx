@@ -52,6 +52,7 @@ import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass, planHasRecordedWork } from "./treatment-plan-labels"
 import {
   activeItems,
+  detachOutcome,
   displayedOutstanding,
   isPlanLive,
   isPlanStopped,
@@ -239,6 +240,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [stopping, setStopping] = useState(false)
   /** The act whose « réalisé » state is being corrected (AC-P2.11); null = dialog closed. */
   const [undoTarget, setUndoTarget] = useState<TreatmentPlanItemDto | null>(null)
+  /**
+   * What detaching that act will actually do — the séance released, the fiche behind it, and what stays
+   * recorded. Derived so the confirmation, the toast and the server all describe one outcome.
+   */
+  const undoOutcome = useMemo(() => (undoTarget ? detachOutcome(undoTarget) : null), [undoTarget])
   /** The act whose protocol is being edited — same window as `canCorrectActs`, which the server enforces too. */
   const [stepsTarget, setStepsTarget] = useState<TreatmentPlanItemDto | null>(null)
 
@@ -637,11 +643,21 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * message of anything that is not an `ApiError` — a plain `Error` from `downloadBlob` fell through to the
    * generic French sentence. `lib/errors.ts` is the single formatting point and supplies all three.
    */
-  const run = async (action: () => Promise<unknown>, success: string, failure: string) => {
+  const run = async (
+    action: () => Promise<unknown>,
+    success: string,
+    failure: string,
+    /**
+     * An optional control on the success toast — « Ouvrir la fiche » after a detach. Here rather than at the
+     * one call site because the toast is raised here, and a second `toast.success` beside this helper is how
+     * two mutations come to report success two different ways.
+     */
+    successAction?: { label: string; onClick: () => void },
+  ) => {
     setBusy(true)
     try {
       await action()
-      toast.success(success)
+      toast.success(success, { action: successAction })
       onChanged()
     } catch (err) {
       showErrorToast(err, failure)
@@ -1989,8 +2005,29 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <DialogHeader>
             <DialogTitle>Détacher la fiche de cet acte ?</DialogTitle>
             <DialogDescription>
-              {quoteFr(undoTarget?.designationFr ?? "")} repassera à « Prévu » et sa fiche de soins sera détachée. La fiche
-              elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera réouvert.{" "}
+              {/*
+                ⚠️ **It said « repassera à « Prévu » » whatever the act was, and on a multi-séance act that is
+                simply false**: `Unmark` releases the LAST séance recorded, so a three-séance couronne lands on
+                « En cours », 2 étapes sur 3 faites. `detachOutcome` is the one place that arithmetic lives —
+                the same rule the server applies — and the count is phrased AS a count, never as a bare
+                « 2 / 3 », which is read as progress (§ 13).
+              */}
+              {undoOutcome?.stepLabel && (undoOutcome.remaining?.done ?? 0) > 0 ? (
+                <>
+                  La dernière séance enregistrée ({quoteFr(undoOutcome.stepLabel)}) sera détachée de sa fiche
+                  de soins. {quoteFr(undoTarget?.designationFr ?? "")} repassera à « En cours » —{" "}
+                  {undoOutcome.remaining!.done} étape
+                  {undoOutcome.remaining!.done > 1 ? "s" : ""} sur {undoOutcome.remaining!.total}{" "}
+                  {undoOutcome.remaining!.done > 1 ? "faites" : "faite"}.
+                </>
+              ) : (
+                <>
+                  {quoteFr(undoTarget?.designationFr ?? "")} repassera à « Prévu » et sa fiche de soins sera
+                  détachée.
+                </>
+              )}{" "}
+              La fiche elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera
+              réouvert.{" "}
               {/* The same forewarning as the step-level dialog — see its note. */}
               Si sa fiche est facturée sur une note d&apos;honoraires, il faudra d&apos;abord créditer cette
               note en totalité.
@@ -2013,10 +2050,26 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               onClick={async () => {
                 const target = undoTarget
                 if (!target) return
+                // Captured before the call: detaching clears the link, and this is the only route from the
+                // devis back to the fiche being corrected. See `detachOutcome`.
+                const outcome = detachOutcome(target)
                 await run(
-                  () => treatmentPlansApi.markItemUndone(plan.id, target.id),
-                  "Acte ramené à « Prévu »",
+                  () => treatmentPlansApi.markItemUndone(plan.id, target.id, plan.version),
+                  outcome.stepLabel && (outcome.remaining?.done ?? 0) > 0
+                    ? `Séance ${quoteFr(outcome.stepLabel)} détachée de sa fiche`
+                    : "Acte ramené à « Prévu »",
                   "Échec de la correction de l'acte.",
+                  outcome.dentalRecordId
+                    ? {
+                        label: "Ouvrir la fiche",
+                        onClick: () =>
+                          router.push(
+                            `/patients/${plan.patientId}?editRecord=${encodeURIComponent(
+                              outcome.dentalRecordId!,
+                            )}`,
+                          ),
+                      }
+                    : undefined,
                 )
                 setUndoTarget(null)
               }}

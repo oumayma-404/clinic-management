@@ -230,12 +230,22 @@ public class TreatmentPlansController : ApiControllerBase
     /// Undo <see cref="MarkItemDone"/> — return the act to « prévu » and detach its fiche de soins, reopening the
     /// devis if that act had closed it. `AdminOrDoctor`, the same class as marking it done: this is the correction
     /// path for a clinical assertion, and it is refused outright once a live invoice bills the plan.
+    /// <para>
+    /// ⚠️ The body is <b>optional</b>, following <see cref="IssueDevis"/>: it carries the plan's version and
+    /// nothing else, so an older caller that posts none is unaffected (0 = « not supplied »).
+    /// </para>
     /// </summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/undone")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
-    public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemDone(Guid id, Guid itemId)
+    public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemDone(
+        Guid id, Guid itemId, [FromBody] UnmarkTreatmentPlanItemDoneCommand? command)
     {
-        var result = await _mediator.Send(new UnmarkTreatmentPlanItemDoneCommand { PlanId = id, ItemId = itemId });
+        var result = await _mediator.Send(new UnmarkTreatmentPlanItemDoneCommand
+        {
+            PlanId = id,
+            ItemId = itemId,
+            Version = command?.Version ?? 0,
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
@@ -243,13 +253,20 @@ public class TreatmentPlansController : ApiControllerBase
     /// Detach one <b>step</b> of an act from the fiche that evidenced it, returning it to « à venir » and
     /// reopening the devis if that step had closed it. `AdminOrDoctor`, exactly like its act-level sibling: this
     /// is the correction path for a clinical assertion, and it is refused once a live invoice bills the work.
+    /// Optional body carrying the plan's version, exactly like its sibling above.
     /// </summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/steps/{stepId:guid}/undone")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
-    public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemStep(Guid id, Guid itemId, Guid stepId)
+    public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemStep(
+        Guid id, Guid itemId, Guid stepId, [FromBody] UnmarkTreatmentPlanItemStepCommand? command)
     {
-        var result = await _mediator.Send(
-            new UnmarkTreatmentPlanItemStepCommand { PlanId = id, ItemId = itemId, StepId = stepId });
+        var result = await _mediator.Send(new UnmarkTreatmentPlanItemStepCommand
+        {
+            PlanId = id,
+            ItemId = itemId,
+            StepId = stepId,
+            Version = command?.Version ?? 0,
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

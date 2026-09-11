@@ -180,24 +180,35 @@ export const treatmentPlansApi = {
 
   /**
    * Return a « réalisé » act to « prévu » and detach its fiche de soins, reopening the devis if that act had
-   * closed it. Takes no body — the act to correct is fully identified by the route. Server-side: AdminOrDoctor,
-   * and refused once a live invoice bills the plan or the act's own fiche.
+   * closed it. The act to correct is identified by the route; the body carries the plan's `version` and
+   * nothing else. Server-side: AdminOrDoctor, and refused once a live invoice bills the act's own fiche.
+   *
+   * ⚠️ **Pass `plan.version`.** It used to send `{}`, so `Version == 0` skipped the concurrency check and a
+   * detach was the one write on this aggregate that always won — silently overwriting a colleague's
+   * concurrent amend. Every other mutation here round-trips it; a 409 belongs in `useConflict`, never in a
+   * bare error toast.
    *
    * There is deliberately **no** `markItemDone` counterpart here: an act is marked réalisé by saving the fiche
    * de soins that evidences it (`dentalRecordsApi`), never by a manual toggle, so a client function for
    * `POST .../done` would be a second, unevidenced way into the same state. The uncalled one was deleted
    * rather than wired (AC-P2.11).
    */
-  markItemUndone: async (id: string, itemId: string): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, {}),
+  markItemUndone: async (id: string, itemId: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, { version }),
 
   /**
    * Detach one **step** of an act from the fiche that evidenced it. The step-level twin of `markItemUndone`,
    * with the same absence beside it: there is deliberately **no** `markStepDone`, because a step becomes
-   * réalisée by saving the fiche de soins, never by a toggle.
+   * réalisée by saving the fiche de soins, never by a toggle. Round-trips `plan.version` for its sibling's
+   * reason.
    */
-  markStepUndone: async (id: string, itemId: string, stepId: string): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps/${stepId}/undone`, {}),
+  markStepUndone: async (
+    id: string,
+    itemId: string,
+    stepId: string,
+    version?: number,
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps/${stepId}/undone`, { version }),
 
   /**
    * Set the clinical steps of one act — « Préparation, Empreinte, Scellement définitif ».

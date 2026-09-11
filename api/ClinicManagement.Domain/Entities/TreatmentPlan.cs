@@ -543,7 +543,13 @@ public class TreatmentPlan : AggregateRoot<Guid>
         // Mirror MarkItemDone exactly: it promotes Accepted → InProgress on the first done act and → Completed
         // when all are done. Completed is therefore only reachable with every act done, so un-marking one always
         // reopens; and with no act done at all the plan is back where acceptance left it.
-        Status = OpenStatusFromWork;
+        //
+        // ⚠️ Guarded, never assigned outright — see `StatusFollowsTheWork`. A correction to what was *recorded*
+        // must not decide that a stopped treatment is running again, which is what stranded its parked acts.
+        if (StatusFollowsTheWork)
+        {
+            Status = OpenStatusFromWork;
+        }
 
         Touch();
     }
@@ -594,7 +600,12 @@ public class TreatmentPlan : AggregateRoot<Guid>
             return false;
         }
 
-        Status = OpenStatusFromWork;
+        // ⚠️ Guarded, for `UnmarkItemDone`'s reason — see `StatusFollowsTheWork`.
+        if (StatusFollowsTheWork)
+        {
+            Status = OpenStatusFromWork;
+        }
+
         Touch();
         return true;
     }
@@ -640,10 +651,12 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         item.SetSteps(steps);
 
-        // ⚠️ A Draft stays a Draft. Without this guard the recompute below would promote it to `Accepted`
-        // merely for having been cut into séances — quietly turning an un-numbered treatment into a devis that
-        // `CarriesDebt` says is real, with no number on it.
-        if (Status != TreatmentPlanStatus.Draft)
+        // ⚠️ A Draft stays a Draft and a Stopped treatment stays stopped — see `StatusFollowsTheWork`, which
+        // is the one place both exemptions live. Without the first, the recompute below would promote an
+        // un-numbered treatment to `Accepted` merely for having been cut into séances, giving it a debt
+        // `CarriesDebt` says is real with no number on it; without the second, saving a protocol on a stopped
+        // devis would reopen it and strand the acts the stop parked.
+        if (StatusFollowsTheWork)
         {
             // A Completed plan that gains a step is no longer finished, and one whose every act is done again is.
             Status = ActiveItems.Any() && ActiveItems.All(i => i.Status == TreatmentPlanItemStatus.Done)
@@ -688,6 +701,33 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Number is null
             ? TreatmentPlanStatus.Draft
             : AnyWorkRecorded ? TreatmentPlanStatus.InProgress : TreatmentPlanStatus.Accepted;
+
+    /// <summary>
+    /// Whether this plan's status may be re-derived from the work its acts carry — asked by every correction
+    /// path, and <b>false for a status a human chose</b>.
+    ///
+    /// <para>
+    /// ⚠️ <b><c>Stopped</c> is here because re-deriving it loses data with no error.</b>
+    /// « Arrêter le traitement » parks every act with no delivered work, and <see cref="Reopen"/> — reachable
+    /// only from <c>Stopped</c> or <c>Completed</c> — is the <b>only</b> thing that brings them back. So
+    /// « Détacher la fiche » on a stopped treatment wrote <c>InProgress</c>, which withdrew « Reprendre le
+    /// traitement » from the header in the same breath and left the parked acts outside
+    /// <see cref="ActiveItems"/>, outside <see cref="TotalPlanned"/> (already re-spread by the stop) and
+    /// outside every count, with no route back. Nothing errored: the devis read as an ordinary live treatment
+    /// that had silently shrunk.
+    /// </para>
+    /// <para>
+    /// <c>Draft</c> is here for the reason <see cref="OpenStatusFromWork"/> keys on <see cref="Number"/>: an
+    /// un-numbered treatment must never be promoted into a debt-bearing status by having had work recorded on
+    /// it. Both are decisions somebody took; neither is something the acts may imply.
+    /// </para>
+    /// <para>
+    /// ⚠️ <see cref="Reopen"/> deliberately does <b>not</b> consult this — reopening is exactly the deliberate
+    /// decision that lets the work speak again, and it restores the parked acts before it asks.
+    /// </para>
+    /// </summary>
+    private bool StatusFollowsTheWork =>
+        Status != TreatmentPlanStatus.Draft && Status != TreatmentPlanStatus.Stopped;
 
     /// <summary>
     /// The acts that still count as this plan's treatment — everything except the ones parked by
