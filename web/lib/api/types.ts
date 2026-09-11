@@ -478,6 +478,16 @@ export interface PatientDebtLineDto {
    * bounded by one échéance's own room, so offering `outstanding` produces a refusal for the figure shown.
    */
   payableRoom: number;
+  /**
+   * The other document of the same treatment — « suite de la note n° 2026-0019 » on a continuation devis,
+   * « suite du devis n° 2026-0012 » on the note it continues. Null on every ordinary row.
+   *
+   * ⚠️ **Two rows, and the pairing is a sentence rather than a merge.** Collapsing them was the obvious reading
+   * of « je devrais voir une seule ligne » and it is wrong twice: a note is per-*fiche*, so one billing a
+   * détartrage beside the continued act would drag that détartrage into the treatment; and each row is a
+   * settlement surface with its own « Encaisser », reaching la caisse by a different ledger.
+   */
+  partOfTreatment?: string | null;
 }
 
 /** One row of the clinic-wide « Créances » (accounts-receivable) list. */
@@ -1101,11 +1111,25 @@ export interface ContinuableActDto {
   procedureTypeId: string | null;
   toothNumbers: number[];
   cost: number;
+  /**
+   * The dentist ticked « Acte non terminé » when charting the séance.
+   *
+   * ⚠️ It moves the row to the TOP of the list and never removes any other row. A fiche records what was
+   * carried out and never what remains, so the tick is the only thing that knows an act was left unfinished —
+   * and it is also the easiest thing to forget, being one checkbox at the end of a séance. Filtering on it
+   * would turn the one gesture that helps into the one you cannot recover from having skipped.
+   */
+  isUnfinished: boolean;
   /** The note already billing that fiche, or null when the séance was never billed. THE fork of the feature. */
   invoiceId: string | null;
   invoiceNumber: string | null;
   /** Still owed on that note. 0 when there is no note, or when it is settled. */
   invoiceOutstanding: number;
+  /**
+   * The note's WHOLE total, not this act's share — what the plan read sums once the devis exists, so the
+   * booking card can state « total des deux séances » before it does. 0 when there is no note.
+   */
+  invoiceTotal: number;
 }
 
 export interface TreatmentInProgressDto {
@@ -1163,10 +1187,54 @@ export interface DentalRecordActDto {
   ponticToothNumbers?: number[];
   /** The subset that are piliers on an implant — see `DentalActInput.implantPilierToothNumbers`. */
   implantPilierToothNumbers?: number[];
+  /**
+   * « Acte non terminé » — the dentist's own statement that this act needs another séance.
+   *
+   * ⚠️ Read back and sent back on every save. `SetActs` rebuilds the whole act list server-side, so an editor
+   * that cannot see the tick sends it back false and an ordinary re-save of the fiche marks the act finished —
+   * no gesture, no toast, and the act simply leaves « Suites à planifier ». Same trap as
+   * `ponticToothNumbers`, one field over and quieter.
+   */
+  isUnfinished?: boolean;
   /** ToothCondition name this act results in on the odontogram, or null. */
   resultingCondition?: string | null;
   surfaces?: string | null;
   note?: string | null;
+}
+
+/**
+ * One act a dentist marked « non terminé » that no devis has picked up yet — a row of « Suites à planifier ».
+ *
+ * ⚠️ This list is a STATEMENT where {@link ContinuableActDto}'s is a question: that one offers every recent act
+ * because nothing can know which was unfinished, this one carries only what a human ticked. So the same flag is
+ * a sort there and a filter here, and neither is the other's bug.
+ *
+ * ⚠️ The money is stated and never moved. An act billed 1 000 with 800 collected still owes 200 on ITS NOTE,
+ * where la caisse, « Créances » and « Solde patient » already carry it.
+ */
+export interface UnfinishedActDto {
+  dentalRecordId: string;
+  actId: string;
+  patientId: string;
+  /** Null when the patient could not be read — « je ne sais pas », never a nameless row. */
+  patientName: string | null;
+  interventionDate: string;
+  procedureName: string;
+  procedureTypeId: string | null;
+  toothNumbers: number[];
+  cost: number;
+  /** The note already billing the fiche, or null. Branch on the ID: a DRAFT note collects and has no number. */
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  invoiceOutstanding: number;
+  /**
+   * A séance already in the diary for this PATIENT, or null.
+   *
+   * ⚠️ Per patient and never per act — nothing links a booking to an act with no treatment behind it, which is
+   * exactly what these acts are. The row must say « un rendez-vous est déjà prévu », never « cet acte est
+   * planifié »: claiming the stronger of the two is how a worklist starts lying.
+   */
+  nextAppointmentAt: string | null;
 }
 
 export interface DentalRecordDto {
@@ -1386,6 +1454,14 @@ export interface DentalActInput {
    * winning. Omitting both is what keeps an act charting one condition across all its teeth, exactly as before.
    */
   implantPilierToothNumbers?: number[];
+  /**
+   * « Acte non terminé » — the dentist's own statement that this act needs another séance.
+   *
+   * ⚠️ Optional so every older caller keeps working, and **always sent by the fiche's own editor**: `SetActs`
+   * rebuilds the whole act list, so omitting the key on a re-save marks the act finished. That is a clinical
+   * claim nobody made, and its only symptom is the act quietly leaving « Suites à planifier ».
+   */
+  isUnfinished?: boolean;
   resultingCondition?: string | null;
   surfaces?: string | null;
   note?: string | null;
@@ -1575,6 +1651,27 @@ export interface TreatmentPlanItemDto {
    */
   treatedToothNumbers?: number[];
   plannedCost: number;
+  /**
+   * The note d'honoraires that already collects this act's fee, when the devis deliberately holds it at **0**.
+   * Null on every ordinary line.
+   *
+   * ⚠️ **This is what lets the act row withhold the price and name the note instead.** A bare « 0,000 DT » on a
+   * line whose fee the patient has already part-paid is exactly what was reported as a money gap — the figure
+   * was right everywhere, but the treatment screen showed the *devis'* money as the treatment's. The rule was
+   * already written one file over, in `act-card.tsx`'s « Aucun honoraire sur cette séance ».
+   *
+   * ⚠️ Absent (not just null) on an older response — treat that as « nothing carries it » and print the cost.
+   */
+  billedOnInvoiceId?: string | null;
+  /** @see billedOnInvoiceId */
+  billedOnInvoiceNumber?: string | null;
+  /**
+   * What that note bills for **this act** — the figure the row states in place of the 0. `0` where it could not
+   * be recovered (a séance that billed several acts), and then the row names the note without a figure.
+   */
+  billedOnInvoiceAmount?: number;
+  /** What is still owed on that note, so the row can send the reader to the right door. */
+  billedOnInvoiceOutstanding?: number;
   status: string;
   doneDate: string | null;
   linkedDentalRecordId: string | null;
@@ -2165,8 +2262,50 @@ export interface TreatmentPlanDto {
    */
   linkedInvoiceTotal?: number | null;
   linkedInvoiceOutstanding?: number | null;
+  /**
+   * The notes d'honoraires that already collect an act this devis holds at **0** — empty for every ordinary
+   * plan.
+   *
+   * ⚠️ **The opposite arrangement from `linkedInvoice*`, and never to be confused with it.** A *linked* note
+   * **represents** the devis: every money read drops the plan and « Encaisser » disappears from its échéancier.
+   * A *carried* note collects one act while the devis stays live and collectable — the two documents are
+   * deliberately disjoint and **both** are read, which is why the patient owes the sum of the two.
+   */
+  carriedInvoices?: PlanCarriedInvoiceDto[];
+  /**
+   * What the whole treatment is worth across every document it touches — this devis plus each carried note — or
+   * **null/absent** when nothing is carried, which is every ordinary plan and leaves the money card unchanged.
+   *
+   * ⚠️ **Served, never derived here**, on `displayedOutstanding`'s precedent: only the server can apply
+   * `PlanBillingRules`, and the one client-side attempt reported 4 of 4 bridged plans as wholly unpaid.
+   */
+  treatmentTotal?: number | null;
+  /** @see treatmentTotal */
+  treatmentCollected?: number | null;
+  /** @see treatmentTotal */
+  treatmentOutstanding?: number | null;
   items: TreatmentPlanItemDto[];
   installments: InstallmentDto[];
+}
+
+/** A note d'honoraires collecting an act that a live, un-bridged devis carries at 0. */
+export interface PlanCarriedInvoiceDto {
+  invoiceId: string;
+  number: string | null;
+  status: string;
+  /** The note's own figures — what the patient settles **on that document**. */
+  total: number;
+  /** @see total */
+  collected: number;
+  /** @see total */
+  outstanding: number;
+  /** The share of that note which is this treatment's act(s). `0` when it could not be recovered. */
+  billedActAmount: number;
+  /**
+   * True when the note bills more than this treatment's acts — a détartrage done in the same séance, say. Said
+   * out loud rather than letting « le traitement » quietly absorb somebody else's filling.
+   */
+  billsOtherWork: boolean;
 }
 
 /**

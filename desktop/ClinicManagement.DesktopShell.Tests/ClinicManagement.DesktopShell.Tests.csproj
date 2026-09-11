@@ -5,8 +5,16 @@
     test is WPF; nothing here touches a window, and MirrorPathPlanner is deliberately pure so it can be tested
     without one.
   -->
+  <!--
+    ⚠️ The TFM must stay EQUAL to the shell's, not merely `net8.0-windows`. A project reference cannot point at a
+    higher Windows API version than its consumer, so when the shell moved to 10.0.19041.0 (fbafa5a5, for the
+    device-trust work) restore here started failing outright with NU1201 — and because both projects are in the
+    solution, `dotnet build …sln` failed with it, taking CI's whole « Desktop shell — build + test » job down
+    from 2026-09-01 until it was noticed on 2026-09-11. A test project that cannot restore reports no failures,
+    which is exactly how it stayed quiet for ten days.
+  -->
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

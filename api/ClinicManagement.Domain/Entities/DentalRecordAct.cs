@@ -67,6 +67,29 @@ public class DentalRecordAct : Entity<Guid>
     /// </summary>
     public IReadOnlyList<int> ImplantPilierToothNumbers => _implantPilierToothNumbers.AsReadOnly();
 
+    /// <summary>
+    /// The dentist's own statement that this act was <b>not finished</b> during this séance — « il faut le
+    /// reprendre ».
+    ///
+    /// <para>⚠️ <b>The one fact nothing in this product can derive.</b> A fiche de soins records what was
+    /// <i>carried out</i> and says nothing whatever about what remains, so no read can tell an unfinished
+    /// bridge from a finished obturation — which is why <c>GetContinuableActsQuery</c> offers <i>every</i>
+    /// recent act and makes the dentist recognise the right one out of four months of history. This is that
+    /// missing half, and it is only ever set by a human: inferring it would be wrong on ordinary completed
+    /// work, which is most of it.</para>
+    ///
+    /// <para>⚠️ <b>It states nothing about money and moves none.</b> An act billed 1 000 with 800 collected
+    /// still owes 200 <i>on its note</i>, where la caisse, « Créances » and « Solde patient » already carry it.
+    /// The surfaces that read this flag say so; not one of them writes a figure.</para>
+    ///
+    /// <para>⚠️ <b>Never cleared automatically</b>, not even once a continuation devis picks the fiche up: the
+    /// flag records what the dentist observed that day, and un-ticking it behind their back would rewrite the
+    /// clinical record to match a booking. « Is this act already being continued? » is a different question with
+    /// a different owner — <c>ContinuationTracking</c> — and every list that offers a continuation must ask
+    /// <i>that</i> one rather than this flag, or it offers a second devis over the same work.</para>
+    /// </summary>
+    public bool IsUnfinished { get; private set; }
+
     /// <summary>Resulting tooth state for the odontogram (null = no state change, e.g. cleaning/consultation).</summary>
     public ToothCondition? ResultingCondition { get; private set; }
     public string? Surfaces { get; private set; }
@@ -93,6 +116,7 @@ public class DentalRecordAct : Entity<Guid>
         UnitCost = input.UnitCost.HasValue ? InvoiceCalculator.RoundMoney(input.UnitCost.Value) : null;
         ProcedureTypeId = input.ProcedureTypeId;
         ResultingCondition = input.ResultingCondition == ToothCondition.Sain ? null : input.ResultingCondition;
+        IsUnfinished = input.IsUnfinished;
         Surfaces = NormalizeSurfaces(input.Surfaces);
         Note = string.IsNullOrWhiteSpace(input.Note) ? null : input.Note.Trim();
         CreatedAt = DateTime.UtcNow;
@@ -174,6 +198,18 @@ public class DentalRecordAct : Entity<Guid>
 /// builds an act that is not a bridge and must keep compiling. ⚠️ Unlike the aggregate's *fold*, a **caller
 /// that copies this record must pass both lists** — dropping one silently flattens half a bridge's shape.
 /// </param>
+/// <param name="IsUnfinished">
+/// The dentist's « acte non terminé » — see <see cref="DentalRecordAct.IsUnfinished"/>. ⚠️ Optional and
+/// **last**, for the two lists' reason: every existing construction site records a finished act and must keep
+/// compiling, and <c>false</c> is what those sites mean.
+/// <para>
+/// ⚠️ <b>A caller that COPIES this record must carry it</b>, exactly like the two lists above and with a
+/// quieter symptom: <c>DentalRecord.SetActs</c> replaces the whole list on every save, so an act rebuilt
+/// without this field is silently marked finished by an ordinary re-save of the fiche — the act then leaves
+/// « Suites à planifier » with nothing said and nobody chases the séance. Prefer a <c>with</c> expression over
+/// re-listing the positional arguments; <c>PlanCarriedActPricing</c> is the in-tree example.
+/// </para>
+/// </param>
 public sealed record DentalRecordActInput(
     Guid? ProcedureTypeId,
     string ProcedureName,
@@ -185,4 +221,5 @@ public sealed record DentalRecordActInput(
     string? Surfaces,
     string? Note,
     IReadOnlyList<int>? PonticToothNumbers = null,
-    IReadOnlyList<int>? ImplantPilierToothNumbers = null);
+    IReadOnlyList<int>? ImplantPilierToothNumbers = null,
+    bool IsUnfinished = false);

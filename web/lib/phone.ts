@@ -78,10 +78,16 @@ export function regionOf(
 /**
  * French inline error shown when a phone fails {@link isDeliverablePhone}.
  *
- * ⚠️ A **client-owned** string for the client-side pre-check, not a copy of the server's refusal — that one lives
- * in `PhoneRefusals.Invalid` and reaches the user verbatim through `getErrorMessage` when a write is refused.
- * Two sentences with two roles; neither restates the other, and there is deliberately no `code → French` table
- * (`graceful-error-handling` considered one and deferred it).
+ * ⚠️ **This is the SAME SENTENCE as the server's `PhoneRefusals.Invalid`, word for word** — and this docstring
+ * used to claim it was not (« not a copy of the server's refusal … neither restates the other »), as did
+ * `PhoneRefusals`'. Both were false. The cost was not cosmetic: the server's refusal reaches the user verbatim
+ * through `getErrorMessage`, so when the server refused a number this pre-check had already passed, nothing on
+ * screen could tell the two apart — the defect read as « the country selector does nothing » and needed a
+ * source-level investigation to place (2026-09-11: the chosen region never left the browser, so the server went
+ * on validating against Tunisia). If they are ever made to differ, say so in both places; while they are
+ * identical, neither may be described as distinct from the other.
+ *
+ * There is deliberately no `code → French` table (`graceful-error-handling` considered one and deferred it).
  *
  * It names no country, which is what the sentence it replaced got wrong: « Utilisez un numéro tunisien à 8
  * chiffres » became false the moment the rule widened, in seven places at once.

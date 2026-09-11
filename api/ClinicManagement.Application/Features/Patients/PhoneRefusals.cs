@@ -15,9 +15,17 @@ namespace ClinicManagement.Application.Features.Patients;
 ///
 /// <para>⚠️ <b>No <c>Result.Code</c> here, deliberately.</b> Per <c>Result.Code</c>'s own docstring a code is for
 /// a caller that <i>branches</i>, and nothing branches on this: every consumer shows the sentence to the user.
-/// An unused code is a contract nobody is honouring. The browser's <c>PHONE_ERROR_FR</c> is a separate,
-/// client-owned string for the pre-check that saves a round trip — not a mirror of this one, and it does not
-/// restate it.</para>
+/// An unused code is a contract nobody is honouring.</para>
+///
+/// <para>⚠️ <b><see cref="Invalid"/> and the browser's <c>PHONE_ERROR_FR</c> are the SAME SENTENCE, word for
+/// word.</b> This docstring used to claim the opposite — « a separate, client-owned string … not a mirror of
+/// this one, and it does not restate it » — and so did <c>phone.ts</c>'s. Both were false, and the cost was not
+/// cosmetic: when the server refused a number the client had already accepted, the refusal on screen was
+/// indistinguishable from the client's own pre-check, so the bug read as « the country selector does nothing »
+/// and took a production report plus a source-level investigation to place (2026-09-11, the region that never
+/// left the browser — see <c>CreatePatientCommand.PhoneRegion</c>). If the two are ever made to differ, say so
+/// here <i>and</i> there; while they are identical, neither side may be described as distinct from the
+/// other.</para>
 /// </summary>
 public static class PhoneRefusals
 {

@@ -1,5 +1,10 @@
 import { apiGet, apiGetBlob, apiPost, apiPut, apiDelete } from './client';
-import type { TreatmentPlanDto, TreatmentInProgressDto, ContinuableActDto } from './types';
+import type {
+  TreatmentPlanDto,
+  TreatmentInProgressDto,
+  ContinuableActDto,
+  UnfinishedActDto,
+} from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -180,24 +185,35 @@ export const treatmentPlansApi = {
 
   /**
    * Return a « réalisé » act to « prévu » and detach its fiche de soins, reopening the devis if that act had
-   * closed it. Takes no body — the act to correct is fully identified by the route. Server-side: AdminOrDoctor,
-   * and refused once a live invoice bills the plan or the act's own fiche.
+   * closed it. The act to correct is identified by the route; the body carries the plan's `version` and
+   * nothing else. Server-side: AdminOrDoctor, and refused once a live invoice bills the act's own fiche.
+   *
+   * ⚠️ **Pass `plan.version`.** It used to send `{}`, so `Version == 0` skipped the concurrency check and a
+   * detach was the one write on this aggregate that always won — silently overwriting a colleague's
+   * concurrent amend. Every other mutation here round-trips it; a 409 belongs in `useConflict`, never in a
+   * bare error toast.
    *
    * There is deliberately **no** `markItemDone` counterpart here: an act is marked réalisé by saving the fiche
    * de soins that evidences it (`dentalRecordsApi`), never by a manual toggle, so a client function for
    * `POST .../done` would be a second, unevidenced way into the same state. The uncalled one was deleted
    * rather than wired (AC-P2.11).
    */
-  markItemUndone: async (id: string, itemId: string): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, {}),
+  markItemUndone: async (id: string, itemId: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, { version }),
 
   /**
    * Detach one **step** of an act from the fiche that evidenced it. The step-level twin of `markItemUndone`,
    * with the same absence beside it: there is deliberately **no** `markStepDone`, because a step becomes
-   * réalisée by saving the fiche de soins, never by a toggle.
+   * réalisée by saving the fiche de soins, never by a toggle. Round-trips `plan.version` for its sibling's
+   * reason.
    */
-  markStepUndone: async (id: string, itemId: string, stepId: string): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps/${stepId}/undone`, {}),
+  markStepUndone: async (
+    id: string,
+    itemId: string,
+    stepId: string,
+    version?: number,
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/steps/${stepId}/undone`, { version }),
 
   /**
    * Set the clinical steps of one act — « Préparation, Empreinte, Scellement définitif ».
@@ -245,6 +261,19 @@ export const treatmentPlansApi = {
    */
   continuableActs: async (patientId: string): Promise<ContinuableActDto[]> =>
     apiGet<ContinuableActDto[]>('/treatment-plans/continuable-acts', { patientId }),
+
+  /**
+   * « Suites à planifier » — the clinic-wide list of acts a dentist marked « non terminé » and which no devis
+   * has picked up yet.
+   *
+   * ⚠️ The opposite of `continuableActs` on the same flag: this one FILTERS on it, because every row here is
+   * something a human stated. Acts already carried by a live devis are excluded server-side through
+   * `ContinuationTracking` — never through the tick, which is never cleared.
+   *
+   * Ask for page 1 of size 1 and read `totalCount` to render a chip.
+   */
+  unfinishedActs: async (params?: PageParams): Promise<PagedResponse<UnfinishedActDto>> =>
+    apiGet<PagedResponse<UnfinishedActDto>>('/treatment-plans/unfinished-acts', params),
 
   /**
    * Turn an act already carried out into a multi-séance treatment. AdminOrDoctor — it consumes a devis number

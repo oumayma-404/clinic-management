@@ -292,6 +292,49 @@ export class ClinicApi {
   avoir = (id: string, b: Record<string, unknown>) => this.call<any>("POST", `/invoices/${id}/avoir`, b)
   billingSummary = (patientId: string) => this.ok<any>("GET", `/patients/${patientId}/billing-summary`)
   receivables = (q = "") => this.ok<any>("GET", `/billing/receivables${q}`)
+
+  /**
+   * One patient's row in « Créances », or `null` when they owe nothing.
+   *
+   * ⚠️ **Never page through this read looking for a fixture patient.** Measured 2026-09-11: the developer's
+   * clinic has **285** rows, `CONT-03/04` asked for `pageSize=200`, and the 20 DT fixture patient sat past the
+   * page. The test reported « the patient must appear in « Créances » » — which reads exactly like the money
+   * gap that scenario exists to catch, against a product that was entirely correct. It is the same shape as the
+   * recorded `searchTerm` trap and it will happen again on every list that grows, so the page size is not the
+   * fix: the filter is.
+   *
+   * `GetReceivablesQuery` takes a search over the patient's name and — `paging: null` being a first-class case
+   * here (`XCUT-03`) — returns **every** matching row when no page is given. Fixture patients are named
+   * « E2E &lt;label&gt;-&lt;stamp&gt; », so the stamped surname matches exactly one.
+   *
+   * ⚠️ **The parameter is `search` on THIS endpoint and `searchTerm` on `/patients`.** Two names for one
+   * concept, and **an unknown query parameter is ignored, never refused** — so the wrong one here returns all
+   * 318 rows in amount order and a `find` over them answers « owes nothing » about a patient who owes
+   * something. This is the **fourth** endpoint on which that has cost a test (`fromDay`/`toDay` on la caisse,
+   * `startDate`/`endDate` on the appointments, `searchTerm` on the patients, `search` here), and the guard
+   * below is the only reason it took minutes rather than a re-run: it was written first and caught its own
+   * author on the next run.
+   *
+   * @param patientName the fixture's own `name`, as returned by the `patient` fixture.
+   */
+  async receivableFor(patientId: string, patientName: string) {
+    const surname = patientName.replace(/^E2E\s+/, "")
+    const page = await this.receivables(`?search=${encodeURIComponent(surname)}`)
+    const items = page.items ?? []
+
+    /*
+     * ⚠️ The same guard `patientsNamed` carries, for the same reason: **an unknown query parameter is ignored,
+     * never refused**. If `searchTerm` were dropped this read would answer with 285 unrelated rows and a
+     * `find` over them would report `null` — « owes nothing » — about a patient who owes something.
+     */
+    if (items.length > 0 && !items.some((r: any) => String(r.patientName ?? "").includes(surname))) {
+      throw new Error(
+        `« Créances » appears to have IGNORED its filter: asked for « ${surname} », got ${items.length} row(s) ` +
+          `starting « ${items[0]?.patientName} ». Check the parameter name.`,
+      )
+    }
+    return items.find((r: any) => r.patientId === patientId) ?? null
+  }
   /**
    * ⚠️ **The window parameters are `fromDay` / `toDay` (clinic-local `YYYY-MM-DD`), not `fromDate` / `toDate`.**
    * An unrecognised query parameter is **ignored, never refused**, so the wrong name silently returns *today's*
@@ -301,11 +344,45 @@ export class ClinicApi {
   caisse = (fromDay?: string, toDay?: string) =>
     this.ok<any>("GET", `/billing/caisse${this.dayWindow(fromDay, toDay)}`)
 
-  caisseLedger = (fromDay?: string, toDay?: string, extra = "") =>
-    this.ok<any>(
-      "GET",
-      `/billing/caisse/ledger${this.dayWindow(fromDay, toDay)}${this.dayWindow(fromDay, toDay) ? "&" : "?"}pageSize=500${extra}`,
-    )
+  /**
+   * The « extrait de caisse » for a window — **every** movement in it, pages walked.
+   *
+   * ⚠️ **`pageSize` is silently CAPPED at 200 and the caller is not told.** Asking for 500 returns
+   * `pageSize: 200` in the body and `totalPages: 2`, with no error and no warning — the same family as the
+   * ignored query parameter, and just as invisible: the response looks complete.
+   *
+   * Measured 2026-09-11 (`MONEY-11`): the developer's clinic had **239** movements that day, the test's own
+   * 25 DT expense sat on page 2, and the assertion reported « an expense must appear as its own movement
+   * kind » — a defect claim about `GetCaisseLedgerQuery`, which builds `Expense` movements correctly and
+   * always had. The caisse *summary* had already counted the same expense (`cashOut` +25), so the two reads
+   * appeared to disagree, which is precisely the shape this suite exists to catch and precisely what was not
+   * happening.
+   *
+   * So the page size is not the fix — walking is. The loop also **verifies the count it got back matches
+   * `totalCount`**, so a future cap change cannot silently truncate this again.
+   */
+  async caisseLedger(fromDay?: string, toDay?: string, extra = "") {
+    const base = `/billing/caisse/ledger${this.dayWindow(fromDay, toDay)}`
+    const sep = this.dayWindow(fromDay, toDay) ? "&" : "?"
+    const first = await this.ok<any>("GET", `${base}${sep}page=1&pageSize=200${extra}`)
+
+    const movements = [...(first.movements ?? [])]
+    const totalPages = Number(first.totalPages ?? 1)
+    for (let page = 2; page <= totalPages; page++) {
+      const next = await this.ok<any>("GET", `${base}${sep}page=${page}&pageSize=200${extra}`)
+      movements.push(...(next.movements ?? []))
+    }
+
+    const totalCount = Number(first.totalCount ?? movements.length)
+    if (movements.length !== totalCount) {
+      throw new Error(
+        `the extrait de caisse returned ${movements.length} movement(s) for a window it says holds ${totalCount}. `
+          + `Absence in this list is an assertion, so a truncated read must fail loudly rather than measure a subset.`,
+      )
+    }
+
+    return { ...first, movements, pageSize: movements.length, page: 1, totalPages: 1 }
+  }
 
   private dayWindow(fromDay?: string, toDay?: string) {
     const q = [

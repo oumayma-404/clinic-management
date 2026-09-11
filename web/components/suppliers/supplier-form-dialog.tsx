@@ -104,6 +104,9 @@ export function SupplierFormDialog({
       name: name.trim(),
       category: category.trim() || null,
       phoneNumber: phoneNumber.trim() || null,
+      // The country control's own value — this form's warning is withdrawn as soon as the browser can parse
+      // the number, so without sending the region the server disagreed and the action silently vanished.
+      phoneRegion: phoneCountry,
       address: address.trim() || null,
       notes: notes.trim() || null,
     }

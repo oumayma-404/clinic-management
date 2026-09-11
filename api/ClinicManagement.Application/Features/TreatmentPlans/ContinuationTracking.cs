@@ -35,6 +35,17 @@ namespace ClinicManagement.Application.Features.TreatmentPlans;
 public static class ContinuationTracking
 {
     /// <summary>
+    /// How far back a séance can be and still be worth continuing. Roughly a clinical quarter — the question is
+    /// « la séance de la semaine dernière », not the patient's whole history.
+    ///
+    /// <para>⚠️ <b>Here rather than in either reader</b>, because there are now two: the per-patient list the
+    /// booking dialog offers (<c>GetContinuableActsQuery</c>) and the clinic-wide worklist of acts marked
+    /// « non terminé » (<c>GetUnfinishedActsQuery</c>). Two copies of the window would mean an act that the
+    /// worklist still chases and the dialog no longer offers — a row whose own button cannot find it.</para>
+    /// </summary>
+    public const int LookbackDays = 120;
+
+    /// <summary>
     /// A plan whose acts still speak for the fiches they evidence. False for a cancelled devis, which speaks
     /// for nothing.
     /// </summary>

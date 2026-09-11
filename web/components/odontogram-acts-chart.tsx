@@ -4,8 +4,10 @@ import { useMemo, useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { formatDateFr } from "@/lib/format"
-import type { DentalRecordDto, ProcedureTypeDto } from "@/lib/api/types"
+import type { DentalRecordDto, ProcedureTypeDto, ToothStateDto } from "@/lib/api/types"
 import { ToothArchLayout } from "@/components/tooth-arch-layout"
+import { ToothSymbolGlyph, type ToothMark } from "@/components/tooth-symbols"
+import type { OdontogramChartView } from "@/components/odontogram-view-switch"
 
 /**
  * « Actes réalisés » — the read-only half of the odontogram: which teeth were worked on, and with which act.
@@ -65,9 +67,46 @@ interface OdontogramActsChartProps {
   records: DentalRecordDto[]
   /** The clinic's act catalog, for each act's colour. */
   procedureTypes: ProcedureTypeDto[]
+  /**
+   * Which drawing — **the same switch « État dentaire » uses, and it is no longer withheld here.**
+   *
+   * <p>⚠️ It used to be offered on the other tab only, because this chart drew its own thing and ignored the
+   * control: the press moved the switch's pressed state and left the chart byte-for-byte identical. That was
+   * the right call while it was true, and it is what a dentist read as « il n'y a pas de symboles pour les
+   * actes réalisés ». The answer was to make it true rather than to keep hiding the control.</p>
+   *
+   * <p>Optional, defaulting to `boxes`, so a caller that does not offer the switch renders exactly as before.</p>
+   */
+  chartView?: OdontogramChartView
+  /**
+   * The patient's charted tooth states — **the authority on what an act actually left**, and the reason this
+   * chart may draw a state at all.
+   *
+   * <p>⚠️ <b>Never derived from the act's own `resultingCondition`.</b> `ToothChartingRules` withholds that
+   * value from the odontogram while a multi-séance act is still running, deliberately, after teeth were
+   * charted « Implant » weeks before the implant existed — seven rows on the live database, every one from a
+   * séance 1 of 2. Reading the act row here would put all of that straight back; reading the states means a
+   * withheld one is simply absent, and the tooth shows its act colour with no claim about the mouth.</p>
+   *
+   * <p>Optional: with none supplied the tooth is drawn with its colour and no state, which is honest.</p>
+   */
+  toothStates?: Map<number, ToothStateDto[]>
+  /**
+   * Switch to « État dentaire » drawn in symbols — see the note below the chart.
+   *
+   * <p>Optional so a read-only caller can mount this chart without a tab to switch to.</p>
+   */
+  onShowSymbols?: () => void
 }
 
-export function OdontogramActsChart({ teeth, records, procedureTypes }: OdontogramActsChartProps) {
+export function OdontogramActsChart({
+  teeth,
+  records,
+  procedureTypes,
+  chartView = "boxes",
+  toothStates,
+  onShowSymbols,
+}: OdontogramActsChartProps) {
   /**
    * Which tooth's acts are showing, tracked in two independent channels so the two input methods cannot fight:
    * a tap pins the panel open until it is dismissed, while hover opens it only while the pointer is over the
@@ -127,7 +166,33 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
     // The most recent act owns the fill, matching the first line of the tooltip.
     const fill = acts?.[0]?.color
 
-    const cell = (
+    /*
+     * « Voile + bandeau » — the act's colour washed into the tooth's own gradients, plus one full-strength band
+     * per act at the collet. The state the act LEFT is drawn over it in neutral ink, and only when it is really
+     * charted: see `toothStates` above for why that distinction is the whole safety of this drawing.
+     *
+     * ⚠️ The marks are the `Treatment`-sourced states of the tooth, not a per-act lookup. A fiche can carry two
+     * acts on one tooth and matching each to its own state is ambiguous, while the question this chart asks —
+     * « what does this tooth carry now, from work that was done? » — has one answer per tooth.
+     */
+    const inkMarks: ToothMark[] = (toothStates?.get(toothNum) ?? [])
+      .filter((e) => e.source === "Treatment")
+      .map((e) => ({ condition: e.condition, source: e.source, surfaces: e.surfaces, ink: true }))
+
+    const glyph = (
+      <span className="flex flex-col items-center">
+        <ToothSymbolGlyph
+          toothNumber={toothNum}
+          marks={acts ? inkMarks : []}
+          tint={acts ? fill : null}
+          // Newest first, capped: past three the bands are what the reader counts instead of the teeth.
+          bands={acts ? acts.slice(0, 3).map((a) => a.color) : undefined}
+        />
+        <span className="mt-0.5 text-2xs font-medium text-muted-foreground">{toothNum}</span>
+      </span>
+    )
+
+    const box = (
       <span className="flex flex-col items-center">
         <span
           className={cn(
@@ -155,6 +220,14 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
         )}
       </span>
     )
+
+    /*
+     * ⚠️ The two drawings swap HERE and nowhere else — `ToothCell`'s own contract, one file over. Everything
+     * below (the Popover, the button, the act list) is shared verbatim, which is what stops « Symboles » from
+     * becoming a second acts chart with its own behaviour to keep in step. The multiplicity dots are absent
+     * from the glyph on purpose: a band already draws one mark per act.
+     */
+    const cell = chartView === "symbols" ? glyph : box
 
     // An untouched tooth has nothing to say — no tooltip, and no hover affordance suggesting otherwise.
     if (!acts) return <span key={toothNum}>{cell}</span>
@@ -220,6 +293,31 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
           proviennent des fiches de soins.
         </p>
 
+        {/*
+          ⚠️ **What each view colours by, said where the two meet.** The switch is no longer withheld on this
+          tab — it draws the teeth here too now — so what is left to explain is not where the symbols are but
+          that the same control means a different colour on each tab: the act here, à faire / réalisé there.
+          That is the sentence, and the link is for the reader who wanted the other question.
+
+          A `button`, not a link: it changes the tab and the drawing in place, both of which are this card's own
+          state. `coarse:min-h-11` rather than `.touch-target` — it sits at the end of a sentence, so an overlay
+          would cover the text above and below it.
+        */}
+        {onShowSymbols && (
+          <p className="text-xs text-muted-foreground">
+            Ici la couleur dit <strong className="font-medium">quel acte</strong>, et le dessin l&apos;état
+            qu&apos;il a laissé. Pour ce qui reste à faire —{" "}
+            <button
+              type="button"
+              onClick={onShowSymbols}
+              className="inline-flex items-center rounded text-primary underline underline-offset-2 hover-hover:hover:no-underline coarse:min-h-11"
+            >
+              voir « État dentaire »
+            </button>
+            , où la couleur dit à faire ou réalisé.
+          </p>
+        )}
+
         {/* Only the acts on this chart. The full catalog under a chart showing three of them is noise. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
           {legend.map((a) => (
@@ -228,6 +326,16 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
               <span className="text-muted-foreground">{a.name}</span>
             </div>
           ))}
+          {/* The second channel, named only where it is drawn — the box view has no glyph to explain. */}
+          {chartView === "symbols" && (
+            <div className="flex items-center gap-1.5">
+              <span
+                className="h-1 w-5 rounded-full"
+                style={{ background: "var(--chart-mark-ink)" }}
+              />
+              <span className="text-muted-foreground">Le dessin : l&apos;état laissé par l&apos;acte</span>
+            </div>
+          )}
       </div>
     </div>
   )

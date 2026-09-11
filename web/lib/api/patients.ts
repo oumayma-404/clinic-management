@@ -74,6 +74,15 @@ export const patientsApi = {
     /** Omit or send null when the patient gave none — the API no longer substitutes a placeholder. */
     email?: string | null;
     phoneNumber?: string | null;
+    /**
+     * ISO 3166-1 alpha-2 of the country `phoneNumber` is read as when it carries no country code — the country
+     * selector's own value. Omitted ⇒ the server assumes Tunisia.
+     *
+     * ⚠️ **Send it whenever a country control is on screen.** Passing the number alone is what refused every
+     * foreign number on save while the browser's pre-check accepted it: the client resolved `06 12 34 56 78`
+     * against the chosen `FR` and the server resolved it against `TN`. See `CreatePatientCommand.PhoneRegion`.
+     */
+    phoneRegion?: string | null;
     medicalHistory?: string;
     allergies?: string;
     medications?: string;
@@ -137,7 +146,12 @@ export const patientsApi = {
 
   update: async (
     id: string,
-    data: Partial<PatientDto>,
+    /**
+     * ⚠️ `phoneRegion` is NOT part of `PatientDto` and never will be: it is not a property of a patient, it is
+     * how to read the number in this one request. Nothing stores it, so omitting it means « assume Tunisia »
+     * and never « keep the stored one ».
+     */
+    data: Partial<PatientDto> & { phoneRegion?: string | null },
   ): Promise<PatientDto> => {
     return apiPut<PatientDto>(`/patients/${id}`, data);
   },

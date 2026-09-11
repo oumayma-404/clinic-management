@@ -157,8 +157,7 @@ test.describe("HP-8 · la suite d'un acte @mutating @t0", () => {
     ).toBe(mil(20))
 
     // And « Créances » is the second read that had stopped looking.
-    const receivables = await api.receivables("?pageSize=200")
-    const mine = (receivables.items ?? []).find((row: any) => row.patientId === p.id)
+    const mine = await api.receivableFor(p.id, p.name)
     expect(mine, "the patient must appear in « Créances »").toBeTruthy()
     expect(mil(mine.totalOutstanding)).toBe(mil(20))
   })
@@ -264,8 +263,7 @@ test.describe("HP-8 · la suite d'un acte @mutating @t0", () => {
     expect(note.treatmentPlanId ?? null, "and it was never attached").toBeNull()
 
     // « Créances » is the second read that had stopped looking.
-    const receivables = await api.receivables("?pageSize=300")
-    const mine = (receivables.items ?? []).find((row: any) => row.patientId === p.id)
+    const mine = await api.receivableFor(p.id, p.name)
     expect(mine, "the patient must appear in « Créances »").toBeTruthy()
     expect(mil(mine.totalOutstanding)).toBe(mil(40))
   })

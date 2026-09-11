@@ -41,6 +41,17 @@ public class TreatmentPlanItemConfiguration : IEntityTypeConfiguration<Treatment
 
         builder.Property(i => i.PlannedCost);
 
+        // The note d'honoraires that already collects this act's fee — a soft reference, no FK, on purpose:
+        // an FK with SET NULL would erase the marker exactly when the note is deleted, which is the silent
+        // money loss it exists to prevent. Indexed because the cancel/delete guards ask the reverse question
+        // (« does any live devis hold an act billed on this note? ») for one invoice id.
+        builder.Property(i => i.BilledOnInvoiceId);
+        builder.HasIndex(i => i.BilledOnInvoiceId);
+
+        // What that note bills for THIS act — 0 on every ordinary line. Not derivable from the note, which is
+        // per-fiche and may bill a second act of the same séance.
+        builder.Property(i => i.BilledOnInvoiceAmount);
+
         builder.Property(i => i.Status)
             .IsRequired()
             .HasConversion<int>();

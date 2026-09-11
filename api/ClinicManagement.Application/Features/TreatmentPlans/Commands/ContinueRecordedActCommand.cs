@@ -302,25 +302,65 @@ public class ContinueRecordedActCommandHandler
             // 0 when the note keeps this act — see `noteKeepsTheFirstAct`. The line stays on the devis either
             // way: it is what the « 1re séance » step is marked done against, so dropping it would lose the
             // link to the fiche that evidences the work and the whole continuation with it.
+            // ⚠️ `MarkItemBilledOnInvoice` below re-imposes the 0 and records WHOSE it is; this keeps the plan's
+            // total correct for the `Accept` that raises the échéance in between.
             var firstActCost = noteKeepsTheFirstAct ? 0m : act.Cost;
             var lines = new List<TreatmentPlanItemInput>
             {
                 new(null, designation, firstActCost, act.ProcedureTypeId, act.ToothNumbers.ToList()),
             };
 
-            // The work still to come, priced on its own line — see `RemainingWorkCost`. The teeth travel with it
-            // (it is the same tooth being finished) while the catalogue link deliberately does not: this is not
-            // another one of that act, it is the rest of this one.
+            /*
+             * The work still to come, priced on its own line — see `RemainingWorkCost`. The teeth travel with it
+             * (it is the same tooth being finished) and so, now, does the catalogue link.
+             *
+             * ⚠️ **That link used to be withheld, and the reasoning — « this is not another one of that act, it
+             * is the rest of this one » — was right about the intent and wrong about the consequence.** A devis
+             * line with no `ProcedureTypeId` is a *hand-typed* line, so booking it produces a link-only
+             * appointment row carrying no act, and the fiche opened from that booking has nothing to prefill:
+             * the dentist is asked « Choisissez l'acte réalisé… » about a séance the app arranged, on a
+             * treatment that knows exactly which act is being finished. Reported from use, on the second séance
+             * of a traitement de canal.
+             *
+             * ⚠️ **It cannot cause a second charge, which was the fear behind withholding it.**
+             * `PlanCarriedActPricing` imposes 0 on any fiche act carrying a `treatmentPlanItemId`, whatever the
+             * catalogue says, and `AppointmentProcedureSelection.PriceForPlanLinkedAct` does the same at
+             * booking. The link buys the act's name, its colour and its default duration; the price is still
+             * the devis'.
+             */
             var remainingLabel = string.IsNullOrWhiteSpace(request.RemainingWorkLabel)
                 ? nextLabel
                 : request.RemainingWorkLabel.Trim();
             if (remainingCost > 0m)
             {
                 lines.Add(new TreatmentPlanItemInput(
-                    null, remainingLabel, remainingCost, null, act.ToothNumbers.ToList()));
+                    null, remainingLabel, remainingCost, act.ProcedureTypeId, act.ToothNumbers.ToList()));
             }
 
             plan.SetItems(lines);
+
+            /*
+             * ⚠️ **The 0 is now STATED rather than merely written**, and that is the whole of what this feature
+             * was missing. Priced at 0 with nothing recording why, the devis' own money WAS the treatment's money
+             * on every surface that read it afterwards: « Total convenu 10,000 · Encaissé 0,000 · Reste 10,000 »
+             * on a treatment whose patient had already handed over 50 and still owed 40 on the note beside it.
+             * The dialog that creates this plan says the whole thing (« la note 2026-0019 garde l'argent de cet
+             * acte ; le devis ne portera que le travail restant ») and that sentence disappeared the moment the
+             * devis existed — the correct rule wired to exactly one surface, which is this codebase's dominant
+             * defect shape.
+             *
+             * It is also the marker `NoteCarriedActGuard` reads: without it the note could be cancelled or
+             * deleted out from under this devis, and the act's fee would be on no document at all.
+             *
+             * ⚠️ **After `SetItems`, never through `TreatmentPlanItemInput`** — see
+             * `TreatmentPlan.MarkItemBilledOnInvoice` on why a sixth positional field would be erased by the next
+             * copy site that omits it.
+             */
+            if (noteKeepsTheFirstAct)
+            {
+                var billedItem = plan.Items.OrderBy(i => i.SequenceNumber).First();
+                plan.MarkItemBilledOnInvoice(billedItem.Id, billingInvoice!.Id, act.Cost);
+            }
 
             /*
              * The séances, handed in as CONFIRMED steps so the act's catalogue protocol is not applied over
@@ -409,6 +449,41 @@ public class ContinueRecordedActCommandHandler
                 dto.LinkedInvoiceStatus = billingInvoice.Status.ToString();
                 dto.LinkedInvoiceTotal = billingInvoice.TotalTtc;
                 dto.LinkedInvoiceOutstanding = billingInvoice.Outstanding;
+            }
+
+            /*
+             * The CARRIED note, echoed on the other branch — the opposite arrangement, and the browser needs it
+             * for the opposite reason. `LinkedInvoice*` above says « this note replaces the devis, do not collect
+             * here »; this says « this note collects one act, the devis collects the rest, and the patient owes
+             * both ». `ToDto` leaves it empty (it is a query-path projection), and the booking dialog renders the
+             * plan it just created without reloading.
+             */
+            if (noteKeepsTheFirstAct)
+            {
+                var carried = new PlanCarriedInvoiceDto
+                {
+                    InvoiceId = billingInvoice!.Id,
+                    Number = billingInvoice.Number,
+                    Status = billingInvoice.Status.ToString(),
+                    Total = billingInvoice.TotalTtc,
+                    Collected = billingInvoice.AmountCollected,
+                    Outstanding = billingInvoice.Outstanding,
+                    BilledActAmount = act.Cost,
+                    BillsOtherWork = billingInvoice.TotalTtc - act.Cost > 0.0005m,
+                };
+                dto.CarriedInvoices = new List<PlanCarriedInvoiceDto> { carried };
+                dto.TreatmentTotal = InvoiceCalculator.RoundMoney(plan.TotalPlanned + carried.Total);
+                dto.TreatmentCollected = InvoiceCalculator.RoundMoney(plan.AmountPaid + carried.Collected);
+                dto.TreatmentOutstanding = InvoiceCalculator.RoundMoney(plan.Outstanding + carried.Outstanding);
+
+                var billedDto = dto.Items.OrderBy(i => i.SequenceNumber).FirstOrDefault();
+                if (billedDto != null)
+                {
+                    billedDto.BilledOnInvoiceId = carried.InvoiceId;
+                    billedDto.BilledOnInvoiceNumber = carried.Number;
+                    billedDto.BilledOnInvoiceAmount = carried.BilledActAmount;
+                    billedDto.BilledOnInvoiceOutstanding = carried.Outstanding;
+                }
             }
 
             return Result<TreatmentPlanDto>.Success(dto);

@@ -307,6 +307,22 @@ public sealed record DataMigrationCounts(
     /// Null before the columns exist.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Devis acts marked as billed on a note d'honoraires whose state <b>contradicts</b> that marking — either
+    /// the line still carries a fee, or the note it names is bridged to a devis.
+    /// <para>
+    /// The one thing about <c>TreatmentPlanItem.BilledOnInvoiceId</c> the EF model cannot express, and the only
+    /// part of <c>AddTreatmentPlanItemBilledOnInvoice</c> worth a hand-written line: the two columns and the
+    /// index are diffed against the catalog for free. What the schema cannot state is the invariant, enforced in
+    /// <c>MarkItemBilledOnInvoice</c> and in <c>TreatmentPlanItem.Revise</c> — <b>a note collects this act, so
+    /// the devis holds it at 0, and that note is not the devis' own bridge</b>. Deliberately not a CHECK
+    /// constraint (<c>cheque-details-only-on-cheques</c>' precedent: the copy that fired would be a 500 instead
+    /// of the French refusal), and its violation is <b>silent money</b> in either direction — a fee counted twice
+    /// on two live documents, or a plan dropped whole from every balance while it still holds real work.
+    /// Null before the column exists.
+    /// </para>
+    /// </summary>
+    int? CarriedActsContradictingTheirNote,
     int? PaymentsWithChequeDetailsOnNonCheque,
     /// <summary>
     /// Payment rows carrying a <b>banked stamp</b> on a method that is not <c>Cheque</c> (Group B), across both

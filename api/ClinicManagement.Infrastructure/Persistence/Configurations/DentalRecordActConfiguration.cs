@@ -74,6 +74,12 @@ public class DentalRecordActConfiguration : IEntityTypeConfiguration<DentalRecor
                     c => c != null ? c.ToList() : new List<int>()))
             .HasColumnType("text");
 
+        // « Acte non terminé ». Additive with a false default, so every row written before this reads as
+        // « finished » — which is what those séances meant, and is the one answer that claims nothing.
+        builder.Property(a => a.IsUnfinished)
+            .IsRequired()
+            .HasDefaultValue(false);
+
         builder.Property(a => a.ResultingCondition)
             .HasConversion<int?>();
 

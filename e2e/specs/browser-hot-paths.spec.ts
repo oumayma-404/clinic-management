@@ -160,9 +160,23 @@ test.describe("HP-5 · la fiche de soins, dans un navigateur @mutating @t0", () 
 
     await gotoApp(page, `/patients/${p.id}?addRecord=1&appointmentId=${appt.id}`, sharedContext)
 
-    // The booked act is prefilled and the séance knows its rank — out of however many the act actually has.
+    /*
+     * The booked act is prefilled and the séance knows its rank — out of however many the act actually has.
+     *
+     * ⚠️ **The sentence is « Cette séance : étape 1 sur N · <nom de l'étape> », and it moved onto the ACT
+     * CARD.** It used to read « SÉANCE 1 SUR N » and to float above the act stack; `06a47cb0` moved it, and
+     * `N31` is why it is a whole sentence rather than a bare rank — « étape 1 sur 3 » alone is read as
+     * progress, i.e. as a claim that the séance has already happened. `patient-record-modal.tsx` composes it
+     * (`seanceStepLine`) because it is the only thing that can.
+     *
+     * Matched loosely on « étape N sur M » so a later re-wording of the step's own name does not fail this,
+     * but the rank must be there and it must be **1**.
+     */
     await expect(page.getByText(crown.name).first()).toBeVisible()
-    await expect(page.getByText(new RegExp(`SÉANCE\\s*1\\s*SUR\\s*${steps}`, "i"))).toBeVisible()
+    await expect(
+      page.getByText(new RegExp(`étape\\s*1\\s*sur\\s*${steps}`, "i")).first(),
+      "the fiche must say WHICH séance of the treatment it is",
+    ).toBeVisible()
 
     /*
      * ⚠️ **The price field is WITHHELD, not rendered read-only** — `act-card.tsx` replaces it with
@@ -551,4 +565,113 @@ test.describe("XCUT · transversal, dans un navigateur @t0", () => {
       expect(crashes, `console on ${route}: ${JSON.stringify(errors.slice(0, 4))}`).toHaveLength(0)
     })
   }
+})
+
+
+test.describe("HP-7 · « Encaisser sur la note » mène vraiment à l'encaissement @mutating @t0", () => {
+  mutatingOnly()
+
+  /*
+   * ⚠️ **Only a browser can see this, and `tsc` was green through the whole defect.** The devis workspace's
+   * « Encaisser sur la note » pointed at `/patients/{id}?tab=actes#patient-outstanding`, which is wrong twice:
+   * « actes » is the panel's LABEL and not a value in `PATIENT_TABS`, and the band it anchors renders inside a
+   * Radix `TabsContent` that is not mounted until its tab is active — so the browser resolves the fragment
+   * against a document that does not contain the element and simply stays at the top of the patient file. The
+   * page's own « Solde dû » has always known this (it calls `openTab` and defers the lookup a frame).
+   *
+   * Reported from use as « this link in the treatment plan is broken ».
+   */
+  test("PLAN-04 · the continuation's « Encaisser sur la note » opens THAT note's payment dialog", async ({
+    api,
+    arrange,
+    page,
+    patient,
+    sharedContext,
+  }) => {
+    const errors = watchConsole(page)
+
+    /*
+     * The state that renders the button: a fiche billed on a note and only partly paid, continued with new
+     * money — so the note keeps the first act and the devis carries the remainder, and the workspace lists
+     * both documents with « Encaisser » on the note.
+     */
+    const p = await patient("EncaisserNote")
+    const act = await api.singleSeanceAct()
+    const r = await arrange.fiche(
+      p.id,
+      [arrange.act({ procedureTypeId: act.id, name: act.name, cost: 30, teeth: [11] })],
+      { amountPaid: 20 },
+    )
+    expect(r.status, `fiche: ${r.raw?.slice(0, 300)}`).toBe(200)
+    const fiche = r.body?.value ?? r.body
+
+    const cont = await api.continueRecordedAct({
+      dentalRecordId: fiche.id,
+      actId: fiche.acts[0].id,
+      nextStepLabel: "Finition",
+      remainingWorkCost: 10,
+    })
+    expect(cont.status, cont.raw?.slice(0, 400)).toBe(200)
+    const plan = cont.body?.value ?? cont.body
+
+    await gotoApp(page, `/treatment-plans/${plan.id}`, sharedContext)
+
+    const link = page.locator("a", { hasText: /^Encaisser sur la note$/ }).first()
+    await expect(
+      link,
+      "a continuation whose note still owes money must offer to collect on it",
+    ).toBeVisible({ timeout: 20_000 })
+
+    /*
+     * ⚠️ The href is asserted BEFORE the click, because the two failure modes are indistinguishable
+     * afterwards: a fragment that cannot resolve and a tab value that does not exist both land the reader on
+     * the top of the patient file with no error anywhere.
+     */
+    const href = (await link.getAttribute("href")) ?? ""
+    expect(href, `« actes » is the panel's label, not a tab value. href was: ${href}`).toContain(
+      "tab=medical-records",
+    )
+    expect(href, `a fragment cannot reach a lazily-mounted tab. href was: ${href}`).not.toContain("#")
+    expect(
+      href,
+      `the button promises to collect on THAT note, so its id must travel. href was: ${href}`,
+    ).toMatch(/[?&]encaisser=[0-9a-fA-F-]{36}/)
+
+    await link.click()
+    await expect(page).toHaveURL(new RegExp(`/patients/${p.id}`), { timeout: 20_000 })
+
+    /*
+     * ⚠️ **In VIEW, not merely in the document.** That distinction is the whole defect: the element existed on
+     * the old link too, once the default tab happened to mount it — what never happened was the scroll.
+     */
+    /*
+     * ⚠️ **Mounted is asserted; SCROLLED is not.** The scroll was measured directly with a 250 ms sampler
+     * — band absent at t=250 ms, in view and stable at `mainTop: 759` from t=500 ms onwards for twelve
+     * seconds — but asserting it here is timing-bound in a way nothing else in this file is: `toBeVisible`
+     * passes on the render that MOUNTS the band, and the scroll runs a little later, once `billingSummary` has
+     * landed and the fiches above it have stopped loading. Polling it was tried and still raced. The dialog
+     * below is the button's actual promise and is deterministic, so that is what this holds.
+     */
+    const band = page.locator("#patient-outstanding").first()
+    await expect(band, "« Reste à payer » must be mounted").toBeVisible({ timeout: 20_000 })
+
+    // …and the promise itself: the note's own payment dialog, open, naming that note.
+    const dialog = page
+      .locator("[data-slot='dialog-content']")
+      .filter({ hasText: plan.carriedInvoices?.[0]?.number ?? /Encaisser/ })
+      .first()
+    await expect(
+      dialog,
+      "« Encaisser sur la note » must open the payment dialog, not merely navigate",
+    ).toBeVisible({ timeout: 20_000 })
+
+    /*
+     * ⚠️ The param must not survive. `router.push` rewrites the URL after the destination's effects run, so a
+     * `replaceState` on mount is silently overwritten — and this dialog would then reopen on every refresh.
+     */
+    expect(page.url(), "the deep-link param must be dropped once acted on").not.toContain("encaisser=")
+
+    const crashes = errors.filter((e) => /before initialization|Cannot access/i.test(e))
+    expect(crashes, `console: ${JSON.stringify(errors.slice(0, 5))}`).toHaveLength(0)
+  })
 })

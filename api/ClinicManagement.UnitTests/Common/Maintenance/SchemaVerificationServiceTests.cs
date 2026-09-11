@@ -141,8 +141,12 @@ public class SchemaVerificationServiceTests
     // the one non-zero entry. The three positional zeros after it are platform-console's checks; the two
     // clinic-subscription ones are NAMED, because a merge that appended them positionally is exactly how a
     // twenty-first zero lands in the wrong slot and every assertion still passes.
+    // ⚠️ One more positional slot than before — `CarriedActsContradictingTheirNote` was inserted at index 10,
+    // inside the run of zeros, so every earlier value keeps its meaning and the only one that is not 0
+    // (`PatientsTotal`, index 6) is unaffected. This record's own reader documents why appending positionally is
+    // how a zero lands in the wrong slot with every assertion still passing.
     private static DataMigrationCounts CleanCounts =>
-        new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             IncoherentActivitySnapshots: 0,
             ClinicsWithoutEntitlement: 0, GrandfatheredEntitlementEntries: 3,
             ClinicsWithPlaintextGoogleToken: 0);
@@ -482,8 +486,39 @@ public class SchemaVerificationServiceTests
         Assert.True(IsDrift(Finding(report, "type-prefix-removed")));
     }
 
+    /// <summary>
+    /// The overlap count is a <b>pre-flight</b>, so what it means depends on whether the constraint is already
+    /// installed — which this check did not ask, and which is why it went red on every hosted deploy of a
+    /// database that was perfectly sound.
+    ///
+    /// <para>⚠️ The old version of this test arranged pairs against the default (installed) constraint and
+    /// asserted « cannot be installed ». It passed, and it pinned a sentence that was false about the very
+    /// deployment it was describing: with `EX_Appointments_NoDoubleBooking` in place PostgreSQL will not admit a
+    /// pair under its predicate, so a non-zero count there says our copy of the predicate has drifted — not that
+    /// a human has a double-booking to resolve.</para>
+    /// </summary>
     [Fact]
-    public async Task Pre_Existing_Overlapping_Pairs_Are_Drift()
+    public async Task Overlapping_Pairs_Block_Installing_The_Constraint_When_It_Is_ABSENT()
+    {
+        Arrange(
+            constraints: Array.Empty<TableConstraintFact>(),
+            counts: CleanCounts with { OverlappingAppointmentPairs = 2 });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "overlapping-appointment-pairs");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("block installing", finding.Detail);
+    }
+
+    /// <summary>
+    /// The self-check, and the reason this pass is worth more than a one-line predicate fix: the rule lives in
+    /// three places (the constraint, `AppointmentScheduling.OccupiesSlot`, and the verb's own SQL) and two
+    /// migrations in a row added a term to the first two and not the third. An impossible state is now a finding
+    /// that names its own cause, so the next omission is caught on the next run.
+    /// </summary>
+    [Fact]
+    public async Task Pairs_While_The_Constraint_Is_INSTALLED_Are_Reported_As_A_Drifted_Predicate()
     {
         Arrange(counts: CleanCounts with { OverlappingAppointmentPairs = 2 });
 
@@ -491,7 +526,41 @@ public class SchemaVerificationServiceTests
 
         var finding = Finding(report, "overlapping-appointment-pairs");
         Assert.True(IsDrift(finding));
-        Assert.Contains("cannot be installed", finding.Detail);
+        Assert.Contains("drifted", finding.Detail);
+        Assert.DoesNotContain("block installing", finding.Detail);
+    }
+
+    [Fact]
+    public async Task No_Overlapping_Pairs_With_The_Constraint_Installed_Says_Zero_Is_Guaranteed()
+    {
+        Arrange(counts: CleanCounts with { OverlappingAppointmentPairs = 0 });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "overlapping-appointment-pairs");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("guaranteed", finding.Detail);
+    }
+
+    /// <summary>
+    /// The retired Google→App import (see the check's own ⚠️): nothing can create another unattributed row and
+    /// no product action can clear the stamp on the ones the backfill missed, so a non-zero count is permanent.
+    /// It stays <b>reported</b> — the figure belongs in the before/after diff — and stops blocking a deploy,
+    /// because a gate that cannot go green teaches an operator to ignore the exit code.
+    /// </summary>
+    [Fact]
+    public async Task Unattributed_Calendar_Import_Rows_Are_Reported_But_Do_Not_Block_A_Deploy()
+    {
+        Arrange(counts: CleanCounts with { CalendarImportRowsWithoutARun = 3 });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "calendar-import-run-backfill");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("3 row(s)", finding.Detail);
+        Assert.Contains("retired", finding.Detail);
+        // The whole point: this alone must not fail the verb, or every hosted deploy stays red.
+        Assert.False(report.HasDrift);
     }
 
     /// <summary>

@@ -11,6 +11,8 @@ import {
   DURATION_UNITS,
   isExamenLine,
   durationUnitOf,
+  matchMedications,
+  medicationCatalogLabel,
   prescriptionLineParts,
   shortPrescriptionLabel,
   type PrescriptionLine,
@@ -56,13 +58,6 @@ interface PrescriptionLineRowProps {
   disabled?: boolean
 }
 
-/** Printed/displayed label for a catalogue entry: « Marque Dosage Forme », empty parts dropped. */
-const catalogLabel = (m: MedicationDto) => [m.brandName, m.strength, m.form].filter(Boolean).join(" ")
-
-/** Accent-insensitive, like the act catalogue's own filter: « amoxicilline » must reach « Amoxicillinè ». */
-const norm = (value: string) =>
-  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-
 export function PrescriptionLineRow({
   line,
   armed,
@@ -79,14 +74,20 @@ export function PrescriptionLineRow({
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [query, setQuery] = useState("")
 
-  const matches = useMemo(() => {
-    const q = norm(query.trim())
-    if (!q) return catalog.slice(0, 40)
-    // The DCIs are searchable too: prescribers look a drug up by its molecule as often as by its brand.
-    return catalog
-      .filter((m) => norm(`${m.brandName} ${m.strength} ${m.form} ${m.dcis.join(" ")}`).includes(q))
-      .slice(0, 40)
-  }, [catalog, query])
+  const matches = useMemo(() => matchMedications(catalog, query, 40), [catalog, query])
+
+  /**
+   * What the NAME field itself proposes as it is typed — the same catalogue, reached without opening anything.
+   *
+   * <p>⚠️ Suggestions, never a closed list: the field stays free text and a médicament the catalogue has never
+   * heard of is prescribed exactly as typed. Withheld once a line already carries a catalogue entry, and below
+   * two characters, so it does not sit under every half-written word.</p>
+   */
+  const nameSuggestions = useMemo(() => {
+    const typed = line.name?.trim() ?? ""
+    if (examen || line.medicationId || typed.length < 2) return []
+    return matchMedications(catalog, typed, 5).filter((m) => medicationCatalogLabel(m) !== typed)
+  }, [catalog, examen, line.medicationId, line.name])
 
   const removeLabel = line.name?.trim()
     ? `Retirer ${line.name.trim()} de l'ordonnance`
@@ -95,6 +96,17 @@ export function PrescriptionLineRow({
       : "Retirer ce médicament de l'ordonnance"
 
   const accent = examen ? "var(--chart-2)" : "var(--chart-1)"
+
+  // Name = brand + form; the strength goes to « Dosage » rather than being crammed into the name. Same split as
+  // the ordonnance editor, so one document opened in both places reads identically.
+  const pickMedication = (m: MedicationDto) =>
+    onChange({
+      ...line,
+      name: [m.brandName, m.form].filter(Boolean).join(" "),
+      dosage: m.strength,
+      medicationId: m.id,
+      dci: m.dcis,
+    })
 
   // ── At rest ───────────────────────────────────────────────────────────────────────────────────────────────
   if (!armed) {
@@ -239,6 +251,25 @@ export function PrescriptionLineRow({
                   <X className="h-4 w-4" />
                 </Button>
               </div>
+              {nameSuggestions.length > 0 && (
+                // The exam line's own idiom, one branch up: wrapping chips, each its own box rather than a
+                // touch-target overlay, because a `.touch-target` in a wrapping row overlaps its neighbours.
+                <div className="flex flex-wrap gap-1.5">
+                  {nameSuggestions.map((m) => (
+                    <Button
+                      key={m.id}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={disabled}
+                      onClick={() => pickMedication(m)}
+                      className="h-auto min-h-8 whitespace-normal px-2 py-1 text-2xs coarse:min-h-11"
+                    >
+                      {medicationCatalogLabel(m)}
+                    </Button>
+                  ))}
+                </div>
+              )}
               {(line.dci?.length ?? 0) > 0 && (
                 <span className="text-2xs text-muted-foreground">DCI : {line.dci!.join(", ")}</span>
               )}
@@ -279,22 +310,13 @@ export function PrescriptionLineRow({
                         <button
                           type="button"
                           onClick={() => {
-                            // Name = brand + form; the strength goes to « Dosage » rather than being crammed
-                            // into the name. Same split as the ordonnance editor, so one document opened in
-                            // both places reads identically.
-                            onChange({
-                              ...line,
-                              name: [m.brandName, m.form].filter(Boolean).join(" "),
-                              dosage: m.strength,
-                              medicationId: m.id,
-                              dci: m.dcis,
-                            })
+                            pickMedication(m)
                             setCatalogOpen(false)
                             setQuery("")
                           }}
                           className="flex min-h-9 w-full flex-col items-start gap-0.5 px-3 py-1.5 text-start hover:bg-accent coarse:min-h-11"
                         >
-                          <span className="text-xs font-medium">{catalogLabel(m)}</span>
+                          <span className="text-xs font-medium">{medicationCatalogLabel(m)}</span>
                           <span className="text-2xs text-muted-foreground">
                             {m.dcis.join(", ")}
                             {m.isProvisional ? " · à vérifier" : ""}

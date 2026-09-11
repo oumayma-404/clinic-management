@@ -25,6 +25,17 @@ public class UnmarkTreatmentPlanItemDoneCommand : IRequest<Result<TreatmentPlanD
 {
     public Guid PlanId { get; set; }
     public Guid ItemId { get; set; }
+
+    /// <summary>
+    /// The plan's <c>xmin</c> as the dialog read it, so a detach cannot silently overwrite somebody else's
+    /// concurrent edit of the same devis.
+    /// <para>
+    /// ⚠️ <b>0 means « not supplied » and skips the check</b> — the solution-wide convention — which is what
+    /// keeps every server-internal caller unaffected. This shipped without it while every other mutation of a
+    /// plan round-tripped one, so a correction was the one write on this aggregate that always won.
+    /// </para>
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UnmarkTreatmentPlanItemDoneCommandHandler
@@ -97,6 +108,7 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
 
             plan.UnmarkItemDone(request.ItemId);
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

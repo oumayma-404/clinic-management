@@ -1,6 +1,6 @@
 # `e2e/` — the hot-path gate
 
-The money, fiche and devis paths, exercised end to end. **~125 tests across 14 spec files**; scenario ids match
+The money, fiche and devis paths, exercised end to end. **135 tests across 18 spec files**; scenario ids match
 [`features/e2e-hot-paths/scenarios.md`](../features/e2e-hot-paths/scenarios.md), so a red line in the log points
 straight at the row describing it.
 
@@ -20,6 +20,53 @@ Two gates already run on every push, and **neither can see any of this**.
 ## Running it locally
 
 Needs the stack up: Docker (postgres + minio), the API on :5000, `web` on :3000.
+
+### ⚠️ Serve `web` with the **standalone** server, not `npm run start` and not `next dev`
+
+```bash
+cd web && npm run build
+cp -r .next/static  .next/standalone/.next/static     # build does not copy these
+cp -r public        .next/standalone/public
+PORT=3000 node .next/standalone/server.js
+```
+
+Both of the obvious alternatives break a long run, **and neither says so**:
+
+- **`npm run start`** — `next.config.ts` sets `output: 'standalone'`. `next start` prints « "next start" does
+  not work with "output: standalone" configuration », **binds anyway**, reports « Ready in 630ms », serves a
+  few requests, and then **exits silently**. Measured 2026-09-11: the readiness poll went green, ~35 tests
+  passed, the server vanished, and every later browser test failed with `net::ERR_CONNECTION_REFUSED` — which
+  the report renders as **ten product defects** (seven `XCUT-09`, `PLAN-04`, `EDIT-06`, `EDIT-07`). Nothing in
+  the server log says it died.
+- **`next dev`** — degrades. Measured twice: a dev server serving `Jest worker encountered 2 child process
+  exceptions, exceeding retry limit` on every route, which renders in a screenshot as a Next.js error overlay
+  and in the report as five failed money tests. It also **respawns and steals :3000** if a watcher is running,
+  so check *which* process is listening before trusting a run:
+  ```powershell
+  (Get-NetTCPConnection -LocalPort 3000 -State Listen | Select-Object -First 1).OwningProcess
+  ```
+
+### Serve it on a port nothing else wants
+
+```bash
+HOSTNAME=127.0.0.1 PORT=3100 node .next/standalone/server.js
+CLINIC_ORIGIN=http://localhost:3100 npx playwright test
+```
+
+⚠️ **:3000 is contested on a developer machine**, and losing that fight does not look like losing a fight.
+Measured 2026-09-11: an editor task kept respawning `next dev` on :3000 minutes after it was killed, so three
+separate runs were served by a process that was not the one under test — and one of them **hung the first
+browser test for 2.1 hours** before the shared session died and the remaining **93 tests failed in ~40 ms
+each**, which reads as a catastrophic product regression. `CLINIC_ORIGIN` exists for exactly this
+(`lib/env.ts`); a port nobody else claims removes the whole class.
+
+⚠️ And `HOSTNAME` matters: the standalone server otherwise binds the machine's **hostname**, so it answers on
+`http://DESKTOP-XXXX:3100` and `localhost` is refused — which presents as `ERR_CONNECTION_REFUSED` against a
+server that is plainly running and printing « Ready ».
+
+The rule behind all of it: **verify the environment before believing any result**
+(`.claude/rules/verification.md` § 6). Of 14 failures in the 2026-09-11 pass, **13 were the harness or the
+environment** and one was a stale locator. Zero were the product.
 
 ```bash
 cd e2e

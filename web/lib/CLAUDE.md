@@ -103,11 +103,17 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   `check:responsive`'s `phone-rule-matches-the-corpus` drives the browser's library from it, so both are pinned
   to one set of inputs and outputs — possible for this rule and no other, because both sides are pure total
   functions of a string. Its sibling `phone-rule-has-one-owner` bans a second hand-rolled normaliser and any
-  string still naming « un numéro tunisien » or « à 8 chiffres ». ⚠️ `PHONE_ERROR_FR` is a **client-owned**
-  string for the client-side pre-check, **not** a copy of the server's refusal (`PhoneRefusals.Invalid`), which
-  reaches the user verbatim through `getErrorMessage`; two sentences, two roles, and deliberately no
-  `code → French` table. The server stays the authority — it re-checks every write, and `PatientDto.phoneE164`
-  is what decides whether a WhatsApp action appears.
+  string still naming « un numéro tunisien » or « à 8 chiffres ».
+  ⚠️ **`PHONE_ERROR_FR` and the server's `PhoneRefusals.Invalid` are the SAME sentence, word for word** — this
+  entry and both docstrings used to claim they were « two sentences, two roles », and that was false. The server's
+  refusal reaches the user verbatim through `getErrorMessage`, so while they are identical a server refusal is
+  indistinguishable on screen from this pre-check failing — which is what made the « the country selector does
+  nothing » defect (2026-09-11) cost a source-level investigation. There is still deliberately no
+  `code → French` table. ⚠️ **The corpus pins the rule and cannot see the callers**: it contains
+  `06 12 34 56 78` + `FR` ⇒ `+33612345678` and was green for the whole period the chosen region never left the
+  browser. The server stays the authority — it re-checks every write, now with the region the form sends as
+  `phoneRegion`, and `PatientDto.phoneE164` (the **stored** normalisation, not a re-derivation) is what decides
+  whether a WhatsApp action appears.
 - `working-hours.ts` — the **one** `WorkingDay` shape (three other copies used to exist: `lib/api/doctors.ts`, `clinic-settings.tsx`'s `WorkingHoursInput`, and the server's `WorkingDayDto`), plus `WEEKDAYS`, `WEEKDAY_LABELS_FR`, `DEFAULT_WORKING_HOURS` (Mon–Sat 09:00–17:00, no pause), `hasBreak`, `validateWorkingHours` (mirrors `WorkingHoursSerializer.Validate` and **names the day**; called by both editors) and `summarizeWorkingHours` (grouped French summary, break included in the run key). A day may carry an optional mid-day closure — `breakFrom`/`breakTo`, both ends or neither.
 - `hooks/use-url-filters.ts` — `useUrlFilters(values, enabled)` mirrors a screen's filters into its own query string (`replaceState`, empty/false keys dropped) and `useUrlFilterSeed()` reads the query string **once** in a lazy `useState`. ⚠️ It only **writes**: a screen that mounts it must seed the same keys itself, or it manufactures links it discards on the next load — the defect shape found three times (`/lab-orders`' `search`, `/appointments`' `date`+`view`, `/journal`'s `page`).
 - **`cnam.ts`** — the two closed value sets the **BS1** form's checkboxes are keyed on (`CNAM_REGIMES`,

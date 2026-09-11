@@ -33,6 +33,13 @@ public class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
         builder.Property(s => s.PhoneNumber)
             .HasMaxLength(50);
 
+        // The dialable normalisation — see `Supplier.PhoneE164`. Nullable and NOT backfilled.
+        builder.Property(s => s.PhoneNumberE164)
+            .HasMaxLength(20);
+
+        // `PhoneE164` is the READ (stored, else re-derived): no setter, no backing field, never a column.
+        builder.Ignore(s => s.PhoneE164);
+
         builder.Property(s => s.Address)
             .HasMaxLength(500);
 

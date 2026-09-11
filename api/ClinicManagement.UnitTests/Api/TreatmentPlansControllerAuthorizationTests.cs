@@ -129,6 +129,13 @@ public class TreatmentPlansControllerAuthorizationTests
         // handed (« reste 200 DT sur F-2026-0142 »), which is that patient's own balance rather than the clinic's
         // — the distinction `GetPatientBillingSummaryQuery` is already open to reception for.
         nameof(TreatmentPlansController.GetContinuableActs),
+        // « Suites à planifier » — the clinic-wide list of acts marked « non terminé ». Classified with
+        // `GetContinuableActs` and for exactly its reason, since it carries the same figure: what is still owed
+        // on the note d'honoraires that already bills the séance. That is the patient's own balance, which
+        // reception already reads through `GetPatientBillingSummaryQuery`, and never the clinic's book. Booking
+        // the visit that finishes the work is reception's job, so a read only the dentist could open would be a
+        // worklist the person who works it cannot see — the mistake « À clôturer » was built to avoid.
+        nameof(TreatmentPlansController.GetUnfinishedActs),
     };
 
     [Theory]

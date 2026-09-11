@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -36,6 +36,8 @@ import {
   patientCivility,
   durationUnitLabel,
   durationUnitOf,
+  matchMedications,
+  medicationCatalogLabel,
   prescriptionLineParts,
   showsMedicalAlerts,
   type MedicationLine,
@@ -193,8 +195,27 @@ function MedicationItem({
   onRetryCatalog: () => void
 }) {
   const [lookupOpen, setLookupOpen] = useState(false)
-  // Printed/displayed label for a catalog entry: "Marque Dosage Forme" (empty parts dropped).
-  const catalogLabel = (m: MedicationDto) => [m.brandName, m.strength, m.form].filter(Boolean).join(" ")
+
+  // Name = brand + form only; the strength goes to the Dosage field (not crammed into « Nom du médicament »).
+  const pick = (m: MedicationDto) =>
+    onUpdate({
+      ...medication,
+      name: [m.brandName, m.form].filter(Boolean).join(" "),
+      dosage: m.strength,
+      medicationId: m.id,
+      dci: m.dcis,
+    })
+
+  /**
+   * What the NAME field proposes as it is typed — the same catalogue as the loupe beside it, reached without
+   * opening anything. Suggestions, never a closed list: the field stays free text, and a médicament the
+   * catalogue has never heard of is prescribed exactly as typed.
+   */
+  const nameSuggestions = useMemo(() => {
+    const typed = medication.name?.trim() ?? ""
+    if (medication.medicationId || typed.length < 2) return []
+    return matchMedications(catalog, typed, 5).filter((m) => medicationCatalogLabel(m) !== typed)
+  }, [catalog, medication.medicationId, medication.name])
 
   return (
     <div className="p-4 border rounded-lg space-y-3">
@@ -235,20 +256,12 @@ function MedicationItem({
                                 key={m.id}
                                 value={`${m.brandName} ${m.strength} ${m.form} ${m.dcis.join(" ")}`}
                                 onSelect={() => {
-                                  // Name = brand + form only; the strength goes to the Dosage field (not crammed
-                                  // into « Nom du médicament »). The search list above still searches the full label.
-                                  onUpdate({
-                                    ...medication,
-                                    name: [m.brandName, m.form].filter(Boolean).join(" "),
-                                    dosage: m.strength,
-                                    medicationId: m.id,
-                                    dci: m.dcis,
-                                  })
+                                  pick(m)
                                   setLookupOpen(false)
                                 }}
                               >
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-medium">{catalogLabel(m)}</span>
+                                  <span className="text-sm font-medium">{medicationCatalogLabel(m)}</span>
                                   <span className="text-xs text-muted-foreground">
                                     {m.dcis.join(", ")}{m.isProvisional ? " · à vérifier" : ""}
                                   </span>
@@ -263,6 +276,23 @@ function MedicationItem({
                 </PopoverContent>
               </Popover>
             </div>
+            {nameSuggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {nameSuggestions.map((m) => (
+                  <Button
+                    key={m.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => pick(m)}
+                    // Its own box rather than a touch-target overlay: these chips sit in a wrapping row.
+                    className="h-auto min-h-8 whitespace-normal px-2 py-1 text-xs coarse:min-h-11"
+                  >
+                    {medicationCatalogLabel(m)}
+                  </Button>
+                ))}
+              </div>
+            )}
             {medication.medicationId && medication.dci && medication.dci.length > 0 && (
               <span className="text-xs text-muted-foreground">DCI : {medication.dci.join(", ")}</span>
             )}
@@ -2747,7 +2777,9 @@ export function DocumentEditorContent() {
             {/* Document-specific fields */}
             {documentType === "prescription" && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                {/* ⚠️ `flex-wrap`: the button is `whitespace-nowrap shrink-0`, so at 320 px this row measured
+                    295 px of min-content in a 273 px box and pushed the whole editor pane sideways. */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Label className="text-sm font-semibold text-foreground">
                     Médicaments prescrits
                   </Label>

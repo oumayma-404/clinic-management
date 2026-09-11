@@ -185,8 +185,7 @@ test.describe("HP-10 · le pont devis → note @mutating @t0", () => {
       "still 500 — never 1 000. `BilledPlanIds` drops the plan so the note is the single claim",
     ).toBe(mil(500))
 
-    const receivables = await api.receivables("?pageSize=300")
-    const row = (receivables.items ?? []).find((r: any) => r.patientId === p.id)
+    const row = await api.receivableFor(p.id, p.name)
     expect(mil(row?.totalOutstanding ?? 0), "« Créances » must agree with « Solde patient »").toBe(mil(500))
   })
 

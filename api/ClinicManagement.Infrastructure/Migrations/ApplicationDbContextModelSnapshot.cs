@@ -1251,6 +1251,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<bool>("IsPerTooth")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsUnfinished")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Note")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -3769,6 +3774,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<string>("PhoneNumberE164")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3923,6 +3932,13 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("BilledOnInvoiceAmount")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid?>("BilledOnInvoiceId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("DesignationFr")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -3963,6 +3979,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BilledOnInvoiceId");
 
                     b.HasIndex("TreatmentPlanId");
 
@@ -4631,6 +4649,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
 
+                            b1.Property<string>("PersistedE164")
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("EmergencyContactPhoneE164");
+
                             b1.Property<string>("Value")
                                 .IsRequired()
                                 .HasMaxLength(20)
@@ -4649,6 +4672,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
+
+                            b1.Property<string>("PersistedE164")
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("PhoneNumberE164");
 
                             b1.Property<string>("Value")
                                 .IsRequired()

@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans;
@@ -92,30 +93,32 @@ public static class TreatmentPlanWorkflowProjection
         var itemIds = plans.SelectMany(p => p.Items).Select(i => i.Id).ToList();
 
         /*
-         * The teeth each act has actually been carried out on, gathered from the fiches its séances produced.
+         * The fiches behind each act — read by the treated-teeth block below AND by the carried-note resolution
+         * further down, which is why it is hoisted out of the former: that block is skipped when no record
+         * repository is passed, and the carried note has to resolve on every read.
          *
          * ⚠️ **Both link columns, and the step one is the important half**: a stepped act takes its own
          * `LinkedDentalRecordId` only when its LAST step lands, so an act three séances into six is recorded on
-         * the steps alone and reading the act's link would find nothing — which is exactly the case this exists
-         * for. One batched read over the whole page, never one per act (§ 9.7).
+         * the steps alone and reading the act's link would find nothing — which is exactly the case both readers
+         * exist for. One batched read over the whole page, never one per act (§ 9.7).
          */
+        var recordIdsByItem = plans
+            .SelectMany(p => p.Items)
+            .Select(i => (
+                ItemId: i.Id,
+                RecordIds: i.Steps
+                    .Select(st => st.LinkedDentalRecordId)
+                    .Append(i.LinkedDentalRecordId)
+                    .Where(id => id.HasValue)
+                    .Select(id => id!.Value)
+                    .Distinct()
+                    .ToList()))
+            .Where(x => x.RecordIds.Count > 0)
+            .ToList();
+
         var treatedTeeth = new Dictionary<Guid, IReadOnlyList<int>>();
         if (dentalRecordRepository is not null)
         {
-            var recordIdsByItem = plans
-                .SelectMany(p => p.Items)
-                .Select(i => (
-                    ItemId: i.Id,
-                    RecordIds: i.Steps
-                        .Select(st => st.LinkedDentalRecordId)
-                        .Append(i.LinkedDentalRecordId)
-                        .Where(id => id.HasValue)
-                        .Select(id => id!.Value)
-                        .Distinct()
-                        .ToList()))
-                .Where(x => x.RecordIds.Count > 0)
-                .ToList();
-
             var allRecordIds = recordIdsByItem.SelectMany(x => x.RecordIds).Distinct().ToList();
             if (allRecordIds.Count > 0)
             {
@@ -187,6 +190,82 @@ public static class TreatmentPlanWorkflowProjection
                         Outstanding: g.Sum(l => l.Outstanding));
                 });
 
+        /*
+         * The notes d'honoraires that already collect an act this plan holds at 0 — `BilledOnInvoiceId`, keyed
+         * per ACT because that is where the marker lives and where the act row has to state it.
+         *
+         * ⚠️ **A different question from `invoiceByPlanId` above, and the two must not be merged.** That one
+         * answers « does a note REPRESENT this devis » (the bridge, `Invoice.TreatmentPlanId`), which makes
+         * every money read stop looking at the plan. This one answers « does a note collect one of its acts
+         * while the devis stays live », which is the opposite arrangement: the two documents are deliberately
+         * disjoint and BOTH are read. Emitting a carried note through `LinkedInvoice*` would flip the plan to
+         * « Facturé », hide « Encaisser » on its own échéancier and re-open the very hole
+         * `ContinueRecordedActCommand` leaves the note unattached to avoid.
+         *
+         * One batched read for the whole page, bounded by the ids actually referenced.
+         */
+        /*
+         * ⚠️ **The note is resolved from the FICHE, and the stored id is only the fallback — because a note gets
+         * REPLACED and the stored id would then name a cancelled shell.** Three paths cancel a note, and only one
+         * of them is `CancelInvoiceCommand`: correcting a note (`IssueInvoiceCommand.SupersedePredecessorAsync`)
+         * and correcting the séance itself (`UpdateDentalRecordCommand.RetireForCorrectionAsync`) both void the
+         * old note and raise a fresh one. Read off the stored id, the act would go back to a bare « 0,000 DT »
+         * and the treatment's money would vanish from this screen the moment anybody corrected anything — the
+         * reported defect, re-created by an ordinary correction, and invisible because the patient's own balance
+         * stays right.
+         *
+         * Resolving by fiche is also what makes this **self-healing**: a fourth re-billing path added later is
+         * covered with no change here, where a repoint written into each of today's three write sites would be
+         * one forgotten call away from the same silence. Same reasoning as the appointment lookups above — the
+         * state is derived precisely so it cannot go stale.
+         *
+         * `InvoiceLinkChoice.ByKey` is the single authority on « which note speaks for this fiche » (cancelled
+         * dropped, issued beating a stray draft), shared with the agenda's badge and with the continuation
+         * dialog, so three screens cannot name three different numbers for one séance.
+         */
+        var markedItems = plans
+            .SelectMany(p => p.Items)
+            .Where(i => i.BilledOnInvoiceId.HasValue)
+            .ToList();
+
+        var recordIdsByItemId = recordIdsByItem.ToDictionary(x => x.ItemId, x => x.RecordIds);
+
+        var ficheNotes = markedItems.Count == 0
+            ? new Dictionary<Guid, (Guid InvoiceId, string? Number)>()
+            : InvoiceLinkChoice.ByKey(
+                (await invoiceRepository.GetDentalRecordLinksAsync(clinicId, cancellationToken))
+                    .Select(l => (l.DentalRecordId, l.InvoiceId, l.Number, l.Status)));
+
+        // Which note now bills each marked act. Exactly one fiche behind the act, or the stored id stands:
+        // an act evidenced by several fiches cannot say which of their notes carries its fee.
+        var carriedInvoiceIdByItemId = new Dictionary<Guid, Guid>();
+        foreach (var item in markedItems)
+        {
+            var records = recordIdsByItemId.TryGetValue(item.Id, out var ids) ? ids : new List<Guid>();
+            carriedInvoiceIdByItemId[item.Id] =
+                records.Count == 1 && ficheNotes.TryGetValue(records[0], out var currentNote)
+                    ? currentNote.InvoiceId
+                    : item.BilledOnInvoiceId!.Value;
+        }
+
+        var carriedInvoiceIds = carriedInvoiceIdByItemId.Values.Distinct().ToList();
+
+        var carriedInvoiceById = carriedInvoiceIds.Count == 0
+            ? new Dictionary<Guid, PlanCarriedInvoice>()
+            : (await invoiceRepository.GetMoneyByIdsAsync(clinicId, carriedInvoiceIds, cancellationToken))
+                // A cancelled note collects nothing and claims nothing, so it is dropped here rather than
+                // rendered as money — the same call `invoiceByPlanId` makes one block up. The act's own 0 then
+                // has no owner on screen, which is exactly what `NoteCarriedActGuard` prevents from arising.
+                .Where(r => r.Status != InvoiceStatus.Cancelled)
+                .ToDictionary(
+                    r => r.InvoiceId,
+                    r => new PlanCarriedInvoice(
+                        r.InvoiceId, r.Number, r.Status, r.TotalTtc, r.AmountCollected, r.Outstanding));
+
+        var carriedInvoiceByItemId = carriedInvoiceIdByItemId
+            .Where(kv => carriedInvoiceById.ContainsKey(kv.Value))
+            .ToDictionary(kv => kv.Key, kv => carriedInvoiceById[kv.Value]);
+
         // « Prochaine séance » per plan, evaluated against the same asOfUtc as the act states so a plan can
         // never claim an upcoming visit that its own acts report as past.
         var nextAppointmentAtByPlanId = plans.ToDictionary(
@@ -199,7 +278,8 @@ public static class TreatmentPlanWorkflowProjection
                 .Min());
 
         return new TreatmentPlanWorkflow(
-            scheduledByItemId, invoiceByPlanId, nextAppointmentAtByPlanId, scheduledByStepId, treatedTeeth);
+            scheduledByItemId, invoiceByPlanId, nextAppointmentAtByPlanId, scheduledByStepId, treatedTeeth,
+            carriedInvoiceByItemId);
     }
 
     /// <summary>
@@ -235,12 +315,37 @@ public sealed record TreatmentPlanWorkflow(
     /// The teeth already treated on each devis act, unioned over the fiches its séances produced — see
     /// <c>TreatmentPlanItemDto.TreatedToothNumbers</c>. Empty when the caller supplied no record repository.
     /// </summary>
-    IReadOnlyDictionary<Guid, IReadOnlyList<int>> TreatedTeethByItemId)
+    IReadOnlyDictionary<Guid, IReadOnlyList<int>> TreatedTeethByItemId,
+    /// <summary>
+    /// The note d'honoraires that already collects each act the devis holds at 0 — see
+    /// <c>TreatmentPlanItem.BilledOnInvoiceId</c>. Empty for every ordinary plan, and the whole reason the
+    /// treatment's money can finally be stated as a whole instead of the devis' share of it.
+    /// </summary>
+    IReadOnlyDictionary<Guid, PlanCarriedInvoice> CarriedInvoiceByItemId)
 {
     public static TreatmentPlanWorkflow Empty { get; } = new(
         new Dictionary<Guid, Appointment>(),
         new Dictionary<Guid, (Guid, Guid, string?, InvoiceStatus, decimal, decimal)>(),
         new Dictionary<Guid, DateTime?>(),
         new Dictionary<Guid, Appointment>(),
-        new Dictionary<Guid, IReadOnlyList<int>>());
+        new Dictionary<Guid, IReadOnlyList<int>>(),
+        new Dictionary<Guid, PlanCarriedInvoice>());
 }
+
+/// <summary>
+/// A note d'honoraires collecting an act that a <b>live, un-bridged</b> devis carries at 0.
+/// <para>
+/// Deliberately its own type rather than the anonymous tuple <c>InvoiceByPlanId</c> uses: the two are the same
+/// six scalars answering opposite questions (« this note REPLACES the devis » versus « this note collects one of
+/// its acts while the devis stays live »), and a shared shape is how a caller ends up passing one where the
+/// other is meant. <c>AmountCollected</c> is carried as well as <c>Outstanding</c>, because the treatment's
+/// « Encaissé » is what the devis' own <c>AmountPaid</c> cannot see.
+/// </para>
+/// </summary>
+public sealed record PlanCarriedInvoice(
+    Guid InvoiceId,
+    string? Number,
+    InvoiceStatus Status,
+    decimal TotalTtc,
+    decimal AmountCollected,
+    decimal Outstanding);

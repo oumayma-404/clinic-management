@@ -62,7 +62,7 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
             // Refuse rather than pretend. This used to enqueue nothing (the number was undeliverable), then
             // stamp "contacted" and snooze 30 days anyway — so a patient with no phone silently dropped off the
             // relance list for a month and nobody was ever told to call them.
-            if (patient.PhoneNumber == null || !PhoneNumber.IsDeliverable(patient.PhoneNumber.Value))
+            if (patient.PhoneNumber?.E164 == null)
             {
                 return Result<bool>.Failure(
                     "Ce patient n'a pas de numéro de téléphone valide : la relance ne peut pas être envoyée. "

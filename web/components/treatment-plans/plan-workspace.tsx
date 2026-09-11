@@ -1,7 +1,11 @@
 "use client"
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
+// The anchor « Encaisser sur la note » lands on. Imported rather than retyped, so the two ends cannot drift —
+// the patient page switches its own tab and scrolls to this id.
+import { patientOutstandingHref } from "@/components/patient/patient-outstanding-strip"
 import { paymentMethodLabel } from "@/components/factures/invoice-labels"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -48,6 +52,7 @@ import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass, planHasRecordedWork } from "./treatment-plan-labels"
 import {
   activeItems,
+  detachOutcome,
   displayedOutstanding,
   isPlanLive,
   isPlanStopped,
@@ -235,6 +240,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [stopping, setStopping] = useState(false)
   /** The act whose « réalisé » state is being corrected (AC-P2.11); null = dialog closed. */
   const [undoTarget, setUndoTarget] = useState<TreatmentPlanItemDto | null>(null)
+  /**
+   * What detaching that act will actually do — the séance released, the fiche behind it, and what stays
+   * recorded. Derived so the confirmation, the toast and the server all describe one outcome.
+   */
+  const undoOutcome = useMemo(() => (undoTarget ? detachOutcome(undoTarget) : null), [undoTarget])
   /** The act whose protocol is being edited — same window as `canCorrectActs`, which the server enforces too. */
   const [stepsTarget, setStepsTarget] = useState<TreatmentPlanItemDto | null>(null)
 
@@ -300,6 +310,33 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const seances = useMemo(() => planSeanceProgress(plan), [plan])
   /** What may honestly be printed as « Reste » — null on a draft, and on a billed devis with no note figure. */
   const owed = useMemo(() => displayedOutstanding(plan), [plan])
+
+  /**
+   * The notes d'honoraires that already collect an act this devis holds at **0** — empty on every ordinary
+   * plan, so nothing below renders and the card keeps the shape it has always had.
+   *
+   * <p>⚠️ **This is the whole of the reported « money gap », and the money was never wrong.** A continuation
+   * prices the already-billed act 0 and deliberately leaves its note *unattached* — that is what stops
+   * `PlanBillingRules.BilledPlanIds` dropping the plan and hiding the new work. The cost of that correctness is
+   * that the plan had no structural knowledge of the note at all: « L'argent » could only report the devis'
+   * own 10 / 0 / 10 on a treatment the patient had already paid 50 towards and still owed 40 on. The figures
+   * added up on the patient's file; this screen simply never said what it was half of.</p>
+   *
+   * <p>⚠️ **Never `linkedInvoice*`, which means the opposite** — that a note *replaces* this devis, which is
+   * why « Encaisser » disappears from its échéancier. Here both documents are live and both collect.</p>
+   */
+  const carried = useMemo(() => plan.carriedInvoices ?? [], [plan.carriedInvoices])
+  /** Served, never derived — see `treatmentTotal`. Null/absent means « nothing carried », not « zero ». */
+  const treatmentMoney =
+    carried.length > 0 && plan.treatmentOutstanding != null
+      ? {
+          total: plan.treatmentTotal ?? 0,
+          collected: plan.treatmentCollected ?? 0,
+          outstanding: plan.treatmentOutstanding,
+          /** Any carried note that also bills work outside this treatment — see the headline's label. */
+          mixed: carried.some((c) => c.billsOtherWork),
+        }
+      : null
 
   const isDraft = plan.status === "Draft"
   const isActive = isPlanLive(plan.status)
@@ -606,11 +643,21 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * message of anything that is not an `ApiError` — a plain `Error` from `downloadBlob` fell through to the
    * generic French sentence. `lib/errors.ts` is the single formatting point and supplies all three.
    */
-  const run = async (action: () => Promise<unknown>, success: string, failure: string) => {
+  const run = async (
+    action: () => Promise<unknown>,
+    success: string,
+    failure: string,
+    /**
+     * An optional control on the success toast — « Ouvrir la fiche » after a detach. Here rather than at the
+     * one call site because the toast is raised here, and a second `toast.success` beside this helper is how
+     * two mutations come to report success two different ways.
+     */
+    successAction?: { label: string; onClick: () => void },
+  ) => {
     setBusy(true)
     try {
       await action()
-      toast.success(success)
+      toast.success(success, { action: successAction })
       onChanged()
     } catch (err) {
       showErrorToast(err, failure)
@@ -1445,23 +1492,133 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             as unpaid — measured on 4 of 4 bridged plans, two of them fully settled, one patient shown
             « Solde dû 31,000 DT » in their file header and « Reste 120,000 DT » here on the same page.
           */}
-          <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <Figure label="Total convenu" value={formatDT(plan.totalPlanned)} />
-            <Figure label="Encaissé" value={formatDT(plan.amountPaid)} />
-            {owed && (
+          {/*
+            ⚠️ **When a note carries part of this treatment, the headline is the TREATMENT and not the devis.**
+            That is the one change the reported gap actually asked for: « Total convenu 10,000 · Encaissé 0,000 »
+            was a true statement about the devis and a false one about the treatment in front of the dentist.
+            The devis' own three figures are not lost — they move into the composition below, beside the note's,
+            so every number on this screen still has exactly one owner.
+          */}
+          {treatmentMoney ? (
+            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {/*
+                ⚠️ **« Total du traitement » only when the note bills this treatment ALONE.** A note is raised
+                per *fiche*, so one that also bills a détartrage done the same séance holds money this treatment
+                has nothing to do with — calling that sum « le traitement » would overstate it, which is the same
+                class of false statement this whole card exists to remove. « Reste à encaisser » needs no such
+                care: what the patient still owes across the two documents is true either way, which is the
+                figure a dentist is actually reading.
+              */}
               <Figure
-                label={isActive ? "Reste à encaisser" : "Reste dû"}
-                value={formatDT(owed.amount)}
+                label={treatmentMoney.mixed ? "Total des deux documents" : "Total du traitement"}
+                value={formatDT(treatmentMoney.total)}
                 hint={
-                  owed.isBilled
-                    ? `sur la note ${owed.invoiceNumber ?? "d'honoraires"}`
-                    : isActive
-                      ? "au fil des séances"
-                      : undefined
+                  treatmentMoney.mixed
+                    ? "la note couvre aussi d'autres actes"
+                    : carried.length === 1
+                      ? "devis + note d'honoraires"
+                      : "devis + notes d'honoraires"
                 }
               />
-            )}
-          </div>
+              <Figure label="Encaissé" value={formatDT(treatmentMoney.collected)} />
+              <Figure
+                label={isActive ? "Reste à encaisser" : "Reste dû"}
+                value={formatDT(treatmentMoney.outstanding)}
+                hint="sur les deux documents"
+              />
+            </div>
+          ) : (
+            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <Figure label="Total convenu" value={formatDT(plan.totalPlanned)} />
+              <Figure label="Encaissé" value={formatDT(plan.amountPaid)} />
+              {owed && (
+                <Figure
+                  label={isActive ? "Reste à encaisser" : "Reste dû"}
+                  value={formatDT(owed.amount)}
+                  hint={
+                    owed.isBilled
+                      ? `sur la note ${owed.invoiceNumber ?? "d'honoraires"}`
+                      : isActive
+                        ? "au fil des séances"
+                        : undefined
+                  }
+                />
+              )}
+            </div>
+          )}
+
+          {/*
+            The composition — **where each half of that total is settled**, because they are settled in two
+            different places. Merging them into one payable line was the obvious reading of « une seule ligne »
+            and is wrong: a payment on a note and a payment on an échéance produce different receipts and reach
+            la caisse by different ledgers, so a single « Encaisser » here would have to guess which.
+
+            ⚠️ `min-w-0` on the text block and `flex-wrap` on the row: the note's number and its figures are
+            un-truncatable strings, and at 320 px one nowrap descendant sets the min-content width of every
+            sibling in the card (the `RecordSection` scar).
+          */}
+          {/*
+            ⚠️ Gated on `carried`, **not** on `treatmentMoney`: a DRAFT note is deliberately absent from the
+            headline (it claims nothing in « Solde patient », so counting it here would have this screen and the
+            patient's file disagree about one patient) — but the act it holds at 0 still has to be explained, and
+            this is where that is said.
+          */}
+          {carried.length > 0 && (
+            <div className="mb-4 space-y-2">
+              {carried.map((note) => (
+                <div
+                  key={note.invoiceId}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border bg-muted/30 p-3"
+                >
+                  <div className="min-w-0 flex-1 basis-48">
+                    <p className="text-sm font-medium">
+                      {note.number ? `Note d'honoraires ${note.number}` : "Brouillon de note d'honoraires"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {note.billedActAmount > 0
+                        ? `La 1re séance, ${formatDT(note.billedActAmount)}.`
+                        : "La 1re séance."}{" "}
+                      {/* Said out loud rather than folded into the total: a note is per-fiche, so it may bill a
+                          détartrage done the same day that has nothing to do with this treatment. */}
+                      {note.billsOtherWork && "Elle facture aussi d'autres actes de la séance. "}
+                      {note.status === "Draft" ? (
+                        // A draft claims nothing yet — exactly what « Solde patient » says about it — so it is
+                        // stated rather than summed, and « Encaisser » is not offered on a document that cannot
+                        // take money.
+                        <>Brouillon de {formatDT(note.total)} — rien n&apos;est encore réclamé.</>
+                      ) : (
+                        <>
+                          Encaissé {formatDT(note.collected)} · reste {formatDT(note.outstanding)}.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  {note.status !== "Draft" && note.outstanding > 0.0005 && (
+                    <Button asChild size="sm" variant="outline" className="h-auto whitespace-normal coarse:min-h-11">
+                      <Link href={patientOutstandingHref(plan.patientId, note.invoiceId)}>
+                        Encaisser sur la note
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {/* The devis' own half — shown only when the headline speaks for both, since otherwise the three
+                  figures above ARE the devis and this would repeat them. */}
+              {treatmentMoney && (
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border p-3">
+                  <div className="min-w-0 flex-1 basis-48">
+                    <p className="text-sm font-medium">
+                      {plan.number ? `Devis ${plan.number}` : "Ce traitement"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Le travail restant, {formatDT(plan.totalPlanned)}. Encaissé {formatDT(plan.amountPaid)} ·
+                      reste {formatDT(owed?.amount ?? plan.outstanding)}.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/*
             The reason « Encaisser » is gone, as **visible text** and not a `title` (J1): a tooltip is unreachable
@@ -1848,8 +2005,29 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <DialogHeader>
             <DialogTitle>Détacher la fiche de cet acte ?</DialogTitle>
             <DialogDescription>
-              {quoteFr(undoTarget?.designationFr ?? "")} repassera à « Prévu » et sa fiche de soins sera détachée. La fiche
-              elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera réouvert.{" "}
+              {/*
+                ⚠️ **It said « repassera à « Prévu » » whatever the act was, and on a multi-séance act that is
+                simply false**: `Unmark` releases the LAST séance recorded, so a three-séance couronne lands on
+                « En cours », 2 étapes sur 3 faites. `detachOutcome` is the one place that arithmetic lives —
+                the same rule the server applies — and the count is phrased AS a count, never as a bare
+                « 2 / 3 », which is read as progress (§ 13).
+              */}
+              {undoOutcome?.stepLabel && (undoOutcome.remaining?.done ?? 0) > 0 ? (
+                <>
+                  La dernière séance enregistrée ({quoteFr(undoOutcome.stepLabel)}) sera détachée de sa fiche
+                  de soins. {quoteFr(undoTarget?.designationFr ?? "")} repassera à « En cours » —{" "}
+                  {undoOutcome.remaining!.done} étape
+                  {undoOutcome.remaining!.done > 1 ? "s" : ""} sur {undoOutcome.remaining!.total}{" "}
+                  {undoOutcome.remaining!.done > 1 ? "faites" : "faite"}.
+                </>
+              ) : (
+                <>
+                  {quoteFr(undoTarget?.designationFr ?? "")} repassera à « Prévu » et sa fiche de soins sera
+                  détachée.
+                </>
+              )}{" "}
+              La fiche elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera
+              réouvert.{" "}
               {/* The same forewarning as the step-level dialog — see its note. */}
               Si sa fiche est facturée sur une note d&apos;honoraires, il faudra d&apos;abord créditer cette
               note en totalité.
@@ -1872,10 +2050,26 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               onClick={async () => {
                 const target = undoTarget
                 if (!target) return
+                // Captured before the call: detaching clears the link, and this is the only route from the
+                // devis back to the fiche being corrected. See `detachOutcome`.
+                const outcome = detachOutcome(target)
                 await run(
-                  () => treatmentPlansApi.markItemUndone(plan.id, target.id),
-                  "Acte ramené à « Prévu »",
+                  () => treatmentPlansApi.markItemUndone(plan.id, target.id, plan.version),
+                  outcome.stepLabel && (outcome.remaining?.done ?? 0) > 0
+                    ? `Séance ${quoteFr(outcome.stepLabel)} détachée de sa fiche`
+                    : "Acte ramené à « Prévu »",
                   "Échec de la correction de l'acte.",
+                  outcome.dentalRecordId
+                    ? {
+                        label: "Ouvrir la fiche",
+                        onClick: () =>
+                          router.push(
+                            `/patients/${plan.patientId}?editRecord=${encodeURIComponent(
+                              outcome.dentalRecordId!,
+                            )}`,
+                          ),
+                      }
+                    : undefined,
                 )
                 setUndoTarget(null)
               }}

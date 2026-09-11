@@ -109,6 +109,27 @@ export interface PlanItemOption {
   planNumber?: string | null
   /** The note d'honoraires that holds this devis' money, when one does. */
   billedOnInvoiceNumber?: string | null
+  /**
+   * The note that already collects **this act** while the devis stays live — what a continuation leaves behind,
+   * and the reason such an act sits on the devis at 0.
+   *
+   * <p>⚠️ **Not `billedOnInvoiceNumber` above, which is the opposite arrangement**: that note represents the
+   * whole devis (so the devis collects nothing more), this one collects one act beside a devis that is still
+   * collecting the rest. Without it the two sentences below read « L'acte entier est chiffré 0,000 DT » and
+   * « 0,000 DT convenus pour tout le traitement » about a 90 DT act a patient has already paid 50 towards.</p>
+   */
+  carriedOnNoteNumber?: string | null
+  /** What that note bills for this act. `0` when it could not be recovered — then the note is named alone. */
+  carriedOnNoteAmount?: number
+  /**
+   * The act this one **continues**, when it is the second half of a continuation — « Traitement de canal
+   * (dévitalisation) ». Null on every ordinary act, including the carried one itself.
+   */
+  continuationOf?: string | null
+  /** The treatment's money across both documents, served. Null when nothing is carried. */
+  treatmentTotal?: number | null
+  /** @see treatmentTotal */
+  treatmentOutstanding?: number | null
   /** What is still to collect on the whole devis — meaningless once `billedOnInvoiceNumber` is set. */
   planOutstanding?: number
   /**
@@ -735,8 +756,23 @@ export function PatientRecordModal({
     const out: { row: AppointmentProcedureDto; procedure: ProcedureTypeDto }[] = []
     const seenPlanItem = new Set<string>()
     for (const row of (appointment?.procedures ?? []).slice().sort((a, b) => a.sequenceNumber - b.sequenceNumber)) {
-      const procedure = row.procedureTypeId
-        ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
+      /*
+       * ⚠️ **A LINK-ONLY row falls back to its devis act, and without that the fiche proposes nothing at all.**
+       * A booked row carries no `procedureTypeId` when the devis line it books had none — which every
+       * continuation's second line did, and every hand-typed line still does. Skipped outright, the séance the
+       * app itself arranged opened on « Choisissez l'acte réalisé… » with « aucun acte » above it. Reported
+       * from use on the second séance of a traitement de canal.
+       *
+       * Resolved from the plan item rather than repaired in the appointment row, deliberately: it covers every
+       * booking already on file as well as every future one, and a row whose devis line is *still* un-catalogued
+       * (a genuinely hand-typed act) keeps behaving exactly as it did — skipped, with the dentist asked.
+       */
+      const planActProcedureId = row.treatmentPlanItemId
+        ? planItems.find((p) => p.itemId === row.treatmentPlanItemId)?.procedureTypeId ?? null
+        : null
+      const procedureId = row.procedureTypeId ?? planActProcedureId
+      const procedure = procedureId
+        ? procedureTypes.find((pt) => pt.id === procedureId)
         : undefined
       if (!procedure) continue
       if (row.treatmentPlanItemId) {
@@ -746,7 +782,7 @@ export function PatientRecordModal({
       out.push({ row, procedure })
     }
     return out
-  }, [appointment?.procedures, procedureTypes])
+  }, [appointment?.procedures, procedureTypes, planItems])
 
   // Propose EVERY act booked into the séance. Guarded twice over: `applyAppointment` is a no-op unless the
   // session is a single untouched card, so it can never clobber a saved record or work in progress.
@@ -1045,6 +1081,106 @@ export function PatientRecordModal({
     return `Cette séance : ${rank} · ${joinFr(ordered.map((s) => s.label))}`
   }, [record, billedPlanItem, appointment?.procedures])
 
+  /**
+   * The act `seanceStepLine` is about — the one the treatment carries, when the séance has marked one.
+   *
+   * <p>⚠️ Null on a reopened fiche, deliberately: `billedPlanItem` is not hydrated there, so no act wears
+   * `billedOnPlan` and the sentence stays above the pile rather than disappearing.</p>
+   */
+  /** The act the treatment carries, when the séance has marked one — the card both notices belong to. */
+  const planActKey = useMemo(() => acts.find((a) => a.billedOnPlan)?.key ?? null, [acts])
+
+  /**
+   * The act `seanceStepLine` is about.
+   *
+   * <p>⚠️ Null on a reopened fiche, deliberately: `billedPlanItem` is not hydrated there, so no act wears
+   * `billedOnPlan` and the sentence stays above the pile rather than disappearing.</p>
+   */
+  const stepLineActKey = seanceStepLine ? planActKey : null
+
+  /**
+   * « Cet acte est chiffré une fois, sur le traitement » — composed once, rendered wherever it belongs.
+   *
+   * <p>⚠️ It goes ON the act card whenever a card can take it, and stays above the pile only when none can
+   * (a reopened fiche marks no act). One node, two homes: re-composing this sentence beside the card is how
+   * it and the banner would drift, which has already happened once between this screen and the booking
+   * dialog.</p>
+   */
+  const planNotice = carriedByDevis && billedPlanItem ? (
+            <p
+              role="status"
+              className="rounded-md border border-primary bg-primary/[0.07] p-2.5 text-2xs leading-relaxed"
+            >
+              {/*
+                ⚠️ « le devis » names a DOCUMENT, and an un-numbered followed treatment has none — so on one
+                this banner asserted a devis that does not exist. `appointment-acts-picker` was given the
+                un-numbered wording and this screen was not: the same non-propagation, one surface apart.
+
+                ⚠️ **It said « Déjà facturé. » and no longer does.** A devis is a quote, not a facture — the
+                document that bills is the note d'honoraires, named separately on the line below — and
+                « déjà » read as « the money is settled » on a séance that may be about to collect some.
+                Reworded on the booking dialog's notice at the same time, deliberately: these two sentences
+                are the same statement on two screens and have already drifted apart once.
+              */}
+              {/* ⚠️ What this séance FINISHES, first — a continuation's own désignation is whatever the dentist
+                  typed (« continuation »), so left alone the banner named nothing the séance is part of. */}
+              {billedPlanItem.continuationOf && (
+                <span className="block font-semibold text-foreground">
+                  Suite de&nbsp;: {billedPlanItem.continuationOf}
+                </span>
+              )}
+              <span className="font-semibold text-primary">
+                {billedPlanItem.planNumber ? "Chiffré sur le devis." : "Suivi comme traitement."}
+              </span>{" "}
+              {/* ⚠️ A carried act's `plannedCost` is 0 BY RULE — a note already collects its fee — so quoting it
+                  here would tell a dentist the act was free. Held by `check:responsive`'s N34. */}
+              {billedPlanItem.carriedOnNoteNumber ? (
+                <>
+                  L&apos;acte entier est facturé{" "}
+                  {(billedPlanItem.carriedOnNoteAmount ?? 0) > 0 && (
+                    <>
+                      <span className="font-mono tabular-nums">
+                        {formatDT(billedPlanItem.carriedOnNoteAmount!)}
+                      </span>{" "}
+                    </>
+                  )}
+                  sur la note n° {billedPlanItem.carriedOnNoteNumber}
+                </>
+              ) : billedPlanItem.plannedCost != null ? (
+                <>
+                  L&apos;acte entier est chiffré{" "}
+                  <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span>
+                </>
+              ) : (
+                "L'acte entier est chiffré une seule fois"
+              )}
+              {billedPlanItem.planNumber
+                ? ` sur le devis ${billedPlanItem.planNumber}`
+                : " pour tout le traitement"}
+              {/*
+                ⚠️ It used to end « laissez « Payé » à 0 », which was half of a contradiction the same dialog
+                carried: this banner said the séance takes no money while the footer labelled its payment field
+                « Encaissé aujourd'hui » and offered to state what would remain. The instruction is now the true
+                one — the séance adds no honoraires, and money for the treatment has its own field.
+              */}
+              {/*
+                ⚠️ The « où taper » half is gone. It named a field two blocks below and, since that field is now
+                the only money control on a wholly-carried séance, the instruction had become a direction to the
+                one thing that is impossible to miss. The « n'ajoute pas d'honoraires » half moved to the act
+                card, where the missing price field is what raises the question.
+              */}
+              .
+              {/* The devis' own balance is unusable once a note holds the money — its auto-échéance will never
+                  see a payment — so the note is named instead. Same rule as the booking dialog's notice. */}
+              {billedPlanItem.billedOnInvoiceNumber && (
+                <>
+                  {" "}Encaissement sur la note{" "}
+                  <span className="font-mono">{billedPlanItem.billedOnInvoiceNumber}</span>.
+                </>
+              )}
+            </p>
+  ) : null
+
   /*
    * Back-fill « this act is carried by the devis » onto a REOPENED fiche. `applyAppointment` carries it per act
    * for a fresh one, but a saved record is built before any plan data has loaded — and without it the reopened
@@ -1097,6 +1233,16 @@ export function PatientRecordModal({
    * is withdrawn and the banner's « Encaissement sur la note … » stands alone.</p>
    */
   const collectsOnTreatment = carriedByDevis && !billedPlanItem?.billedOnInvoiceNumber
+
+  /**
+   * « sur cette séance », for the figures that describe the séance's own note while the treatment's money is on
+   * screen beside them — two scopes, each named, which is the rule the acts picker's own hint states.
+   *
+   * <p>⚠️ Reported from a mixed séance: « restera 1 000,000 DT sur ce traitement » and « Reste à payer :
+   * 0,000 DT » one line apart, both true, and only one of them about the same money. A wholly-carried séance
+   * already withdraws the séance figures, so this is the case that was left.</p>
+   */
+  const seanceScope = collectsOnTreatment ? " sur cette séance" : ""
 
   const treatmentOutstandingBefore = billedPlanItem
     ? roundMillimes(billedPlanItem.planOutstanding ?? billedPlanItem.plannedCost ?? 0)
@@ -1292,6 +1438,11 @@ export function PatientRecordModal({
           // Both role lists travel together. Sending one without the other flattens half a bridge's shape,
           // silently, on the next save — which is the `procedures`/`SetProcedures` trap on a second field.
           implantPilierToothNumbers: a.implantPilierTeeth,
+          // ⚠️ Always sent, `false` included, and for the two lists' reason one field over. `SetActs` rebuilds
+          // every act from this payload, so an omitted key marks the act FINISHED — which is a clinical claim
+          // nobody made, produced by an ordinary re-save with no gesture behind it. The act then leaves
+          // « Suites à planifier » and the séance nobody booked is chased by nothing.
+          isUnfinished: a.isUnfinished,
           resultingCondition: a.resultingCondition, // null when "Aucun"
           surfaces: serializeSurfaces(a.surfaces) || null,
           note: a.note.trim() || null,
@@ -1750,62 +1901,20 @@ export function PatientRecordModal({
             is not a money statement: it is true whether or not the devis carries the fee, and on the edit path
             it comes from the record's own read-back, which exists only when the fiche really closed a step.
           */}
-          {seanceStepLine && (
+          {/*
+            ⚠️ **Only when no CARD could take it.** The sentence belongs on the act it describes — floating over
+            the pile it said « étape 1 sur 2 » above three acts and named which one nowhere, which is the report
+            this moved for. A reopened fiche is the case that keeps it here: its line comes from the record's own
+            read-back and `billedPlanItem` is null there, so no act is marked and nothing else would say it.
+          */}
+          {seanceStepLine && !stepLineActKey && (
             <p className="text-2xs font-semibold text-primary">{seanceStepLine}</p>
           )}
-          {carriedByDevis && billedPlanItem && (
-            <p
-              role="status"
-              className="rounded-md border border-primary bg-primary/[0.07] p-2.5 text-2xs leading-relaxed"
-            >
-              {/*
-                ⚠️ « le devis » names a DOCUMENT, and an un-numbered followed treatment has none — so on one
-                this banner asserted a devis that does not exist. `appointment-acts-picker` was given the
-                un-numbered wording and this screen was not: the same non-propagation, one surface apart.
-
-                ⚠️ **It said « Déjà facturé. » and no longer does.** A devis is a quote, not a facture — the
-                document that bills is the note d'honoraires, named separately on the line below — and
-                « déjà » read as « the money is settled » on a séance that may be about to collect some.
-                Reworded on the booking dialog's notice at the same time, deliberately: these two sentences
-                are the same statement on two screens and have already drifted apart once.
-              */}
-              <span className="font-semibold text-primary">
-                {billedPlanItem.planNumber ? "Chiffré sur le devis." : "Suivi comme traitement."}
-              </span>{" "}
-              {billedPlanItem.plannedCost != null ? (
-                <>
-                  L&apos;acte entier est chiffré{" "}
-                  <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span>
-                </>
-              ) : (
-                "L'acte entier est chiffré une seule fois"
-              )}
-              {billedPlanItem.planNumber
-                ? ` sur le devis ${billedPlanItem.planNumber}`
-                : " pour tout le traitement"}
-              {/*
-                ⚠️ It used to end « laissez « Payé » à 0 », which was half of a contradiction the same dialog
-                carried: this banner said the séance takes no money while the footer labelled its payment field
-                « Encaissé aujourd'hui » and offered to state what would remain. The instruction is now the true
-                one — the séance adds no honoraires, and money for the treatment has its own field.
-              */}
-              {/*
-                ⚠️ The « où taper » half is gone. It named a field two blocks below and, since that field is now
-                the only money control on a wholly-carried séance, the instruction had become a direction to the
-                one thing that is impossible to miss. The « n'ajoute pas d'honoraires » half moved to the act
-                card, where the missing price field is what raises the question.
-              */}
-              .
-              {/* The devis' own balance is unusable once a note holds the money — its auto-échéance will never
-                  see a payment — so the note is named instead. Same rule as the booking dialog's notice. */}
-              {billedPlanItem.billedOnInvoiceNumber && (
-                <>
-                  {" "}Encaissement sur la note{" "}
-                  <span className="font-mono">{billedPlanItem.billedOnInvoiceNumber}</span>.
-                </>
-              )}
-            </p>
-          )}
+          {/*
+            ⚠️ **Only when no CARD could take it** — same rule as the step line above, and the same report.
+            « L'acte entier est chiffré 40,000 DT » floating over a pile of acts names which act nowhere.
+          */}
+          {!planActKey && planNotice}
 
           {/* Above the cards, because that is where the consequence lands: an empty catalogue invites free text. */}
           {catalogFailed && (
@@ -1827,6 +1936,8 @@ export function PatientRecordModal({
               color={actColors.get(act.key) ?? ACT_PALETTE[0]}
               arch={arch}
               proposedFromAppointment={proposedFromAppointment.has(act.key)}
+              seanceStepLine={act.key === stepLineActKey ? seanceStepLine : null}
+              planNotice={act.key === planActKey ? planNotice : null}
               duplicate={duplicateKeys.has(act.key)}
               error={saveError?.actKey === act.key ? saveError.message : null}
               dispatch={dispatch}
@@ -2399,7 +2510,14 @@ export function PatientRecordModal({
               raises a second, unlinked claim for work the treatment already prices.
             */}
             {collectsOnTreatment && (
-              <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+              // ⚠️ A rule above it whenever the séance keeps money of its own: the two live in one bordered box
+              // and nothing said where one ended, which is how « reste 0,000 » was read as the treatment's.
+              <div
+                className={cn(
+                  "flex w-full flex-wrap items-center gap-x-3 gap-y-2",
+                  !withholdSeanceMoneyFields && "border-t border-border/70 pt-2.5",
+                )}
+              >
                 <div className="flex min-w-[11rem] flex-1 items-center gap-2">
                   <Label
                     htmlFor="collected-on-plan"
@@ -2453,14 +2571,23 @@ export function PatientRecordModal({
                   role="status"
                   className="w-full text-2xs text-muted-foreground"
                 >
-                  {billedPlanItem?.plannedCost != null && (
+                  {/* ⚠️ Same rule as the banner above: a carried act's 0 is another document's money, so
+                      « 0,000 DT convenus pour tout le traitement » is false where it matters most — this is
+                      the hint beside the field a patient is handing money to. N34. */}
+                  {billedPlanItem?.carriedOnNoteNumber ? (
                     <>
-                      <span className="font-mono tabular-nums">
-                        {formatDT(billedPlanItem.plannedCost)}
-                      </span>{" "}
-                      convenus pour tout le traitement
-                      {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
+                      Cet acte est facturé sur la note n° {billedPlanItem.carriedOnNoteNumber} ·{" "}
                     </>
+                  ) : (
+                    billedPlanItem?.plannedCost != null && (
+                      <>
+                        <span className="font-mono tabular-nums">
+                          {formatDT(billedPlanItem.plannedCost)}
+                        </span>{" "}
+                        convenus pour tout le traitement
+                        {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
+                      </>
+                    )
                   )}
                   {overCollectedOnPlan ? (
                     <span className="font-medium text-destructive">
@@ -2566,12 +2693,12 @@ export function PatientRecordModal({
                 </p>
               ) : isInvoiced ? (
                 <p className="text-muted-foreground">
-                  Facturé{reste > 0 ? ` — reste ${formatDT(reste)}` : ""}. Augmentez « Payé » pour encaisser un
+                  Facturé{reste > 0 ? ` — reste ${formatDT(reste)}${seanceScope}` : ""}. Augmentez « Payé » pour encaisser un
                   complément sur la même note.
                 </p>
               ) : (
                 <p className="text-muted-foreground">
-                  Reste à payer :{" "}
+                  Reste à payer{seanceScope} :{" "}
                   {/* `--warning-ink`, not `text-amber-600`: that literal had no `dark:` pair and measured
                       ~3.2:1 on the card — on an outstanding-balance figure. The token was minted for this. */}
                   <span className={reste > 0 ? "font-semibold text-warning-ink" : "font-medium text-foreground"}>

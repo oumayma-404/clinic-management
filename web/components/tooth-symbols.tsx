@@ -3,6 +3,7 @@
 import { useId, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import { conditionStyle } from "@/components/odontogram-conditions"
+import { RECORDED_ACT_LABEL, RECORDED_ACT_LEGEND } from "@/components/odontogram-recorded-acts"
 import {
   LOWER_ARCH_TRANSFORM,
   OCCLUSAL_GRID,
@@ -48,10 +49,20 @@ export interface ToothMark {
   /** `"Diagnosis"` — charted by hand, still to do. `"Treatment"` — written by a fiche de soins. */
   source: string
   surfaces?: string | null
+  /**
+   * Draw this mark in the neutral ink rather than in its status colour — « Actes réalisés »' case.
+   *
+   * ⚠️ There the colour channel already carries the ACT, so a state drawn in `--chart-mark-done` would
+   * assert a status that chart does not sort by, and one drawn in the act's own hue would disappear into the
+   * wash behind it. Shape says what the act left, colour says which act.
+   */
+  ink?: boolean
 }
 
 const TODO = "var(--chart-mark-todo)"
 const DONE = "var(--chart-mark-done)"
+/** See {@link ToothMark.ink} and the token's own note in `globals.css`. */
+const INK = "var(--chart-mark-ink)"
 
 /**
  * ⚠️ **The tooth is drawn with two gradients, and they are not decoration.**
@@ -63,7 +74,7 @@ const DONE = "var(--chart-mark-done)"
  */
 const OUTLINE = "var(--tooth-line)"
 
-const markColor = (m: ToothMark) => (m.source === "Diagnosis" ? TODO : DONE)
+const markColor = (m: ToothMark) => (m.ink ? INK : m.source === "Diagnosis" ? TODO : DONE)
 const isPlanned = (m: ToothMark) => m.source === "Diagnosis"
 
 /** What a condition does to the tooth's own body, before any overlay is drawn. */
@@ -408,6 +419,37 @@ interface ToothSymbolGlyphProps {
   width?: number
   /** Set when the neighbouring cell carries the same bridge — see {@link BridgeSpan}. */
   bridgeSpan?: BridgeSpan
+  /**
+   * This tooth carries recorded work that charted no state — see `odontogram-recorded-acts.ts`.
+   *
+   * ⚠️ **A prop of its own, never an entry in {@link TOOTH_SYMBOLS}.** That map is compared with
+   * `CONDITION_ORDER` in both directions by `check:responsive`, so a key that is not a `ToothCondition` fails
+   * the build — correctly: this is a different vocabulary, and the mark says « something was done here » and
+   * deliberately nothing about the tooth.
+   */
+  hasRecordedAct?: boolean
+  /**
+   * An act's catalogue colour, washed over the tooth — « Actes réalisés » in this drawing.
+   *
+   * ⚠️ **It mixes the four gradient stops; it does NOT replace them.** Flattening both stops to one flat hue
+   * throws away the enamel/dentine falloff, which is the only thing making the shape read as a *tooth* rather
+   * than a coloured silhouette — the token block in `globals.css` says so beside the literals, and it is what
+   * the first pass of this got wrong. The strength is `--act-tint` (22 % light, 36 % dark), the same token the
+   * agenda's blocks are painted with, so « how much of an act's colour survives into a wide surface » stays
+   * one answer.
+   */
+  tint?: string | null
+  /**
+   * One full-strength band per act, at the collet, apical to the cervical line.
+   *
+   * ⚠️ **Full strength, and that is the documented companion of the wash above**: `--act-tint`'s own note
+   * records that a small mark must keep the whole hue, because at 22 % a 4 px band is simply not there. Two
+   * acts on one tooth stack rather than merging, so they stay countable.
+   *
+   * ⚠️ Drawn apical to the cervix rather than across it — a couronne's margin line sits at `neck + 2` and a
+   * bridge's travée at `neck + 6`, so a band straddling the cervix would be crossed by both.
+   */
+  bands?: string[]
   className?: string
 }
 
@@ -419,7 +461,16 @@ interface ToothSymbolGlyphProps {
  * the read-only callers can reuse this untouched. (Same contract `record-tooth-chart` keeps, and for the same
  * reason.)
  */
-export function ToothSymbolGlyph({ toothNumber, marks, width = 40, bridgeSpan, className }: ToothSymbolGlyphProps) {
+export function ToothSymbolGlyph({
+  toothNumber,
+  marks,
+  width = 40,
+  bridgeSpan,
+  hasRecordedAct,
+  tint,
+  bands,
+  className,
+}: ToothSymbolGlyphProps) {
   const reactId = useId()
   const clipId = `crown-${reactId.replace(/[^a-zA-Z0-9-]/g, "")}`
   const a = TOOTH_ANATOMY[toothKind(toothNumber)]
@@ -460,6 +511,15 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 40, bridgeSpan, c
     }
   }, {})
 
+  /**
+   * One gradient stop, washed with the act's colour when there is one.
+   *
+   * ⚠️ **Mixed toward the stop, never in place of it** — see {@link ToothSymbolGlyphProps.tint}. `--act-tint`
+   * is the strength, so this and the agenda's blocks cannot answer « how much of an act's colour » differently.
+   */
+  const washed = (token: string) =>
+    tint ? `color-mix(in oklab, ${tint} var(--act-tint), var(${token}))` : `var(${token})`
+
   const bodyStroke = {
     stroke: OUTLINE,
     strokeWidth: 1.5,
@@ -483,12 +543,12 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 40, bridgeSpan, c
         </clipPath>
         {/* Bottom-to-top on the crown, top-to-bottom on the root: the two run opposite ways on purpose. */}
         <linearGradient id={`${clipId}-en`} x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0%" stopColor="var(--tooth-enamel-edge)" />
-          <stop offset="100%" stopColor="var(--tooth-enamel-neck)" />
+          <stop offset="0%" stopColor={washed("--tooth-enamel-edge")} />
+          <stop offset="100%" stopColor={washed("--tooth-enamel-neck")} />
         </linearGradient>
         <linearGradient id={`${clipId}-dn`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--tooth-dentine-apex)" />
-          <stop offset="100%" stopColor="var(--tooth-dentine-neck)" />
+          <stop offset="0%" stopColor={washed("--tooth-dentine-apex")} />
+          <stop offset="100%" stopColor={washed("--tooth-dentine-neck")} />
         </linearGradient>
       </defs>
       {/* One flip for the lower arch — see the note in `tooth-anatomy.ts` on why nothing here may be text. */}
@@ -548,12 +608,60 @@ export function ToothSymbolGlyph({ toothNumber, marks, width = 40, bridgeSpan, c
         )}
         {!body.hideRoots && a.roots.map((d, i) => <path key={i} d={d} fill={`url(#${clipId}-dn)`} {...bodyStroke} />)}
         {!body.hideCrown && <path d={a.crown} fill={`url(#${clipId}-en)`} {...bodyStroke} />}
+        {/*
+          The act bands — see {@link ToothSymbolGlyphProps.bands}. Apical to the cervix, so a couronne's margin
+          (`neck + 2`) and a bridge's travée (`neck + 6`) never cross them, and drawn BEFORE the symbols so a
+          glyph is never hidden under one.
+        */}
+        {(bands ?? []).map((colour, i) => (
+          <rect
+            key={`${colour}-${i}`}
+            x={a.span[0] - 2}
+            y={a.neck - 7 - i * 6}
+            width={a.span[1] - a.span[0] + 4}
+            height={4.5}
+            rx={2.2}
+            fill={colour}
+          />
+        ))}
         {symbols.map(({ mark, symbol }, i) =>
           symbol.draw ? (
             <g key={`${mark.condition}-${i}`}>
               {symbol.draw({ a, tooth: toothNumber, mark, color: markColor(mark), planned: isPlanned(mark), clipId })}
             </g>
           ) : null,
+        )}
+        {/*
+          « Un acte a été réalisé ici » — a plain filled point at the collet, in the « réalisé » colour.
+
+          ⚠️ **It claims no anatomy, and that is the whole design.** The act it stands for produced no
+          `ResultingCondition`, so the record says work happened and says nothing about what the tooth now
+          carries; a symbol borrowed from the clinical set would assert more than the fiche does. A point is
+          the one mark in this vocabulary that means « recorded » and nothing else.
+
+          ⚠️ Mirrored across from `ATraiter`'s asterisk (x 79 → 21) rather than sharing its position: the two
+          are the vocabulary's only non-specific marks, they can appear on the same tooth, and colour alone
+          (rouge / bleu) is not a difference that survives a greyscale print or a colour-blind reader.
+
+          Drawn after the condition symbols so it is never hidden under a crown's hatching.
+
+          ⚠️ **It carries a `vectorEffect="non-scaling-stroke"` stroke, and that is not decoration on a filled
+          shape — it is the only reason the mark survives the legend.** Every other glyph here is made of
+          strokes, which stay 2.6 CSS px at any scale, so they read at the 14 px the key draws them at; a pure
+          `fill` scales with the viewBox, and at 14 px an `r={7}` disc is a **1 px** dot. Verified by looking:
+          the first version was invisible in the legend while being perfectly legible on the 40 px chart, so the
+          key taught a mark the reader could not recognise.
+        */}
+        {hasRecordedAct && (
+          <circle
+            cx={21}
+            cy={100}
+            r={9}
+            fill={DONE}
+            stroke={DONE}
+            strokeWidth={3}
+            vectorEffect="non-scaling-stroke"
+          />
         )}
       </g>
     </svg>
@@ -686,19 +794,39 @@ const ZONE_LABEL_POSITION: Record<string, string> = {
  * existing legend already applies to « Traitement en cours »: a key for a mark the reader will never meet
  * teaches nothing.
  */
-export function ToothSymbolLegend({ conditions, className }: { conditions: string[]; className?: string }) {
+export function ToothSymbolLegend({
+  conditions,
+  hasRecordedActs,
+  className,
+}: {
+  conditions: string[]
+  /** This patient carries at least one « acte réalisé » mark — see `odontogram-recorded-acts.ts`. */
+  hasRecordedActs?: boolean
+  className?: string
+}) {
   const shown = conditions.filter((c) => TOOTH_SYMBOLS[c])
   return (
     <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-2 text-xs", className)}>
+      {/* ⚠️ The two colours name their SOURCE, not just their status. « À faire » / « Réalisé » left a reader
+          asking where the actes réalisés were — they are on this very chart, in blue, which is the one thing
+          the key never said. This is the same chart for the diagnostics and for the work done. */}
       <span className="flex items-center gap-1.5">
         <span className="h-1 w-5 rounded-full" style={{ background: TODO }} />
-        <span className="text-muted-foreground">À faire</span>
+        <span className="text-muted-foreground">À faire (diagnostic)</span>
       </span>
       <span className="flex items-center gap-1.5">
         <span className="h-1 w-5 rounded-full" style={{ background: DONE }} />
-        <span className="text-muted-foreground">Réalisé</span>
+        <span className="text-muted-foreground">Réalisé (acte)</span>
       </span>
       <span className="text-muted-foreground">Contour = prévu · plein = en place</span>
+      {/* Only when the patient has one — the rule this legend already applies to every condition glyph: a key
+          for a mark the reader will never meet teaches nothing. */}
+      {hasRecordedActs && (
+        <span className="flex items-center gap-1.5" title={RECORDED_ACT_LEGEND}>
+          <ToothSymbolGlyph toothNumber={16} marks={[]} hasRecordedAct width={14} />
+          <span className="text-muted-foreground">{RECORDED_ACT_LABEL}</span>
+        </span>
+      )}
       {shown.map((c) => (
         <span key={c} className="flex items-center gap-1.5" title={TOOTH_SYMBOLS[c].legend}>
           {/* The real glyph, at legend size — never a hand-drawn stand-in, which is how a key drifts from the

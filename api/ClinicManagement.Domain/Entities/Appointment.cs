@@ -396,6 +396,45 @@ public class Appointment : AggregateRoot<Guid>
     public static bool CanTransition(AppointmentStatus from, AppointmentStatus to) =>
         from == to || NextStatusesFrom(from).Contains(to);
 
+    /// <summary>
+    /// The statuses that state a fact about the <b>clock</b> rather than a decision anybody makes, and are
+    /// therefore written by <c>AppointmentProgressJob</c> alone.
+    /// <para>
+    /// ⚠️ These stay in <see cref="AllowedTransitions"/> — the job itself asks
+    /// <see cref="CanTransition"/> and <see cref="MarkAwaitingClosure"/> re-checks it, so removing the row would
+    /// break the only writer. « May this happen at all? » and « may a <i>human</i> ask for it? » are two
+    /// questions, and this is the second one's answer.
+    /// </para>
+    /// </summary>
+    private static readonly AppointmentStatus[] JobWrittenStatuses = { AppointmentStatus.AwaitingClosure };
+
+    /// <summary>
+    /// True when <paramref name="status"/> is written by the progress job alone and must never be offered as a
+    /// manual choice — see <see cref="JobWrittenStatuses"/>.
+    /// </summary>
+    public static bool IsJobWritten(AppointmentStatus status) => JobWrittenStatuses.Contains(status);
+
+    /// <summary>
+    /// The statuses a <b>human</b> may move this appointment to — <see cref="NextStatusesFrom"/> minus the
+    /// job-written ones. <b>This is what <c>AppointmentDto.AllowedNextStatuses</c> carries</b>, because that
+    /// field exists to drive the status control and the « Annuler » button.
+    ///
+    /// <para>
+    /// ⚠️ Why this exists. `AllowedNextStatuses` was projected straight from <see cref="NextStatusesFrom"/> at
+    /// **four** sites, so from `Scheduled`, `Confirmed` and `InProgress` the dropdown offered « Séance passée »
+    /// — a claim that a slot has ended, which a human has no business asserting. The frontend had already
+    /// decided against it in as many words (`MANUALLY_SETTABLE_STATUSES`, and the edit dialog's own ⚠️ note),
+    /// but applied that filter only on the **fallback** branch taken when the server sends no list; the live
+    /// branch returned the server's verbatim. Picking it then hit
+    /// <c>UpdateAppointmentCommandHandler</c>'s transition <c>switch</c>, which had no arm for it and no
+    /// <c>default</c> — so the request returned <b>HTTP 200 having changed nothing</b>, with an audit row
+    /// recording zero changed fields. Measured in production 2026-09-11: two such requests, 11 seconds apart,
+    /// on one appointment, neither erroring and neither moving it.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyCollection<AppointmentStatus> ManualNextStatusesFrom(AppointmentStatus current) =>
+        NextStatusesFrom(current).Where(s => !IsJobWritten(s)).ToArray();
+
     /// <summary>French stage name, so a refusal names the statuses the way the user sees them.</summary>
     public static string FrenchLabel(AppointmentStatus status) => status switch
     {

@@ -166,6 +166,30 @@ public interface IInvoiceRepository
         GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The money of specific invoices, by id — number, status, total, collected and outstanding, and nothing
+    /// else. The fourth light projection of this repository, for callers holding invoice ids that no link table
+    /// keys: <c>TreatmentPlanItem.BilledOnInvoiceId</c>, the note that collects a continuation's first act
+    /// while deliberately staying <b>un-bridged</b> to its devis.
+    /// <para>
+    /// Bounded by the id set rather than clinic-wide, like <see cref="GetAppointmentLinksAsync"/>: a page of
+    /// devis names a handful of notes, and returning every invoice of the clinic to annotate them grows
+    /// without limit.
+    /// </para>
+    /// <para>Cancelled and draft invoices are returned — the caller decides what a voided note still says.</para>
+    /// </summary>
+    Task<IReadOnlyList<(
+        Guid InvoiceId,
+        string? Number,
+        InvoiceStatus Status,
+        decimal TotalTtc,
+        decimal AmountCollected,
+        decimal Outstanding)>>
+        GetMoneyByIdsAsync(
+            Guid clinicId,
+            IReadOnlyCollection<Guid> invoiceIds,
+            CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// One row per invoice raised against one of <paramref name="appointmentIds"/>: the visit, and the invoice's
     /// id, number and status (AC-P6.13). The third sibling of <see cref="GetTreatmentPlanLinksAsync"/> and
     /// <see cref="GetDentalRecordLinksAsync"/>, answering "is this visit billed, and on which note?".

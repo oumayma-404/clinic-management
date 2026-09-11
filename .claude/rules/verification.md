@@ -79,6 +79,27 @@ The frontend equivalent is the whole of `.claude/rules/frontend-web.md` § 14 �
 `tsc --noEmit` **and** `npm run build`, all three, every time; and re-run them after the *last* edit, not after
 the second-to-last.
 
+## § 4b Test a rule where the rule LIVES
+
+> A wire test posts a body **the test author wrote**. It proves the handler is right about that body. It proves
+> nothing about the body the product sends.
+
+| Where the rule is | Test it with |
+|---|---|
+| a handler or an aggregate | a unit test — plus a wire test only when it crosses aggregates or the database |
+| a **read** (SQL, a projection, a total) | a wire test |
+| `.tsx` or `web/lib/*` — a prefill, a distribution, a withheld control, a tri-state body, a confirmation that re-enters the save, a 409 recovery, a rendered figure | **a browser. Always.** |
+
+Measured 2026-09-11: of the 119 tests in `e2e/`, **21 opened a browser** — and every one of the five `fix(...)`
+commits between the 2026-09-08 hot-path pass and that date was a defect no wire test could see. The sharpest is
+`24f2883e`, « le total d'un acte modifié depuis le rendez-vous part enfin au serveur »: a price the dentist
+typed **never reached the server**. That is money, it is scenario `BOOK-48`, and a wire test of `BOOK-48` would
+have passed every day it was broken, because the wire test sends the price itself.
+
+`features/e2e-hot-paths/scenarios.md` § « Layer » names the rows this applies to, and
+`node e2e/scripts/check-coverage.mjs` fails when one of them has a test and none of its tests drives a page.
+Run it with the rest of the gate; it needs no stack and takes seconds.
+
 ## § 5 Reach for the cheapest ground truth first
 
 Before re-launching a browser to answer a question, ask whether something cheaper is decisive:

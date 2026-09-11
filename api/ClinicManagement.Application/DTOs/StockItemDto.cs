@@ -108,7 +108,9 @@ public static class StockItemMappingExtensions
             UnitPrice = item.UnitPrice,
             SupplierId = item.SupplierId,
             SupplierName = supplier?.Name,
-            SupplierPhoneE164 = PhoneNumber.ToE164(supplier?.PhoneNumber),
+            // The STORED normalisation — deriving it here read every supplier's number as Tunisian, so a French
+            // dépôt lost the WhatsApp action the form had just promised it. See `Supplier.PhoneE164`.
+            SupplierPhoneE164 = supplier?.PhoneE164,
             IsLowStock = item.IsLowStock(),
             // Soonest-expiry first, so the client never has to re-derive FEFO order to show the relevant lot.
             Batches = item.Batches

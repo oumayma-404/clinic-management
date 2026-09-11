@@ -42,6 +42,29 @@ public class Supplier : AggregateRoot<Guid>
     public string? Category { get; private set; }
 
     public string? PhoneNumber { get; private set; }
+
+    /// <summary>
+    /// The stored E.164 normalisation of <see cref="PhoneNumber"/>, resolved with the region the form's country
+    /// selector supplied. Null where no country can read the value — and on every row written before this column.
+    /// <b>Read <see cref="PhoneE164"/>, never this.</b>
+    /// </summary>
+    public string? PhoneNumberE164 { get; private set; }
+
+    /// <summary>
+    /// The dialable form — what decides whether the WhatsApp action is offered.
+    ///
+    /// <para>⚠️ <b>EC-1 is unchanged: an unreadable number is still stored and still merely loses the action.</b>
+    /// What was broken is the promise the form makes about the *country*. The dialog says « Choisissez le pays si
+    /// besoin » and withdraws its warning as soon as the browser can parse the number — but the read side derived
+    /// E.164 from the stored string with no region, i.e. as Tunisian, so a French dépôt saved as
+    /// <c>06 12 34 56 78</c> got **no WhatsApp action and no warning either**: the one case the entity's own note
+    /// promises « the screen explains » was precisely the case the screen had stopped explaining.</para>
+    ///
+    /// <para>⚠️ The fallback re-derives for rows written before the column, against the default region — exactly
+    /// what those rows already resolved to, so no stored supplier changes meaning.</para>
+    /// </summary>
+    public string? PhoneE164 => PhoneNumberE164 ?? ValueObjects.PhoneNumber.ToE164(PhoneNumber);
+
     public string? Address { get; private set; }
     public string? Notes { get; private set; }
 
@@ -64,13 +87,14 @@ public class Supplier : AggregateRoot<Guid>
         string? category = null,
         string? phoneNumber = null,
         string? address = null,
-        string? notes = null)
+        string? notes = null,
+        string? phoneRegion = null)
     {
         Id = id;
         ClinicId = clinicId;
         Name = RequireName(name);
         Category = SupplierCategories.Normalize(category);
-        PhoneNumber = Blank(phoneNumber);
+        SetPhone(phoneNumber, phoneRegion);
         Address = Blank(address);
         Notes = Blank(notes);
         IsActive = true;
@@ -78,11 +102,17 @@ public class Supplier : AggregateRoot<Guid>
     }
 
     /// <summary>Everything the edit form owns. Only the nom is required (AC-1).</summary>
-    public void Update(string name, string? category, string? phoneNumber, string? address, string? notes)
+    public void Update(
+        string name,
+        string? category,
+        string? phoneNumber,
+        string? address,
+        string? notes,
+        string? phoneRegion = null)
     {
         Name = RequireName(name);
         Category = SupplierCategories.Normalize(category);
-        PhoneNumber = Blank(phoneNumber);
+        SetPhone(phoneNumber, phoneRegion);
         Address = Blank(address);
         Notes = Blank(notes);
         UpdatedAt = DateTime.UtcNow;
@@ -120,6 +150,20 @@ public class Supplier : AggregateRoot<Guid>
 
     // Blank and absent are the same fact about an optional field, and storing "" would make « aucune adresse »
     // and « une adresse vide » two states the read side would have to tell apart forever.
+    /// <summary>
+    /// The raw number and its normalisation, written together.
+    ///
+    /// <para>⚠️ <b>Both write paths go through this.</b> `PhoneNumber` is a plain string here (see the note on the
+    /// type), so unlike the patient's value object nothing makes the pair inseparable — and a second assignment
+    /// that set only the raw half would leave a stale E.164 behind, which is worse than a null: it would offer
+    /// WhatsApp on the number the supplier used to have.</para>
+    /// </summary>
+    private void SetPhone(string? phoneNumber, string? phoneRegion)
+    {
+        PhoneNumber = Blank(phoneNumber);
+        PhoneNumberE164 = ValueObjects.PhoneNumber.ToE164(PhoneNumber, phoneRegion);
+    }
+
     private static string? Blank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

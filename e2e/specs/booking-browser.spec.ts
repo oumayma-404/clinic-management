@@ -61,6 +61,23 @@ async function pickAct(page: any, dialog: any, name: string) {
 const submit = (dialog: any) =>
   dialog.locator("button", { hasText: /^Créer le rendez-vous$/ }).first().click()
 
+/**
+ * Chooses an existing patient through the searchable trigger.
+ *
+ * ⚠️ `getByPlaceholder(/Rechercher/).last()` — the header carries a global patient search with the same
+ * placeholder, and matching it instead is one of this repo's recorded probe failures.
+ */
+async function pickExistingPatient(page: any, dialog: any, fullName: string) {
+  await dialog.locator("button", { hasText: /^Patient existant$/ }).first().click()
+  await dialog.locator("button", { hasText: /Choisir un patient/ }).first().click()
+  const surname = fullName.split(" ")[1]
+  const search = page.getByPlaceholder(/Rechercher/).last()
+  await search.fill(surname)
+  const option = page.locator("[cmdk-item]", { hasText: surname }).first()
+  await expect(option).toBeVisible()
+  await option.click()
+}
+
 test.describe("HP-2 · une confirmation ne duplique rien @mutating @t0", () => {
   mutatingOnly()
 
@@ -333,5 +350,208 @@ test.describe("HP-2 · l'éditeur de séances est toujours là @mutating @t0", (
     ).toHaveLength(0)
 
     expect(await api.appointmentsOf(p.id), "…but the booking is still made").toHaveLength(1)
+  })
+})
+
+
+test.describe("HP-2 · la suite d'une séance ne s'écrit qu'à l'enregistrement @mutating @t0", () => {
+  mutatingOnly()
+
+  /*
+   * ⚠️ Twice the file's budget, because these two arrange more than any of its siblings before they drive:
+   * a patient, a fiche de soins carrying a priced act, and the note d'honoraires that fiche raises — then a
+   * full agenda load, two dialogs and three reads back. Measured at ~65 s against the config's 60, so the
+   * failure was the clock and not the product: the screenshot showed the booking dialog not yet open.
+   */
+  test.describe.configure({ timeout: 150_000 })
+
+  /*
+   * ⚠️ **A wire test cannot see any of this.** `ContinueRecordedActCommand` is correct and stays correct; the
+   * defect was WHEN the browser called it. `ContinueSessionDialog` minted the devis on its own button press —
+   * numbered and `Accepted`, so with the lump-sum échéance `Accept` raises — and « Annuler » on the booking
+   * behind it closed a form that had nothing left to undo. Reported from use: a live créance for a séance
+   * nobody booked, and the act it continued gone from « Suite d'une séance précédente » for good
+   * (`ContinuationTracking` counts an act on any non-cancelled plan as taken), recoverable only by cancelling
+   * the devis with a motif.
+   *
+   * Only a browser pressing « Annuler » reproduces it, which is why the pair lives here.
+   */
+
+  /** The reported shape: 200 DT recorded, 150 collected — so 50 still owed on the note the fiche raised. */
+  async function recordedAndPartlyPaid(api: any, arrange: any, patientId: string) {
+    const act = await api.singleSeanceAct()
+    const r = await arrange.fiche(
+      patientId,
+      [arrange.act({ procedureTypeId: act.id, name: act.name, cost: 200, teeth: [11] })],
+      { amountPaid: 150 },
+    )
+    expect(r.status, `fiche: ${r.raw?.slice(0, 300)}`).toBe(200)
+    const fiche = r.body?.value ?? r.body
+    return { act, fiche, ficheActId: fiche.acts[0].id }
+  }
+
+  /** Opens the third door and fills it in, leaving the booking dialog carrying a PENDING continuation. */
+  async function chooseContinuation(page: any, dialog: any, actName: string, remaining: string) {
+    await dialog.locator("button", { hasText: /suite d'une séance précédente/i }).first().click()
+    const cont = page
+      .locator("[data-slot='dialog-content']")
+      .filter({
+        has: page.locator("[data-slot='dialog-title']", { hasText: /Suite d'une séance précédente/ }),
+      })
+      .first()
+    await expect(cont).toBeVisible()
+
+    const row = cont.locator("[role='radio']", { hasText: actName }).first()
+    await expect(row, "the recorded séance must be offered as continuable").toBeVisible()
+    await row.click()
+
+    await cont.locator("#next-step-label").fill("Finition")
+    await cont.locator("#remaining-cost").fill(remaining)
+
+    // ⚠️ The label is itself an assertion: « Créer le traitement » would mean the press still writes.
+    await cont.locator("button", { hasText: /^Ajouter au rendez-vous$/ }).first().click()
+    await expect(cont).toBeHidden({ timeout: 15_000 })
+  }
+
+  test("BOOK-49 · « Annuler » after choosing a continuation leaves NO devis behind", async ({
+    api,
+    arrange,
+    page,
+    patient,
+    sharedContext,
+  }) => {
+    const p = await patient("SuiteAnnul")
+    const { act, ficheActId } = await recordedAndPartlyPaid(api, arrange, p.id)
+
+    await gotoApp(page, "/appointments", sharedContext)
+    const dialog = await openCreateDialog(page)
+    await pickExistingPatient(page, dialog, p.name)
+    await chooseContinuation(page, dialog, act.name, "20")
+
+    /*
+     * The card states what it is before anything exists — and both halves of that sentence were reported
+     * wrong: it named the act as though this visit were the whole of it, and quoted the devis' own balance
+     * while the note beside it still held 50 for the same work.
+     */
+    const text = ((await dialog.textContent()) ?? "").replace(/\u00a0/g, " ")
+    expect(
+      /séance 2 sur 2/.test(text),
+      `the row must say which séance this is, and of what. Dialog said: ${text.slice(0, 400)}`,
+    ).toBeTruthy()
+    expect(
+      /Total des deux séances/.test(text),
+      `the row must state BOTH documents. Dialog said: ${text.slice(0, 400)}`,
+    ).toBeTruthy()
+
+    // ⚠️ Asserted BEFORE the cancel as well: « nothing afterwards » would also be true of a devis created and
+    // then somehow removed, and this is specifically about nothing being written in the first place.
+    expect(
+      (await api.plans(`?patientId=${p.id}&pageSize=50`)).items,
+      "choosing the séance must write nothing — the devis is minted by the SAVE",
+    ).toHaveLength(0)
+
+    /*
+     * ⚠️ **« Annuler » on a dirty form raises « Abandonner les modifications ? », and it is an `alertdialog`.**
+     * `drainConfirmations` cannot answer this one — its affirmative list is the four SAVE prompts, and it
+     * throws on anything else — so the abandon is confirmed here. Not answering it left the booking dialog
+     * open and the test reported « the cancel did not close the dialog », which was false.
+     */
+    await dialog.locator("button", { hasText: /^Annuler$/ }).first().click()
+    const abandon = page.locator("[role='alertdialog']").first()
+    if (await abandon.isVisible().catch(() => false)) {
+      await abandon.locator("button", { hasText: /^Abandonner$/ }).first().click()
+    }
+    await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+    const plans = await api.plans(`?patientId=${p.id}&pageSize=50`)
+    expect(
+      plans.items,
+      "abandoning the booking must leave nothing. Found " +
+        plans.items.map((x: any) => `${x.number ?? "sans n°"}/${x.status}`).join(", "),
+    ).toHaveLength(0)
+    expect(await api.appointmentsOf(p.id), "and no appointment either").toHaveLength(0)
+
+    /*
+     * ⚠️ The half that made the orphan permanent. An act on any non-cancelled plan counts as already
+     * continued, so the eager devis took the séance out of this list — the dentist's own recovery path was
+     * closed by the very mistake they were trying to undo.
+     */
+    const offered = await api.continuableActs(p.id)
+    expect(
+      offered.some((a: any) => a.actId === ficheActId),
+      "the séance must still be offered — changing one's mind cannot cost the act for ever",
+    ).toBeTruthy()
+  })
+
+  test("BOOK-50 · saving the booking DOES create the devis, numbered and linked", async ({
+    api,
+    arrange,
+    page,
+    patient,
+    sharedContext,
+  }) => {
+    /*
+     * The other half, and the one a deferral can break silently: a booking whose card promised a treatment and
+     * saved an ordinary one-off instead. N26 holds the call site; this holds the outcome.
+     */
+    const p = await patient("SuiteGardee")
+    const { act } = await recordedAndPartlyPaid(api, arrange, p.id)
+
+    await gotoApp(page, "/appointments", sharedContext)
+    const dialog = await openCreateDialog(page)
+    await pickExistingPatient(page, dialog, p.name)
+    await chooseContinuation(page, dialog, act.name, "20")
+
+    await submit(dialog)
+    await drainConfirmations(page)
+    await expect(dialog).toBeHidden({ timeout: 20_000 })
+    await dismissPostVisitPrompt(page)
+
+    const plans = await api.plans(`?patientId=${p.id}&pageSize=50`)
+    expect(
+      plans.items,
+      "one save, one devis. Found " +
+        plans.items.map((x: any) => `${x.number ?? "sans n°"}/${x.status}`).join(", "),
+    ).toHaveLength(1)
+
+    const plan = plans.items[0]
+    /*
+     * ⚠️ **The NUMBER is the assertion, not the status.** `Accept` is the only writer of `Number`, so a numbered
+     * plan was accepted — and the status has already moved on by the time this read happens: the continuation
+     * marks its « 1re séance » done against the fiche in the same transaction, and `AdvanceAfterWorkRecorded`
+     * takes an accepted plan with recorded work to `InProgress`. Asserting the literal « Accepted » measured
+     * the first instant of a plan that is never observed in it.
+     */
+    expect(plan.number, "a continuation's devis is numbered and accepted in the same save").toBeTruthy()
+    expect(
+      ["Accepted", "InProgress"],
+      `a continuation's devis is live and debt-bearing; it was ${plan.status}`,
+    ).toContain(plan.status)
+
+    /*
+     * ⚠️ The appointment must carry the plan. `resolveAttachedPlanId` reads `planIdByItem`, and a devis minted
+     * seconds ago is in neither the hook's read nor the state write of this same tick — so without the
+     * materialiser merging its own ids the server refuses with « Le plan de traitement est requis pour lier
+     * l'acte. », the feature turned down by its own client.
+     *
+     * ⚠️ **Asserted on `treatmentPlanItemId`, because `AppointmentDto` carries no `treatmentPlanId`.** The
+     * server stores that scalar (and refuses the save without it), but the read exposes only the act-level
+     * link — so a check on the plan id reads `undefined` and fails on a booking that worked perfectly.
+     */
+    const appts = await api.appointmentsOf(p.id)
+    expect(appts, "the booking is made").toHaveLength(1)
+    const itemIds = plan.items.map((i: any) => i.id)
+    expect(
+      itemIds,
+      `the séance must be linked to an act of the devis just created; it carried ${appts[0].treatmentPlanItemId}`,
+    ).toContain(appts[0].treatmentPlanItemId)
+
+    /*
+     * ⚠️ And it must be the act still to do, never the one the note already billed. A priced « travail
+     * restant » makes the continuation's FIRST act `Done` on creation, so booking `items[0]` puts the séance
+     * on work that is finished — which is what `schedulablePlanItems` is the gate against.
+     */
+    const booked = plan.items.find((i: any) => i.id === appts[0].treatmentPlanItemId)
+    expect(booked?.status, "the séance belongs to the remaining work, not to the billed act").not.toBe("Done")
   })
 })

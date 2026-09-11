@@ -41,6 +41,88 @@ public static class TreatmentPlanMappingExtensions
         var planHasUnrealisedWork = plan.ActiveItems.Any(i => i.Status != TreatmentPlanItemStatus.Done);
         var clinicToday = ClinicClock.ClinicToday();
 
+        /*
+         * The notes that collect an act this devis carries at 0, and the treatment's money across both.
+         *
+         * ⚠️ **Parked acts are excluded** (`ActiveItems`), the same rule `ItemsDone`/`ItemsTotal` two fields up
+         * already applies: « Arrêter le traitement » puts an act aside precisely because the patient is not coming
+         * back for it, so counting the note behind it would keep a stopped treatment claiming money for work
+         * nobody will do.
+         *
+         * ⚠️ The three totals are taken from the NOTES' own figures, never from `BilledOnInvoiceAmount`, so
+         * `total − collected == outstanding` holds by construction. Where a note bills more than this treatment's
+         * acts, `BillsOtherWork` states it instead of the total quietly absorbing somebody else's filling.
+         */
+        var carriedInvoices = plan.ActiveItems
+            .Where(i => i.BilledOnInvoiceId.HasValue)
+            .Select(i => (Item: i, Carried: workflow.CarriedInvoiceByItemId.TryGetValue(i.Id, out var c) ? c : null))
+            .Where(x => x.Carried is not null)
+            .GroupBy(x => x.Carried!.InvoiceId)
+            .Select(g =>
+            {
+                var note = g.First().Carried!;
+                /*
+                 * ⚠️ **The recorded share describes the note it was recorded against, so once that note has been
+                 * REPLACED it describes nothing** — a correction that re-priced the séance 90 → 95 would
+                 * otherwise leave the act row printing « 90,000 DT sur la note n° 2026-0020 », a figure that
+                 * appears on no document. 0 is how this DTO says « could not be attributed », and the row then
+                 * names the note without a figure; the note's real total sits beside it either way.
+                 */
+                var replaced = g.Any(x => x.Item.BilledOnInvoiceId != note.InvoiceId);
+                var billedActAmount = replaced
+                    ? 0m
+                    : InvoiceCalculator.RoundMoney(g.Sum(x => x.Item.BilledOnInvoiceAmount));
+                return new PlanCarriedInvoiceDto
+                {
+                    InvoiceId = note.InvoiceId,
+                    Number = note.Number,
+                    Status = note.Status.ToString(),
+                    Total = note.TotalTtc,
+                    Collected = note.AmountCollected,
+                    Outstanding = note.Outstanding,
+                    BilledActAmount = billedActAmount,
+                    // A millime of tolerance rather than `>`: both sides are already millime-precise, and a
+                    // strict comparison on decimals is the kind of thing that reports « facture aussi d'autres
+                    // actes » about a rounding artefact.
+                    BillsOtherWork = note.TotalTtc - billedActAmount > 0.0005m,
+                };
+            })
+            .OrderBy(c => c.Number ?? string.Empty)
+            .ToList();
+
+        /*
+         * ⚠️ **This devis' own share of the treatment — and on a BILLED plan it is the bridge note's figures,
+         * never the plan's own.** A devis a note d'honoraires collects has an auto-raised échéance that will
+         * never see a payment, so `plan.Outstanding` reports the whole devis as unpaid for ever: measured on
+         * 4 of 4 bridged plans, two of them fully settled. That is the defect `displayedOutstanding` exists to
+         * fix in the browser, and folding the raw figure in here would have re-introduced it on the one screen
+         * this feature is about — « Facturer le devis » is offered on a continuation plan, so a dentist who
+         * bills the remaining 10 and collects it would still read « Reste 50 » instead of « Reste 40 ».
+         *
+         * `planIsBilled` (not « is there a note ») is the gate, for `PlanBillingRules.RepresentsItsPlan`'s
+         * reason: a Draft or Cancelled bridge does not represent the plan, so the plan's own figures are still
+         * the live ones.
+         */
+        var planShareTotal = planIsBilled ? invoice.TotalTtc : plan.TotalPlanned;
+        var planShareOutstanding = planIsBilled ? invoice.Outstanding : plan.Outstanding;
+        var planShareCollected = planIsBilled
+            ? InvoiceCalculator.RoundMoney(invoice.TotalTtc - invoice.Outstanding)
+            : plan.AmountPaid;
+
+        /*
+         * ⚠️ **Only a note that actually carries a balance is summed into the headline — a DRAFT one is shown
+         * and not counted.** `PatientDebtLines` is fed non-Draft, non-Cancelled invoices, so a draft note claims
+         * nothing in « Solde patient »: folding it in here would put « Reste 100 » on the treatment screen for a
+         * patient the patient's own file says owes 10. Two money surfaces disagreeing about one patient is the
+         * defect this whole feature is about, and it would have been re-created one screen over.
+         *
+         * The draft still appears in `CarriedInvoices` — the act's 0 has to be explained whatever the note's
+         * status, and the composition row is where that is said.
+         */
+        var claimingNotes = carriedInvoices
+            .Where(c => PlanBillingRules.RepresentsItsPlan(Enum.Parse<InvoiceStatus>(c.Status)))
+            .ToList();
+
         return new TreatmentPlanDto
         {
             Id = plan.Id,
@@ -69,6 +151,16 @@ public static class TreatmentPlanMappingExtensions
             LinkedInvoiceStatus = hasInvoice ? invoice.Status.ToString() : null,
             LinkedInvoiceTotal = hasInvoice ? invoice.TotalTtc : null,
             LinkedInvoiceOutstanding = hasInvoice ? invoice.Outstanding : null,
+            CarriedInvoices = carriedInvoices,
+            TreatmentTotal = claimingNotes.Count == 0
+                ? null
+                : InvoiceCalculator.RoundMoney(planShareTotal + claimingNotes.Sum(c => c.Total)),
+            TreatmentCollected = claimingNotes.Count == 0
+                ? null
+                : InvoiceCalculator.RoundMoney(planShareCollected + claimingNotes.Sum(c => c.Collected)),
+            TreatmentOutstanding = claimingNotes.Count == 0
+                ? null
+                : InvoiceCalculator.RoundMoney(planShareOutstanding + claimingNotes.Sum(c => c.Outstanding)),
             Items = plan.Items
                 .Select(i => ToItemDto(i, workflow))
                 .ToList(),
@@ -117,6 +209,7 @@ public static class TreatmentPlanMappingExtensions
     private static TreatmentPlanItemDto ToItemDto(TreatmentPlanItem item, TreatmentPlanWorkflow workflow)
     {
         var hasAppointment = workflow.ScheduledByItemId.TryGetValue(item.Id, out var appointment);
+        var carriedNote = workflow.CarriedInvoiceByItemId.TryGetValue(item.Id, out var carried) ? carried : null;
 
         return new TreatmentPlanItemDto
         {
@@ -125,6 +218,20 @@ public static class TreatmentPlanMappingExtensions
             DesignationFr = item.DesignationFr,
             ToothNumbers = item.ToothNumbers.ToList(),
             PlannedCost = item.PlannedCost,
+            // Null on every ordinary line, which is what keeps the act row's shape unchanged for every plan
+            // that carries nothing. The number and the outstanding come from the projection, never from the
+            // marker alone — a cancelled note is dropped there, so this stays null and the row falls back to
+            // printing the cost, which is the honest reading once nothing bills it.
+            BilledOnInvoiceId = carriedNote?.InvoiceId,
+            BilledOnInvoiceNumber = carriedNote?.Number,
+            // 0 also when the note was REPLACED (a correction): the recorded share described the note it was
+            // recorded against, so quoting it beside the replacement's number prints a figure that is on no
+            // document. Same rule as `PlanCarriedInvoiceDto.BilledActAmount` — stated in both places because the
+            // row and the composition are read together and must not disagree.
+            BilledOnInvoiceAmount = carriedNote is null || carriedNote.InvoiceId != item.BilledOnInvoiceId
+                ? 0m
+                : item.BilledOnInvoiceAmount,
+            BilledOnInvoiceOutstanding = carriedNote?.Outstanding ?? 0m,
             TreatedToothNumbers = workflow.TreatedTeethByItemId.TryGetValue(item.Id, out var treated)
                 ? treated.ToList()
                 : new List<int>(),

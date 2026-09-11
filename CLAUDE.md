@@ -53,6 +53,13 @@ clinic-management/
 │                                   during render). Arranges over the API, ACTS in the browser, asserts on the
 │                                   coupled reads. Runs in CI's `e2e` job on a bootstrapped database, and as a
 │                                   READ-ONLY smoke after a hosted deploy. → features/e2e-hot-paths/
+│                                   `scripts/check-coverage.mjs` = the DERIVED GUARD: it parses scenarios.md and
+│                                   the specs and fails on an untested tier-0 row, on a row scenarios.md § Layer
+│                                   calls browser-only that has only a wire test, and on a test naming a row that
+│                                   does not exist. Coverage is a measured number here, never a claim.
+│                                   ⚠️ Serve `web` with `node .next/standalone/server.js` — `npm run start`
+│                                   binds, says « Ready », then EXITS (output: 'standalone'), and the browser
+│                                   half then reports ten product defects. e2e/README.md § Running it locally.
 ├── web/                          Next.js frontend
 │   ├── (root)                            → CLAUDE.md  (stack, routing, API/auth integration)
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)
@@ -154,10 +161,12 @@ how it was built, `notes.md` is what shipped.
 
 - [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
+- [`unfinished-act-continuation`](features/unfinished-act-continuation/notes.md) — Un acte peut être noté « non terminé », et ce qui reste apparaît quelque part · « Suites à planifier » n'est PAS une quatrième question de la clôture
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
 - [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu · Deux surfaces annonçaient l'étape SUIVANTE comme si elle avait eu lieu
+- [`booking-treatment-suggestions`](features/booking-treatment-suggestions/notes.md) — Le rappel ne nommait qu'un traitement, et se taisait pour 47 patients sur 318
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
@@ -225,6 +234,26 @@ touching the area.
   a plain `setError` is **poisoned for good** — the version it holds never moves, so every later click repeats the
   refusal (six of them over 81 minutes, until the user reloaded the page). Any form that round-trips a version
   goes through `useConflict`, which offers the « Recharger » that the server's own sentence tells the user to do.
+- **« Legal transition » and « a human may choose it » are two questions, and `AllowedNextStatuses` answers the
+  second.** `AppointmentStatus.AwaitingClosure` (« Séance passée ») states that a slot has *ended* — a fact about
+  the clock — so `AppointmentProgressJob` is its only writer. But it is legitimately in
+  `Appointment.AllowedTransitions` (the job asks `CanTransition`, and `MarkAwaitingClosure` re-checks it), and
+  **four** read sites projected `AllowedNextStatuses` straight from `NextStatusesFrom` — so the status control
+  offered « Séance passée » from `Scheduled`, `Confirmed` *and* `InProgress`, i.e. on essentially every open
+  visit. The frontend had decided against exactly that in as many words (`MANUALLY_SETTABLE_STATUSES`, plus the
+  edit dialog's own ⚠️ note) and applied the filter **only on the fallback branch** taken when the server sends
+  no list; the live branch passed the server's through, and `appointment-quick-actions` (the agenda's « ⋯ » menu)
+  never filtered at all. Picking it then reached `UpdateAppointmentCommandHandler`'s transition `switch`, which
+  had **no arm for it and no `default`**, so the request **fell through to the save and returned HTTP 200 with
+  the status unchanged** — a green toast reading « Rendez-vous marqué « Séance passée » » over a statut that had
+  not moved, and an audit row with an **empty `ChangedFields`**. Measured in production 2026-09-11: two such
+  requests eleven seconds apart on one appointment, neither erroring, neither moving it. Ask
+  `Appointment.ManualNextStatusesFrom`; the `default:` arm is what stops an eighth status repeating it. ⚠️ The
+  refusal lives **inside** the `newStatus != oldStatus` gate — the dialog prepends the *current* status so its
+  Select has a value, so every ordinary edit of a visit already in « Séance passée » posts it back unchanged, and
+  refusing there would make such a visit uneditable. ⚠️ The job's own pass was **never** broken: the same audit
+  shows it moved that appointment `InProgress → AwaitingClosure` 48 s after the drag. Two independent things
+  looked like one permanent bug because both silent refusals landed inside that window.
 - **Never `DateTime.UtcNow` or `DateTime.Today`.** `ClinicClock` is the only thing that knows Tunisia is UTC+1.
   `EndOfLocalDayUtc` is the *next* midnight (exclusive) while every money read is inclusive at both ends — use
   `LastTickOfLocalDayUtc`, or a midnight payment lands in two adjacent periods.
@@ -232,6 +261,23 @@ touching the area.
   for the first hour of every Tunisian day the latter pre-fills *yesterday*, and on the 1st, last month.
 - **An update DTO is tri-state.** Omitting a key means "unchanged"; `[]` or an explicit null means "clear".
   Conflating them deletes data — `{ status }` alone on an appointment would drop every act of the séance.
+- **A field of a recorded ACT is kept alive only by the fiche's editor, and forgetting either half rewrites the
+  act on the next ordinary save.** `DentalRecord.SetActs` replaces the **whole** list, so a field read back but
+  not sent — or sent but not read back — is silently reset by reopening a fiche to fix a typo and pressing
+  Enregistrer. Three fields have paid for this: `PonticToothNumbers` (a bridge flattens to three abutments and
+  no pontic, which is a mouth that cannot exist), `ImplantPilierToothNumbers` (rooted abutments charted over
+  implants), and `IsUnfinished` (the act is marked **finished** — a clinical claim nobody made — and quietly
+  leaves « Suites à planifier », so the séance nobody booked is chased by nothing). None errors anywhere.
+  `check:responsive`'s **N36** derives the required set from `DentalRecordActDto` itself and asserts it in both
+  directions, so a fourth field is covered the day it is declared. ⚠️ A caller that **copies**
+  `DentalRecordActInput` must use a `with` expression, never re-list the positional arguments —
+  `PlanCarriedActPricing` is the in-tree example.
+- **« Acte non terminé » is never cleared automatically, and « is this act already being continued? » is a
+  different question with a different owner.** The tick records what the dentist *saw* that day, so a list keyed
+  on it alone keeps chasing work already on a devis and its own button mints a second devis over the same act —
+  ask `ContinuationTracking`. ⚠️ Its mirror is the **opposite** rule on the other reader: in
+  `GetContinuableActsQuery` the flag is a **sort and never a filter**, because it is one checkbox at the end of
+  a séance and filtering on it makes a forgotten tick unrecoverable.
 - **Every paged read orders on a unique column last** (`.ThenBy(x => x.Id)`). `OFFSET` over a non-unique sort
   shows one row twice and skips another, which reads as "a record vanished".
 - **`paging: null` is a first-class case**, not a very large page — the pickers, the lookups and every money
@@ -262,7 +308,20 @@ touching the area.
   `Number is null` for that reason, after the guard was applied to one of four status writers and
   « Arrêter le traitement » → « Reprendre le traitement » turned a followed treatment into an `Accepted` devis
   with a null number and a live créance for a total nobody had quoted.
-- **A multi-séance act is split BY DEFAULT, and the treatment is created when the booking is SAVED.**
+- **A multi-séance act is split BY DEFAULT, and BOTH doors onto a treatment create it when the booking is
+  SAVED.** `materialiseTreatments` is the one place that happens — a split act *and* « c'est la suite d'une
+  séance précédente ». The continuation door used to mint its devis on its own button press, **numbered and
+  `Accepted`**, so the lump-sum échéance `Accept` raises became a live créance the moment the dentist pressed
+  « Annuler » on the booking behind it — for a séance nobody booked, visible in « Solde patient », « Créances »,
+  la caisse and the dashboard. The act it continued also left « Suite d'une séance précédente » for good, since
+  `ContinuationTracking` counts an act on any non-cancelled plan as taken, so the only way back was to cancel
+  the devis with a motif. ⚠️ **One materialiser, not two**, because N26 is derived from the picker being
+  rendered: a second entry point is a second thing the third booking surface can forget. ⚠️ **An appointment
+  carries ONE `TreatmentPlanId`**, so a pending continuation occupies that slot — `resolvePlannedProtocols`
+  follows no split act beside one, the suggestion notice withdraws, and `protocolError` refuses a continuation
+  next to a devis act **before** anything is written; left to `resolveAttachedPlanId` the refusal lands *after*
+  two devis exist. ⚠️ And changing patient mid-dialog drops the pending row, or the save mints the FIRST
+  patient's devis and is then refused.
   `resolvePlannedProtocols` is the only place that default lives, and `SelectedAct.plannedProtocol` is
   tri-state (`undefined` = undecided · `null` = one séance · a list = the confirmed séances). It replaced a
   « Suivre ce traitement » button that created the plan on press, and therefore needed a patient id: the create
@@ -305,6 +364,31 @@ touching the area.
   with « Le plan de traitement est requis pour lier l'acte. », after showing the finished 30 DT act in place
   of the 10 DT being booked and offering no step at all. `attachPlanAct`'s own doc had said « never
   `plan.items[0]` » since the day it was written; `check:responsive`'s N28 is what holds it.
+- **An act with no `ResultingCondition` writes NO row, and a chart reading only `ToothStateDto[]` loses it in
+  silence.** `BuildToothStates` skips `null`/`Sain` before anything else, and « Coiffage pulpaire »,
+  « Inlay-core », « Couronne provisoire », « Incision d'abcès » and « Greffe osseuse » are all seeded `Sain`
+  deliberately (the barème's own line for a coiffage is « à l'exclusion de l'obturation définitive »). Add the
+  bullet below — a multi-séance act whose end state `ToothChartingRules` is still withholding — and **258 of
+  566 recorded acts** on the dev database named teeth and marked nothing: 46 % of all recorded work invisible on
+  the chart the consultation is read off, in **both** drawings, with no error anywhere. Reported from use as
+  « j'ai fait un coiffage et je ne le vois pas ». `odontogram-recorded-acts.ts` is the one owner of that second
+  vocabulary and `check:responsive`'s N35 holds it; the test it uses is the **outcome** (`dentalRecordId`), never
+  `act.resultingCondition`, which `ToothChartingRules` clears for the odontogram while leaving it on the stored
+  act. ⚠️ `odontogram-acts-chart.tsx` had recorded this exact trap as the worst of three it was built to fix,
+  and the lesson was never carried to the chart beside it. ⚠️ And the tab it lives on is **« État dentaire »**,
+  not « Diagnostics »: it has always carried both sources, and the old name is why a dentist concluded there
+  were no symbols for les actes réalisés.
+- **« Actes réalisés » draws the teeth too, and its colour means the ACT — so a state there is drawn in
+  `--chart-mark-ink`, never in a status colour, and never from `act.resultingCondition`.** The Cases/Symboles
+  switch used to be withheld on that tab because the chart ignored `chartView` — correct at the time (« a
+  control that lies is worse than a missing one ») and the direct cause of the report, since a dentist found
+  the switch on one tab, nothing on the other, and concluded the feature did not exist. The switch is
+  unconditional now and `check:responsive`'s N37 fails if that chart stops branching on it. ⚠️ The act's colour
+  is **mixed into** the tooth's own gradient stops at `--act-tint`, plus one full-strength band per act at the
+  collet — flattening both stops to one flat hue throws away the enamel/dentine falloff that is the only thing
+  making the shape read as a tooth, which `globals.css` states beside those literals. ⚠️ And the state drawn
+  over it comes from `ToothStateDto`, so a condition `ToothChartingRules` is withholding is simply absent;
+  reading the act row instead re-creates « Implant » charted weeks before the implant existed.
 - **A restoration records work that is DONE, and the chart asserted it from the FIRST séance.** A multi-séance
   act's step-1 fiche carried the catalogue's `ResultingCondition`, so a tooth read « Implant » weeks before the
   implant existed — measured as 7 rows on the live database, every one from a step 1 of 2, three of them claiming
@@ -315,6 +399,26 @@ touching the area.
   the aggregate can say whether the step just marked was the last. ⚠️ Its companion is
   `TreatmentPlanItemDto.TreatedToothNumbers`: with the chart written at the END, teeth entered on an early séance
   and absent from the last fiche would chart **nothing at all**.
+- **A CORRECTION must not decide a stopped treatment is running again, and `OpenStatusFromWork` has no `Stopped`
+  arm.** « Arrêter le traitement » parks every act with no delivered work, and `Reopen` — reachable only from
+  `Stopped`/`Completed` — is the **only** thing that brings them back. So « Détacher la fiche » on a stopped
+  devis wrote `InProgress`, which withdrew « Reprendre le traitement » from the header in the same breath and
+  left the parked acts outside `ActiveItems`, outside `TotalPlanned` (already re-spread by the stop) and outside
+  every count, with **no route back** — the devis reading as an ordinary live treatment that had silently shrunk,
+  with no error. `StatusFollowsTheWork` is the one predicate and **three** writers consult it: both unmarks and
+  `SetItemSteps`, whose own inline copy of the recompute is the save button of the very dialog that hosts the
+  step-level « Détacher ». ⚠️ `Reopen` deliberately does **not** consult it — that *is* the deliberate decision,
+  and it restores the acts before it asks. ⚠️ `EnsureCorrectable` admitting `Stopped` is right and is not the
+  bug; the bug was what happened after it passed, and the test that let it ship asserted the call **succeeded**
+  and nothing about the resulting status.
+- **« Détacher la fiche » on a stepped act releases the LAST séance only, and both surfaces said « Prévu ».**
+  `TreatmentPlanItem.Unmark` undoes the last *done* step by rank, so a three-séance couronne lands on « En
+  cours » with 2 of 3 faites — while the confirmation read « repassera à « Prévu » » and the toast « Acte ramené
+  à « Prévu » » whatever the act was. The workspace's own help paragraph had the truth and the dialog the user
+  reads did not. `detachOutcome` (TS) is the one reader: it names the séance being released, carries the
+  `dentalRecordId` **captured before the call** (detaching clears the only pointer the devis has to that fiche,
+  while re-pointing it is the correction being made — without it the row's next offer is « Enregistrer la
+  fiche » on the same appointment, i.e. a *second* fiche for one visit), and phrases the remainder as a count.
 - **An échéance the system raised is not a date anybody promised**, and reading it as one made every devis in the
   database « En retard » from the day after signature (25 of 27 unpaid rows, cancelled and already-invoiced ones
   included). `Accept` writes one lump-sum row dated at the acceptance instant so a payment has somewhere to live;
@@ -432,6 +536,31 @@ touching the area.
   give the buttons a real `basis-*` with `flex-wrap`, and put `min-w-0` on any row holding a `truncate`
   descendant — `white-space: nowrap` makes its min-content the whole string. ⚠️ `tsc`, `check:responsive` and
   `npm run build` were **all green** while this was live; only the eye pass at 320 px found it.
+- **A country selector whose choice never leaves the browser, and two refusal sentences that are byte-identical.**
+  `PhoneNumber.ToE164(raw, region)` has taken a region since international-phone-numbers shipped and its docstring
+  says « the country selector passes the user's own choice » — **not one production call site passed one**, so the
+  server validated every number against Tunisia while the form offered 250 countries. Measured in production
+  2026-09-11: « France » + `06 12 34 56 78` (valid, and accepted by the browser's own pre-check) refused on save;
+  `+33 6 12 34 56 78` accepted, which is the only reason the feature looked half-alive. ⚠️ It was undiagnosable
+  because `PhoneRefusals.Invalid` and `PHONE_ERROR_FR` are **the same sentence word for word** while both
+  docstrings claimed they were deliberately distinct — so a server refusal was indistinguishable from the client
+  pre-check. ⚠️ `PhoneRuleCorpusTests` and `check:responsive`'s `phone-rule-matches-the-corpus` were green
+  throughout and *contain this exact case*: a corpus pins a **function**, and nothing pinned that the callers hand
+  it the region. ⚠️ The region is a **write-time input that must be stored**, not merely validated with —
+  `PhoneNumber.E164` / `Supplier.PhoneE164` are the stored normalisation, because a national number cannot be
+  re-derived without its country and accepting one the product cannot dial is the quieter half of the same defect
+  (no WhatsApp, no reminder, a `tel:` link dialling a French national number from a Tunisian handset). Nothing is
+  backfilled; both fall back to re-deriving, which is exactly what legacy rows already resolved to.
+- **In the Windows shell, EVERY failed navigation used to mean « the clinic server is unreachable ».** The panel
+  it raises replaces the whole application, so raising it is a claim that the server is down — but
+  `NavigationCompleted` reports a failure for at least four things that say nothing of the kind: a `tel:` or
+  `mailto:` link (no scheme a WebView can complete), a navigation cancelled on purpose, **a request that turned
+  into a download** (WebView2 reports one as `ConnectionAborted` on the clinic's own origin), and any navigation
+  superseded by the next. One tap on a patient's phone number took the app down and named a server that was
+  answering `/health` with 200. ⚠️ `CoreWebView2NavigationCompletedEventArgs` carries **no URI**, only a
+  navigation id — which is precisely how the handler came to blame `_config.BaseUrl` for failures that never
+  addressed it. The test is now positive and narrow (the clinic app's own document, remembered from
+  `NavigationStarting`), never a list of failures to forgive. See `desktop/CLAUDE.md` → `ExternalNavigation.cs`.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill

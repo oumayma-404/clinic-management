@@ -43,6 +43,8 @@ public class ContinueRecordedActMoneyTests
     private static readonly Guid PatientId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private static readonly Guid RecordId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
     private static readonly DateTime Intervention = new(2026, 9, 7, 9, 0, 0, DateTimeKind.Utc);
+    /// <summary>The catalogue act the fiche recorded — carried onto BOTH devis lines, see the test that pins it.</summary>
+    private static readonly Guid ProcedureTypeId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
 
     /// <summary>The reported case: « Coiffage pulpaire », 30 DT, continued for 10 DT more.</summary>
     private const decimal ActCost = 30m;
@@ -94,7 +96,7 @@ public class ContinueRecordedActMoneyTests
         record.SetActs(new[]
         {
             new DentalRecordActInput(
-                null, "Coiffage pulpaire", ActCost, ActCost, false, new[] { 36 },
+                ProcedureTypeId, "Coiffage pulpaire", ActCost, ActCost, false, new[] { 36 },
                 ToothCondition.Obturation, null, null),
         });
         return record;
@@ -508,5 +510,153 @@ public class ContinueRecordedActMoneyTests
         Assert.NotEqual(TreatmentPlanItemStatus.Done, item.Status);
         Assert.Equal(2, item.Steps.Count);
         Assert.Single(item.Steps, s => s.DoneDate == null);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>The continuation line carries the original act's CATALOGUE link, and withholding it made the
+    /// fiche unanswerable.</b>
+    ///
+    /// <para>A devis line with no <c>ProcedureTypeId</c> is a hand-typed line, so booking it produces a
+    /// link-only appointment row carrying no act — and the fiche opened from that booking has nothing to
+    /// prefill. Reported from use on the second séance of a traitement de canal: « Choisissez l'acte
+    /// réalisé… », asked about a séance the app itself had arranged, on a treatment that knows exactly which
+    /// act is being finished.</para>
+    ///
+    /// <para>⚠️ It cannot cause a second charge, which is why the link was withheld in the first place:
+    /// <c>PlanCarriedActPricing</c> imposes 0 on any fiche act carrying a <c>treatmentPlanItemId</c> whatever
+    /// the catalogue says. The link buys the act's name, colour and duration; the price stays the devis'.</para>
+    /// </summary>
+    [Fact]
+    public async Task The_Continuation_Line_Carries_The_Original_Acts_Catalogue_Link()
+    {
+        var actId = PinRecord();
+
+        await ContinueActOf(actId, RemainingCost);
+
+        var items = _saved!.Items.OrderBy(i => i.SequenceNumber).ToList();
+        Assert.Equal(2, items.Count);
+        // Both lines are the same act of the catalogue — the second is the rest of the first.
+        Assert.Equal(items[0].ProcedureTypeId, items[1].ProcedureTypeId);
+        Assert.Equal(ProcedureTypeId, items[1].ProcedureTypeId);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>The 0 has an OWNER now, and that is what the whole « money gap » report was about.</b> Pricing the
+    /// already-billed act 0 keeps the two documents disjoint (every test above); recording <i>whose</i> 0 it is
+    /// is what lets every later surface say so. Without the marker the devis' own money WAS the treatment's
+    /// money everywhere it was read — « Total convenu 10,000 · Encaissé 0,000 » on a treatment the patient had
+    /// already paid 50 towards — and the sentence that says otherwise existed only in the dialog that creates
+    /// the plan.
+    /// </summary>
+    [Fact]
+    public async Task The_Billed_Act_Records_Which_Note_Collects_It_And_For_How_Much()
+    {
+        var invoice = NoteOverTheFiche(InvoiceStatus.Issued);
+        var actId = PinRecord();
+
+        await ContinueActOf(actId, RemainingCost);
+
+        var billed = _saved!.Items.OrderBy(i => i.SequenceNumber).First();
+        Assert.Equal(invoice.Id, billed.BilledOnInvoiceId);
+        Assert.Equal(ActCost, billed.BilledOnInvoiceAmount);
+        // The 0 is unchanged — the marker explains it, it does not undo it.
+        Assert.Equal(0m, billed.PlannedCost);
+        Assert.Equal(RemainingCost, _saved.TotalPlanned);
+    }
+
+    /// <summary>
+    /// A <c>Draft</c> note takes the same branch as a live one (the four cases above), so it marks the act too —
+    /// otherwise issuing the note later would leave a carried act nothing names.
+    /// </summary>
+    [Fact]
+    public async Task A_Draft_Note_Marks_The_Act_Exactly_Like_A_Live_One()
+    {
+        var invoice = NoteOverTheFiche(InvoiceStatus.Draft);
+        var actId = PinRecord();
+
+        await ContinueActOf(actId, RemainingCost);
+
+        Assert.Equal(invoice.Id, _saved!.Items.OrderBy(i => i.SequenceNumber).First().BilledOnInvoiceId);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>The marker is written ONLY where the note keeps the act.</b> On the attached path the note
+    /// represents the plan, so a marker would make the act read « facturé ailleurs » on a devis the very same
+    /// note already speaks for — two contradictory statements about one arrangement.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]   // a note, but no new money → attached, not carried
+    [InlineData(false)]  // no note at all → the devis owns the fee
+    public async Task Nothing_Is_Marked_When_The_Note_Is_Attached_Or_Absent(bool hasNote)
+    {
+        if (hasNote)
+        {
+            NoteOverTheFiche(InvoiceStatus.Issued);
+        }
+        var actId = PinRecord();
+
+        await ContinueActOf(actId, hasNote ? null : RemainingCost);
+
+        Assert.All(_saved!.Items, i => Assert.Null(i.BilledOnInvoiceId));
+        Assert.All(_saved.Items, i => Assert.Equal(0m, i.BilledOnInvoiceAmount));
+    }
+
+    /// <summary>
+    /// The command's own response carries the treatment's whole money, because the booking dialog renders the
+    /// plan it just created without reloading — <c>ToDto</c> leaves the query-path projections empty.
+    /// </summary>
+    [Fact]
+    public async Task The_Response_States_The_Treatment_Money_Across_Both_Documents()
+    {
+        var invoice = NoteOverTheFiche(InvoiceStatus.Issued);
+        invoice.RecordPayment(20m, PaymentMethod.Cash, Intervention);
+        var actId = PinRecord();
+
+        var result = await ContinueActOf(actId, RemainingCost);
+
+        var carried = Assert.Single(result.Value!.CarriedInvoices);
+        Assert.Equal(invoice.Number, carried.Number);
+        Assert.Equal(ActCost, carried.Total);
+        Assert.Equal(20m, carried.Collected);
+        Assert.Equal(10m, carried.Outstanding);
+        Assert.False(carried.BillsOtherWork);
+
+        // 10 on the devis + 30 on the note; 20 collected; 10 + 10 still owed.
+        Assert.Equal(40m, result.Value.TreatmentTotal);
+        Assert.Equal(20m, result.Value.TreatmentCollected);
+        Assert.Equal(20m, result.Value.TreatmentOutstanding);
+
+        // ⚠️ And never through `LinkedInvoice*`, which means the opposite — see `PlanCarriedInvoiceDto`.
+        Assert.Null(result.Value.LinkedInvoiceId);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Amending the devis cannot put the note's fee back onto the line it holds at 0.</b> The plan is
+    /// deliberately un-bridged, so <c>AmendTreatmentPlanCommand</c>'s billed check lets it through — and typing
+    /// the 30 back would bill the patient twice for one act, on two live documents, with every balance read
+    /// agreeing they owe it.
+    /// </summary>
+    [Fact]
+    public async Task Re_Pricing_A_Carried_Act_Is_Refused()
+    {
+        NoteOverTheFiche(InvoiceStatus.Issued);
+        var actId = PinRecord();
+        await ContinueActOf(actId, RemainingCost);
+
+        var billed = _saved!.Items.OrderBy(i => i.SequenceNumber).First();
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            _saved.UpdateItems(new[]
+            {
+                new TreatmentPlanItemInput(billed.Id, billed.DesignationFr, ActCost, null, new List<int> { 36 }),
+            }));
+        Assert.Contains("facturé sur une note", ex.Message);
+
+        // 0 is still allowed — a designation or a tooth may legitimately be corrected.
+        _saved.UpdateItems(new[]
+        {
+            new TreatmentPlanItemInput(billed.Id, "Coiffage pulpaire (1re séance)", 0m, null, new List<int> { 36 }),
+        });
+        Assert.Equal(0m, billed.PlannedCost);
     }
 }

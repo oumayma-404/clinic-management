@@ -48,7 +48,9 @@ public static class NotificationMappingExtensions
         this StaffNotification notification, bool isRead, Supplier? supplier = null) => new()
     {
         SupplierName = supplier?.Name,
-        SupplierPhoneE164 = PhoneNumber.ToE164(supplier?.PhoneNumber),
+        // The STORED normalisation — deriving it here read every supplier's number as Tunisian, so a French
+        // dépôt lost the WhatsApp action the form had just promised it. See `Supplier.PhoneE164`.
+        SupplierPhoneE164 = supplier?.PhoneE164,
         Id = notification.Id,
         Category = notification.Category.ToString(),
         Title = notification.Title,

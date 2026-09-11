@@ -70,12 +70,16 @@ public class PagedResult<T>
     /// <summary>
     /// Cut a page out of a list that is already in memory.
     ///
-    /// <para><b>Only for reads with no single queryable source.</b> Two exist: « Créances » and the « extrait de
-    /// caisse ». Both are unions of several ledgers (invoice payments, plan installment payments, avoirs,
-    /// dépenses) that have to be merged and ordered together before any row's position in the list is known — you
-    /// cannot <c>LIMIT</c> one input and get a page of the union. Everywhere else, paging in memory would mean
-    /// the database still read every row, which is the whole problem paging exists to solve; use the repository's
-    /// <c>PageRequest</c> instead.</para>
+    /// <para><b>Only for reads with no single queryable source.</b> Three exist. « Créances » and the « extrait
+    /// de caisse » are unions of several ledgers (invoice payments, plan installment payments, avoirs, dépenses)
+    /// that have to be merged and ordered together before any row's position in the list is known — you cannot
+    /// <c>LIMIT</c> one input and get a page of the union. « Suites à planifier » is the third and differs in
+    /// shape: its rows are <i>(fiche, acte)</i> pairs, so the row count is not the record count, and the set is
+    /// then cut again by a rule that needs the patient's treatment plans. What makes it honest rather than lazy
+    /// is that the database has already applied the hard filter — <c>GetWithUnfinishedActsAsync</c> returns only
+    /// fiches carrying a ticked act, which is a handful out of a clinical quarter. Everywhere else, paging in
+    /// memory would mean the database still read every row, which is the whole problem paging exists to solve;
+    /// use the repository's <c>PageRequest</c> instead.</para>
     ///
     /// <para>A page past the end yields an empty list with the true total, not an error — see
     /// <see cref="PageRequest"/> on why out-of-range is clamped rather than refused.</para>

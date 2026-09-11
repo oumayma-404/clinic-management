@@ -101,13 +101,15 @@ import { PatientPlansStrip } from "@/components/treatment-plans/patient-plans-st
 import {
   PatientOutstandingStrip,
   PATIENT_OUTSTANDING_SECTION_ID,
+  PATIENT_OUTSTANDING_TAB,
+  PATIENT_COLLECT_PARAM,
 } from "@/components/patient/patient-outstanding-strip"
 import { PaymentModal } from "@/components/factures/payment-modal"
 import { InstallmentPaymentModal } from "@/components/treatment-plans/installment-payment-modal"
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
-import { isPlanLive, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
+import { activeItems, isPlanLive, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { planItemHeading } from "@/components/treatment-plans/treatment-plan-labels"
 import { teethUnderTreatment } from "@/components/treatment-plans/teeth-under-treatment"
 import { invoicesApi } from "@/lib/api/invoices"
@@ -643,6 +645,14 @@ const PATIENT_TABS = [
  */
 const RETIRED_PATIENT_TABS: Record<string, string> = {
   notes: "medical-records",
+  /*
+   * ⚠️ Never a tab, and that is the point: « Actes dentaires » is what this panel is CALLED, and the devis
+   * workspace's « Encaisser sur la note » was written from the label rather than from the value. `PATIENT_TABS`
+   * has no « actes », so the link fell through to the default — which happens to be this same panel, so the
+   * tab half looked fine while the deep link did nothing. `patientOutstandingHref` is the fix; this keeps every
+   * link already in a history or a bookmark landing on the content.
+   */
+  actes: "medical-records",
 }
 
 /**
@@ -1340,6 +1350,20 @@ export default function PatientDetailsPage() {
     if (id) setPendingEditRecordId(id)
   }, [patientId])
 
+  /**
+   * `?encaisser=<documentId>` — « Encaisser sur la note » pressed on the devis workspace.
+   *
+   * ⚠️ **It replaced a `#patient-outstanding` fragment, which could not work.** The band renders inside a
+   * Radix `TabsContent` and is not in the document until its tab is active, so the browser had nothing to
+   * scroll to and the link merely opened the top of the patient page — reported as broken. `openOutstandingSection`
+   * has always known this and defers its lookup a frame; a fragment has no such opportunity.
+   */
+  const [pendingCollectId, setPendingCollectId] = useState<string | null>(null)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get(PATIENT_COLLECT_PARAM)
+    if (id) setPendingCollectId(id)
+  }, [patientId])
+
   // ⚠️ `detailsLoading`, never `loading`: the latter gates the patient's IDENTITY and goes false at the end of
   // phase 1, while the fiches arrive with phase 2 — so waiting on it announces « introuvable » over a list that
   // has not been fetched yet.
@@ -1360,6 +1384,47 @@ export default function PatientDetailsPage() {
     setEditingRecord(record)
     setRecordModalOpen(true)
   }, [pendingEditRecordId, detailsLoading, dentalRecords])
+
+  /*
+   * The other half of `?encaisser=`: open the band and the note's own payment dialog.
+   *
+   * ⚠️ **Waits on `billingSummary !== null`.** That read is part of the phase-2 batch and `null` is its
+   * « not landed or failed » value — acting before it arrives would find no line and report a settled note
+   * about one that simply had not been read yet.
+   *
+   * ⚠️ **And on `detailsLoading`, which is what makes the scroll STICK.** The band is the last thing in its
+   * tab, under the whole fiches table; scrolling to it while that table is still a skeleton lands correctly and
+   * is then pushed back off screen by the rows arriving above it. Measured: the same walk passed once and
+   * failed the next run on unchanged code, which is the signature of a scroll racing a layout. `pendingEditRecordId`
+   * waits on this flag one effect up, for the neighbouring reason.
+   *
+   * ⚠️ **The param is dropped here and not when it was read**, for `pendingEditRecordId`'s measured reason:
+   * `router.push` rewrites the URL *after* the destination's effects run, so a `replaceState` on mount is
+   * overwritten and the dialog reopens on every refresh.
+   *
+   * ⚠️ **A missing line is stated, never silent.** The note may have been settled between the two screens,
+   * and « the button did nothing » is the one reading that is false either way.
+   */
+  useEffect(() => {
+    if (!pendingCollectId || billingSummary === null || detailsLoading) return
+    const line = billingSummary.lines.find((l) => l.documentId === pendingCollectId)
+    setPendingCollectId(null)
+    window.history.replaceState({}, "", `/patients/${patientId}?tab=${PATIENT_OUTSTANDING_TAB}`)
+    // ⚠️ Instant, not smooth — see `openOutstandingSection`: the payment dialog opened below would cancel an
+    // animation still in flight.
+    openOutstandingSection("auto")
+    if (!line) {
+      toast.info("Ce document n'a plus rien à encaisser — il a peut-être été réglé entre-temps.")
+      return
+    }
+    // The same two handlers the band's own rows call, so this route records money through no new writer.
+    if (line.kind === "TreatmentPlan") {
+      if (line.payableInstallmentId) void openInstallmentPayment(line)
+      return
+    }
+    void openInvoicePayment(line)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCollectId, billingSummary, detailsLoading, patientId])
 
   // ?tab=… lands the visitor on a specific tab — used by the plan workspace's « Voir la fiche », which needs
   // to open the medical-records tab rather than dumping the user on the default one. Same window.location
@@ -1572,6 +1637,25 @@ export default function PatientDetailsPage() {
     planNumber: p.number,
     billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
     planOutstanding: p.outstanding,
+    /*
+     * ⚠️ **A DIFFERENT note from `billedOnInvoiceNumber` above, and the two mean opposite things.** That one is
+     * the bridge — a note that REPRESENTS the whole devis, which is why it suppresses the devis' own « reste ».
+     * This one is a note that already collects THIS ACT while the devis stays live and collectable, which is
+     * what a continuation leaves behind. Carried so the fiche stops saying « l'acte entier est chiffré
+     * 0,000 DT » about a fee the patient has already part-paid on paper.
+     */
+    carriedOnNoteNumber: it.billedOnInvoiceNumber ?? null,
+    carriedOnNoteAmount: it.billedOnInvoiceAmount ?? 0,
+    /*
+     * ⚠️ **What this act CONTINUES, for the act that is not itself carried** — the second line of a
+     * continuation devis. Without it the fiche opened from that booking called the séance « continuation »,
+     * named nothing it continues, and quoted the devis' own figure alone. `continuationOf` is the act the plan
+     * holds at 0 against a note, which is the marker that states the arrangement — never « the first line ».
+     */
+    continuationOf: activeItems(p).find((x) => x.billedOnInvoiceId != null && x.id !== it.id)?.designationFr
+      ?? null,
+    treatmentOutstanding: p.treatmentOutstanding ?? null,
+    treatmentTotal: p.treatmentTotal ?? null,
     // The protocol, so the fiche can say WHICH séance it is and name it — « Cette séance : étape 1 sur 3 ·
     // Préparation ». The steps themselves rather than counts: the séance's step is the one the appointment
     // booked, which `stepsDone + 1` only happens to equal when the séances are carried out in order. Empty
@@ -1721,13 +1805,23 @@ procedureTypeId: it.procedureTypeId ?? null,
    * ⚠️ `block: "center"` rather than `"start"`: the page scroller is `AppShell`'s `<main>` and the band sits
    * under a full table, so aligning to the top of the viewport leaves the figure the reader just pressed off
    * screen above it.
+   *
+   * ⚠️ **`behavior` is a parameter because a SMOOTH scroll does not survive a modal opening behind it.**
+   * Radix installs `react-remove-scroll` when a dialog mounts, which locks the scroller — so a scroll still
+   * animating at that moment is simply cancelled, leaving the reader at the top of the page with the dialog
+   * over it. Measured twice in six runs of `PLAN-04`, with the dialog correct and the page unmoved behind it.
+   * `?encaisser=` scrolls and then opens a payment dialog, so it passes `"auto"` and the move completes in the
+   * frame it is issued; « Solde dû » opens nothing and keeps the smooth default.
    */
-  const openOutstandingSection = () => {
-    openTab("medical-records")
+  const openOutstandingSection = (behavior: ScrollBehavior = "smooth") => {
+    // ⚠️ `setActiveTab`, NOT `openTab` — that helper smooth-scrolls to the TAB STRIP, which sits above the
+    // band, and an animation issued one frame earlier outlives the instant scroll below and lands on the strip
+    // instead. Two scrolls where one is wanted: the band is inside the tab, so reaching it reaches the tab.
+    setActiveTab(PATIENT_OUTSTANDING_TAB)
     requestAnimationFrame(() => {
       document
         .getElementById(PATIENT_OUTSTANDING_SECTION_ID)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" })
+        ?.scrollIntoView({ behavior, block: "center" })
     })
   }
 
@@ -1876,7 +1970,19 @@ procedureTypeId: it.procedureTypeId ?? null,
               )}
               {patient.phoneNumber ? (
                 <a
-                  href={`tel:${patient.phoneNumber}`}
+                  /*
+                   * ⚠️ **The dialable form, never the stored one.** `phoneNumber` is kept exactly as typed, so
+                   * `tel:06 12 34 56 78` is what this used to emit — spaces and all, and with no country code
+                   * for a foreign number. `phoneE164` is the server's own normalisation of it
+                   * (`PatientDto.PhoneE164`), which is what the two rappels cards and the supplier WhatsApp
+                   * action already dial; this link was the odd one out. The stored value is still what is
+                   * *displayed* — reception reads the number it typed.
+                   *
+                   * The fallback strips whitespace rather than trusting it: a number the server could not
+                   * resolve (a foreign one saved before the country reached the API) has no E.164, and
+                   * `tel:` with spaces in it is the shape that took the Windows shell's whole window down.
+                   */
+                  href={`tel:${patient.phoneE164 ?? patient.phoneNumber.replace(/\s/g, "")}`}
                   /* `touch-target`: an isolated 20px-tall control, and on a phone it is the one link on this
                      screen someone actually taps (it dials the patient). */
                   className="touch-target inline-flex items-center font-medium text-foreground underline-offset-2 hover:underline"
@@ -1923,7 +2029,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                  */
                 <button
                   type="button"
-                  onClick={openOutstandingSection}
+                  onClick={() => openOutstandingSection()}
                   className="touch-target inline-flex items-center gap-1 rounded text-muted-foreground underline-offset-2 hover:underline"
                   aria-label={`Solde dû ${formatDT(billingSummary.totalOutstanding)} — voir le détail et encaisser`}
                 >

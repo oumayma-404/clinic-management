@@ -120,6 +120,23 @@ export interface SessionAct {
    * </para>
    */
   billedOnPlan: boolean
+  /**
+   * « Acte non terminé » — the dentist's own statement that this act needs another séance.
+   *
+   * <p>⚠️ **The one fact nothing in this product can derive.** A fiche records what was *carried out* and says
+   * nothing about what remains, so no read can tell an unfinished bridge from a finished obturation — which is
+   * why « C'est la suite d'une séance précédente ? » has to offer four months of history and make the dentist
+   * recognise the right row. This is that missing half, and it is only ever set here, by a human.</p>
+   *
+   * <p>⚠️ **It states nothing about money and moves none.** An act billed 1 000 with 800 collected still owes
+   * 200 on ITS NOTE, where la caisse, « Créances » and « Solde patient » already carry it. Ticking this box
+   * changes no figure on this fiche or anywhere else.</p>
+   *
+   * <p>⚠️ **Read back from the server and sent back on every save.** `SetActs` rebuilds the whole act list, so
+   * dropping it from the payload marks the act finished on an ordinary re-save — no gesture, no toast, and the
+   * act silently leaves « Suites à planifier ». `actFromDto` and the modal's payload are the two halves.</p>
+   */
+  isUnfinished: boolean
   /** The card is showing the catalogue instead of its act. */
   picking: boolean
 }
@@ -138,6 +155,8 @@ const emptyAct = (key: string): SessionAct => ({
   surfaces: new Set<string>(),
   note: "",
   billedOnPlan: false,
+  // Off by default, always: an act is unfinished only because somebody said so.
+  isUnfinished: false,
   toothNumbers: [],
   ponticTeeth: [],
   implantPilierTeeth: [],
@@ -462,6 +481,9 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     // rule is that pricing intent is read, never guessed. `markBilledOnPlan` back-fills it once the modal knows
     // which devis act the fiche is for; see the effect in `patient-record-modal.tsx`.
     billedOnPlan: false,
+    // ⚠️ Read back, never defaulted to false here: this is the dentist's own statement, and the payload sends
+    // whatever this holds. An editor blind to the tick erases it on the next « Enregistrer ».
+    isUnfinished: a.isUnfinished === true,
     picking: false,
   }
 }

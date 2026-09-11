@@ -169,4 +169,41 @@ public class TreatmentPlanItemUnmarkTests
         Assert.Equal(TreatmentPlanItemStatus.Done, item.Status);
         Assert.Equal(otherRecord, item.LinkedDentalRecordId);
     }
+
+    /// <summary>
+    /// ⚠️ <b>On an act with steps the act-level detach releases the LAST séance only, so the act lands
+    /// « en cours » — not « prévu ».</b> Pinned here because both client surfaces stated the opposite in
+    /// words: the confirmation said « repassera à « Prévu » » and the success toast « Acte ramené à
+    /// « Prévu » », whatever the act was. That is a false statement about the commonest case the control
+    /// exists for, on the screen where the dentist decides whether to press it — `detachOutcome` (TS) is the
+    /// one reader of this rule, and it mirrors <c>TreatmentPlanItem.Unmark</c>'s « last done step by rank ».
+    /// </summary>
+    [Fact]
+    public void Unmark_On_A_Stepped_Act_Releases_The_Last_Seance_And_Leaves_The_Act_InProgress()
+    {
+        var secondRecord = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+        var plan = AcceptedPlan(1);
+        var item = plan.Items.Single();
+        plan.SetItemSteps(item.Id, new[]
+        {
+            new TreatmentPlanItemStepInput(null, "Préparation", 60, null),
+            new TreatmentPlanItemStepInput(null, "Empreinte", 30, 7),
+            new TreatmentPlanItemStepInput(null, "Scellement", 45, 14),
+        });
+        foreach (var step in item.Steps.OrderBy(s => s.SequenceNumber).ToList())
+        {
+            plan.MarkItemStepDone(item.Id, step.Id, DoneOn, step.SequenceNumber == 0 ? RecordId : secondRecord);
+        }
+        Assert.Equal(TreatmentPlanItemStatus.Done, item.Status);
+
+        plan.UnmarkItemDone(item.Id);
+
+        Assert.Equal(TreatmentPlanItemStatus.InProgress, item.Status);
+        var ordered = item.Steps.OrderBy(s => s.SequenceNumber).ToList();
+        Assert.Equal(2, ordered.Count(s => s.IsDone));
+        // The released séance is the LAST by rank, and only it.
+        Assert.False(ordered[2].IsDone);
+        Assert.Null(ordered[2].LinkedDentalRecordId);
+        Assert.Equal(RecordId, ordered[0].LinkedDentalRecordId);
+    }
 }

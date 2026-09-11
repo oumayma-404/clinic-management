@@ -412,7 +412,8 @@ public class NotificationJob
             return;
         }
 
-        var phone = ReminderPhone.ToE164(patient.PhoneNumber?.Value);
+        // The stored normalisation — a foreign number reached nobody while this re-derived against Tunisia.
+        var phone = patient.PhoneNumber?.E164;
         if (phone == null)
         {
             await FailAsync(notification, "Numéro de téléphone invalide");

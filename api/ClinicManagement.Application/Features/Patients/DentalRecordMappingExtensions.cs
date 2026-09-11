@@ -42,6 +42,10 @@ public static class DentalRecordMappingExtensions
                 // Same reason, second list: an editor blind to the implant piliers sends them back empty and
                 // the next save charts rooted abutments over implants.
                 ImplantPilierToothNumbers = a.ImplantPilierToothNumbers.ToList(),
+                // Same reason a third time, and this one is the quietest of the three: an editor blind to the
+                // tick sends it back false, and an ordinary re-save of the fiche marks the act finished with no
+                // gesture, no toast and no way to notice — it simply leaves « Suites à planifier ».
+                IsUnfinished = a.IsUnfinished,
                 ResultingCondition = a.ResultingCondition?.ToString(),
                 Surfaces = a.Surfaces,
                 Note = a.Note

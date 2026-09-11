@@ -946,7 +946,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
 
       if (patient) {
         // Edit mode: Update existing patient
-        const updateData: Partial<PatientDto> = {
+        // ⚠️ `phoneRegion` is not a property of a patient and is deliberately not on `PatientDto` — it says how
+        // to read the number in this request and nothing stores it. See `patientsApi.update`.
+        const updateData: Partial<PatientDto> & { phoneRegion?: string | null } = {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           // "Unknown" when unanswered, never "" — the same value the create path sends, so a patient registered
@@ -960,6 +962,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           // Explicit null, not undefined: the command is tri-state, so undefined would be read as
           // "leave it alone" and clearing the box would silently do nothing.
           phoneNumber: phone.trim() || null,
+          // ⚠️ Not tri-state, unlike the fields around it: it says how to read the number in THIS request and
+          // nothing stores it, so it is always sent. Editing a patient to a foreign number was refused for the
+          // same reason creating one was.
+          phoneRegion: phoneCountry,
           email: email.trim() || null,
           // The row's version as last read from the server — so a peer's save in the meantime is a 409, not a
           // silent overwrite of their work, and our own previous save is not mistaken for one.
@@ -1096,6 +1102,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           dentition: dentition ?? undefined,
           email: email.trim() || null,
           phoneNumber: phone.trim() || null,
+          // The country control's own value. Without it the server reads the number as Tunisian whatever the
+          // selector says, and refuses every foreign one with a sentence identical to this form's own pre-check.
+          phoneRegion: phoneCountry,
           medicalHistory: chronicDiseases.trim() || undefined,
           allergies: allergies.trim() || undefined,
           medications: medications.trim() || undefined,

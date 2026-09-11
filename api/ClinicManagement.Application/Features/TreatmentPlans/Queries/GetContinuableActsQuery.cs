@@ -39,8 +39,11 @@ public class GetContinuableActsQuery : IRequest<Result<List<ContinuableActDto>>>
 public class GetContinuableActsQueryHandler
     : IRequestHandler<GetContinuableActsQuery, Result<List<ContinuableActDto>>>
 {
-    /// <summary>How far back a séance can be and still be offered as continuable. Roughly a clinical quarter.</summary>
-    private const int LookbackDays = 120;
+    /// <summary>
+    /// How far back a séance can be and still be offered. Owned by <see cref="ContinuationTracking"/> now that
+    /// the clinic-wide « Suites à planifier » read applies the same window — see the constant's own note.
+    /// </summary>
+    private const int LookbackDays = ContinuationTracking.LookbackDays;
 
     private readonly IDentalRecordRepository _recordRepository;
     private readonly ITreatmentPlanRepository _planRepository;
@@ -114,13 +117,15 @@ public class GetContinuableActsQueryHandler
                 (await _invoiceRepository.GetDentalRecordLinksAsync(clinicId, cancellationToken))
                     .Select(l => (l.DentalRecordId, l.InvoiceId, l.Number, l.Status)));
 
-            var outstandingByInvoice = new Dictionary<Guid, decimal>();
+            // Both figures, because the dialog states both: what is still owed on the note, and the note's whole
+            // total — see `ContinuableActDto.InvoiceTotal` on why the act's own cost is not a substitute.
+            var moneyByInvoice = new Dictionary<Guid, (decimal Total, decimal Outstanding)>();
             foreach (var invoiceId in invoiceLinks.Values.Select(v => v.InvoiceId).Distinct())
             {
                 var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
                 if (invoice != null && invoice.ClinicId == clinicId)
                 {
-                    outstandingByInvoice[invoiceId] = invoice.Outstanding;
+                    moneyByInvoice[invoiceId] = (invoice.TotalTtc, invoice.Outstanding);
                 }
             }
 
@@ -139,18 +144,34 @@ public class GetContinuableActsQueryHandler
                         ProcedureTypeId = act.ProcedureTypeId,
                         ToothNumbers = act.ToothNumbers.ToList(),
                         Cost = act.Cost,
+                        IsUnfinished = act.IsUnfinished,
                         InvoiceId = billed ? link.InvoiceId : null,
                         InvoiceNumber = billed ? link.Number : null,
                         InvoiceOutstanding = billed
-                            ? outstandingByInvoice.GetValueOrDefault(link.InvoiceId)
+                            ? moneyByInvoice.GetValueOrDefault(link.InvoiceId).Outstanding
+                            : 0m,
+                        InvoiceTotal = billed
+                            ? moneyByInvoice.GetValueOrDefault(link.InvoiceId).Total
                             : 0m,
                     });
                 }
             }
 
-            // Most recent first: the séance somebody is continuing is almost always the last one.
+            /*
+             * The acts the dentist ticked « non terminé » first, then most recent first — the séance somebody
+             * is continuing is almost always the last one.
+             *
+             * ⚠️ A SORT and not a filter: see `ContinuableActDto.IsUnfinished`. The tick is the only thing in
+             * the product that knows an act was left unfinished, and it is also the easiest thing in the
+             * product to forget, so it moves the right row to the top of the list without removing the row
+             * somebody needs when they forgot.
+             */
             return Result<List<ContinuableActDto>>.Success(
-                acts.OrderByDescending(a => a.InterventionDate).ThenBy(a => a.ProcedureName).ToList());
+                acts
+                    .OrderByDescending(a => a.IsUnfinished)
+                    .ThenByDescending(a => a.InterventionDate)
+                    .ThenBy(a => a.ProcedureName)
+                    .ToList());
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

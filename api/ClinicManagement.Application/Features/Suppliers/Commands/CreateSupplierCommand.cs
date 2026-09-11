@@ -14,6 +14,13 @@ public class CreateSupplierCommand : IRequest<Result<SupplierDto>>
     public string Name { get; set; } = string.Empty;
     public string? Category { get; set; }
     public string? PhoneNumber { get; set; }
+
+    /// <summary>
+    /// The country the phone is read as when it carries no country code — the form's country selector. Absent ⇒
+    /// Tunisia. See <see cref="ClinicManagement.Domain.Entities.Supplier.PhoneE164"/> for why it must travel:
+    /// the dialog promises « Choisissez le pays si besoin » and the read side used to ignore it.
+    /// </summary>
+    public string? PhoneRegion { get; set; }
     public string? Address { get; set; }
     public string? Notes { get; set; }
 }
@@ -65,7 +72,8 @@ public class CreateSupplierCommandHandler : IRequestHandler<CreateSupplierComman
                 request.Category,
                 request.PhoneNumber,
                 request.Address,
-                request.Notes);
+                request.Notes,
+                request.PhoneRegion);
 
             await _suppliers.AddAsync(supplier, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

@@ -1,5 +1,7 @@
 import { CalendarX, FileBarChart, FileText, FlaskConical, Mail, Shield, type LucideIcon } from "lucide-react"
 
+import type { MedicationDto } from "@/lib/api/types"
+
 /**
  * The document templates — **one registry, because there were three and they disagreed.**
  *
@@ -356,3 +358,32 @@ export const emptyPrescriptionLine = (kind: PrescriptionKind): PrescriptionLine 
   duration: "",
   durationUnit: DURATION_UNITS.jours,
 })
+
+/** Printed/displayed label for a catalogue entry: « Marque Dosage Forme », empty parts dropped. */
+export const medicationCatalogLabel = (m: MedicationDto): string =>
+  [m.brandName, m.strength, m.form].filter(Boolean).join(" ")
+
+/** Accent-insensitive, like the act catalogue's own filter: « amoxicilline » must reach « Amoxicillinè ». */
+const norm = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+
+/**
+ * The catalogue entries a typed string matches — **the one place that rule lives**, for the two surfaces that
+ * prescribe: the fiche's `PrescriptionLineRow` and the ordonnance editor's `MedicationItem`.
+ *
+ * <p>The DCIs are searchable too: prescribers look a drug up by its molecule as often as by its brand. An empty
+ * query returns the head of the catalogue, which is what a « parcourir » list wants.</p>
+ *
+ * <p>⚠️ It suggests, it never restricts — both callers keep a free-text name field, and a médicament the
+ * catalogue has never heard of is prescribed exactly as typed.</p>
+ */
+export const matchMedications = (
+  catalog: MedicationDto[],
+  query: string,
+  limit: number,
+): MedicationDto[] => {
+  const q = norm(query.trim())
+  if (!q) return catalog.slice(0, limit)
+  return catalog
+    .filter((m) => norm(`${m.brandName} ${m.strength} ${m.form} ${m.dcis.join(" ")}`).includes(q))
+    .slice(0, limit)
+}

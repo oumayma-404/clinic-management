@@ -195,7 +195,7 @@ at the same answer, which is the slot it was only waiting for.
 
 ### The treatment is created when the booking is saved
 
-`materialisePlannedProtocols` (in `use-patient-plan-acts.ts`, beside `resolveAttachedPlanId`) turns every
+`materialiseTreatments` (in `use-patient-plan-acts.ts`, beside `resolveAttachedPlanId`) turns every
 followed act into an un-numbered `Draft` at save time and rewrites its row through `planItemToPreset` +
 `presetToSelectedAct`, so a row attached here is identical to one attached from « Actes du devis ».
 
@@ -228,7 +228,7 @@ operations.
 once; « Prix pour ce rendez-vous » on a 2 000 DT implant invites the dentist to type this visit's share, and
 the treatment would then be created at that share for all six visits.
 
-`check:responsive`'s **N26 `protocol-split-is-materialised`** derives the guard from the picker itself: a
+`check:responsive`'s **N26 `booking-materialises-its-treatments`** derives the guard from the picker itself: a
 surface that renders it and never calls the materialiser books an ordinary one-off while its own card says
 « Traitement en 3 séances » — no error, no toast, and the treatment simply never exists.
 
@@ -589,3 +589,27 @@ finds a missing width rule. All three were measured, not reasoned about:
 
 ⚠️ The fiche's arch still scrolls sideways inside its **own** `overflow-x-auto`, and that is § 11 working as
 intended, not a fourth defect — a detector that flags it is measuring against the wrong box.
+
+## Le rendez-vous durait l'acte entier, pas la séance qu'il réservait
+
+Un implant réparti en six séances affichait « Traitement en 6 séances. Ce rendez-vous est la 1re : « Bilan
+pré-implantaire » », la frise en dessous donnait ce bilan à **45 min**, et le rendez-vous se réservait à
+**60 min** — la durée catalogue de l'acte entier. La carte de l'acte imprimait « 60 min » à côté, donc les deux
+chiffres se confirmaient l'un l'autre.
+
+`totalActsDuration` savait déjà qu'**une étape réservée ne vaut pas l'acte entier** — c'est le commentaire qui
+s'y trouve depuis le bridge (« Empreinte, 30 min » dans un « Bridge, 60 min ») — mais il ne le savait que pour
+une étape de **devis** (`treatmentPlanItemStepId` + `stepOptions`). Une séance issue d'un `plannedProtocol` n'a
+pas encore de devis : le traitement n'est créé qu'à l'enregistrement. Les séances 2 à 6 étaient donc
+correctement dimensionnées, et seule la 1re — celle qu'on est en train de réserver — ne l'était pas.
+
+`unbookedActMinutes` est le seul endroit où cette règle vit maintenant, et les deux lecteurs y passent : la
+puce « 45 min » de la carte et la durée pré-remplie du formulaire. Deux points à ne pas défaire :
+
+- **`totalActsDuration` résout lui-même les protocoles.** La répartition est le **défaut** et rien ne la réécrit
+  dans l'état du dialogue (`resolvePlannedProtocols` est dérivé, jamais semé par un effet — la raison est
+  écrite à sa définition), donc sans résoudre ici la durée répondait à un acte que la carte, elle, montrait déjà
+  découpé.
+- **Le repli reste la durée de l'acte** quand la séance n'annonce pas la sienne : `durationMinutes` d'une étape
+  est nulle tant que personne ne l'a estimée, et un protocole non chronométré doit continuer à réserver ce
+  qu'il réservait hier plutôt que de retomber sur les 30 min par défaut du formulaire.

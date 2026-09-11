@@ -424,10 +424,24 @@ jobs:
         working-directory: web
         run: npm run build
 
+      # ⚠️ **NOT `npm run start`, and the difference is a whole suite's worth of false failures.**
+      # `next.config.ts` sets `output: 'standalone'`, and with that configuration `next start` prints
+      # « "next start" does not work with "output: standalone" configuration », **binds anyway**, reports
+      # « Ready in 630ms », serves a few requests — and then exits silently with no error.
+      #
+      # Measured 2026-09-11 on a full local run: the readiness poll below went green, ~35 tests passed, and the
+      # server then vanished. Every later browser test failed with `net::ERR_CONNECTION_REFUSED`, which the
+      # report renders as ten product defects — seven `XCUT-09` scrollbar failures, `PLAN-04`, `EDIT-06`,
+      # `EDIT-07`. Nothing in the log says the server died; you only find it by reading a failure's own message.
+      #
+      # The standalone server is the runner this build actually produces. It needs `static` and `public` beside
+      # it — `next build` deliberately does not copy them, because the Docker image does it in its own layer.
       - name: Start web
         working-directory: web
         run: |
-          npm run start > /tmp/web.log 2>&1 &
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+          PORT=3000 node .next/standalone/server.js > /tmp/web.log 2>&1 &
           for i in $(seq 1 60); do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/login --max-time 5 || true)
             [ "$code" = "200" ] && { echo "web up"; exit 0; }
@@ -435,11 +449,34 @@ jobs:
           done
           echo "::error title=Web did not start::last 60 lines follow"; tail -60 /tmp/web.log; exit 1
 
+      # ⚠️ A readiness poll proves the server answered ONCE. This proves it is still there after the build and
+      # install steps that follow — the exact window in which `next start` used to disappear.
+      - name: Web is still up
+        working-directory: web
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/login --max-time 5 || true)
+          [ "$code" = "200" ] || { echo "::error title=Web died after starting::$code"; tail -60 /tmp/web.log; exit 1; }
+
       - name: Install the suite
         working-directory: e2e
         run: |
           npm ci
           npx playwright install --with-deps chromium
+
+      # ── Does the suite still cover the catalogue? Runs BEFORE the suite, because it needs no stack and a
+      #    coverage regression is worth knowing in fifteen seconds rather than after fifteen minutes.
+      #
+      # ⚠️ **`--report` — reported, not gated, and that is temporary.** Measured 2026-09-11, the day this check
+      # was written: 47 of the catalogue's tier-0 rows had no test at all and 17 more were covered only on the
+      # wire while their rule lives in the browser. Gating on that would make every push red for a backlog
+      # nobody can clear in one commit, and a check that is always red is a check people learn to scroll past.
+      #
+      # **Drop `--report` once `e2e/specs/` closes the tier-0 backlog** — the whole point of the script is that
+      # the day it can be a gate is a measurable date, not an opinion. Until then the numbers are in the log and
+      # they only ever move one way.
+      - name: Scenario coverage (reported)
+        if: always()
+        run: node e2e/scripts/check-coverage.mjs --report
 
       # `channel: "chrome"` in the config is right for a developer's machine; CI has the bundled Chromium.
       - name: Run the hot-path suite

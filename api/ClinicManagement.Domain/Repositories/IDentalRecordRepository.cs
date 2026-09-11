@@ -53,6 +53,29 @@ public interface IDentalRecordRepository
         IReadOnlyCollection<Guid> dentalRecordIds,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Every fiche de soins of this clinic since <paramref name="sinceUtc"/> holding at least one act the
+    /// dentist marked « non terminé » — what « Suites à planifier » is built from.
+    ///
+    /// <para><b>Filtered in SQL on the flag, not in memory.</b> The window is a clinical quarter and a busy
+    /// cabinet charts thousands of fiches in one; the ticked ones are a handful. Reading the window and
+    /// filtering after it would load all of them to keep a dozen — and the predicate is a plain boolean column,
+    /// so the database answers it from the row it is already visiting.</para>
+    ///
+    /// <para>⚠️ <b>It deliberately does NOT exclude acts already picked up by a devis.</b> That question belongs
+    /// to <c>ContinuationTracking</c>, which needs the patient's treatment plans, and a repository that answered
+    /// half of it here would be a second copy of a rule whose two halves have already disagreed once — see that
+    /// class's own note. The caller asks both.</para>
+    ///
+    /// <para>Aggregates rather than a projection, unlike this interface's two link reads: the caller needs each
+    /// act's teeth, its fee and its name, which is most of the act row anyway, and the flag has already made the
+    /// set small.</para>
+    /// </summary>
+    Task<IReadOnlyList<DentalRecord>> GetWithUnfinishedActsAsync(
+        Guid clinicId,
+        DateTime sinceUtc,
+        CancellationToken cancellationToken = default);
+
     Task<DentalRecord> AddAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default);
     Task UpdateAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

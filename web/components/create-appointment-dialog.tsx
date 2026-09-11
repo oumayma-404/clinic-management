@@ -43,8 +43,8 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
-  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
-  protocolError, toProcedurePayloads, totalActsDuration,
+  AppointmentActsPicker, actLabelsOf, continuationToSelectedAct, hasInvalidAgreedCost, negotiatedTotalOf,
+  presetToSelectedAct, protocolError, toProcedurePayloads, totalActsDuration,
   type SelectedAct, type PlanStepOption, type BilledOnPlan,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage } from "@/lib/errors"
@@ -53,22 +53,25 @@ import type { PresetPlanAct } from "@/components/appointment-acts-picker"
 // Re-exported for the callers that have always imported it from this module. Its home is now
 // `appointment-acts-picker`, beside `SelectedAct`.
 export type { PresetPlanAct }
-import { formatAmount, formatDT } from "@/lib/format"
+import { formatAmount, formatDT, formatDateFr } from "@/lib/format"
 import type { PatientDto, ProcedureStepTemplateDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import {
   planItemToPreset,
-  schedulablePlanItems,
-  suggestedPlanStep,
+  suggestedPlanSteps,
 } from "@/components/treatment-plans/plan-next-action"
+import type { PlanStepSuggestion } from "@/components/treatment-plans/plan-next-action"
 import {
   usePatientPlanActs,
   resolveAttachedPlanId,
-  materialisePlannedProtocols,
+  materialiseTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
-import { ContinueSessionDialog } from "@/components/treatment-plans/continue-session-dialog"
+import {
+  ContinueSessionDialog,
+  type ContinuationChoice,
+} from "@/components/treatment-plans/continue-session-dialog"
 import { showErrorToast } from "@/lib/errors"
 import { toast } from "sonner"
 import { useDoctors } from "@/lib/hooks/use-doctors"
@@ -171,6 +174,36 @@ interface CreateAppointmentDialogProps {
    * visit**, each keeping its own devis link so the plan reports all of them as planned.
    */
   presetPlanActs?: PresetPlanAct[]
+  /**
+   * A continuation the caller has ALREADY chosen — « Planifier la suite » on « Suites à planifier ».
+   *
+   * ⚠️ **It is the same `ContinuationChoice` the in-dialog `ContinueSessionDialog` hands back, and it goes
+   * through the same seeding**, so this is a second *pre-filler* and not a second materialiser: the devis is
+   * still minted by `materialiseTreatments` when the booking is saved. A door that created the plan itself
+   * would be the trap `use-patient-plan-acts` records — one materialiser, not two — and it would also re-open
+   * the defect the in-dialog door already paid for, where pressing « Annuler » on the booking left a numbered,
+   * accepted devis for a séance nobody booked.
+   *
+   * ⚠️ Supply `presetPatientId` with it. The worklist row knows the patient, and a continuation whose patient
+   * changes mid-dialog mints the FIRST patient's devis and is then refused.
+   */
+  presetContinuation?: ContinuationChoice
+}
+
+/**
+ * A refusal that also says which devis this attempt already created, when it created one.
+ *
+ * ⚠️ Only on a refusal the user cannot confirm past. « Créneau occupé » and « heure dans le passé » re-enter
+ * `performCreate` with the devis reused from `createdPlansRef`, so naming it there would announce a problem
+ * that the very next click resolves.
+ */
+function withMintedDevis(message: string, numbers: string[]): string {
+  if (numbers.length === 0) return message
+  const which = numbers.length === 1 ? `le devis ${numbers[0]} a` : `les devis ${numbers.join(", ")} ont`
+  return (
+    `${message} — ${which} déjà été créé pour ce traitement. Le rendez-vous n'a pas été enregistré : ` +
+    "réessayez, ou ouvrez le devis pour y planifier la séance."
+  )
 }
 
 export function CreateAppointmentDialog({
@@ -187,10 +220,31 @@ export function CreateAppointmentDialog({
   presetPatientName,
   presetPlanId,
   presetPlanActs,
+  presetContinuation,
 }: CreateAppointmentDialogProps) {
   // True when this dialog was opened to schedule treatment-plan steps.
   const planActs = presetPlanActs ?? []
   const isPlanScheduling = planActs.length > 0
+
+  /**
+   * The patient is decided by the CALLER and this dialog may not change it.
+   *
+   * <p>Two openings are of that shape: scheduling a devis act from the workspace, and « Planifier la suite » on
+   * « Suites à planifier ». Both name a patient the row already knows, and in both the séance is *about* that
+   * patient's own record.</p>
+   *
+   * <p>⚠️ <b>It is a fixed identity and not merely a prefill, which is why a continuation does not go through
+   * `defaultPatientId`.</b> A continuation carries a `pendingContinuation` keyed on one patient's fiche, so
+   * changing patient mid-dialog either drops that row or — worse — saves and mints the FIRST patient's devis,
+   * which the appointment is then refused for. Withholding the control is the only version of « don't do that »
+   * that cannot be ignored.</p>
+   *
+   * <p>⚠️ It governs the patient block ALONE. `isPlanScheduling` additionally hides the acts picker, withholds
+   * the continuation door and decides where `treatmentPlanId` comes from — none of which is true here: a
+   * continuation is an ordinary séance that may carry other acts, and re-opening « C'est la suite d'une séance
+   * précédente ? » is the documented way to correct the choice or price it.</p>
+   */
+  const patientIsFixed = isPlanScheduling || presetContinuation != null
   // Patient state
   const [isBusySlot, setIsBusySlot] = useState(false)
   const [isNewPatient, setIsNewPatient] = useState(false)
@@ -235,11 +289,13 @@ export function CreateAppointmentDialog({
    * patient, so choosing a different one asks the question again about a different mouth.</p>
    */
   const [dismissedSuggestionFor, setDismissedSuggestionFor] = useState<string | null>(null)
-  const suggestion = useMemo(() => {
+  const suggestions = useMemo(() => {
     if (isPlanScheduling || isBusySlot) return null
     if (!selectedPatientId || dismissedSuggestionFor === selectedPatientId) return null
-    if (selectedActs.some((a) => a.treatmentPlanItemId)) return null
-    return suggestedPlanStep(patientPlans)
+    // ⚠️ And withdrawn for a pending continuation too — that row already holds the one treatment an appointment
+    // can carry, so offering the suggestion beside it would be inviting the refusal `protocolError` now raises.
+    if (selectedActs.some((a) => a.treatmentPlanItemId || a.pendingContinuation)) return null
+    return suggestedPlanSteps(patientPlans)
   }, [isPlanScheduling, isBusySlot, selectedPatientId, dismissedSuggestionFor, selectedActs, patientPlans])
 
   /**
@@ -280,17 +336,46 @@ export function CreateAppointmentDialog({
    * ⚠️ A ref, and it survives a failed attempt on purpose — `performCreate` runs again from the top on every
    * confirmation the server asks for (slot taken, out of hours, past time). Without it, one « créer quand
    * même » on a taken slot would leave the patient with two identical treatments. Exactly
-   * `createdPatientIdRef`'s reason, one object over. See {@link materialisePlannedProtocols}.
+   * `createdPatientIdRef`'s reason, one object over. See {@link materialiseTreatments}.
    */
   const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
 
-  /** Accepting it: the act (and the step it is waiting on) becomes this séance's act. */
-  const acceptSuggestion = useCallback(() => {
-    if (!suggestion) return
-    // Appended, never a replacement: a dentist who has already picked « Consultation » is adding the scellement
-    // to that visit, not booking a different one.
-    attachPlanAct(suggestion.plan, suggestion.item)
-  }, [suggestion, attachPlanAct])
+  /**
+   * A pending continuation belongs to the patient whose fiche it continues, so changing patient drops it.
+   *
+   * ⚠️ Without this the row survives the switch and the save creates the FIRST patient's devis, then has the
+   * booking refused because the plan is not the second patient's — the orphan this whole change removes,
+   * through the one door still open to it. The pending row is the only one keyed to a patient's own record;
+   * a devis act picked from « Actes du devis » has the same weakness and is not this change's to fix.
+   */
+  const continuationPatientRef = useRef(selectedPatientId)
+  useEffect(() => {
+    if (continuationPatientRef.current === selectedPatientId) return
+    continuationPatientRef.current = selectedPatientId
+    setSelectedActs((prev) =>
+      prev.some((a) => a.pendingContinuation) ? prev.filter((a) => !a.pendingContinuation) : prev,
+    )
+  }, [selectedPatientId])
+
+  /**
+   * Accepting one of them: that act (and the step it is waiting on) becomes this séance's act.
+   *
+   * <p>⚠️ Takes the suggestion it was pressed on. With several treatments listed, reading « the » suggestion
+   * would book the top row whichever button was pressed — and every row is a plausible, priced devis act, so
+   * the mistake would be found by whoever later wondered why the wrong treatment advanced.</p>
+   *
+   * <p>Accepting any row withdraws the whole notice, because the séance then carries a devis act — which is
+   * also what keeps a dentist from attaching two devis to one visit, a state `resolveAttachedPlanId` refuses
+   * at save time.</p>
+   */
+  const acceptSuggestion = useCallback(
+    (suggestion: PlanStepSuggestion) => {
+      // Appended, never a replacement: a dentist who has already picked « Consultation » is adding the
+      // scellement to that visit, not booking a different one.
+      attachPlanAct(suggestion.plan, suggestion.item)
+    },
+    [attachPlanAct],
+  )
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
   /** Has the catalog fetch SETTLED — loaded or failed? See the plan-act seeding effect. */
   const [procedureTypesLoaded, setProcedureTypesLoaded] = useState(false)
@@ -428,13 +513,19 @@ export function CreateAppointmentDialog({
 
   // When opened to schedule a plan step, fix the patient. The act name no longer goes into the notes
   // (AC-P1.51) — the effect below preselects `procedureTypeId`, which is where the act belongs.
+  //
+  // ⚠️ **Gated on `patientIsFixed`, never on `isPlanScheduling`** — that was a real defect, reported the first
+  // time the worklist's « Planifier la suite » was pressed. A caller handing in a `presetContinuation` has no
+  // plan acts (the devis does not exist yet, `materialiseTreatments` mints it on save), so `isPlanScheduling`
+  // is false and `presetPatientId` was read by nothing: the dialog opened with an empty patient picker on a
+  // row that knows exactly whose act it is.
   useEffect(() => {
-    if (open && isPlanScheduling) {
+    if (open && patientIsFixed) {
       setIsBusySlot(false)
       setIsNewPatient(false)
       if (presetPatientId) setSelectedPatientId(presetPatientId)
     }
-  }, [open, isPlanScheduling, presetPatientId])
+  }, [open, patientIsFixed, presetPatientId])
 
   /**
    * Seed the act list from the plan acts once the catalog has loaded (it arrives async, so this cannot live in the
@@ -459,6 +550,31 @@ export function CreateAppointmentDialog({
     setSelectedActs(planActs.map((a) => presetToSelectedAct(a, procedureTypes)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isPlanScheduling, procedureTypes, procedureTypesLoaded])
+
+  /**
+   * The same seed-once effect for a continuation handed in by « Suites à planifier » — see
+   * {@link CreateAppointmentDialogProps.presetContinuation}.
+   *
+   * <p>⚠️ It waits for `procedureTypesLoaded` for the plan seed's reason: `continuationToSelectedAct` resolves
+   * the original act's `procedureTypeId` against the catalogue for its name, its colour and its duration, and a
+   * pass against an empty list seeds a nameless row. `procedureTypesLoaded` flips on **failure** too, so an
+   * unreachable catalogue still seeds the row and the continuation survives.</p>
+   *
+   * <p>⚠️ `selectedActs.length > 0` makes it seed once, so re-opening the dialog never overwrites what the user
+   * has since picked — and it is what keeps the in-dialog door authoritative when both are used.</p>
+   */
+  useEffect(() => {
+    if (!open || !presetContinuation || !procedureTypesLoaded || selectedActs.length > 0) return
+    setSelectedActs([
+      continuationToSelectedAct(
+        presetContinuation.previous,
+        presetContinuation.nextStepLabel,
+        presetContinuation.remainingWorkCost,
+        procedureTypes,
+      ),
+    ])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, presetContinuation, procedureTypes, procedureTypesLoaded])
 
   /**
    * The visit's length follows the sum of its acts until the user says otherwise. This is what makes grouping
@@ -762,6 +878,17 @@ export function CreateAppointmentDialog({
     setError(null)
     setLoading(true)
 
+    /*
+     * The devis this attempt minted, named in the refusal below if the booking then fails.
+     *
+     * ⚠️ Declared OUTSIDE the try so the catch can read it. A continuation's devis is numbered and accepted,
+     * so it cannot be un-minted — and the window between creating it and the appointment landing is the one
+     * place that is still true. The form keeps the rewritten rows (they now carry the real number), but a
+     * dentist reading a server refusal has no reason to look at them, and pressing Annuler on that screen is
+     * exactly the gesture this whole change exists to make safe. So the refusal says it outright.
+     */
+    let mintedNumbers: string[] = []
+
     try {
       let patientId: string | null = null
 
@@ -785,6 +912,9 @@ export function CreateAppointmentDialog({
                 firstName: newPatientFirstName.trim(),
                 lastName: newPatientLastName.trim(),
                 phoneNumber: newPatientPhone.trim() || null,
+                // The country control's own value — without it the server reads every number as Tunisian and
+                // refuses a foreign one that this dialog's own pre-check has already accepted.
+                phoneRegion: newPatientPhoneCountry,
                 // Absent on the first attempt: the server checks whether this person is already on file and
                 // refuses with `PatientDuplicate` if so. Only a confirmed prompt sets it.
                 allowDuplicate: granted.duplicatePatient || undefined,
@@ -834,11 +964,13 @@ export function CreateAppointmentDialog({
 
       /*
        * The treatments, before the appointment that carries them. An act the dentist left split becomes an
-       * un-numbered draft treatment here, and its row becomes that treatment's first séance.
+       * un-numbered draft treatment here, and a séance they chose to continue becomes a numbered devis — each
+       * of their rows then becomes that treatment's séance.
        *
        * ⚠️ **Here and not when the act was picked**, which is the whole design — see
-       * `SelectedAct.plannedProtocol`. `patientId` above may have been created seconds ago (« Nouveau
-       * patient »), and that case had no way to follow a treatment at all.
+       * `SelectedAct.plannedProtocol` and `SelectedAct.pendingContinuation`. `patientId` above may have been
+       * created seconds ago (« Nouveau patient »), and that case had no way to follow a treatment at all; and
+       * « Annuler » must leave nothing behind, which is what the continuation door did not do.
        *
        * ⚠️ A failure here stops the booking rather than booking a visit whose treatment does not exist: the
        * act would be saved at its catalogue tarif with no séances behind it, which is a silently different
@@ -848,12 +980,15 @@ export function CreateAppointmentDialog({
       let freshPlanIds: Record<string, string> = {}
       if (!isBusySlot && patientId) {
         try {
-          const materialised = await materialisePlannedProtocols(
+          const materialised = await materialiseTreatments(
             selectedActs, procedureTypes, patientId, createdPlansRef.current,
           )
           actsToSend = materialised.acts
           freshPlanIds = materialised.planIdByItem
           materialised.plans.forEach(registerPlan)
+          // Only a NUMBERED one is worth naming: « Suivre ce traitement » makes an un-numbered Draft that is
+          // clinically live and financially inert, and there is nothing for the dentist to go and cancel.
+          mintedNumbers = materialised.plans.map((x) => x.number).filter((n): n is string => !!n)
           // Kept in state too, so a server refusal below leaves the form showing what actually exists.
           if (materialised.plans.length > 0) setSelectedActs(materialised.acts)
         } catch (err) {
@@ -916,10 +1051,10 @@ export function CreateAppointmentDialog({
         } else if (err.code === ApiErrorCode.OutsideWorkingHours && !allowOutsideWorkingHours) {
           setOutsideHoursPrompt(err.message)
         } else {
-          setError(err.message)
+          setError(withMintedDevis(err.message, mintedNumbers))
         }
       } else {
-        setError("Échec de la création du rendez-vous")
+        setError(withMintedDevis("Échec de la création du rendez-vous", mintedNumbers))
       }
     } finally {
       setLoading(false)
@@ -998,7 +1133,7 @@ export function CreateAppointmentDialog({
             floating at the right edge of the first field. Absent when scheduling a devis act: that opening books
             a patient's plan step, and a block would have nothing to link to.
           */}
-          {!isPlanScheduling && (
+          {!patientIsFixed && (
             <ModeSegmented
               ariaLabel="Nature du créneau"
               className="mt-1 max-w-sm"
@@ -1040,10 +1175,14 @@ export function CreateAppointmentDialog({
           */}
           <div className="space-y-3">
 
-            {isPlanScheduling ? (
+            {patientIsFixed ? (
               <div className="space-y-2">
                 <div className="rounded-md border bg-background p-3">
-                  <p className="text-sm font-medium">{presetPatientName ?? "Patient"}</p>
+                  {/* ⚠️ `[overflow-wrap:anywhere]`, not `truncate`: this is the one statement of WHOSE séance
+                      this is, and a name clipped at 320 px is the half the reader needs. */}
+                  <p className="text-sm font-medium [overflow-wrap:anywhere]">
+                    {presetPatientName ?? "Patient"}
+                  </p>
                   {/* One badge per act, so a grouped séance says up front which steps of the devis it covers —
                       « Acte du plan : X » in the singular would have hidden the other two. */}
                   <div className="mt-1 flex flex-wrap gap-1">
@@ -1053,10 +1192,25 @@ export function CreateAppointmentDialog({
                         {act.label}
                       </Badge>
                     ))}
+                    {/* The continuation's own badge. It names the act being finished rather than a devis act,
+                        because there is no devis yet — `materialiseTreatments` mints it when this booking is
+                        saved. */}
+                    {presetContinuation && (
+                      <Badge variant="secondary" className="gap-1 text-xs">
+                        <History className="h-3 w-3" />
+                        Suite de : {presetContinuation.previous.procedureName}
+                      </Badge>
+                    )}
                   </div>
                   {planActs.length > 1 && (
                     <p className="mt-2 text-xs text-muted-foreground">
                       Ces {planActs.length} actes seront réalisés dans la même séance.
+                    </p>
+                  )}
+                  {presetContinuation && (
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      Séance du {formatDateFr(presetContinuation.previous.interventionDate)}. Le traitement et son
+                      devis seront créés à l&apos;enregistrement de ce rendez-vous.
                     </p>
                   )}
                 </div>
@@ -1274,9 +1428,9 @@ export function CreateAppointmentDialog({
               It belongs here on the content, too: the suggestion is derived from the PATIENT and from nothing
               else on the form. Under the acts it read as a footnote to a decision already made.
             */}
-            {suggestion && !isBusySlot && (
+            {suggestions && !isBusySlot && (
               <PlanStepSuggestionNotice
-                suggestion={suggestion}
+                set={suggestions}
                 onAccept={acceptSuggestion}
                 onDismiss={() => setDismissedSuggestionFor(selectedPatientId)}
                 // The act it inserts is priced and named from the catalogue, so accepting before it has loaded
@@ -1581,39 +1735,30 @@ export function CreateAppointmentDialog({
         open={continueOpen}
         onOpenChange={setContinueOpen}
         patientId={selectedPatientId}
-        onCreated={(plan) => {
+        onChosen={(choice) => {
           /*
-           * ⚠️ **The act to book, never `plan.items[0]`** — the trap `attachPlanAct` names in its own doc, made
-           * real by « Montant du travail restant ». Priced, that field makes `ContinueRecordedActCommand` build
-           * TWO acts: item 0 is the act already carried out, holding a single « 1re séance » step marked done,
-           * and item 1 is the remaining work, which is where the séance still to book lives (« With a priced
-           * remaining act the next séance belongs to THAT line »). Taking the first put all three of its
-           * consequences on screen at once, measured on a « Coiffage pulpaire » of 30 DT continued for 10:
+           * ⚠️ **Nothing is created here, and that is the fix.** This handler used to receive a devis — the
+           * dialog minted it on its own button press, numbered and accepted, with the lump-sum échéance
+           * `Accept` raises. Pressing « Annuler » on this booking afterwards could not un-mint it, so the
+           * patient was left owing money for a séance nobody had booked, and the act it continued had left
+           * « Suite d'une séance précédente » for good — `ContinuationTracking` counts an act on any
+           * non-cancelled plan as taken, so the only way back was to cancel the devis with a motif. Reported
+           * from use. `materialiseTreatments` mints it on save now, exactly like a split protocol.
            *
-           *  - the card showed the 30 DT act with « Déjà facturé … cette séance n'ajoute pas d'honoraires »,
-           *    instead of the 10 DT actually being booked;
-           *  - `planItemToPreset` offers only steps still to carry out, and that act has none left, so the
-           *    séance carried no step at all;
-           *  - and the act is `Done`, so `schedulablePlanItems` drops it, `planIdByItem` never learns its plan,
-           *    and `resolveAttachedPlanId` sends no `treatmentPlanId` — the save refused outright with « Le plan
-           *    de traitement est requis pour lier l'acte. », on the one booking this door exists for.
-           *
-           * `schedulablePlanItems` is the same gate `planIdByItem` is built from, which is what makes the two
-           * agree by construction: whatever it returns here is registrable, and an unpriced continuation — one
-           * act, two steps, the second still open — resolves to that act exactly as before.
+           * ⚠️ **Replaces, never appends.** An appointment carries ONE `TreatmentPlanId`
+           * (`resolveAttachedPlanId` refuses two), and re-opening this dialog to correct the séance or the
+           * price is the ordinary way to change one's mind — appending would send two continuations to the
+           * save, mint two devis, and only then be refused.
            */
-          const item = schedulablePlanItems(plan)[0]
-          if (!item) {
-            // Never silent: the devis exists on the server either way, so « rien ne s'est passé » would be the
-            // one reading that is false. Nothing is attached, and the dentist is told where the work went.
-            toast.error(
-              `Devis ${plan.number ?? ""} créé, mais aucune séance à planifier n'y a été trouvée. Ouvrez le devis pour la planifier.`.trim(),
+          setSelectedActs((prev) => {
+            const row = continuationToSelectedAct(
+              choice.previous, choice.nextStepLabel, choice.remainingWorkCost, procedureTypes,
             )
-            return
-          }
-          attachPlanAct(plan, item)
+            const at = prev.findIndex((a) => a.pendingContinuation)
+            return at >= 0 ? prev.map((a, i) => (i === at ? row : a)) : [...prev, row]
+          })
           toast.success(
-            `Traitement créé — devis ${plan.number ?? ""}. Ce rendez-vous en est la 2e séance.`.trim(),
+            "Séance ajoutée — le traitement et son devis seront créés à l'enregistrement du rendez-vous.",
           )
         }}
       />

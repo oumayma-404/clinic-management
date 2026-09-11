@@ -17,7 +17,7 @@ Only eight gestures in this product create or move money and clinical fact. Ever
 
 | # | Gesture | Where | Server writer |
 |---|---|---|---|
-| W1 | Save a booking | `create-appointment-dialog` | `CreateAppointmentCommand` (+ `materialisePlannedProtocols` → `StartTreatmentCommand`) |
+| W1 | Save a booking | `create-appointment-dialog` | `CreateAppointmentCommand` (+ `materialiseTreatments` → `StartTreatmentCommand`) |
 | W2 | Edit a booking | `edit-appointment-dialog` | `UpdateAppointmentCommand` |
 | W3 | Save a fiche de soins | `patient-record-modal` | `CreateDentalRecordCommand` / `UpdateDentalRecordCommand` |
 | W4 | Bill a fiche | fiche save (auto) **or** « Facturer cette intervention » | `DentalRecordAutoBilling` → `BillDentalRecordCommand` |
@@ -79,7 +79,7 @@ altogether — structural, never `grandTotal === 0`, which is also true of a dé
 |---|---|---|
 | Agenda grid | the slot, day/week/month | — |
 | Appointment acts | rows, each with its own `AgreedCost` | `AppointmentProcedureSelection` |
-| A **treatment** | created as un-numbered `Draft` **at save**, one per booking | `materialisePlannedProtocols`, `resolveAttachedPlanId` |
+| A **treatment** | created as un-numbered `Draft` **at save**, one per booking | `materialiseTreatments`, `resolveAttachedPlanId` |
 | Plan step link | the booking takes a step, not the act | `attachPlanAct` → `schedulablePlanItems` |
 | Duration | the sum of the acts, unless hand-touched | `durationTouched` |
 | Negotiated price | `AgreedCost` survives to the fiche's prefill | must be threaded explicitly — the fiche re-prices from the **catalogue** |
