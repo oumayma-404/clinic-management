@@ -88,7 +88,7 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                     appointment.DoctorId, appointment.DoctorName, roster),
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
-                AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
+                AllowedNextStatuses = Appointment.ManualNextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),

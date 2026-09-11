@@ -404,6 +404,22 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                             + $"ne peut pas passer à « {Appointment.FrenchLabel(newStatus)} ».");
                     }
 
+                    /*
+                     * ⚠️ Legal is not the same as « a human may ask for it ». « Séance passée » states that a
+                     * slot has ended — a fact about the clock — so `AppointmentProgressJob` is its only writer
+                     * and a request for it is refused here rather than honoured.
+                     *
+                     * This is inside the `newStatus != oldStatus` gate on purpose: an appointment ALREADY in
+                     * that status posts it back unchanged on every ordinary edit (the dialog prepends the
+                     * current status so the Select has a value), and that must stay the no-op it always was.
+                     */
+                    if (Appointment.IsJobWritten(newStatus))
+                    {
+                        return Result<AppointmentDto>.Failure(
+                            $"« {Appointment.FrenchLabel(newStatus)} » est posé automatiquement quand le créneau "
+                            + "est écoulé et ne peut pas être choisi à la main.");
+                    }
+
                     // The transition is legal — route it to the mutator that owns the extra state each one
                     // carries (a cancellation reason, clearing one on reactivation). The domain re-checks the
                     // same table, so these calls cannot disagree with the guard above.
@@ -438,6 +454,19 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                         case AppointmentStatus.NoShow:
                             appointment.MarkAsNoShow();
                             break;
+                        /*
+                         * ⚠️ The structural half, and the reason this bug was invisible. A status that the
+                         * transition table admits but no arm above handles used to FALL THROUGH — the handler
+                         * carried on, saved, and returned `Result.Success` carrying the status the caller had
+                         * just failed to change. HTTP 200, no error, nothing moved, and an audit row listing
+                         * zero changed fields. That is what `AwaitingClosure` did for the whole life of the
+                         * status, and the guard above only closes it for the statuses known to be job-written
+                         * TODAY. Anything unhandled is now loud instead.
+                         */
+                        default:
+                            return Result<AppointmentDto>.Failure(
+                                $"Le statut « {Appointment.FrenchLabel(newStatus)} » n'est pas pris en charge "
+                                + "par cette opération.");
                     }
                 }
             }
@@ -646,7 +675,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 DoctorName = appointment.DoctorName,
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
-                AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
+                AllowedNextStatuses = Appointment.ManualNextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),

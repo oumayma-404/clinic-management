@@ -36,6 +36,13 @@ import { quoteFr } from "@/lib/format"
  * client-side guess would offer transitions the server then refuses, which is exactly the dead end the DTO field
  * exists to avoid.</p>
  *
+ * <p>⚠️ <b>That is also why this menu needed no fix when « Séance passée » stopped being manually settable</b>,
+ * and why it must not grow a filter of its own. This surface offered it — the server projected the raw domain
+ * table, so it was in the list from `Scheduled`, `Confirmed` and `InProgress` — and picking it returned 200
+ * having changed nothing, so `apply` showed « Rendez-vous marqué « Séance passée » » over a statut that had not
+ * moved. The server now serves `Appointment.ManualNextStatusesFrom` and refuses the status outright, so the
+ * option is gone here for free and a stale client gets a real French refusal through `showErrorToast`.</p>
+ *
  * <p>⚠️ <b>It is a « ⋯ » and no longer a chevron, because it is no longer only the statut.</b> One trigger and
  * one menu rather than two controls: the host is a block sized by DURATION — a 15-minute visit is 12 px at
  * `HOUR_HEIGHT` — and a second affordance there would crowd the patient's name off the only line it has.</p>

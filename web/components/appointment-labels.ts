@@ -30,6 +30,12 @@ export type AppointmentStatusName = (typeof APPOINTMENT_STATUSES)[number];
  *
  * <p>It exists because `edit-appointment-dialog` falls back to the full list when the server sends no
  * `allowedNextStatuses`, and that fallback would otherwise offer « Séance passée » as a manual option.</p>
+ *
+ * <p>⚠️ It is the **fallback's** guard and never was the product's: `allowedNextStatuses` itself carried
+ * « Séance passée » until the server began projecting `Appointment.ManualNextStatusesFrom`, so both appointment
+ * surfaces offered it on essentially every open visit and picking it changed nothing without erroring. The
+ * server is the authority — do not re-apply this filter to the served list, which would be the second, drifting
+ * copy of the rule that the dialog's own note warns against.</p>
  */
 export const MANUALLY_SETTABLE_STATUSES = APPOINTMENT_STATUSES.filter(
   (s) => s !== "AwaitingClosure",

@@ -14,11 +14,17 @@ public class AppointmentDto
     public string Status { get; set; } = string.Empty;
 
     /// <summary>
-    /// The statuses this appointment may legally move to right now, from the domain's declared transition table
-    /// (AC-P1.6). The status control offers exactly these, and « Annuler le rendez-vous » derives its
+    /// The statuses a <b>human</b> may move this appointment to right now, from the domain's declared transition
+    /// table (AC-P1.6). The status control offers exactly these, and « Annuler le rendez-vous » derives its
     /// <c>disabled</c> state from whether <c>Cancelled</c> is in the list — instead of the client re-deriving a
     /// second copy of the rules that could disagree with the server (and did: the button was disabled on a
     /// completed appointment, which is now a legal cancellation).
+    /// <para>
+    /// ⚠️ <c>Appointment.ManualNextStatusesFrom</c>, <b>never</b>
+    /// <c>Appointment.NextStatusesFrom</c> — this list is read by a control a person clicks, so it
+    /// excludes the job-written statuses. Projected straight from the transition table, it offered
+    /// « Séance passée » from three of the seven statuses and the pick then failed silently. See that method.
+    /// </para>
     /// </summary>
     public List<string> AllowedNextStatuses { get; set; } = new();
     /// <summary>

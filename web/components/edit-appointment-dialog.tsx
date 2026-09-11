@@ -379,6 +379,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * ⚠️ The fallback is `MANUALLY_SETTABLE_STATUSES`, not every status: « Séance passée » is written by the
    * progress job alone, so offering it here would let a user assert that a slot has ended when it has not.
    * The *current* status is still prepended below, so a visit already in it renders correctly.
+   *
+   * ⚠️ That filter used to guard **this branch only** — the one taken when the server sends nothing — while the
+   * live branch below returned `allowedNextStatuses` verbatim, and the server projected it straight from the
+   * domain's transition table, where « Séance passée » is legal from `Scheduled`, `Confirmed` and `InProgress`.
+   * So the option the note above forbids was in the dropdown on essentially every open visit, and picking it
+   * returned 200 having changed nothing. The server now sends the manually-settable set
+   * (`Appointment.ManualNextStatusesFrom`) and refuses the status outright, so both branches agree. Deliberately
+   * NOT re-filtered here: that would be the second, drifting copy of the rules this comment warns against.
    */
   const statusOptions = useMemo(() => {
     const current = source?.status
