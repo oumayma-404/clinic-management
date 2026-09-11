@@ -65,9 +65,20 @@ interface OdontogramActsChartProps {
   records: DentalRecordDto[]
   /** The clinic's act catalog, for each act's colour. */
   procedureTypes: ProcedureTypeDto[]
+  /**
+   * Switch to « État dentaire » drawn in symbols — see the note below the chart.
+   *
+   * <p>Optional so a read-only caller can mount this chart without a tab to switch to.</p>
+   */
+  onShowSymbols?: () => void
 }
 
-export function OdontogramActsChart({ teeth, records, procedureTypes }: OdontogramActsChartProps) {
+export function OdontogramActsChart({
+  teeth,
+  records,
+  procedureTypes,
+  onShowSymbols,
+}: OdontogramActsChartProps) {
   /**
    * Which tooth's acts are showing, tracked in two independent channels so the two input methods cannot fight:
    * a tap pins the panel open until it is dismissed, while hover opens it only while the pointer is over the
@@ -219,6 +230,32 @@ export function OdontogramActsChart({ teeth, records, procedureTypes }: Odontogr
           Touchez ou survolez une dent colorée pour voir les actes réalisés. Vue en lecture seule — les actes
           proviennent des fiches de soins.
         </p>
+
+        {/*
+          ⚠️ **Where the Cases/Symboles question is answered, because this is where it is asked.** The switch is
+          withheld on this tab (it does not drive this chart, and a control that appears to work and does not is
+          worse than a missing one) — but its absence was read as « il n'y a pas de symboles pour les actes
+          réalisés », which is false: every act IS on the other chart, in the « réalisé » blue. One sentence
+          saying what each of the two views colours by, and a control that goes there.
+
+          A `button`, not a link: it changes the tab and the drawing in place, both of which are this card's own
+          state. `coarse:min-h-11` rather than `.touch-target` — it sits at the end of a sentence, so an overlay
+          would cover the text above and below it.
+        */}
+        {onShowSymbols && (
+          <p className="text-xs text-muted-foreground">
+            Cette vue colore chaque dent <strong className="font-medium">par acte</strong>. Pour les symboles
+            cliniques — ce qui reste à faire en rouge, ce qui a été réalisé en bleu, sur une même dent —{" "}
+            <button
+              type="button"
+              onClick={onShowSymbols}
+              className="inline-flex items-center rounded text-primary underline underline-offset-2 hover-hover:hover:no-underline coarse:min-h-11"
+            >
+              voir « État dentaire » en symboles
+            </button>
+            .
+          </p>
+        )}
 
         {/* Only the acts on this chart. The full catalog under a chart showing three of them is noise. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">

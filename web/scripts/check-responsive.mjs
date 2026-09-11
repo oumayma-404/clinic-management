@@ -3135,6 +3135,105 @@ check(
   }
 );
 
+check(
+  "recorded-act-reaches-both-drawings",
+  "N35",
+  "An act that charts no tooth state reaches « Cases » AND « Symboles », and is described in one place",
+  "Nearly half of all recorded work writes no `ToothState` at all — measured on the dev database, 258 acts of " +
+    "566 name teeth and chart nothing. « Coiffage pulpaire », « Inlay-core », « Couronne provisoire », " +
+    "« Incision d'abcès » and « Greffe osseuse » are seeded `ToothCondition.Sain` on purpose (the barème's own " +
+    "line for a coiffage is « à l'exclusion de l'obturation définitive »), and `ToothChartingRules` withholds a " +
+    "multi-séance act's end state until it finishes. So the odontogramme, which reads `ToothStateDto[]` and " +
+    "nothing else, showed a treated tooth as untouched — reported from use on a coiffage, and true in BOTH " +
+    "drawings. `odontogram-recorded-acts.ts` is the one owner of that second vocabulary; this holds the two " +
+    "halves no type can see. First: the derived list must be read inside the `symbolBox` block and inside the " +
+    "`boxesBox` block, because the failure mode is one drawing wired and the other forgotten, and it reports " +
+    "nothing anywhere — the tooth simply stays blank on whichever view the reader happens to be on, which is " +
+    "exactly the disagreement `odontogram-view-switch.tsx` forbids in as many words. Second: the mark's label " +
+    "and its colours live only in that module, or the two drawings and the two legends are free to name one " +
+    "fact four ways.",
+  () => {
+    const offenders = [];
+
+    const OWNER = "components/odontogram-recorded-acts.ts";
+    const CHART = "components/odontogram.tsx";
+
+    const ownerFile = ALL_FILES.find((f) => rel(f).replace(/\\/g, "/") === OWNER);
+    const chartFile = ALL_FILES.find((f) => rel(f).replace(/\\/g, "/") === CHART);
+    if (!ownerFile || !chartFile) {
+      return [
+        {
+          file: ownerFile ? CHART : OWNER,
+          text: "missing",
+          full: "a file this check guards is gone — retarget or retire the check rather than deleting it",
+        },
+      ];
+    }
+
+    /*
+     * ⚠️ The two drawings are found by their own `const … = (` declarations and sliced to the next one, never
+     * by a line range: the block boundaries move every time either drawing is touched, and a range that has
+     * drifted is a check measuring the wrong half in silence.
+     */
+    const src = read(chartFile);
+    const lines = src.split(/\r?\n/);
+    const masked = commentMask(lines);
+    const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+    const blockOf = (name) => {
+      const open = code.indexOf(`const ${name} = (`);
+      if (open < 0) return null;
+      // The next drawing's declaration, or the swap that consumes both — whichever comes first.
+      const rest = code.slice(open + 1);
+      const ends = [/const \w+Box = \(/, /const box = chartView/]
+        .map((re) => rest.search(re))
+        .filter((i) => i >= 0);
+      return ends.length > 0 ? rest.slice(0, Math.min(...ends)) : rest;
+    };
+
+    for (const name of ["symbolBox", "boxesBox"]) {
+      const block = blockOf(name);
+      if (block === null) {
+        offenders.push({
+          file: CHART,
+          text: `\`const ${name} = (\` no longer parses — this check is blind, fix it rather than deleting it`,
+        });
+        continue;
+      }
+      if (!/\brecordedActs\b/.test(block)) {
+        offenders.push({
+          file: CHART,
+          line: lineAt(code, code.indexOf(`const ${name} = (`)),
+          text: `\`${name}\` never reads \`recordedActs\``,
+          full:
+            "an act that charts no state is then on one drawing and absent from the other, with no error " +
+            "anywhere — the tooth just reads as untouched on whichever view the dentist is looking at",
+        });
+      }
+    }
+
+    // The second half: one describer, not four. Derived from the constants themselves, so a rename is fine.
+    for (const f of tsx()) {
+      const where = rel(f).replace(/\\/g, "/");
+      if (where === OWNER) continue;
+      const fsrc = read(f);
+      const fl = fsrc.split(/\r?\n/);
+      const fm = commentMask(fl);
+      const fcode = fl.map((l, i) => (fm[i] ? "" : l)).join("\n");
+      for (const m of fcode.matchAll(/\bRECORDED_ACT_(?:LABEL|LEGEND|BOX|SWATCH|COLOR)\s*=/g)) {
+        offenders.push({
+          file: rel(f),
+          line: lineAt(fcode, m.index),
+          text: "defines a second answer to what the « acte réalisé » mark is called or coloured",
+          full: `the one owner is ${OWNER}; import from it instead`,
+        });
+      }
+    }
+
+    return offenders;
+  }
+);
+
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
 
 let failed = 0;
@@ -3142,6 +3241,122 @@ let failed = 0;
 console.log("");
 console.log("  check-responsive — mobile & tablet mechanical gate (AC-50)");
 console.log("  " + "─".repeat(90));
+
+check(
+  "act-field-survives-a-re-save",
+  "N36",
+  "Every field of a recorded act is read back into the editor AND sent again on save",
+  "`DentalRecord.SetActs` replaces the WHOLE act list on every save, so the fiche's editor is the only thing " +
+    "keeping a stored field alive: read it back and forget to send it, or send it and forget to read it back, " +
+    "and an ordinary re-save silently rewrites the act. This has now cost three fields. `ponticToothNumbers` " +
+    "flattens a bridge somebody detailed last week — three abutments and no pontic, which is a mouth that " +
+    "cannot exist; `implantPilierToothNumbers` charts rooted abutments over implants; and `isUnfinished` marks " +
+    "an act FINISHED, a clinical claim nobody made, whose only symptom is the act quietly leaving " +
+    "« Suites à planifier » so the séance nobody booked is chased by nothing. None of the three errors " +
+    "anywhere, none is visible in a type, and the gesture that causes it is opening a fiche to fix a typo and " +
+    "pressing Enregistrer. So the required set is derived from `DentalRecordActDto` itself rather than listed " +
+    "here — a fourth field is covered the day it is declared — and asserted in BOTH directions, since a key " +
+    "sent but never read back is the same defect seen from the other end. `id` is the one exemption and it is " +
+    "computed, not an allow-list: the server mints act ids per save, so the editor keys its cards on its own " +
+    "counter and the input type has no `id` at all.",
+  () => {
+    const offenders = [];
+
+    const TYPES = "lib/api/types.ts";
+    const READER = "components/record/use-session-acts.ts";
+    const WRITER = "components/patient-record-modal.tsx";
+
+    const find = (p) => ALL_FILES.find((f) => rel(f).replace(/\\/g, "/") === p);
+    for (const p of [TYPES, READER, WRITER]) {
+      if (!find(p)) {
+        offenders.push({
+          file: p,
+          text: "missing — a file this check guards is gone; retarget or retire the check rather than deleting it",
+        });
+      }
+    }
+    if (offenders.length > 0) return offenders;
+
+    const codeOf = (p) => {
+      const lines = read(find(p)).split(/\r?\n/);
+      const masked = commentMask(lines);
+      return lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+    };
+
+    // ── the required set, derived from the DTO's own declaration ────────────────────────────────────────
+    const types = codeOf(TYPES);
+    const decl = types.match(/export interface DentalRecordActDto \{([\s\S]*?)\n\}/);
+    if (!decl) {
+      return [{ file: TYPES, text: "`DentalRecordActDto` no longer parses — this check is blind, fix it" }];
+    }
+    const required = [...decl[1].matchAll(/^\s{2}(\w+)\??:/gm)]
+      .map((m) => m[1])
+      // The server mints an act id per save, so the editor never round-trips one — it keys its cards on its
+      // own counter and `DentalActInput` has no `id` field to send it in.
+      .filter((k) => k !== "id");
+
+    if (required.length < 5) {
+      return [
+        {
+          file: TYPES,
+          text:
+            `derived only ${required.length} act field(s) from \`DentalRecordActDto\` — the declaration's shape ` +
+            "changed and this check is measuring nothing; fix the parse rather than trusting a green run",
+        },
+      ];
+    }
+
+    // ── the read-back half: `actFromDto` ────────────────────────────────────────────────────────────────
+    const reader = codeOf(READER);
+    const fn = reader.slice(reader.indexOf("function actFromDto"));
+    if (!fn.startsWith("function actFromDto")) {
+      return [{ file: READER, text: "`actFromDto` no longer parses — this check is blind, fix it" }];
+    }
+    // To the next top-level declaration, so the body's boundary moves with the file rather than with a range.
+    const nextDecl = fn.slice(1).search(/\n(?:export )?(?:function|const|interface|type) /);
+    const body = nextDecl >= 0 ? fn.slice(0, nextDecl + 1) : fn;
+
+    for (const key of required) {
+      if (!new RegExp(`\\ba\\.${key}\\b`).test(body)) {
+        offenders.push({
+          file: READER,
+          text:
+            `\`actFromDto\` never reads \`a.${key}\` — a fiche reopened for editing cannot see it, so the next ` +
+            "save sends the default and overwrites what was stored",
+        });
+      }
+    }
+
+    // ── the send half: the modal's `DentalActInput[]` payload ───────────────────────────────────────────
+    const writer = codeOf(WRITER);
+    const at = writer.indexOf("const parsedActs: DentalActInput[] =");
+    /*
+     * ⚠️ Sliced to the next top-level statement of the same function, never to a fixed closing token: the
+     * builder's own indentation moves whenever the surrounding save is touched, and a boundary pattern that
+     * has drifted makes this check pass while measuring nothing.
+     */
+    const rest = at >= 0 ? writer.slice(at) : "";
+    const end = rest.slice(1).search(/\n {4}(?:const|let|if|return|setLoading)\b/);
+    const payload = at >= 0 ? (end >= 0 ? rest.slice(0, end + 1) : rest) : null;
+    if (!payload || !/procedureName:/.test(payload)) {
+      return [
+        { file: WRITER, text: "the `DentalActInput[]` payload no longer parses — this check is blind, fix it" },
+      ];
+    }
+    for (const key of required) {
+      if (!new RegExp(`^\\s*${key}:`, "m").test(payload)) {
+        offenders.push({
+          file: WRITER,
+          text:
+            `the act payload never sends \`${key}\` — \`SetActs\` rebuilds every act from it, so saving the ` +
+            "fiche rewrites that field to its default with no gesture, no toast and no error",
+        });
+      }
+    }
+
+    return offenders;
+  }
+);
 
 for (const c of checks) {
   if (only && c.id !== only) continue;

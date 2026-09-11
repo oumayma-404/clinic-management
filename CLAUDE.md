@@ -319,6 +319,20 @@ touching the area.
   with « Le plan de traitement est requis pour lier l'acte. », after showing the finished 30 DT act in place
   of the 10 DT being booked and offering no step at all. `attachPlanAct`'s own doc had said « never
   `plan.items[0]` » since the day it was written; `check:responsive`'s N28 is what holds it.
+- **An act with no `ResultingCondition` writes NO row, and a chart reading only `ToothStateDto[]` loses it in
+  silence.** `BuildToothStates` skips `null`/`Sain` before anything else, and « Coiffage pulpaire »,
+  « Inlay-core », « Couronne provisoire », « Incision d'abcès » and « Greffe osseuse » are all seeded `Sain`
+  deliberately (the barème's own line for a coiffage is « à l'exclusion de l'obturation définitive »). Add the
+  bullet below — a multi-séance act whose end state `ToothChartingRules` is still withholding — and **258 of
+  566 recorded acts** on the dev database named teeth and marked nothing: 46 % of all recorded work invisible on
+  the chart the consultation is read off, in **both** drawings, with no error anywhere. Reported from use as
+  « j'ai fait un coiffage et je ne le vois pas ». `odontogram-recorded-acts.ts` is the one owner of that second
+  vocabulary and `check:responsive`'s N35 holds it; the test it uses is the **outcome** (`dentalRecordId`), never
+  `act.resultingCondition`, which `ToothChartingRules` clears for the odontogram while leaving it on the stored
+  act. ⚠️ `odontogram-acts-chart.tsx` had recorded this exact trap as the worst of three it was built to fix,
+  and the lesson was never carried to the chart beside it. ⚠️ And the tab it lives on is **« État dentaire »**,
+  not « Diagnostics »: it has always carried both sources, and the old name is why a dentist concluded there
+  were no symbols for les actes réalisés.
 - **A restoration records work that is DONE, and the chart asserted it from the FIRST séance.** A multi-séance
   act's step-1 fiche carried the catalogue's `ResultingCondition`, so a tooth read « Implant » weeks before the
   implant existed — measured as 7 rows on the live database, every one from a step 1 of 2, three of them claiming

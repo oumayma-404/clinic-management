@@ -58,6 +58,16 @@ import {
   serializeSurfaces,
 } from "@/components/odontogram-conditions"
 import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
+import {
+  buildRecordedActs,
+  NO_RECORDED_ACTS,
+  RECORDED_ACT_BOX,
+  RECORDED_ACT_COLOR,
+  RECORDED_ACT_LABEL,
+  RECORDED_ACT_LEGEND,
+  RECORDED_ACT_SWATCH,
+  type RecordedAct,
+} from "@/components/odontogram-recorded-acts"
 // One source for the FDI quadrant layout — `tooth-multiselect` is the client-side authority for a tooth's
 // dentition (mirroring the backend `FdiTooth.IsAdult`), and this file used to carry a second copy.
 import { TEETH_BY_VIEW, isAdultTooth } from "@/components/tooth-multiselect"
@@ -298,13 +308,38 @@ export function Odontogram({
    * ⚠️ Late-binding on purpose (`chosenView === null` ≠ "adult"): `byTooth` is populated by an async read, so a
    * `useState` seed would be computed on the frame before the data arrived and never revised.
    */
+  /**
+   * Recorded work this chart's own vocabulary cannot hold — see `odontogram-recorded-acts.ts`.
+   *
+   * <p>Derived from the fiches this component already loads, so there is no second read and no new endpoint.
+   * It is deliberately kept OUT of `byTooth`: that map drives the diagnosis picker's seeds, the bridge runs
+   * and the condition legend, none of which an act without a state belongs in.</p>
+   */
+  const recordedActs = useMemo(() => buildRecordedActs(records, byTooth), [records, byTooth])
+
+  /**
+   * Every tooth this patient has **anything** recorded on — a charted state or an act that charted none.
+   *
+   * <p>⚠️ <b>The four questions below are all « what is there to show? », and answering them from `byTooth`
+   * alone is what makes a tooth disappear in silence.</b> A coiffage on a deciduous 55 of a patient charted
+   * « définitive » would not widen the arch, would not be counted by the « états hors de cette vue » notice,
+   * and would not decide which arch a phone opens on — so the one mark on the tooth would simply never be
+   * reachable, with no error and nothing on screen saying so.</p>
+   */
+  const teethWithAnything = useMemo(() => {
+    const all = new Set<number>()
+    for (const [tooth, entries] of byTooth) if (entries.length > 0) all.add(tooth)
+    for (const tooth of recordedActs.keys()) all.add(tooth)
+    return all
+  }, [byTooth, recordedActs])
+
   const dentitionView = useMemo<DentitionView>(() => {
     if (chosenView) return chosenView
     const seeded = dentitionViewFor(dentition)
-    const charted = dentitionViewForTeeth(Array.from(byTooth.keys()), isAdultTooth)
+    const charted = dentitionViewForTeeth(Array.from(teethWithAnything), isAdultTooth)
     if (!charted || charted === seeded) return seeded
     return "mixed"
-  }, [chosenView, dentition, byTooth])
+  }, [chosenView, dentition, teethWithAnything])
 
   const teeth = TEETH_BY_VIEW[dentitionView]
 
@@ -321,8 +356,8 @@ export function Odontogram({
   const chartedOutOfView = useMemo(() => {
     // `teeth` is quadrant-shaped (`ToothQuadrants`), not a flat list — the chart draws four arches.
     const shown = new Set([...teeth.upperRight, ...teeth.upperLeft, ...teeth.lowerRight, ...teeth.lowerLeft])
-    return Array.from(byTooth.keys()).filter((tooth) => !shown.has(tooth)).length
-  }, [teeth, byTooth])
+    return Array.from(teethWithAnything).filter((tooth) => !shown.has(tooth)).length
+  }, [teeth, teethWithAnything])
 
   /**
    * The conditions this patient actually carries, in the shared display order — the symbol legend's contents.
@@ -397,8 +432,10 @@ export function Odontogram({
    * from a default. Without it the question returned on every reload of an undated patient's page however many
    * times it was answered — the whole reason `Patient.DentitionAnsweredAtUtc` exists.</p>
    */
+  // ⚠️ `teethWithAnything`, not `byTooth`: a patient whose fiches name teeth has already told us which arch he
+  // has — asking would be asking a question the record answers, and the prompt replaces the whole chart.
   const mustAskDentition =
-    !dateOfBirth && !dentitionAnswered && chosenView === null && byTooth.size === 0
+    !dateOfBirth && !dentitionAnswered && chosenView === null && teethWithAnything.size === 0
 
   /**
    * Answering « Quelle denture afficher ? » — the one place a chosen view is also an answer ABOUT THE PATIENT,
@@ -507,14 +544,14 @@ export function Odontogram({
    */
   const defaultArch = useMemo<ToothArch | undefined>(() => {
     let lowest: number | undefined
-    for (const [tooth, entries] of byTooth) {
-      if (entries.length === 0) continue
+    // A `Set`'s iteration order is insertion order here too, so the min is taken rather than the first.
+    for (const tooth of teethWithAnything) {
       if (lowest === undefined || tooth < lowest) lowest = tooth
     }
     if (lowest === undefined) return undefined
     const quadrant = Math.floor(lowest / 10)
     return quadrant === 1 || quadrant === 2 || quadrant === 5 || quadrant === 6 ? "upper" : "lower"
-  }, [byTooth])
+  }, [teethWithAnything])
 
   const toggleSelectedTooth = useCallback((tooth: number) => {
     setSelectedTeeth((prev) => {
@@ -599,8 +636,17 @@ export function Odontogram({
             per-tab copy could have the Diagnostics arch disagreeing with the Actes one.
           */}
           <div className="flex flex-wrap items-center justify-between gap-2">
+            {/*
+              ⚠️ **« État dentaire », not « Diagnostics » — the old name was the defect.** This chart has always
+              carried BOTH sources: a `ToothStateDto` is `Diagnosis` *or* `Treatment`, and in « Symboles » the
+              colour IS that axis (rouge à faire · bleu réalisé). Named « Diagnostics » it read as one half of a
+              pair whose other half is the tab beside it, so a dentist looking for his work in symbols concluded
+              there were no symbols for les actes réalisés — reported in exactly those words. The two tabs are
+              two QUESTIONS over one mouth: « dans quel état est cette dent ? » and « qu'a-t-on fait, et avec
+              quel acte ? ».
+            */}
             <TabsList>
-              <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+              <TabsTrigger value="diagnostics">État dentaire</TabsTrigger>
               <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
             </TabsList>
             {/*
@@ -765,6 +811,7 @@ export function Odontogram({
               onToggleSelect={toggleSelectedTooth}
               previewCondition={multiSelect && selectedTeeth.has(t) ? pendingCondition : null}
               treatments={treatments?.get(t)}
+              recordedActs={recordedActs.get(t) ?? NO_RECORDED_ACTS}
               chartView={chartView}
               bridgeSpan={bridgeSpans.get(t)}
               didConsumeGesture={dragSelect.didConsumeGesture}
@@ -790,7 +837,7 @@ export function Odontogram({
               {/* One legend per drawing, because the two spend colour on different things: fifteen condition
                   hues under a chart whose colour means « à faire / réalisé » would teach the wrong key. */}
               {chartView === "symbols" ? (
-                <ToothSymbolLegend conditions={chartedConditions} />
+                <ToothSymbolLegend conditions={chartedConditions} hasRecordedActs={recordedActs.size > 0} />
               ) : (
                 <>
                   {CONDITION_ORDER.map((c) => (
@@ -803,6 +850,14 @@ export function Odontogram({
                     <span className="h-4 w-4 rounded border-2 border-dashed border-muted-foreground/60" />
                     <span className="text-muted-foreground">Diagnostic (à traiter)</span>
                   </div>
+                  {/* Only when the patient carries one — it is not part of the condition vocabulary above, it
+                      is a fact about THIS patient's record, so the « Traitement en cours » rule applies. */}
+                  {recordedActs.size > 0 && (
+                    <div className="flex items-center gap-1.5" title={RECORDED_ACT_LEGEND}>
+                      <span className={cn("h-4 w-4 rounded border", RECORDED_ACT_SWATCH)} />
+                      <span className="text-muted-foreground">{RECORDED_ACT_LABEL}</span>
+                    </div>
+                  )}
                 </>
               )}
               {/* Only when the patient actually has one — a legend row for a state nothing on the chart is
@@ -849,7 +904,19 @@ export function Odontogram({
           </TabsContent>
 
           <TabsContent value="acts" className="mt-3">
-            <OdontogramActsChart teeth={teeth} records={records} procedureTypes={procedureTypes} />
+            {/* ⚠️ `onShowSymbols` is where the Cases/Symboles confusion is actually answered. The switch is
+                withheld on this tab because it changes nothing here — but a control that is simply absent
+                teaches nothing, and what a reader concludes is that les actes réalisés have no symbol view.
+                They do: they are on the other tab, in blue. This says so and takes them there. */}
+            <OdontogramActsChart
+              teeth={teeth}
+              records={records}
+              procedureTypes={procedureTypes}
+              onShowSymbols={() => {
+                setTab("diagnostics")
+                chooseChartView("symbols")
+              }}
+            />
           </TabsContent>
         </Tabs>
       )}
@@ -874,6 +941,13 @@ interface ToothCellProps {
   previewCondition?: string | null
   /** Treatments under way on this tooth, if any — see {@link OdontogramProps.treatments}. */
   treatments?: ToothTreatment[]
+  /**
+   * Work recorded on this tooth that charted no state — see `odontogram-recorded-acts.ts`.
+   *
+   * ⚠️ Always an array, never optional: a caller that forgets it would silently drop the mark from one
+   * drawing, which is the failure the whole derivation exists to prevent.
+   */
+  recordedActs: RecordedAct[]
   /** Which drawing to use. Everything else about the cell — editor, selection, tooltip — is identical. */
   chartView: OdontogramChartView
   /** Set when this tooth's bridge continues into a neighbouring cell — see `bridgeSpans` above. */
@@ -892,6 +966,7 @@ function ToothCell({
   onToggleSelect,
   previewCondition = null,
   treatments,
+  recordedActs,
   chartView,
   bridgeSpan,
   didConsumeGesture,
@@ -938,6 +1013,16 @@ function ToothCell({
    */
   const preview = previewCondition ?? (open ? condition : null)
   const style = conditionStyle(preview ?? latest?.condition ?? "Sain")
+  /**
+   * The « Cases » fill for a tooth whose only record is an act that charted nothing.
+   *
+   * <p>⚠️ A charted condition always wins the fill — it is the more specific clinical statement, and a box
+   * holds exactly one. So this is the *absence* of any condition, not a rank among them; a tooth carrying both
+   * shows the condition here and the act on its dot row and in its tooltip.</p>
+   */
+  const boxIsRecordedActOnly = !preview && !latest && recordedActs.length > 0
+  /** Conditions and recorded acts share one dot row, so the cap and the « +N » count the same thing. */
+  const dotCount = entries.length + recordedActs.length
   // A pending choice is a diagnosis, so it takes the dashed border the legend already explains as « à traiter ».
   const latestIsDiagnosis = preview !== null || (latest ? isDiagnosis(latest) : false)
 
@@ -1025,7 +1110,14 @@ function ToothCell({
           two arches face each other the way the mouth does. */}
       <span className={cn("relative flex flex-col items-center gap-px rounded-md p-0.5", cellChrome)}>
         {!isUpperTooth(toothNum) && <OcclusalSurfaceBox toothNumber={toothNum} marks={symbolMarks} />}
-        <ToothSymbolGlyph toothNumber={toothNum} marks={symbolMarks} bridgeSpan={bridgeSpan} />
+        {/* `hasRecordedAct` is the second vocabulary this chart draws — see `odontogram-recorded-acts.ts`.
+            The boxes drawing below takes the same list; the two must never disagree about one fact. */}
+        <ToothSymbolGlyph
+          toothNumber={toothNum}
+          marks={symbolMarks}
+          bridgeSpan={bridgeSpan}
+          hasRecordedAct={recordedActs.length > 0}
+        />
         {isUpperTooth(toothNum) && <OcclusalSurfaceBox toothNumber={toothNum} marks={symbolMarks} />}
         {tick}
       </span>
@@ -1049,7 +1141,7 @@ function ToothCell({
            which is already a saturated colour on a charted tooth. */
         className={cn(
           "relative flex h-9 w-7 items-center justify-center rounded-md border text-2xs font-semibold",
-          style.box,
+          boxIsRecordedActOnly ? RECORDED_ACT_BOX : style.box,
           latestIsDiagnosis && "border-2 border-dashed",
           /*
             ⚠️ **A RING, never a fill — the fill belongs to the condition and this is a different axis.**
@@ -1076,7 +1168,7 @@ function ToothCell({
       >
         {toothNum}
       </span>
-      {entries.length > 0 && (
+      {dotCount > 0 && (
         <span className="mt-0.5 flex items-center gap-0.5">
           {entries.slice(0, MAX_DOTS).map((e) => (
             // The fill is an inline style, not `swatch`, for the same reason odontogram-acts-chart uses one:
@@ -1093,8 +1185,17 @@ function ToothCell({
               style={{ backgroundColor: conditionStyle(e.condition).color }}
             />
           ))}
-          {entries.length > MAX_DOTS && (
-            <span className="text-2xs font-medium text-muted-foreground">+{entries.length - MAX_DOTS}</span>
+          {/* The recorded acts take whatever room the conditions left, in the same row and under the same cap —
+              a second dot row would double the cell's height for the tooth that has least to say. */}
+          {recordedActs.slice(0, Math.max(0, MAX_DOTS - entries.length)).map((a, i) => (
+            <span
+              key={`${a.recordId}-${a.name}-${i}`}
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: RECORDED_ACT_COLOR }}
+            />
+          ))}
+          {dotCount > MAX_DOTS && (
+            <span className="text-2xs font-medium text-muted-foreground">+{dotCount - MAX_DOTS}</span>
           )}
         </span>
       )}
@@ -1131,7 +1232,11 @@ function ToothCell({
     // ⚠️ `bridgeSpan?.runLabel` widens it once more, and for the same reason: a tooth the bar merely CROSSES
     // (an un-charted pontic site) has no entry and no treatment either, so it would be the one cell in the run
     // that could not say which bridge it belongs to.
-    entries.length === 0 && !underTreatment && !bridgeSpan?.runLabel ? (
+    //
+    // ⚠️ `recordedActs` widens it a third time, and it is the one that matters most here: such a tooth may
+    // carry NO entry at all, so without this clause the whole point of the mark — « which act was it? » —
+    // would be on screen with no way to ask.
+    entries.length === 0 && !underTreatment && !bridgeSpan?.runLabel && recordedActs.length === 0 ? (
       node
     ) : (
       <TooltipProvider>
@@ -1170,6 +1275,19 @@ function ToothCell({
                   <span className="text-muted-foreground">
                     — {isDiagnosis(e) ? "Diagnostic" : "Réalisé"} · {formatDateFr(e.treatmentDate)}
                   </span>
+                </li>
+              ))}
+              {/* ⚠️ The act's OWN name, which no charted entry carries: a tooth state holds the condition it
+                  produced, and these produced none. This is the only place the coiffage, l'inlay-core or the
+                  couronne provisoire is named on the chart. */}
+              {recordedActs.map((a, i) => (
+                <li key={`${a.recordId}-${a.name}-${i}`} className="flex items-center gap-1.5">
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: RECORDED_ACT_COLOR }}
+                  />
+                  <span>{a.name}</span>
+                  <span className="text-muted-foreground">— Réalisé · {formatDateFr(a.date)}</span>
                 </li>
               ))}
             </ul>
