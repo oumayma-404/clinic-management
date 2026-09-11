@@ -333,6 +333,17 @@ touching the area.
   and the lesson was never carried to the chart beside it. ⚠️ And the tab it lives on is **« État dentaire »**,
   not « Diagnostics »: it has always carried both sources, and the old name is why a dentist concluded there
   were no symbols for les actes réalisés.
+- **« Actes réalisés » draws the teeth too, and its colour means the ACT — so a state there is drawn in
+  `--chart-mark-ink`, never in a status colour, and never from `act.resultingCondition`.** The Cases/Symboles
+  switch used to be withheld on that tab because the chart ignored `chartView` — correct at the time (« a
+  control that lies is worse than a missing one ») and the direct cause of the report, since a dentist found
+  the switch on one tab, nothing on the other, and concluded the feature did not exist. The switch is
+  unconditional now and `check:responsive`'s N37 fails if that chart stops branching on it. ⚠️ The act's colour
+  is **mixed into** the tooth's own gradient stops at `--act-tint`, plus one full-strength band per act at the
+  collet — flattening both stops to one flat hue throws away the enamel/dentine falloff that is the only thing
+  making the shape read as a tooth, which `globals.css` states beside those literals. ⚠️ And the state drawn
+  over it comes from `ToothStateDto`, so a condition `ToothChartingRules` is withholding is simply absent;
+  reading the act row instead re-creates « Implant » charted weeks before the implant existed.
 - **A restoration records work that is DONE, and the chart asserted it from the FIRST séance.** A multi-séance
   act's step-1 fiche carried the catalogue's `ResultingCondition`, so a tooth read « Implant » weeks before the
   implant existed — measured as 7 rows on the live database, every one from a step 1 of 2, three of them claiming

@@ -169,6 +169,20 @@
   --chart-mark-todo: oklch(0.550 0.190 27);
   --chart-mark-done: oklch(0.480 0.155 262);
   /*
+   * The third mark colour, and it is NOT a status: it is the ink « Actes réalisés » draws a state in.
+   *
+   * ⚠️ On that chart the colour channel is already spent — it carries the clinic's own hue for the ACT — so a
+   * state drawn in either of the two above would claim a status the chart does not sort by, and a state drawn
+   * in the act's own hue would vanish into the wash behind it. Shape says what the act left, colour says which
+   * act: two channels, two questions, no collision.
+   *
+   * ⚠️ **No dark twin, deliberately.** It is always a stroke on an ivory tooth — the enamel and dentine
+   * literals above keep their value in dark for the reason stated beside them — so lifting it in dark mode
+   * would send it *toward* the surface it has to read against. `--tooth-line` was the other candidate and is
+   * wrong: at that lightness the glyph is the silhouette's own weight and the two stop being tellable apart.
+   */
+  --chart-mark-ink: oklch(0.330 0.014 250);
+  /*
    * The tooth itself. **Two stops each, and the gradient is not decoration** — a flat beige silhouette reads
    * as a blob at 40 px, and what makes it read as a *tooth* is that enamel is brightest at the incisal edge
    * and shades toward the collet while dentine does the opposite, darkening toward the apex. The first port of

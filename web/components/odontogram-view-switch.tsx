@@ -12,9 +12,14 @@ export const ODONTOGRAM_CHART_VIEW_LABELS_FR: Record<OdontogramChartView, string
   symbols: "Symboles",
 }
 
+/*
+ * ⚠️ Tab-agnostic, because the switch is offered on both now. The old symbols hint said « rouge = à faire »,
+ * which is true of « État dentaire » and false of « Actes réalisés », where the colour is the act. Each chart
+ * states its own colour key underneath itself; this only says what the switch changes.
+ */
 const HINTS: Record<OdontogramChartView, string> = {
-  boxes: "Une case par dent, colorée par état — la vue d'origine",
-  symbols: "Une dent dessinée, un symbole par état, rouge = à faire",
+  boxes: "Une case par dent — la vue d'origine",
+  symbols: "La dent dessinée, avec ses symboles",
 }
 
 interface OdontogramViewSwitchProps {
@@ -46,6 +51,11 @@ interface OdontogramViewSwitchProps {
  * act's state is withheld until it finishes — so a chart reading tooth states alone showed a treated tooth as
  * untouched, in **both** drawings. `check:responsive`'s `recorded-act-reaches-both-drawings` is what stops one
  * of them being wired and the other forgotten, which is the exact shape of this repo's dominant defect.
+ *
+ * ⚠️ **It applies to BOTH tabs, and « Symboles » means the same thing on each: draw the teeth.** What differs
+ * is what the colour answers — à faire / réalisé on « État dentaire », which act on « Actes réalisés » — and
+ * each chart states its own key underneath itself. It was withheld on the acts tab while that chart ignored
+ * the control; re-adding the gate is only correct if that drawing is removed first.
  *
  * Two segments, each growing its own box on a coarse pointer (`coarse:py-3`) rather than taking a
  * `.touch-target` overlay — they are adjacent, and an overlay would overhang its neighbour and steal its taps.

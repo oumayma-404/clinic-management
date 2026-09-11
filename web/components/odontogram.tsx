@@ -173,10 +173,10 @@ export function Odontogram({
   /**
    * Which of the two charts is on screen.
    *
-   * ⚠️ **Controlled, and only because the Cases/Symboles switch must not be OFFERED on « Actes réalisés ».**
-   * `OdontogramActsChart` draws its own thing and ignores `chartView`, so on that tab the switch took the press,
-   * moved its pressed state and changed **nothing** — verified byte-for-byte identical renderings either way.
-   * A control that lies is worse than a missing one, and this one lied on half the card.
+   * ⚠️ **Controlled, and the reason changed.** It was controlled so the Cases/Symboles switch could be withheld
+   * on « Actes réalisés », where that chart ignored `chartView` and the switch therefore lied. That chart draws
+   * the teeth now, so the switch is offered on both — and the state is still held here because « Actes
+   * réalisés » sends the reader to the other tab from its own footer.
    */
   const [tab, setTab] = useState("diagnostics")
   const [chartView, setChartView] = useState<OdontogramChartView>("boxes")
@@ -669,25 +669,28 @@ export function Odontogram({
             */}
             <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:gap-2">
               {/*
-                ⚠️ **Offered on « Diagnostics » only, because it does nothing on the other tab.**
-                `OdontogramActsChart` has its own drawing and does not read `chartView`, so on « Actes réalisés »
-                this switch accepted the press, moved its own pressed state, and left the chart byte-for-byte
-                identical — a control that appears to work and does not. It stays *outside* the tab bodies
-                (rather than moving inside the Diagnostics one) so it keeps its place in the row and does not
-                jump position as the tab changes; only whether it is rendered depends on the tab.
+                ⚠️ **Offered on BOTH tabs now, and the asymmetry that used to be here is gone.**
 
-                ⚠️ The dentition switch beside it is genuinely different and is NOT conditional: `teeth` is
-                derived from `dentitionView` and both charts are drawn from it, so it really is a property of
-                the whole card. That asymmetry is the point — the two controls looked alike and only one of
-                them was ever shared.
+                It was conditional on « Diagnostics », for a reason that was correct at the time and is
+                recorded because it will look like a regression: `OdontogramActsChart` drew its own thing and
+                did not read `chartView`, so on « Actes réalisés » the switch accepted the press, moved its own
+                pressed state, and left the chart byte-for-byte identical — a control that appears to work and
+                does not.
+
+                What that produced instead was worse than the control it prevented: a dentist found « Symboles »
+                on one tab, no switch on the other, and concluded there were no symbols for les actes réalisés.
+                The fix was to make the control true rather than to keep hiding it — that chart draws the teeth
+                now, tinted by act. **Do not re-add the gate without first removing the drawing.**
+
+                ⚠️ The two switches mean different things per tab and that is deliberate: « Symboles » is « draw
+                the teeth » on both, while the colour stays each tab's own question — à faire / réalisé on one,
+                which act on the other. The acts chart says so under itself.
               */}
-              {tab === "diagnostics" && (
-                <OdontogramViewSwitch
-                  value={chartView}
-                  onChange={chooseChartView}
-                  className="flex-1 sm:flex-none"
-                />
-              )}
+              <OdontogramViewSwitch
+                value={chartView}
+                onChange={chooseChartView}
+                className="flex-1 sm:flex-none"
+              />
               <DentitionViewSwitch
                 value={dentitionView}
                 onChange={setChosenView}
@@ -912,10 +915,10 @@ export function Odontogram({
               teeth={teeth}
               records={records}
               procedureTypes={procedureTypes}
-              onShowSymbols={() => {
-                setTab("diagnostics")
-                chooseChartView("symbols")
-              }}
+              chartView={chartView}
+              // The states, so a tooth can show what its act LEFT — and so a withheld one stays absent.
+              toothStates={byTooth}
+              onShowSymbols={() => setTab("diagnostics")}
             />
           </TabsContent>
         </Tabs>

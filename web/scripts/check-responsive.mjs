@@ -3234,6 +3234,88 @@ check(
   }
 );
 
+check(
+  "chart-view-switch-drives-every-chart",
+  "N37",
+  "The Cases/Symboles switch is offered only where the chart on screen actually reads it",
+  "The switch used to be withheld on « Actes réalisés » because that chart drew its own thing and ignored " +
+    "`chartView`: the press moved the switch's pressed state and left the chart byte-for-byte identical — a " +
+    "control that appears to work and does not. Withholding it was the right call and produced a worse " +
+    "outcome, because absence teaches: a dentist found « Symboles » on one tab, nothing on the other, and " +
+    "reported that there were no symbols for les actes réalisés. It is offered on both now, and that is only " +
+    "true while BOTH charts read the prop. This fails if `odontogram.tsx` renders the switch unconditionally " +
+    "while `odontogram-acts-chart.tsx` has stopped branching on `chartView` — the exact state the gate was " +
+    "invented for, with the gate now gone. Re-adding the gate is a legitimate fix and passes; silently " +
+    "dropping the drawing is not.",
+  () => {
+    const SWITCH_HOST = "components/odontogram.tsx";
+    const ACTS = "components/odontogram-acts-chart.tsx";
+
+    const hostFile = ALL_FILES.find((f) => rel(f).replace(/\\/g, "/") === SWITCH_HOST);
+    const actsFile = ALL_FILES.find((f) => rel(f).replace(/\\/g, "/") === ACTS);
+    if (!hostFile || !actsFile) {
+      return [{ file: hostFile ? ACTS : SWITCH_HOST, text: "missing", full: "a file this check guards is gone — retarget or retire the check" }];
+    }
+
+    const strip = (file) => {
+      const lines = read(file).split(/\r?\n/);
+      const masked = commentMask(lines);
+      return lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+    };
+
+    const host = strip(hostFile);
+    const acts = strip(actsFile);
+
+    /*
+     * ⚠️ **Anchored on the JOIN POINT, not on the identifier appearing somewhere in the file.** The first
+     * version of this check tested `chartView === "symbols"` anywhere in `odontogram-acts-chart.tsx`, and it
+     * stayed GREEN through its own red-proof: deleting the drawing branch left the legend's own
+     * `chartView === "symbols" &&` standing, which satisfied the test while the chart had stopped reading
+     * the switch entirely. A check that cannot fail on the edit it exists for is worse than no check.
+     *
+     * `const cell = chartView === …` is the one line deciding what is painted — the same anchor N35 uses on
+     * `symbolBox` / `boxesBox`. A rename fails loudly below rather than quietly here.
+     */
+    const cellAt = acts.indexOf("const cell =");
+    if (cellAt < 0) {
+      return [{ file: ACTS, text: "`const cell =` no longer parses — this check is blind, fix it rather than deleting it" }];
+    }
+    const actsReads = /^\s*const cell\s*=\s*chartView\s*===\s*"symbols"/.test(acts.slice(cellAt - 6));
+
+    // Is the switch rendered without a tab condition? `{tab === "…" && <OdontogramViewSwitch` is the gate's shape.
+    const at = host.indexOf("<OdontogramViewSwitch");
+    if (at < 0) {
+      return [{ file: SWITCH_HOST, text: "`<OdontogramViewSwitch` no longer renders here — this check is blind, fix it rather than deleting it" }];
+    }
+    // Look back a short way for a gate on `tab`; the JSX conditional sits immediately above the element.
+    const before = host.slice(Math.max(0, at - 260), at);
+    const gated = /\btab\s*===/.test(before);
+
+    if (!gated && !actsReads) {
+      return [{
+        file: SWITCH_HOST,
+        line: lineAt(host, at),
+        text: "the switch is offered on every tab while `odontogram-acts-chart.tsx` ignores `chartView`",
+        full:
+          "so on « Actes réalisés » it takes the press and changes nothing — a control that lies. Either give " +
+          "that chart its `chartView === \"symbols\"` branch back, or gate the switch on the tab again",
+      }];
+    }
+
+    // The acts chart must also still be HANDED the prop — reading it and never receiving it is the same defect.
+    if (!gated && actsReads && !/chartView=\{chartView\}/.test(host)) {
+      return [{
+        file: SWITCH_HOST,
+        line: lineAt(host, at),
+        text: "`OdontogramActsChart` branches on `chartView` but is not passed one",
+        full: "it falls back to `boxes` for ever, so the switch is offered on that tab and does nothing",
+      }];
+    }
+
+    return [];
+  }
+);
+
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
 
 let failed = 0;

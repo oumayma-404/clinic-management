@@ -103,17 +103,21 @@ there were no symbols for les actes réalisés.
   dent ? » and « qu'a-t-on fait, et avec quel acte ? ».
 - The symbol legend's colour chips name their **source**, not just their status: « À faire (diagnostic) » ·
   « Réalisé (acte) ».
-- « Actes réalisés » carries one sentence and one control: *« Cette vue colore chaque dent par acte. Pour les
-  symboles cliniques … voir « État dentaire » en symboles »*, which switches the tab **and** the drawing.
+- « Actes réalisés » carries one sentence and one control pointing at the other tab. ⚠️ **Reworded in Part 2**,
+  which made the switch work on that tab too: it no longer says where the symbols are (they are on both), it says
+  what the colour means on each.
 
 ⚠️ **Splitting the symbols chart in two was the other option offered and it is the wrong one.** Composition is
 the entire reason that view exists — a tooth that is dévitalisée *and* couronnée shows both, where a fill can
 only ever show the latest state. Split by source, each tab is monochrome and the tooth loses half its history.
+Part 2 below drew that out on six teeth and names the four costs; it also corrects one half of the argument I
+made here, since splitting *does* free the colour channel.
 
-⚠️ **The Cases/Symboles switch stays withheld on « Actes réalisés ».** That chart draws its own thing and does
-not read `chartView`, so the control took the press and changed nothing — « a control that lies is worse than a
-missing one », as `odontogram.tsx` already recorded. What was missing was not the control but the *sentence*,
-and the report proves it: absence taught the wrong conclusion.
+⚠️ **The Cases/Symboles switch stayed withheld on « Actes réalisés » in Part 1, and Part 2 REVERSES that.** The
+reason it was withheld is still true of the code as it stood: that chart drew its own thing and ignored
+`chartView`, so the control took the press and changed nothing — « a control that lies is worse than a missing
+one ». What the absence produced was worse than the control it prevented, which is the whole of Part 2: the fix
+was to make the control true rather than to keep hiding it.
 
 ---
 
@@ -157,3 +161,103 @@ well as the chart's, and an assertion still grepping for `emerald` after the hue
 `verification.md` § 7 forbids writing clinical records to satisfy a check. The code path is the same
 `teethWithAnything` set the other three derivations read, and it is the one claim here resting on reading
 rather than on looking.
+
+---
+
+## Part 2 — « Actes réalisés » gets the drawn teeth, and the switch stops disappearing
+
+Asked for after Part 1 shipped, and it starts from a question I answered too defensively: *« pourquoi pas colorer
+la dent avec la couleur du traitement, comme l'autre odontogramme ? »*
+
+### Splitting the symbols chart by status was the other candidate, and it was rejected on drawn evidence
+
+The owner's first instinct was to split « Symboles » into « à faire » and « réalisé », mirroring what they took
+the two existing tabs to be. **They are not that**: « État dentaire » carries both sources already, and « Actes
+réalisés » is a different *question* over a different source. Drawn out on six teeth
+([the artifact](https://claude.ai/code/artifact/19fdbe10-a222-4ec1-9416-b6d6c9dcc226)), splitting costs four
+things:
+
+1. a crowned tooth with a new carie is cut across two charts — the reading that most often decides a booking;
+2. an act with no `ResultingCondition` has **no glyph and cannot have one**, since the act catalogue is
+   clinic-editable and accepts free text, so the coiffage this feature just made visible goes blank again;
+3. a multi-séance act in flight belongs to neither chart;
+4. four views to navigate instead of two, on a card whose chrome was fought down from 516 px to 265 px.
+
+⚠️ One half of my objection was wrong and is recorded because it will be repeated: « la couleur doit dire le
+statut » holds only while both statuses share a chart. **Splitting genuinely frees the colour channel** — the
+boxes tabs already work that way. The argument against splitting is the four costs above, not the colour.
+
+### What shipped instead: two channels, two questions
+
+« Actes réalisés » now honours the Cases/Symboles switch and draws the teeth:
+
+| Channel | Answers | How |
+|---|---|---|
+| **Colour** | which act | the act's catalogue hue, washed into the tooth's own gradients at `--act-tint`, plus one full-strength band per act at the collet |
+| **Shape** | what that act left | the condition glyph, in `--chart-mark-ink` |
+
+⚠️ **The wash MIXES the gradient stops; it does not replace them.** The first attempt flattened both stops to
+one flat hue, and the owner's reaction was the correct one — « un peu pas professionnel ». What makes the shape
+read as a *tooth* is the enamel/dentine falloff, which `globals.css` documents beside those literals; flatten it
+and you have a coloured silhouette. The strength is `--act-tint` (22 % / 36 %), the token the agenda's blocks
+already use, so « how much of an act's colour survives into a wide surface » keeps one answer — and its own note
+(« small marks keep the whole hue ») is why the band is full strength.
+
+⚠️ **`--chart-mark-ink` is a third mark colour and deliberately not a status.** On that chart the colour channel
+is spent on the act, so a state drawn in `--chart-mark-done` would claim a status the chart does not sort by, and
+one drawn in the act's hue would vanish into the wash behind it. It has **no dark twin**: it is always a stroke
+on an ivory tooth, and the enamel literals keep their value in dark.
+
+⚠️ **The state is read from `ToothStateDto`, never from `act.resultingCondition`.** This is the whole safety of
+the drawing. `ToothChartingRules` withholds the condition from the odontogram while a multi-séance act runs —
+after teeth were charted « Implant » weeks before the implant existed, seven rows on the live database, every one
+from a séance 1 of 2. Reading the act row here would put all of it straight back. Reading the states means a
+withheld one is simply absent: the tooth shows its act colour and makes no claim about the mouth.
+
+### The switch was withheld for a correct reason, and withholding it caused the report
+
+`odontogram.tsx` gated the Cases/Symboles switch on the tab because the acts chart ignored `chartView` — the
+press moved the switch's own state and left the chart byte-for-byte identical, « a control that lies is worse
+than a missing one ». That was right while it was true. What it produced was worse than the control it
+prevented: a dentist found « Symboles » on one tab, nothing on the other, and concluded there were no symbols
+for les actes réalisés. **The fix was to make the control true, not to keep hiding it.**
+
+⚠️ « Symboles » means the same thing on both tabs — *draw the teeth* — while the colour stays each tab's own
+question. Each chart states its own key beneath itself, and the switch's `title` hints were rewritten
+tab-agnostic (the old one said « rouge = à faire », false on the acts tab).
+
+### What holds Part 2
+
+`check:responsive`'s **N37 `chart-view-switch-drives-every-chart`** — the switch may be offered unconditionally
+only while the acts chart really branches on `chartView`. Re-adding the tab gate passes; silently dropping the
+drawing fails.
+
+⚠️ **Its first version passed its own red-proof and was therefore worthless.** It tested for
+`chartView === "symbols"` anywhere in the file — and deleting the drawing branch left the *legend's* own copy of
+that expression standing, so the check stayed green over exactly the edit it exists to catch. It is anchored on
+`const cell = chartView === …`, the one line that decides what is painted, the same way N35 anchors on
+`symbolBox` / `boxesBox`. Both failure shapes are red-proofed: drawing removed, and prop no longer passed.
+
+### Verified
+
+Gate: `check:responsive` **64/64** · `tsc --noEmit --incremental false` exit 0 · `build` green.
+
+One browser pass, one launch, same patient, at 1440×730 · 820×1024 · 390×844 · 320×844:
+
+| | |
+|---|---|
+| the switch is offered on « Actes réalisés » | ✅ |
+| tooth 28 (coiffage): voile + 2 bandeaux, **0** état drawn — it charted none | ✅ |
+| teeth 37/38 (canal): voile + bandeau + the canal in ink, 2 marks each | ✅ |
+| 3 of 32 teeth tinted, and **every tinted tooth is banded** | ✅ |
+| an untouched tooth stays ivory, unbanded, with no hover affordance | ✅ |
+| no horizontal page scroll at 320 px | ✅ |
+
+⚠️ Three of the run's findings were the probe again, and the ratio keeps holding: an assertion still grepping
+for a button label I had just changed, one addressing an untouched tooth by a `data-tooth` the acts chart does
+not emit (by design — nothing to say, so no affordance), and a screenshot clip truncating a card that another
+author's new patient-page section had pushed down.
+
+⚠️ **Not exercised, and owed:** a tooth carrying **two different acts** where only one charted a state — the
+band-stacking and the per-tooth (rather than per-act) ink marks are reasoned, not seen. The only two-act tooth
+on the dev database carries the same act twice.

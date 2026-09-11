@@ -49,10 +49,20 @@ export interface ToothMark {
   /** `"Diagnosis"` — charted by hand, still to do. `"Treatment"` — written by a fiche de soins. */
   source: string
   surfaces?: string | null
+  /**
+   * Draw this mark in the neutral ink rather than in its status colour — « Actes réalisés »' case.
+   *
+   * ⚠️ There the colour channel already carries the ACT, so a state drawn in `--chart-mark-done` would
+   * assert a status that chart does not sort by, and one drawn in the act's own hue would disappear into the
+   * wash behind it. Shape says what the act left, colour says which act.
+   */
+  ink?: boolean
 }
 
 const TODO = "var(--chart-mark-todo)"
 const DONE = "var(--chart-mark-done)"
+/** See {@link ToothMark.ink} and the token's own note in `globals.css`. */
+const INK = "var(--chart-mark-ink)"
 
 /**
  * ⚠️ **The tooth is drawn with two gradients, and they are not decoration.**
@@ -64,7 +74,7 @@ const DONE = "var(--chart-mark-done)"
  */
 const OUTLINE = "var(--tooth-line)"
 
-const markColor = (m: ToothMark) => (m.source === "Diagnosis" ? TODO : DONE)
+const markColor = (m: ToothMark) => (m.ink ? INK : m.source === "Diagnosis" ? TODO : DONE)
 const isPlanned = (m: ToothMark) => m.source === "Diagnosis"
 
 /** What a condition does to the tooth's own body, before any overlay is drawn. */
@@ -418,6 +428,28 @@ interface ToothSymbolGlyphProps {
    * deliberately nothing about the tooth.
    */
   hasRecordedAct?: boolean
+  /**
+   * An act's catalogue colour, washed over the tooth — « Actes réalisés » in this drawing.
+   *
+   * ⚠️ **It mixes the four gradient stops; it does NOT replace them.** Flattening both stops to one flat hue
+   * throws away the enamel/dentine falloff, which is the only thing making the shape read as a *tooth* rather
+   * than a coloured silhouette — the token block in `globals.css` says so beside the literals, and it is what
+   * the first pass of this got wrong. The strength is `--act-tint` (22 % light, 36 % dark), the same token the
+   * agenda's blocks are painted with, so « how much of an act's colour survives into a wide surface » stays
+   * one answer.
+   */
+  tint?: string | null
+  /**
+   * One full-strength band per act, at the collet, apical to the cervical line.
+   *
+   * ⚠️ **Full strength, and that is the documented companion of the wash above**: `--act-tint`'s own note
+   * records that a small mark must keep the whole hue, because at 22 % a 4 px band is simply not there. Two
+   * acts on one tooth stack rather than merging, so they stay countable.
+   *
+   * ⚠️ Drawn apical to the cervix rather than across it — a couronne's margin line sits at `neck + 2` and a
+   * bridge's travée at `neck + 6`, so a band straddling the cervix would be crossed by both.
+   */
+  bands?: string[]
   className?: string
 }
 
@@ -435,6 +467,8 @@ export function ToothSymbolGlyph({
   width = 40,
   bridgeSpan,
   hasRecordedAct,
+  tint,
+  bands,
   className,
 }: ToothSymbolGlyphProps) {
   const reactId = useId()
@@ -477,6 +511,15 @@ export function ToothSymbolGlyph({
     }
   }, {})
 
+  /**
+   * One gradient stop, washed with the act's colour when there is one.
+   *
+   * ⚠️ **Mixed toward the stop, never in place of it** — see {@link ToothSymbolGlyphProps.tint}. `--act-tint`
+   * is the strength, so this and the agenda's blocks cannot answer « how much of an act's colour » differently.
+   */
+  const washed = (token: string) =>
+    tint ? `color-mix(in oklab, ${tint} var(--act-tint), var(${token}))` : `var(${token})`
+
   const bodyStroke = {
     stroke: OUTLINE,
     strokeWidth: 1.5,
@@ -500,12 +543,12 @@ export function ToothSymbolGlyph({
         </clipPath>
         {/* Bottom-to-top on the crown, top-to-bottom on the root: the two run opposite ways on purpose. */}
         <linearGradient id={`${clipId}-en`} x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0%" stopColor="var(--tooth-enamel-edge)" />
-          <stop offset="100%" stopColor="var(--tooth-enamel-neck)" />
+          <stop offset="0%" stopColor={washed("--tooth-enamel-edge")} />
+          <stop offset="100%" stopColor={washed("--tooth-enamel-neck")} />
         </linearGradient>
         <linearGradient id={`${clipId}-dn`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--tooth-dentine-apex)" />
-          <stop offset="100%" stopColor="var(--tooth-dentine-neck)" />
+          <stop offset="0%" stopColor={washed("--tooth-dentine-apex")} />
+          <stop offset="100%" stopColor={washed("--tooth-dentine-neck")} />
         </linearGradient>
       </defs>
       {/* One flip for the lower arch — see the note in `tooth-anatomy.ts` on why nothing here may be text. */}
@@ -565,6 +608,22 @@ export function ToothSymbolGlyph({
         )}
         {!body.hideRoots && a.roots.map((d, i) => <path key={i} d={d} fill={`url(#${clipId}-dn)`} {...bodyStroke} />)}
         {!body.hideCrown && <path d={a.crown} fill={`url(#${clipId}-en)`} {...bodyStroke} />}
+        {/*
+          The act bands — see {@link ToothSymbolGlyphProps.bands}. Apical to the cervix, so a couronne's margin
+          (`neck + 2`) and a bridge's travée (`neck + 6`) never cross them, and drawn BEFORE the symbols so a
+          glyph is never hidden under one.
+        */}
+        {(bands ?? []).map((colour, i) => (
+          <rect
+            key={`${colour}-${i}`}
+            x={a.span[0] - 2}
+            y={a.neck - 7 - i * 6}
+            width={a.span[1] - a.span[0] + 4}
+            height={4.5}
+            rx={2.2}
+            fill={colour}
+          />
+        ))}
         {symbols.map(({ mark, symbol }, i) =>
           symbol.draw ? (
             <g key={`${mark.condition}-${i}`}>
