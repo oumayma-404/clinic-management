@@ -221,3 +221,184 @@ And two environment lessons that invalidated whole runs: a `next dev` server up 
 `Jest worker encountered 2 child process exceptions` on every route (hence CI runs a **production** build), and
 the suite killed its own session every run until the refresh cookie had exactly one holder — the BFF rotates it
 per `/bff/auth/token` and `PreviousCredentialHash` **detects** a replay rather than forgiving one.
+
+---
+
+# The 2026-09-11 pass — coverage made measurable
+
+**Why it ran:** the suite had not been run since 2026-09-08 and the tree was **~40 commits** newer. The
+owner's report was « I keep finding bugs wherever I go, and the e2e tests keep skipping important details ».
+
+Both halves of that turned out to be true, for one reason, and it is not the one the numbers first suggest.
+
+## 8. The diagnosis: the tests were at the wrong LAYER
+
+| | 2026-09-08 | 2026-09-11 |
+|---|---|---|
+| Scenarios in the catalogue | 268 | **335** (172 tier-0) |
+| Tests in `e2e/` | 103 | **135** |
+| Tests that open a **browser** | 21 | 21 → in progress |
+| Tier-0 scenarios with **no test at all** | — | **47** (of the pre-existing 132) |
+| Tier-0 rows covered **only on the wire** while their rule is client-side | — | **18** |
+
+The decisive measurement is not the coverage gap. It is this: **every one of the five `fix(...)` commits
+between the two passes was a defect no wire test could see.**
+
+| Commit | What it was |
+|---|---|
+| `24f2883e` | « le total d'un acte modifié depuis le rendez-vous part enfin au serveur » — a price the dentist typed **never reached the server**. Money. Scenario `BOOK-48`, which had no test |
+| `3df8627d` | editing a devis turned « solde dû » into an échéance « en retard » |
+| `5b8d6e5a` | the continuation minted its devis on a **button press** instead of on save |
+| `f0a6cf18` | « Encaissé sur le traitement » showed the wrong figure |
+| `0e9f3207` | the booked duration was the whole act's, not the séance's — `CAT-08` |
+
+A wire test posts a body **the test author wrote**. It proves the handler is right about that body, and nothing
+about the body the product sends — and a wire test of `BOOK-48` would have passed on every day it was broken,
+because the wire test sends the price itself.
+
+**What was built for it:** `scenarios.md` § « Layer » (the rows a wire test cannot hold, grouped by *why*),
+`.claude/rules/verification.md` § 4b, and `e2e/scripts/check-coverage.mjs` — a derived guard that parses the
+catalogue and the specs and fails on an untested tier-0 row, a browser-layer row covered only on the wire, and
+a test naming a row that does not exist. Nothing in it is maintained by hand, for the reason § 2 records about
+`verify-schema`'s own hand-kept column list.
+
+## 9. The catalogue was a record of things going FORWARD
+
+HP-1…HP-13 held 268 scenarios and **not one of them undid anything**. There was no test for deleting a fiche,
+cancelling a booking that had materialised a treatment, voiding a payment, unmarking a step, stopping a
+treatment, or cancelling a note.
+
+Four sections were derived and added — **67 rows, 40 of them tier-0**:
+
+| § | What it generates | Rows |
+|---|---|---|
+| **HP-14 · Défaire** | the inverse of each of the eight writers in `coupling-matrix.md` § 1 | 36 |
+| **HP-15 · Arrêter** | `TreatmentPlanStatus.Stopped` × every money read and every worklist | 11 |
+| **HP-16 · Inachevé** | the visit that never happened, the quote nobody answered | 10 |
+| **HP-17 · Refaire** | the second crown on the same tooth, the redone bridge, the re-billed séance | 7 |
+
+The rule they apply: **everything `coupling-matrix.md` says a writer moved must move back — or the undo must
+be refused with a remedy that exists.**
+
+### Two open questions found by writing them down
+
+Neither is a regression; both are states nobody had decided about, reached by ordinary gestures.
+
+- **`DEL-03` — the « à traiter » a fiche clears is destroyed, and deleting the fiche cannot rebuild it.**
+  `DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync` (`DentalRecordLinker.cs:80`) **deletes** the
+  diagnosis row when the fiche is saved. Deleting the fiche cascades its *treatment* states away — `ToothState`
+  is child-of-record — but nothing restores the diagnosis. The tooth then reads **healthy**: the product has
+  forgotten both that the work was done and that it was ever asked for. The choices are a soft delete restored
+  on the record's delete, or refusing the delete; doing nothing is also a choice, but it should be one.
+- **`DEL-08` — a billed fiche deletes, and its note d'honoraires stands.** `DeleteDentalRecordCommand` drops
+  only the invoice line's `DentalRecordId` provenance, on the stated rule that « deleting a clinical record
+  must never alter a fiscal document » (`DeleteDentalRecordCommand.cs:163`). Defensible alone; the *pair* is
+  not. The note keeps its number, its amount, its caisse movement and its place in « Créances », for a séance
+  that now exists in no history — and `FEDIT-16` says that state must not be reachable.
+
+`e2e/specs/delete-fiche.spec.ts` measures both, and each failure message states what was measured and what the
+alternatives are.
+
+## 10. `CONT-16` is stale — `isUnfinished` shipped
+
+`scenarios.md` said « **Spec only.** there is no `IsUnfinished` anywhere in `api/` or `web/`, no migration ».
+As of 2026-09-11 there is: `DentalRecordAct.IsUnfinished`, `GetUnfinishedActsQuery`, `ContinuableActDto`, and
+migration `20260911161617_AddDentalRecordActIsUnfinished`. « Acte non terminé — il faudra une autre séance.
+L'acte passe dans « Suites à planifier » ; aucun montant n'est modifié » renders on the act card today.
+`features/unfinished-act-continuation/` still has **no `notes.md`**, so the nine acceptance criteria remain
+un-catalogued; that is the next section to derive, not a defect.
+
+## 11. What the pass actually found — and why « 14 failures » was 13 measurements of the harness
+
+Two full runs, then a third after the fixes. **Every product-level failure was triaged before a line of source
+was touched** (§ 2), and the ratio is the headline: of the **14** failures in the second run, **13 were the
+environment or the probe** and one was a stale locator. The suite's *own* machinery produced more false defect
+reports than the product produced real ones — again.
+
+### 11a. The environment, twice, and neither said so
+
+| What happened | What it looked like |
+|---|---|
+| **`npm run start` with `output: 'standalone'`** — `next start` prints a warning, **binds anyway**, reports « Ready in 630 ms », serves ~35 tests and then **exits silently** | ten product defects: seven `XCUT-09` scrollbar failures, `PLAN-04`, `EDIT-06`, `EDIT-07`, all `net::ERR_CONNECTION_REFUSED`. Nothing in the server log says it died |
+| **A `next dev` respawned by an editor task and stole :3000** minutes after being killed | the *first* run's five money failures were an `AppLoader` overlay reading « Jest worker encountered 2 child process exceptions » — the documented dev-server degradation, on a server nobody thought was running. One later run **hung its first browser test for 2.1 hours** and then failed the remaining **93 tests in ~40 ms each** |
+
+Fixed in `ci.yml` (the standalone runner **plus** a « web is still up » re-check after the install steps, because
+a readiness poll only proves the server answered **once**) and written up in `e2e/README.md`. ⚠️ **CI started
+`web` the same way**, so the hot-path gate's browser half could die mid-run and report product defects — the
+one thing a gate must never do.
+
+### 11b. The probes, and the trap that has now cost four endpoints
+
+| Probe | Reported | Actually |
+|---|---|---|
+| `getByText(/SÉANCE 1 SUR 2/i)` | the fiche does not say which séance it is | the sentence moved onto the **act card** in `06a47cb0` and became « Cette séance : étape 1 sur 2 · &lt;nom&gt; » — `N31`, because a bare rank is read as progress |
+| `receivables("?pageSize=200")` | **a money gap** — « the patient must appear in « Créances » » | the clinic has **285** receivable rows; the 20 DT fixture patient sat past the page |
+| `caisseLedger(..., pageSize=500)` | « an expense must appear as its own movement kind » | the endpoint **silently caps `pageSize` at 200**; `totalCount` was 239 and the expense was on page 2. The caisse *summary* had already counted it, so two reads appeared to disagree |
+
+⚠️ **The second and third are the same mistake on a fourth and fifth endpoint**, and the appendix already named
+three: `fromDay`/`toDay` on la caisse, `startDate`/`endDate` on the appointments, `searchTerm` on the patients
+— now **`search`** on the receivables (a *different word for the same concept*, one endpoint over) and a
+**silently capped page size** on the extrait. The rule generalises past parameter names:
+
+> **An over-large `pageSize` is adjusted, not refused — exactly like an unknown parameter is ignored, not
+> refused. In both cases the response looks complete.** So a test may never conclude anything from *absence*
+> in a list it did not prove it read whole.
+
+Both are now structurally impossible rather than corrected: **`ClinicApi.receivableFor`** asks the filtered read
+and throws if the filter was dropped, and **`ClinicApi.caisseLedger`** walks every page and throws if what it
+collected does not equal `totalCount`. ⚠️ `receivableFor` was wired into **all five** specs that were paging for
+a fixture patient (`continuation` ×2, `document-integrity`, `money-boundaries`, `plan-lifecycle`) — not just the
+one that went red. Three of those were passing on `pageSize=300` against 285 rows, i.e. **15 rows from
+becoming false failures**, and `plan-lifecycle`'s asserted an *absence*, which would have started passing for
+the wrong reason.
+
+### 11c. The one that was the product — and the one where the product was right
+
+**`DEL-03` — CONFIRMED, and left as a decision, not a fix.** The « à traiter » a fiche clears is **deleted** at
+save time and deleting the fiche cannot rebuild it, so the tooth reads **healthy**: the product has forgotten
+both that the work was done and that it was ever asked for. Measured end to end. The test is `test.fixme` with
+the three ways out named in it — soft-delete and restore, refuse the delete, or accept it and say so — because
+this is a clinical-data decision and not one to take inside a testing pass.
+
+**`DEL-08` — the finding was wrong, and the code won.** The catalogue said a billed fiche's delete must be
+« refused, or the note dealt with first — never an orphaned note », and a first pass **implemented that**:
+`DentalRecordBillingGuard.EnsureWorkIsNotBilledAsync` wired into the delete, refusing while a live note bills
+the séance. It worked, it was idiomatic, its refusal named the note and a reachable remedy — and it was
+**reverted**, because `DeleteDentalRecordCommand` already states the opposite decision at the call site
+(« deleting a clinical record must never alter a fiscal document ») and `document-integrity.spec.ts`'s own
+`FEDIT-16` argues it: forcing an **avoir** — a fiscal document — to correct a *clinical* mistake is the heavier
+outcome, not the lighter one; the money really was received; and the note keeps its own line text, so nothing
+is left claiming money nobody owes. ⚠️ **The catalogue row was an inference and the source comment was a
+decision** — which is this file's own rule (« where a row disagrees with the code, the code won »), applied
+against the row *this pass had just written*. `DEL-08/09` now asserts what actually matters on a hot path: that
+after the delete, « Solde patient », « Créances », la caisse and the note itself still agree.
+
+## 12. Where the pass left the suite
+
+| | 2026-09-08 | 2026-09-11 |
+|---|---|---|
+| Scenarios in the catalogue | 268 | **340** (174 tier-0) |
+| Tests | 103 | **135** |
+| Tier-0 rows with a test | — | **110 / 174 (63 %)** |
+| Rows declared **browser-layer** (§ Layer) | — | **118** |
+| Last full run | 64 / 65 | **132 passed · 1 failed · 2 skipped** |
+
+The one failure is `EDIT-07`, `net::ERR_CONNECTION_REFUSED` — the `next start` death of § 11a, on a developer
+machine whose editor keeps reclaiming :3000. It is the reason CI now uses the standalone runner and re-checks
+that the server is still up. The two skips are `DEL-03` (§ 11c) and the read-only smoke, which a mutating run
+skips by design.
+
+**New this pass:** `e2e/specs/money-reads.spec.ts` (`MONEY-20/21/22/25` and `MONEY-14/15` — the « no money
+gaps » batch, five tier-0 rows that had no test at all) and `e2e/specs/delete-fiche.spec.ts` (`DEL-01/02`,
+`DEL-03`, `DEL-04/05`, `DEL-08/09`, `DEL-12` — the first tests in this suite's life that undo anything).
+
+**What is still open, in priority order:**
+
+1. **`DEL-03`** — the decision, above.
+2. **64 tier-0 rows with no test**, `node e2e/scripts/check-coverage.mjs` lists them by name. The 40 newest are
+   HP-14–17's undo/stop/incomplete/redo axes, which is where the product has never been exercised at all.
+3. **18 tier-0 rows covered only on the wire** while § Layer says their rule is client-side — the same class as
+   the five `fix(...)` commits of § 8, and the reason `check-coverage` exists.
+4. **`features/unfinished-act-continuation/notes.md`** does not exist, so the nine acceptance criteria of a
+   feature that shipped on 2026-09-11 are not catalogued (§ 10). CONT-17…21 are what could be derived from the
+   code; the rest needs the author.

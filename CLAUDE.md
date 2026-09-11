@@ -53,6 +53,13 @@ clinic-management/
 │                                   during render). Arranges over the API, ACTS in the browser, asserts on the
 │                                   coupled reads. Runs in CI's `e2e` job on a bootstrapped database, and as a
 │                                   READ-ONLY smoke after a hosted deploy. → features/e2e-hot-paths/
+│                                   `scripts/check-coverage.mjs` = the DERIVED GUARD: it parses scenarios.md and
+│                                   the specs and fails on an untested tier-0 row, on a row scenarios.md § Layer
+│                                   calls browser-only that has only a wire test, and on a test naming a row that
+│                                   does not exist. Coverage is a measured number here, never a claim.
+│                                   ⚠️ Serve `web` with `node .next/standalone/server.js` — `npm run start`
+│                                   binds, says « Ready », then EXITS (output: 'standalone'), and the browser
+│                                   half then reports ten product defects. e2e/README.md § Running it locally.
 ├── web/                          Next.js frontend
 │   ├── (root)                            → CLAUDE.md  (stack, routing, API/auth integration)
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)

@@ -209,8 +209,7 @@ test.describe("HP-10 · un document numéroté @mutating @t0", () => {
       "40 still owed on the note + 300 quoted on the devis",
     ).toBe(mil(340))
 
-    const receivables = await api.receivables("?pageSize=300")
-    const row = (receivables.items ?? []).find((r: any) => r.patientId === p.id)
+    const row = await api.receivableFor(p.id, p.name)
     expect(mil(row?.totalOutstanding ?? 0), "« Créances » must agree with « Solde patient »").toBe(mil(340))
 
     /*

@@ -160,9 +160,23 @@ test.describe("HP-5 · la fiche de soins, dans un navigateur @mutating @t0", () 
 
     await gotoApp(page, `/patients/${p.id}?addRecord=1&appointmentId=${appt.id}`, sharedContext)
 
-    // The booked act is prefilled and the séance knows its rank — out of however many the act actually has.
+    /*
+     * The booked act is prefilled and the séance knows its rank — out of however many the act actually has.
+     *
+     * ⚠️ **The sentence is « Cette séance : étape 1 sur N · <nom de l'étape> », and it moved onto the ACT
+     * CARD.** It used to read « SÉANCE 1 SUR N » and to float above the act stack; `06a47cb0` moved it, and
+     * `N31` is why it is a whole sentence rather than a bare rank — « étape 1 sur 3 » alone is read as
+     * progress, i.e. as a claim that the séance has already happened. `patient-record-modal.tsx` composes it
+     * (`seanceStepLine`) because it is the only thing that can.
+     *
+     * Matched loosely on « étape N sur M » so a later re-wording of the step's own name does not fail this,
+     * but the rank must be there and it must be **1**.
+     */
     await expect(page.getByText(crown.name).first()).toBeVisible()
-    await expect(page.getByText(new RegExp(`SÉANCE\\s*1\\s*SUR\\s*${steps}`, "i"))).toBeVisible()
+    await expect(
+      page.getByText(new RegExp(`étape\\s*1\\s*sur\\s*${steps}`, "i")).first(),
+      "the fiche must say WHICH séance of the treatment it is",
+    ).toBeVisible()
 
     /*
      * ⚠️ **The price field is WITHHELD, not rendered read-only** — `act-card.tsx` replaces it with

@@ -31,6 +31,65 @@ step can consume without re-deriving anything.
 pass **because the money paths are what is under test** — but only on the dedicated fixture patients below.
 No existing patient's ledger is touched.
 
+---
+
+## § Layer — the rows a wire test cannot hold
+
+> **A scenario is tested where its rule lives.** A wire test posts a body *the test author wrote*, so it proves
+> the handler is right about that body and **nothing** about the body the product sends.
+
+Measured 2026-09-11: of the 119 tests in `e2e/`, **21 open a browser**. And every one of the five `fix(...)`
+commits landed between the 2026-09-08 pass and 2026-09-11 was a defect no wire test could see. The sharpest is
+`24f2883e` — « le total d'un acte modifié depuis le rendez-vous part enfin au serveur »: a price the dentist
+typed **never reached the server**. That is money, it is `BOOK-48`, and a wire test of `BOOK-48` would have
+passed for every day it was broken, because the wire test sends the price itself.
+
+The criterion for this list is one question: **would a wire test of this row pass while the product was
+broken?** If yes, the row is browser-layer. `e2e/scripts/check-coverage.mjs` fails when one of these has a
+test and none of its tests drives a page. Rows *not* listed are held perfectly well on the wire — the server
+is their authority and the client only displays what it is given.
+
+<!-- LAYER:BROWSER:BEGIN -->
+
+**1 · The value the dentist typed must reach the server.** The client composes the body; the server never sees
+what was on screen.
+`CAT-08` `CAT-13` · `BOOK-23` `BOOK-24` `BOOK-25` `BOOK-26` `BOOK-27` `BOOK-28` `BOOK-29` `BOOK-41` `BOOK-48` ·
+`EDIT-03` `EDIT-04` · `STEP-01` `STEP-08` · `FICHE-06` `FICHE-07` `FICHE-15` `FICHE-18` `FICHE-19` ·
+`FEDIT-11` `FEDIT-14` `FEDIT-15`
+
+**2 · A control the client withholds, derives or arms.** Its absence is the assertion, and absence is
+invisible on the wire.
+`CAT-02` `CAT-14` · `BOOK-30` `BOOK-31` `BOOK-32` `BOOK-33` `BOOK-37` `BOOK-38` `BOOK-43` `BOOK-47` ·
+`FICHE-05` `FICHE-12` `FICHE-13` `FICHE-16` `FICHE-17` `FICHE-20` `FICHE-22` `FICHE-23` `FICHE-24` `FICHE-25`
+`FICHE-28` · `FEDIT-12` `FEDIT-13` · `PLAN-02` `PLAN-03` · `CONT-08` `CONT-09` · `DONE-04`
+
+**3 · A client-side guard against a duplicate, or a refusal that re-enters the save.** Each advisory prompt
+re-runs `performCreate` **from the top**; the refs that stop it duplicating live only in the dialog.
+`BOOK-05` `BOOK-06` `BOOK-07` `BOOK-10` `BOOK-11` `BOOK-12` `BOOK-13` `BOOK-14` `BOOK-15` `BOOK-16` `BOOK-17`
+`BOOK-18` `BOOK-19` `BOOK-20` `BOOK-21` `BOOK-22` `BOOK-35` `BOOK-36` `BOOK-49` `BOOK-50` ·
+`EDIT-06` `EDIT-07` `EDIT-09` `EDIT-10` · `FEDIT-18`
+
+**4 · The client resolves which plan or step a gesture attaches to.** `planIdByItem`, `schedulablePlanItems`,
+`resolveAttachedPlanId` — and the refusal a wrong resolution produces is the *same sentence* a correct one
+produces from a missing field.
+`BOOK-39` `BOOK-40` `BOOK-45` `BOOK-46` · `CONT-10` `CONT-11` `CONT-12`
+
+**5 · A rendered read — a figure, a badge, a ring, a sentence.** The DTO can be perfect and the screen still
+wrong; `PLAN-01` is the proof (`tsc`, `check:responsive` and `next build` were all green while **every**
+`Completed` plan's workspace threw during render).
+`PLAN-01` `PLAN-18` `PLAN-19` `PLAN-26` `PLAN-29` `PLAN-30` · `HIST-02` `HIST-03` `HIST-04` `HIST-08` ·
+`ODO-03` `ODO-04` `ODO-05` `ODO-06` `ODO-07` · `MONEY-05` `MONEY-09` · `DONE-02` · `STEP-16` ·
+`XCUT-05` `XCUT-08` `XCUT-09`
+
+**6 · The client is the only guard there is.** No server fallback exists; the row is a claim about the prefill.
+`CAT-03` `CAT-04` · `FICHE-33` `FICHE-34` `FICHE-40` `FICHE-43` `FICHE-44` · `PLAN-27` ·
+`STEP-09` `STEP-10` `STEP-11` `STEP-12` `STEP-13`
+
+<!-- LAYER:BROWSER:END -->
+
+⚠️ **The markers are load-bearing** — `check-coverage.mjs` reads the block between them, so a row moved outside
+silently stops being enforced.
+
 ### Fixtures the pass creates
 
 **One patient per test**, named `E2E <label>-<base36 stamp>` (`e2e/lib/fixtures.ts`), so no two tests ever
@@ -382,7 +441,16 @@ Route `/treatment-plans/[id]`.
 | CONT-13 | 1 | a multi-act fiche | Continue **one** act | Only that act; the others are untouched | the flag is per act |
 | CONT-14 | 1 | ∅ | Cancel the irreversibility confirmation | **No** devis created | the notice alone creates nothing |
 | CONT-15 | 2 | `GetContinuableActsQuery` | Open the list | Every recent act offered (so a forgotten tick is not a dead end) | — |
-| CONT-16 | 2 | ∅ | — | ⚠️ **`isUnfinished` is SPEC ONLY — not implemented** (`features/unfinished-act-continuation/spec.md`, no code, no migration). AC-1…AC-9 of that spec are **not testable** and must not be asserted | see § « Not implemented » below |
+| CONT-16 | 1 | ∅ | Tick « Acte non terminé » on an act card, save | ~~`isUnfinished` is SPEC ONLY~~ → **it shipped on 2026-09-11.** `DentalRecordAct.IsUnfinished`, `GetUnfinishedActsQuery`, `ContinuableActDto.IsUnfinished`, migration `20260911161617_AddDentalRecordActIsUnfinished`. The card reads « Il faudra une autre séance. L'acte passe dans « Suites à planifier » ; **aucun montant n'est modifié**. » | the row said « not implemented » for three days after it was |
+| CONT-17 | 0 | CONT-16 | Save the fiche | The act's money is **unchanged** — ticking « non terminé » is a *flag*, never a re-pricing | the card promises it in as many words |
+| CONT-18 | 1 | CONT-16 | Read « Suites à planifier » | The act is listed; `GetUnfinishedActsQuery` is its one reader | — |
+| CONT-19 | 1 | CONT-16 | Continue that act | Offered; the continuation path prices only the **new** work | `CONT-09` |
+| CONT-20 | 1 | CONT-16 | Untick it and re-save | It leaves « Suites à planifier »; nothing else moves | a flag is reversible |
+| CONT-21 | 0 | an act already continued onto a devis | Tick « non terminé » | ❓ Offered twice, or excluded? `ContinuationTracking` counts an act on any non-cancelled plan as taken — the two lists must not disagree | `CONT-12`'s twin |
+
+⚠️ `features/unfinished-act-continuation/` still has **no `notes.md`**, so the spec's nine acceptance criteria
+are not yet catalogued here. CONT-17…21 are the rows derivable from the code as it stands; the rest is the
+next section to derive.
 
 ---
 
@@ -500,11 +568,138 @@ Route `/treatment-plans/[id]`.
 
 ---
 
+# HP-14 · **Défaire** — the inverse of every writer
+
+> Added 2026-09-11. **The generator this section comes from:** every one of the eight writers in
+> `coupling-matrix.md` § 1 has an undo, and on 2026-09-11 **not one of them had a test**. HP-1…HP-13 are
+> entirely a catalogue of things going *forward*.
+>
+> The rule this section applies: **for every forward scenario, everything `coupling-matrix.md` says the writer
+> moved must move back — or the undo must be refused with a remedy that exists.** A surface that moved forward
+> and does not move back is the same silent-failure shape as one that never moved at all, and it is worse,
+> because the screen that shows it was right five minutes ago.
+
+## 14a — Supprimer une fiche de soins (`DeleteDentalRecordCommand`)
+
+The widest blast radius in the product (§ 2, eleven surfaces) run backwards. `AdminOrDoctor` only — a
+secretary cannot reach any of these.
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| DEL-01 | 1 | an unbilled fiche, one act, no devis | Delete it | Gone from the historique; the visit returns to « À clôturer »; the caisse is unchanged | baseline for the whole section |
+| DEL-02 | 0 | DEL-01's fiche charted « Couronne » on 16 | Delete it | The odontogramme **no longer asserts the crown** — `ToothState` is child-of-record and the FK cascades | the chart must not outlive its evidence |
+| DEL-03 | 0 | tooth 16 carried « à traiter », the fiche treated it | Delete the fiche | ❓ **OPEN QUESTION, and the likeliest real defect in this section.** `DentalRecordLinker.ClearDiagnosesForTreatedTeethAsync` **deletes** the diagnosis row on save (`DentalRecordLinker.cs:80`); nothing restores it. So the tooth reads **healthy**: the treatment assertion is withdrawn by cascade and the request for the work is gone with it. Measure it, then decide whether the right shape is a soft-delete of the diagnosis or a refusal | the fiche save destroys a row the delete cannot rebuild |
+| DEL-04 | 0 | a fiche carrying **step 2 of 3** of a devis act | Delete it | The step returns to « à planifier »; the act recomputes to `InProgress` with 1 of 3 done; the plan is **not** left `Completed` | `DetachPlanActsAsync` walks **steps first** — a stepped act only takes its own `LinkedDentalRecordId` on the last step, so an act-level loop alone never sees it |
+| DEL-05 | 0 | a fiche carrying the **last** step, plan auto-`Completed` | Delete it | The plan **reopens** — a devis must never stay closed against evidence that is gone | the handler's own comment; `UnmarkItemStep` → `OpenStatusFromWork` |
+| DEL-06 | 0 | a **`Stopped`** plan, one of whose fiches is deleted | Delete it | It stays `Stopped`, and « Reprendre le traitement » stays on the header | `StatusFollowsTheWork` — re-deriving here strands the acts the stop parked, with no route back |
+| DEL-07 | 0 | a **`Draft`** (followed) treatment | Delete one of its fiches | It stays a `Draft` — never promoted to `Accepted` by a correction | the same predicate; an un-numbered plan must never wear a debt-bearing status |
+| DEL-08 | 0 | a **billed** fiche, note issued, 60 of 120 collected | Delete it | **It SUCCEEDS, and that is correct** — ~~refused, or the note dealt with first~~. The note keeps its number, its lines, its amount, its caisse movement and its créance, and loses only the `DentalRecordId` provenance. ⚠️ **This row originally said the opposite and the code won.** Refusing would force an **avoir** — a fiscal document — to correct a *clinical* mistake, which is the heavier outcome, not the lighter one; the money really was received; and the note keeps its own line text, so nothing claims money nobody owes. What must hold is the **coupling** — DEL-09 | `DeleteDentalRecordCommand.cs:163`, stated at the call site: « deleting a clinical record must never alter a fiscal document » |
+| DEL-09 | 0 | DEL-08 | Read la caisse, « Créances », « Solde patient », the dashboard | **All four still agree** after the delete: 60 owed on both balances, the 60 taken still in the till on its own day, the note untouched and its line still naming what it billed | the silent shape every money defect here has had — one surface moves and the other three do not |
+| DEL-10 | 0 | a fiche whose note was paid by **cheque, already banked** | Delete it | ❓ Refused, or the cheque leaves « Chèques à encaisser » — never a banked cheque chasing a séance that is gone | `dental_record_payment_banked`'s premise |
+| DEL-11 | 0 | a fiche that collected on a **treatment** (`AmountCollectedOnPlan`) | Delete it | ❓ Does the échéancier's collected amount come back down? The money reached the plan through `CollectOnTreatmentCommand`, which the delete does not consult | a second money field, and a second ledger |
+| DEL-12 | 1 | a fiche linked to an **appointment** | Delete it | The visit is « à documenter » again, not « documentée » | `VisitClosure` |
+| DEL-13 | 1 | a fiche emitting an **ordonnance** | Delete it | The ordonnance **survives** — the paper may be in the patient's hand, and `DeleteMedicalDocumentCommand` is its own gesture | « elle n'efface jamais » |
+| DEL-14 | 2 | ∅ | Delete as a **secretary** | Refused — 403 | `AdminOrDoctor`, audit defect A-12 |
+| DEL-15 | 0 | a **bridge** fiche on 14·15·16 with a pontique on 15 | Delete it | All three rows go, and the travée with them — never a half-drawn bar | `BridgeGroupId`; one bridge mark per tooth |
+
+## 14b — Annuler un rendez-vous
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| DEL-16 | 0 | a booking that **materialised** a 3-séance `Draft` treatment | Cancel it | The treatment **survives** (the patient still needs the crown) and its step returns to « à planifier » — `TreatmentPlanWorkflowProjection.IsLive` excludes a cancelled booking | verified in `TreatmentsInProgressReader.cs:48` — the reader asks the rule rather than re-stating it |
+| DEL-17 | 0 | DEL-16 | Read « Traitements en cours » and the devis workspace | **Both** say « à planifier » for that step — they must not disagree about the same visit | the reader's own stated reason for existing |
+| DEL-18 | 1 | DEL-16 | Re-book that step | Bookable; no second treatment is created | `createdPlansRef` / `schedulablePlanItems` |
+| DEL-19 | 1 | a booking with reminders queued | Cancel it | Unsent reminders **voided**; the post-visit review removed | `VoidForAppointmentAsync`, `CancelPostVisitReviewAsync` |
+| DEL-20 | 1 | a **cancelled** booking | Reactivate it | Reminders re-enqueued; the step is booked again | `becameReactivated` |
+| DEL-21 | 0 | a booking whose fiche is already recorded | Cancel it | ❓ Refused, or the fiche stands and the money with it — a cancelled visit that produced a note is a contradiction somebody must own | — |
+| DEL-22 | 1 | a booking carrying a **negotiated** `AgreedCost` | Cancel, then reactivate | The negotiated price survives both | `SetProcedures` replaces the whole list |
+
+## 14c — Défaire l'argent
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| DEL-23 | 0 | an échéance payment of 250 | Void it | Off la caisse **and** off the échéancier; the plan's outstanding rises by 250; « Créances » and « Solde patient » both follow | `VoidInstallmentPaymentCommand` — « this was never received » |
+| DEL-24 | 0 | DEL-23 | Read the day's caisse total | It **falls** by 250 — a voided row is not merely flagged | one authority |
+| DEL-25 | 0 | an issued note with a live payment | Cancel it | **Refused** — `Invoice.CanCancel` excludes an invoice holding a non-voided payment | and this is why the avoir is the only remedy |
+| DEL-26 | 0 | an issued note with **no** payment | Cancel it | Cancelled; number and lines kept; « Créances » drops it; the séance may be re-billed from « Facturer cette intervention » | `IsAutomatic = supersedesInvoiceId is null` |
+| DEL-27 | 0 | a note bridged to a plan, then cancelled | Read every money surface | The plan comes **back** into « Créances » and « Solde patient » — `BilledPlanIds` drops only a *live* note | the bridge is all-or-nothing **in both directions** |
+| DEL-28 | 0 | a **Draft** note | Delete it | Deleted, not cancelled; no number consumed; nothing else moves | « un brouillon se supprime » |
+| DEL-29 | 0 | a full avoir over a note | — | The note is `IsSpent`; the work is correctable; the plan it bridged is **still** dropped (the note exists) | `IsSpent` ≠ `RepresentsItsPlan` |
+| DEL-30 | 1 | a voided payment | Void it again | Refused, or inert — never a second reversal of one row | — |
+
+## 14d — Défaire le clinique
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| DEL-31 | 0 | a stepped act with 2 of 3 séances done | « Détacher la fiche » | The **last** done step alone is released; the act reads « En cours · 1 sur 3 faite »; the dialog and the toast say **which séance** was released — never a flat « Prévu » | `detachOutcome`; `TreatmentPlanItem.Unmark` undoes by rank |
+| DEL-32 | 0 | DEL-31 on a fiche a **live** note bills | Detach | Refused with `Snapshot.Remedy` — the avoir for the whole remaining amount, or cancel | a refusal whose remedy is unreachable is worse than none |
+| DEL-33 | 0 | DEL-32, after the full avoir | Retry the detach | **Succeeds** | `IsSpent`, not `RepresentsItsPlan` alone — the guard that survived the avoir it demanded |
+| DEL-34 | 0 | DEL-31 | Read the `dentalRecordId` the row offers next | It points at the **same** fiche, captured **before** the call — not « Enregistrer la fiche », which opens a *second* fiche for one visit | the pointer the detach clears is the only one the devis had |
+| DEL-35 | 1 | a charted tooth condition | Remove it from the odontogramme | Removed; any act that asserted it is untouched | `RemoveToothConditionCommand` |
+| DEL-36 | 1 | a diagnosis « à traiter » | Remove it, then record the treating act | Nothing is double-cleared and nothing errors | — |
+
+---
+
+# HP-15 · **Arrêter** — `Stopped`, the status the catalogue barely had
+
+> `TreatmentPlanStatus.Stopped` exists because « Arrêter » used to write `Completed`, so a stopped treatment
+> wore the badge « Terminé » and « Reprendre » was unreachable everywhere. It is **closed clinically and open
+> financially** — the delivered work is owed. That pair is why it needs its own section: every money read and
+> every worklist has to classify it, and a status neither `IsLive` nor `CarriesDebt` names drops out of both
+> with no error.
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| STOP-01 | 0 | an `InProgress` plan, 2 of 5 acts done, 400 DT outstanding | « Arrêter le traitement » | Status `Stopped`; the 3 unrealised acts are **parked**; `TotalPlanned` re-spreads to the delivered work | `Stop` |
+| STOP-02 | 0 | STOP-01 | Read « Créances » and « Solde patient » | The delivered work is **still owed** — `CarriesDebt(Stopped)` is true | closed clinically, open financially |
+| STOP-03 | 0 | STOP-01 | Read « Traitements en cours » and the recall worklist | **Absent from both**; not reported abandoned | `IsLive(Stopped)` is false |
+| STOP-04 | 0 | STOP-01 | « Reprendre le traitement » | Back to `InProgress`/`Accepted` **with its number**, and the parked acts **restored** | `Reopen` restores before it asks — and deliberately does **not** consult `StatusFollowsTheWork` |
+| STOP-05 | 0 | STOP-01 | « Détacher la fiche » on one of the delivered séances | It stays `Stopped` and « Reprendre » stays on the header | ⚠️ the recorded defect: it wrote `InProgress`, withdrew « Reprendre » in the same breath, and left the parked acts outside `ActiveItems`, `TotalPlanned` and every count with **no route back** |
+| STOP-06 | 0 | STOP-01 | Save a protocol on one of its acts (`SetItemSteps`) | Same — `StatusFollowsTheWork` is consulted by **three** writers, and this is the save button of the dialog hosting the step-level « Détacher » | the third writer is the one that hides |
+| STOP-07 | 0 | a **followed** (`Draft`, un-numbered) treatment | « Arrêter » then « Reprendre » | It comes back a **`Draft`** — not an `Accepted` devis with a null number and a live créance for a total nobody quoted | `OpenStatusFromWork` keys on `Number is null` |
+| STOP-08 | 1 | a `Stopped` plan | Try to add a séance | Refused — the aggregate refuses a new séance on a closed treatment | — |
+| STOP-09 | 1 | a `Stopped` plan | Record an échéance payment | ❓ Allowed (the money is owed) or refused (« le plan doit être accepté ») — the two rules disagree on their face, and `MONEY-28` asserts the refusal for a non-accepted plan | the pair that has to be settled |
+| STOP-10 | 1 | a `Stopped` plan | Read the dashboard's « Devis en attente de réponse » | Not counted | `CountUnansweredDraftsAsync` |
+| STOP-11 | 1 | a `Stopped` plan with a booked future séance | — | ❓ Is the booking cancelled, kept, or left claiming a step of a stopped plan? | — |
+
+---
+
+# HP-16 · **Inachevé** — the visit that never happened, the quote nobody answered
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| INACH-01 | 0 | a booking whose slot has passed, no fiche | Wait for `AppointmentProgressJob` | `AwaitingClosure` — « séance passée », the presence question and nothing else | a `Completed` visit can still legitimately be « à clôturer » |
+| INACH-02 | 0 | INACH-01 | Read « Traitements en cours » | The step still counts as **booked** — an `AwaitingClosure` visit is a standing booking, and there is **no « from today » floor** | the subquery must answer exactly what the reader answers, or the list groups by one rule and sorts by another |
+| INACH-03 | 1 | INACH-01 | Read « À clôturer » | Listed, with what it still owes: a fiche, an encaissement | `VisitClosureRules` |
+| INACH-04 | 1 | INACH-01 | Mark « rien à facturer » | Leaves the worklist claiming nothing about the clinical record | `MarkNothingToBillCommand`; « une séance quitte la liste sans rien prétendre » |
+| INACH-05 | 1 | several elapsed visits | « Ne plus suivre ces visites » | `DisregardVisitsCommand` — they leave, the money is untouched | — |
+| INACH-06 | 0 | a `Draft` devis presented 20 days ago, never answered | Read the recall worklist and the dashboard | « devis présenté, jamais répondu » — **only for a numbered quote**. A **followed** treatment older than 14 days must not appear | `Accept` is the only writer of `Number`; the identical premise was fixed in `RecallWorklistRules` and missed in `CountUnansweredDraftsAsync` |
+| INACH-07 | 0 | a 6-step implant whose step 3 was done 90 days ago, nothing since | Read the recall worklist | Reported as stalled — **and only because the interval is intact** | the 4-argument copy: a wiped `MinDaysAfterPrevious` made a healthy implant read as abandoned |
+| INACH-08 | 1 | a continuation started (`ContinueRecordedActCommand`), its second séance never booked | Read every surface | The devis exists and owes its remainder; the act is offered as bookable; it is **not** offered as continuable again | `ContinuationTracking` counts an act on any non-cancelled plan as taken |
+| INACH-09 | 1 | a fiche saved with **no act at all** | Save | Allowed (a visit may have no act); no note; the visit leaves « à documenter » | `FICHE-29`'s twin on the empty side |
+| INACH-10 | 1 | a patient with a live treatment who never returns | Read the patient file | The treatment is at the head of the file, with its next step named | `49743aba` |
+
+---
+
+# HP-17 · **Refaire** — the second time
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| REDO-01 | 0 | a crown on 16 recorded and charted | Record a **second** crown on 16 months later | Both fiches stand; the odontogramme shows the **newest**; the historique shows two | one bridge mark per tooth, the newest, resolved **before** grouping |
+| REDO-02 | 0 | a bridge on 14·15·16, then redone | Record the second | Two `BridgeGroupId`s, **one** travée drawn — never a merged five-unit bar | the adjacency scan must not re-merge grouped teeth |
+| REDO-03 | 0 | a séance billed, its note cancelled, then re-billed | Read the patient's money | It legitimately has **two** notes; the **live** one speaks for it; « Solde patient » counts it once | `LoadAsync`'s « a live note beats a cancelled one » |
+| REDO-04 | 0 | an act already carried by a devis | Continue it a **second** time | Refused or excluded — an act already on a devis raises no second offer | else a second devis over the same work |
+| REDO-05 | 1 | a treatment `Completed`, then `Reopen`ed, then completed again | Read « Traitements en cours » and the dashboard | Correct after each transition; no row stuck from a previous state | — |
+| REDO-06 | 1 | the same patient booked twice the same day | Record both fiches | Two visits, two fiches, two notes; la caisse shows both on that day | — |
+| REDO-07 | 1 | « Ajouter un acte » pressed twice quickly on a fiche | — | **One** blank card — a trailing blank *is* the card being asked for | `FICHE-05` |
+
+---
+
 ## Not implemented — do not assert
 
 | Thing | Status |
 |---|---|
-| `DentalRecordAct.IsUnfinished` (« Acte non terminé ») + its booking notice | **Spec only.** `features/unfinished-act-continuation/spec.md` is APPROVED; there is **no** `IsUnfinished` anywhere in `api/` or `web/`, no migration, no notes.md. CONT-16. |
+| ~~`DentalRecordAct.IsUnfinished`~~ | **SHIPPED 2026-09-11** — entity, DTO, `GetUnfinishedActsQuery`, act-card control and migration `20260911161617_AddDentalRecordActIsUnfinished` all present. This row said « spec only » for three days after it stopped being true, which is the failure mode a « do not assert » list has: nobody re-reads it. CONT-16…21. |
 | Any AI / inference surface | Deleted. `features/adoption-qa-i-access-control-and-audit/notes.md`. |
 | `Auth:Mode=Cloud` / `CloudBrowser` | Retired. |
 

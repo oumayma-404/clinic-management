@@ -210,8 +210,11 @@ test.describe("HP-7 · le cycle de vie d'un devis @mutating @t0", () => {
       "CarriesDebt(Draft) is false — clinically live, financially inert",
     ).toBe(0)
 
-    const receivables = await api.receivables("?pageSize=300")
-    expect((receivables.items ?? []).some((r: any) => r.patientId === p.id)).toBeFalsy()
+    expect(
+      await api.receivableFor(p.id, p.name),
+      "a Draft carries no debt, so the patient must be ABSENT from « Créances » — asked through the filtered "
+        + "read, because « absent from page 1 of 300 » is the same answer for the wrong reason",
+    ).toBeNull()
     expect(plan.status).toBe("Draft")
   })
 })
