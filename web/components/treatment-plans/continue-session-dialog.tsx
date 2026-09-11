@@ -31,6 +31,21 @@ interface ContinueSessionDialogProps {
    * <p>⚠️ Nothing has been written when this fires. See {@link SelectedAct.pendingContinuation}.</p>
    */
   onChosen: (choice: ContinuationChoice) => void
+  /**
+   * Open with this act already chosen — « Planifier la suite » on « Suites à planifier », which knows exactly
+   * which act it is about.
+   *
+   * <p>⚠️ <b>It preselects and does not skip.</b> The worklist's first version bypassed this dialog entirely
+   * and handed the booking a choice with <code>remainingWorkCost: null</code>, which is the « rien de plus »
+   * case — so the séance was named after the act that had ALREADY been done, the price field was withheld
+   * (a devis-carried act holds no fee on the séance), and the card stated both « cette séance n'ajoute aucun
+   * honoraire » and « Encaissement sur la note … ». Reported from use, in those words. What the dentist needs
+   * to say here — what the remaining work is worth — has one home, and this is it.</p>
+   *
+   * <p>⚠️ The list is still rendered in full: the preselection is an opinion about which row, never a claim
+   * that the others do not apply, and the dentist may pick a different séance.</p>
+   */
+  preselectActId?: string
 }
 
 /** The continuation as chosen, before anything exists on the server. */
@@ -45,6 +60,9 @@ export interface ContinuationChoice {
 
 /** What the next séance is called when the dentist does not say. Matches the server's own default. */
 const DEFAULT_NEXT_LABEL = "Séance suivante"
+
+/** What the séance is called when the caller already named the act — see `preselectActId`. */
+const PRESELECTED_NEXT_LABEL = "Suite"
 
 /**
  * « C'est la suite d'une séance précédente ? » — turning an act already carried out into a treatment.
@@ -78,6 +96,7 @@ export function ContinueSessionDialog({
   onOpenChange,
   patientId,
   onChosen,
+  preselectActId,
 }: ContinueSessionDialogProps) {
   const [acts, setActs] = useState<ContinuableActDto[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -102,12 +121,37 @@ export function ContinueSessionDialog({
   useEffect(() => {
     if (!open) return
     setSelected(null)
-    setNextLabel(DEFAULT_NEXT_LABEL)
+    // « Suite » when the caller already named the act, because the panel below then reads « Suite » rather than
+    // the generic « Séance suivante » on a row whose subject is not in doubt. Still editable.
+    setNextLabel(preselectActId ? PRESELECTED_NEXT_LABEL : DEFAULT_NEXT_LABEL)
     setRemainingCost("")
     setError(null)
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, patientId])
+  }, [open, patientId, preselectActId])
+
+  /**
+   * Apply the caller's preselection once the list has arrived.
+   *
+   * <p>⚠️ It cannot live in the reset effect above: the acts are fetched, so at that point there is nothing to
+   * select from. And it is keyed on the LOADED list rather than run once, because a failed read that is then
+   * retried must still land on the row the caller named.</p>
+   *
+   * <p>⚠️ An act the list does not offer leaves the dialog on its ordinary « choose one » state rather than
+   * selecting nothing silently — that happens when a colleague continued the same séance in between, and the
+   * list is then correct and the caller's row stale.</p>
+   */
+  useEffect(() => {
+    if (!open || !preselectActId || !acts) return
+    const match = acts.find((a) => a.actId === preselectActId)
+    if (match) setSelected(match)
+  }, [open, preselectActId, acts])
+
+  /**
+   * The caller named the act, so this dialog asks only what it alone can: the séance's name and what the
+   * remaining work is worth. See {@link ContinueSessionDialogProps.preselectActId}.
+   */
+  const actIsFixed = preselectActId != null
 
   /** « la note 2026-0206 » or « le brouillon de note d'honoraires » — a Draft note has no number to print. */
   const noteLabel = selected?.invoiceNumber
@@ -168,6 +212,32 @@ export function ContinueSessionDialog({
                 <div key={i} className="h-16 animate-pulse rounded-md bg-muted" />
               ))}
             </div>
+          ) : actIsFixed ? (
+            /*
+              ⚠️ **Fixed: the act is STATED, and the list is not offered at all.**
+              This opening comes from « Planifier la suite » on « Suites à planifier », where the row *is* the
+              act — re-asking « laquelle ? » makes the dentist recognise all over again the thing they just
+              pressed, and worse, lets them pick a different séance than the one the row named. The other door
+              (the rdv modal's « C'est la suite d'une séance précédente ? ») genuinely does not know, and keeps
+              its list. Same dialog, two openings, one question each.
+            */
+            selected ? (
+              <div className="rounded-md border border-primary bg-primary/[0.05] p-3">
+                <ContinuableActSummary act={selected} />
+              </div>
+            ) : (
+              /*
+                The act the caller named is not in the list any more — a colleague continued the same séance in
+                between, so the list is right and the row stale. Say that rather than silently falling back to
+                the picker, which would invite continuing a *different* act than the one pressed.
+              */
+              <EmptyState
+                size="compact"
+                icon={History}
+                title="Cette séance n'est plus à poursuivre"
+                description="Elle fait maintenant partie d'un traitement — quelqu'un l'a peut-être déjà reprise. Fermez et rouvrez « Suites à planifier » pour voir l'état actuel."
+              />
+            )
           ) : acts.length === 0 ? (
             <EmptyState
               size="compact"
@@ -191,63 +261,7 @@ export function ContinueSessionDialog({
                         isSelected ? "border-primary bg-primary/[0.05]" : "hover-hover:hover:bg-accent/40",
                       )}
                     >
-                      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                        <span className="min-w-0 flex-1 text-sm font-medium [overflow-wrap:anywhere]">
-                          {act.procedureName}
-                        </span>
-                        <span className="shrink-0 text-2xs text-muted-foreground">
-                          {formatDateFr(act.interventionDate)}
-                        </span>
-                      </div>
-
-                      {/*
-                        ⚠️ **The fee and the teeth make two rows of one act distinguishable, and they were not.**
-                        One fiche can hold two acts of the same name on the same day, and the list then rendered
-                        them character for character — same name, same date, same money sentence, with no way to
-                        tell which was which. Whichever is picked mints a numbered, accepted devis, so an
-                        indistinguishable pair is a coin flip with a money claim on it.
-                      */}
-                      <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-2xs text-muted-foreground">
-                        {act.toothNumbers.length > 0 && <span>Dents {act.toothNumbers.join(", ")}</span>}
-                        <span className="font-mono tabular-nums">{formatDT(act.cost)}</span>
-                      </p>
-
-                      {/*
-                        The money sentence, and it is the reason each row is three lines rather than one. The two
-                        cases lead to opposite actions at the next séance, and neither is guessable from the act's
-                        name.
-                      */}
-                      {/*
-                        ⚠️ **`invoiceId`, never `invoiceNumber`** — `InvoiceLinkChoice.ByKey` keeps a DRAFT note,
-                        which has no number yet, and the server's own fork is `billingInvoice != null`. Reading
-                        the number put a billed séance on the « Non facturée — le devis portera … » branch, so
-                        the one sentence that tells a dentist which document collects said the opposite of what
-                        the save was about to do.
-                      */}
-                      <p className="mt-1.5 text-2xs leading-relaxed">
-                        {act.invoiceId ? (
-                          <>
-                            <span className="text-muted-foreground">
-                              Facturé {formatDT(act.cost)} sur{" "}
-                              {act.invoiceNumber ? "la note " : "un brouillon de note d'honoraires"}
-                            </span>
-                            {act.invoiceNumber && <span className="font-mono">{act.invoiceNumber}</span>}
-                            {act.invoiceOutstanding > 0 ? (
-                              <span className="font-medium text-warning-ink">
-                                {" "}
-                                · reste {formatDT(act.invoiceOutstanding)} à encaisser sur cette note
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground"> · entièrement réglée</span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            Non facturée — le devis portera {formatDT(act.cost)} et sera facturé une fois le
-                            traitement terminé.
-                          </span>
-                        )}
-                      </p>
+                      <ContinuableActSummary act={act} />
                     </button>
                   </li>
                 )
@@ -379,5 +393,85 @@ export function ContinueSessionDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * One continuable act, as the dialog states it — name · date · the « non terminé » mark · teeth · fee · which
+ * document collects.
+ *
+ * <p>⚠️ <b>One composer for both openings.</b> The picker renders it inside a radio and the fixed opening
+ * renders it as a statement; written twice, the money sentence — the half that says whether the note or the
+ * devis collects, and therefore what the dentist does at the next séance — would be free to drift between the
+ * two. That is this repository's signature defect, and this sentence is one of the ones it can least afford.</p>
+ */
+function ContinuableActSummary({ act }: { act: ContinuableActDto }) {
+  return (
+    <>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+        <span className="min-w-0 flex-1 text-sm font-medium [overflow-wrap:anywhere]">
+          {act.procedureName}
+        </span>
+        <span className="shrink-0 text-2xs text-muted-foreground">
+          {formatDateFr(act.interventionDate)}
+        </span>
+      </div>
+
+      {/*
+        ⚠️ **The dentist's own tick, surfaced — and in the PICKER the list is sorted by it, never filtered.**
+        The server puts every ticked act at the top, so what this mark adds is the reason the order is what it
+        is. It is not a claim that the unticked rows are finished: the box is one checkbox at the end of a
+        séance and it is easy to forget, which is exactly why the list still offers everything.
+      */}
+      {act.isUnfinished && (
+        <p className="mt-1 text-2xs font-medium leading-tight text-warning-ink [overflow-wrap:anywhere]">
+          Noté « non terminé » à la séance
+        </p>
+      )}
+
+      {/*
+        ⚠️ **The fee and the teeth make two rows of one act distinguishable, and they were not.** One fiche can
+        hold two acts of the same name on the same day, and the list rendered them character for character.
+        Whichever is picked mints a numbered, accepted devis, so an indistinguishable pair is a coin flip with a
+        money claim on it.
+      */}
+      <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-2xs text-muted-foreground">
+        {act.toothNumbers.length > 0 && <span>Dents {act.toothNumbers.join(", ")}</span>}
+        <span className="font-mono tabular-nums">{formatDT(act.cost)}</span>
+      </p>
+
+      {/*
+        The money sentence. The two cases lead to opposite actions at the next séance and neither is guessable
+        from the act's name.
+
+        ⚠️ **`invoiceId`, never `invoiceNumber`** — `InvoiceLinkChoice.ByKey` keeps a DRAFT note, which has no
+        number yet, and the server's own fork is `billingInvoice != null`. Reading the number put a billed
+        séance on the « Non facturée » branch, i.e. the opposite of what the save was about to do.
+      */}
+      <p className="mt-1.5 text-2xs leading-relaxed">
+        {act.invoiceId ? (
+          <>
+            <span className="text-muted-foreground">
+              Facturé {formatDT(act.cost)} sur{" "}
+              {act.invoiceNumber ? "la note " : "un brouillon de note d'honoraires"}
+            </span>
+            {act.invoiceNumber && <span className="font-mono">{act.invoiceNumber}</span>}
+            {act.invoiceOutstanding > 0 ? (
+              <span className="font-medium text-warning-ink">
+                {" "}
+                · reste {formatDT(act.invoiceOutstanding)} à encaisser sur cette note
+              </span>
+            ) : (
+              <span className="text-muted-foreground"> · entièrement réglée</span>
+            )}
+          </>
+        ) : (
+          <span className="text-muted-foreground">
+            Non facturée — le devis portera {formatDT(act.cost)} et sera facturé une fois le traitement
+            terminé.
+          </span>
+        )}
+      </p>
+    </>
   )
 }

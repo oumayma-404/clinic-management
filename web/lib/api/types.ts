@@ -1111,6 +1111,15 @@ export interface ContinuableActDto {
   procedureTypeId: string | null;
   toothNumbers: number[];
   cost: number;
+  /**
+   * The dentist ticked « Acte non terminé » when charting the séance.
+   *
+   * ⚠️ It moves the row to the TOP of the list and never removes any other row. A fiche records what was
+   * carried out and never what remains, so the tick is the only thing that knows an act was left unfinished —
+   * and it is also the easiest thing to forget, being one checkbox at the end of a séance. Filtering on it
+   * would turn the one gesture that helps into the one you cannot recover from having skipped.
+   */
+  isUnfinished: boolean;
   /** The note already billing that fiche, or null when the séance was never billed. THE fork of the feature. */
   invoiceId: string | null;
   invoiceNumber: string | null;
@@ -1178,10 +1187,54 @@ export interface DentalRecordActDto {
   ponticToothNumbers?: number[];
   /** The subset that are piliers on an implant — see `DentalActInput.implantPilierToothNumbers`. */
   implantPilierToothNumbers?: number[];
+  /**
+   * « Acte non terminé » — the dentist's own statement that this act needs another séance.
+   *
+   * ⚠️ Read back and sent back on every save. `SetActs` rebuilds the whole act list server-side, so an editor
+   * that cannot see the tick sends it back false and an ordinary re-save of the fiche marks the act finished —
+   * no gesture, no toast, and the act simply leaves « Suites à planifier ». Same trap as
+   * `ponticToothNumbers`, one field over and quieter.
+   */
+  isUnfinished?: boolean;
   /** ToothCondition name this act results in on the odontogram, or null. */
   resultingCondition?: string | null;
   surfaces?: string | null;
   note?: string | null;
+}
+
+/**
+ * One act a dentist marked « non terminé » that no devis has picked up yet — a row of « Suites à planifier ».
+ *
+ * ⚠️ This list is a STATEMENT where {@link ContinuableActDto}'s is a question: that one offers every recent act
+ * because nothing can know which was unfinished, this one carries only what a human ticked. So the same flag is
+ * a sort there and a filter here, and neither is the other's bug.
+ *
+ * ⚠️ The money is stated and never moved. An act billed 1 000 with 800 collected still owes 200 on ITS NOTE,
+ * where la caisse, « Créances » and « Solde patient » already carry it.
+ */
+export interface UnfinishedActDto {
+  dentalRecordId: string;
+  actId: string;
+  patientId: string;
+  /** Null when the patient could not be read — « je ne sais pas », never a nameless row. */
+  patientName: string | null;
+  interventionDate: string;
+  procedureName: string;
+  procedureTypeId: string | null;
+  toothNumbers: number[];
+  cost: number;
+  /** The note already billing the fiche, or null. Branch on the ID: a DRAFT note collects and has no number. */
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  invoiceOutstanding: number;
+  /**
+   * A séance already in the diary for this PATIENT, or null.
+   *
+   * ⚠️ Per patient and never per act — nothing links a booking to an act with no treatment behind it, which is
+   * exactly what these acts are. The row must say « un rendez-vous est déjà prévu », never « cet acte est
+   * planifié »: claiming the stronger of the two is how a worklist starts lying.
+   */
+  nextAppointmentAt: string | null;
 }
 
 export interface DentalRecordDto {
@@ -1401,6 +1454,14 @@ export interface DentalActInput {
    * winning. Omitting both is what keeps an act charting one condition across all its teeth, exactly as before.
    */
   implantPilierToothNumbers?: number[];
+  /**
+   * « Acte non terminé » — the dentist's own statement that this act needs another séance.
+   *
+   * ⚠️ Optional so every older caller keeps working, and **always sent by the fiche's own editor**: `SetActs`
+   * rebuilds the whole act list, so omitting the key on a re-save marks the act finished. That is a clinical
+   * claim nobody made, and its only symptom is the act quietly leaving « Suites à planifier ».
+   */
+  isUnfinished?: boolean;
   resultingCondition?: string | null;
   surfaces?: string | null;
   note?: string | null;

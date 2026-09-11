@@ -33,6 +33,27 @@ public class DentalRecordRepository : IDentalRecordRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DentalRecord>> GetWithUnfinishedActsAsync(
+        Guid clinicId,
+        DateTime sinceUtc,
+        CancellationToken cancellationToken = default)
+    {
+        // ⚠️ `Any(a => a.IsUnfinished)` stays in the expression tree — it is what keeps a clinical quarter of
+        // fiches out of memory. `Acts` is `Include`d whole afterwards, so the caller still sees the séance's
+        // other acts; it is the *records* the predicate cuts, not the acts within one.
+        return await _context.DentalRecords
+            .Include(dr => dr.Acts)
+            .Where(dr => dr.ClinicId == clinicId
+                         && dr.InterventionDate >= sinceUtc
+                         && dr.Acts.Any(a => a.IsUnfinished))
+            .OrderByDescending(dr => dr.InterventionDate)
+            // Unique last: an OFFSET over a non-unique sort shows one row twice and skips another, which reads
+            // as « une séance a disparu ». The caller pages the flattened acts, not this, but the order it
+            // flattens has to be stable for the same reason.
+            .ThenBy(dr => dr.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<(Guid AppointmentId, Guid DentalRecordId, decimal Cost)>> GetAppointmentLinksAsync(
         Guid clinicId,
         IReadOnlyCollection<Guid> appointmentIds,

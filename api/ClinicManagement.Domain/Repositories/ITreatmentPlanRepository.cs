@@ -122,6 +122,23 @@ public interface ITreatmentPlanRepository
         Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The same question over a <b>set</b> of fiches, in one round trip — every plan holding an act, or a step,
+    /// linked to any of <paramref name="dentalRecordIds"/>.
+    ///
+    /// <para>It backs « Suites à planifier », which has to ask « is this séance already being continued? » of
+    /// every row it is about to render. Asking one at a time is a read per row on a worklist, and the shape the
+    /// caller wants is a <i>set</i> anyway: it hands the result straight to
+    /// <c>ContinuationTracking.TrackedRecordIds</c>, which is the one owner of what « already continued »
+    /// means.</para>
+    ///
+    /// <para>⚠️ <b>Empty input returns empty</b> rather than every plan in the clinic — the difference between
+    /// « nothing to ask about » and « ask about everything » is one missing guard, and here the wrong one is an
+    /// unbounded read.</para>
+    /// </summary>
+    Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> dentalRecordIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every planned act of the clinic that is <b>under way</b> — some of its steps carried out and some still to
     /// come — as a flat projection, one row per act, paged.
     /// <para>

@@ -14,8 +14,9 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VisitClosureList } from "@/components/visits/visit-closure-list"
 import { PendingReviewBlock } from "@/components/patients/pending-review-block"
+import { UnfinishedActsList } from "@/components/visits/unfinished-acts-list"
 import { cn } from "@/lib/utils"
-import { ClipboardCheck, UserPlus } from "lucide-react"
+import { ClipboardCheck, CircleDashed, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CalendarImportUndoBanner } from "@/components/visits/calendar-import-undo-banner"
 import { appointmentsApi, type VisitsToCloseResponse } from "@/lib/api/appointments"
@@ -120,6 +121,14 @@ export default function VisitsToClosePage() {
   // The count the « Patients à compléter » tab carries. Lifted out of the block because a tab with no figure on it
   // is a door with nothing to say how much is behind it — and this half is hidden by default.
   const [pendingCount, setPendingCount] = useState(0)
+
+  /**
+   * « Suites à planifier »'s own total, reported up by the list so its trigger can carry a figure.
+   *
+   * ⚠️ `null` is « je n'ai pas pu lire » and renders as « — », never as 0 — a tab hides its half by definition,
+   * so a zero on the door is a statement the page is not entitled to make after a failed read.
+   */
+  const [unfinishedCount, setUnfinishedCount] = useState<number | null>(0)
 
   /**
    * Bumped whenever something outside the patients tab has changed what is in it.
@@ -228,7 +237,17 @@ export default function VisitsToClosePage() {
         />
 
         <Tabs defaultValue="visits" className="space-y-4">
-          <TabsList className="flex h-auto w-full items-stretch gap-1 p-1 sm:w-auto sm:justify-start">
+          {/*
+            ⚠️ **`flex-wrap` + a real `basis`, because a THIRD tab made the two that shipped clip.**
+            `TabsTrigger` is `whitespace-nowrap`, and `flex-1` is `flex: 1 1 0%` — a zero basis, so the
+            triggers can never trigger the wrap and simply divide whatever is there. Measured at 320 px:
+            three triggers took 86 px each out of a 273 px strip while « Séances 281 » needed 94 and
+            « À compléter 0 » needed 98, so both were cut mid-word — a label clipped to « à compléter »
+            names something else, and the count beside it is the figure the tab exists to show. A basis
+            lets a row hold what fits and move the rest down, which also survives a fourth tab and a
+            longer label without being re-measured.
+          */}
+          <TabsList className="flex h-auto w-full flex-wrap items-stretch gap-1 p-1 sm:w-auto sm:flex-nowrap sm:justify-start">
             {/* ⚠️ The labels are SHORTENED below `sm:`, with the full phrase kept as the accessible name.
                 `TabsTrigger` is `whitespace-nowrap`, so at 320 px the two labels plus their badges measured wider
                 than the 288 px content box and « Séances » was clipped to « s 32 » — the strip overflowed and the
@@ -238,7 +257,7 @@ export default function VisitsToClosePage() {
               value="visits"
               aria-label="Séances à clôturer"
               className={cn(
-                "h-auto min-h-9 min-w-0 flex-1 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:gap-2",
+                "h-auto min-h-9 min-w-0 grow basis-28 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:basis-auto sm:gap-2",
                 "data-[state=active]:bg-zone-daily/12 data-[state=active]:text-zone-daily",
               )}
             >
@@ -252,7 +271,7 @@ export default function VisitsToClosePage() {
               value="patients"
               aria-label="Patients à compléter"
               className={cn(
-                "h-auto min-h-9 min-w-0 flex-1 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:gap-2",
+                "h-auto min-h-9 min-w-0 grow basis-28 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:basis-auto sm:gap-2",
                 "data-[state=active]:bg-zone-clinical/12 data-[state=active]:text-zone-clinical",
               )}
             >
@@ -263,6 +282,31 @@ export default function VisitsToClosePage() {
                 {pendingCount.toLocaleString("fr-TN")}
               </Badge>
             </TabsTrigger>
+            {/*
+              ⚠️ A THIRD tab rather than a fourth question in the cascade beside it — see
+              `UnfinishedActsList`'s own note for the whole argument. The short form: a séance holding an
+              unfinished act is completely closed as a *visit*, so folding it into « Séances » would make a row
+              that answering the visit's own three questions can never clear, and would change what the page's
+              count and the dashboard chip behind it are counting. What the practice asked for is one screen
+              showing everything still owed, and a tab delivers that without moving the cascade.
+            */}
+            <TabsTrigger
+              value="unfinished"
+              aria-label="Suites à planifier"
+              className={cn(
+                "h-auto min-h-9 min-w-0 grow basis-28 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:basis-auto sm:gap-2",
+                "data-[state=active]:bg-zone-clinical/12 data-[state=active]:text-zone-clinical",
+              )}
+            >
+              <CircleDashed className="hidden h-4 w-4 shrink-0 sm:block" />
+              {/* Shortened below `sm:` with the full phrase kept as the accessible name — the strip is
+                  `whitespace-nowrap`, and three full labels plus their badges overflow a 320 px content box. */}
+              <span className="sm:hidden">Suites</span>
+              <span className="hidden sm:inline">Suites à planifier</span>
+              <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
+                {unfinishedCount === null ? "—" : unfinishedCount.toLocaleString("fr-TN")}
+              </Badge>
+            </TabsTrigger>
           </TabsList>
 
           {/* ⚠️ `forceMount`: Radix unmounts an inactive panel, so the block's read — and therefore the count on
@@ -271,6 +315,13 @@ export default function VisitsToClosePage() {
               most 25 rows and no announcement. */}
           <TabsContent value="patients" forceMount className="data-[state=inactive]:hidden">
             <PendingReviewBlock reloadKey={pendingReloadKey} onLoaded={setPendingCount} />
+          </TabsContent>
+
+          {/* `forceMount` for the patients panel's reason: Radix unmounts an inactive panel, so without it the
+              list's read — and therefore the figure on its own trigger — would not run until somebody opened
+              the tab, which is precisely the tab nobody opens without a figure on it. */}
+          <TabsContent value="unfinished" forceMount className="data-[state=inactive]:hidden">
+            <UnfinishedActsList onTotalChange={setUnfinishedCount} />
           </TabsContent>
 
           <TabsContent value="visits">

@@ -161,6 +161,7 @@ how it was built, `notes.md` is what shipped.
 
 - [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
+- [`unfinished-act-continuation`](features/unfinished-act-continuation/notes.md) — Un acte peut être noté « non terminé », et ce qui reste apparaît quelque part · « Suites à planifier » n'est PAS une quatrième question de la clôture
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
@@ -233,6 +234,26 @@ touching the area.
   a plain `setError` is **poisoned for good** — the version it holds never moves, so every later click repeats the
   refusal (six of them over 81 minutes, until the user reloaded the page). Any form that round-trips a version
   goes through `useConflict`, which offers the « Recharger » that the server's own sentence tells the user to do.
+- **« Legal transition » and « a human may choose it » are two questions, and `AllowedNextStatuses` answers the
+  second.** `AppointmentStatus.AwaitingClosure` (« Séance passée ») states that a slot has *ended* — a fact about
+  the clock — so `AppointmentProgressJob` is its only writer. But it is legitimately in
+  `Appointment.AllowedTransitions` (the job asks `CanTransition`, and `MarkAwaitingClosure` re-checks it), and
+  **four** read sites projected `AllowedNextStatuses` straight from `NextStatusesFrom` — so the status control
+  offered « Séance passée » from `Scheduled`, `Confirmed` *and* `InProgress`, i.e. on essentially every open
+  visit. The frontend had decided against exactly that in as many words (`MANUALLY_SETTABLE_STATUSES`, plus the
+  edit dialog's own ⚠️ note) and applied the filter **only on the fallback branch** taken when the server sends
+  no list; the live branch passed the server's through, and `appointment-quick-actions` (the agenda's « ⋯ » menu)
+  never filtered at all. Picking it then reached `UpdateAppointmentCommandHandler`'s transition `switch`, which
+  had **no arm for it and no `default`**, so the request **fell through to the save and returned HTTP 200 with
+  the status unchanged** — a green toast reading « Rendez-vous marqué « Séance passée » » over a statut that had
+  not moved, and an audit row with an **empty `ChangedFields`**. Measured in production 2026-09-11: two such
+  requests eleven seconds apart on one appointment, neither erroring, neither moving it. Ask
+  `Appointment.ManualNextStatusesFrom`; the `default:` arm is what stops an eighth status repeating it. ⚠️ The
+  refusal lives **inside** the `newStatus != oldStatus` gate — the dialog prepends the *current* status so its
+  Select has a value, so every ordinary edit of a visit already in « Séance passée » posts it back unchanged, and
+  refusing there would make such a visit uneditable. ⚠️ The job's own pass was **never** broken: the same audit
+  shows it moved that appointment `InProgress → AwaitingClosure` 48 s after the drag. Two independent things
+  looked like one permanent bug because both silent refusals landed inside that window.
 - **Never `DateTime.UtcNow` or `DateTime.Today`.** `ClinicClock` is the only thing that knows Tunisia is UTC+1.
   `EndOfLocalDayUtc` is the *next* midnight (exclusive) while every money read is inclusive at both ends — use
   `LastTickOfLocalDayUtc`, or a midnight payment lands in two adjacent periods.
@@ -240,6 +261,23 @@ touching the area.
   for the first hour of every Tunisian day the latter pre-fills *yesterday*, and on the 1st, last month.
 - **An update DTO is tri-state.** Omitting a key means "unchanged"; `[]` or an explicit null means "clear".
   Conflating them deletes data — `{ status }` alone on an appointment would drop every act of the séance.
+- **A field of a recorded ACT is kept alive only by the fiche's editor, and forgetting either half rewrites the
+  act on the next ordinary save.** `DentalRecord.SetActs` replaces the **whole** list, so a field read back but
+  not sent — or sent but not read back — is silently reset by reopening a fiche to fix a typo and pressing
+  Enregistrer. Three fields have paid for this: `PonticToothNumbers` (a bridge flattens to three abutments and
+  no pontic, which is a mouth that cannot exist), `ImplantPilierToothNumbers` (rooted abutments charted over
+  implants), and `IsUnfinished` (the act is marked **finished** — a clinical claim nobody made — and quietly
+  leaves « Suites à planifier », so the séance nobody booked is chased by nothing). None errors anywhere.
+  `check:responsive`'s **N36** derives the required set from `DentalRecordActDto` itself and asserts it in both
+  directions, so a fourth field is covered the day it is declared. ⚠️ A caller that **copies**
+  `DentalRecordActInput` must use a `with` expression, never re-list the positional arguments —
+  `PlanCarriedActPricing` is the in-tree example.
+- **« Acte non terminé » is never cleared automatically, and « is this act already being continued? » is a
+  different question with a different owner.** The tick records what the dentist *saw* that day, so a list keyed
+  on it alone keeps chasing work already on a devis and its own button mints a second devis over the same act —
+  ask `ContinuationTracking`. ⚠️ Its mirror is the **opposite** rule on the other reader: in
+  `GetContinuableActsQuery` the flag is a **sort and never a filter**, because it is one checkbox at the end of
+  a séance and filtering on it makes a forgotten tick unrecoverable.
 - **Every paged read orders on a unique column last** (`.ThenBy(x => x.Id)`). `OFFSET` over a non-unique sort
   shows one row twice and skips another, which reads as "a record vanished".
 - **`paging: null` is a first-class case**, not a very large page — the pickers, the lookups and every money

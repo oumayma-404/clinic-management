@@ -1438,6 +1438,11 @@ export function PatientRecordModal({
           // Both role lists travel together. Sending one without the other flattens half a bridge's shape,
           // silently, on the next save — which is the `procedures`/`SetProcedures` trap on a second field.
           implantPilierToothNumbers: a.implantPilierTeeth,
+          // ⚠️ Always sent, `false` included, and for the two lists' reason one field over. `SetActs` rebuilds
+          // every act from this payload, so an omitted key marks the act FINISHED — which is a clinical claim
+          // nobody made, produced by an ordinary re-save with no gesture behind it. The act then leaves
+          // « Suites à planifier » and the séance nobody booked is chased by nothing.
+          isUnfinished: a.isUnfinished,
           resultingCondition: a.resultingCondition, // null when "Aucun"
           surfaces: serializeSurfaces(a.surfaces) || null,
           note: a.note.trim() || null,

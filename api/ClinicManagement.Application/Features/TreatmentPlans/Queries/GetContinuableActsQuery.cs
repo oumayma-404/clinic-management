@@ -39,8 +39,11 @@ public class GetContinuableActsQuery : IRequest<Result<List<ContinuableActDto>>>
 public class GetContinuableActsQueryHandler
     : IRequestHandler<GetContinuableActsQuery, Result<List<ContinuableActDto>>>
 {
-    /// <summary>How far back a séance can be and still be offered as continuable. Roughly a clinical quarter.</summary>
-    private const int LookbackDays = 120;
+    /// <summary>
+    /// How far back a séance can be and still be offered. Owned by <see cref="ContinuationTracking"/> now that
+    /// the clinic-wide « Suites à planifier » read applies the same window — see the constant's own note.
+    /// </summary>
+    private const int LookbackDays = ContinuationTracking.LookbackDays;
 
     private readonly IDentalRecordRepository _recordRepository;
     private readonly ITreatmentPlanRepository _planRepository;
@@ -141,6 +144,7 @@ public class GetContinuableActsQueryHandler
                         ProcedureTypeId = act.ProcedureTypeId,
                         ToothNumbers = act.ToothNumbers.ToList(),
                         Cost = act.Cost,
+                        IsUnfinished = act.IsUnfinished,
                         InvoiceId = billed ? link.InvoiceId : null,
                         InvoiceNumber = billed ? link.Number : null,
                         InvoiceOutstanding = billed
@@ -153,9 +157,21 @@ public class GetContinuableActsQueryHandler
                 }
             }
 
-            // Most recent first: the séance somebody is continuing is almost always the last one.
+            /*
+             * The acts the dentist ticked « non terminé » first, then most recent first — the séance somebody
+             * is continuing is almost always the last one.
+             *
+             * ⚠️ A SORT and not a filter: see `ContinuableActDto.IsUnfinished`. The tick is the only thing in
+             * the product that knows an act was left unfinished, and it is also the easiest thing in the
+             * product to forget, so it moves the right row to the top of the list without removing the row
+             * somebody needs when they forgot.
+             */
             return Result<List<ContinuableActDto>>.Success(
-                acts.OrderByDescending(a => a.InterventionDate).ThenBy(a => a.ProcedureName).ToList());
+                acts
+                    .OrderByDescending(a => a.IsUnfinished)
+                    .ThenByDescending(a => a.InterventionDate)
+                    .ThenBy(a => a.ProcedureName)
+                    .ToList());
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

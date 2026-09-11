@@ -1350,7 +1350,19 @@ export function AppointmentActsPicker({
                           })
                         }
                       }}
-                      disabled={disabled || savingTotal === row.act.treatmentPlanItemId}
+                      /*
+                       * ⚠️ **`planItemId != null &&` is load-bearing, and without it this field was DEAD.**
+                       * `savingTotal` starts `null` and a row with no devis yet — a pending continuation —
+                       * carries `treatmentPlanItemId: null`, so the bare `===` was `null === null`, i.e. true
+                       * on every render: the input was permanently disabled and the caption below permanently
+                       * read « enregistrement… » for a save that had not been started and could never finish
+                       * (`commitTotal` returns early with no plan item). Reported from use, in those words.
+                       */
+                      disabled={
+                        disabled ||
+                        (row.act.treatmentPlanItemId != null &&
+                          savingTotal === row.act.treatmentPlanItemId)
+                      }
                       aria-label={`Total convenu pour ${row.name}, tout le traitement`}
                     />
                   </div>
@@ -1361,10 +1373,19 @@ export function AppointmentActsPicker({
                     255) to the acts section (270 in 257) — the RecordSection trap in CLAUDE.md, one component
                     over. `flex-wrap` already gives it its own line; `min-w-0` is what lets it wrap inside it.
                   */}
+                  {/*
+                    ⚠️ Three states, and the third is the one that was missing. « enregistrement… » may only be
+                    said of a row that HAS a devis act to save against — see the `disabled` note above. A
+                    **pending** continuation has none: its amount was typed one step earlier, in « Montant du
+                    travail restant », and the way to change it is to reopen that dialog, so the caption names
+                    that rather than implying the field will write anywhere.
+                  */}
                   <span className="min-w-0 text-2xs text-muted-foreground">
-                    {savingTotal === row.act.treatmentPlanItemId
+                    {row.act.treatmentPlanItemId != null && savingTotal === row.act.treatmentPlanItemId
                       ? "enregistrement…"
-                      : "pour tout le traitement — cette séance n'ajoute rien"}
+                      : row.act.pendingContinuation
+                        ? "pour tout le traitement — modifiable en rouvrant « C'est la suite d'une séance précédente ? »"
+                        : "pour tout le traitement — cette séance n'ajoute rien"}
                   </span>
                 </div>
               ) : (

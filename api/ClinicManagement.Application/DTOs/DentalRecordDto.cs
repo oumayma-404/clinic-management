@@ -298,6 +298,14 @@ public class DentalRecordActDto
     /// <see cref="PonticToothNumbers"/> — see <c>DentalRecordAct.ImplantPilierToothNumbers</c>.
     /// </summary>
     public List<int> ImplantPilierToothNumbers { get; set; } = new();
+    /// <summary>
+    /// « Acte non terminé » — the dentist's own statement that this act needs another séance. See
+    /// <c>DentalRecordAct.IsUnfinished</c>.
+    /// <para>⚠️ Read back for <c>PonticToothNumbers</c>' reason: <c>SetActs</c> rebuilds every act from the
+    /// input, so a fiche reopened for editing that could not see the tick would send it back <c>false</c> and
+    /// silently drop the act off « Suites à planifier ».</para>
+    /// </summary>
+    public bool IsUnfinished { get; set; }
     public string? ResultingCondition { get; set; }
     public string? Surfaces { get; set; }
     public string? Note { get; set; }
@@ -327,6 +335,11 @@ public class DentalActInput
     /// disjoint from the pontique list by the aggregate (pontique wins).
     /// </summary>
     public List<int> ImplantPilierToothNumbers { get; set; } = new();
+    /// <summary>
+    /// « Acte non terminé ». Optional and defaults to <c>false</c>, so every older caller keeps working and
+    /// means what it always meant — see <c>DentalRecordAct.IsUnfinished</c>.
+    /// </summary>
+    public bool IsUnfinished { get; set; }
     /// <summary>Resulting odontogram state (ToothCondition name); null/empty/"Sain" = no odontogram entry.</summary>
     public string? ResultingCondition { get; set; }
     public string? Surfaces { get; set; }

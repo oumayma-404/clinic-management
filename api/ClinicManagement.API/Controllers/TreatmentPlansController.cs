@@ -332,6 +332,27 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     /// <summary>
+    /// « Suites à planifier » — every act a dentist marked « non terminé » that no devis has picked up yet.
+    /// <para>
+    /// `AnyClinicRole` (the controller's own policy), deliberately <b>not</b> `AdminOrDoctor`: booking the visit
+    /// that finishes a séance is reception's job, exactly as for « Traitements en cours » and the visit-closure
+    /// worklist. Unlike those two it does carry a money figure — what is still owed on the note that already
+    /// bills the séance — and that is the same figure « Solde patient » already shows the same people.
+    /// </para>
+    /// <para>
+    /// Ask for page 1 of size 1 and read <c>totalCount</c> to render a chip: the total is exact whatever page
+    /// was requested, so the chip and the list it opens cannot disagree.
+    /// </para>
+    /// </summary>
+    [HttpGet("unfinished-acts")]
+    public async Task<ActionResult<PagedResult<UnfinishedActDto>>> GetUnfinishedActs(
+        [FromQuery] int? page, [FromQuery] int? pageSize)
+    {
+        var result = await _mediator.Send(new GetUnfinishedActsQuery { Page = page, PageSize = pageSize });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
     /// Turn an act already carried out into a multi-séance treatment — « cette séance est la suite de celle du
     /// 12 août ».
     /// <para>

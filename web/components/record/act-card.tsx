@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { formatDT, parseAmountInput } from "@/lib/format"
 import { conditionStyle, isBridgeUnit } from "@/components/odontogram-conditions"
@@ -242,6 +243,28 @@ export function ActCard({
                 <span className="font-normal italic text-muted-foreground">Acte {index} — à compléter</span>
               )}
             </span>
+            {/*
+              ⚠️ **On the card's FACE, because the card is closed most of the time.** « Non terminé » is the
+              one thing about a recorded act that changes what happens next, and a fiche holding three acts
+              shows three collapsed rows — so a state readable only on the armed card is a state nobody reads.
+
+              ⚠️ **It WRAPS rather than truncates.** Every other item on this line is `truncate`, which is right
+              for a name and wrong for a two-word verdict: clipped to « Non ter… » it says something else
+              entirely. `basis-full` on the narrow layout gives it its own row instead of squeezing the name.
+            */}
+            {/*
+              ⚠️ **Withheld on a treatment-carried act, on the SAME condition as the checkbox itself** — see the
+              note on the control in the armed body. Two reasons, and the second is the one that forced it: the
+              chip would sit beside « étape 2 sur 2 », i.e. two rival statements about what remains; and with the
+              control hidden it would be a state the reader can see and cannot change, which is worse than not
+              showing it. A stale tick is harmless — `ContinuationTracking`, not the flag, is what keeps the act
+              off « Suites à planifier ».
+            */}
+            {act.isUnfinished && !act.billedOnPlan && (
+              <span className="inline-flex min-w-0 basis-full items-center rounded border border-warning-ink/45 bg-warning-ink/10 px-1.5 py-px text-2xs font-medium leading-tight text-warning-ink [overflow-wrap:anywhere] sm:basis-auto">
+                Non terminé
+              </span>
+            )}
             {/* ⚠️ The whole sentence, never a bare rank: « étape 1 sur 2 » alone is read as progress — see N31,
                 and the modal's `seanceStepLine`, which is why « Cette séance » is inside the string. */}
             {seanceStepLine && (
@@ -487,6 +510,77 @@ export function ActCard({
               */}
               {bridgeAct && toothCount > 1 && (
                 <BridgeRolesStep act={act} dispatch={dispatch} disabled={disabled} />
+              )}
+
+              {/*
+                ⚠️ **« Acte non terminé » — the one fact nothing in this product can derive, so it has to be
+                asked here or not at all.** A fiche records what was *carried out* and says nothing about what
+                remains, which is why « C'est la suite d'une séance précédente ? » offers four months of history
+                and makes the dentist recognise the right row out of it. One tick at the chair replaces that
+                recognition — and feeds « Suites à planifier », the worklist that chases the séance nobody
+                booked.
+
+                ⚠️ **On the armed body, NOT inside the « Détails » fold**, which is where the spec first put it.
+                That fold is collapsed by default and summarised in one truncated line, and the whole value of
+                this feature is that somebody actually ticks the box: a control the dentist has to go looking
+                for is one the worklist behind it never hears from. It sits after the teeth because that is the
+                end of the act's clinical entry — the moment the question « est-ce fini ? » is answerable.
+
+                ⚠️ **It states nothing about money and moves none.** An act billed 1 000 with 800 collected
+                still owes 200 on its note, where la caisse, « Créances » and « Solde patient » already carry
+                it. Ticking this changes no figure here or anywhere else, and the sub-label says so rather than
+                leaving a dentist to wonder whether it re-opens the séance's billing.
+
+                The `<label>` wraps the control, so the text is part of the target: one ≥ 44 px hit area on a
+                coarse pointer without a `.touch-target` overlay that would reach into the row below.
+              */}
+              {/*
+                ⚠️ **Withheld on an act a TREATMENT already carries, and that is the whole condition.** Such an
+                act has an échéancier of séances behind it — « étape 2 sur 3 » is printed on this very card —
+                so the devis is already the authority on what remains, and a second, free-text « non terminé »
+                beside it is a rival answer to a question that is already answered. The flag exists for the case
+                the devis cannot cover: a one-off act, no treatment, nothing tracking the remainder.
+
+                ⚠️ **Per ACT, never per séance**: a mixed visit — a carried couronne beside an ordinary
+                détartrage — must keep the box on the détartrage, which is exactly the act that might be left
+                unfinished with nothing to chase it.
+
+                ⚠️ **Hiding it cannot strand a tick.** The flag is never cleared automatically (it records what
+                the dentist saw), but « Suites à planifier » excludes an act on a live devis through
+                `ContinuationTracking` and not through the flag — so an act ticked before it joined a treatment
+                leaves the worklist anyway, and there is no nag left behind for a control that is no longer on
+                screen to answer.
+              */}
+              {!act.billedOnPlan && (
+              <label
+                htmlFor={`${act.key}-unfinished`}
+                className={cn(
+                  "flex cursor-pointer items-start gap-2 rounded-md border border-dashed px-2.5 py-2 transition-colors coarse:min-h-11",
+                  act.isUnfinished
+                    ? "border-warning-ink/50 bg-warning-ink/[0.06]"
+                    : "hover-hover:hover:bg-muted/50",
+                  disabled && "cursor-not-allowed opacity-60",
+                )}
+              >
+                <Checkbox
+                  id={`${act.key}-unfinished`}
+                  checked={act.isUnfinished}
+                  onCheckedChange={(checked) =>
+                    dispatch({ type: "patchAct", key: act.key, patch: { isUnfinished: checked === true } })
+                  }
+                  disabled={disabled}
+                  className="mt-0.5 shrink-0"
+                />
+                {/* `min-w-0` because the block below holds wrapping prose: without it the flex item's
+                    min-content is the longest word and the card grows past its own edge at 320 px. */}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-medium leading-tight">Acte non terminé</span>
+                  <span className="mt-0.5 block text-2xs leading-relaxed text-muted-foreground">
+                    Il faudra une autre séance. L&apos;acte passe dans « Suites à planifier » ; aucun montant
+                    n&apos;est modifié.
+                  </span>
+                </span>
+              </label>
               )}
 
               {/* ── the act's detail, folded but summarised ───────────────────────────────────────── */}

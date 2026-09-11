@@ -81,7 +81,8 @@ public static class DentalRecordActParser
                 a.Surfaces,
                 a.Note,
                 a.PonticToothNumbers,
-                a.ImplantPilierToothNumbers));
+                a.ImplantPilierToothNumbers,
+                a.IsUnfinished));
         }
 
         return Result<List<DentalRecordActInput>>.Success(result);

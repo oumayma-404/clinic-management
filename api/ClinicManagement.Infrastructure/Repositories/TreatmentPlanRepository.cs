@@ -48,6 +48,29 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> dentalRecordIds, CancellationToken cancellationToken = default)
+    {
+        // ⚠️ « Rien à demander » is not « demander tout » — without this an empty worklist page would read every
+        // plan the cabinet has ever written.
+        if (dentalRecordIds.Count == 0)
+        {
+            return Array.Empty<TreatmentPlan>();
+        }
+
+        // The singular's predicate, over a set. The steps are matched for its reason too: a stepped act takes
+        // its own LinkedDentalRecordId only once its LAST step lands, so a fiche that carried out step 1 of 3
+        // is recorded on the step alone — and that is exactly the multi-séance case this list is about.
+        var ids = dentalRecordIds.Distinct().ToList();
+        return await _context.TreatmentPlans
+            .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
+            .Where(p => p.ClinicId == clinicId && p.Items.Any(i =>
+                (i.LinkedDentalRecordId != null && ids.Contains(i.LinkedDentalRecordId.Value))
+                || i.Steps.Any(s => s.LinkedDentalRecordId != null && ids.Contains(s.LinkedDentalRecordId.Value))))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<PagedResult<TreatmentInProgressFact>> GetTreatmentsInProgressAsync(
         Guid clinicId, PageRequest? paging, string? searchTerm = null, CancellationToken cancellationToken = default)
     {

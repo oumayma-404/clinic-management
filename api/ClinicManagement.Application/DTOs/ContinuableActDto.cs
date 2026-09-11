@@ -34,6 +34,18 @@ public class ContinuableActDto
     public decimal Cost { get; set; }
 
     /// <summary>
+    /// The dentist ticked « Acte non terminé » on this act when charting the séance — see
+    /// <c>DentalRecordAct.IsUnfinished</c>.
+    /// <para>
+    /// ⚠️ <b>It reorders the list; it never shortens it.</b> The remark at the top of this class still holds —
+    /// nothing here is a diagnosis — and a forgotten tick must not be a dead end, so every recent act is still
+    /// offered and the ticked ones simply come first. Filtering on this would make the one gesture that helps
+    /// into the one gesture you cannot recover from having skipped.
+    /// </para>
+    /// </summary>
+    public bool IsUnfinished { get; set; }
+
+    /// <summary>
     /// The note d'honoraires already billing this fiche, when there is one — <c>null</c> when the séance was
     /// never billed.
     /// <para>

@@ -1,5 +1,10 @@
 import { apiGet, apiGetBlob, apiPost, apiPut, apiDelete } from './client';
-import type { TreatmentPlanDto, TreatmentInProgressDto, ContinuableActDto } from './types';
+import type {
+  TreatmentPlanDto,
+  TreatmentInProgressDto,
+  ContinuableActDto,
+  UnfinishedActDto,
+} from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -256,6 +261,19 @@ export const treatmentPlansApi = {
    */
   continuableActs: async (patientId: string): Promise<ContinuableActDto[]> =>
     apiGet<ContinuableActDto[]>('/treatment-plans/continuable-acts', { patientId }),
+
+  /**
+   * « Suites à planifier » — the clinic-wide list of acts a dentist marked « non terminé » and which no devis
+   * has picked up yet.
+   *
+   * ⚠️ The opposite of `continuableActs` on the same flag: this one FILTERS on it, because every row here is
+   * something a human stated. Acts already carried by a live devis are excluded server-side through
+   * `ContinuationTracking` — never through the tick, which is never cleared.
+   *
+   * Ask for page 1 of size 1 and read `totalCount` to render a chip.
+   */
+  unfinishedActs: async (params?: PageParams): Promise<PagedResponse<UnfinishedActDto>> =>
+    apiGet<PagedResponse<UnfinishedActDto>>('/treatment-plans/unfinished-acts', params),
 
   /**
    * Turn an act already carried out into a multi-séance treatment. AdminOrDoctor — it consumes a devis number
