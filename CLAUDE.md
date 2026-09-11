@@ -158,6 +158,7 @@ how it was built, `notes.md` is what shipped.
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
 - [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu · Deux surfaces annonçaient l'étape SUIVANTE comme si elle avait eu lieu
+- [`booking-treatment-suggestions`](features/booking-treatment-suggestions/notes.md) — Le rappel ne nommait qu'un traitement, et se taisait pour 47 patients sur 318
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
@@ -262,7 +263,20 @@ touching the area.
   `Number is null` for that reason, after the guard was applied to one of four status writers and
   « Arrêter le traitement » → « Reprendre le traitement » turned a followed treatment into an `Accepted` devis
   with a null number and a live créance for a total nobody had quoted.
-- **A multi-séance act is split BY DEFAULT, and the treatment is created when the booking is SAVED.**
+- **A multi-séance act is split BY DEFAULT, and BOTH doors onto a treatment create it when the booking is
+  SAVED.** `materialiseTreatments` is the one place that happens — a split act *and* « c'est la suite d'une
+  séance précédente ». The continuation door used to mint its devis on its own button press, **numbered and
+  `Accepted`**, so the lump-sum échéance `Accept` raises became a live créance the moment the dentist pressed
+  « Annuler » on the booking behind it — for a séance nobody booked, visible in « Solde patient », « Créances »,
+  la caisse and the dashboard. The act it continued also left « Suite d'une séance précédente » for good, since
+  `ContinuationTracking` counts an act on any non-cancelled plan as taken, so the only way back was to cancel
+  the devis with a motif. ⚠️ **One materialiser, not two**, because N26 is derived from the picker being
+  rendered: a second entry point is a second thing the third booking surface can forget. ⚠️ **An appointment
+  carries ONE `TreatmentPlanId`**, so a pending continuation occupies that slot — `resolvePlannedProtocols`
+  follows no split act beside one, the suggestion notice withdraws, and `protocolError` refuses a continuation
+  next to a devis act **before** anything is written; left to `resolveAttachedPlanId` the refusal lands *after*
+  two devis exist. ⚠️ And changing patient mid-dialog drops the pending row, or the save mints the FIRST
+  patient's devis and is then refused.
   `resolvePlannedProtocols` is the only place that default lives, and `SelectedAct.plannedProtocol` is
   tri-state (`undefined` = undecided · `null` = one séance · a list = the confirmed séances). It replaced a
   « Suivre ce traitement » button that created the plan on press, and therefore needed a patient id: the create

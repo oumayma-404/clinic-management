@@ -22,6 +22,7 @@ public class CancelInvoiceCommandHandler : IRequestHandler<CancelInvoiceCommand,
 {
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly ITreatmentPlanRepository _planRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CancelInvoiceCommandHandler> _logger;
@@ -29,12 +30,14 @@ public class CancelInvoiceCommandHandler : IRequestHandler<CancelInvoiceCommand,
     public CancelInvoiceCommandHandler(
         IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
+        ITreatmentPlanRepository planRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CancelInvoiceCommandHandler> logger)
     {
         _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
+        _planRepository = planRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -55,6 +58,15 @@ public class CancelInvoiceCommandHandler : IRequestHandler<CancelInvoiceCommand,
             if (invoice == null || invoice.ClinicId != clinicId)
             {
                 return Result<InvoiceDto>.Failure("Facture introuvable.");
+            }
+
+            // ⚠️ Before Cancel(), never after: a refusal that arrives once the note is void has not refused
+            // anything. See NoteCarriedActGuard for the money this protects.
+            var carried = await NoteCarriedActGuard.EnsureNotCarriedAsync(
+                clinicId, invoice, _planRepository, cancellationToken);
+            if (carried.IsFailure)
+            {
+                return Result<InvoiceDto>.Failure(carried.Error!, carried.Code);
             }
 
             invoice.Cancel(request.Reason);

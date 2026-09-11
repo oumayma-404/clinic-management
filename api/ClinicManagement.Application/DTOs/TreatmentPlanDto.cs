@@ -64,8 +64,73 @@ public class TreatmentPlanDto
     public decimal? LinkedInvoiceTotal { get; set; }
     public decimal? LinkedInvoiceOutstanding { get; set; }
 
+    /// <summary>
+    /// The notes d'honoraires that already collect an act this devis holds at <b>0</b> — empty for every
+    /// ordinary plan.
+    ///
+    /// <para>⚠️ <b>The opposite arrangement from <see cref="LinkedInvoiceId"/> and never to be confused with
+    /// it.</b> A <i>linked</i> note <b>represents</b> the devis: every money read drops the plan and « Encaisser »
+    /// disappears from its échéancier. A <i>carried</i> note collects one act while the devis stays live and
+    /// collectable — the two documents are deliberately disjoint and <b>both</b> are read. Populated on the query
+    /// paths and on <c>ContinueRecordedActCommand</c>'s own response.</para>
+    /// </summary>
+    public List<PlanCarriedInvoiceDto> CarriedInvoices { get; set; } = new();
+
+    /// <summary>
+    /// What the whole treatment is worth across every document it touches — this devis plus each carried note —
+    /// or <b>null</b> when nothing is carried, which is every ordinary plan.
+    ///
+    /// <para>⚠️ <b>Served, never derived in the browser</b>, on <c>displayedOutstanding</c>'s precedent: the
+    /// client cannot apply <c>PlanBillingRules</c>, and the one time it tried, 4 of 4 bridged plans were reported
+    /// as wholly unpaid. Null means « nothing to state » and the money card keeps the shape it has always had,
+    /// so no existing plan renders differently.</para>
+    ///
+    /// <para>⚠️ The three are <b>all</b> taken from the notes' own totals (not from
+    /// <see cref="TreatmentPlanItemDto.BilledOnInvoiceAmount"/>), so <c>total − collected == outstanding</c>
+    /// holds by construction. Where a note bills more than this treatment,
+    /// <see cref="PlanCarriedInvoiceDto.BillsOtherWork"/> says so rather than the figure quietly overstating it.</para>
+    /// </summary>
+    public decimal? TreatmentTotal { get; set; }
+
+    /// <inheritdoc cref="TreatmentTotal"/>
+    public decimal? TreatmentCollected { get; set; }
+
+    /// <inheritdoc cref="TreatmentTotal"/>
+    public decimal? TreatmentOutstanding { get; set; }
+
     public List<TreatmentPlanItemDto> Items { get; set; } = new();
     public List<InstallmentDto> Installments { get; set; } = new();
+}
+
+/// <summary>
+/// A note d'honoraires collecting an act that this — live, un-bridged — devis carries at 0.
+/// </summary>
+public class PlanCarriedInvoiceDto
+{
+    public Guid InvoiceId { get; set; }
+    public string? Number { get; set; }
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>The note's own TTC, collected and outstanding — what the patient settles on that document.</summary>
+    public decimal Total { get; set; }
+
+    /// <inheritdoc cref="Total"/>
+    public decimal Collected { get; set; }
+
+    /// <inheritdoc cref="Total"/>
+    public decimal Outstanding { get; set; }
+
+    /// <summary>
+    /// The share of that note which is this treatment's act(s) — the sum of every carried
+    /// <see cref="TreatmentPlanItemDto.BilledOnInvoiceAmount"/> pointing at it.
+    /// </summary>
+    public decimal BilledActAmount { get; set; }
+
+    /// <summary>
+    /// True when the note bills more than this treatment's acts — a détartrage done in the same séance, say.
+    /// The screens state it rather than letting « le traitement » quietly include somebody else's filling.
+    /// </summary>
+    public bool BillsOtherWork { get; set; }
 }
 
 public class TreatmentPlanItemDto
@@ -82,6 +147,26 @@ public class TreatmentPlanItemDto
     public string DesignationFr { get; set; } = string.Empty;
     public List<int> ToothNumbers { get; set; } = new();
     public decimal PlannedCost { get; set; }
+
+    /// <summary>
+    /// The note d'honoraires that already collects this act's fee, when the devis holds it at <b>0</b> — null on
+    /// every ordinary line. See <c>TreatmentPlanItem.BilledOnInvoiceId</c>.
+    ///
+    /// <para>⚠️ It is what lets the act row <b>withhold the price field</b> and name the note instead. A bare
+    /// « 0,000 DT » on a line whose fee a patient has already part-paid is the exact complaint that produced
+    /// this — and the rule was already written one file over, in <c>act-card.tsx</c>'s « Aucun honoraire sur
+    /// cette séance ».</para>
+    /// </summary>
+    public Guid? BilledOnInvoiceId { get; set; }
+
+    /// <inheritdoc cref="BilledOnInvoiceId"/>
+    public string? BilledOnInvoiceNumber { get; set; }
+
+    /// <summary>What that note bills for this act — the figure the row states in place of the 0.</summary>
+    public decimal BilledOnInvoiceAmount { get; set; }
+
+    /// <summary>What is still owed on that note, so the row can send whoever is reading it to the right door.</summary>
+    public decimal BilledOnInvoiceOutstanding { get; set; }
 
     /// <summary>
     /// The teeth this act has actually been carried out on, unioned over the fiches its séances produced —

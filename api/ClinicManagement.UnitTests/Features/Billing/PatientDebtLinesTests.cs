@@ -243,4 +243,85 @@ public class PatientDebtLinesTests
     {
         Assert.Empty(PatientDebtLines.Project(NoNotes(), NoDevis(), ClinicToday));
     }
+
+    /// <summary>
+    /// A continuation is <b>two documents</b>, and each row now says the other exists.
+    ///
+    /// <para>⚠️ <b>Two rows and not one, deliberately.</b> The report that produced this asked for « une seule
+    /// ligne, reste 50 » — and merging is wrong twice: a note is per-<i>fiche</i>, so one billing a détartrage
+    /// beside the continued act would drag that détartrage into the treatment; and each row is a settlement
+    /// surface with its own « Encaisser », reaching la caisse by a different ledger and producing a different
+    /// receipt. What was actually missing is that nothing said they belonged together.</para>
+    /// </summary>
+    [Fact]
+    public void A_Continuation_Pairs_Its_Note_And_Its_Devis_Without_Merging_Them()
+    {
+        // The reported shape: 90 billed on the note, 50 collected, and 10 of new work on the devis.
+        var note = IssuedNote(90m, "2026-0019", "Soin de carie / obturation");
+        note.RecordPayment(50m, PaymentMethod.Cash, Sept1);
+
+        var devis = ContinuationDevis(note.Id, "2026-0012", remaining: 10m);
+
+        var lines = PatientDebtLines.Project(new[] { note }, new[] { devis }, ClinicToday);
+
+        Assert.Equal(2, lines.Count);
+        // The arithmetic was never wrong: 40 on the note + 10 on the devis is the 50 the header shows.
+        Assert.Equal(50m, lines.Sum(l => l.Outstanding));
+
+        var noteRow = Assert.Single(lines, l => l.Kind == PatientDebtLines.InvoiceKind);
+        var devisRow = Assert.Single(lines, l => l.Kind == PatientDebtLines.TreatmentPlanKind);
+
+        Assert.Equal("suite du devis n° 2026-0012", noteRow.PartOfTreatment);
+        Assert.Equal("suite de la note n° 2026-0019", devisRow.PartOfTreatment);
+
+        // Each row still settles on its own document — the pairing is a sentence, never a merge.
+        Assert.Equal(40m, noteRow.Outstanding);
+        Assert.Equal(10m, devisRow.Outstanding);
+        Assert.NotNull(devisRow.PayableInstallmentId);
+        Assert.Null(noteRow.PayableInstallmentId);
+    }
+
+    /// <summary>Every ordinary row is unchanged — the field is null and the table renders as it always did.</summary>
+    [Fact]
+    public void An_Ordinary_Note_And_Devis_Are_Paired_With_Nothing()
+    {
+        var lines = PatientDebtLines.Project(
+            new[] { IssuedNote(150m) }, new[] { AcceptedDevis(90m) }, ClinicToday);
+
+        Assert.All(lines, l => Assert.Null(l.PartOfTreatment));
+    }
+
+    /// <summary>
+    /// ⚠️ The pairing is read off <c>debtPlans</c>, so a note whose continuation devis is <b>settled or
+    /// cancelled</b> — already filtered out by the caller — announces nothing. Pointing at a devis this very
+    /// table does not list would send somebody hunting for a row that is not there.
+    /// </summary>
+    [Fact]
+    public void A_Note_Whose_Devis_Is_Not_On_The_Table_Announces_Nothing()
+    {
+        var note = IssuedNote(90m, "2026-0019", "Soin de carie / obturation");
+
+        var lines = PatientDebtLines.Project(new[] { note }, NoDevis(), ClinicToday);
+
+        Assert.Null(Assert.Single(lines).PartOfTreatment);
+    }
+
+    /// <summary>
+    /// The devis a continuation mints: the already-billed act at <b>0</b> naming the note that collects it, and
+    /// the new work priced beside it. Built the way <c>ContinueRecordedActCommand</c> builds it — items set on
+    /// the Draft, the marker applied, then accepted — so the fixture cannot describe a shape the product does
+    /// not produce.
+    /// </summary>
+    private static TreatmentPlan ContinuationDevis(Guid noteId, string number, decimal remaining)
+    {
+        var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Soin de carie / obturation");
+        plan.SetItems(new[]
+        {
+            new TreatmentPlanItemInput(null, "Soin de carie / obturation", 0m, null, new List<int> { 37 }),
+            new TreatmentPlanItemInput(null, "Séance suivante", remaining, null, new List<int> { 37 }),
+        });
+        plan.MarkItemBilledOnInvoice(plan.Items.First().Id, noteId, 90m);
+        plan.Accept(number);
+        return plan;
+    }
 }

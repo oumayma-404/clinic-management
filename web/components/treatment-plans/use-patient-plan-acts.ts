@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import type { SelectedAct, PresetPlanAct } from "@/components/appointment-acts-picker"
 import {
-  agreedCostOf, followedProtocolActs, presetToSelectedAct, resolvePlannedProtocols,
+  agreedCostOf, followedProtocolActs, pendingContinuationActs, presetToSelectedAct,
+  resolvePlannedProtocols,
 } from "@/components/appointment-acts-picker"
 import { showErrorToast } from "@/lib/errors"
 import { formatDT } from "@/lib/format"
@@ -206,7 +207,7 @@ export function resolveAttachedPlanId(
 }
 
 /**
- * What {@link materialisePlannedProtocols} produced: the acts to send, and the plans they were just given.
+ * What {@link materialiseTreatments} produced: the acts to send, and the plans they were just given.
  */
 export interface MaterialisedProtocols {
   /** The act rows, with every followed act rewritten as a devis act — exactly the shape « Actes du devis » makes. */
@@ -218,7 +219,8 @@ export interface MaterialisedProtocols {
 }
 
 /**
- * Turn every act the dentist left split into a real treatment, **at save time**.
+ * Turn everything this booking PROMISED into a real treatment, **at save time** — an act the dentist left
+ * split, and a séance they chose to continue.
  *
  * <p>This is the half that makes « split by default » safe. The button it replaces created the plan the moment
  * it was pressed, which had three consequences and only the first was visible: it needed a patient id, so it
@@ -227,17 +229,27 @@ export interface MaterialisedProtocols {
  * taken back without deleting a server aggregate. Deferring it to the save costs one round trip and removes
  * all three.</p>
  *
+ * <p>⚠️ <b>The continuation door joined it, and there the third consequence had teeth.</b>
+ * `ContinueSessionDialog` minted its devis on the press too — <i>numbered and accepted</i>, so with a lump-sum
+ * échéance behind it — and « Annuler » on the booking left a live créance for a séance nobody booked, in
+ * « Solde patient », « Créances », la caisse and the dashboard. The act it continued also left the picker for
+ * good: `ContinuationTracking` counts an act on any non-cancelled plan as taken, so the only way back was to
+ * cancel the devis with a motif. Reported from use. <b>One function rather than two</b> because N26 is derived
+ * from the picker being rendered, and a second entry point is a second thing a third booking surface can
+ * forget.</p>
+ *
  * <p>⚠️ <b>`created` is the caller's, and it MUST outlive one attempt.</b> Both dialogs re-run their save from
  * the top on every confirmation the server asks for — slot taken, out of hours, past time — so a plan created
  * on the first attempt must be reused on the second. This is `createdPatientIdRef`'s reason, one object over:
  * without it, one « créer quand même » leaves two identical treatments on the patient. Keyed on the catalogue
- * act, which the picker already refuses to list twice.</p>
+ * act for a protocol and on `continuation:<actId>` for a continuation — a bare GUID is never prefixed, so the
+ * two cannot collide in one map.</p>
  *
  * <p>⚠️ The rewritten row goes through `planItemToPreset` + `presetToSelectedAct`, never a hand-built object:
  * a row attached here and a row attached from « Actes du devis » must be the same thing, down to the
  * `billedOnPlan` block that locks the price and the preselected first step.</p>
  */
-export async function materialisePlannedProtocols(
+export async function materialiseTreatments(
   acts: readonly SelectedAct[],
   procedureTypes: ProcedureTypeDto[],
   patientId: string,
@@ -245,11 +257,58 @@ export async function materialisePlannedProtocols(
 ): Promise<MaterialisedProtocols> {
   const resolved = resolvePlannedProtocols(acts, procedureTypes)
   const followed = followedProtocolActs(resolved)
-  if (followed.length === 0) return { acts: resolved, planIdByItem: {}, plans: [] }
+  const continuations = pendingContinuationActs(resolved)
+  if (followed.length === 0 && continuations.length === 0) {
+    return { acts: resolved, planIdByItem: {}, plans: [] }
+  }
 
   const next = [...resolved]
   const planIdByItem: Record<string, string> = {}
   const plans: TreatmentPlanDto[] = []
+
+  /**
+   * Put a freshly-minted plan's bookable act back onto the row that asked for it.
+   *
+   * ⚠️ `schedulablePlanItems`, never `plan.items[0]` — it is the same gate `planIdByItem` is built from, so
+   * whatever it returns here is registrable. « Suivre ce traitement » does create a one-act plan, so the two
+   * agree there today; a priced « travail restant » does not. It makes a continuation's FIRST act `Done` on
+   * creation, and taking it booked an act with no step left, dropped the plan from the map, and had the save
+   * refused outright with « Le plan de traitement est requis pour lier l'acte. »
+   */
+  const attach = (plan: TreatmentPlanDto, index: number) => {
+    const item = schedulablePlanItems(plan)[0]
+    // ⚠️ Refuses the booking rather than skipping. Skipping leaves the row carrying no plan link at all, so
+    // the séance books the act at its catalogue tarif while the treatment on the server holds the same act —
+    // the patient billed twice, with nothing on screen saying so. Unreachable in practice (both commands
+    // leave a séance open by construction), which is exactly why it must not fail quietly.
+    if (!item) {
+      throw new Error(
+        `Le devis ${plan.number ?? ""} a été créé mais ne propose aucune séance à planifier. Ouvrez-le pour la planifier.`.trim(),
+      )
+    }
+    plans.push(plan)
+    planIdByItem[item.id] = plan.id
+    next[index] = {
+      ...presetToSelectedAct(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined), procedureTypes),
+      // Decided and done — the act carries a `treatmentPlanItemId` now, and the card stops offering the split.
+      plannedProtocol: null,
+    }
+  }
+
+  for (const { index, continuation } of continuations) {
+    const key = `continuation:${continuation.actId}`
+    let plan = created.get(key)
+    if (!plan) {
+      plan = await treatmentPlansApi.continueRecordedAct({
+        dentalRecordId: continuation.dentalRecordId,
+        actId: continuation.actId,
+        nextStepLabel: continuation.nextStepLabel.trim() || undefined,
+        remainingWorkCost: continuation.remainingWorkCost ?? undefined,
+      })
+      created.set(key, plan)
+    }
+    attach(plan, index)
+  }
 
   for (const { act, index, steps } of followed) {
     if (!act.procedureTypeId) continue
@@ -274,20 +333,7 @@ export async function materialisePlannedProtocols(
       })
       created.set(act.procedureTypeId, plan)
     }
-    // ⚠️ The same reader `planIdByItem` is built from, and never `plan.items[0]`. « Suivre ce traitement »
-    // does create a one-act plan, so the two agree here today — but only one of them is the gate that decides
-    // whether the act is registrable, and the moment they disagree the booking is refused with « Le plan de
-    // traitement est requis pour lier l'acte. » That is not hypothetical: it is precisely what `items[0]` did
-    // to the continuation door, where a priced « travail restant » makes the first act Done on creation.
-    const item = schedulablePlanItems(plan)[0]
-    if (!item) continue
-    plans.push(plan)
-    planIdByItem[item.id] = plan.id
-    next[index] = {
-      ...presetToSelectedAct(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined), procedureTypes),
-      // Decided and done — the act carries a `treatmentPlanItemId` now, and the card stops offering the split.
-      plannedProtocol: null,
-    }
+    attach(plan, index)
   }
 
   return { acts: next, planIdByItem, plans }

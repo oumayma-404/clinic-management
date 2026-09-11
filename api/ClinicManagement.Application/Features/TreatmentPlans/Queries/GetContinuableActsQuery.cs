@@ -114,13 +114,15 @@ public class GetContinuableActsQueryHandler
                 (await _invoiceRepository.GetDentalRecordLinksAsync(clinicId, cancellationToken))
                     .Select(l => (l.DentalRecordId, l.InvoiceId, l.Number, l.Status)));
 
-            var outstandingByInvoice = new Dictionary<Guid, decimal>();
+            // Both figures, because the dialog states both: what is still owed on the note, and the note's whole
+            // total — see `ContinuableActDto.InvoiceTotal` on why the act's own cost is not a substitute.
+            var moneyByInvoice = new Dictionary<Guid, (decimal Total, decimal Outstanding)>();
             foreach (var invoiceId in invoiceLinks.Values.Select(v => v.InvoiceId).Distinct())
             {
                 var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
                 if (invoice != null && invoice.ClinicId == clinicId)
                 {
-                    outstandingByInvoice[invoiceId] = invoice.Outstanding;
+                    moneyByInvoice[invoiceId] = (invoice.TotalTtc, invoice.Outstanding);
                 }
             }
 
@@ -142,7 +144,10 @@ public class GetContinuableActsQueryHandler
                         InvoiceId = billed ? link.InvoiceId : null,
                         InvoiceNumber = billed ? link.Number : null,
                         InvoiceOutstanding = billed
-                            ? outstandingByInvoice.GetValueOrDefault(link.InvoiceId)
+                            ? moneyByInvoice.GetValueOrDefault(link.InvoiceId).Outstanding
+                            : 0m,
+                        InvoiceTotal = billed
+                            ? moneyByInvoice.GetValueOrDefault(link.InvoiceId).Total
                             : 0m,
                     });
                 }

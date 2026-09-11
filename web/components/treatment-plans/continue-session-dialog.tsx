@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { History, Loader2 } from "lucide-react"
+import { History } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -17,8 +17,7 @@ import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { EmptyState } from "@/components/ui/empty-state"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
-import type { ContinuableActDto, TreatmentPlanDto } from "@/lib/api/types"
-import { getErrorMessage } from "@/lib/errors"
+import type { ContinuableActDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, parseAmountInput } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -26,8 +25,22 @@ interface ContinueSessionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   patientId: string
-  /** The devis that was created, so the caller can put its next step on the séance being booked. */
-  onCreated: (plan: TreatmentPlanDto) => void
+  /**
+   * What the dentist chose, so the caller can put it on the séance being booked — **not** a devis.
+   *
+   * <p>⚠️ Nothing has been written when this fires. See {@link SelectedAct.pendingContinuation}.</p>
+   */
+  onChosen: (choice: ContinuationChoice) => void
+}
+
+/** The continuation as chosen, before anything exists on the server. */
+export interface ContinuationChoice {
+  /** The séance being continued, as the list offered it — the card reads its money straight from this. */
+  previous: ContinuableActDto
+  /** What this séance is called. */
+  nextStepLabel: string
+  /** What the remaining work is worth, or null for « rien de plus ». */
+  remainingWorkCost: number | null
 }
 
 /** What the next séance is called when the dentist does not say. Matches the server's own default. */
@@ -44,6 +57,12 @@ const DEFAULT_NEXT_LABEL = "Séance suivante"
  * <i>done</i> and never what remains, so no read can tell an unfinished bridge from a finished obturation.
  * Guessing would be wrong on ordinary completed work, which is most of it.</p>
  *
+ * <p>⚠️ <b>It writes NOTHING.</b> The choice is handed back through {@link ContinuationChoice} and the devis is
+ * minted by `materialiseTreatments` when the booking is saved — `SelectedAct.pendingContinuation` carries it in
+ * between. Creating it on the press was the first shape, and abandoning the booking afterwards left a numbered,
+ * accepted devis with a lump-sum échéance against a séance that was never booked; the act it continued also
+ * vanished from this list, since `ContinuationTracking` counts an act on any non-cancelled plan as taken.</p>
+ *
  * <p>⚠️ <b>Each row states what happens to the money, because the two cases are opposite.</b> With the séance
  * already on a note d'honoraires, that note keeps the money and the devis — though it carries the act's fee like
  * any other — never asks for it again, so the 200 DT still owed is collected on the note. With no note, the devis
@@ -58,7 +77,7 @@ export function ContinueSessionDialog({
   open,
   onOpenChange,
   patientId,
-  onCreated,
+  onChosen,
 }: ContinueSessionDialogProps) {
   const [acts, setActs] = useState<ContinuableActDto[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -66,7 +85,6 @@ export function ContinueSessionDialog({
   const [nextLabel, setNextLabel] = useState(DEFAULT_NEXT_LABEL)
   /** What the remaining work is worth, as typed. Empty means « rien de plus » — see the field. */
   const [remainingCost, setRemainingCost] = useState("")
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = async () => {
@@ -91,37 +109,38 @@ export function ContinueSessionDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, patientId])
 
+  /** « la note 2026-0206 » or « le brouillon de note d'honoraires » — a Draft note has no number to print. */
+  const noteLabel = selected?.invoiceNumber
+    ? `la note ${selected.invoiceNumber}`
+    : "le brouillon de note d'honoraires"
+
   const parsedRemaining = parseAmountInput(remainingCost)
   const remainingWork =
     remainingCost.trim() === "" || !Number.isFinite(parsedRemaining) ? 0 : parsedRemaining
   const remainingInvalid = remainingCost.trim() !== "" && (!Number.isFinite(parsedRemaining) || parsedRemaining < 0)
 
-  const submit = async () => {
+  /**
+   * Hand the choice back. **Nothing is written here**, and that is the whole of the fix this dialog carries:
+   * it used to create a numbered, accepted devis on this press, so « Annuler » on the booking behind it left a
+   * live créance for a séance nobody booked — and the act it continued disappeared from this very list, which
+   * counts an act on any non-cancelled plan as already continued. `materialiseTreatments` mints it on save,
+   * exactly as a split protocol is minted.
+   */
+  const submit = () => {
     if (!selected) return
     if (remainingInvalid) {
       setError("Le montant du travail restant est invalide.")
       return
     }
-    setSaving(true)
     setError(null)
-    try {
-      const plan = await treatmentPlansApi.continueRecordedAct({
-        dentalRecordId: selected.dentalRecordId,
-        actId: selected.actId,
-        nextStepLabel: nextLabel.trim() || undefined,
-        // Parsed, never `Number(...)`: the field prints and accepts the comma form the rest of the product
-        // uses, and `parseFloat` stops at it — « 250,000 » would be sent as 250.
-        remainingWorkCost: remainingWork > 0 ? remainingWork : undefined,
-      })
-      onCreated(plan)
-      onOpenChange(false)
-    } catch (err) {
-      // Left open with the selection intact — the refusal is usually « already part of a treatment », and the
-      // dentist's next move is to pick a different séance, not to start over.
-      setError(getErrorMessage(err))
-    } finally {
-      setSaving(false)
-    }
+    onChosen({
+      previous: selected,
+      nextStepLabel: nextLabel.trim() || DEFAULT_NEXT_LABEL,
+      // Parsed, never `Number(...)`: the field prints and accepts the comma form the rest of the product uses,
+      // and `parseFloat` stops at it — « 250,000 » would be read as 250.
+      remainingWorkCost: remainingWork > 0 ? remainingWork : null,
+    })
+    onOpenChange(false)
   }
 
   return (
@@ -198,13 +217,21 @@ export function ContinueSessionDialog({
                         cases lead to opposite actions at the next séance, and neither is guessable from the act's
                         name.
                       */}
+                      {/*
+                        ⚠️ **`invoiceId`, never `invoiceNumber`** — `InvoiceLinkChoice.ByKey` keeps a DRAFT note,
+                        which has no number yet, and the server's own fork is `billingInvoice != null`. Reading
+                        the number put a billed séance on the « Non facturée — le devis portera … » branch, so
+                        the one sentence that tells a dentist which document collects said the opposite of what
+                        the save was about to do.
+                      */}
                       <p className="mt-1.5 text-2xs leading-relaxed">
-                        {act.invoiceNumber ? (
+                        {act.invoiceId ? (
                           <>
                             <span className="text-muted-foreground">
-                              Facturé {formatDT(act.cost)} sur la note{" "}
+                              Facturé {formatDT(act.cost)} sur{" "}
+                              {act.invoiceNumber ? "la note " : "un brouillon de note d'honoraires"}
                             </span>
-                            <span className="font-mono">{act.invoiceNumber}</span>
+                            {act.invoiceNumber && <span className="font-mono">{act.invoiceNumber}</span>}
                             {act.invoiceOutstanding > 0 ? (
                               <span className="font-medium text-warning-ink">
                                 {" "}
@@ -300,10 +327,12 @@ export function ContinueSessionDialog({
                   documents are disjoint and each is collected on its own. Before that pair of changes the
                   sentence was true of the devis and the money was owed by nobody a screen could see.
                 */}
-                {selected.invoiceNumber
+                {/* ⚠️ `invoiceId`, never the number — a Draft note has none, and it is still the note that
+                    collects. `noteLabel` is what keeps the sentence whole in that case. */}
+                {selected.invoiceId
                   ? remainingWork > 0
-                    ? `La note ${selected.invoiceNumber} garde l'argent de cet acte ; le devis ne portera que le travail restant, ${formatDT(remainingWork)}, à encaisser sur le devis.`
-                    : `Le devis ne réclamera rien de plus : la note ${selected.invoiceNumber} garde l'argent de cet acte.`
+                    ? `${noteLabel} garde l'argent de cet acte ; le devis ne portera que le travail restant, ${formatDT(remainingWork)}, à encaisser sur le devis.`
+                    : `Le devis ne réclamera rien de plus : ${noteLabel} garde l'argent de cet acte.`
                   : "Le devis portera le montant de l'acte et sera facturé une fois le traitement terminé."}{" "}
                 Vous pourrez renommer et découper les étapes ensuite.
               </p>
@@ -326,25 +355,26 @@ export function ContinueSessionDialog({
             className="shrink-0 border-t pt-3 text-2xs leading-relaxed text-warning-ink"
             role="status"
           >
-            Le devis est créé numéroté et accepté : il ne se supprime pas, il s&apos;annule avec un motif.
+            Le devis sera créé à l&apos;enregistrement du rendez-vous, numéroté et accepté : il ne se
+            supprimera plus, il s&apos;annulera avec un motif. Tant que le rendez-vous n&apos;est pas
+            enregistré, cette séance se retire du rendez-vous et rien n&apos;est écrit.
           </p>
         )}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Annuler
           </Button>
           {/*
-            ⚠️ **One press, and it is irreversible** — the devis is numbered AND accepted in the same save, so it
-            can never be deleted, only cancelled with a motif. It carried a confirmation step for exactly that
-            reason and no longer does: the owner asked for it removed, on the ground that it asked nothing —
-            every word of it was a consequence the dentist had just typed the inputs for, and it charged a click
-            for reading them back. The consequences moved into the panel above, where they sit beside the fields
-            that determine them and are read *before* the decision rather than after it.
+            ⚠️ **The press writes nothing**, which is why it no longer says « Créer le traitement ». It used to
+            mint the devis here — numbered and accepted in the same save, so never deletable — and a dentist who
+            then pressed « Annuler » on the booking behind it was left with a live créance for a séance nobody
+            booked. The consequences still sit in the panel above, where they are read *before* the decision;
+            what changed is that they now describe the SAVE. A confirmation step was removed from here at the
+            owner's request and is not coming back: it asked nothing, and there is far less to confirm now.
           */}
-          <Button type="button" onClick={() => void submit()} disabled={!selected || saving}>
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Créer le traitement
+          <Button type="button" onClick={submit} disabled={!selected}>
+            Ajouter au rendez-vous
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -38,6 +38,51 @@ public class TreatmentPlanItem : Entity<Guid>
     public IReadOnlyList<int> ToothNumbers => _toothNumbers.AsReadOnly();
 
     public decimal PlannedCost { get; private set; }
+
+    /// <summary>
+    /// The note d'honoraires that already bills this act, when the devis deliberately holds it at <b>0</b>
+    /// because another document collects it. Null for every ordinary line — the devis owns its own fee.
+    ///
+    /// <para>
+    /// ⚠️ <b>This exists because a 0 with no owner is indistinguishable from a free act, and the difference is
+    /// money.</b> <c>ContinueRecordedActCommand</c>'s billed path prices the already-invoiced act 0 and leaves
+    /// the note <b>unattached</b> (see that class on why attaching would hide the new work), so the plan ends up
+    /// carrying a line whose fee lives on a document nothing links it to. Every surface then reported the
+    /// devis' money as the treatment's money — « Total convenu 10,000 · Encaissé 0,000 » on a treatment the
+    /// patient had already paid 50 towards — and cancelling or deleting that note dropped the fee out of every
+    /// balance with no error anywhere.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>Stated, never inferred.</b> The tempting derivation — « a 0-cost line whose fiche a note bills » —
+    /// is wrong for a genuinely free act recorded on a séance that also billed something, and this repo has
+    /// paid for that shape twice already (a bridge's extent read off arch adjacency, a bridge's roles read off
+    /// position). The one command that <i>knows</i> writes it down.
+    /// </para>
+    /// <para>
+    /// ⚠️ A <b>soft reference, no FK</b> — like <see cref="LinkedDentalRecordId"/> and
+    /// <see cref="ProcedureTypeId"/>. An FK with <c>SET NULL</c> would erase this marker exactly when the note
+    /// is deleted, which is the failure it exists to prevent; the deletion is refused a level up instead
+    /// (<c>DeleteInvoiceCommand</c> / <c>CancelInvoiceCommand</c>).
+    /// </para>
+    /// </summary>
+    public Guid? BilledOnInvoiceId { get; private set; }
+
+    /// <summary>
+    /// What this act was worth on the fiche the note bills — frozen at the moment the continuation was made,
+    /// exactly as the devis' own notes paragraph freezes it in prose. 0 for every ordinary line.
+    ///
+    /// <para>⚠️ <b>Stored rather than read off the note, because a note is per-FICHE and this is per-ACT.</b> A
+    /// séance billing a détartrage beside the act being continued raises ONE note for both, so the note's TTC
+    /// is not this act's fee — and the act row saying « facturé 120,000 DT » about a 90 DT soin would be a
+    /// wrong figure on the screen that exists to explain the 0. It also lets the read decide honestly whether
+    /// the note covers anything beyond this treatment, which is the difference between stating the whole and
+    /// overstating it.</para>
+    /// </summary>
+    public decimal BilledOnInvoiceAmount { get; private set; }
+
+    /// <summary>True when another document collects this act's fee, so the devis holds it at 0 by rule.</summary>
+    public bool IsBilledElsewhere => BilledOnInvoiceId.HasValue;
+
     public TreatmentPlanItemStatus Status { get; private set; }
     public DateTime? DoneDate { get; private set; }
     public Guid? LinkedDentalRecordId { get; private set; }
@@ -184,6 +229,21 @@ public class TreatmentPlanItem : Entity<Guid>
         if (plannedCost < 0)
             throw new ArgumentException("Le coût prévu ne peut pas être négatif.", nameof(plannedCost));
 
+        /*
+         * ⚠️ An act another document bills stays at 0, and the refusal is what keeps the two documents
+         * disjoint. Amending a continuation devis is otherwise perfectly legal — the plan is deliberately NOT
+         * bridged, so `AmendTreatmentPlanCommand.EnsureNotBilledAsync` lets it through — and typing the note's
+         * own 90 back onto the devis line would bill the patient twice for one act, on two live documents, with
+         * every balance read agreeing that they owe it. Imposed here rather than offered in the browser, for
+         * the same reason `PlanCarriedActPricing` is imposed server-side.
+         */
+        if (IsBilledElsewhere && InvoiceCalculator.RoundMoney(plannedCost) != 0m)
+        {
+            throw new InvalidOperationException(
+                $"L'acte « {DesignationFr} » est facturé sur une note d'honoraires : il reste à 0 sur le devis. "
+                + "Corrigez le montant sur la note, ou détachez-la de ce traitement.");
+        }
+
         // Validate the whole tooth list before mutating anything — a half-applied revision would leave the act
         // with the new teeth and the old designation.
         var teeth = new List<int>();
@@ -289,6 +349,31 @@ public class TreatmentPlanItem : Entity<Guid>
         DoneDate = null;
         LinkedDentalRecordId = null;
         return true;
+    }
+
+    /// <summary>
+    /// Record that <paramref name="invoiceId"/> already bills this act for <paramref name="billedAmount"/>,
+    /// and hold the devis line at 0. <see cref="BilledOnInvoiceId"/> says why.
+    /// <para>
+    /// The 0 is set here rather than trusted from the caller so the marker and the price can never disagree —
+    /// « this act is billed elsewhere » and « this line costs something » are contradictory states, and the one
+    /// that reaches a balance read is the price.
+    /// </para>
+    /// </summary>
+    internal void MarkBilledOnInvoice(Guid invoiceId, decimal billedAmount)
+    {
+        if (invoiceId == Guid.Empty)
+        {
+            throw new ArgumentException("La note d'honoraires est requise.", nameof(invoiceId));
+        }
+        if (billedAmount < 0m)
+        {
+            throw new ArgumentException("Le montant facturé ne peut pas être négatif.", nameof(billedAmount));
+        }
+
+        BilledOnInvoiceId = invoiceId;
+        BilledOnInvoiceAmount = InvoiceCalculator.RoundMoney(billedAmount);
+        PlannedCost = 0m;
     }
 
     /// <summary>

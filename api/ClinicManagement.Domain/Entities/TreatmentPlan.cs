@@ -239,6 +239,30 @@ public class TreatmentPlan : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Record that a note d'honoraires already bills one of this plan's acts, holding that line at <b>0</b> —
+    /// see <see cref="TreatmentPlanItem.BilledOnInvoiceId"/> for why the marker is stated rather than derived.
+    /// <para>
+    /// Called by <c>ContinueRecordedActCommand</c>'s billed path, <b>after</b> <see cref="SetItems(IEnumerable{TreatmentPlanItemInput}, bool)"/>
+    /// and before the plan is accepted. Deliberately not a field on <see cref="TreatmentPlanItemInput"/>:
+    /// <c>SetItems</c> rebuilds every act from its input, so a copy site that omitted the field would erase the
+    /// marker and silently restore the double count — the shape that already cost this codebase an implant's
+    /// osseointegration interval through <c>TreatmentPlanItemStepInput</c>'s fourth argument.
+    /// </para>
+    /// <para>
+    /// Recomputes <see cref="TotalPlanned"/>, since holding a line at 0 changes it.
+    /// </para>
+    /// </summary>
+    public void MarkItemBilledOnInvoice(Guid itemId, Guid invoiceId, decimal billedAmount)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        item.MarkBilledOnInvoice(invoiceId, billedAmount);
+        RecomputeTotal();
+        Touch();
+    }
+
+    /// <summary>
     /// Replace the installment schedule (échéancier). Draft only. If any installments are given, their
     /// amounts must sum exactly to the total planned cost (the caller lands the millime remainder on the
     /// last installment). An empty schedule is allowed (no formal plan; then no installment payments).

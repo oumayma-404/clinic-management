@@ -384,12 +384,35 @@ public class SchemaVerificationService
                 : $"{n} appointment note(s) still carry a 'Type: ' prefix",
             n => n == 0);
 
-        // Reported as a fact, not repaired: pre-existing overlaps are exactly what the constraint's pre-flight
-        // refuses to destroy, and resolving them belongs to a human with the clinic's context.
+        /*
+         * A pre-flight, and it only means anything while the constraint is ABSENT — which is what this check
+         * previously failed to say, and why it went red on every deploy of a database that was perfectly sound.
+         *
+         * With `EX_Appointments_NoDoubleBooking` installed, PostgreSQL is already enforcing the rule: a pair
+         * under its predicate **cannot exist**. So a non-zero count there is not clinic data to resolve, it is
+         * evidence that our copy of the predicate has drifted from the constraint's — the defect that shipped
+         * twice (see the reader's ⚠️). Grading that as its own finding makes this check self-verifying: the next
+         * term added to the constraint and forgotten here is caught on the next run instead of arriving as a
+         * pile of phantom overlaps.
+         *
+         * Absent, the count is the real thing an operator must clear before the migration can apply, and it is
+         * still reported rather than repaired — resolving a double-booking belongs to a human with the clinic's
+         * context.
+         */
+        var bookingConstraintInstalled = facts.Constraints.Any(c =>
+            string.Equals(c.Table, "Appointments", StringComparison.OrdinalIgnoreCase) && c.Kind == 'x');
+
         Add("overlapping-appointment-pairs", counts.OverlappingAppointmentPairs,
-            n => n == 0
-                ? "0 overlapping pair(s) under the constraint's own predicate"
-                : $"{n} overlapping pair(s) — the constraint cannot be installed until these are resolved",
+            n => (bookingConstraintInstalled, n) switch
+            {
+                (true, 0) => "0 overlapping pair(s) — EX_Appointments_NoDoubleBooking is enforcing this, so "
+                             + "zero is guaranteed rather than merely observed",
+                (true, _) => $"{n} pair(s) match this check's predicate while the constraint that forbids them "
+                             + "is installed — impossible unless this pre-flight's copy of the predicate has "
+                             + "drifted from the constraint's. Compare it against pg_get_constraintdef",
+                (false, 0) => "0 overlapping pair(s) — the constraint can be installed",
+                (false, _) => $"{n} overlapping pair(s) block installing the constraint; resolve them first",
+            },
             n => n == 0);
 
         // Multi-act séances. Not "did the backfill insert N rows" but the invariant it establishes: the parent's
@@ -471,6 +494,20 @@ public class SchemaVerificationService
         // whose failure would be a 500 instead of a French refusal). A non-zero count therefore means a write path
         // reached the columns without passing the guard — a cheque number sitting on a cash payment, which would
         // make « chèques à encaisser » list a row that is not a cheque.
+        // `AddTreatmentPlanItemBilledOnInvoice`'s one hand-written line. Two columns and an index are diffed
+        // against the catalog for free; what the model cannot express is the invariant — a note collects this
+        // act, so the devis holds it at 0, and that note is not the devis' own bridge. Either violation is
+        // SILENT money: a fee left on the line is billed twice on two live documents with every balance read
+        // agreeing the patient owes it, and a marker on a bridged note drops the plan whole from every money
+        // read while it still holds real work. Neither shows an error on any screen.
+        Add("carried-act-is-zero-and-unbridged", counts.CarriedActsContradictingTheirNote,
+            n => n == 0
+                ? "0 devis act contradicts the note that collects it"
+                : $"{n} devis act(s) billed on a note either still carry a fee (billed twice) or name a note "
+                  + "bridged to a devis (the plan drops out of every balance) — some write path bypassed "
+                  + "TreatmentPlan.MarkItemBilledOnInvoice",
+            n => n == 0);
+
         Add("cheque-details-only-on-cheques", counts.PaymentsWithChequeDetailsOnNonCheque,
             n => n == 0
                 ? "0 payment(s) carry cheque details on a non-cheque method, across both ledgers"
@@ -524,19 +561,30 @@ public class SchemaVerificationService
                   + "the AddSuppliers backfill did not reach them",
             n => n == 0);
 
-        // calendar-import-revert AC-19 — the same illustration one feature over, and the stakes are higher: an
-        // unattributed row means « Annuler cet import » is never offered for it, which on screen looks exactly
-        // like a cabinet that never imported anything. The practice is then left with a worklist full of phantom
-        // séances and no way back, which is the failure this whole feature exists to end. The run total rides
-        // along so a clean run states what the backfill produced rather than only that nothing is wrong.
+        /*
+         * calendar-import-revert AC-19, and it is now a HISTORICAL FACT rather than a gate — the one change in
+         * this pass that is a judgement rather than a bug fix.
+         *
+         * ⚠️ **The Google→App import is retired.** There is no `sync-from-google`, and nothing in the product
+         * calls `Patient.MarkImportedPendingReview`, `StampImportRun` or `MarkImportReviewed` any more (verified
+         * by source scan — zero live callers of all three). So: no write path can create another unattributed
+         * row, the backfill has already run and will not run again, and no product action can clear the stamp on
+         * the rows it missed. A non-zero count is therefore permanent and unrepairable, and grading it `Drift`
+         * failed every hosted deploy on residue nobody can act on — which is precisely how a gate teaches an
+         * operator to ignore its exit code, the failure the sibling check above warns about in its own comment.
+         *
+         * It stays reported, because the count is a true fact about the deployment and belongs in the
+         * before/after diff. What it no longer does is stop a deploy. If the import is ever revived, this is the
+         * check to put back on `Drift` in the same change.
+         */
         Add("calendar-import-run-backfill", counts.CalendarImportRowsWithoutARun,
             n => n == 0
                 ? $"0 imported row is missing its import run "
                   + $"({counts.CalendarImportRunsTotal?.ToString() ?? "?"} run(s) on record)"
-                : $"{n} row(s) created by the Google Calendar import carry no run — the "
-                  + "AddCalendarImportRunsAndWorklistDismissal backfill did not reach them, so the cabinet "
-                  + "cannot undo the import that created them",
-            n => n == 0);
+                : $"{n} row(s) created by the retired Google Calendar import carry no run — residue the "
+                  + "AddCalendarImportRunsAndWorklistDismissal backfill did not reach. Not a deploy blocker: the "
+                  + "import is gone, so nothing can create more and no action can clear these",
+            _ => true);
 
         // Part 6's push tables. Their shape is diffed against the catalog for free, so the only line here is the
         // one relationship no constraint can state: a queued push and the device it is addressed to must belong to

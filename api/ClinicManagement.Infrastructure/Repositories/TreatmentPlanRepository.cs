@@ -751,6 +751,23 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<(Guid PlanId, string? Number, TreatmentPlanStatus Status)>>
+        GetPlansBilledOnInvoiceAsync(
+            Guid clinicId,
+            Guid invoiceId,
+            CancellationToken cancellationToken = default)
+    {
+        // Every status is returned, cancelled devis included: the guard decides what a voided devis still
+        // claims, exactly as the invoice link projections leave that call to their callers.
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && p.Items.Any(i => i.BilledOnInvoiceId == invoiceId))
+            .Select(p => new { p.Id, p.Number, p.Status })
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => (r.Id, r.Number, r.Status)).ToList();
+    }
+
     public async Task<TreatmentPlan> AddAsync(TreatmentPlan plan, CancellationToken cancellationToken = default)
     {
         await _context.TreatmentPlans.AddAsync(plan, cancellationToken);

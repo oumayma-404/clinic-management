@@ -107,4 +107,18 @@ public sealed record PatientDebtLineDto(
     DateTime? Since,
     bool IsOverdue,
     Guid? PayableInstallmentId,
-    decimal PayableRoom);
+    decimal PayableRoom,
+    /// <summary>
+    /// The other document of the same treatment, when this row is one half of a continuation — « suite de la
+    /// note n° 2026-0019 » on the devis, « suite sur le devis n° 2026-0012 » on the note.
+    ///
+    /// <para>⚠️ <b>Two rows, not one, and the pairing is stated rather than merged.</b> The obvious reading of
+    /// « je devrais voir une seule ligne » is to collapse them, and it is wrong twice: a note is per-<b>fiche</b>,
+    /// so one billing a détartrage beside the continued act would drag that détartrage into the treatment's total;
+    /// and each row is a <i>settlement</i> surface with its own « Encaisser » — the note is paid on the note and
+    /// the devis on the devis, because the two produce different receipts and reach la caisse by different
+    /// ledgers. What was actually missing is that nothing said they belonged together.</para>
+    ///
+    /// <para>Null on every ordinary row, so the table is unchanged for every patient who has no continuation.</para>
+    /// </summary>
+    string? PartOfTreatment = null);

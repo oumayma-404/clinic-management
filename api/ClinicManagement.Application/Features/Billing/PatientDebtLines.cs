@@ -51,6 +51,35 @@ public static class PatientDebtLines
     {
         var lines = new List<PatientDebtLineDto>();
 
+        /*
+         * Which note collects an act of which devis — the continuation pairing, read straight off the marker the
+         * plans already carry (`TreatmentPlanItem.BilledOnInvoiceId`). No query and no second rule: both
+         * collections are already in the caller's hand, which is this projector's whole premise.
+         *
+         * ⚠️ **`debtPlans` only, so a cancelled or fully-settled devis pairs with nothing** — the caller has
+         * already applied `CarriesDebt` and `BilledPlanIds`, and a note announcing « suite sur le devis n° X »
+         * about a devis this very table does not list would send somebody looking for a row that is not there.
+         */
+        var planNumbersByInvoiceId = debtPlans
+            .SelectMany(p => p.ActiveItems
+                .Where(i => i.BilledOnInvoiceId.HasValue)
+                .Select(i => (InvoiceId: i.BilledOnInvoiceId!.Value, Plan: p)))
+            .GroupBy(x => x.InvoiceId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => Document("du devis", x.Plan.Number)).Distinct().ToList());
+
+        var invoiceNumbersByPlanId = debtPlans
+            .ToDictionary(
+                p => p.Id,
+                p => p.ActiveItems
+                    .Where(i => i.BilledOnInvoiceId.HasValue)
+                    .Select(i => liveInvoices.FirstOrDefault(inv => inv.Id == i.BilledOnInvoiceId!.Value))
+                    .Where(inv => inv is not null)
+                    .Select(inv => Document("de la note", inv!.Number))
+                    .Distinct()
+                    .ToList());
+
         foreach (var invoice in liveInvoices)
         {
             if (invoice.Outstanding <= 0m)
@@ -77,7 +106,9 @@ public static class PatientDebtLines
                 // `InstallmentLateness` existed. The row carries `Since` and lets the reader judge.
                 IsOverdue: false,
                 PayableInstallmentId: null,
-                PayableRoom: InvoiceCalculator.RoundMoney(invoice.Outstanding)));
+                PayableRoom: InvoiceCalculator.RoundMoney(invoice.Outstanding),
+                PartOfTreatment: Pairing(
+                    planNumbersByInvoiceId.TryGetValue(invoice.Id, out var devis) ? devis : null)));
         }
 
         foreach (var plan in debtPlans)
@@ -128,7 +159,9 @@ public static class PatientDebtLines
                     planHasUnrealisedWork,
                     clinicToday)),
                 PayableInstallmentId: target?.Id,
-                PayableRoom: payableRoom));
+                PayableRoom: payableRoom,
+                PartOfTreatment: Pairing(
+                    invoiceNumbersByPlanId.TryGetValue(plan.Id, out var notes) ? notes : null)));
         }
 
         // Oldest debt first, and the undated last rather than first — a null `Since` is « we cannot say », not
@@ -140,6 +173,37 @@ public static class PatientDebtLines
             .ThenBy(l => l.DocumentId)
             .ToList();
     }
+
+    /// <summary>
+    /// « suite de la note n° 2026-0019 », or null when this row is not half of a continuation.
+    /// <para>
+    /// A note that a <b>fully settled</b> devis continues never reaches here — the devis is not in
+    /// <c>debtPlans</c> — which is the right silence: there is no second row to point at.
+    /// </para>
+    /// </summary>
+    private static string? Pairing(IReadOnlyCollection<string>? counterparts) =>
+        counterparts is null || counterparts.Count == 0
+            ? null
+            // « suite » alone — each counterpart already carries its own elided article (« du devis »,
+            // « de la note »), for the reason `Document` gives.
+            : $"suite {string.Join(", ", counterparts)}";
+
+    /// <summary>
+    /// « de la note n° 2026-0019 » — or « d'un devis sans numéro » / « d'une note d'honoraires » when the
+    /// document has none.
+    ///
+    /// <para>⚠️ The article is <b>elided</b> by the caller (« du devis », « de la note ») rather than composed
+    /// from « de » + « le » here, because French contracts the two and « suite de le devis » is what building
+    /// it mechanically produces.</para>
+    ///
+    /// <para>⚠️ And through one composer rather than interpolating <c>Number</c>: a Draft note and an
+    /// un-numbered followed treatment both carry null, and printing it leaves a hole in the middle of the
+    /// sentence — <c>DentalRecordBillingRefusals.Document</c>'s scar, one screen over.</para>
+    /// </summary>
+    private static string Document(string elidedArticle, string? number) =>
+        number is null
+            ? (elidedArticle == "du devis" ? "d'un devis sans numéro" : "d'une note d'honoraires")
+            : $"{elidedArticle} n° {number}";
 
     /// <summary>
     /// The work a document bills, as one short line.

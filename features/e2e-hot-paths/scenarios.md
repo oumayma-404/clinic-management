@@ -155,7 +155,7 @@ Route `/appointments` → `button[data-size="sm"]:has-text('Nouveau')`.
 | BOOK-31 | 0 | ∅ | Pick « Couronne / bridge » **before** picking the patient | « Traitement en 3 séances » **and** the séance editor both render | the reported field defect: the sentence rendered above **no control** |
 | BOOK-32 | 0 | ∅ | « Nouveau patient » (walk-in) + a protocol act | Same — the editor renders with no patient id yet | that mode has no id until save |
 | BOOK-33 | 0 | an existing appointment | Open **« Modifier »** with a protocol act | The editor renders — the edit dialog never passed the prop, for everyone, always | the third situation of the same defect |
-| BOOK-34 | 1 | BOOK-31 | Save | A **`Draft`, un-numbered** treatment exists with 3 steps; the appointment holds **step 1** | `materialisePlannedProtocols` at save |
+| BOOK-34 | 1 | BOOK-31 | Save | A **`Draft`, un-numbered** treatment exists with 3 steps; the appointment holds **step 1** | `materialiseTreatments` at save |
 | BOOK-35 | 0 | BOOK-31 | Save, hit the slot-taken confirm, confirm | **One** treatment, not two | `createdPlansRef` — both dialogs re-run the save from the top |
 | BOOK-36 | 0 | BOOK-31 | Same with the **out-of-hours** confirm; then with **past-time** | One treatment each time | same ref, all three confirmations |
 | BOOK-37 | 1 | BOOK-31 | « Tout faire en une séance » → save | **No** treatment created; one plain appointment | `plannedProtocol = null` |
@@ -170,6 +170,8 @@ Route `/appointments` → `button[data-size="sm"]:has-text('Nouveau')`.
 | BOOK-46 | 0 | a plan whose **first** act is `Done` (a priced continuation) | Book from « Actes du devis » | The **bookable** act is offered, not `items[0]`; the save is **not** refused | `schedulablePlanItems` / `planIdByItem` — never `plan.items[0]` |
 | BOOK-47 | 1 | a plan step suggestion applies | Open the dialog | **At most one** notice renders (plan suggestion wins) | AC-5 of the continuation spec |
 | BOOK-48 | 1 | ∅ | Edit an act's price inside « Actes du devis » | It saves to the **treatment**; the échéancier re-spreads server-side | the act is priced once |
+| BOOK-49 | 0 | a fiche billed on a note, partly paid | « c'est la suite d'une séance précédente » → pick → price the remaining work → **Annuler** the booking | **No devis**, no appointment, and the séance is still offered as continuable | the devis is minted by the SAVE (`materialiseTreatments`), never by the dialog's own press |
+| BOOK-50 | 0 | BOOK-49's arrange | Same, but **save** the booking | Exactly one devis, numbered + `Accepted`, and the appointment carries its id | `planIdByItem` merged from the materialiser, else « Le plan de traitement est requis pour lier l'acte. » |
 
 ---
 

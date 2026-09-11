@@ -264,12 +264,19 @@ export function PlanActPrimaryAction({
   }
 
   if (state === "done") {
+    /*
+     * ⚠️ **`flex-wrap` + a real `basis` + an explicit `shrink`, and all three are load-bearing.** `Button` is
+     * `whitespace-nowrap shrink-0`, and `flex-1` does **not** clear that — they are different tailwind-merge
+     * groups, so the element ends up with `flex: 1 1 0%` *and* `flex-shrink: 0`. Two un-shrinkable buttons
+     * measured **222 px** of content in a **172 px** card at 320 px, and « Détacher » was cut in half; found by
+     * the eye pass with `tsc`, `check:responsive` and `build` all green, which is this trap's whole signature.
+     */
     return (
-      <div className={cn("flex items-center gap-1", block ? "w-full" : "justify-end")}>
+      <div className={cn("flex items-center gap-1", block ? "w-full flex-wrap" : "justify-end")}>
         <Button
           variant="ghost"
           size="sm"
-          className={cn("h-8 gap-1", block && "flex-1 justify-center")}
+          className={cn("h-8 gap-1", block && "flex-1 basis-28 shrink justify-center")}
           // ⚠️ THAT fiche, through the `?editRecord=` door `/factures` already uses — not `?tab=medical-records`,
           // which lands on a list of every séance the patient has and opens none of them.
           onClick={() =>
@@ -289,7 +296,7 @@ export function PlanActPrimaryAction({
             size="sm"
             className={cn(
               "h-8 gap-1 text-muted-foreground hover:text-foreground",
-              block && "flex-1 justify-center",
+              block && "flex-1 basis-28 shrink justify-center",
             )}
             onClick={() => onUndo(item)}
             title="Ramener cet acte à « Prévu » et détacher sa fiche de soins"
@@ -355,6 +362,44 @@ export function PlanActStepsAction({
 }
 
 /**
+ * What an act's « Coût » column says.
+ *
+ * <p>⚠️ **An act another document bills shows the NOTE, never a bare « 0,000 DT ».** The 0 is correct and
+ * imposed server-side (the note collected that fee and still does), but printed alone it says nothing — it
+ * reads as a free act, and on the screen that is supposed to be the treatment's money it made the devis' 10 DT
+ * look like the whole treatment while the patient had already paid 50 and still owed 40. Reported as a money
+ * gap; the money was right and the screen was silent.</p>
+ *
+ * <p>⚠️ The rule was already written one file over — `act-card.tsx` withholds the price field on a
+ * plan-carried act and prints « Aucun honoraire sur cette séance » in its place, on the stated ground that
+ * « 0,000 DT » « is the third of the séance's zeros and it says nothing ». This is the same rule at the other
+ * end of the same arrangement, which is why it is spelled the same way rather than invented again.</p>
+ *
+ * <p>⚠️ The amount is printed only when it was recoverable: a séance that billed several acts cannot say which
+ * share of the note was this one, so the row names the note and stops there rather than quoting the whole
+ * note's TTC as this act's fee.</p>
+ */
+function planActCost(item: TreatmentPlanItemDto) {
+  if (!item.billedOnInvoiceId) {
+    return <span className="tabular-nums">{formatDT(item.plannedCost)}</span>
+  }
+
+  const amount = item.billedOnInvoiceAmount ?? 0
+  const note = item.billedOnInvoiceNumber
+    ? `la note n° ${item.billedOnInvoiceNumber}`
+    : "un brouillon de note d'honoraires"
+
+  return (
+    <span className="block text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">
+        {amount > 0 ? `${formatDT(amount)} ` : ""}sur {note}
+      </span>
+      <span className="block">Aucun honoraire sur ce devis.</span>
+    </span>
+  )
+}
+
+/**
  * The act's remaining columns as card fields (AC-16: money before date; the dents are the act's subject and
  * come first). An act with no tooth returns `null` rather than the table's « — », which `CardList` drops (AC-17).
  */
@@ -371,7 +416,7 @@ export function planActCardFields(item: TreatmentPlanItemDto): CardListField[] {
           </span>
         ) : null,
     },
-    { label: "Coût", value: formatDT(item.plannedCost) },
+    { label: "Coût", value: planActCost(item) },
   ]
 }
 
@@ -418,7 +463,7 @@ export function PlanActRow({
           <span className="text-sm text-muted-foreground">—</span>
         )}
       </TableCell>
-      <TableCell className="align-top text-right">{formatDT(item.plannedCost)}</TableCell>
+      <TableCell className="align-top text-right">{planActCost(item)}</TableCell>
       <TableCell className="align-top">
         <span className="flex flex-wrap items-center gap-2">
           <PlanActStateBadge item={item} />

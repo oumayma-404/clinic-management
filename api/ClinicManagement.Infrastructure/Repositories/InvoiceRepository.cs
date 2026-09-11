@@ -262,6 +262,44 @@ public class InvoiceRepository : IInvoiceRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyList<(
+        Guid InvoiceId,
+        string? Number,
+        InvoiceStatus Status,
+        decimal TotalTtc,
+        decimal AmountCollected,
+        decimal Outstanding)>>
+        GetMoneyByIdsAsync(
+            Guid clinicId,
+            IReadOnlyCollection<Guid> invoiceIds,
+            CancellationToken cancellationToken = default)
+    {
+        if (invoiceIds.Count == 0)
+        {
+            return Array.Empty<(Guid, string?, InvoiceStatus, decimal, decimal, decimal)>();
+        }
+
+        var ids = invoiceIds.Distinct().ToArray();
+
+        // `Outstanding` is computed here rather than read, for the reason GetTreatmentPlanLinksAsync gives: it
+        // is a derived property on the aggregate, EF cannot translate one, and both columns it derives from are
+        // already in the projected row.
+        var rows = await _context.Invoices
+            .Where(i => i.ClinicId == clinicId && ids.Contains(i.Id))
+            .Select(i => new { i.Id, i.Number, i.Status, i.TotalTtc, i.AmountCollected })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => (
+                r.Id,
+                r.Number,
+                r.Status,
+                r.TotalTtc,
+                r.AmountCollected,
+                Math.Max(0m, r.TotalTtc - r.AmountCollected)))
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<(Guid AppointmentId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
         GetAppointmentLinksAsync(
             Guid clinicId,

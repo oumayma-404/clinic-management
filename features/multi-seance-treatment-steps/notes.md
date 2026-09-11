@@ -195,7 +195,7 @@ at the same answer, which is the slot it was only waiting for.
 
 ### The treatment is created when the booking is saved
 
-`materialisePlannedProtocols` (in `use-patient-plan-acts.ts`, beside `resolveAttachedPlanId`) turns every
+`materialiseTreatments` (in `use-patient-plan-acts.ts`, beside `resolveAttachedPlanId`) turns every
 followed act into an un-numbered `Draft` at save time and rewrites its row through `planItemToPreset` +
 `presetToSelectedAct`, so a row attached here is identical to one attached from « Actes du devis ».
 
@@ -228,7 +228,7 @@ operations.
 once; « Prix pour ce rendez-vous » on a 2 000 DT implant invites the dentist to type this visit's share, and
 the treatment would then be created at that share for all six visits.
 
-`check:responsive`'s **N26 `protocol-split-is-materialised`** derives the guard from the picker itself: a
+`check:responsive`'s **N26 `booking-materialises-its-treatments`** derives the guard from the picker itself: a
 surface that renders it and never calls the materialiser books an ordinary one-off while its own card says
 « Traitement en 3 séances » — no error, no toast, and the treatment simply never exists.
 

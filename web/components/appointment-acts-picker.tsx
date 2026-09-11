@@ -18,7 +18,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import { formatAmount, formatDT, parseAmountInput, quoteFr } from "@/lib/format"
 import type { AppointmentProcedurePayload } from "@/lib/api/appointments"
-import type { ProcedureStepTemplateDto, ProcedureTypeDto } from "@/lib/api/types"
+import type { ContinuableActDto, ProcedureStepTemplateDto, ProcedureTypeDto } from "@/lib/api/types"
 
 /**
  * One act chosen for a séance. `treatmentPlanItemId` is what makes grouping meaningful: a devis act booked
@@ -86,6 +86,36 @@ export interface SelectedAct {
    * are the real control, and this would be a second, weaker route to the same thing.</p>
    */
   plannedProtocol?: ProcedureStepTemplateDto[] | null
+  /**
+   * The séance already carried out that this row continues — « c'est la suite d'une séance précédente ».
+   *
+   * <p>⚠️ <b>Present only while the treatment does not exist yet.</b> It is the continuation door's half of
+   * `plannedProtocol`'s rule: the devis is minted by `materialiseTreatments` when the booking is SAVED, and
+   * until then this is form state and « Annuler » leaves nothing behind. The dialog used to create it on
+   * press, which minted a numbered, accepted devis with a lump-sum échéance — so abandoning the booking left
+   * a live créance for a séance nobody booked, and the act it continued vanished from the picker for good
+   * (`ContinuationTracking` counts it as tracked), recoverable only by cancelling the devis with a motif.</p>
+   *
+   * <p>⚠️ Mutually exclusive with `treatmentPlanItemId` by construction: once the plan exists the row is
+   * rebuilt by `presetToSelectedAct` and this field is gone.</p>
+   */
+  pendingContinuation?: PendingContinuation
+}
+
+/**
+ * A continuation the save will mint: what `continueRecordedAct` is keyed on, plus what the card states about
+ * it before anything exists on the server.
+ */
+export interface PendingContinuation {
+  /** The fiche and the act it recorded — the command's own two arguments. */
+  dentalRecordId: string
+  actId: string
+  /** The act being finished, for the row's identity (« Traitement de canal — séance 2 sur 2 : … »). */
+  ofLabel: string
+  /** The name this séance carries, as typed in the dialog. */
+  nextStepLabel: string
+  /** What the remaining work is worth, or null for « rien de plus » — the field is optional. */
+  remainingWorkCost: number | null
 }
 
 /**
@@ -93,12 +123,16 @@ export interface SelectedAct {
  *
  * ⚠️ A row with no catalogue act behind it (a hand-typed devis line) has none by construction, and neither
  * does an act already carried by a devis — that one's séances are the plan's, not the catalogue's.
+ *
+ * ⚠️ And neither does a **pending continuation**: it carries the original act's `procedureTypeId` (so the
+ * fiche opened from the booking can prefill), which without this guard would make the card offer to split an
+ * act that is already one séance in — and `materialiseTreatments` would then mint a second treatment for it.
  */
 export function catalogueProtocolOf(
   act: SelectedAct,
   procedureTypes: ProcedureTypeDto[],
 ): ProcedureStepTemplateDto[] {
-  if (act.treatmentPlanItemId || !act.procedureTypeId) return []
+  if (act.treatmentPlanItemId || act.pendingContinuation || !act.procedureTypeId) return []
   return procedureTypes.find((p) => p.id === act.procedureTypeId)?.defaultSteps ?? []
 }
 
@@ -118,6 +152,11 @@ export function catalogueProtocolOf(
  * `resolveAttachedPlanId` refuses two, so only the first undecided protocol act is followed; the rest resolve
  * to `null` and their card offers to take its place.</p>
  *
+ * <p>⚠️ <b>A pending continuation occupies that one slot too</b>, and it had to be said here rather than left
+ * to the save: both are minted by `materialiseTreatments`, so a séance carrying a continuation AND a split act
+ * would create two devis and only then be refused by `resolveAttachedPlanId` — two orphans and a booking that
+ * never happened, which is the whole defect this deferral removes, reached from the other side.</p>
+ *
  * <p>⚠️ It returns `acts` unchanged — the same array reference — when there was nothing to decide, so it is
  * safe inside a `useMemo` feeding a list that compares by identity.</p>
  */
@@ -129,7 +168,9 @@ export function resolvePlannedProtocols(
   // « une seule séance » for an implant before anybody had been shown the question.
   if (procedureTypes.length === 0) return acts as SelectedAct[]
 
-  let following = acts.some((a) => a.plannedProtocol && a.plannedProtocol.length > 0)
+  let following =
+    acts.some((a) => a.plannedProtocol && a.plannedProtocol.length > 0) ||
+    acts.some((a) => a.pendingContinuation)
   let changed = false
   const next = acts.map((act) => {
     if (act.plannedProtocol !== undefined) return act
@@ -154,6 +195,15 @@ export function followedProtocolActs(
   )
 }
 
+/** The rows this booking turns into continuations on save — {@link SelectedAct.pendingContinuation}. */
+export function pendingContinuationActs(
+  acts: readonly SelectedAct[],
+): { act: SelectedAct; index: number; continuation: PendingContinuation }[] {
+  return acts.flatMap((act, index) =>
+    act.pendingContinuation ? [{ act, index, continuation: act.pendingContinuation }] : [],
+  )
+}
+
 /**
  * Why this booking cannot be saved yet, or null.
  *
@@ -163,7 +213,25 @@ export function followedProtocolActs(
  */
 export function protocolError(acts: readonly SelectedAct[]): string | null {
   const blank = followedProtocolActs(acts).some((f) => f.steps.some((s) => s.label.trim().length === 0))
-  return blank ? "Nommez chaque séance du traitement, ou supprimez la ligne vide." : null
+  if (blank) return "Nommez chaque séance du traitement, ou supprimez la ligne vide."
+
+  /*
+   * ⚠️ **Refused HERE because the alternative refuses it after the money is written.** An appointment carries
+   * one `TreatmentPlanId` and `resolveAttachedPlanId` says so — but it runs *after* `materialiseTreatments`,
+   * which by then has minted the continuation's devis, numbered and accepted. So a séance carrying a
+   * continuation and a devis act (picked from « Actes du devis », or accepted from the suggestion) would leave
+   * exactly the orphan the deferral exists to remove: a live créance for a booking that never happened.
+   *
+   * `resolvePlannedProtocols` handles the third combination on its own — a pending continuation already
+   * occupies the one treatment slot, so no split act is followed beside it.
+   */
+  if (acts.some((a) => a.pendingContinuation) && acts.some((a) => a.treatmentPlanItemId)) {
+    return (
+      "Ce rendez-vous poursuit une séance précédente : il ne peut pas porter en plus l'acte d'un autre devis. " +
+      "Retirez l'un des deux."
+    )
+  }
+  return null
 }
 
 /**
@@ -264,6 +332,32 @@ export interface BilledOnPlan {
    * where somebody is deciding what to collect.
    */
   billedOnInvoiceNumber?: string | null
+  /**
+   * Present when this act **continues** one already carried out and billed — what « c'est la suite d'une séance
+   * précédente » leaves behind. Absent on every ordinary devis act.
+   *
+   * <p>⚠️ Without it the booking modal renders the continuation as a standalone act: « continuation (dents 11) …
+   * Reste à encaisser sur le devis : 20,000 DT ». Both halves mislead — it names neither the act being finished
+   * nor which séance this is, and it quotes the devis' own balance while the note beside it still holds 50 the
+   * same patient owes for the same work. Reported from use, on the screen where somebody decides what to
+   * collect.</p>
+   */
+  continuation?: PlanActContinuation
+}
+
+/** What a continuation act is the continuation OF, and what the whole treatment is worth across both documents. */
+export interface PlanActContinuation {
+  /** The act being finished — « Traitement de canal (dévitalisation) ». */
+  ofLabel: string
+  /** Which séance this is, and of how many — counted over real step rows, never `done + 1`. */
+  seanceNumber: number
+  seanceTotal: number
+  /** The note d'honoraires that already collected the earlier séance, and what is still owed on it. */
+  noteNumber: string | null
+  noteOutstanding: number
+  /** The whole treatment across both documents — served, never derived here. */
+  treatmentTotal: number
+  treatmentOutstanding: number
 }
 
 /**
@@ -350,9 +444,7 @@ export function actLabelsOf(acts: SelectedAct[], procedureTypes: ProcedureTypeDt
 
   return groupActs(acts).map((group) => {
     const { act } = group
-    const base = !act.procedureTypeId
-      ? act.fallbackName ?? "Acte du devis"
-      : byId.get(act.procedureTypeId)?.name ?? act.fallbackName ?? "Acte indisponible"
+    const base = actDisplayName(act, act.procedureTypeId ? byId.get(act.procedureTypeId) : undefined)
 
     if (group.stepIds.length === 0) return base
 
@@ -397,6 +489,108 @@ export function presetToSelectedAct(
     treatmentPlanItemStepId: preset.preselectedStepId ?? null,
     billedOnPlan: preset.billedOnPlan,
   }
+}
+
+/**
+ * A séance still to be continued, as a row of the booking being composed — the continuation door's
+ * {@link presetToSelectedAct}, for the window in which no treatment exists yet.
+ *
+ * <p>⚠️ <b>Every figure here is the one the server will produce, and the four cases are not symmetric.</b>
+ * `ContinueRecordedActCommand` prices the already-billed act 0 and leaves its note unattached <b>only</b> when
+ * there is a note AND new money (<code>noteKeepsTheFirstAct</code>); with no new money the note is attached
+ * instead, and with no note at all the devis carries the act's own fee. So which line this séance is booked
+ * against — and therefore what the card says — flips on both inputs, and a card that guessed one rule would
+ * re-price itself the moment the booking was saved.</p>
+ *
+ * <p>⚠️ <b>« séance 2 sur 2 » is stated, not counted.</b> The command always synthesises exactly two steps —
+ * « 1re séance » marked done against the fiche, and this one — whether they sit on one act or two. Reading a
+ * rank off a list that does not exist yet would be the `count + 1` mistake with no list behind it.</p>
+ */
+export function continuationToSelectedAct(
+  previous: ContinuableActDto,
+  nextStepLabel: string,
+  remainingWorkCost: number | null,
+  procedureTypes: ProcedureTypeDto[],
+): SelectedAct {
+  const remaining = remainingWorkCost != null && remainingWorkCost > 0 ? remainingWorkCost : 0
+  // ⚠️ The id, never the number: `InvoiceLinkChoice.ByKey` keeps a DRAFT note, which bills nothing yet and has
+  // no number — and the server's own fork is « is there a note », so keying on the number would take the
+  // unbilled branch on exactly the séance the server treats as billed.
+  const noteKeepsTheFirstAct = previous.invoiceId != null && remaining > 0
+  const ofLabel = previous.procedureName.trim() || "Acte"
+  // Which devis line this séance lands on: the priced « travail restant » when there is one, else the act
+  // itself — `schedulablePlanItems` drops the finished line, and these are its two outcomes.
+  const base = remaining > 0 ? nextStepLabel.trim() || ofLabel : ofLabel
+  const teeth = previous.toothNumbers.length > 0 ? ` (dents ${previous.toothNumbers.join(", ")})` : ""
+  const planTotal = noteKeepsTheFirstAct ? remaining : previous.cost + remaining
+
+  return {
+    // The original act's catalogue link travels with the continuation — the server copies it onto the line for
+    // the same reason, so the fiche opened from this booking prefills instead of asking « Choisissez l'acte ».
+    procedureTypeId:
+      previous.procedureTypeId && procedureTypes.some((p) => p.id === previous.procedureTypeId)
+        ? previous.procedureTypeId
+        : null,
+    planLabel: "devis",
+    // The devis' own désignation, which `actDisplayName` prefers over the catalogue's — mirrors `planActLabel`.
+    fallbackName: noteKeepsTheFirstAct
+      ? `${ofLabel} — séance 2 sur 2 : ${base}${teeth}`
+      : `${base}${teeth}`,
+    // ⚠️ Both stated as null rather than left out (N16): there is no devis and therefore no act id and no step
+    // id to carry — `materialiseTreatments` replaces this whole row with the real one before anything is sent.
+    // An omitted step is how a booked séance silently forgets which step it was for, so « none » is said.
+    treatmentPlanItemId: null,
+    treatmentPlanItemStepId: null,
+    pendingContinuation: {
+      dentalRecordId: previous.dentalRecordId,
+      actId: previous.actId,
+      ofLabel,
+      nextStepLabel,
+      remainingWorkCost: remaining > 0 ? remaining : null,
+    },
+    billedOnPlan: {
+      // No devis yet, and that is what the notice's « Suivi comme traitement » branch is for.
+      planNumber: null,
+      actCost: remaining > 0 ? remaining : previous.cost,
+      outstanding: planTotal,
+      // With no new money the note is ATTACHED and is what collects — the same statement the plan read makes
+      // through `linkedInvoiceNumber` once the devis exists.
+      billedOnInvoiceNumber: previous.invoiceId != null && remaining === 0 ? previous.invoiceNumber : null,
+      continuation: noteKeepsTheFirstAct
+        ? {
+            ofLabel,
+            seanceNumber: 2,
+            seanceTotal: 2,
+            noteNumber: previous.invoiceNumber,
+            noteOutstanding: previous.invoiceOutstanding,
+            // ⚠️ The note's WHOLE total, matching `TreatmentTotal = planShare + Σ note.TotalTtc`. The act's own
+            // cost agrees on a single-act séance and is short by the rest on a mixed one.
+            treatmentTotal: previous.invoiceTotal + remaining,
+            treatmentOutstanding: previous.invoiceOutstanding + remaining,
+          }
+        : undefined,
+    },
+  }
+}
+
+/**
+ * What one row is CALLED — **the treatment's own désignation when it belongs to one**, the catalogue's name
+ * otherwise.
+ *
+ * <p>⚠️ <b>The order matters and it was the other way round.</b> `fallbackName` reads like a last resort, so
+ * both readers took the catalogue name whenever one resolved — which was right while a devis line carrying a
+ * catalogue link was an ordinary act, and stopped being right the day `ContinueRecordedActCommand` began
+ * copying that link onto the continuation line. The row then announced « Traitement de canal (dévitalisation) »
+ * for a séance the devis calls « Traitement de canal — séance 2 sur 2 : continuation (dents 11) »: the act
+ * being finished, named as though this visit were the whole of it. Two fixes undoing each other, silently.</p>
+ *
+ * <p>A devis line's désignation is what the dentist wrote and what every treatment surface prints; the
+ * catalogue name is what to fall back to when there is no devis behind the row.</p>
+ */
+export function actDisplayName(act: SelectedAct, procedureType: ProcedureTypeDto | undefined): string {
+  if ((act.treatmentPlanItemId || act.pendingContinuation) && act.fallbackName) return act.fallbackName
+  if (!act.procedureTypeId) return act.fallbackName ?? "Acte du devis"
+  return procedureType?.name ?? act.fallbackName ?? "Acte indisponible"
 }
 
 /**
@@ -680,7 +874,7 @@ export function AppointmentActsPicker({
             act,
             // A hand-typed devis line has no catalogue act, so no protocol to propose.
             protocol: undefined as ProcedureStepTemplateDto[] | undefined,
-            name: act.fallbackName ?? "Acte du devis",
+            name: actDisplayName(act, undefined),
             durationMinutes: stepMinutes,
             colorHex: "#6C757D",
             missing: false,
@@ -696,7 +890,7 @@ export function AppointmentActsPicker({
           // The act's catalogue protocol, for the offer above. Read from the served catalogue, never a list
           // kept here — the practice edits these in « Types de procédures » and this must follow.
           protocol: pt?.defaultSteps,
-          name: pt?.name ?? act.fallbackName ?? "Acte indisponible",
+          name: actDisplayName(act, pt),
           durationMinutes: stepMinutes ?? unbookedActMinutes(act, pt),
           colorHex: pt?.colorHex ?? "#6C757D",
           missing: !pt,
@@ -1433,7 +1627,41 @@ export function AppointmentActsPicker({
                     false — see `BilledOnPlan.billedOnInvoiceNumber`. The note is named instead, so whoever is
                     about to take money knows which document to look at.
                   */}
-                  {row.act.billedOnPlan.billedOnInvoiceNumber ? (
+                  {/*
+                    ⚠️ **A CONTINUATION states BOTH documents, because the patient owes on both.** This row
+                    printed « Reste à encaisser sur le devis : 20,000 DT » — true of the devis and silent about
+                    the 50 still owed on the note that billed the first séance — on the one screen where
+                    somebody is deciding what to collect. The two figures stay side by side rather than summed
+                    into one: they are settled on two different documents, by two different actions.
+                  */}
+                  {row.act.billedOnPlan.continuation ? (
+                    <>
+                      {" "}Total des deux séances :{" "}
+                      <span className="font-mono tabular-nums">
+                        {formatDT(row.act.billedOnPlan.continuation.treatmentTotal)}
+                      </span>
+                      . Reste{" "}
+                      <span className="font-mono tabular-nums">
+                        {formatDT(row.act.billedOnPlan.continuation.noteOutstanding)}
+                      </span>{" "}
+                      sur{" "}
+                      {row.act.billedOnPlan.continuation.noteNumber ? (
+                        <>
+                          la note{" "}
+                          <span className="font-mono">{row.act.billedOnPlan.continuation.noteNumber}</span>
+                        </>
+                      ) : (
+                        "un brouillon de note d'honoraires"
+                      )}{" "}
+                      et{" "}
+                      <span className="font-mono tabular-nums">
+                        {formatDT(row.act.billedOnPlan.outstanding)}
+                      </span>{" "}
+                      {/* ⚠️ « ce devis » names a document that does not exist yet on a pending continuation —
+                          the devis is minted when the booking is saved, not when the séance was picked. */}
+                      {row.act.billedOnPlan.planNumber ? "sur ce devis." : "sur le devis de ce traitement."}
+                    </>
+                  ) : row.act.billedOnPlan.billedOnInvoiceNumber ? (
                     <>
                       {" "}Encaissement sur la note{" "}
                       <span className="font-mono">{row.act.billedOnPlan.billedOnInvoiceNumber}</span>.
@@ -1453,6 +1681,24 @@ export function AppointmentActsPicker({
                         .
                       </>
                     )
+                  )}
+                  {/*
+                    ⚠️ **When the devis exists, said here and once.** Everything above is in the present tense
+                    about a document that has not been created yet — `materialiseTreatments` mints it on save,
+                    exactly like a split protocol — and the sentence a dentist cannot recover from not having
+                    read is that it is numbered and accepted, so it will never be deletable. Removing this act
+                    from the séance is the whole of « annuler » while this line is on screen, and that stops
+                    being true the moment the booking is saved.
+                  */}
+                  {row.act.pendingContinuation && (
+                    <>
+                      {" "}
+                      <span className="font-medium">
+                        Le devis sera créé à l&apos;enregistrement de ce rendez-vous, numéroté et accepté : il
+                        ne se supprimera plus, il s&apos;annulera avec un motif. Retirez cet acte pour y
+                        renoncer.
+                      </span>
+                    </>
                   )}
                 </p>
               )}
@@ -1774,6 +2020,12 @@ export function unbookedActMinutes(
   act: SelectedAct,
   procedureType: ProcedureTypeDto | undefined,
 ): number | null {
+  // ⚠️ A continuation books ONE séance of an act already under way, and nothing states how long that séance
+  // takes — the two steps the command synthesises carry no chair time, for the same reason their labels are
+  // generic. The catalogue's figure is the whole act's, so falling through to it would book a 60-minute
+  // dévitalisation for its second sitting, and the row would then shorten itself on save. Null says
+  // « not stated », which is what the row and the total both already know how to print.
+  if (act.pendingContinuation) return null
   return act.plannedProtocol?.[0]?.durationMinutes ?? procedureType?.defaultDurationMinutes ?? null
 }
 

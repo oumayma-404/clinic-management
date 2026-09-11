@@ -25,6 +25,34 @@ import type { PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto } fr
  */
 export const PATIENT_OUTSTANDING_SECTION_ID = "patient-outstanding"
 
+/**
+ * The tab « Reste à payer » lives in. Exported so a caller linking here cannot guess it — one did, wrote
+ * `?tab=actes` after the tab's *label* (« Actes dentaires »), and `PATIENT_TABS` has no such value.
+ */
+export const PATIENT_OUTSTANDING_TAB = "medical-records"
+
+/**
+ * A link from elsewhere in the app INTO this band — the one owner of that URL.
+ *
+ * <p>⚠️ <b>A `#fragment` cannot reach this section, and one shipped believing it could.</b> The band renders
+ * inside a Radix `TabsContent`, which is not mounted until its tab is active, so the browser resolves the hash
+ * against a document that does not contain the element — it simply stays at the top of the page. The page's own
+ * « Solde dû » has always known this: it calls `openTab` and defers the lookup a frame. A query parameter the
+ * page *interprets* is the only mechanism that works across a navigation, and it is this file's established
+ * idiom (`?editRecord=`).</p>
+ *
+ * <p>⚠️ <b>`documentId` is the promise the caller made.</b> « Encaisser sur la note » must open that note's
+ * payment dialog — landing the reader on a list and making them find the row again is the button not keeping
+ * its word. Omit it to merely open the band.</p>
+ */
+export function patientOutstandingHref(patientId: string, documentId?: string): string {
+  const base = `/patients/${patientId}?tab=${PATIENT_OUTSTANDING_TAB}`
+  return documentId ? `${base}&${PATIENT_COLLECT_PARAM}=${documentId}` : base
+}
+
+/** The query key {@link patientOutstandingHref} writes and the patient page reads. */
+export const PATIENT_COLLECT_PARAM = "encaisser"
+
 interface PatientOutstandingStripProps {
   /** `null` = the read failed or has not landed. The band renders nothing — never « 0,000 DT ». */
   summary: PatientBillingSummaryDto | null
@@ -178,6 +206,7 @@ export function PatientOutstandingStrip({
                   <TableRow key={line.documentId}>
                     <TableCell className="whitespace-nowrap">
                       <span className="font-medium">{documentTitle(line)}</span>
+                      <PairingNote line={line} />
                     </TableCell>
                     <TableCell clamp title={line.covers}>
                       {line.covers}
@@ -218,7 +247,13 @@ export function PatientOutstandingStrip({
               items={shownLines}
               getKey={(line) => line.documentId}
               title={(line) => documentTitle(line)}
-              subtitle={(line) => line.covers || null}
+              subtitle={(line) =>
+                // The pairing goes on the SUBTITLE, not into a field: it is part of what this document is,
+                // and a « Concerne » field already answers what work it bills.
+                line.partOfTreatment
+                  ? [line.covers, line.partOfTreatment].filter(Boolean).join(" · ")
+                  : line.covers || null
+              }
               status={(line) =>
                 line.isOverdue ? (
                   <Badge variant="destructive" className="gap-1">
@@ -353,6 +388,29 @@ export function PatientOutstandingStrip({
 /** « Note d'honoraires 2026-0042 ». The number is what staff say out loud; the label is what it is. */
 function documentTitle(line: PatientDebtLineDto): string {
   return line.number ? `${line.label} ${line.number}` : line.label
+}
+
+/**
+ * « suite de la note n° 2026-0019 » — the other half of a continuation, under the document's own name.
+ *
+ * <p>⚠️ **This says the two rows belong together; it does not merge them.** The report that produced it asked
+ * for « une seule ligne, reste 50 », and the total was already right (40 on the note + 10 on the devis) — what
+ * was missing is that nothing on the screen connected the two documents, so the same act appeared twice with no
+ * relationship. Merging would be wrong twice over: a note is per-*fiche*, so one billing a détartrage done the
+ * same day would drag that détartrage into the treatment, and each row is a settlement surface with its own
+ * « Encaisser » reaching la caisse by a different ledger.</p>
+ *
+ * <p>Renders nothing on every ordinary row, so the table is unchanged for a patient with no continuation.</p>
+ */
+function PairingNote({ line }: { line: PatientDebtLineDto }) {
+  if (!line.partOfTreatment) return null
+  // `whitespace-normal` because the cell is `whitespace-nowrap` for the title above it, and this sentence is
+  // long enough to set the column's min-content width at 320 px if it inherits that.
+  return (
+    <span className="block whitespace-normal text-xs font-normal text-muted-foreground">
+      {line.partOfTreatment}
+    </span>
+  )
 }
 
 /**

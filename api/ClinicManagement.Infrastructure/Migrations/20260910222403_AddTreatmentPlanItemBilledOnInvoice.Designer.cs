@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260910222403_AddTreatmentPlanItemBilledOnInvoice")]
+    partial class AddTreatmentPlanItemBilledOnInvoice
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3769,10 +3772,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<string>("PhoneNumberE164")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -4644,11 +4643,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
 
-                            b1.Property<string>("PersistedE164")
-                                .HasMaxLength(20)
-                                .HasColumnType("character varying(20)")
-                                .HasColumnName("EmergencyContactPhoneE164");
-
                             b1.Property<string>("Value")
                                 .IsRequired()
                                 .HasMaxLength(20)
@@ -4667,11 +4661,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         {
                             b1.Property<Guid>("PatientId")
                                 .HasColumnType("uuid");
-
-                            b1.Property<string>("PersistedE164")
-                                .HasMaxLength(20)
-                                .HasColumnType("character varying(20)")
-                                .HasColumnName("PhoneNumberE164");
 
                             b1.Property<string>("Value")
                                 .IsRequired()

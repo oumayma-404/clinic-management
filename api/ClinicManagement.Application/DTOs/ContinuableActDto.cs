@@ -50,4 +50,16 @@ public class ContinuableActDto
     /// figure « Solde patient » is already carrying, and a second computation here would be a second answer.
     /// </summary>
     public decimal InvoiceOutstanding { get; set; }
+
+    /// <summary>
+    /// The note's <b>whole</b> TTC, when there is one — not this act's share of it.
+    /// <para>
+    /// ⚠️ It exists so the booking dialog can state « total des deux séances » <i>before</i> the devis is
+    /// created, and it must be the note's total because that is what the plan read sums once it is
+    /// (<c>TreatmentTotal = planShare + Σ note.TotalTtc</c>). Using <see cref="Cost"/> instead agrees on a
+    /// single-act séance and is short by the rest on a mixed one — a figure the same screen would contradict
+    /// the moment the booking was saved.
+    /// </para>
+    /// </summary>
+    public decimal InvoiceTotal { get; set; }
 }

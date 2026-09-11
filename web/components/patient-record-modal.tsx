@@ -109,6 +109,27 @@ export interface PlanItemOption {
   planNumber?: string | null
   /** The note d'honoraires that holds this devis' money, when one does. */
   billedOnInvoiceNumber?: string | null
+  /**
+   * The note that already collects **this act** while the devis stays live — what a continuation leaves behind,
+   * and the reason such an act sits on the devis at 0.
+   *
+   * <p>⚠️ **Not `billedOnInvoiceNumber` above, which is the opposite arrangement**: that note represents the
+   * whole devis (so the devis collects nothing more), this one collects one act beside a devis that is still
+   * collecting the rest. Without it the two sentences below read « L'acte entier est chiffré 0,000 DT » and
+   * « 0,000 DT convenus pour tout le traitement » about a 90 DT act a patient has already paid 50 towards.</p>
+   */
+  carriedOnNoteNumber?: string | null
+  /** What that note bills for this act. `0` when it could not be recovered — then the note is named alone. */
+  carriedOnNoteAmount?: number
+  /**
+   * The act this one **continues**, when it is the second half of a continuation — « Traitement de canal
+   * (dévitalisation) ». Null on every ordinary act, including the carried one itself.
+   */
+  continuationOf?: string | null
+  /** The treatment's money across both documents, served. Null when nothing is carried. */
+  treatmentTotal?: number | null
+  /** @see treatmentTotal */
+  treatmentOutstanding?: number | null
   /** What is still to collect on the whole devis — meaningless once `billedOnInvoiceNumber` is set. */
   planOutstanding?: number
   /**
@@ -735,8 +756,23 @@ export function PatientRecordModal({
     const out: { row: AppointmentProcedureDto; procedure: ProcedureTypeDto }[] = []
     const seenPlanItem = new Set<string>()
     for (const row of (appointment?.procedures ?? []).slice().sort((a, b) => a.sequenceNumber - b.sequenceNumber)) {
-      const procedure = row.procedureTypeId
-        ? procedureTypes.find((pt) => pt.id === row.procedureTypeId)
+      /*
+       * ⚠️ **A LINK-ONLY row falls back to its devis act, and without that the fiche proposes nothing at all.**
+       * A booked row carries no `procedureTypeId` when the devis line it books had none — which every
+       * continuation's second line did, and every hand-typed line still does. Skipped outright, the séance the
+       * app itself arranged opened on « Choisissez l'acte réalisé… » with « aucun acte » above it. Reported
+       * from use on the second séance of a traitement de canal.
+       *
+       * Resolved from the plan item rather than repaired in the appointment row, deliberately: it covers every
+       * booking already on file as well as every future one, and a row whose devis line is *still* un-catalogued
+       * (a genuinely hand-typed act) keeps behaving exactly as it did — skipped, with the dentist asked.
+       */
+      const planActProcedureId = row.treatmentPlanItemId
+        ? planItems.find((p) => p.itemId === row.treatmentPlanItemId)?.procedureTypeId ?? null
+        : null
+      const procedureId = row.procedureTypeId ?? planActProcedureId
+      const procedure = procedureId
+        ? procedureTypes.find((pt) => pt.id === procedureId)
         : undefined
       if (!procedure) continue
       if (row.treatmentPlanItemId) {
@@ -746,7 +782,7 @@ export function PatientRecordModal({
       out.push({ row, procedure })
     }
     return out
-  }, [appointment?.procedures, procedureTypes])
+  }, [appointment?.procedures, procedureTypes, planItems])
 
   // Propose EVERY act booked into the séance. Guarded twice over: `applyAppointment` is a no-op unless the
   // session is a single untouched card, so it can never clobber a saved record or work in progress.
@@ -1086,10 +1122,31 @@ export function PatientRecordModal({
                 Reworded on the booking dialog's notice at the same time, deliberately: these two sentences
                 are the same statement on two screens and have already drifted apart once.
               */}
+              {/* ⚠️ What this séance FINISHES, first — a continuation's own désignation is whatever the dentist
+                  typed (« continuation »), so left alone the banner named nothing the séance is part of. */}
+              {billedPlanItem.continuationOf && (
+                <span className="block font-semibold text-foreground">
+                  Suite de&nbsp;: {billedPlanItem.continuationOf}
+                </span>
+              )}
               <span className="font-semibold text-primary">
                 {billedPlanItem.planNumber ? "Chiffré sur le devis." : "Suivi comme traitement."}
               </span>{" "}
-              {billedPlanItem.plannedCost != null ? (
+              {/* ⚠️ A carried act's `plannedCost` is 0 BY RULE — a note already collects its fee — so quoting it
+                  here would tell a dentist the act was free. Held by `check:responsive`'s N34. */}
+              {billedPlanItem.carriedOnNoteNumber ? (
+                <>
+                  L&apos;acte entier est facturé{" "}
+                  {(billedPlanItem.carriedOnNoteAmount ?? 0) > 0 && (
+                    <>
+                      <span className="font-mono tabular-nums">
+                        {formatDT(billedPlanItem.carriedOnNoteAmount!)}
+                      </span>{" "}
+                    </>
+                  )}
+                  sur la note n° {billedPlanItem.carriedOnNoteNumber}
+                </>
+              ) : billedPlanItem.plannedCost != null ? (
                 <>
                   L&apos;acte entier est chiffré{" "}
                   <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span>
@@ -2509,14 +2566,23 @@ export function PatientRecordModal({
                   role="status"
                   className="w-full text-2xs text-muted-foreground"
                 >
-                  {billedPlanItem?.plannedCost != null && (
+                  {/* ⚠️ Same rule as the banner above: a carried act's 0 is another document's money, so
+                      « 0,000 DT convenus pour tout le traitement » is false where it matters most — this is
+                      the hint beside the field a patient is handing money to. N34. */}
+                  {billedPlanItem?.carriedOnNoteNumber ? (
                     <>
-                      <span className="font-mono tabular-nums">
-                        {formatDT(billedPlanItem.plannedCost)}
-                      </span>{" "}
-                      convenus pour tout le traitement
-                      {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
+                      Cet acte est facturé sur la note n° {billedPlanItem.carriedOnNoteNumber} ·{" "}
                     </>
+                  ) : (
+                    billedPlanItem?.plannedCost != null && (
+                      <>
+                        <span className="font-mono tabular-nums">
+                          {formatDT(billedPlanItem.plannedCost)}
+                        </span>{" "}
+                        convenus pour tout le traitement
+                        {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
+                      </>
+                    )
                   )}
                   {overCollectedOnPlan ? (
                     <span className="font-medium text-destructive">

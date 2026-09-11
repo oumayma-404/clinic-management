@@ -1,4 +1,4 @@
-import type { PresetPlanAct } from "@/components/appointment-acts-picker"
+import type { PlanActContinuation, PresetPlanAct } from "@/components/appointment-acts-picker"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 
 /** Derived workflow état of one planned act. */
@@ -265,10 +265,13 @@ export function planItemToPreset(
   return {
     planItemId: item.id,
     procedureTypeId: resolveProcedureTypeId(item),
-    label:
-      item.toothNumbers.length > 0
-        ? `${item.designationFr} (dents ${item.toothNumbers.join(", ")})`
-        : item.designationFr,
+    /*
+     * ⚠️ **A continuation names the act it FINISHES, and which séance this is.** Left as its own désignation
+     * the row read « continuation (dents 11) » — a label the dentist typed, on a card that looked like an
+     * independent act, with nothing tying it to the traitement de canal it is the second half of. Reported
+     * from use, on the screen where the séance is booked.
+     */
+    label: planActLabel(item, continuationContext(plan, item)),
     plannedCost: item.plannedCost,
     // ⚠️ **The whole protocol, réalisé steps included — `PlanStepOption.done` is what withholds them.** This
     // filtered them out, which is right for a chip somebody can tick and wrong for every label lookup that
@@ -288,7 +291,70 @@ export function planItemToPreset(
       // Which note holds this devis' money, if one does. `outstanding` above is unusable when it is set —
       // see `BilledOnPlan.billedOnInvoiceNumber` for the measured case.
       billedOnInvoiceNumber: plan.linkedInvoiceNumber ?? null,
+      continuation: continuationContext(plan, item),
     },
+  }
+}
+
+/**
+ * How an act is named wherever a séance is composed — its own désignation, or, for a continuation, the act it
+ * finishes and the séance's rank first.
+ *
+ * <p>« Traitement de canal (dévitalisation) — séance 2 sur 2 : continuation (dents 11) ». ⚠️ Long, and
+ * deliberately not shortened: it is the row's <b>identity</b>, and § 10.1 forbids truncating a control's name.</p>
+ */
+function planActLabel(item: TreatmentPlanItemDto, continuation: PlanActContinuation | undefined): string {
+  const teeth = item.toothNumbers.length > 0 ? ` (dents ${item.toothNumbers.join(", ")})` : ""
+  if (!continuation) return `${item.designationFr}${teeth}`
+  return (
+    `${continuation.ofLabel} — séance ${continuation.seanceNumber} sur ${continuation.seanceTotal}` +
+    ` : ${item.designationFr}${teeth}`
+  )
+}
+
+/**
+ * What this act continues, when it continues anything — the act already carried out and billed, which séance
+ * this is, and what the treatment is worth across **both** documents.
+ *
+ * <p>⚠️ <b>The parent is the act the plan holds at 0 against a note</b> (`billedOnInvoiceId`), not « the first
+ * line »: that marker is the one thing that states the arrangement, and reading position instead would call any
+ * two-line devis a continuation.</p>
+ *
+ * <p>⚠️ <b>The séance rank is counted over real step rows, never `done + 1`.</b> A rank derived from a count is
+ * only the séance being booked when the séances happen in order, and this app deliberately lets them not — so it
+ * is read off the flattened protocol, where the answer is a position and not an estimate.</p>
+ *
+ * <p>Returns undefined for every ordinary act, so nothing downstream renders.</p>
+ */
+function continuationContext(
+  plan: TreatmentPlanDto,
+  item: TreatmentPlanItemDto,
+): PlanActContinuation | undefined {
+  const live = activeItems(plan)
+  const parent = live.find((i) => i.billedOnInvoiceId != null && i.id !== item.id)
+  if (!parent || plan.treatmentOutstanding == null) return undefined
+
+  const note = (plan.carriedInvoices ?? []).find((c) => c.invoiceId === parent.billedOnInvoiceId)
+
+  // The whole protocol in clinical order; this séance is where this act's next step sits in it.
+  const ordered = [...live].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+  const flat = ordered.flatMap((i) =>
+    (i.steps?.length ?? 0) > 0
+      ? i.steps!.map((s) => ({ itemId: i.id, stepId: s.id }))
+      : [{ itemId: i.id, stepId: null as string | null }],
+  )
+  const at = flat.findIndex((s) =>
+    item.nextStepId ? s.stepId === item.nextStepId : s.itemId === item.id,
+  )
+
+  return {
+    ofLabel: parent.designationFr,
+    seanceNumber: at >= 0 ? at + 1 : flat.length,
+    seanceTotal: flat.length,
+    noteNumber: note?.number ?? parent.billedOnInvoiceNumber ?? null,
+    noteOutstanding: note?.outstanding ?? 0,
+    treatmentTotal: plan.treatmentTotal ?? 0,
+    treatmentOutstanding: plan.treatmentOutstanding,
   }
 }
 
@@ -343,66 +409,175 @@ export function schedulablePlanItems(plan: TreatmentPlanDto): TreatmentPlanItemD
   return activeItems(plan).filter((item) => item.status !== "Done")
 }
 
-/** The one devis act a booking dialog should offer unprompted, with the step it is waiting on. */
+/** One devis act a booking dialog should offer unprompted, with the step it is waiting on. */
 export interface PlanStepSuggestion {
   plan: TreatmentPlanDto
   item: TreatmentPlanItemDto
   /** The séance to book, or null for an act with no protocol — then the whole act is the séance. */
   step: ReturnType<typeof nextStepOf>
   /**
-   * Is this act already **under way** — at least one séance carried out?
+   * Is this **treatment** already under way — has any of its work been delivered?
    *
-   * <p>It decides the wording and nothing else. « Ce patient a un traitement en cours » about a devis accepted
+   * <p>It decides the wording and the ranking. « Ce patient a un traitement en cours » about a devis accepted
    * last week with nothing done yet would be a small lie told by the one surface whose job is to remind somebody
    * of a fact they had forgotten; « un devis accepté » is the truth and just as useful.</p>
+   *
+   * <p>⚠️ <b>A question about the PLAN, not about the act this suggestion names</b> — and it was the act until
+   * the suggestion became one row per treatment. Measured on the live database: devis 2026-0206 holds a
+   * `Done` traitement de canal and its un-started continuation, so the act picked to be booked carried no
+   * delivered work and the notice announced « un devis accepté » about a treatment the patient had already sat
+   * through a séance for. `hasDeliveredWork` is the reader that already answers this per act; the plan's own
+   * `InProgress` is beside it because the server sets that status when work is recorded, so the two cannot
+   * disagree about a plan whose evidence lives on an act this reader cannot see.</p>
    */
   continuing: boolean
+  /**
+   * The slot already **passed without a fiche**, when the act's next séance is one — otherwise null, which is
+   * the ordinary case of an act with nothing booked at all.
+   *
+   * <p>It is the reason this suggestion exists at all (see {@link suggestedPlanSteps}), and it must be stated
+   * rather than acted on silently: a séance whose slot has gone by with nobody saying what happened may have
+   * been carried out and not written up, or may never have happened. So the notice prints the date and the
+   * dentist decides — it never claims the work was or was not done.</p>
+   */
+  passedSlotAt: string | null
 }
 
 /**
- * The devis act to **suggest** when a séance is being booked for this patient — or null when there is nothing to
- * suggest.
+ * How many treatments a booking dialog may name at once.
+ *
+ * <p>Three, measured rather than chosen: on the live database 309 of 318 patients with a live treatment have
+ * exactly one bookable treatment, 7 have two, and two patients have four and six. So three rows covers 316 of
+ * 318 in full, and the two outliers are honestly summarised by {@link PlanSuggestionSet.hiddenCount} instead
+ * of turning the reminder into a second acts picker.</p>
+ */
+export const MAX_PLAN_SUGGESTIONS = 3
+
+/** What {@link suggestedPlanSteps} found: the treatments to name, and the ones that did not fit. */
+export interface PlanSuggestionSet {
+  /** At most {@link MAX_PLAN_SUGGESTIONS}, **one per live treatment**, most relevant first. */
+  suggestions: PlanStepSuggestion[]
+  /**
+   * Live treatments with a bookable act that did **not** fit the cap.
+   *
+   * <p>⚠️ Carried on the same object as the list, deliberately, so that a surface rendering the suggestions
+   * cannot forget it: a patient with six open treatments shown three rows and no « et 3 autres » is told a
+   * silent half-truth by the surface whose entire job is to stop something being overlooked.</p>
+   */
+  hiddenCount: number
+}
+
+/**
+ * The devis acts to **suggest** when a séance is being booked for this patient — one per live treatment, most
+ * relevant first — or null when there is nothing to suggest.
  *
  * <p>The dentist books from the agenda, in a hurry, for a patient whose bridge is half done. Nothing on that path
  * mentioned the devis, so the séance was booked as a loose act and the plan reported the scellement as still
  * unplanned. This is what the dialog says out loud before he picks anything.</p>
  *
- * <p>⚠️ <b>Only an act with nothing booked</b> (`planItemState === "to-schedule"`). An act whose next séance is
- * already in the agenda must not be offered: accepting it would book the same step twice, which is the one thing
- * the whole multi-séance feature refuses. That test is `planItemState`'s, keyed on the next STEP rather than on
- * the act — a bridge two thirds done carries an appointment that already happened.</p>
+ * <p>⚠️ <b>A séance whose slot has PASSED without a fiche still counts, and excluding it was silencing the
+ * reminder for exactly the patients who needed it.</b> The gate used to be `planItemState === "to-schedule"`
+ * alone, whose stated reason — « accepting it would book the same step twice » — is sound for a booking that is
+ * still to come and false for one that is over. Measured on the live database: of 318 patients carrying a live
+ * treatment, <b>47 were shown nothing at all</b>, and in every one of the 47 the cause was this — each
+ * schedulable act's next step held an `AwaitingClosure` visit whose slot had gone by. Not one of the 47 was
+ * blocked by a future booking. So a future séance is still withheld (`"scheduled"`), a passed one is offered
+ * with its date stated, and {@link PlanStepSuggestion.passedSlotAt} is what tells the two apart.</p>
  *
- * <p>⚠️ <b>An act under way outranks an untouched one</b>, and a plan's own act order breaks the tie. A patient
- * with a half-finished bridge and a freshly accepted détartrage is being asked about the bridge; the détartrage is
- * still in the picker's « Actes du devis » group one click away, so nothing is hidden by choosing.</p>
+ * <p>⚠️ <b>One entry per TREATMENT, never per act.</b> The question this surface asks is « lequel
+ * continuez-vous ? », and a devis with four unbooked acts would otherwise fill it with four rows about one
+ * answer. Within a treatment the act is chosen by the same order the list itself uses, in clinical sequence.</p>
  *
- * <p>⚠️ <b>One suggestion, never a list.</b> Several would be a second acts picker rendered above the acts picker,
- * and the picker already offers every one of them. This surface answers « avez-vous oublié ? », which is one
- * question.</p>
+ * <p>The order, and why each key is there:</p>
+ * <ol>
+ *   <li><b>Work already delivered outranks an untouched devis.</b> A patient with a half-finished bridge and a
+ *   freshly accepted détartrage is being asked about the bridge.</li>
+ *   <li><b>Nothing booked outranks a slot that passed unclosed.</b> An act with no séance in the agenda is
+ *   unambiguously waiting to be booked; one whose slot went by may simply be missing its fiche, so it is the
+ *   weaker offer and belongs lower.</li>
+ *   <li><b>Due soonest first</b>, from `nextStepDueFrom` — the interval a clinician typed on the protocol, so
+ *   it is a real clinical date and not a système-raised échéance. An act nobody dated sorts last and is never
+ *   called late (see `InstallmentLateness` for the shape of that mistake).</li>
+ *   <li><b>Read order</b> breaks what is left — plans arrive most-recently-created first — and the sort is
+ *   stable, so that tie-break is kept rather than scrambled.</li>
+ * </ol>
+ *
+ * <p>⚠️ It used to return a single suggestion, chosen `find(continuing) ?? candidates[0]` over plans read
+ * `OrderByDescending(CreatedAt)` — so with two live treatments the dialog named the more recently created one
+ * and said nothing whatever about the other. Measured: 6 patients have bookable acts on more than one live
+ * treatment. The acts were all in the picker's « Actes du devis » group, which is the defence that made this
+ * look harmless; but the group lists acts, and this surface is the only one that says « ce patient a un
+ * traitement en cours » — so for those patients it said it about an arbitrary half of the truth.</p>
  */
-export function suggestedPlanStep(
+export function suggestedPlanSteps(
   plans: readonly TreatmentPlanDto[],
   now: Date = new Date(),
-): PlanStepSuggestion | null {
-  const candidates: PlanStepSuggestion[] = []
+): PlanSuggestionSet | null {
+  const perPlan: PlanStepSuggestion[] = []
 
   for (const plan of plans) {
+    const candidates: PlanStepSuggestion[] = []
+
+    // Asked of the whole devis, once — see `PlanStepSuggestion.continuing` for the measured case where asking
+    // it of the act being booked called a treatment already under way « un devis accepté ».
+    const continuing =
+      plan.status === "InProgress" || activeItems(plan).some(hasDeliveredWork)
+
     // The same gate the picker's group uses — a Draft or Cancelled devis contributes nothing, because booking
     // against a quote nobody accepted is not a shortcut, it is a mistake with a devis number on it.
-    for (const item of schedulablePlanItems(plan)) {
-      if (planItemState(item, now) !== "to-schedule") continue
+    // ⚠️ Sorted on `sequenceNumber`, the clinical order the devis states, rather than trusting the order the
+    // acts happen to arrive in: the act named here is the one the dentist is told to do next.
+    const items = [...schedulablePlanItems(plan)].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+
+    for (const item of items) {
+      const state = planItemState(item, now)
+      // « scheduled » is the one état still withheld: a séance that is genuinely still to come is already in
+      // the agenda, and offering it would book the same step twice.
+      if (state !== "to-schedule" && state !== "to-record") continue
+      const step = nextStepOf(item)
       candidates.push({
         plan,
         item,
-        step: nextStepOf(item),
-        continuing:
-          item.status === "InProgress" || (item.steps?.some((step) => step.doneDate != null) ?? false),
+        step,
+        continuing,
+        passedSlotAt:
+          state === "to-record" ? (step ? step.scheduledAt : item.scheduledAt) ?? null : null,
       })
     }
+
+    if (candidates.length === 0) continue
+    perPlan.push([...candidates].sort(byBookingUrgency)[0])
   }
 
-  if (candidates.length === 0) return null
-  return candidates.find((c) => c.continuing) ?? candidates[0]
+  if (perPlan.length === 0) return null
+
+  perPlan.sort(byBookingUrgency)
+  return {
+    suggestions: perPlan.slice(0, MAX_PLAN_SUGGESTIONS),
+    hiddenCount: Math.max(0, perPlan.length - MAX_PLAN_SUGGESTIONS),
+  }
+}
+
+/** The order {@link suggestedPlanSteps} documents — one comparator, used for the acts and for the treatments. */
+function byBookingUrgency(a: PlanStepSuggestion, b: PlanStepSuggestion): number {
+  if (a.continuing !== b.continuing) return a.continuing ? -1 : 1
+
+  const aBookable = a.passedSlotAt == null
+  const bBookable = b.passedSlotAt == null
+  if (aBookable !== bBookable) return aBookable ? -1 : 1
+
+  const aDue = dueFromMs(a.item)
+  const bDue = dueFromMs(b.item)
+  if (aDue !== bDue) return aDue - bDue
+
+  // 0, so the caller's own order survives — `Array.prototype.sort` is stable.
+  return 0
+}
+
+/** When the act's next step may be carried out, as a sortable number. Undated sorts last, never early. */
+function dueFromMs(item: TreatmentPlanItemDto): number {
+  const due = item.nextStepDueFrom
+  return due ? new Date(due).getTime() : Number.POSITIVE_INFINITY
 }
 
 /**

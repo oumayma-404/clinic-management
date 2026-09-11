@@ -1733,25 +1733,26 @@ check(
 );
 
 check(
-  "protocol-split-is-materialised",
+  "booking-materialises-its-treatments",
   "N26",
-  "A booking surface rendering the acts picker turns a split act into a real treatment when it saves",
+  "A booking surface rendering the acts picker turns everything it promised into a real treatment when it saves",
   "A multi-séance act is split BY DEFAULT — `resolvePlannedProtocols` decides it, the picker shows the séances " +
-    "and offers « Tout faire en une seule séance ». That decision is form state and nothing exists on the " +
-    "server until the save calls `materialisePlannedProtocols`, so a dialog that renders the picker and does " +
-    "not call it books an ordinary one-off visit while its own card said « Traitement en 3 séances » — no " +
-    "error, no toast, and the treatment is simply never created. This is the shape the feature shipped in the " +
-    "first time, inverted: the offer was a prop only the CREATE dialog passed, so the edit dialog rendered the " +
-    "sentence « cet acte se fait normalement en 3 séances » above no control at all, and so did a create form " +
-    "with no patient chosen yet — one dentist saw the button and another, on the same act, did not. Deriving " +
-    "the guard from the picker rather than from a list of files is what covers the third booking surface on " +
-    "the day it is written.",
+    "and offers « Tout faire en une seule séance » — and a séance chosen through « c'est la suite d'une séance " +
+    "précédente » is the same kind of promise. Both are form state and nothing exists on the server until the " +
+    "save calls `materialiseTreatments`, so a dialog that renders the picker and does not call it books an " +
+    "ordinary one-off visit while its own card said « Traitement en 3 séances » — no error, no toast, and the " +
+    "treatment is simply never created. This is the shape the feature shipped in the first time, inverted: " +
+    "the offer was a prop only the CREATE dialog passed, so the edit dialog rendered the sentence « cet acte " +
+    "se fait normalement en 3 séances » above no control at all, and so did a create form with no patient " +
+    "chosen yet — one dentist saw the button and another, on the same act, did not. Deriving the guard from " +
+    "the picker rather than from a list of files is what covers the third booking surface on the day it is " +
+    "written; ONE materialiser rather than two is what stops that surface from remembering half of it.",
   () => {
     const offenders = [];
 
     // Derived from the picker itself: rendering it is what puts the split on screen.
     const RENDERS = /<AppointmentActsPicker\b/;
-    const MATERIALISES = /\bmaterialisePlannedProtocols\s*\(/;
+    const MATERIALISES = /\bmaterialiseTreatments\s*\(/;
 
     let candidates = 0;
     for (const f of tsx()) {
@@ -1766,8 +1767,9 @@ check(
         file: rel(f),
         line: lineAt(code, code.search(RENDERS)),
         text:
-          "renders the acts picker but never calls materialisePlannedProtocols — an act the card says is split " +
-          "into séances is saved as an ordinary one-off, and no treatment is ever created",
+          "renders the acts picker but never calls materialiseTreatments — an act the card says is split into " +
+          "séances, or a séance the card says continues a previous one, is saved as an ordinary one-off and no " +
+          "treatment is ever created",
       });
     }
 
@@ -3043,6 +3045,93 @@ check(
     }
 
     return problems;
+  }
+);
+
+check(
+  "carried-act-cost-names-its-note",
+  "N34",
+  "A devis act another document bills states the note, never a bare « 0,000 DT »",
+  "A continuation prices the already-invoiced act 0 on the devis and deliberately leaves its note UNATTACHED — " +
+    "that is what stops `PlanBillingRules.BilledPlanIds` dropping the plan and hiding the new work. The 0 is " +
+    "therefore correct and imposed server-side, and printed alone it says nothing: it reads as a free act. " +
+    "Measured on the reported case — a 90 DT soin billed on note 2026-0019 with 50 collected, continued at " +
+    "10 — the treatment screen showed « 0,000 DT » on the line and « Total convenu 10,000 · Encaissé 0,000 » " +
+    "above it, on a treatment the patient had already paid 50 towards and still owed 40 on. Nothing was " +
+    "arithmetically wrong; the screen was silent. `act-card.tsx` had had the rule since the plan-carried act " +
+    "landed (« Aucun honoraire sur cette séance ») and it had never been carried to the devis side — this " +
+    "repo's dominant defect shape, and this is what stops a third surface repeating it.",
+  () => {
+    const offenders = [];
+
+    // Derived from the reader itself rather than from a file list: a second implementation is found too.
+    const DECLARES = /\bfunction\s+planActCost\s*\(/;
+    // `formatDT(<something>.plannedCost)` — a plan act's fee printed AS money.
+    const PRINTS = /formatDT\(\s*[A-Za-z_$][\w$]*\.plannedCost\s*\)/g;
+
+    /*
+     * The two sites that legitimately print it raw, each unreachable for a carried act rather than exempted by
+     * taste — stated here so a future reader can re-derive the judgement instead of trusting the list:
+     *
+     *   · plan-workspace's « Arrêter le traitement » list renders `stoppableItems`, filtered on
+     *     `!hasDeliveredWork` — and a carried act is ALWAYS Done (its 1re séance is marked against the fiche
+     *     that evidences it), so it can never appear there.
+     *   · plan-step-suggestion-notice prices the act a séance is about to advance; a carried act has no step
+     *     left to advance, so the notice is never about one.
+     *
+     * Both are structural, so if either ever stops being true this list is the thing to revisit.
+     */
+    const STRUCTURALLY_SAFE = new Set([
+      "components/treatment-plans/plan-workspace.tsx",
+      "components/treatment-plans/plan-step-suggestion-notice.tsx",
+    ]);
+
+    let owners = 0;
+
+    for (const f of tsx()) {
+      const src = read(f);
+      const lines = src.split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      if (DECLARES.test(code)) owners++;
+
+      const where = rel(f).replace(/\\/g, "/");
+      if (STRUCTURALLY_SAFE.has(where)) continue;
+      // The owner is allowed to print it — that is the branch for an act nothing else bills.
+      if (DECLARES.test(code)) continue;
+      /*
+       * ⚠️ **The test is « does this file KNOW about a carried act », not « is this exact line guarded ».** A
+       * per-line window was tried first and is the wrong instrument: it fails a print sitting in the correct
+       * `else` of a carried test three lines up, which is precisely the shape the fix takes. File-level is also
+       * the honest granularity — a surface either understands that a devis act's fee can live on another
+       * document, or it does not.
+       */
+      if (/\bcarriedOnNoteNumber\b|\bbilledOnInvoiceId\b/.test(code)) continue;
+
+      for (const m of code.matchAll(PRINTS)) {
+        offenders.push({
+          file: rel(f),
+          line: lineAt(code, m.index),
+          text:
+            "prints a devis act's `plannedCost` directly — a carried act's is 0 by rule, so this renders " +
+            "« 0,000 DT » for a fee a note d'honoraires already collects. Go through `planActCost`, which " +
+            "names the note instead.",
+        });
+      }
+    }
+
+    // Tripwire: the reader was renamed, so this scan is measuring nothing rather than finding nothing.
+    if (owners !== 1) {
+      offenders.push({
+        file: "components/treatment-plans/plan-act-row.tsx",
+        text:
+          `found ${owners} \`planActCost\` declarations, expected exactly 1 — either the reader was renamed ` +
+          "(and this guard now holds nothing) or a second copy exists (and the two are free to disagree)",
+      });
+    }
+
+    return offenders;
   }
 );
 

@@ -382,6 +382,27 @@ public interface ITreatmentPlanRepository
         IReadOnlyCollection<Guid> itemIds,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The devis holding an act that <paramref name="invoiceId"/> already bills — the reverse of
+    /// <c>TreatmentPlanItem.BilledOnInvoiceId</c>, asked by the note's own cancel and delete guards.
+    ///
+    /// <para>Without it a note could be voided out from under the devis that holds its act at <b>0</b>, and the
+    /// fee would then be on no document at all: the plan's line stays 0 (nothing links the two for a cascade to
+    /// follow) and the cancelled note is dropped by every money read. Measured as reachable in two clicks on a
+    /// draft or unpaid note — <c>Invoice.CanCancel</c> only blocks a live payment.</para>
+    ///
+    /// <para>⚠️ The mirror case is already safe and this is <b>not</b> it: cancelling a note bridged to a plan
+    /// (<c>Invoice.TreatmentPlanId</c>) hands the plan's balance back, because a bridged plan's lines were never
+    /// zeroed. A continuation devis is deliberately un-bridged, so there is nothing to hand back.</para>
+    ///
+    /// <para>A light projection — the caller needs a number to name in a refusal, not an aggregate.</para>
+    /// </summary>
+    Task<IReadOnlyList<(Guid PlanId, string? Number, TreatmentPlanStatus Status)>>
+        GetPlansBilledOnInvoiceAsync(
+            Guid clinicId,
+            Guid invoiceId,
+            CancellationToken cancellationToken = default);
+
     Task<TreatmentPlan> AddAsync(TreatmentPlan plan, CancellationToken cancellationToken = default);
     Task UpdateAsync(TreatmentPlan plan, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

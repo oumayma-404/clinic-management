@@ -102,7 +102,8 @@ public class InvoiceTenantIsolationTests
         _invoices.Setup(r => r.GetByIdAsync(foreign.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreign);
 
         var handler = new CancelInvoiceCommandHandler(
-            _invoices.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            _invoices.Object, _patients.Object, new Mock<ITreatmentPlanRepository>().Object,
+            _clinicResolver.Object, _uow.Object,
             NullLogger<CancelInvoiceCommandHandler>.Instance);
 
         var result = await handler.Handle(
@@ -139,7 +140,8 @@ public class InvoiceTenantIsolationTests
         _invoices.Setup(r => r.GetByIdAsync(foreign.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreign);
 
         var handler = new DeleteInvoiceCommandHandler(
-            _invoices.Object, _clinicResolver.Object, _uow.Object,
+            _invoices.Object, new Mock<ITreatmentPlanRepository>().Object,
+            _clinicResolver.Object, _uow.Object,
             NullLogger<DeleteInvoiceCommandHandler>.Instance);
 
         var result = await handler.Handle(new DeleteInvoiceCommand { Id = foreign.Id }, CancellationToken.None);

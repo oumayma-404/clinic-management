@@ -643,12 +643,47 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "Notes",
             sql: """SELECT COUNT(*) FROM "Appointments" WHERE "Notes" LIKE 'Type: %'""");
 
-        // The same predicate the partial constraint uses: Cancelled = 5, NoShow = 6 are not busy slots, and a
-        // NULL practitioner is a busy slot belonging to nobody, so there is no one to double-book.
+            /*
+         * The predicate `EX_Appointments_NoDoubleBooking` currently carries, term for term: Cancelled = 5 and
+         * NoShow = 6 are not busy slots, a NULL practitioner is a slot belonging to nobody, a **retired** séance
+         * (`DisregardedAtUtc`) has given its hour back, and an **acknowledged** overlap (`BookedWithOverlap`) is
+         * one somebody was warned about and chose.
+         *
+         * ⚠️ **This is the rule's THIRD home and it was the one nobody updated.** The constraint is the first,
+         * `AppointmentScheduling.OccupiesSlot` the second — `FreeTheSlotOfARetiredAppointment`'s own docstring
+         * says « the application guard moves with it » and names exactly those two. Both later migrations
+         * (`AllowAcknowledgedOverlap`, then that one) added a term there and left this copy at two, while its
+         * comment went on claiming to be « the same predicate the partial constraint uses ». Measured on a live
+         * database with the constraint installed: this query returned **50** and the constraint's own predicate
+         * **0**, so every pair it reported was a row the constraint legitimately permits — and the finding said
+         * « the constraint cannot be installed until these are resolved » about a constraint already installed.
+         *
+         * The two later columns are guarded rather than assumed: a database predating either migration must read
+         * the predicate that was true for it, not throw 42703.
+         */
+        var overlapTerms = new List<string>
+        {
+            """a."DoctorId" IS NOT NULL""",
+            """a."Status" NOT IN (5, 6)""",
+            """b."Status" NOT IN (5, 6)""",
+        };
+
+        if (await ColumnExistsAsync(connection, "Appointments", "DisregardedAtUtc", cancellationToken))
+        {
+            overlapTerms.Add("""a."DisregardedAtUtc" IS NULL""");
+            overlapTerms.Add("""b."DisregardedAtUtc" IS NULL""");
+        }
+
+        if (await ColumnExistsAsync(connection, "Appointments", "BookedWithOverlap", cancellationToken))
+        {
+            overlapTerms.Add("""NOT a."BookedWithOverlap" """);
+            overlapTerms.Add("""NOT b."BookedWithOverlap" """);
+        }
+
         var overlaps = await ScalarOrNullAsync(connection, cancellationToken,
             requiredTable: "Appointments",
             requiredColumn: "DoctorId",
-            sql: """
+            sql: $"""
                 SELECT COUNT(*)
                 FROM "Appointments" a
                 JOIN "Appointments" b
@@ -656,9 +691,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                  AND a."Id" < b."Id"
                  AND a."AppointmentDateTime" < b."AppointmentDateTime" + (b."Duration" * interval '1 microsecond' / 10)
                  AND b."AppointmentDateTime" < a."AppointmentDateTime" + (a."Duration" * interval '1 microsecond' / 10)
-                WHERE a."DoctorId" IS NOT NULL
-                  AND a."Status" NOT IN (5, 6)
-                  AND b."Status" NOT IN (5, 6)
+                WHERE {string.Join("\n                  AND ", overlapTerms)}
                 """);
 
         // Pre-migration only: once the batch migration runs it DROPS StockItems.ExpiryDate, so this question
@@ -773,6 +806,27 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                         OR MAX("SequenceNumber") <> COUNT(*) - 1
                         OR COUNT(DISTINCT "SequenceNumber") <> COUNT(*)
                 ) d
+                """);
+
+        /*
+         * A devis act a note d'honoraires collects must sit at 0 on the devis, and the note must not be that
+         * devis' own bridge — the two arrangements are opposites and an act cannot be in both. Enforced in
+         * `TreatmentPlan.MarkItemBilledOnInvoice` and `TreatmentPlanItem.Revise`, deliberately not as a CHECK
+         * constraint, so it is verified here (`cheque-details-only-on-cheques`' precedent).
+         *
+         * Either violation is silent MONEY: a fee left on the line is billed twice, on two live documents, with
+         * every balance read agreeing the patient owes it; and a marker on a bridged note means the plan is
+         * dropped whole by `PlanBillingRules.BilledPlanIds` while still holding work nothing else reports.
+         */
+        var carriedActsContradicted = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "TreatmentPlanItems",
+            requiredColumn: "BilledOnInvoiceId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "TreatmentPlanItems" t
+                LEFT JOIN "Invoices" i ON i."Id" = t."BilledOnInvoiceId"
+                WHERE t."BilledOnInvoiceId" IS NOT NULL
+                  AND (t."PlannedCost" <> 0 OR i."TreatmentPlanId" IS NOT NULL)
                 """);
 
         // L4a's backfill. Guarded on `BackupRetentionCount`, so before the migration runs this reads « not
@@ -1137,7 +1191,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
-            unsetBackupSchedule, chequeDetailsOnNonCheque, bankedStampOnNonCheque,
+            unsetBackupSchedule, carriedActsContradicted, chequeDetailsOnNonCheque, bankedStampOnNonCheque,
             attributableButUnattributed, fichesResolvableStillUnlinked, pushClinicMismatch,
             signupOrphans, clinicalChildrenWrongClinic,
             enrolledWithoutSecret, clinicsWithoutSnapshot, incoherentSnapshots,

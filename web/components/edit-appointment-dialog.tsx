@@ -58,11 +58,12 @@ import { formatAmount, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
 import type { AppointmentDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { suggestedPlanStep } from "@/components/treatment-plans/plan-next-action"
+import { suggestedPlanSteps } from "@/components/treatment-plans/plan-next-action"
+import type { PlanStepSuggestion } from "@/components/treatment-plans/plan-next-action"
 import {
   usePatientPlanActs,
   resolveAttachedPlanId,
-  materialisePlannedProtocols,
+  materialiseTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
@@ -240,7 +241,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   /**
    * The treatments this dialog has already created, keyed on the catalogue act — see
-   * {@link materialisePlannedProtocols}. `performUpdate` re-runs on every confirmation the server asks for
+   * {@link materialiseTreatments}. `performUpdate` re-runs on every confirmation the server asks for
    * (slot taken, out of hours), so without this one « enregistrer quand même » leaves two identical treatments.
    */
   const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
@@ -253,10 +254,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * <p>⚠️ Withdrawn as soon as the visit carries any devis act — the question is answered — and once dismissed.</p>
    */
   const [suggestionDismissed, setSuggestionDismissed] = useState(false)
-  const suggestion = useMemo(() => {
+  const suggestions = useMemo(() => {
     if (suggestionDismissed || !source?.patientId) return null
     if (selectedActs.some((a) => a.treatmentPlanItemId)) return null
-    return suggestedPlanStep(patientPlans)
+    return suggestedPlanSteps(patientPlans)
   }, [suggestionDismissed, source?.patientId, selectedActs, patientPlans])
 
   /** Any act of this séance is priced by a devis, so the visit itself is not what gets billed. */
@@ -265,13 +266,20 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     [selectedActs],
   )
 
-  const acceptSuggestion = useCallback(() => {
-    if (!suggestion) return
-    const preset = planItemToPreset(suggestion.plan, suggestion.item, (i) => i.procedureTypeId ?? undefined)
-    // Appended and `durationTouched` untouched — a booked visit's length is already somebody's decision, which
-    // is the same reason hydration starts that flag true.
-    setSelectedActs((prev) => [...prev, presetToSelectedAct(preset, procedureTypes)])
-  }, [suggestion, procedureTypes])
+  /**
+   * ⚠️ Takes the suggestion it was pressed on, never « the » suggestion: several treatments are listed now, and
+   * reading a single one would attach the top row whichever button was pressed — a priced, plausible devis act
+   * on the wrong treatment.
+   */
+  const acceptSuggestion = useCallback(
+    (suggestion: PlanStepSuggestion) => {
+      const preset = planItemToPreset(suggestion.plan, suggestion.item, (i) => i.procedureTypeId ?? undefined)
+      // Appended and `durationTouched` untouched — a booked visit's length is already somebody's decision, which
+      // is the same reason hydration starts that flag true.
+      setSelectedActs((prev) => [...prev, presetToSelectedAct(preset, procedureTypes)])
+    },
+    [procedureTypes],
+  )
 
   /**
    * Back-fill the devis half of an already-hydrated act row once the patient's devis and the catalogue land.
@@ -715,7 +723,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       let freshPlanIds: Record<string, string> = {}
       if (appointment.patientId) {
         try {
-          const materialised = await materialisePlannedProtocols(
+          const materialised = await materialiseTreatments(
             selectedActs, procedureTypes, appointment.patientId, createdPlansRef.current,
           )
           actsToSend = materialised.acts
@@ -1033,9 +1041,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               rendered below the sheet's scrolling fold, showing 7 of its 184 px. It is derived from the patient
               and nothing else on this form, so directly under the identity is where it belongs.
             */}
-            {suggestion && (
+            {suggestions && (
               <PlanStepSuggestionNotice
-                suggestion={suggestion}
+                set={suggestions}
                 onAccept={acceptSuggestion}
                 onDismiss={() => setSuggestionDismissed(true)}
                 disabled={loadingProcedureTypes}
