@@ -61,6 +61,15 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             phone.Property(p => p.Value)
                 .HasColumnName("PhoneNumber")
                 .HasMaxLength(20);
+            // The dialable normalisation, resolved with the region the writer supplied — see `PhoneNumber.E164`.
+            // ⚠️ Nullable and NOT backfilled: a legacy row re-derives on read.
+            phone.Property(p => p.PersistedE164)
+                .HasColumnName("PhoneNumberE164")
+                .HasMaxLength(20);
+            // ⚠️ `E164` is the READ (stored value, else re-derived). It has no setter and no backing field, so
+            // EF would not map it anyway — ignored explicitly so nobody later "fixes" it into a column and
+            // freezes a fallback result as data.
+            phone.Ignore(p => p.E164);
         });
 
         // ⚠️ EF warns that `Address` is now an "optional dependent … without any required non shared property",
@@ -124,11 +133,19 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.Property(p => p.EmergencyContactName)
             .HasMaxLength(200);
 
+        // ⚠️ This one gets the E.164 column too, because the value object carries it — and that is the point:
+        // the normalisation cannot be forgotten at a write site if it is impossible to construct a number
+        // without it. It stays null for « 71 555 (bureau) », which this field deliberately accepts rather than
+        // refusing (nothing dispatches to an emergency contact; a human reads it).
         builder.OwnsOne(p => p.EmergencyContactPhone, phone =>
         {
             phone.Property(p => p.Value)
                 .HasColumnName("EmergencyContactPhone")
                 .HasMaxLength(20);
+            phone.Property(p => p.PersistedE164)
+                .HasColumnName("EmergencyContactPhoneE164")
+                .HasMaxLength(20);
+            phone.Ignore(p => p.E164);
         });
 
         // « Adressé par » — the referring practitioner, free text (usually outside this clinic).

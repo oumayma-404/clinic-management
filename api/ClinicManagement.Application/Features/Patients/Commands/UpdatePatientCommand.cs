@@ -87,6 +87,15 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     [JsonIgnore]
     public bool PhoneNumberSpecified { get; private set; }
 
+    /// <inheritdoc cref="CreatePatientCommand.PhoneRegion"/>
+    /// <remarks>
+    /// ⚠️ <b>Deliberately NOT tri-state</b>, unlike every other field on this command. It is not a property of
+    /// the patient and nothing stores it — it only says how to read the number arriving in the same request, so
+    /// « omitted » can only mean « the default region », never « leave the stored one alone ». There is no
+    /// stored one.
+    /// </remarks>
+    public string? PhoneRegion { get; set; }
+
     /// <summary>
     /// The postal address, tri-state like <see cref="Email"/>: omit the key to leave it alone, send an explicit
     /// <c>null</c> to clear it, send a block to set it.
@@ -218,7 +227,11 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             // A provided phone must be one we can reach — any country now, not just Tunisia. The rule only ever
             // widened, so no patient who could be saved before can be refused now: a legacy row that survived
             // the Tunisian-only rule necessarily satisfies this one.
-            if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
+            // ⚠️ The region, or the country selector's choice never leaves the browser — see
+            // `CreatePatientCommand.PhoneRegion`. Editing a patient to a foreign number was refused for the same
+            // reason creating one was.
+            if (!string.IsNullOrWhiteSpace(request.PhoneNumber)
+                && !PhoneNumber.IsDeliverable(request.PhoneNumber, request.PhoneRegion))
             {
                 return Result<PatientDto>.Failure(PhoneRefusals.Invalid);
             }
@@ -280,8 +293,13 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 var email = request.EmailSpecified
                     ? (string.IsNullOrWhiteSpace(request.Email) ? null : new Email(request.Email))
                     : patient.Email;
+                // ⚠️ `request.PhoneRegion` here too — see `PhoneNumber.E164`. Note the untouched branch keeps
+                // `patient.PhoneNumber` as it is, so an edit that does not mention the phone neither re-derives
+                // nor loses its stored normalisation.
                 var phoneNumber = request.PhoneNumberSpecified
-                    ? (string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : new PhoneNumber(request.PhoneNumber))
+                    ? (string.IsNullOrWhiteSpace(request.PhoneNumber)
+                        ? null
+                        : new PhoneNumber(request.PhoneNumber, request.PhoneRegion))
                     : patient.PhoneNumber;
 
                 patient.UpdateContact(email, phoneNumber);

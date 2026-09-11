@@ -432,6 +432,31 @@ touching the area.
   give the buttons a real `basis-*` with `flex-wrap`, and put `min-w-0` on any row holding a `truncate`
   descendant — `white-space: nowrap` makes its min-content the whole string. ⚠️ `tsc`, `check:responsive` and
   `npm run build` were **all green** while this was live; only the eye pass at 320 px found it.
+- **A country selector whose choice never leaves the browser, and two refusal sentences that are byte-identical.**
+  `PhoneNumber.ToE164(raw, region)` has taken a region since international-phone-numbers shipped and its docstring
+  says « the country selector passes the user's own choice » — **not one production call site passed one**, so the
+  server validated every number against Tunisia while the form offered 250 countries. Measured in production
+  2026-09-11: « France » + `06 12 34 56 78` (valid, and accepted by the browser's own pre-check) refused on save;
+  `+33 6 12 34 56 78` accepted, which is the only reason the feature looked half-alive. ⚠️ It was undiagnosable
+  because `PhoneRefusals.Invalid` and `PHONE_ERROR_FR` are **the same sentence word for word** while both
+  docstrings claimed they were deliberately distinct — so a server refusal was indistinguishable from the client
+  pre-check. ⚠️ `PhoneRuleCorpusTests` and `check:responsive`'s `phone-rule-matches-the-corpus` were green
+  throughout and *contain this exact case*: a corpus pins a **function**, and nothing pinned that the callers hand
+  it the region. ⚠️ The region is a **write-time input that must be stored**, not merely validated with —
+  `PhoneNumber.E164` / `Supplier.PhoneE164` are the stored normalisation, because a national number cannot be
+  re-derived without its country and accepting one the product cannot dial is the quieter half of the same defect
+  (no WhatsApp, no reminder, a `tel:` link dialling a French national number from a Tunisian handset). Nothing is
+  backfilled; both fall back to re-deriving, which is exactly what legacy rows already resolved to.
+- **In the Windows shell, EVERY failed navigation used to mean « the clinic server is unreachable ».** The panel
+  it raises replaces the whole application, so raising it is a claim that the server is down — but
+  `NavigationCompleted` reports a failure for at least four things that say nothing of the kind: a `tel:` or
+  `mailto:` link (no scheme a WebView can complete), a navigation cancelled on purpose, **a request that turned
+  into a download** (WebView2 reports one as `ConnectionAborted` on the clinic's own origin), and any navigation
+  superseded by the next. One tap on a patient's phone number took the app down and named a server that was
+  answering `/health` with 200. ⚠️ `CoreWebView2NavigationCompletedEventArgs` carries **no URI**, only a
+  navigation id — which is precisely how the handler came to blame `_config.BaseUrl` for failures that never
+  addressed it. The test is now positive and narrow (the clinic app's own document, remembered from
+  `NavigationStarting`), never a list of failures to forgive. See `desktop/CLAUDE.md` → `ExternalNavigation.cs`.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill

@@ -311,7 +311,8 @@ public class ReminderScheduler : IReminderScheduler
             return PatientReachability.ConsentRefused;
         }
 
-        return patient.PhoneNumber != null && PhoneNumber.IsDeliverable(patient.PhoneNumber.Value)
+        // `E164` is the stored normalisation; re-deriving here read every foreign number as unreachable.
+        return patient.PhoneNumber?.E164 != null
             ? PatientReachability.Reachable
             : PatientReachability.NoDeliverablePhone;
     }

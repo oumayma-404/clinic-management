@@ -84,7 +84,9 @@ public static class SupplierMappingExtensions
         Name = supplier.Name,
         Category = supplier.Category,
         PhoneNumber = supplier.PhoneNumber,
-        PhoneE164 = PhoneNumber.ToE164(supplier.PhoneNumber),
+        // The STORED normalisation — deriving it here read every supplier's number as Tunisian, so a French
+        // dépôt lost the WhatsApp action the form had just promised it. See `Supplier.PhoneE164`.
+        PhoneE164 = supplier.PhoneE164,
         Address = supplier.Address,
         Notes = supplier.Notes,
         IsActive = supplier.IsActive,

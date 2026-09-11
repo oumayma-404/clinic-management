@@ -48,6 +48,28 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
 
     /// <inheritdoc cref="Email"/>
     public string? PhoneNumber { get; set; }
+
+    /// <summary>
+    /// The country <see cref="PhoneNumber"/> is to be read as when it carries no country code — an ISO 3166-1
+    /// alpha-2 code, from the form's country selector. Absent ⇒ <see cref="Domain.ValueObjects.PhoneNumber.DefaultRegion"/>.
+    ///
+    /// <para>⚠️ <b>Without this the selector's choice never left the browser, and every foreign number was
+    /// refused on save.</b> <c>PhoneNumber.ToE164</c> has taken a region since international-phone-numbers
+    /// shipped and its docstring says « the country selector passes the user's own choice » — but not one
+    /// production call site ever passed one, so the server kept validating against Tunisia. Measured in
+    /// production on 2026-09-11: a receptionist picked « France », typed <c>06 12 34 56 78</c> (valid, and
+    /// accepted by the browser's own pre-check) and was refused on save. The refusal was unreadable as a server
+    /// refusal because <c>PhoneRefusals.Invalid</c> and the browser's <c>PHONE_ERROR_FR</c> are the SAME
+    /// sentence — see the note on <c>PhoneRefusals</c>.</para>
+    ///
+    /// <para>⚠️ It is a <b>validation input, not stored state</b>, and that is a KNOWN REMAINING GAP: nothing
+    /// persists it, so every read that re-derives E.164 from the stored string (<c>PatientDto.PhoneE164</c>,
+    /// <c>PatientDuplicateIndex</c>, <c>ReminderPhone</c>) still assumes Tunisia. A French number stored as
+    /// <c>06 12 34 56 78</c> therefore saves, but resolves to <c>null</c> E.164 — so it gets no WhatsApp action
+    /// and no reminder. Closing that needs the number to reach storage already carrying its country code, or a
+    /// persisted region beside it; both change stored data and are the owner's call, not this fix's.</para>
+    /// </summary>
+    public string? PhoneRegion { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     public string? Medications { get; set; }

@@ -16,6 +16,39 @@ public partial class MainWindow : Window
     private ServerConfig _config = new();
     private bool _coreReady;
 
+    /// <summary>
+    /// The navigation we cancelled ourselves to hand it to Windows or to the browser.
+    ///
+    /// <para>⚠️ A cancelled navigation still raises <c>NavigationCompleted</c>, with <c>IsSuccess == false</c>.
+    /// Without this it is the unreachable panel all over again — the very thing
+    /// <see cref="ExternalNavigation"/> was added to stop.</para>
+    /// </summary>
+    private ulong? _cancelledNavigationId;
+
+    /// <summary>
+    /// The clinic app's own document navigation — the only one whose failure means « the server cannot be
+    /// reached ».
+    ///
+    /// <para>⚠️ <c>CoreWebView2NavigationCompletedEventArgs</c> carries <b>no URI</b>, only a navigation id, so
+    /// which navigation failed can only be known by remembering it from <c>NavigationStarting</c>. That absence
+    /// is precisely how the handler came to blame <c>_config.BaseUrl</c> for every failure, including the ones
+    /// that never addressed it.</para>
+    /// </summary>
+    private ulong? _clinicDocumentNavigationId;
+
+    /// <summary>
+    /// Set when the navigation in flight turned out to be a download.
+    ///
+    /// <para>⚠️ <b>A download is reported as a FAILED navigation</b> — WebView2 raises <c>DownloadStarting</c>
+    /// and then completes the navigation with <c>IsSuccess == false</c> and
+    /// <c>WebErrorStatus.ConnectionAborted</c>, the same status a dead server produces, for a request that went
+    /// to the clinic's own origin and succeeded. Exporting a CSV, saving an ordonnance PDF or pulling a
+    /// patient's radiograph would each have shown « Impossible de joindre le serveur du cabinet ». A single flag
+    /// is enough because it is read on the UI thread, in the completion that follows the download that set
+    /// it.</para>
+    /// </summary>
+    private bool _navigationBecameDownload;
+
     /// <summary>The newest release the server knows of — what a dismissal is remembered against.</summary>
     private string _latestKnownVersion = string.Empty;
 
@@ -138,6 +171,11 @@ public partial class MainWindow : Window
 
             WebView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
             WebView.CoreWebView2.ContextMenuRequested += WebView_ContextMenuRequested;
+            // Anything that is not a page of this clinic's server leaves the WebView — the rule both mobile
+            // shells have had since Part 4 and this one never got. See `ExternalNavigation`.
+            WebView.CoreWebView2.NavigationStarting += WebView_NavigationStarting;
+            WebView.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
+            WebView.CoreWebView2.DownloadStarting += WebView_DownloadStarting;
             await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ThemeReporterScript);
             // The shell's first bridge (clinic-file-vault). Injected here rather than composed into the theme
             // script: they answer to different things, and a page that breaks one must keep the other.
@@ -238,6 +276,93 @@ public partial class MainWindow : Window
         UpdateNoticeBar.Visibility = Visibility.Visible;
     }
 
+    /// <summary>
+    /// Decides, before anything is loaded, whether this navigation belongs to the shell at all.
+    ///
+    /// <para>⚠️ Top-level only — <c>CoreWebView2.NavigationStarting</c> does not fire for subframes
+    /// (<c>FrameNavigationStarting</c> does, and is deliberately not handled). A cross-origin iframe is the
+    /// page's own business, and opening a browser window for one would be a window the user never asked for.</para>
+    /// </summary>
+    private void WebView_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        switch (ExternalNavigation.DispositionFor(e.Uri, _config))
+        {
+            case NavigationDisposition.HandToOperatingSystem:
+                e.Cancel = true;
+                _cancelledNavigationId = e.NavigationId;
+                if (!ExternalNavigation.Launch(e.Uri))
+                {
+                    // A PC with no softphone or no mail client is ordinary, so this is a statement and not an
+                    // error: the number is on screen behind this box, which is what the user needs to dial it.
+                    MessageBox.Show(
+                        this,
+                        $"Windows n'a pas d'application pour ouvrir « {e.Uri} ».\n\n"
+                        + "Installez une application de téléphonie ou de messagerie, ou utilisez le numéro "
+                        + "affiché à l'écran.",
+                        "Impossible d'ouvrir ce lien",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+                break;
+
+            case NavigationDisposition.OpenInBrowser:
+                e.Cancel = true;
+                _cancelledNavigationId = e.NavigationId;
+                if (!ExternalNavigation.Launch(e.Uri))
+                {
+                    MessageBox.Show(
+                        this,
+                        $"Impossible d'ouvrir « {e.Uri} » dans votre navigateur.",
+                        "Impossible d'ouvrir ce lien",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+                break;
+
+            case NavigationDisposition.LoadInShell:
+                // Remembered so the completion handler can tell the clinic app's own document from everything
+                // else that navigates. `blob:`/`data:`/`about:` land here too and must NOT claim the id: a
+                // failed file preview is not an unreachable server either.
+                if (ExternalNavigation.IsClinicDocument(e.Uri, _config))
+                {
+                    _clinicDocumentNavigationId = e.NavigationId;
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// A <c>target="_blank"</c> or <c>window.open</c> whose target is not ours — « Contacter par WhatsApp »
+    /// (<c>wa.me</c>) is the one the product actually opens.
+    ///
+    /// <para>⚠️ <b>Same-origin and <c>about:blank</c> popups are deliberately left alone.</b> WebView2's default
+    /// popup keeps the shell's own profile, and that profile is where the session cookie lives — handing a page
+    /// of our own app to the default browser would land the user on a login screen instead of the document they
+    /// asked to open.</para>
+    /// </summary>
+    private void WebView_NewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        var disposition = ExternalNavigation.DispositionFor(e.Uri, _config);
+        if (disposition is NavigationDisposition.LoadInShell)
+        {
+            return;
+        }
+
+        // Handled even if the launch fails: letting the WebView open a foreign origin in a chrome-less popup
+        // with no address bar and no way back is the worse of the two outcomes.
+        e.Handled = true;
+        ExternalNavigation.Launch(e.Uri);
+    }
+
+    /// <summary>Records that the navigation in flight is a download. See <see cref="_navigationBecameDownload"/>.</summary>
+    private void WebView_DownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
+    {
+        _navigationBecameDownload = true;
+        // Not cancelled and not otherwise touched: the shell keeps WebView2's own download UI and its default
+        // folder. This handler exists only so the aborted navigation behind a download cannot be read as an
+        // outage.
+    }
+
     private void WebView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         if (e.IsSuccess)
@@ -250,13 +375,52 @@ public partial class MainWindow : Window
             StartFileMirrorIfEnabled();
             StartUpdateChecks();
         }
-        else
+        else if (IsClinicServerUnreachable(e))
         {
             ShowUnreachable(
                 $"Adresse : {_config.BaseUrl}\n" +
                 $"Détail : {e.WebErrorStatus}\n\n" +
                 "Vérifiez que le serveur est allumé et connecté au réseau, puis réessayez.");
         }
+    }
+
+    /// <summary>
+    /// Whether a failed navigation actually says the clinic's server cannot be reached.
+    ///
+    /// <para>⚠️ <b>This used to be « any failure at all », and that is the whole defect.</b> The panel it gates
+    /// replaces the entire application and offers « Réessayer » / « Changer de serveur », so raising it is a
+    /// claim that the server is down — but <c>NavigationCompleted</c> reports a failure for at least four things
+    /// that say nothing of the kind: a <c>tel:</c> or <c>mailto:</c> link (no scheme a WebView can complete), a
+    /// navigation we cancelled on purpose, a request that turned into a download, and any navigation superseded
+    /// by the next one. Production, 2026-09-11: a phone link on the patient file took the app down and named a
+    /// server that was answering <c>/health</c> with 200 at that moment.</para>
+    ///
+    /// <para>The test is therefore positive and narrow — <b>the clinic app's own document, and nothing
+    /// else</b> — rather than a list of failures to forgive, so the next kind of navigation this app grows
+    /// cannot quietly re-acquire the panel.</para>
+    /// </summary>
+    private bool IsClinicServerUnreachable(CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (_cancelledNavigationId == e.NavigationId)
+        {
+            _cancelledNavigationId = null;
+            return false; // We stopped this one ourselves — it is already open in Windows or in the browser.
+        }
+
+        if (_navigationBecameDownload)
+        {
+            _navigationBecameDownload = false;
+            return false;
+        }
+
+        // Superseded, or stopped by the page: never an outage. A clinic navigating while the app is still
+        // loading produces this, and the panel would be a lie on a server that is answering.
+        if (e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled)
+        {
+            return false;
+        }
+
+        return _clinicDocumentNavigationId == e.NavigationId;
     }
 
     // ---- Following the web app's theme ----------------------------------------------------------

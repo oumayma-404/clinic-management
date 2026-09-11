@@ -785,6 +785,9 @@ export function CreateAppointmentDialog({
                 firstName: newPatientFirstName.trim(),
                 lastName: newPatientLastName.trim(),
                 phoneNumber: newPatientPhone.trim() || null,
+                // The country control's own value — without it the server reads every number as Tunisian and
+                // refuses a foreign one that this dialog's own pre-check has already accepted.
+                phoneRegion: newPatientPhoneCountry,
                 // Absent on the first attempt: the server checks whether this person is already on file and
                 // refuses with `PatientDuplicate` if so. Only a confirmed prompt sets it.
                 allowDuplicate: granted.duplicatePatient || undefined,

@@ -87,7 +87,9 @@ public static class LabWorkOrderMappingExtensions
         Prosthetist = order.Prosthetist,
         SupplierId = order.SupplierId,
         SupplierName = supplier?.Name,
-        SupplierPhoneE164 = PhoneNumber.ToE164(supplier?.PhoneNumber),
+        // The STORED normalisation — deriving it here read every supplier's number as Tunisian, so a French
+        // dépôt lost the WhatsApp action the form had just promised it. See `Supplier.PhoneE164`.
+        SupplierPhoneE164 = supplier?.PhoneE164,
         WorkDescription = order.WorkDescription,
         SentDate = order.SentDate,
         ExpectedDate = order.ExpectedDate,

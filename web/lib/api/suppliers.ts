@@ -7,6 +7,15 @@ export interface SupplierPayload {
   name: string;
   category?: string | null;
   phoneNumber?: string | null;
+  /**
+   * ISO 3166-1 alpha-2 of the country `phoneNumber` is read as when it carries no country code — the form's
+   * country selector. Omitted ⇒ the server assumes Tunisia.
+   *
+   * ⚠️ **Send it whenever the country control is on screen.** The dialog tells the user « Choisissez le pays
+   * si besoin » to get the WhatsApp action, and without this the server derived the dialable number as
+   * Tunisian — so a French dépôt got neither the action nor the warning. See `Supplier.PhoneE164`.
+   */
+  phoneRegion?: string | null;
   address?: string | null;
   notes?: string | null;
   /**

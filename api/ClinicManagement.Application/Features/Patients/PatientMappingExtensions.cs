@@ -29,7 +29,10 @@ public static class PatientMappingExtensions
             DentitionAnswered = patient.DentitionAnsweredAtUtc != null,
             Email = patient.Email?.Value,
             PhoneNumber = patient.PhoneNumber?.Value,
-            PhoneE164 = PhoneNumber.ToE164(patient.PhoneNumber?.Value),
+            // ⚠️ The STORED normalisation, not a re-derivation. Re-deriving assumed Tunisia, so a French
+            // patient's number resolved to null here and every surface keyed on `phoneE164` — the WhatsApp
+            // action, the reminder, the `tel:` link — silently treated them as having no number at all.
+            PhoneE164 = patient.PhoneNumber?.E164,
             MedicalHistory = patient.MedicalHistory,
             Allergies = patient.Allergies,
             Medications = patient.Medications,
@@ -128,8 +131,9 @@ public static class PatientMappingExtensions
                 continue;
             }
 
-            var ownPhone = PhoneNumber.ToE164(patient.PhoneNumber?.Value);
-            var otherPhone = PhoneNumber.ToE164(other.PhoneNumber?.Value);
+            // Both sides through the stored normalisation, so two records of one foreign number match.
+            var ownPhone = patient.PhoneNumber?.E164;
+            var otherPhone = other.PhoneNumber?.E164;
 
             dto.SuggestedDuplicate = new SuggestedDuplicateDto
             {

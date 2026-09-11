@@ -35,7 +35,11 @@ public static class PatientFromRequest
         // A provided phone must be one we can reach — any country now, not just Tunisia — else reject at entry
         // so it never silently fails at dispatch. An empty phone is allowed: the patient simply can't receive
         // reminders, and the form says so.
-        if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
+        // ⚠️ `request.PhoneRegion` is what makes « any country » true. Read the note on
+        // `CreatePatientCommand.PhoneRegion`: this call dropped the region for as long as the region existed, so
+        // the server went on validating every number against Tunisia while the form offered 250 countries.
+        if (!string.IsNullOrWhiteSpace(request.PhoneNumber)
+            && !PhoneNumber.IsDeliverable(request.PhoneNumber, request.PhoneRegion))
         {
             return Result<Patient>.Failure(PhoneRefusals.Invalid);
         }
@@ -44,9 +48,12 @@ public static class PatientFromRequest
         // columns would accept the row — which made "we have no way to reach this patient" indistinguishable from
         // "we have their details", and put an address on file that would silently absorb any mail sent to it.
         var email = string.IsNullOrWhiteSpace(request.Email) ? null : new Email(request.Email);
+        // ⚠️ The region goes to the CONSTRUCTOR, not just to the check above. The check decides whether to
+        // accept; the constructor decides what is stored, and a number stored without its region is a number no
+        // later read can dial — see `PhoneNumber.E164`.
         var phoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber)
             ? null
-            : new PhoneNumber(request.PhoneNumber);
+            : new PhoneNumber(request.PhoneNumber, request.PhoneRegion);
 
         // Whatever address was given, however partial. The four-way `&&` this replaces required all of street,
         // city, gouvernorat and code postal — so « Sfax » alone was *silently dropped*, not refused: the address

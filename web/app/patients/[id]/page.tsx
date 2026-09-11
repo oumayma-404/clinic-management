@@ -1876,7 +1876,19 @@ procedureTypeId: it.procedureTypeId ?? null,
               )}
               {patient.phoneNumber ? (
                 <a
-                  href={`tel:${patient.phoneNumber}`}
+                  /*
+                   * ⚠️ **The dialable form, never the stored one.** `phoneNumber` is kept exactly as typed, so
+                   * `tel:06 12 34 56 78` is what this used to emit — spaces and all, and with no country code
+                   * for a foreign number. `phoneE164` is the server's own normalisation of it
+                   * (`PatientDto.PhoneE164`), which is what the two rappels cards and the supplier WhatsApp
+                   * action already dial; this link was the odd one out. The stored value is still what is
+                   * *displayed* — reception reads the number it typed.
+                   *
+                   * The fallback strips whitespace rather than trusting it: a number the server could not
+                   * resolve (a foreign one saved before the country reached the API) has no E.164, and
+                   * `tel:` with spaces in it is the shape that took the Windows shell's whole window down.
+                   */
+                  href={`tel:${patient.phoneE164 ?? patient.phoneNumber.replace(/\s/g, "")}`}
                   /* `touch-target`: an isolated 20px-tall control, and on a phone it is the one link on this
                      screen someone actually taps (it dials the patient). */
                   className="touch-target inline-flex items-center font-medium text-foreground underline-offset-2 hover:underline"
