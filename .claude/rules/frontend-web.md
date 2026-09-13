@@ -438,13 +438,16 @@ second — `patient-file-pdf-preview.tsx` is the shape, and `document-editor-con
 Where that surface is also the **print** path, printing *through* the frame prints nothing: check the frame is really
 rendered (`offsetParent !== null`) and otherwise hand the file to the OS through `downloadBlob`, whose viewer prints.
 
-**In a shell the inactivity limit pauses the session; in a browser it still ends it** (Part 7, AC-57…AC-60).
-`LocalSessionProvider` branches on `canConfirmIdentityInShell()` and raises `components/session-lock-gate.tsx` —
+**The inactivity limit pauses a TRUSTED session and only ever ends an untrusted one** (Part 7, AC-57…AC-60).
+`LocalSessionProvider` asks `idleExpiryEnding(trusted, canLock)` — never `canConfirmIdentityInShell()` on its own — and raises `components/session-lock-gate.tsx` —
 an **opaque** takeover over the still-mounted app — instead of calling `logout()`. Do not make it translucent and
 do not unmount `children`: the record must not be readable behind it, and resuming to the fiche that was open is
-the whole point. The cookie is **never** cleared on the success path; three unsuccessful attempts (a dismissal
-counts) fall back to the password screen, and `unavailable` falls back immediately with no error and no dead
-control.
+the whole point. The cookie is **never** cleared on the success path; three OS **refusals** fall back to the password screen (a
+dismissal costs nothing), and `unavailable` falls back immediately with no error and no dead control — to the
+password screen on an untrusted session, and on a **trusted** one to the same card as a plain cover with one
+« Reprendre la session » button. A device with no Windows Hello credential is the ordinary case, not an edge one:
+branching on the shell alone signed nine thirty-day sessions out of the Windows app while the login screen
+promised « ni votre mot de passe ni votre code ».
 
 **The Android shell exists, and `mobile/shared/bridge.md` is now the bridge contract** (Part 4). `print()` and
 `onPushToken()` are implemented there, and `window.print()` inside the shell is a shim routing to the OS print

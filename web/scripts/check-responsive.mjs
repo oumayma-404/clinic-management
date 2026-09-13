@@ -1246,15 +1246,32 @@ check(
     "most likely to have it ticked, and a practitioner got Windows Hello every half hour all day with a patient " +
     "in the chair. Nothing failed; the feature simply did not do the thing it was for. The second half is the " +
     "same defect in prose: the lock card said « après 30 minutes d'inactivité », a number it is never told and " +
-    "which is now wrong on exactly the trusted device that waits 8 h.",
+    "which is now wrong on exactly the trusted device that waits 8 h. The third and fourth halves are the ending " +
+    "rather than the wait: `idleExpiryEnding` is the one place that decides whether expiry pauses a session or " +
+    "destroys it, and `<SessionLockGate>` must be told whether the session is trusted. A local `if (canLock)` in " +
+    "the provider is how nine thirty-day sessions on the production deployment were signed out after eight idle " +
+    "hours — the shell could lock, the laptop had no Windows Hello credential enrolled, and « the device cannot " +
+    "ask » fell through the gate to a full sign-out with the promise « ne redemandera ni votre mot de passe ni " +
+    "votre code » on the login screen behind it.",
   () => {
     const offenders = [];
 
-    // Half one: the limit must not be decided by `canLock`.
+    // Half one: the limit must not be decided by `canLock` — scoped to `idleLimitMinutes`, because the
+    // function below it answers the OTHER question and is allowed to read the flag.
     const limitLines = read("lib/auth/idle-limit.ts").split(/\r?\n/);
     const limitMask = commentMask(limitLines);
+    const limitStart = limitLines.findIndex((line) => /export function idleLimitMinutes\b/.test(line));
+    const limitEnd = limitStart === -1 ? -1 : limitLines.findIndex((line, i) => i > limitStart && /^}/.test(line));
+    if (limitStart === -1) {
+      offenders.push({
+        file: "lib/auth/idle-limit.ts",
+        line: 1,
+        text: "`idleLimitMinutes` is gone — the limit has no owner, so this check cannot hold anything",
+      });
+    }
     limitLines.forEach((line, i) => {
       if (limitMask[i]) return;
+      if (limitStart === -1 || i < limitStart || (limitEnd !== -1 && i > limitEnd)) return;
       if (/\bif\s*\(\s*canLock\s*\)/.test(line)) {
         offenders.push({
           file: "lib/auth/idle-limit.ts",
@@ -1278,6 +1295,53 @@ check(
         });
       }
     });
+
+    // Half three: the ENDING has one owner too, and the provider must ask it rather than branch itself.
+    const sessionLines = read("lib/auth/session.tsx").split(/\r?\n/);
+    const sessionMask = commentMask(sessionLines);
+    let asksTheOwner = false;
+    let gateIsToldTrusted = false;
+    sessionLines.forEach((line, i) => {
+      if (sessionMask[i]) return;
+      if (/\bidleExpiryEnding\s*\(/.test(line)) asksTheOwner = true;
+      if (/\bif\s*\(\s*canLock\s*\)/.test(line)) {
+        offenders.push({
+          file: "lib/auth/session.tsx",
+          line: i + 1,
+          text: "`idleExpiryEnding(trusted, canLock)` decides whether expiry pauses or signs out — never a local branch",
+        });
+      }
+    });
+    if (!asksTheOwner) {
+      offenders.push({
+        file: "lib/auth/session.tsx",
+        line: 1,
+        text: "the inactivity expiry must call `idleExpiryEnding` — a trusted session is never signed out by the timer",
+      });
+    }
+
+    // Half four: and the gate cannot apply that rule unless it is told which kind of session it is covering.
+    // The comment mask matters here — this component is named in a doc comment a hundred lines above its render.
+    const gateAt = sessionLines.findIndex((line, i) => !sessionMask[i] && /<SessionLockGate\b/.test(line));
+    if (gateAt === -1) {
+      offenders.push({
+        file: "lib/auth/session.tsx",
+        line: 1,
+        text: "`<SessionLockGate>` is no longer rendered — the inactivity limit has nothing to pause behind",
+      });
+    } else {
+      // The element may be written across several lines, so read on to its close.
+      const rest = sessionLines.slice(gateAt).join("\n");
+      const element = rest.slice(0, rest.indexOf("/>") + 2);
+      gateIsToldTrusted = /\btrusted=/.test(element);
+      if (!gateIsToldTrusted) {
+        offenders.push({
+          file: "lib/auth/session.tsx",
+          line: gateAt + 1,
+          text: "`<SessionLockGate>` needs `trusted=` — without it a device that cannot ask Windows Hello signs a 30-day session out",
+        });
+      }
+    }
 
     return offenders;
   },

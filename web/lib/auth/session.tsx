@@ -11,7 +11,7 @@ import {
   onSessionExpired,
 } from "@/lib/api/client"
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
-import { idleLimitMinutes } from "@/lib/auth/idle-limit"
+import { idleExpiryEnding, idleLimitMinutes } from "@/lib/auth/idle-limit"
 import { isPublicRoute } from "@/lib/auth/public-routes"
 
 /**
@@ -297,7 +297,14 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
     const limitMs = idleLimitMinutes(trusted, canLock) * 60 * 1000
 
     const expireNow = () => {
-      if (canLock) {
+      /*
+       * ⚠️ The ending is `idleExpiryEnding`'s to decide, never a local `if (canLock)`. A trusted device pauses
+       * whatever the shell can do — on a machine with no Windows Hello credential the old branch fell through
+       * the gate to a full sign-out, which is how nine thirty-day sessions ended early on the production
+       * deployment before anybody could see a reason. `<SessionLockGate>` is then the cover as well as the
+       * checkpoint.
+       */
+      if (idleExpiryEnding(trusted, canLock) === "lock") {
         setLocked(true)
         return
       }
@@ -350,7 +357,9 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
       {children}
       {/* Rendered over the still-mounted app, never instead of it — resuming to the fiche that was open is the
           whole point, and unmounting `children` would reload the page the resume exists to preserve. */}
-      {locked && <SessionLockGate onConfirmed={resumeFromLock} onFallBackToPassword={abandonLock} />}
+      {locked && (
+        <SessionLockGate onConfirmed={resumeFromLock} onFallBackToPassword={abandonLock} trusted={trusted} />
+      )}
     </SessionContext.Provider>
   )
 }

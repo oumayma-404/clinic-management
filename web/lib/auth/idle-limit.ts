@@ -59,6 +59,40 @@ export function idleLimitMinutes(trusted: boolean, canLock: boolean): number {
   return trusted ? TRUSTED_IDLE_LIMIT_MINUTES : DEFAULT_IDLE_LIMIT_MINUTES
 }
 
+/** What the wait running out actually does to the session. */
+export type IdleExpiryEnding = "lock" | "logout"
+
+/**
+ * Whether the limit **pauses** the session or **ends** it.
+ *
+ * ⚠️ **A trusted device is never signed out by this timer, whatever the shell can do.** The login screen
+ * promises it in as many words — « Pendant 30 jours, cet appareil ne redemandera ni votre mot de passe ni votre
+ * code » — so a client-side timer that clears the cookie and revokes the family server-side breaks the one thing
+ * the box was ticked for. It is also the promise nobody can see being broken: the user finds a login screen and
+ * has no way to know a timer did it.
+ *
+ * <b>Measured on the hosted deployment, 2026-09-13.</b> Nine « Application Windows » families ended
+ * « Session expirée après une période d'inactivité », every one of them `IsTrusted`, the most recent two days
+ * into a thirty-day credential. The device could lock — `confirmIdentity` ships in the installed shell — but the
+ * laptop has no Windows Hello credential enrolled (`dsregcmd /status` → `NgcSet : NO`), so `UserConsentVerifier`
+ * answers anything but `Available`, `IdentityGate` reports `unavailable`, and « this device cannot ask » fell
+ * through to a full sign-out. Nothing errored anywhere.
+ *
+ * So `canLock` decides only **how the pause is lifted** — the OS where it can ask, one click where it cannot —
+ * never whether the session survives it. An untrusted session is untouched: a lock where the shell can offer
+ * one, a sign-out where it cannot, exactly as before.
+ *
+ * ⚠️ The pause itself is not optional on either path. The limit exists so a machine left in a treatment room
+ * stops showing a patient's record, and that is what the opaque overlay does; keeping the session alive behind
+ * it costs nothing the cookie was not already granting for a month.
+ *
+ * @param trusted whether this session was opened with « Rester connecté sur cet appareil » ticked
+ * @param canLock whether the shell can confirm the device owner
+ */
+export function idleExpiryEnding(trusted: boolean, canLock: boolean): IdleExpiryEnding {
+  return trusted || canLock ? "lock" : "logout"
+}
+
 /**
  * Whether a session credential says the device was trusted.
  *
