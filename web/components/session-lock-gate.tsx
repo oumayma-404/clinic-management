@@ -22,8 +22,17 @@ export function canConfirmIdentityInShell(): boolean {
 interface SessionLockGateProps {
   /** The OS confirmed the owner: re-arm the inactivity timer and uncover the app. The cookie is never cleared. */
   onConfirmed: () => void
-  /** Out of attempts, or the device cannot ask: the ordinary logout, with the user's place remembered. */
+  /** Out of attempts: the ordinary logout, with the user's place remembered. */
   onFallBackToPassword: () => void
+  /**
+   * Whether « Rester connecté sur cet appareil » was ticked for this session.
+   *
+   * ⚠️ It decides what a device that **cannot ask** does, and nothing else. On a trusted device the gate stays
+   * up as a plain cover — one click resumes, no password and no code, which is what the login screen promised —
+   * instead of ending a thirty-day session because the OS has no Windows Hello credential to offer. See
+   * `idleExpiryEnding`.
+   */
+  trusted: boolean
 }
 
 /**
@@ -46,21 +55,48 @@ interface SessionLockGateProps {
  * <p><b>Nothing here stores a password (AC-59).</b> The shell asks the OS a yes/no question about the person
  * holding the phone; the session resumed is the one already in the WebView's cookie store.</p>
  */
-export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLockGateProps) {
+export function SessionLockGate({ onConfirmed, onFallBackToPassword, trusted }: SessionLockGateProps) {
   const [attemptsUsed, setAttemptsUsed] = useState(0)
   const [busy, setBusy] = useState(false)
   const [lastOutcome, setLastOutcome] = useState<ShellIdentityOutcome | null>(null)
+
+  /*
+   * The device cannot ask, and this session is trusted: the gate becomes a cover, not a checkpoint. « Reprendre »
+   * is the only thing left to do here — there is nothing to verify against, so a control that pretends otherwise
+   * would be the dead one AC-60 refuses.
+   */
+  const [coverOnly, setCoverOnly] = useState(false)
 
   // Refs, not state, because both are read inside an in-flight async call that must not re-run to see them.
   const inFlight = useRef(false)
   const attemptsUsedRef = useRef(0)
 
+  /*
+   * What « this device cannot confirm anybody » means, in one place.
+   *
+   * ⚠️ **Trusted ⇒ cover, never sign out** — the whole point of the fix this prop exists for. An untrusted
+   * session keeps the old ending exactly: no verifier, no session.
+   */
+  const cannotAsk = useCallback(() => {
+    if (trusted) {
+      setCoverOnly(true)
+      return
+    }
+    onFallBackToPassword()
+  }, [trusted, onFallBackToPassword])
+
   const attempt = useCallback(async () => {
     if (inFlight.current) return
     const shell = typeof window !== "undefined" ? window.__clinicShell : undefined
     if (!shell?.confirmIdentity) {
-      // The bridge went away between locking and asking (AC-26 deletes it at runtime). Fail closed.
-      onFallBackToPassword()
+      /*
+       * No bridge at all — a plain browser, a shell older than the contract, or one deleted at runtime (AC-26).
+       *
+       * ⚠️ On an untrusted session this still fails closed, which is what AC-26 verifies. On a trusted one it
+       * covers instead: the cookie behind this overlay is valid for a month either way, so ending the session
+       * here would not be failing closed, it would be spending the promise to punish a missing API.
+       */
+      cannotAsk()
       return
     }
 
@@ -82,7 +118,9 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
       return
     }
     if (outcome === "unavailable") {
-      onFallBackToPassword()
+      // No enrolled biometric and no PIN, a reader that is gone, a policy that forbids it: none of those is a
+      // person failing a check, so none of them may cost a trusted session (`idleExpiryEnding`).
+      cannotAsk()
       return
     }
 
@@ -111,13 +149,16 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
     setAttemptsUsed(used)
     setLastOutcome(outcome)
     if (used >= MAX_ATTEMPTS) onFallBackToPassword()
-  }, [onConfirmed, onFallBackToPassword])
+  }, [onConfirmed, onFallBackToPassword, cannotAsk])
 
   // Ask straight away: the user unlocked their phone to get back to this, so a screen that waits for a second
   // tap is one tap too many. A re-entrant mount (React's dev double-invoke) is caught by `inFlight`.
+  //
+  // ⚠️ Not in cover mode: there is nothing to ask, and re-running would put the app back where it already is.
   useEffect(() => {
+    if (coverOnly) return
     void attempt()
-  }, [attempt])
+  }, [attempt, coverOnly])
 
   const attemptsLeft = MAX_ATTEMPTS - attemptsUsed
 
@@ -140,7 +181,9 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
           <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary/10">
             <Lock className="size-7 text-primary" aria-hidden="true" />
           </div>
-          <CardTitle id="session-lock-gate-title">Session verrouillée</CardTitle>
+          <CardTitle id="session-lock-gate-title">
+            {coverOnly ? "Session en pause" : "Session verrouillée"}
+          </CardTitle>
           {/*
             ⚠️ **No number here.** This said « après 30 minutes d'inactivité », which stopped being true the
             moment the limit began to follow the device: it is 8 h on one the owner has vouched for and 30 min
@@ -149,8 +192,17 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
             the practitioner who is least likely to be interrupted — so it names none.
           */}
           <CardDescription>
-            Votre session a été mise en pause après une période d&apos;inactivité. Confirmez votre identité pour
-            reprendre exactement où vous en étiez.
+            {coverOnly ? (
+              <>
+                Votre session a été mise en pause après une période d&apos;inactivité. Cet appareil est le vôtre :
+                reprenez sans mot de passe ni code.
+              </>
+            ) : (
+              <>
+                Votre session a été mise en pause après une période d&apos;inactivité. Confirmez votre identité
+                pour reprendre exactement où vous en étiez.
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -176,10 +228,18 @@ export function SessionLockGate({ onConfirmed, onFallBackToPassword }: SessionLo
             </p>
           )}
 
-          <Button className="min-h-11 w-full gap-2" onClick={() => void attempt()} disabled={busy}>
-            <Fingerprint className="size-4" aria-hidden="true" />
-            {busy ? "Vérification en cours…" : "Déverrouiller"}
-          </Button>
+          {coverOnly ? (
+            // Nothing to verify against, so the button does the only honest thing: uncover the app. The cookie
+            // was never cleared, which is what makes one click enough.
+            <Button className="min-h-11 w-full" onClick={onConfirmed}>
+              Reprendre la session
+            </Button>
+          ) : (
+            <Button className="min-h-11 w-full gap-2" onClick={() => void attempt()} disabled={busy}>
+              <Fingerprint className="size-4" aria-hidden="true" />
+              {busy ? "Vérification en cours…" : "Déverrouiller"}
+            </Button>
+          )}
 
           {/* The way out that is not a failure. Without it the only exit is to fail twice more on purpose. */}
           <Button variant="outline" className="min-h-11 w-full" onClick={onFallBackToPassword} disabled={busy}>

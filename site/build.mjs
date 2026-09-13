@@ -148,6 +148,8 @@ for (const file of pages) {
   for (const [k, v] of Object.entries({
     TITLE: meta.title, DESC: meta.desc, PATH: meta.path,
     ROOT: meta.root ?? '', BASE, MARK: markSrc, WORD: wordSrc,
+    // "" on the home page so a nav anchor is a same-document jump; "index.html" elsewhere.
+    HOME: meta.home ?? '',
     BODYCLASS: meta.bodyClass ?? '', BARCLASS: meta.barClass ?? '',
   })) html = html.replaceAll(`{{${k}}}`, v)
 

@@ -47,36 +47,6 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   ).observe(sentinel);
 })();
 
-/* ── Nav dropdowns ────────────────────────────────────────────────────────
-   Opens on hover with a close delay (a diagonal mouse path to the menu must
-   not close it), and on click/Enter for keyboards and touch. */
-(() => {
-  for (const host of document.querySelectorAll('.has-menu')) {
-    const btn = host.querySelector('[aria-expanded]');
-    const menu = host.querySelector('.menu');
-    if (!btn || !menu) continue;
-    let t;
-
-    const open = (v) => {
-      clearTimeout(t);
-      host.dataset.open = String(v);
-      btn.setAttribute('aria-expanded', String(v));
-    };
-
-    host.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') open(true); });
-    host.addEventListener('pointerleave', (e) => {
-      if (e.pointerType !== 'mouse') return;
-      clearTimeout(t);
-      t = setTimeout(() => open(false), 180);
-    });
-    btn.addEventListener('click', () => open(host.dataset.open !== 'true'));
-    host.addEventListener('focusout', () => {
-      if (!host.contains(document.activeElement)) open(false);
-    });
-    host.addEventListener('keydown', (e) => { if (e.key === 'Escape') { open(false); btn.focus(); } });
-  }
-})();
-
 /* ── The phone drawer ─────────────────────────────────────────────────── */
 (() => {
   const drawer = document.querySelector('#drawer');
@@ -84,18 +54,34 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const closeBtn = document.querySelector('#drawer-close');
   if (!drawer || !openBtn) return;
 
-  const set = (v) => {
+  const set = (v, refocus = true) => {
     drawer.dataset.open = String(v);
     openBtn.setAttribute('aria-expanded', String(v));
     // The page behind must not scroll under an open full-screen drawer.
     document.body.style.overflow = v ? 'hidden' : '';
     if (v) drawer.querySelector('a, button')?.focus();
-    else openBtn.focus();
+    else if (refocus) openBtn.focus();
   };
 
   openBtn.addEventListener('click', () => set(true));
   closeBtn?.addEventListener('click', () => set(false));
-  drawer.addEventListener('click', (e) => { if (e.target.closest('a')) set(false); });
+  drawer.addEventListener('click', (e) => {
+    const a = e.target.closest('a');
+    if (!a) return;
+    const hash = a.getAttribute('href');
+    if (!hash?.startsWith('#')) { set(false); return; }
+    /* ⚠️ The browser's own jump is performed while the body is STILL scroll-locked,
+       so it lands nowhere: measured as the url reading #faq with the page 6 000 px
+       away from it. Scroll it ourselves, once the lock is lifted.
+       ⚠️ And do NOT write the hash to history here — a replaceState to a fragment
+       cancels the smooth scroll a frame later (measured: it stops at 230 px). */
+    e.preventDefault();
+    set(false, false);
+    const target = document.querySelector(hash);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+  });
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawer.dataset.open === 'true') set(false); });
 })();
 

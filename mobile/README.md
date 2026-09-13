@@ -113,14 +113,20 @@ either.
 
 An APK published on the product's own download page should connect with nothing typed — a phone downloading it has
 already been told which deployment it belongs to, and the iOS route has no such step at all because there the user
-*arrives* at the server by opening its URL. So pass the address in:
+*arrives* at the server by opening its URL. `gradle.properties` commits the hosted deployment's address, so an
+ordinary build already carries it:
 
 ```bash
-./gradlew assembleRelease -PclinicServerAddress=front-7476.onrender.com
+./gradlew assembleRelease                                   # starts on app.apexa.tn
+./gradlew assembleRelease -PclinicServerAddress=clinic.lan  # or aim it elsewhere
+./gradlew assembleRelease -PclinicServerAddress=            # or ask on first launch
 ```
 
-- **Omit the property and the build behaves exactly as it always did** — the address screen on first launch. That
-  is the default, and it is what a LAN build wants.
+- ⚠️ **This reverses the earlier rule that the address must never be committed.** It was set per build so it
+  could not rot in the repository, and the cost was a build made without the flag shipping with *no* address —
+  which happened, and asks a hosted clinic for a hostname only we know. The desktop shell has committed the same
+  address as `ServerConfig.HostedHost` all along; the two move together, and changing either is a **release**,
+  since an installed client keeps the address it already stored.
 - It is a **starting value, not a compiled-in server**: consulted only when nothing is stored, so
   « Serveur → Changer de serveur… » still reaches any address, and a chosen one is persisted and wins for ever
   after. *One build still serves a clinic's own PC on a LAN and a hosted backend on the internet* — what is new is
@@ -128,8 +134,8 @@ already been told which deployment it belongs to, and the iOS route has no such 
 - Give the address **without a port**, exactly as a user would type it. It goes through the same `parseAddress`, so
   `ServerProbe` settles 443-versus-5001 against the real server; naming a port here would pin the build to one
   nobody chose.
-- It is deliberately **not** in `gradle.properties`: an address committed to the repository is an address that
-  rots, and which deployment an APK is published for is a property of the publish, not of the source.
+- A **LAN** clinic is not shut out: the first launch lands on the hosted address, and « Changer de serveur… »
+  (back gesture at the root) reaches any address, which is then persisted and wins for ever after.
 
 Then copy the APK into the site and republish — see `landing-v2/DEPLOY.md`:
 

@@ -32,7 +32,9 @@
    any more. Its `color` is still what matters, because the word's stroke is `currentColor` — that
    is the whole mechanism by which `.stuck .brand` below flips the word to dark on a light bar. */
 .brand {
-  display: inline-flex; align-items: center; gap: 0.42em; min-width: 0;
+  /* flex: none, never min-width: 0 — the word svg is `width: auto`, so a shrunk lockup keeps
+     painting at full size and the first nav item sits on top of it (measured at 992 px). */
+  display: inline-flex; align-items: center; gap: 0.42em; flex: none;
   /* The lockup's own box is 28px tall; a finger needs 44. */
   min-height: 2.75rem;
   /* 0.42em of a 1.0625rem em-box ≈ 7px — the Λ↔A gap in the horizontal lockup measures 0.43× the
@@ -61,6 +63,8 @@
 .nav a, .nav button {
   display: inline-flex; align-items: center; gap: 0.3125rem;
   height: 2.5rem; padding-inline: 0.75rem; border-radius: 6px;
+  /* A wrapped label folds into the wordmark beside it — measured at 992 px. */
+  white-space: nowrap;
   font-size: var(--t-small); font-weight: 400;
   color: var(--on-ink); text-decoration: none;
   transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
@@ -69,8 +73,6 @@
 .stuck .nav a, .stuck .nav button, .on-light .nav a, .on-light .nav button { color: var(--text); }
 .stuck .nav a:hover, .stuck .nav button:hover,
 .on-light .nav a:hover, .on-light .nav button:hover { background: var(--paper); }
-.nav .caret { width: 0.75rem; height: 0.75rem; opacity: 0.75; transition: transform var(--fast) var(--ease); }
-.nav [aria-expanded="true"] .caret { transform: rotate(180deg); }
 
 .topbar-cta { display: none; margin-inline-start: auto; align-items: center; gap: 0.5rem; }
 @media (min-width: 48rem) { .topbar-cta { display: flex; } }
@@ -81,34 +83,6 @@
 .topbar:not(.stuck):not(.on-light) .btn-ghost { color: var(--on-ink); border-color: #5B7FC0; }
 .topbar:not(.stuck):not(.on-light) .btn-ghost:hover { background: #2b4a70; border-color: #6a8fbb; }
 .stuck .btn-ghost, .on-light .btn-ghost { color: var(--text); border-color: #d4d4d1; }
-
-/* ── 1b · Dropdown ─────────────────────────────────────────────────────── */
-
-.has-menu { position: relative; }
-.menu {
-  position: absolute; top: calc(100% + 0.375rem); left: -0.75rem;
-  min-width: 21rem; padding: 0.5rem;
-  background: var(--page); border: 1px solid var(--rule);
-  border-radius: var(--r-med); box-shadow: var(--shadow-lift);
-  display: grid; gap: 1px;
-  /* Origin-aware: it grows out of the trigger above it. `center` would have it
-     bloom from its own middle, which reads as unanchored. Never from scale(0)
-     — nothing in the world appears out of nothing. */
-  transform-origin: top left;
-  opacity: 0; transform: translateY(-6px) scale(0.97); pointer-events: none;
-  transition: opacity var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
-}
-.has-menu[data-open="true"] .menu { opacity: 1; transform: none; pointer-events: auto; }
-.menu a { transition: background var(--press) var(--ease); }
-.menu a {
-  display: grid; grid-template-columns: 1.5rem 1fr; gap: 0.625rem; align-items: start;
-  height: auto; padding: 0.625rem 0.75rem; border-radius: 8px;
-  color: var(--text) !important;
-}
-.menu a:hover { background: var(--paper) !important; }
-.menu .mi-name { display: block; font-weight: 500; font-size: 0.9375rem; line-height: 1.35; }
-.menu .mi-desc { display: block; font-size: 0.8125rem; line-height: 1.4; color: var(--text-muted); }
-.menu .mi-dot { width: 0.5625rem; height: 0.5625rem; border-radius: 50%; margin-top: 0.4375rem; background: var(--zc, var(--accent)); }
 
 /* ── 1c · Phone drawer ─────────────────────────────────────────────────── */
 
@@ -136,15 +110,12 @@
   display: flex; align-items: center; min-height: 3.25rem;
   font-size: 1.0625rem; text-decoration: none; border-bottom: 1px solid var(--rule-soft);
 }
-.drawer-body .sub a { padding-inline-start: 1.125rem; font-size: 1rem; color: var(--text-muted); }
-.drawer-body .grp {
-  padding-top: 1.5rem; font-size: var(--t-eyebrow); letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--text-faint);
-}
 .drawer-actions { display: grid; gap: 0.625rem; margin-top: 1.75rem; }
 .drawer-actions .btn { width: 100%; }
 
-@media (min-width: 62rem) {
+/* 68rem, not the 62rem the rest of the page breaks at: the lockup, five section links and two
+   buttons need 1 065 px, and below that the last button was cut off by the window edge. */
+@media (min-width: 68rem) {
   .nav { display: flex; }
   .burger { display: none; }
   .topbar-cta .btn-ghost { display: inline-flex; }
@@ -499,7 +470,7 @@
 .footer { background: var(--paper); border-top: 1px solid var(--rule); padding-block: clamp(3rem, 2rem + 3vw, 4.5rem) 2rem; }
 .footer-cols { display: grid; gap: 2.25rem 2rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 48rem) { .footer-cols { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (min-width: 62rem) { .footer-cols { grid-template-columns: 1.5fr repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 62rem) { .footer-cols { grid-template-columns: 1.5fr repeat(3, minmax(0, 1fr)); } }
 .footer h4 { font-size: var(--t-eyebrow); font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 0.875rem; }
 .footer ul { list-style: none; padding: 0; display: grid; }
 .footer li a {
