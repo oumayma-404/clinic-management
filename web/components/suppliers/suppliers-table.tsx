@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { FilterChip, ListToolbar } from "@/components/ui/list-toolbar"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -328,6 +329,7 @@ export function SuppliersTable({ createRequest = 0 }: SuppliersTableProps) {
               icon={filtered ? SearchX : Truck}
               chipClassName={zoneChipClass(ZONES.ops)}
               title={filtered ? "Aucun fournisseur pour ces filtres" : "Aucun fournisseur"}
+              joke={filtered ? undefined : <EmptyJoke surface="firstSuppliers" />}
               description={
                 filtered
                   ? "Aucun contact ne correspond à cette recherche. Le fournisseur existe peut-être sous une autre orthographe."

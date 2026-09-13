@@ -14,6 +14,7 @@ import { Users, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX,
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -323,6 +324,7 @@ export function PatientsTable({
               ? "Aucun patient sur cette période"
               : "Aucun patient enregistré"
       }
+      joke={isFiltered ? undefined : <EmptyJoke surface="firstPatients" />}
       description={
         isFiltered
           ? undefined

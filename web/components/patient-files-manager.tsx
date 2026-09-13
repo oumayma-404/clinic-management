@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { cn } from "@/lib/utils"
 import { patientFilesApi } from "@/lib/api/patient-files"
@@ -740,6 +741,7 @@ export function PatientFilesManager({
           icon={File}
           size="compact"
           title="Aucun fichier"
+          joke={<EmptyJoke surface="patientFiles" />}
           description="Glissez une radiographie, un compte rendu ou une photo n'importe où sur cette page, ou utilisez « Téléverser »."
           action={
             <Button onClick={() => fileInput.current?.click()} className="coarse:h-11">

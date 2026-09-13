@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientNameLink } from "@/components/patient-name-link"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
@@ -143,6 +144,7 @@ export function UnfinishedActsList({
               size="compact"
               icon={CircleDashed}
               title="Aucune suite à planifier"
+              joke={<EmptyJoke surface="unfinishedActs" />}
               description="Un acte coché « non terminé » sur une fiche de soins apparaît ici jusqu'à ce que sa suite soit planifiée."
             />
           </div>

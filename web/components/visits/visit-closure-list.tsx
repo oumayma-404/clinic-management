@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -217,6 +218,7 @@ export function VisitClosureList({
           <EmptyState
             icon={ClipboardCheck}
             title={emptyTitle}
+            joke={<EmptyJoke surface="visitClosure" />}
             description={emptyDescription}
             chipClassName={zoneChipClass(zone)}
           />

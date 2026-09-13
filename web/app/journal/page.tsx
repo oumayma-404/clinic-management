@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { useSession } from "@/lib/auth/session"
 import { auditApi, type AuditEntryDto, type AuditPageDto } from "@/lib/api/audit"
 import { useUrlFilterSeed, useUrlFilters } from "@/lib/hooks/use-url-filters"
@@ -273,6 +274,7 @@ export default function JournalPage() {
               <EmptyState
                 icon={FileClock}
                 title={hasFilters ? "Aucune activité pour ces filtres" : "Aucune activité enregistrée"}
+                joke={hasFilters ? undefined : <EmptyJoke surface="journal" />}
                 description={
                   hasFilters
                     ? "Aucune entrée du journal ne correspond aux filtres choisis."

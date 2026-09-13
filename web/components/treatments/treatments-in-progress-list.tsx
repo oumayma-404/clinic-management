@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { TreatmentInProgressDto, TreatmentPlanDto } from "@/lib/api/types"
@@ -266,6 +267,7 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
             size="compact"
             icon={Layers}
             title="Aucun traitement en cours"
+            joke={<EmptyJoke surface="treatments" />}
             description="Un acte commencé et non terminé apparaîtra ici avec l'étape qui reste à planifier."
           />
         )}

@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { AlertTriangle, CalendarDays } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -63,6 +64,7 @@ export function AppointmentList({ slots, loading, error, onRetry }: AppointmentL
             icon={CalendarDays}
             size="compact"
             title="Aucun rendez-vous aujourd'hui"
+            joke={<EmptyJoke surface="agendaDay" />}
             description="La journée est libre. Ouvrez l'agenda pour planifier une visite."
             chipClassName={zoneChipClass(ZONES.daily)}
             action={

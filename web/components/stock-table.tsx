@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label"
 import { Package, Search, Pencil, Trash2, AlertTriangle, Minus, Plus, History, Hourglass, MoreHorizontal } from "lucide-react"
 import { CardList, CARDS_ONLY, CARDS_ONLY_LG, TABLE_ONLY, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { ExportButton } from "@/components/ui/export-button"
 import { stockUnitLabel } from "@/components/stock-item-form-modal"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
@@ -211,6 +212,7 @@ export function StockTable({
         icon={Package}
         size={size}
         title="Aucun article en stock"
+        joke={<EmptyJoke surface="stock" />}
         description="Enregistrez vos consommables et votre matériel ici : l'application suit les quantités, prévient quand un article passe sous son seuil et signale les lots qui approchent de leur péremption."
         action={
           <Button onClick={onAdd} className="gap-2">

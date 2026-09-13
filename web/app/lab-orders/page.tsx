@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Command,
@@ -771,6 +772,7 @@ export default function LabOrdersPage() {
         icon={FlaskConical}
         size={size}
         title="Aucun bon de prothèse"
+        joke={<EmptyJoke surface="labOrders" />}
         description="Suivez ici les travaux confiés au laboratoire — de « Envoyé » à « Posé » — avec la dent, le prothésiste, la date prévue et le coût."
         action={
           <Button onClick={handleAddNew} className="gap-2 coarse:h-11">
