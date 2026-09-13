@@ -4,165 +4,175 @@
   "home": "index.html",
   "nav": "",
   "bodyClass": "",
-  "barClass": "",
+  "barClass": "on-light",
   "title": "Confidentialité — APEXA",
-  "desc": "Quelles données APEXA traite, pourquoi, où elles résident, avec qui elles sont partagées, combien de temps elles sont conservées, et comment un patient exerce ses droits."
+  "desc": "Ce qu'APEXA enregistre, qui y accède, combien de temps c'est conservé et comment c'est protégé. En clair, sans jargon."
 }-->
 
 <!--
   ⚠️ CE DOCUMENT DOIT ÊTRE RELU PAR UN CONSEIL JURIDIQUE TUNISIEN AVANT PUBLICATION.
 
-  Il a été rédigé à partir de ce que le code fait RÉELLEMENT — un inventaire champ par champ des
-  entités du domaine et de chaque intégration sortante — et non à partir d'un modèle générique. Les
-  faits techniques ci-dessous sont donc exacts à la date indiquée. Ce qui reste à faire relève du
-  cabinet et de l'éditeur, pas du code :
+  Rédigé à partir de ce que le code fait RÉELLEMENT — un inventaire champ par champ des entités du
+  domaine et de chaque intégration sortante. Les faits techniques sont donc exacts.
 
-    • Les mentions entre crochets […] sont des trous à combler : identité juridique de l'éditeur,
-      lieu d'hébergement retenu, référence du dossier INPDP, adresse de contact.
-    • Le lieu d'hébergement doit être VÉRIFIÉ et non supposé. La loi organique 2004-63 (art. 51-52)
-      soumet tout transfert de données personnelles hors de Tunisie à une autorisation préalable de
-      l'INPDP, et la sanction de l'art. 90 pèse sur le CABINET en tant que responsable du traitement.
+  ⚠️ CE QUI RESTE OUVERT, ET QUI NE SE RÈGLE PAS DANS CETTE PAGE :
     • Aucune déclaration ni autorisation INPDP n'a été déposée à ce jour.
-
-  Le lien « Confidentialité » du pied de page pointait vers ce fichier depuis le début et le fichier
-  n'existait pas : chaque visiteur cliquant dessus obtenait une 404.
+    • La loi organique 2004-63 (art. 51-52) soumet tout transfert de données personnelles hors de
+      Tunisie à une autorisation préalable de l'INPDP, et la sanction de l'art. 90 pèse sur le
+      CABINET en tant que responsable du traitement.
+    • La page ne nomme donc PAS de pays : elle renvoie au contrat de service, qui est l'endroit où
+      la destination est convenue cabinet par cabinet. Ne pas y écrire un pays sans avoir réglé le
+      point ci-dessus — une page publique qui nomme une destination hors Tunisie documente le
+      transfert avant qu'il soit autorisé.
+    • L'identité juridique de l'éditeur reste à inscrire le jour où elle existe ; « APEXA » tient
+      lieu de nom commercial en attendant.
 -->
 
-<section class="sec">
+<section class="cp">
   <div class="wrap">
 
-    <div class="head">
-      <p class="eyebrow">Protection des données</p>
-      <h1>Confidentialité</h1>
-      <p class="lede">
-        APEXA est un logiciel de gestion pour cabinets dentaires. Il contient des dossiers médicaux.
-        Cette page dit exactement quelles données il traite, où elles résident, avec qui elles sont
-        partagées et comment un patient exerce ses droits.
+    <header class="cp-head">
+      <p class="cp-eyebrow rise">Protection des données</p>
+      <h1 class="cp-h1 rise d1">Vos dossiers restent vos dossiers.</h1>
+      <p class="cp-lede rise d2">
+        APEXA contient des dossiers médicaux. Voici ce qu'il enregistre, qui peut les voir, et comment
+        c'est protégé. Sans jargon.
       </p>
+
+      <ul class="cp-chips rise d3">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          Tout est chiffré
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6.5v5c0 4.6 3.2 8.4 8 9.5 4.8-1.1 8-4.9 8-9.5v-5Z"/></svg>
+          Chaque cabinet est cloisonné
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l5 5v13H6Z"/><path d="M14 3v6h6"/><path d="m9 14 2 2 4-4"/></svg>
+          Loi organique n°&nbsp;2004-63
+        </li>
+      </ul>
+    </header>
+
+    <div class="cp-grid">
+
+      <!-- ── Qui fait quoi ──────────────────────────────────────────────── -->
+      <article class="cp-card rise">
+        <h2>Qui fait quoi</h2>
+        <dl class="cp-duo">
+          <dt>Votre cabinet</dt>
+          <dd>Responsable du traitement. C'est lui qui soigne, enregistre et conserve — et c'est à lui que la loi confie ces obligations.</dd>
+          <dt>APEXA</dt>
+          <dd>Sous-traitant. Nous fournissons le logiciel, et l'infrastructure en formule hébergée. Rien de plus.</dd>
+        </dl>
+        <p class="cp-key">
+          Notre console d'administration ne peut pas ouvrir un dossier patient. C'est le code qui
+          l'interdit, pas une consigne interne.
+        </p>
+      </article>
+      <!-- ── Ce que le logiciel enregistre ──────────────────────────────── -->
+      <article class="cp-card rise">
+        <h2>Ce que le logiciel enregistre</h2>
+        <p class="cp-sub">Selon ce que le cabinet saisit&nbsp;:</p>
+        <ul class="cp-list">
+          <li><b>Identité et contact</b> — nom, naissance, téléphone, e-mail, adresse.</li>
+          <li><b>Santé</b> — antécédents, allergies, odontogramme, soins, plans de traitement, notes.</li>
+          <li><b>Documents</b> — ordonnances, certificats, radios, photos.</li>
+          <li><b>Rendez-vous et factures</b> — dates, actes, praticien, montants, règlements.</li>
+          <li><b>Contact d'urgence</b> — un proche désigné par le patient.</li>
+        </ul>
+      </article>
+      <!-- ── Les négations. La carte qui vend, et chaque ligne est vraie. ── -->
+      <article class="cp-card cp-card--ink rise">
+        <h2>Ce qu'il ne fait jamais</h2>
+        <ul class="cp-nos">
+          <li>Aucune publicité, aucune revente, aucune mesure d'audience.</li>
+          <li>Aucun profilage, aucune décision automatique sur un patient.</li>
+          <li>Aucun texte écrit au cabinet n'est envoyé à une intelligence artificielle&nbsp;: le produit n'a pas cette fonction.</li>
+          <li>Ni numéro de carte d'identité, ni donnée biométrique.</li>
+        </ul>
+      </article>
+      <!-- ── Hébergement ────────────────────────────────────────────────── -->
+      <article class="cp-card rise">
+        <h2>Où résident les données</h2>
+        <p>
+          Sur des serveurs dédiés et chiffrés. Le lieu retenu pour votre cabinet figure dans votre
+          contrat de service.
+        </p>
+        <p>
+          Le logiciel tient la liste des destinations autorisées et <b>refuse de démarrer</b> si on le
+          configure vers une destination qui n'y figure pas.
+        </p>
+        <p class="cp-law">
+          Loi organique n°&nbsp;2004-63 relative à la protection des données à caractère personnel.
+        </p>
+      </article>
+      <!-- ── Comment c'est protégé — la carte large, celle qui rassure ──── -->
+      <article class="cp-card cp-card--wide rise">
+        <h2>Comment c'est protégé</h2>
+        <ul class="cp-shield">
+          <li><i aria-hidden="true"></i><b>Connexions chiffrées.</b> Un certificat non valide coupe la connexion, sans possibilité de passer outre.</li>
+          <li><i aria-hidden="true"></i><b>Secrets chiffrés un par un.</b> Codes d'authentification et identifiants externes, avec des clés rangées ailleurs que les données.</li>
+          <li><i aria-hidden="true"></i><b>Sauvegardes chiffrées</b> avant même de quitter le serveur.</li>
+          <li><i aria-hidden="true"></i><b>Journal inviolable.</b> Chaque modification est inscrite dans un registre chaîné&nbsp;: une ligne effacée rompt la chaîne, et la rupture se voit.</li>
+          <li><i aria-hidden="true"></i><b>Journaux techniques anonymes.</b> Aucun nom n'y apparaît, et un contrôle automatique le vérifie à chaque livraison.</li>
+          <li><i aria-hidden="true"></i><b>Export protégé.</b> Sortir la liste des patients demande une nouvelle confirmation d'identité, et laisse une trace nominative.</li>
+        </ul>
+      </article>
+      <!-- ── Qui d'autre voit ces données ───────────────────────────────── -->
+      <article class="cp-card rise">
+        <h2>Qui d'autre voit ces données</h2>
+        <p class="cp-sub">Un cabinet ne voit jamais les dossiers d'un autre. Au-delà, uniquement ce que le cabinet active&nbsp;:</p>
+        <ul class="cp-list">
+          <li><b>Rappels SMS</b> — la passerelle reçoit le numéro et le texte du rappel.</li>
+          <li><b>Rappels WhatsApp</b> — Meta reçoit les mêmes éléments.</li>
+          <li><b>Google Agenda</b> — le titre du rendez-vous, qui contient le nom du patient. Facultatif, et désactivable.</li>
+          <li><b>Envoi par e-mail</b> — le relais du cabinet achemine la pièce jointe.</li>
+        </ul>
+        <p class="cp-key">Un écran verrouillé n'affiche jamais de nom&nbsp;: les notifications ne portent qu'une phrase fixe.</p>
+      </article>
+      <!-- ── Durées ─────────────────────────────────────────────────────── -->
+      <article class="cp-card rise">
+        <h2>Combien de temps</h2>
+        <ul class="cp-times">
+          <li><b>Dossier médical</b><span>aussi longtemps que le cabinet doit le conserver</span></li>
+          <li><b>Journal d'activité</b><span>toute la vie du dossier</span></li>
+          <li><b>Rappels envoyés</b><span>90 jours</span></li>
+          <li><b>Notifications</b><span>30 jours</span></li>
+          <li><b>Demandes non confirmées</b><span>30 jours</span></li>
+        </ul>
+      </article>
+      <!-- ── Droits ─────────────────────────────────────────────────────── -->
+      <article class="cp-card rise">
+        <h2>Vos droits</h2>
+        <p>
+          Accès, rectification, opposition, et copie du dossier. <b>Ces demandes s'adressent au
+          cabinet</b>, qui en est le responsable — nous n'avons pas accès aux dossiers et ne pouvons pas
+          répondre à sa place.
+        </p>
+        <p>
+          La rectification est immédiate et tracée. Un dossier rattaché à des soins déjà dispensés est
+          mis à l'écart plutôt que détruit&nbsp;: le cabinet reste tenu de le conserver.
+        </p>
+      </article>
+      <!-- ── Incident + contact ─────────────────────────────────────────── -->
+      <article class="cp-card cp-card--contact rise">
+        <h2>Un incident, une question</h2>
+        <p>
+          En cas d'incident de sécurité touchant des données personnelles, nous prévenons les cabinets
+          concernés sans délai — avec ce que nous savons et ce que nous ne savons pas encore — et nous
+          les accompagnons auprès de l'INPDP.
+        </p>
+        <p class="cp-mail">
+          <a href="mailto:contact@apexa.tn?subject=Confidentialit%C3%A9%20APEXA">contact@apexa.tn</a>
+        </p>
+        <p class="cp-sub">Un patient qui souhaite exercer ses droits s'adresse d'abord à son cabinet.</p>
+      </article>
+
     </div>
 
-    <h2>Qui est responsable de quoi</h2>
-    <p>
-      <strong>Votre cabinet est le responsable du traitement.</strong> C'est lui qui décide de soigner,
-      d'enregistrer et de conserver ; c'est à lui que la loi organique n° 2004-63 confie les obligations
-      correspondantes, et c'est à lui qu'un patient adresse ses demandes.
-    </p>
-    <p>
-      <strong>[Identité juridique de l'éditeur] est sous-traitant.</strong> Nous fournissons le logiciel
-      et, en formule hébergée, l'infrastructure qui le fait tourner. Nous n'utilisons les données d'aucun
-      cabinet pour notre propre compte, et notre console d'administration ne peut pas lire un dossier
-      patient — cette limite est imposée par le code lui-même, pas par une consigne interne.
-    </p>
-
-    <h2>Ce que le logiciel enregistre</h2>
-    <p>Un dossier patient contient, selon ce que le cabinet saisit :</p>
-    <ul>
-      <li><strong>Identité et contact</strong> — nom, prénom, date de naissance, sexe, téléphone, e-mail, adresse.</li>
-      <li><strong>Couverture</strong> — identifiant CNAM, régime, informations d'assurance, personne assurée et lien de parenté.</li>
-      <li><strong>Données de santé</strong> — antécédents médicaux et familiaux, allergies, signalements, odontogramme, fiches de soins et actes, plans de traitement, notes cliniques libres.</li>
-      <li><strong>Documents et fichiers</strong> — ordonnances, certificats, bulletins de soins CNAM, arrêts de travail, radiographies, photographies et scans importés par le cabinet.</li>
-      <li><strong>Rendez-vous et facturation</strong> — dates, actes, praticien, notes, montants, règlements.</li>
-      <li><strong>Contact d'urgence</strong> — nom et téléphone d'un tiers désigné par le patient.</li>
-    </ul>
-    <p>
-      Le logiciel ne collecte <strong>pas</strong> de numéro de carte d'identité nationale, pas de donnée
-      biométrique, et n'effectue aucun profilage ni aucune décision automatisée. Aucun texte rédigé dans le
-      cabinet n'est transmis à un service d'intelligence artificielle : aucune fonctionnalité du produit ne
-      le fait.
-    </p>
-
-    <h2>Pourquoi</h2>
-    <p>
-      Pour soigner et pour tenir le dossier que la pratique dentaire impose : prendre et rappeler les
-      rendez-vous, consigner les soins, produire les documents officiels, facturer, et satisfaire aux
-      obligations comptables et conventionnelles du cabinet. Rien d'autre. Il n'y a ni publicité, ni
-      revente, ni mesure d'audience dans l'application.
-    </p>
-
-    <h2>Qui d'autre voit ces données</h2>
-    <p>
-      Chaque cabinet est cloisonné : un cabinet ne voit jamais les dossiers d'un autre. Au sein du cabinet,
-      l'accès est réservé aux comptes que l'administrateur crée, et chaque personne est tenue au secret
-      professionnel. Au-delà, seules ces destinations reçoivent quelque chose, et seulement si le cabinet
-      active la fonctionnalité correspondante :
-    </p>
-    <ul>
-      <li><strong>Rappels par SMS</strong> — la passerelle choisie par le cabinet reçoit le numéro du patient et le texte du rappel (nom, date, cabinet).</li>
-      <li><strong>Rappels par WhatsApp</strong> — Meta reçoit les mêmes éléments.</li>
-      <li><strong>Google Agenda</strong>, si le cabinet le connecte — Google reçoit le titre du rendez-vous, qui contient <strong>le nom du patient</strong>, ainsi que les notes libres du rendez-vous. Cette synchronisation est facultative et se désactive.</li>
-      <li><strong>Envoi de documents par e-mail</strong> — le relais SMTP du cabinet achemine le document en pièce jointe.</li>
-      <li><strong>Hébergement et sauvegardes</strong> — [lieu d'hébergement retenu] et [destination des sauvegardes hors site].</li>
-    </ul>
-    <p>
-      Les notifications envoyées aux téléphones de l'équipe ne contiennent <strong>jamais</strong> de nom ni de
-      contenu clinique : un écran verrouillé n'affiche qu'une phrase fixe.
-    </p>
-
-    <h2>Où résident les données</h2>
-    <p>
-      Le lieu d'hébergement retenu pour votre cabinet figure dans votre contrat de service. Le logiciel
-      tient une liste des destinations autorisées pour l'hébergement et les sauvegardes, et refuse de
-      démarrer si une destination non déclarée y est configurée.
-    </p>
-    <p>
-      <strong>Ce point est une décision juridique avant d'être technique.</strong> Sous la loi organique
-      n° 2004-63 (art. 51-52), transférer des données personnelles hors de Tunisie suppose une autorisation
-      préalable de l'INPDP, et les données de santé relèvent d'un régime renforcé.
-    </p>
-
-    <h2>Combien de temps</h2>
-    <p>
-      Le dossier médical est conservé aussi longtemps que la relation de soins et les obligations légales du
-      cabinet l'exigent — sa durée est fixée par le cabinet dans sa propre politique de conservation. Les
-      éléments accessoires sont bornés par le logiciel : les rappels envoyés sont effacés après 90 jours, les
-      notifications d'application après 30 jours, les demandes d'inscription non confirmées et les
-      demandes de réinitialisation de mot de passe après 30 jours.
-    </p>
-    <p>
-      Le journal d'activité, qui enregistre qui a modifié quoi et quand, est conservé pour la durée de vie du
-      dossier : c'est lui qui rend le dossier vérifiable.
-    </p>
-
-    <h2>Vos droits</h2>
-    <p>
-      Un patient dispose d'un droit d'accès, de rectification et d'opposition sur ses données, et peut
-      obtenir une copie de son dossier. <strong>Ces demandes s'adressent au cabinet</strong>, qui en est le
-      responsable : nous n'avons pas le droit d'y répondre à sa place, et notre console ne nous donne pas
-      accès aux dossiers.
-    </p>
-    <p>
-      La rectification est immédiate et tracée. La suppression, en revanche, n'est pas libre : un dossier
-      médical rattaché à des soins déjà dispensés ne peut pas être effacé sans contrevenir aux obligations de
-      conservation du cabinet — il est mis à l'écart plutôt que détruit. Le cabinet vous indiquera ce qui
-      s'applique à votre situation.
-    </p>
-
-    <h2>Comment c'est protégé</h2>
-    <ul>
-      <li>Les communications sont chiffrées, et un certificat non valide interrompt la connexion sans possibilité de passer outre.</li>
-      <li>Les seconds facteurs d'authentification et les identifiants des services externes sont chiffrés individuellement, avec des clés conservées séparément des données qu'elles protègent.</li>
-      <li>Les sauvegardes sont chiffrées avant de quitter le serveur.</li>
-      <li>Chaque modification du dossier est inscrite dans un registre chaîné cryptographiquement : une ligne modifiée ou supprimée rompt la chaîne, et la rupture est détectable.</li>
-      <li>Les journaux techniques ne comportent ni nom ni élément identifiant, et un contrôle automatisé le vérifie à chaque livraison.</li>
-      <li>L'export de la liste des patients exige une nouvelle confirmation d'identité et laisse une trace nominative.</li>
-    </ul>
-
-    <h2>Incident</h2>
-    <p>
-      En cas d'incident de sécurité touchant des données personnelles, nous informons sans délai les cabinets
-      concernés, avec ce que nous savons et ce que nous ne savons pas encore, et nous les accompagnons dans
-      leurs échanges avec l'INPDP.
-    </p>
-
-    <h2>Nous contacter</h2>
-    <p>
-      Pour une question sur cette page ou pour signaler un incident : [adresse de contact]. Un patient qui
-      souhaite exercer ses droits s'adresse d'abord à son cabinet.
-    </p>
-
-    <p class="lede">
-      Version 1.0 — [date de publication]. Cette page est revue à chaque évolution significative du produit.
-    </p>
+    <p class="cp-version">Version 1.0 — septembre 2026. Cette page est revue à chaque évolution du produit.</p>
 
   </div>
 </section>

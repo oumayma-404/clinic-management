@@ -91,6 +91,10 @@
   width: 2.75rem; height: 2.75rem; margin-inline-start: auto;
   border-radius: 8px; color: var(--on-ink);
 }
+/* ⚠️ AFTER the rule above, never before it: `.topbar-cta` carries the same auto margin, so with
+   both visible the free space splits in two and the button floats mid-bar. Equal specificity —
+   source order is the whole fix. */
+@media (min-width: 48rem) { .burger { margin-inline-start: 0; } }
 .stuck .burger, .on-light .burger { color: var(--text); }
 .burger svg { width: 1.375rem; height: 1.375rem; }
 
@@ -6742,3 +6746,493 @@
 }
 .jour-p { margin-top: 0.6rem; font-size: var(--t-small); color: var(--text-muted); }
 .jour-a { margin-top: 0; padding-top: 0; border-top: 0; }
+/* ═══════════════════════════════════════════════════════════════════════════
+   9 · DEMANDER UNE DÉMO — the page's only form.
+
+   LIGHT ground, between the dark §8 and the paper footer. The lead column
+   says what happens after Envoyer; the panel is the form. Nothing here
+   invents a value: the fields sit on --page inside a white panel, and the
+   focus ring is --accent-ink (the accent as TEXT-on-white, 5.9:1 — --accent
+   itself is 1.7:1 there and would be an invisible ring).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.s8 {
+  --s8-danger: #b42318;                 /* 5.9:1 on white. The palette has no red. */
+  padding-block: var(--sec-y);
+  background: var(--page);
+  color: var(--text);
+}
+.s8 :where(*, *::before, *::after) { box-sizing: border-box; }
+.s8 :where(p, h2, h3) { margin: 0; }
+.s8 i { font-style: normal; }
+.s8 b { font-weight: 500; }
+
+.s8-in { display: grid; gap: clamp(2.25rem, 1.4rem + 3.4vw, 3.5rem); align-items: start; }
+@media (min-width: 62rem) {
+  .s8-in { grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr); gap: clamp(2.5rem, 1rem + 4vw, 4.5rem); }
+}
+
+/* ── The lead ──────────────────────────────────────────────────────────── */
+
+.s8-eyebrow {
+  font-size: var(--t-eyebrow); font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.s8-h { margin-top: 0.75rem; font-size: var(--t-h2); font-weight: 400; line-height: 1.15; letter-spacing: -0.015em; max-width: 16ch; }
+.s8-p { margin-top: 1rem; font-size: var(--t-body); line-height: 1.6; color: var(--text-muted); max-width: 38ch; }
+
+.s8-steps { list-style: none; padding: 0; margin: 2rem 0 0; display: grid; gap: 1.125rem; }
+.s8-steps li { display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: 0.875rem; align-items: start; }
+.s8-steps i {
+  display: grid; place-items: center;
+  width: 1.75rem; height: 1.75rem; border-radius: 50%;
+  background: var(--paper); border: 1px solid var(--rule);
+  font-size: 0.8125rem; font-weight: 500; color: var(--accent-ink);
+}
+.s8-steps span { font-size: var(--t-small); line-height: 1.55; color: var(--text-muted); padding-top: 0.15rem; }
+.s8-steps b { color: var(--text); }
+
+.s8-direct { margin-top: 2rem; font-size: var(--t-small); color: var(--text-muted); }
+.s8-direct a {
+  color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-thickness: 1px; white-space: nowrap;
+}
+.s8-direct a:hover { text-decoration-thickness: 2px; }
+
+/* ── The panel ─────────────────────────────────────────────────────────── */
+
+.s8-panel {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: clamp(1.25rem, 0.7rem + 2.2vw, 2.25rem);
+}
+
+.s8-grid { display: grid; gap: 1.125rem 1rem; }
+@media (min-width: 34rem) { .s8-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.s8-field--wide { grid-column: 1 / -1; }
+
+.s8-field { display: grid; gap: 0.4375rem; min-width: 0; }
+.s8-field label { font-size: 0.875rem; font-weight: 500; color: var(--text); }
+.s8-field label i { color: var(--s8-danger); }
+.s8-opt { font-weight: 400; color: var(--text-faint); }
+
+/* ⚠️ 1rem = 16px, never smaller: iOS Safari zooms into any field under 16px
+   on focus and does not zoom back out. */
+.s8-field input,
+.s8-field textarea {
+  width: 100%; min-width: 0;
+  min-height: 2.875rem;
+  padding: 0.625rem 0.875rem;
+  font: inherit; font-size: 1rem; line-height: 1.4;
+  color: var(--text);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-btn);
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.s8-field textarea { resize: vertical; min-height: 6.5rem; padding-top: 0.75rem; }
+.s8-field ::placeholder { color: var(--text-faint); }
+.s8-field input:hover, .s8-field textarea:hover { border-color: var(--rule-ink); }
+.s8-field input:focus-visible,
+.s8-field textarea:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 1px;
+  border-color: var(--accent-ink);
+  background: #ffffff;
+}
+
+
+.s8-field[data-invalid="true"] input,
+.s8-field[data-invalid="true"] textarea { border-color: var(--s8-danger); }
+.s8-err { font-size: 0.8125rem; color: var(--s8-danger); }
+.s8-err:empty { display: none; }
+
+.s8-honey { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+/* ── Send ──────────────────────────────────────────────────────────────── */
+
+.s8-act { display: grid; gap: 0.75rem; margin-top: 1.5rem; justify-items: start; }
+.s8-send { width: 100%; }
+@media (min-width: 34rem) { .s8-send { width: auto; min-width: 13rem; } }
+.s8-send[data-busy="true"] { pointer-events: none; }
+.s8-spin {
+  display: none;
+  width: 1rem; height: 1rem; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  animation: s8-spin 620ms linear infinite;
+}
+.s8-send[data-busy="true"] .s8-spin { display: block; }
+@keyframes s8-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .s8-spin { animation-duration: 1.8s; } }
+
+.s8-legal { font-size: 0.8125rem; color: var(--text-faint); }
+
+.s8-note {
+  margin-top: 1rem; padding: 0.75rem 0.875rem;
+  font-size: 0.875rem; line-height: 1.5;
+  border-radius: var(--r-btn);
+  background: color-mix(in oklab, var(--s8-danger) 8%, #ffffff);
+  border: 1px solid color-mix(in oklab, var(--s8-danger) 28%, #ffffff);
+  color: var(--s8-danger);
+}
+.s8-note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── Sent ──────────────────────────────────────────────────────────────── */
+
+/* ⚠️ The [hidden] pair is load-bearing, not belt-and-braces: an author rule that
+   declares `display` beats the UA's `[hidden] { display: none }` whatever the
+   specificity, so `.s8-done` sat open UNDER the form from the first paint —
+   a « C'est envoyé » visible beside a send that had not happened. Same trap as
+   `.panel[hidden]` above. Measured, not reasoned: `hidden` was true throughout. */
+.s8-done[hidden], .s8-form[hidden] { display: none; }
+.s8-done { display: grid; justify-items: center; text-align: center; gap: 0.75rem; padding: clamp(1.5rem, 1rem + 2vw, 3rem) 0.5rem; }
+.s8-done-tick {
+  display: grid; place-items: center;
+  width: 3rem; height: 3rem; border-radius: 50%;
+  background: color-mix(in oklab, var(--accent) 22%, #ffffff);
+  border: 1px solid color-mix(in oklab, var(--accent-ink) 30%, #ffffff);
+}
+.s8-done-tick::after {
+  content: ""; width: 1.0625rem; height: 0.5625rem;
+  border-left: 2.5px solid var(--accent-ink); border-bottom: 2.5px solid var(--accent-ink);
+  border-radius: 1px;
+  transform: rotate(-45deg) translate(1px, -2px);
+}
+.s8-done h3 { font-size: var(--t-h3); font-weight: 400; }
+.s8-done p { font-size: var(--t-small); line-height: 1.55; color: var(--text-muted); max-width: 34ch; }
+.s8-done a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── The reveal, keyed on the section like every other block here ───────── */
+
+.s8-rise {
+  opacity: 0; transform: translateY(14px);
+  transition: opacity var(--slow) var(--ease-out), transform var(--slow) var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 70ms);
+}
+.s8.in .s8-rise { opacity: 1; transform: none; }
+.no-js .s8-rise { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .s8-rise { transition: none; } }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFIDENTIALITÉ — the page reads as cards, not as a contract.
+
+   It was one column of <h2> + <p> and nobody finished it. Every value here is
+   the page's own: --page ground, white cards, --accent-ink for anything that
+   has to carry colour on white.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.cp {
+  padding-block: clamp(2.5rem, 1.6rem + 3.6vw, 5rem) var(--sec-y);
+  background: var(--page);
+  color: var(--text);
+}
+.cp :where(*, *::before, *::after) { box-sizing: border-box; }
+.cp :where(p, h1, h2, dl, dd, ul) { margin: 0; }
+.cp i { font-style: normal; }
+.cp b { font-weight: 500; color: var(--text); }
+
+/* ── Head ──────────────────────────────────────────────────────────────── */
+
+.cp-head { max-width: 46rem; margin-bottom: clamp(2.25rem, 1.4rem + 3.2vw, 3.5rem); }
+.cp-eyebrow {
+  font-size: var(--t-eyebrow); font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent-ink);
+}
+.cp-h1 {
+  margin-top: 0.75rem;
+  font-size: var(--t-h1); font-weight: 400; line-height: 1.08; letter-spacing: -0.02em;
+  max-width: 15ch;
+}
+.cp-lede { margin-top: 1.125rem; font-size: var(--t-body); line-height: 1.6; color: var(--text-muted); }
+
+.cp-chips { list-style: none; padding: 0; margin-top: 1.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.cp-chips li {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem; font-weight: 500;
+  background: #ffffff; border: 1px solid var(--rule); border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+}
+.cp-chips svg { width: 1rem; height: 1rem; flex: none; color: var(--accent-ink); }
+
+/* ── The grid ──────────────────────────────────────────────────────────────
+   Masonry would reflow on every resize; two equal columns with the wide card
+   spanning both keeps the reading order and the source order identical. */
+
+/* No `align-items: start` — the two cards of a row stretch to the same height. Ragged card
+   bottoms are what made the page read as unfinished. */
+.cp-grid { display: grid; gap: clamp(0.875rem, 0.5rem + 1.2vw, 1.25rem); }
+@media (min-width: 48rem) {
+  .cp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cp-card--wide { grid-column: 1 / -1; }
+}
+
+.cp-card {
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-sm);
+  padding: clamp(1.25rem, 0.9rem + 1.4vw, 1.875rem);
+  display: grid; gap: 0.875rem; align-content: start;
+}
+.cp-card h2 {
+  font-size: var(--t-h3); font-weight: 400; line-height: 1.2; letter-spacing: -0.01em;
+}
+.cp-card p { font-size: var(--t-small); line-height: 1.6; color: var(--text-muted); }
+.cp-sub { font-size: 0.9375rem !important; color: var(--text-muted); }
+
+/* The one line of a card that must be read even when the card is skimmed. */
+.cp-key {
+  padding: 0.75rem 0.875rem;
+  background: var(--page); border-radius: var(--r-med);
+  border-left: 2px solid var(--accent-ink);
+  font-size: 0.9375rem !important;
+}
+.cp-law { font-size: 0.8125rem !important; color: var(--text-faint); }
+
+/* ── Le couple responsable / sous-traitant ─────────────────────────────── */
+
+.cp-duo { display: grid; gap: 0.875rem; }
+.cp-duo dt {
+  font-size: 0.8125rem; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.cp-duo dd { margin-top: 0.25rem; font-size: var(--t-small); line-height: 1.6; color: var(--text-muted); }
+
+/* ── Lists ─────────────────────────────────────────────────────────────── */
+
+.cp-list { list-style: none; padding: 0; display: grid; gap: 0.625rem; }
+.cp-list li {
+  position: relative; padding-left: 1.125rem;
+  font-size: var(--t-small); line-height: 1.55; color: var(--text-muted);
+}
+.cp-list li::before {
+  content: ""; position: absolute; left: 0; top: 0.6em;
+  width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--accent-ink);
+}
+
+/* ── La carte sombre : les négations ───────────────────────────────────── */
+
+.cp-card--ink {
+  color: var(--on-ink);
+  border-color: var(--rule-ink);
+  background:
+    radial-gradient(70% 100% at 100% 0%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 62%),
+    var(--ink);
+  box-shadow: var(--shadow-card);
+}
+.cp-card--ink h2 { color: var(--on-ink); }
+.cp-card--ink b { color: var(--on-ink); }
+.cp-nos { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
+.cp-nos li {
+  position: relative; padding-left: 1.75rem;
+  font-size: var(--t-small); line-height: 1.55; color: var(--on-ink-muted);
+}
+/* A crossed circle, drawn: « jamais » is the whole point of the card. */
+.cp-nos li::before {
+  content: ""; position: absolute; left: 0; top: 0.28em;
+  width: 1.0625rem; height: 1.0625rem; border-radius: 50%;
+  border: 1.5px solid var(--accent-lit);
+}
+.cp-nos li::after {
+  content: ""; position: absolute; left: 0.28rem; top: 0.78em;
+  width: 0.5rem; height: 0; border-top: 1.5px solid var(--accent-lit);
+}
+
+/* ── La carte large : la sécurité ──────────────────────────────────────── */
+
+.cp-shield { list-style: none; padding: 0; display: grid; gap: 1rem; }
+@media (min-width: 40rem) { .cp-shield { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 2rem; } }
+@media (min-width: 75rem) { .cp-shield { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.cp-shield li {
+  position: relative; padding-left: 1.75rem;
+  font-size: var(--t-small); line-height: 1.55; color: var(--text-muted);
+}
+.cp-shield i {
+  position: absolute; left: 0; top: 0.2em;
+  width: 1.125rem; height: 1.125rem; border-radius: 50%;
+  background: color-mix(in oklab, var(--accent) 22%, #ffffff);
+  display: grid; place-items: center;
+}
+.cp-shield i::after {
+  content: ""; width: 0.4375rem; height: 0.22rem;
+  border-left: 1.6px solid var(--accent-ink); border-bottom: 1.6px solid var(--accent-ink);
+  transform: rotate(-45deg) translate(0.5px, -1px);
+}
+
+/* ── Durées : un terme, une durée ──────────────────────────────────────── */
+
+.cp-times { list-style: none; padding: 0; display: grid; gap: 0; }
+.cp-times li {
+  display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; justify-content: space-between; align-items: baseline;
+  padding-block: 0.625rem;
+  font-size: var(--t-small); line-height: 1.5;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.cp-times li:last-child { border-bottom: 0; padding-bottom: 0; }
+.cp-times span { color: var(--text-muted); text-align: right; }
+
+/* ── Contact ───────────────────────────────────────────────────────────── */
+
+.cp-mail a {
+  display: inline-flex; align-items: center; min-height: 2.75rem;
+  font-size: var(--t-body); font-weight: 500; color: var(--accent-ink);
+  text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px;
+}
+.cp-mail a:hover { text-decoration-thickness: 2px; }
+
+.cp-version {
+  margin-top: clamp(2rem, 1.4rem + 2vw, 3rem);
+  font-size: 0.8125rem; color: var(--text-faint);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   7 · INSTALLER — trois colonnes sur la bande bleue, sans cartes.
+
+   ⚠️ PAS de carte : le fond est la bande, et les trois plateformes ne sont
+   séparées que par un filet. Une version posait trois cartes blanches dessus,
+   une autre empilait trois bleus — les deux ajoutaient une surface là où il
+   n'y a que trois choix à lire.
+
+   Les deux téléchargements portent le même bouton plein ; iPhone n'en a pas,
+   puisqu'il n'y a rien à télécharger.
+
+   Cette section occupe la place de « L'essai et le prix », parquée dans
+   src/_parked/essai.html avec son CSS `.s7-*` intact.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dl {
+  position: relative; isolation: isolate; overflow: hidden;
+  padding-block: clamp(3rem, 2rem + 3.6vw, 5rem);
+  font-family: var(--sans);
+  color: var(--on-ink);
+  background:
+    radial-gradient(58% 94% at 88% -14%, color-mix(in oklab, var(--accent) 15%, transparent), transparent 64%),
+    radial-gradient(54% 90% at 2% 110%, color-mix(in oklab, var(--azure) 15%, transparent), transparent 66%),
+    var(--ink);
+}
+.dl :where(*, *::before, *::after) { box-sizing: border-box; }
+.dl :where(p, h3, ol) { margin: 0; }
+.dl :where(a):focus-visible { outline: 2px solid var(--accent-lit); outline-offset: 3px; }
+
+/* ── L'entête ────────────────────────────────────────────────────────────── */
+.dl-hero { text-align: center; margin-bottom: clamp(2.25rem, 1.5rem + 2.6vw, 3.5rem); }
+.dl-eyebrow {
+  font-size: var(--t-eyebrow); font-weight: 500;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-lit);
+}
+.dl-h {
+  margin: 0.625rem 0 0;
+  font-size: var(--t-h2); font-weight: 400; line-height: 1.1; letter-spacing: -0.02em;
+}
+.dl-p { margin-top: 0.75rem; font-size: var(--t-small); color: var(--on-ink-muted); }
+
+/* ── Les trois colonnes ──────────────────────────────────────────────────── */
+.dl-cols { display: grid; gap: clamp(1.75rem, 1.2rem + 2vw, 2.75rem); }
+@media (min-width: 58rem) {
+  .dl-cols {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: clamp(2rem, 1.2rem + 2.4vw, 3.5rem);
+  }
+}
+
+.dl-block { position: relative; display: grid; align-content: start; gap: 0.75rem; min-width: 0; }
+/* Le filet : en travers quand les colonnes sont empilées, vertical côte à côte. */
+.dl-block + .dl-block { padding-top: clamp(1.75rem, 1.2rem + 2vw, 2.75rem); }
+.dl-block + .dl-block::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+  background: color-mix(in oklab, var(--on-ink) 18%, transparent);
+}
+@media (min-width: 58rem) {
+  .dl-block + .dl-block { padding-top: 0; padding-inline-start: clamp(2rem, 1.2rem + 2.4vw, 3.5rem); }
+  .dl-block + .dl-block::before {
+    right: auto; bottom: 0; height: auto; width: 1px;
+    left: calc(-1 * clamp(2rem, 1.2rem + 2.4vw, 3.5rem) / 2);
+  }
+}
+
+.dl-k {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: var(--t-eyebrow); font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-lit);
+}
+.dl-k svg { flex: none; width: 1.125rem; height: 1.125rem; }
+.dl-who { font-size: var(--t-h4); font-weight: 500; line-height: 1.25; }
+
+.dl-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  justify-self: start;
+  margin-top: 0.375rem; min-height: 3rem; padding: 0.75rem 1.5rem;
+  border-radius: var(--r-btn);
+  background: transparent; color: var(--on-ink);
+  border: 1px solid color-mix(in oklab, var(--on-ink) 32%, transparent);
+  font-size: var(--t-small); font-weight: 500; text-decoration: none;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+              box-shadow var(--fast) var(--ease), transform var(--press) var(--ease-out);
+}
+.dl-btn i { font-style: normal; line-height: 1; }
+.dl-btn:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .dl-btn:hover { background: color-mix(in oklab, var(--on-ink) 10%, transparent); border-color: var(--on-ink); }
+}
+/* Les deux téléchargements — Windows et Android. */
+.dl-btn--main { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+@media (hover: hover) and (pointer: fine) {
+  .dl-btn--main:hover {
+    background: var(--accent-hi); border-color: var(--accent-hi);
+    box-shadow: 0 6px 20px -6px rgb(47 198 224 / 0.5);
+  }
+}
+
+.dl-meta { font-size: var(--t-eyebrow); line-height: 1.5; color: var(--on-ink-faint); }
+
+/* iOS : trois gestes, numérotés par le compteur de la liste. */
+.dl-steps { display: grid; gap: 0.5rem; margin-top: 0.375rem; padding: 0; list-style: none; counter-reset: ios; }
+.dl-steps li {
+  display: flex; align-items: flex-start; gap: 0.5625rem;
+  font-size: var(--t-small); line-height: 1.45; color: var(--on-ink-muted);
+  counter-increment: ios;
+}
+/* ⚠️ Le texte du geste est UN seul enfant flex : sans le span chaque mot devient
+   un élément flex et la colonne déborde. Mesuré. */
+.dl-steps li > span { min-width: 0; }
+.dl-steps li::before {
+  content: counter(ios);
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none; width: 1.375rem; height: 1.375rem; margin-top: 0.0625rem;
+  border-radius: 999px; background: color-mix(in oklab, var(--on-ink) 14%, transparent);
+  color: var(--accent-lit); font-size: 0.75rem; font-weight: 600; line-height: 1;
+}
+.dl-steps b { color: var(--on-ink); font-weight: 500; }
+
+/* ── L'appel ─────────────────────────────────────────────────────────────── */
+.dl-act { margin-top: clamp(2rem, 1.4rem + 2.2vw, 3rem); text-align: center; }
+.dl-demo {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  min-height: 2.875rem; padding: 0.6875rem 1.5rem;
+  border-radius: var(--r-btn);
+  border: 1px solid color-mix(in oklab, var(--on-ink) 32%, transparent); background: transparent;
+  color: var(--on-ink); font-size: var(--t-small); font-weight: 500; text-decoration: none;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.dl-demo i { font-style: normal; }
+@media (hover: hover) and (pointer: fine) {
+  .dl-demo:hover { background: color-mix(in oklab, var(--on-ink) 10%, transparent); border-color: var(--on-ink); }
+}
+
+/* ── Les entrées ─────────────────────────────────────────────────────────── */
+.dl-rise, .dl-cin {
+  opacity: 0; transform: translateY(16px); filter: blur(6px);
+  transition: opacity 620ms var(--ease-out), transform 620ms var(--ease-out),
+              filter 620ms var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 110ms);
+}
+.in .dl-rise, .in .dl-cin { opacity: 1; transform: none; filter: none; }
+/* Sans JS la section rendrait VIDE — même garde-fou que .jour-copy. */
+.no-js .dl-rise, .no-js .dl-cin { opacity: 1; transform: none; filter: none; }
+@media (prefers-reduced-motion: reduce) { .dl-rise, .dl-cin { transition: none; } }

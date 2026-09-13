@@ -19,7 +19,7 @@
       <p class="lede rise d2">Conçu en Tunisie, pour les dentistes d’ici.</p>
 
       <div class="hero-actions rise d3">
-        <a class="btn btn-primary" href="#essai">Essayer gratuitement</a>
+        <a class="btn btn-primary" href="#telecharger">Essayer gratuitement</a>
         <a class="btn btn-ghost" href="#dossier">Découvrir le logiciel</a>
       </div>
 
@@ -810,78 +810,183 @@
   </div>
 </section>
 
-<!-- ══ 7 · L'ESSAI ET LE PRIX ═══════════════════════════════════════════════════ -->
-<section data-reveal class="s7" id="essai" aria-labelledby="s7-titre">
-  <div class="wrap s7-in">
+<!-- ══ 7 · INSTALLER ════════════════════════════════════════════════════════
+     Occupe la place de « L'essai et le prix », parquée intacte dans
+     src/_parked/essai.html (son CSS `.s7-*` est toujours là) : le tarif n'est
+     pas arrêté, donc la section ne pouvait pas être publiée.
 
-    <div class="s7-lead">
-      <p class="s7-eyebrow s7-rise" style="--i: 0">L’essai et le prix</p>
-      <h2 class="s7-h s7-rise" id="s7-titre" style="--i: 1">Deux formules, et trente jours pour choisir</h2>
-      <p class="s7-p s7-rise" style="--i: 2">Le choix se fait sur la taille du cabinet.</p>
+     ⚠️ Le bouton Windows tape une route ANONYME de l'API
+     (MetaController.ClientDownload) qui sert toujours la dernière version
+     déposée dans deploy/updates/ sur le VPS. L'APK est un fichier posé à la
+     main à la racine du dépôt du SITE, donc absent de site/dist en local. Les
+     deux numéros de version sont écrits à la main ici.
+
+     ⚠️ Ne JAMAIS envoyer l'exécutable en pièce jointe : Gmail bloque les .exe,
+     y compris dans un .zip. L'email porte un lien vers #telecharger.
+     Voir site/EMAIL-TELECHARGEMENT.md. -->
+<section data-reveal class="dl" id="telecharger" aria-labelledby="dl-titre">
+  <div class="wrap">
+
+    <div class="dl-hero">
+      <p class="dl-eyebrow dl-rise" style="--i: 0">L’installation</p>
+      <h2 class="dl-h dl-rise" id="dl-titre" style="--i: 1">Installez APEXA</h2>
+      <p class="dl-p dl-rise" style="--i: 2">Trente jours d’essai, sans carte bancaire.</p>
     </div>
 
-    <div class="s7-ticket">
+    <div class="dl-cols">
 
-      <!-- ── Formule 1 ─────────────────────────────────────────────────── -->
-      <article class="s7-pack" style="--b: 0ms">
-        <p class="s7-k s7-cin" style="--i: 0"><i aria-hidden="true"></i>Formule 1</p>
-        <h3 class="s7-who s7-cin" style="--i: 1">Un praticien et une secrétaire</h3>
-
-        <p class="s7-price s7-cin" style="--i: 2">Prix communiqué à la démo</p>
-
-        <p class="s7-quota s7-cin" style="--i: 3">
-          <span class="s7-tick" aria-hidden="true"></span>
-          <span><b>500</b> rappels SMS ou WhatsApp compris</span>
+      <article class="dl-block dl-cin" style="--i: 0">
+        <p class="dl-k">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.4L10.3 4.4V11.3H3zM11.2 4.3L21 3v8.3H11.2zM3 12.2H10.3v6.9L3 18.1zM11.2 12.2H21V21l-9.8-1.3z"/></svg>
+          Windows
         </p>
+        <h3 class="dl-who">Le poste du cabinet</h3>
+        <a class="dl-btn dl-btn--main" href="https://app.apexa.tn/api/meta/client-download">
+          <i aria-hidden="true">↓</i>Télécharger
+        </a>
+        <p class="dl-meta">Version 1.0.9 · Windows 10 ou 11</p>
       </article>
 
-      <!-- ── Formule 2 ─────────────────────────────────────────────────── -->
-      <article class="s7-pack" style="--b: 140ms">
-        <p class="s7-k s7-cin" style="--i: 0"><i aria-hidden="true"></i>Formule 2</p>
-        <h3 class="s7-who s7-cin" style="--i: 1">Plusieurs praticiens</h3>
-
-        <p class="s7-price s7-cin" style="--i: 2">Prix communiqué à la démo</p>
-
-        <p class="s7-quota s7-cin" style="--i: 3">
-          <span class="s7-tick" aria-hidden="true"></span>
-          <span><b>1 000</b> rappels SMS ou WhatsApp compris</span>
+      <article class="dl-block dl-cin" style="--i: 1">
+        <p class="dl-k">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 9h12v8a1.5 1.5 0 01-1.5 1.5H15V22h-2v-3.5h-2V22H9v-3.5H7.5A1.5 1.5 0 016 17zM4.2 9.4a1.2 1.2 0 012.4 0v5.2a1.2 1.2 0 01-2.4 0zM17.4 9.4a1.2 1.2 0 012.4 0v5.2a1.2 1.2 0 01-2.4 0zM6 8.2C6.2 6 8.8 4.8 12 4.8s5.8 1.2 6 3.4z"/></svg>
+          Android
         </p>
+        <h3 class="dl-who">Téléphone et tablette</h3>
+        <a class="dl-btn dl-btn--main" href="GestionClinique-1.1.0.apk" download>
+          <i aria-hidden="true">↓</i>Télécharger l’APK
+        </a>
       </article>
 
-      <!-- ── Said once, under both, and shown rather than asserted ─────── -->
-      <div class="s7-incl s7-cin" style="--i: 6">
-        <p class="s7-incl-h">
-          <span class="s7-tick" aria-hidden="true"></span>
-          <span><b>Aucune option payante.</b> Les deux formules ouvrent le logiciel entier&nbsp;:</span>
+      <article class="dl-block dl-cin" style="--i: 2">
+        <p class="dl-k">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.7c0-2 1.6-3 1.7-3.1-.9-1.4-2.4-1.5-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.2 2-1.4 2.4-.4 6 1 7.9.7.9 1.5 2 2.5 1.9 1-.04 1.4-.6 2.6-.6s1.5.6 2.6.6 1.7-.9 2.4-1.8c.7-1 1-2 1-2.1 0 0-1.9-.7-2.1-3.2zM14.5 6.3c.5-.6.9-1.5.8-2.3-.8 0-1.7.5-2.2 1.2-.5.6-.9 1.5-.8 2.3.8.06 1.7-.5 2.2-1.2z"/></svg>
+          iPhone et iPad
         </p>
-        <ul class="s7-all">
-          <li style="--i: 0">Les 24 écrans, en 4 zones</li>
-          <li style="--i: 1">Odontogramme et traitements</li>
-          <li style="--i: 2">Chèques postdatés par échéance</li>
-          <li style="--i: 3">Stock, péremptions, fournisseurs</li>
-          <li style="--i: 4">Sauvegardes vérifiées</li>
-          <li style="--i: 5">Import/export CSV</li>
-          <li style="--i: 6">Windows, Android et iPhone</li>
-          <li style="--i: 7">Rôles et droits par personne</li>
-        </ul>
-      </div>
-
-      <!-- ── How the figure is obtained, since the ticket does not print it ─ -->
-      <p class="s7-devis s7-cin" style="--i: 7">
-        <span>Le prix dépend de la formule et de la taille du cabinet.</span>
-        <a class="s7-devis-a" href="mailto:contact@apexa.tn?subject=Demande%20de%20devis%20APEXA">Demander un devis<i aria-hidden="true">→</i></a>
-      </p>
+        <h3 class="dl-who">Rien à installer</h3>
+        <ol class="dl-steps">
+          <li><span>Ouvrez <b>app.apexa.tn</b> dans Safari</span></li>
+          <li><span>Touchez <b>Partager</b></span></li>
+          <li><span><b>Sur l’écran d’accueil</b></span></li>
+        </ol>
+      </article>
 
     </div>
 
-    <div class="s7-act s7-rise" style="--i: 3">
-      <div class="s7-btns">
-        <a class="s7-btn s7-btn--primary" href="mailto:contact@apexa.tn?subject=Essai%20gratuit%20APEXA">Essayer gratuitement</a>
-        <a class="s7-btn s7-btn--ghost" href="mailto:contact@apexa.tn?subject=Demande%20de%20d%C3%A9mo%20APEXA">Demander une démo</a>
-      </div>
-      <p class="s7-trial">Trente jours d’essai, sans carte bancaire.</p>
+    <div class="dl-act dl-rise" style="--i: 3">
+      <a class="dl-demo" href="#demande">Demander une démo<i aria-hidden="true">→</i></a>
     </div>
 
   </div>
 </section>
 
+
+<!-- ══ 9 · DEMANDER UNE DÉMO ════════════════════════════════════════════════
+     The page's only form, and the target of every « Demander une démo » on the
+     site. LIGHT ground: §8 (l'essai) above it is dark and the footer below is
+     paper, so this is the step between them.
+
+     ⚠️ The form POSTS to formsubmit.co, which needs NO account: the first
+     submission emails contact@apexa.tn an activation link, and nothing is
+     delivered until somebody clicks it. `action` is the plain endpoint so the
+     form still works with JS blocked (it redirects to `_next`); site.js posts
+     to the `/ajax/` twin instead and keeps the reader on the page. -->
+<section data-reveal class="s8" id="demande" aria-labelledby="s8-titre">
+  <div class="wrap s8-in">
+
+    <div class="s8-lead">
+      <p class="s8-eyebrow s8-rise" style="--i: 0">Parlons-en</p>
+      <h2 class="s8-h s8-rise" id="s8-titre" style="--i: 1">Voyons le logiciel sur votre cabinet</h2>
+      <p class="s8-p s8-rise" style="--i: 2">Une démonstration de trente minutes, en français, avec vos actes et vos tarifs à l’écran. À distance ou au cabinet.</p>
+
+      <ol class="s8-steps">
+        <li class="s8-rise" style="--i: 3">
+          <i aria-hidden="true">1</i>
+          <span><b>Vous remplissez le formulaire.</b> Quatre champs, pas un de plus.</span>
+        </li>
+        <li class="s8-rise" style="--i: 4">
+          <i aria-hidden="true">2</i>
+          <span><b>On vous rappelle sous 24 heures</b>, du lundi au vendredi, pour convenir d’un créneau.</span>
+        </li>
+        <li class="s8-rise" style="--i: 5">
+          <i aria-hidden="true">3</i>
+          <span><b>Vous repartez avec le prix</b> de votre formule, et trente jours d’essai si vous voulez continuer.</span>
+        </li>
+      </ol>
+
+      <p class="s8-direct s8-rise" style="--i: 6">
+        Vous préférez écrire vous-même&nbsp;?
+        <a href="mailto:contact@apexa.tn?subject=Demande%20de%20d%C3%A9mo%20APEXA">contact@apexa.tn</a>
+      </p>
+    </div>
+
+    <div class="s8-panel s8-rise" style="--i: 3">
+      <form class="s8-form" id="demo-form" method="POST"
+            action="https://formsubmit.co/contact@apexa.tn" novalidate>
+
+        <input type="hidden" name="_subject" value="Demande de démo — apexa.tn">
+        <input type="hidden" name="_template" value="table">
+        <input type="hidden" name="_captcha" value="false">
+        <input type="hidden" name="_next" value="https://apexa.tn/?envoye=1#demande">
+        <!-- The honeypot: a bot fills every field it finds, a human never sees this one. -->
+        <input type="text" name="_honey" tabindex="-1" autocomplete="off" class="s8-honey" aria-hidden="true">
+
+        <div class="s8-grid">
+
+          <p class="s8-field">
+            <label for="f-nom">Nom <i aria-hidden="true">*</i></label>
+            <input id="f-nom" name="Nom" type="text" autocomplete="family-name" required
+                   placeholder="Ben Amor">
+            <span class="s8-err" data-err-for="f-nom"></span>
+          </p>
+
+          <p class="s8-field">
+            <label for="f-prenom">Prénom <i aria-hidden="true">*</i></label>
+            <input id="f-prenom" name="Prenom" type="text" autocomplete="given-name" required
+                   placeholder="Sonia">
+            <span class="s8-err" data-err-for="f-prenom"></span>
+          </p>
+
+          <p class="s8-field">
+            <label for="f-email">Email <i aria-hidden="true">*</i></label>
+            <input id="f-email" name="Email" type="email" inputmode="email" autocomplete="email" required
+                   placeholder="vous@exemple.tn">
+            <span class="s8-err" data-err-for="f-email"></span>
+          </p>
+
+          <p class="s8-field">
+            <label for="f-tel">Téléphone <i aria-hidden="true">*</i></label>
+            <input id="f-tel" name="Telephone" type="tel" inputmode="tel" autocomplete="tel" required
+                   placeholder="98 445 123">
+            <span class="s8-err" data-err-for="f-tel"></span>
+          </p>
+
+          <p class="s8-field s8-field--wide">
+            <label for="f-message">Votre message <span class="s8-opt">facultatif</span></label>
+            <textarea id="f-message" name="Message" rows="4"
+                      placeholder="Ce que vous aimeriez voir, le logiciel que vous utilisez aujourd’hui, vos horaires…"></textarea>
+          </p>
+
+        </div>
+
+        <div class="s8-act">
+          <button class="btn btn-primary s8-send" type="submit">
+            <span class="s8-send-t">Envoyer la demande</span>
+            <span class="s8-spin" aria-hidden="true"></span>
+          </button>
+          <p class="s8-legal">Vos coordonnées servent à vous rappeler, et à rien d’autre.</p>
+        </div>
+
+        <p class="s8-note" id="demo-note" role="alert" hidden></p>
+      </form>
+
+      <div class="s8-done" id="demo-done" hidden>
+        <span class="s8-done-tick" aria-hidden="true"></span>
+        <h3>C’est envoyé.</h3>
+        <p>On vous rappelle sous 24 heures, du lundi au vendredi. Si c’est urgent, écrivez directement à
+          <a href="mailto:contact@apexa.tn">contact@apexa.tn</a>.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
