@@ -353,6 +353,61 @@ check(
 );
 
 check(
+  "time-input-keeps-its-width-floor",
+  "P6",
+  "No `TimeInput`/`TimeField` call site passes `min-w-0` — it would delete the control's own width floor",
+  "`ui/time-field.tsx` is a masked TEXT input, because `<input type=\"time\">` renders in the BROWSER's UI " +
+    "locale and no attribute overrides that — measured in Chrome 2026-09-13, inputs carrying `lang=\"en-US\"`, " +
+    "`lang=\"fr\"` and `lang=\"ar-TN\"` rendered identically, all following the browser. So on an English " +
+    "workstation the whole product asked for and printed « 02:30 PM ». What the native control silently " +
+    "provided was an intrinsic width of about 105 px that no flex context could shrink past, so a row too " +
+    "narrow for two of them WRAPPED. A text input has no such floor, and the component declares one of its " +
+    "own; `min-w-0` at a call site is the same tailwind-merge group, so the caller wins and the floor is gone " +
+    "— the `ui/popover.tsx` trap exactly, one primitive over. Measured on /settings the first time it " +
+    "shipped: the two « Pause » fields collapsed to 26 px at 320 px, narrower than their own `--:--` " +
+    "placeholder, with tsc, this gate and the build all green. Put `min-w-0` on the WRAPPER and let the row " +
+    "`flex-wrap` instead.",
+  /*
+   * Scanned over the whole file rather than by line: these call sites routinely wrap their props, and the
+   * className of a `TimeInput` inside a working-hours grid is one of the longest in the repo.
+   */
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const tag = /<Time(?:Input|Field)\b/g;
+      let m;
+      while ((m = tag.exec(src)) !== null) {
+        // Read to the end of the opening tag, ignoring `>` inside a quoted value AND inside a braced
+        // expression: every call site here passes `onChange={(next) => …}`, whose arrow contains a `>` that
+        // ends the scan two props early — which is exactly how the first version of this check passed a
+        // deliberate violation.
+        let i = m.index + m[0].length;
+        let quote = null;
+        let depth = 0;
+        for (; i < src.length; i++) {
+          const c = src[i];
+          if (quote) { if (c === quote) quote = null; continue; }
+          if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+          if (c === "{") { depth++; continue; }
+          if (c === "}") { depth--; continue; }
+          if (c === ">" && depth === 0) break;
+        }
+        const openTag = src.slice(m.index, i + 1);
+        if (!/(?:^|[\s"'`{])min-w-0(?:[\s"'`}]|$)/.test(openTag)) continue;
+        hits.push({
+          file: rel(file),
+          line: src.slice(0, m.index).split("\n").length,
+          text: "min-w-0",
+          full: `${m[0].slice(1)} passes min-w-0 — that removes the control's own width floor, so it can collapse below its placeholder`,
+        });
+      }
+    }
+    return hits;
+  }
+);
+
+check(
   "hover-movement",
   "P2",
   "No ungated `hover:scale-*` — gate movement hovers behind `hover-hover:`",
@@ -440,10 +495,6 @@ const CARD_FALLBACK_EXEMPT = new Map([
     "the same 2 columns as its twin above, and the same reason: the table IS this chart's accessible fallback. " +
       "Note its sibling `appointment-status-chart` is NOT here — that one's table is 7 columns wide, which is " +
       "exactly the defect this check exists for, so it carries a real CardList",
-  ],
-  [
-    "components/cnam-letter-values-card.tsx",
-    "a form in a table: the value cell is an editable <Input> with a per-row save, not a value to read",
   ],
   [
     "components/factures/invoice-detail-modal.tsx",
@@ -972,7 +1023,7 @@ check(
     // (`version: 0`, the documented "not supplied") is not a round-trip and is not in scope.
     const SENDS = /version:\s*[A-Za-z_$][\w$]*\s*\??\./;
     // ⚠️ `Api.get*` / `Api.list*`, not only the bare two. A per-row action legitimately re-reads through a
-    // named read (`cnamNomenclatureApi.listLetterValues()`, `usersApi.listPaged()`) and that is exactly the
+    // named read (`usersApi.listPaged()`, `suppliersApi.list()`) and that is exactly the
     // shape this check asks for — a stricter pattern rejected the honest fix, and the answer to that would
     // have been a per-file exemption, which is how a check stops working.
     const READS = /(?:useFreshVersion|Api\.(?:get|list)[A-Za-z]*\()/;

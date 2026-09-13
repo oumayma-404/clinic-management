@@ -23,6 +23,7 @@ import {
 import { Pill, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal, RotateCcw } from "lucide-react"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
@@ -152,6 +153,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
         icon={Pill}
         size={size}
         title="Aucun médicament dans le catalogue"
+        joke={<EmptyJoke surface="firstMedications" />}
         description="Ce catalogue alimente le sélecteur de l'ordonnance : nom commercial, forme, dosage et molécules (DCI)."
         action={
           <Button onClick={onAdd} className="gap-2">

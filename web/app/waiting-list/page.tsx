@@ -58,6 +58,7 @@ import {
 } from "lucide-react"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Command,
@@ -417,6 +418,7 @@ export default function WaitingListPage() {
         icon={ClipboardList}
         size={size}
         title="La liste d'attente est vide 🪑"
+        joke={<EmptyJoke surface="waitingList" />}
         description="Inscrivez ici les patients qui attendent un créneau : dès qu'une place se libère, « Promouvoir » ouvre le rendez-vous avec le patient déjà sélectionné."
         action={
           <Button onClick={handleAddNew} className="gap-2">

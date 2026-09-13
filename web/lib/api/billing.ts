@@ -1,22 +1,17 @@
 import { apiGet, apiGetBlob } from './client';
-import type { ChequesDueDto, CnamCeilingDto, PatientBillingSummaryDto, ReceivableDto, ReceivablesPageDto } from './types';
+import type { ChequesDueDto, PatientBillingSummaryDto, ReceivableDto, ReceivablesPageDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const billingApi = {
-  /** The unified per-patient balance + CNAM split. */
+  /**
+   * The unified per-patient balance.
+   *
+   * ⚠️ The response still carries the server's reimbursable/out-of-pocket split, and nothing here reads it —
+   * the annual-ceiling read that used to sit beside this one (`GET /patients/{id}/cnam-ceiling`) went with the
+   * CNAM interface. See `features/cnam-ui-withdrawal/notes.md`; the route is still served.
+   */
   getPatientSummary: async (patientId: string): Promise<PatientBillingSummaryDto> =>
     apiGet<PatientBillingSummaryDto>(`/patients/${patientId}/billing-summary`),
-
-  /**
-   * « Plafond annuel CNAM » for one patient (L10) — ceiling, consumed, remaining.
-   *
-   * ⚠️ Per-patient, so it is **not** gated like the clinic-wide money reads: reception is asked
-   * « combien reste-t-il ? » with the patient standing there. Every figure is an estimate — see `CnamCeilingDto`.
-   *
-   * @param year Omit for the current **clinic** year.
-   */
-  getPatientCnamCeiling: async (patientId: string, year?: number): Promise<CnamCeilingDto> =>
-    apiGet<CnamCeilingDto>(`/patients/${patientId}/cnam-ceiling`, year ? { year } : undefined),
 
   /** The clinic-wide receivables list (patients with a positive balance, sorted by amount owed). */
   getReceivables: async (): Promise<ReceivableDto[]> =>

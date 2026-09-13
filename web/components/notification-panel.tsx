@@ -24,6 +24,7 @@ import { quoteFr } from "@/lib/format"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { lowStockOrderMessageFromAlert } from "@/lib/whatsapp"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import type { NotificationDto } from "@/lib/api/types"
 
@@ -202,6 +203,7 @@ export function NotificationPanel({
             icon={BellOff}
             size="compact"
             title="Aucune notification"
+            joke={<EmptyJoke surface="notifications" />}
             description="Les rendez-vous, les rappels et les alertes de stock apparaîtront ici."
           />
         ) : (

@@ -42,6 +42,15 @@ interface EmptyStateProps {
    * search needs no elaboration and a second grey line would only slow the retry.
    */
   description?: ReactNode
+  /**
+   * The screen's own line of personality — an `ui/empty-joke.tsx` for a surface that has one.
+   *
+   * <p>Its own slot rather than a sentence appended to `description`, and it renders <b>above</b> it, larger than
+   * both the title and the description: folded into the grey line at the bottom it was simply not read. Never
+   * carries information — see `lib/jokes.ts` for the four rules, including the surfaces (money, clinical records,
+   * errors) that must never be given one.</p>
+   */
+  joke?: ReactNode
   /** The action that resolves the emptiness — « Ajouter un patient ». Omit for a filtered-empty state. */
   action?: ReactNode
   /**
@@ -70,6 +79,7 @@ export function EmptyState({
   icon: Icon,
   title,
   description,
+  joke,
   action,
   secondaryAction,
   chipClassName,
@@ -118,6 +128,7 @@ export function EmptyState({
 
       <div className={cn("space-y-1", compact ? "max-w-[38ch]" : "max-w-[46ch]")}>
         <p className={cn("font-medium text-foreground", compact ? "text-sm" : "text-base")}>{title}</p>
+        {joke}
         {description && (
           <p className={cn("text-muted-foreground", compact ? "text-xs" : "text-sm")}>{description}</p>
         )}

@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, Boxes, MoreHorizontal } from "lucide-react"
+import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, MoreHorizontal } from "lucide-react"
 /*
   `_LG`, not the plain `md:` pair: the Catégorie column takes this table to **eight** columns, every cell
   `whitespace-nowrap`. An iPad portrait is 820px and therefore already `md:`, so it would get the desktop table
@@ -28,6 +28,7 @@ import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, Box
 */
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
@@ -35,7 +36,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ProcedureTypeMaterialsDialog } from "@/components/procedure-type-materials-dialog"
 import {
   ProcedureTypeStepsDialog,
   ProcedureStepsCell,
@@ -78,9 +78,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
   const [reloadToken, setReloadToken] = useState(0)
   const [deleting, setDeleting] = useState(false)
   const [seeding, setSeeding] = useState(false)
-  // AC-P4.14 — the act whose material list is being edited (« Consommables »), or null.
-  const [materialsTarget, setMaterialsTarget] = useState<ProcedureTypeDto | null>(null)
-  /** The act whose protocol is being edited, or null. Same shape as its materials twin above. */
+  /** The act whose protocol is being edited, or null. */
   const [stepsTarget, setStepsTarget] = useState<ProcedureTypeDto | null>(null)
 
   // Only active procedures. Search, the category filter, ordering and paging are ALL server-side — filtering an
@@ -170,6 +168,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
         icon={Stethoscope}
         size={size}
         title="Aucun type d'acte défini"
+        joke={<EmptyJoke surface="firstProcedures" />}
         description={
           isAdmin
             ? "Les actes de ce catalogue donnent à l'agenda sa couleur et sa durée, et préremplissent les devis et les fiches de soins. « Charger les actes courants » installe les actes tunisiens usuels en une fois."
@@ -402,7 +401,6 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onSelect={() => onEdit(p)}>Modifier</DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => setStepsTarget(p)}>Étapes</DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => setMaterialsTarget(p)}>Consommables</DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
                             onSelect={() => handleDelete(p)}
@@ -429,8 +427,14 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                     owner's call: both were empty on nearly every row (a dash), and together they cost 217 px of
                     a table that overflowed its scrollport by 287 px at 1400 px — so what they actually bought
                     was pushing « Actions » out of view (§ 1). The description is still edited and read in the
-                    act's own form; the material list keeps its « Consommables » action on the row, which is the
-                    only place it can be edited (§ 0 — a column is a display choice, an editor is a capability).
+                    act's own form.
+
+                    ⚠️ « Consommables » is now gone from the ROW too — both entry points, the desktop button and
+                    the card menu — on the owner's call that the cabinet will never keep a per-act material
+                    list. This is a withdrawn feature, not a § 0 space trade: `procedure-type-materials-dialog.tsx`,
+                    `procedureTypesApi.setMaterials` and `PUT /procedure-types/{id}/materials` are all untouched,
+                    so restoring it is re-adding the two controls and the dialog mount. Stock deduction on a
+                    fiche is server-side and never read this table.
                   */}
                   {/* Dropped for a read-only role: the cells below are behind `isAdmin`, so a secretary got a
                       column headed « Actions » with 76 px of empty cell on every row. The card tree already
@@ -532,15 +536,6 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => setMaterialsTarget(procedure)}
-                              className="h-8 gap-1"
-                            >
-                              <Boxes className="h-3 w-3" />
-                              Consommables
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
                               onClick={() => handleDelete(procedure)}
                               className="h-8 gap-1 text-destructive hover:text-destructive"
                             >
@@ -567,17 +562,11 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
         </CardContent>
       </Card>
 
-      {/* AC-P4.14 — material-list editor for one act. */}
+      {/* The act's protocol — « Étapes ». */}
       <ProcedureTypeStepsDialog
         procedureType={stepsTarget}
         onOpenChange={(next) => { if (!next) setStepsTarget(null) }}
         onSaved={() => { setStepsTarget(null); void loadProcedures() }}
-      />
-
-      <ProcedureTypeMaterialsDialog
-        procedureType={materialsTarget}
-        onOpenChange={(open) => { if (!open) setMaterialsTarget(null) }}
-        onSaved={loadProcedures}
       />
 
       {/* Delete Confirmation Dialog */}

@@ -2,7 +2,8 @@
 
 Full-stack **dental/medical clinic management** system (Tunisia-targeted: French UI labels, Tunisian
 governorates). Multi-tenant by clinic, with patient records, appointments + Google Calendar sync,
-medical/dental documents, file storage, billing and CNAM.
+medical/dental documents, file storage and billing. ⚠️ CNAM is built and served on the API and reachable
+from **no screen** — see [`features/cnam-ui-withdrawal/notes.md`](features/cnam-ui-withdrawal/notes.md).
 
 > **Read this first.** This file is the **map**: where things live, how to run it, and where the reasoning is
 > written down. Each major folder has its own `CLAUDE.md`; cross-cutting design lives in
@@ -159,6 +160,7 @@ how it was built, `notes.md` is what shipped.
 
 **The clinical loop**
 
+- [`time-24h-clock`](features/time-24h-clock/notes.md) — L'heure se saisit et se lit sur 24 heures, partout — et `lang="fr"` n'y était pour rien
 - [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`unfinished-act-continuation`](features/unfinished-act-continuation/notes.md) — Un acte peut être noté « non terminé », et ce qui reste apparaît quelque part · « Suites à planifier » n'est PAS une quatrième question de la clôture
@@ -169,6 +171,10 @@ how it was built, `notes.md` is what shipped.
 - [`booking-treatment-suggestions`](features/booking-treatment-suggestions/notes.md) — Le rappel ne nommait qu'un traitement, et se taisait pour 47 patients sur 318
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
+- [`cnam-ui-withdrawal`](features/cnam-ui-withdrawal/notes.md) — La CNAM n'a plus d'interface, et tout le
+  serveur est intact · **six choses ont délibérément survécu** (les deux entrées `DOCUMENT_TEMPLATES`, la clé
+  realtime `DentalActs`, l'aller-retour `dentalActCodeId`, `cnamInfo` omis et non vidé, un contrat de test
+  skippé par attribut, un refus de route) · la conséquence qu'un `revert` ne défera pas
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
 - [`dicom-interactive-viewer`](features/dicom-interactive-viewer/notes.md) — A radiograph you can read, not just look at: window/level, zoom, frame scrolling and a ruler that refuses to invent millimetres
@@ -259,6 +265,18 @@ touching the area.
   `LastTickOfLocalDayUtc`, or a midnight payment lands in two adjacent periods.
 - **On the client, `todayLocalIso()`** (`web/lib/format.ts`), never `new Date().toISOString().slice(0, 10)`:
   for the first hour of every Tunisian day the latter pre-fills *yesterday*, and on the 1st, last month.
+- **`<input type="time">` renders in the BROWSER's UI locale, and `lang` does not touch it.** Measured in
+  Chrome 2026-09-13: inputs carrying `lang="en-US"`, `lang="fr"`, `lang="ar-TN"` and none at all under
+  `<html lang="fr">` all rendered identically, every one following the browser. So on an English-locale Chrome —
+  the ordinary case on a Windows PC — all 11 time inputs asked for and displayed « 02:30 PM » in a product whose
+  prose, PDFs, SMS reminders and agenda all say « 14:30 ». `ui/time-field.tsx` is a **masked 24-hour text input**
+  for that reason, and its own docstring had asserted the opposite for as long as it existed. ⚠️ Its trap is what
+  the native control gave for free: a ~105 px intrinsic width no flex context could shrink past, so a row too
+  narrow for two of them **wrapped**. A text input has none — the component declares `min-w-[4.5rem]` and a call
+  site passing `min-w-0` deletes it (same tailwind-merge group, `ui/popover.tsx`'s trap one primitive over),
+  which collapsed `/settings`' two « Pause » fields to **26 px at 320 px** with tsc, `check:responsive` and the
+  build all green. `check:responsive`'s `time-input-keeps-its-width-floor` holds it. See
+  [`features/time-24h-clock/notes.md`](features/time-24h-clock/notes.md).
 - **An update DTO is tri-state.** Omitting a key means "unchanged"; `[]` or an explicit null means "clear".
   Conflating them deletes data — `{ status }` alone on an appointment would drop every act of the séance.
 - **A field of a recorded ACT is kept alive only by the fiche's editor, and forgetting either half rewrites the

@@ -26,11 +26,26 @@ import { useSession } from "@/lib/auth/session"
  * Four destinations, read from the same source the rail and the drawer read (`lib/nav.ts`) — a hand-written
  * second list is how the bar ends up missing a screen someone added to the rail.
  *
- * These four are « Quotidien » minus « RDV récurrents »: the dashboard, the agenda, the waiting room and the
- * patient list are what a clinic opens all day. Recurring series is a scheduling task done occasionally at a
- * desk, so it lives behind « Plus » with everything else.
+ * The dashboard, the closure worklist, the agenda and the patient list are what a clinic opens all day.
+ *
+ * ⚠️ « Liste d'attente » was a tab and « À clôturer » is, deliberately. The waiting room is a walk-in screen a
+ * practice consults occasionally, while every finished séance has to pass through « À clôturer » — it is the
+ * one worklist the clinic works down daily, and the phone is where a dentist leaving the chair has it in hand.
+ * The waiting list is one tap behind « Plus », where it was already reachable.
+ *
+ * ⚠️ The ORDER is the design, not the order of `lib/nav.ts`: « Rendez-vous » is third of five, i.e. dead centre
+ * of the bar and therefore the easiest point on the screen for either thumb. It is what a phone opens all day.
  */
-const BAR_HREFS = ["/", "/appointments", "/waiting-list", "/patients"] as const
+const BAR_HREFS = ["/", "/a-cloturer", "/appointments", "/patients"] as const
+
+/**
+ * The one destination drawn as a filled disc rather than a tinted glyph.
+ *
+ * Prominence and selection are two different visual channels here, on purpose: the disc says « this is what
+ * you came for » and never moves, while `aria-current` + `text-primary` say « this is where you are ». A
+ * permanently primary-COLOURED tab would have conflated them and left the bar looking selected on every screen.
+ */
+const PROMINENT_HREF = "/appointments"
 
 const barItems: NavItem[] = BAR_HREFS.map((href) => {
   const item = baseSections.flatMap((s) => s.items).find((i) => i.href === href)
@@ -44,7 +59,7 @@ const barItems: NavItem[] = BAR_HREFS.map((href) => {
 const SHORT_LABEL: Record<string, string> = {
   "/": "Accueil",
   "/appointments": "Agenda",
-  "/waiting-list": "Liste",
+  "/a-cloturer": "À clôturer",
   "/patients": "Patients",
 }
 
@@ -86,6 +101,7 @@ export function BottomNav() {
     >
       {items.map((item) => {
         const active = isActive(item.href)
+        const prominent = item.href === PROMINENT_HREF
         return (
           <Link
             key={item.href}
@@ -99,8 +115,22 @@ export function BottomNav() {
               active ? "text-primary" : "text-muted-foreground"
             )}
           >
-            <item.icon className={cn("h-5 w-5", active && "text-primary")} aria-hidden="true" />
-            <span className="leading-none">{SHORT_LABEL[item.href] ?? item.name}</span>
+            {prominent ? (
+              // 36 + 2 + 11 = 49 px of a 56 px bar. The disc is decoration inside the full-height tab, so the
+              // tap target is the same 64 × 56 as every sibling.
+              <span
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-shadow",
+                  active && "ring-2 ring-primary/30"
+                )}
+              >
+                <item.icon className="h-5 w-5" aria-hidden="true" />
+              </span>
+            ) : (
+              <item.icon className={cn("h-5 w-5", active && "text-primary")} aria-hidden="true" />
+            )}
+            {/* The only multi-word label in the bar — left to wrap it would take a second line the 56px bar has not got. */}
+            <span className="whitespace-nowrap leading-none">{SHORT_LABEL[item.href] ?? item.name}</span>
           </Link>
         )
       })}

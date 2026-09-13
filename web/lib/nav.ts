@@ -14,7 +14,6 @@ import {
   Pill,
   Receipt,
   ReceiptText,
-  ScrollText,
   Settings,
   Stethoscope,
   Truck,
@@ -113,8 +112,12 @@ export const baseSections: NavSection[] = [
 ]
 
 /**
- * Configuration group: procedure catalog + admin-only reference catalogs + clinic settings. CNAM /
- * médicaments / actes dentaires and Utilisateurs are all any-admin, in both modes.
+ * Configuration group: procedure catalog + admin-only reference catalogs + clinic settings. Médicaments
+ * and Utilisateurs are all any-admin, in both modes.
+ *
+ * ⚠️ « Actes dentaires » (`/dental-acts`) used to sit beside Médicaments. It was the DCH catalogue and the
+ * valeurs de la lettre clé, and both existed to feed the CNAM bulletin — so it was withdrawn with the rest
+ * of the CNAM interface (`features/cnam-ui-withdrawal/notes.md`). The backend route family is untouched.
  *
  * « Utilisateurs » used to carry an extra `mode === "local" &&` (AC-P2.28). Nothing else was mode-gated:
  * the page itself only checks `role === "admin"`, and `UsersController` (list / status / role) works
@@ -128,7 +131,6 @@ export function buildConfigItems(isAdmin: boolean, showSubscription = true): Nav
     ...(isAdmin
       ? [
           { name: "Médicaments", href: "/medications", icon: Pill },
-          { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText },
         ]
       : []),
     ...(isAdmin

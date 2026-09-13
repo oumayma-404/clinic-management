@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { DuplicateSuggestionPrompt } from "@/components/patients/duplicate-suggestion-prompt"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { patientsApi } from "@/lib/api/patients"
@@ -169,6 +170,7 @@ export function PendingReviewBlock({
           size="compact"
           chipClassName={zoneChipClass(ZONES.clinical)}
           title={showDismissed ? "Aucune fiche masquée" : "Aucun patient à compléter"}
+          joke={showDismissed ? undefined : <EmptyJoke surface="pendingReview" />}
           description={
             showDismissed
               ? "Les fiches que vous retirez de cette liste apparaissent ici, et peuvent être réaffichées."

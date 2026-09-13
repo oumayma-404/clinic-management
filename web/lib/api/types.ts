@@ -401,12 +401,19 @@ export interface InvoiceLineDto {
   unitPriceHt: number;
   lineTotalHt: number;
   dentalRecordId?: string | null;
-  /** Optional catalog CNAM/DCH act this line bills (drives the reimbursable split); null = free text. */
+  /**
+   * The catalog act this line bills, which the server uses for its reimbursable split; null = free text.
+   *
+   * ⚠️ **Nothing renders these and nothing attaches one — but the invoice form must keep round-tripping them.**
+   * That form is the only writer of the field in the whole product, so dropping it from the payload would
+   * silently strip the code from every line of any note somebody reopens. See
+   * `features/cnam-ui-withdrawal/notes.md`.
+   */
   dentalActCodeId?: string | null;
   codeActe?: string | null;
 }
 
-/** The unified per-patient balance (« Solde patient ») across invoices + installments, plus the CNAM split. */
+/** The unified per-patient balance (« Solde patient ») across invoices + installments. */
 /**
  * A patient's answer about automated SMS/WhatsApp reminders.
  *
@@ -420,6 +427,10 @@ export interface PatientBillingSummaryDto {
   installmentOutstanding: number;
   totalOutstanding: number;
   oldestOverdueDate: string | null;
+  /**
+   * The server's reimbursable / out-of-pocket split. ⚠️ **No screen reads either one**, and with no act code
+   * reaching an invoice line any more `cnamReimbursable` is structurally 0. Kept as a wire declaration only.
+   */
   cnamReimbursable: number;
   patientOutOfPocket: number;
   /**
@@ -691,87 +702,6 @@ export interface AppointmentDto {
   isSyncedToGoogle: boolean;
 }
 
-// Optional CNAM identity block on a patient (spec AC-1). Every field is optional.
-export interface CnamInfo {
-  identifiantUnique?: string | null;
-  regime?: string | null;
-  assureFirstName?: string | null;
-  assureLastName?: string | null;
-  assureAddress?: string | null;
-  assurePostalCode?: string | null;
-  maladeLien?: string | null;
-  maladeLienRang?: string | null;
-  /**
-   * Dependants the insured person declares — the input to the annual-ceiling barème (L10). Not derivable from
-   * `maladeLien`: that says how *this* patient relates to the insured person, while the ceiling depends on the
-   * household's size, and the other dependants may not be patients of this clinic at all.
-   */
-  dependantCount?: number | null;
-  /**
-   * The household's real annual ceiling when somebody knows it — always beats the computed barème, whose amounts are
-   * sourced rather than officially confirmed. Also where the dependent-parent / disabled-child / pregnancy
-   * supplements land, since each turns on a fact this product does not record.
-   */
-  annualCeilingOverride?: number | null;
-}
-
-/**
- * « Plafond annuel CNAM » for one patient in one clinic year (L10) — the ceiling, what this clinic consumed of it,
- * and what is left.
- *
- * ⚠️ **Every figure is an estimate, for two independent reasons**, and both arrive as fields so the caveat lives
- * beside the number rather than as each screen's own wording: `ceilingIsDefault` (the barème behind it is sourced,
- * not officially confirmed) and `seesThisClinicOnly` (the clinic can only count the acts *it* performed, so
- * `remaining` is an **upper bound**).
- */
-export interface CnamCeilingDto {
-  year: number;
-  ceiling: number;
-  /** The household part of a *computed* ceiling. Null when an override was used — an override replaces the derivation, it does not adjust it. */
-  baseCeiling?: number | null;
-  /** The soins-dentaires-externes allowance included in a computed ceiling. Null for an override, same reason. */
-  dentalAllowance?: number | null;
-  dependantCount: number;
-  /** True when `ceiling` came from the built-in barème rather than from a figure somebody recorded. */
-  ceilingIsDefault: boolean;
-  /** Reimbursement this clinic's issued invoices represent in the year, counting only acts that consume the ceiling. */
-  consumed: number;
-  /** Reimbursement for acts that do **not** consume it (prothèse). Reported, never silently dropped. */
-  horsPlafond: number;
-  /** `max(0, ceiling − consumed)` — floored, because a ceiling has no negative remainder. */
-  remaining: number;
-  exhausted: boolean;
-  /** Always true today: it is what makes `remaining` an upper bound. */
-  seesThisClinicOnly: boolean;
-  /** Invoices the consumption was computed over — so « 0,000 consommé » can be told from « nothing billed yet ». */
-  invoiceCount: number;
-}
-
-// Used by the bulletin editor to fill Code acte + Cotation and compute an indicative estimate, and by the
-// admin catalog screen. Writes are admin-only.
-// A valeur de la lettre clé (VLC) — the dinar value per lettre clé used in the reimbursement estimate.
-export interface CnamLetterValueDto {
-  id: string;
-  lettreCle: string;
-  value: number;
-  isProvisional: boolean;
-
-  // What the CNAM dentist convention currently in force says, so `/dental-acts` can offer the correction
-  // instead of applying it behind an admin's back. The server corrects only rows untouched since seeding; a value
-  // an admin has edited is deliberately left alone, which is exactly why the divergence has to be visible here.
-  //
-  // ⚠️ All three are **null together** for a lettre clé the convention text did not settle (Rd). Render that as
-  // « non fixée par la convention », never as a figure — a null is « we do not know ».
-  /** The dinar value the convention in force fixes for this lettre clé, if it fixes one. */
-  conventionValue: number | null;
-  /** The arrêté + JORT reference, shown beside the prompt so an admin can check the primary text. */
-  conventionSource: string | null;
-  /** How often the convention revises the lettres clés (SMIG/CPI) — so the next staleness is expected. */
-  conventionRevisionIntervalYears: number | null;
-  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
-  version: number;
-}
-
 // A medication catalog entry (DB-backed, global reference data from GET /api/medications). Used by the
 // ordonnance editor to pick a drug (fills the line name + snapshots the DCI molecules onto it) and by the
 // admin catalog screen. Writes are admin-only. `dcis` holds the active ingredient molecules (one or more).
@@ -905,7 +835,6 @@ export interface PatientDto {
     zipCode?: string;
     country?: string;
   } | null;
-  cnamInfo?: CnamInfo | null;
   /**
    * « Motif de consultation » — why the patient came in the first place, in their own terms.
    *
@@ -1585,25 +1514,6 @@ export interface MedicalDocumentDto {
   version: number;
   createdAt: string;
   updatedAt?: string;
-}
-
-// A dental act catalog entry (DB-backed reference data from GET /api/dental-acts). Used by the CNAM BS1
-// bulletin editor (which stamps codeActe + cotation onto a bulletin row) and by the admin catalog screen.
-// ⚠️ NOT by the devis editor any more — a treatment-plan line comes from ProcedureType and nothing else.
-// Writes are admin-only.
-export interface DentalActDto {
-  id: string;
-  codeActe: string;
-  designationFr: string;
-  lettreCle: string;
-  coefficient: number | null;
-  category: string;
-  defaultFee: number | null;
-  requiresAccordPrealable: boolean;
-  isActive: boolean;
-  isProvisional: boolean;
-  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
-  version: number;
 }
 
 // A recorded tooth-condition entry on a patient's odontogram (GET /patients/{id}/odontogram). A tooth can

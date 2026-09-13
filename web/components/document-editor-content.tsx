@@ -29,7 +29,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { BillableActsDialog } from "@/components/documents/billable-acts-dialog"
 import { DocumentPreviewDialog } from "@/components/documents/document-preview-dialog"
-import { formatAmount, formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, formatDateFr, quoteFr, todayLocalIso } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
   DURATION_UNITS,
@@ -50,26 +50,14 @@ import { patientsApi } from "@/lib/api/patients"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { clinicsApi } from "@/lib/api/clinics"
-import { dentalRecordsApi, type BillableActLine } from "@/lib/api/dental-records"
-import { estimateReimbursements, parseCotation } from "@/lib/api/dental-acts"
-import { CnamCeilingNotice } from "@/components/cnam/cnam-ceiling-notice"
-import { dentalActsApi } from "@/lib/api/dental-acts"
+import type { BillableActLine } from "@/lib/api/dental-records"
 import { medicationsApi } from "@/lib/api/medications"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import {
-  CNAM_IDENTIFIANT_DIGITS,
-  cnamIdentifiantDigitCount,
-  cnamLienRequiresRang,
-  isKnownCnamLien,
-  isKnownCnamRegime,
-  isValidCnamIdentifiant,
-} from "@/lib/cnam"
-import type { PatientDto, DentalRecordDto, DentalActDto, MedicationDto, ProcedureTypeDto } from "@/lib/api/types"
+import type { PatientDto, MedicationDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { getErrorMessage } from "@/lib/errors"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { specialtyLabel } from "@/lib/specialties"
-import { ARRET_MAX_DAYS, TRAUMA_CAUSES, TRAUMA_CAUSE_LABELS_FR, type TraumaCause } from "@/lib/arret-travail"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
@@ -512,77 +500,26 @@ export function DocumentEditorContent() {
     honorairesNote: "",
   })
 
-  // Bulletin de soins CNAM (BS1) — care type + acts table (pre-filled from the patient's dental records).
-  const [bulletinFields, setBulletinFields] = useState<{
-    careType: string
-    apciCode: string
-    actsFrom: string
-    actsTo: string
-    acts: Array<{ date: string; teeth: string; codeActe: string; cotation: string; honoraires: string }>
-  }>({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
-
-  /*
-   * Arrêt de travail — the fields of the CNAM **P 061** form's practitioner half (L11).
-   *
-   * Its own state object rather than more keys on `formFields`, for the same reason `bulletinFields` is separate:
-   * these are the fields of one specific official form, they are read by one branch, and folding them into the
-   * shared bag is how the certificat's `duration` and this one's `days` end up being the same key by accident.
-   *
-   * ⚠️ `traumaCause` and `hospitalised` hold **stored** values, not labels (`lib/arret-travail.ts`) — the server's
-   * renderer matches them to decide which box to tick, exactly like the bulletin's régime and lien.
-   */
-  const [arretFields, setArretFields] = useState<{
-    days: string
-    fromDate: string
-    outingsFrom: string
-    outingsTo: string
-    traumaCause: string
-    hospitalised: string
-    motif: string
-  }>({ days: "", fromDate: todayLocalIso(), outingsFrom: "", outingsTo: "", traumaCause: "", hospitalised: "", motif: "" })
-
-  const [dentalRecords, setDentalRecords] = useState<DentalRecordDto[]>([])
-  /*
-   * K1 — the act picker reads the **DCH dental-act catalogue** (`DentalActCode`), the only act catalogue.
-   *
-   * The two catalogues are disjoint and this one was reading the wrong one: `CnamCatalogSeed` seeds 26 internal
-   * mnemonics as its `CodeActe` (`DETART`, `OBT-2F`, `EXT-SIMPLE`…), while the genuine Tunisian nomenclature — the
-   * 100 real `DCH010010`…`DCH060150` codes — lives in `DentalActCode`. The picker wrote the mnemonic straight into
-   * the row the server stamps onto the BS1, so **every bulletin filled from this picker was rejected at the caisse
-   * on the code column**. `DentalActCode` is a strict superset (same ten fields plus `DefaultFee` and
-   * `RequiresAccordPrealable`), which is what made the swap a read-side change.
-   *
-   * ⚠️ The *stored* acts of an existing bulletin are deliberately untouched. A document already saved with a
-   * `DETART`-style code must still open and print: those rows are a snapshot, the renderer stamps whatever the row
-   * holds, and re-pointing the picker must not rewrite history.
-   */
-  const [dentalActCatalog, setDentalActCatalog] = useState<DentalActDto[]>([])
   const [medicationCatalog, setMedicationCatalog] = useState<MedicationDto[]>([])
-  const [openActLookup, setOpenActLookup] = useState<number | null>(null)
 
   /*
-   * ── Why each of the three reads below carries a `…Failed` flag AND a reload counter (defect #1) ────────────
+   * ── Why each of the reads below carries a `…Failed` flag AND a reload counter (defect #1) ─────────────────
    *
-   * All three used to swallow their error into an empty array. On a clinical picker that is not a graceful
+   * They used to swallow their error into an empty array. On a clinical picker that is not a graceful
    * degradation, it is a **wrong answer**: an empty list asserts « ce catalogue est vide », the practitioner
-   * concludes it was never configured, and their next move is to type the médicament / the code acte by hand —
-   * which silently discards the dosage defaults, the DCI snapshot and the CNAM cotation the catalogue entry
-   * exists to supply. The document is then saved and printed with less data than the software had.
+   * concludes it was never configured, and their next move is to type the médicament by hand — which silently
+   * discards the dosage defaults and the DCI snapshot the catalogue entry exists to supply. The document is
+   * then saved and printed with less data than the software had.
    *
    * The reload counter rather than a `useCallback` loader: the reads already live in effects with a `cancelled`
    * guard, and bumping a dependency reuses that guard for the retry instead of writing a second code path that
    * can race the first one.
    */
-  const [dentalRecordsFailed, setDentalRecordsFailed] = useState(false)
-  const [dentalRecordsReload, setDentalRecordsReload] = useState(0)
-  const [dentalActCatalogFailed, setDentalActCatalogFailed] = useState(false)
-  const [dentalActCatalogReload, setDentalActCatalogReload] = useState(0)
   const [medicationCatalogFailed, setMedicationCatalogFailed] = useState(false)
   const [medicationCatalogReload, setMedicationCatalogReload] = useState(0)
   /*
-   * The clinic's OWN act catalogue, for the note d'honoraires' lines — `procedureTypesApi`, not `dentalActsApi`:
-   * the DCH nomenclature is what a CNAM bulletin is coded in and carries no price, while what a fee note bills is
-   * the practice's own act at the practice's own tarif.
+   * The clinic's OWN act catalogue, for the note d'honoraires' lines — `procedureTypesApi`: what a fee note
+   * bills is the practice's own act at the practice's own tarif.
    */
   const [procedureCatalog, setProcedureCatalog] = useState<ProcedureTypeDto[]>([])
   const [procedureCatalogFailed, setProcedureCatalogFailed] = useState(false)
@@ -659,9 +596,9 @@ export function DocumentEditorContent() {
    * row) came from that guess, so a secretary filing a bulletin attributed the acts to the wrong practitioner, with
    * nothing on screen naming anyone. There was no `setSelectedDoctor` in this file at all.
    *
-   * The selection is now explicit state with a *defaulting* effect below, and for a bulletin there is **no
-   * fall-back**: nothing selected is a refusal at Save (see `bulletinProblems`), which is the honest outcome —
-   * a bulletin nobody can be named on is one the caisse would reject anyway.
+   * The selection is now explicit state with a *defaulting* effect below. ⚠️ The two official CNAM forms went
+   * further — they had no fall-back at all, and nothing selected was a refusal at Save — but they are withdrawn
+   * (`features/cnam-ui-withdrawal/notes.md`), so what is left here is the defaulting effect alone.
    */
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
 
@@ -688,28 +625,10 @@ export function DocumentEditorContent() {
 
   const chosenDoctor = doctors.find((d) => d.id === selectedDoctorId) ?? null
 
-  /**
-   * True for the two documents that are **overlays onto an official CNAM form** — the BS1 bulletin and the P 061
-   * arrêt de travail (L11).
-   *
-   * <p>It exists because those two share every mechanism that the four free-form documents do not: the preview is
-   * the server-rendered PDF in an iframe (there is no `<Card>` to clone, so Print must go through the iframe), the
-   * practitioner is an explicit choice with **no `doctors[0]` fall-back**, mandatory fields are refused before
-   * Save, and a Word export is meaningless because the paper is a pre-printed form.</p>
-   *
-   * <p>⚠️ It is deliberately <b>not</b> « has a validation gate » or « has a PDF preview » — those would each be a
-   * different predicate that happens to select the same two types today. This one names the actual reason.</p>
-   */
-  const isOfficialForm = documentType === "bulletin-cnam" || documentType === "arret-travail"
-
-  /** The frame's accessible name, so a screen reader names the form rather than announcing "iframe". */
-  const officialFormPreviewTitle =
-    documentType === "arret-travail" ? "Aperçu de l'arrêt de travail CNAM" : "Aperçu du bulletin de soins CNAM"
-
   /*
    * ⚠️ The `doctors[0]` fall-back is **gone**, for every document type — the narrow scoping K3 left in place no
    * longer holds. K3 kept it for the four free-form documents on the grounds that removing it would change what
-   * they print as a side effect of a CNAM fix, and that the wrong name only costs a rejected claim on a bulletin.
+   * they print as a side effect of a fix to the official CNAM forms, whose wrong name only cost a rejected claim.
    * Both premises depended on who could reach this editor: the caller was always a practitioner, so
    * `currentUserDoctor` answered first and the guess was nearly unreachable.
    *
@@ -933,38 +852,6 @@ export function DocumentEditorContent() {
           // Nothing to expand any more: the certificat's repos fields and the liaison's free text are both
           // unfolded, and the liaison's guided sections have no controls to open.
 
-          // Arrêt de travail: restore the practitioner half. The identity half is re-derived from the patient's
-          // fiche on every render, deliberately — a stored address that has since changed on the fiche would
-          // otherwise reprint stale.
-          if (documentType === "arret-travail") {
-            setArretFields({
-              days: content.days || "",
-              // Stored as a French calendar day (that is what prints), so it is parsed back for the date input.
-              fromDate: frenchDayToIso(content.fromDate) || todayLocalIso(),
-              outingsFrom: content.outingsFrom || "",
-              outingsTo: content.outingsTo || "",
-              traumaCause: content.traumaCause || "",
-              hospitalised: content.hospitalised || "",
-              motif: content.motif || "",
-            })
-          }
-
-          // Bulletin CNAM: restore care type + acts (acts stored as a JSON string in ContentJson).
-          if (documentType === "bulletin-cnam") {
-            let parsedActs: Array<{ date: string; teeth: string; codeActe: string; cotation: string; honoraires: string }> = []
-            try {
-              parsedActs = typeof content.acts === "string" ? JSON.parse(content.acts) : (Array.isArray(content.acts) ? content.acts : [])
-            } catch {
-              parsedActs = []
-            }
-            setBulletinFields({
-              careType: content.careType || "APCI",
-              apciCode: content.apciCode || "",
-              actsFrom: "",
-              actsTo: "",
-              acts: Array.isArray(parsedActs) ? parsedActs : [],
-            })
-          }
         } catch (error) {
           console.error("Failed to load document for editing:", error)
           setDocumentLoadFailed(true)
@@ -979,57 +866,6 @@ export function DocumentEditorContent() {
       loadDocument()
     }
   }, [urlDocumentId, documentId, doctors, documentReload])
-
-  // Load the selected patient's dental records — the source for pre-filling the CNAM bulletin acts table.
-  // A failure is recorded, not swallowed: « Pré-remplir depuis les soins (0) » on a patient who has soins reads
-  // as « ce patient n'a aucun soin enregistré », and the bulletin then gets typed from memory.
-  useEffect(() => {
-    if (documentType !== "bulletin-cnam" || !selectedPatient) {
-      setDentalRecords([])
-      setDentalRecordsFailed(false)
-      return
-    }
-    let cancelled = false
-    ;(async () => {
-      try {
-        const records = await dentalRecordsApi.list(selectedPatient)
-        if (!cancelled) {
-          setDentalRecords(records)
-          setDentalRecordsFailed(false)
-        }
-      } catch {
-        if (!cancelled) {
-          setDentalRecords([])
-          setDentalRecordsFailed(true)
-        }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [documentType, selectedPatient, dentalRecordsReload])
-
-  // Load the DB-backed **DCH dental-act catalogue** once when editing a bulletin (searched client-side for the act
-  // picker) — the DCH catalogue is the only act catalogue. The VLC values are not
-  // fetched here: their only consumer was the client-side estimate calculator that AC-P6.15 replaced with the
-  // backend endpoint, which resolves them itself.
-  useEffect(() => {
-    if (documentType !== "bulletin-cnam") return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const acts = await dentalActsApi.list()
-        if (!cancelled) {
-          setDentalActCatalog(acts)
-          setDentalActCatalogFailed(false)
-        }
-      } catch {
-        if (!cancelled) {
-          setDentalActCatalog([])
-          setDentalActCatalogFailed(true)
-        }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [documentType, dentalActCatalogReload])
 
   // Load the medication catalog once when editing a prescription (searched client-side in the picker).
   useEffect(() => {
@@ -1102,7 +938,6 @@ export function DocumentEditorContent() {
       honorairesActs: [],
       honorairesNote: "",
     })
-    setBulletinFields({ careType: "APCI", apciCode: "", actsFrom: "", actsTo: "", acts: [] })
   }
 
   // Renouveler (P2-B): fork the loaded ordonnance into a new draft — same patient + same medications,
@@ -1125,459 +960,6 @@ export function DocumentEditorContent() {
       ...prev,
       medications: [...prev.medications, { name: "", dosage: "", timesPerDay: "", duration: "" }],
     }))
-
-  const addBulletinAct = () =>
-    setBulletinFields((p) => ({
-      ...p,
-      acts: [...p.acts, { date: "", teeth: "", codeActe: "", cotation: "", honoraires: "" }],
-    }))
-
-  // ---- CNAM bulletin helpers ----
-  /*
-   * Pre-fill the acts table from the patient's dental records within the chosen date range. Code acte + Cotation
-   * are left blank for the doctor to fill (or pick from the catalogue); honoraires = record cost.
-   *
-   * K6 — **both bounds compare clinic-local calendar days, as strings.** This used to build
-   * `new Date(bulletinFields.actsTo)` and compare it against the record's full `interventionDate` instant. A bare
-   * `YYYY-MM-DD` parses as **midnight UTC**, so any care recorded after 00:00 UTC on the end date failed the test:
-   * the upper bound excluded its own day. With « Au » set to today — the ordinary way to file a bulletin — today's
-   * séance was silently dropped and the bulletin went to the caisse one act short.
-   *
-   * Comparing the two `YYYY-MM-DD` strings is the fix and is exact: the bounds are already local calendar days
-   * (that is what a `type="date"` input yields), `toLocalIso` renders the record's instant as the local day it
-   * actually falls on, and lexicographic order on `YYYY-MM-DD` is chronological order. Inclusive on both ends,
-   * which is what « Du … Au … » means to the person typing it. A séance at 23:30 local on the « Au » day is in;
-   * one at 00:30 the next clinic day is out.
-   */
-  const prefillActsFromRecords = () => {
-    const from = bulletinFields.actsFrom
-    const to = bulletinFields.actsTo
-    const inRange = dentalRecords.filter((r) => {
-      if (!r.interventionDate) return true
-      const day = toLocalIso(new Date(r.interventionDate))
-      if (!day) return true // unparseable stored date: keep the séance and let the dentist judge it
-      if (from && day < from) return false
-      if (to && day > to) return false
-      return true
-    })
-    const acts = inRange.map((r) => ({
-      // Same rule for the value that lands on the form: `split("T")[0]` is the stored UTC day, which for an
-      // evening séance is tomorrow's date printed on a CNAM document.
-      date: r.interventionDate ? toLocalIso(new Date(r.interventionDate)) : "",
-      teeth: (r.toothNumbers || []).join(", "),
-      codeActe: "",
-      cotation: "",
-      /*
-       * ⚠️ Deliberately NOT `formatDT`/`formatAmount`, and this is the one money-shaped `toFixed` in the file
-       * that stays. This seeds an editable text input whose value is persisted verbatim into ContentJson and
-       * stamped onto the BS1 overlay by the server — it is a wire value, not a rendered amount. French grouping
-       * (« 1 234,500 ») would change what the CNAM form prints and what the server has to parse back.
-       */
-      honoraires: r.cost != null ? r.cost.toFixed(3) : "",
-    }))
-    setBulletinFields((prev) => ({ ...prev, acts }))
-  }
-
-  const updateBulletinAct = (
-    index: number,
-    field: "date" | "teeth" | "codeActe" | "cotation" | "honoraires",
-    value: string,
-  ) => {
-    setBulletinFields((prev) => ({
-      ...prev,
-      acts: prev.acts.map((act, i) => (i === index ? { ...act, [field]: value } : act)),
-    }))
-  }
-
-  /**
-   * Pick a catalogue act: fills the real DCH Code acte + the Cotation (`"<lettreCle> <coefficient>"`). Both stay
-   * editable.
-   *
-   * ⚠️ **`DentalActCode.Coefficient` is nullable where `CnamNomenclatureEntry.Coefficient` was not**, and in the
-   * shipped DCH seed it is null for *every* act — the cotation lives in the NGAP arrêté, not in the acts list. So a
-   * picked act normally fills the code and leaves the coefficient for the practitioner. Two things must NOT happen
-   * here, and both are one keystroke away: writing `"D 0"` (a zero estimate reads as « non remboursable », which is
-   * a different clinical statement) and writing `"D null"` (which `parseCotation` rejects, so the estimate silently
-   * disappears with nothing saying why). Writing the lettre clé **alone** is deliberate: it is the half we know,
-   * `parseCotation` correctly declines to estimate from it, and `missingCoefficient` below turns that into a
-   * visible sentence naming the catalogue as the place to fix it.
-   */
-  const selectDentalAct = (index: number, entry: DentalActDto) => {
-    setBulletinFields((prev) => ({
-      ...prev,
-      acts: prev.acts.map((act, i) =>
-        i === index
-          ? {
-              ...act,
-              codeActe: entry.codeActe,
-              cotation:
-                entry.coefficient != null ? `${entry.lettreCle} ${entry.coefficient}` : entry.lettreCle,
-            }
-          : act,
-      ),
-    }))
-    setOpenActLookup(null)
-  }
-
-  /**
-   * The catalogue row behind an act's code, or `undefined` for a hand-typed code — and for every act of a bulletin
-   * saved before K1, whose stored mnemonic (`DETART`…) matches nothing in the DCH catalogue.
-   *
-   * Looked up at render time rather than copied onto the act row, for two reasons: `RequiresAccordPrealable` must
-   * **not** be persisted into `ContentJson` (nothing on the BS1 carries it, and the flag is per-clinic and
-   * correctable, so a snapshot would freeze a value the admin can fix), and a legacy row then degrades to « no
-   * badge » instead of asserting something about a code this catalogue has never heard of.
-   */
-  const dentalActFor = (codeActe: string): DentalActDto | undefined => {
-    const code = codeActe.trim().toUpperCase()
-    if (!code) return undefined
-    return dentalActCatalog.find((a) => a.codeActe.toUpperCase() === code)
-  }
-
-  // Indicative reimbursement (catalog-backed acts only). Editor-only — never persisted / never on the PDF
-  // (AC-P6.16). The arithmetic is the BACKEND's: this component used to call a client-side calculator that
-  // carried its own copy of the CNAM rates, which is the duplication AC-P6.15 removes. One request covers the
-  // whole acts table, so the estimate is still per-act and still live.
-  const bulletinPatientDob = patients.find((p) => p.id === selectedPatient)?.dateOfBirth ?? null
-
-  // Estimates aligned by act index; `null` = not estimable (free text, unknown lettre clé, no coefficient).
-  const [actEstimates, setActEstimates] = useState<Array<number | null>>([])
-  /**
-   * Why an estimate is absent, per act, as the server reported it. `MissingCoefficient` is also derivable here
-   * (`missingCoefficient` below), but `NoLetterValue` is not: the cotation parses, the request succeeds, and the
-   * estimate comes back null because the convention fixes no valeur for that lettre clé — which used to render as
-   * nothing at all, indistinguishable from « non remboursable ».
-   */
-  const [actEstimateReasons, setActEstimateReasons] = useState<Array<'MissingCoefficient' | 'NoLetterValue' | null>>([])
-  // A failed call must SAY so (AC-P6.17). Showing an empty column instead is indistinguishable from
-  // « aucun acte remboursable » — the reader would conclude the CNAM pays nothing.
-  const [estimateFailed, setEstimateFailed] = useState(false)
-
-  // Only the cotation and the care date move the estimate, so the effect keys on those alone — not on the whole
-  // acts array, which changes on every honoraires or teeth keystroke and would re-request for nothing.
-  const estimateInputsKey = JSON.stringify(
-    bulletinFields.acts.map((act) => [act.cotation, act.date]),
-  )
-
-  useEffect(() => {
-    if (documentType !== "bulletin-cnam") return
-
-    const parsed: Array<{ lettreCle: string; coefficient: number } | null> =
-      bulletinFields.acts.map((act) => parseCotation(act.cotation))
-    const requestIndexes = parsed.flatMap((p, i) => (p ? [i] : []))
-
-    if (requestIndexes.length === 0) {
-      setActEstimates(bulletinFields.acts.map(() => null))
-      setEstimateFailed(false)
-      return
-    }
-
-    // Drop stale estimates for rows that no longer exist BEFORE the debounce. The estimates are held by index,
-    // so removing act 2 would otherwise leave act 3's figure rendered against act 2's row for up to 350 ms —
-    // a wrong money-adjacent number on the wrong line, which is worse than showing none.
-    setActEstimates((prev) =>
-      prev.length === bulletinFields.acts.length
-        ? prev
-        : bulletinFields.acts.map((_, i) => (i < prev.length ? prev[i] : null)),
-    )
-
-    let cancelled = false
-    // Debounced: the cotation is typed character by character, and « D 1 » is a valid cotation on the way to
-    // « D 15 ».
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const results = await estimateReimbursements(
-            requestIndexes.map((i) => ({
-              lettreCle: parsed[i]!.lettreCle,
-              coefficient: parsed[i]!.coefficient,
-              careDate: bulletinFields.acts[i].date || null,
-            })),
-            bulletinPatientDob,
-            formFields.date || null,
-          )
-          if (cancelled) return
-          const byIndex = bulletinFields.acts.map(() => null as number | null)
-          const reasons = bulletinFields.acts.map(() => null as 'MissingCoefficient' | 'NoLetterValue' | null)
-          requestIndexes.forEach((actIndex, resultIndex) => {
-            byIndex[actIndex] = results[resultIndex]?.estimate ?? null
-            reasons[actIndex] = results[resultIndex]?.unavailableReason ?? null
-          })
-          setActEstimates(byIndex)
-          setActEstimateReasons(reasons)
-          setEstimateFailed(false)
-        } catch {
-          if (cancelled) return
-          setActEstimates([])
-          setActEstimateReasons([])
-          setEstimateFailed(true)
-        }
-      })()
-    }, 350)
-
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-    // `estimateInputsKey` stands in for the acts' cotations and dates (see above); the array itself is a new
-    // object on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentType, estimateInputsKey, bulletinPatientDob, formFields.date])
-
-  const bulletinEstimateTotal = actEstimates.reduce<number>((sum, e) => (e != null ? sum + e : sum), 0)
-  const hasAnyBulletinEstimate = actEstimates.some((e) => e != null)
-
-  /*
-   * ── K2 (editor half): what is missing, named, before Save is reachable ──────────────────────────────────────
-   *
-   * The backend refuses an incomplete bulletin (`BulletinCnamValidation`) and that is the real gate. This is the
-   * same five checks computed here so the practitioner sees them *while filling the form* rather than as a toast
-   * after pressing Save — and, more importantly, so each one says **where** it is fixed. Four of the five are not
-   * fields of this editor at all: they live on the patient's fiche and on the practitioner's profile, so « le
-   * régime est absent » with no destination would be a dead end.
-   *
-   * ⚠️ Deliberately mirrors the server's messages rather than paraphrasing them: the two are read minutes apart by
-   * the same person, and a client that says something subtly different reads as a second, disagreeing opinion.
-   * The régime/lien membership tests come from `lib/cnam.ts`, which mirrors `CnamInfo`'s constants — never retyped
-   * literals, because the accents are load-bearing (« Convention bilatérale ») and a mismatch fails silently.
-   *
-   * ⚠️ Computed on the SELECTED PATIENT, and empty while no patient is chosen: the editor opens blank, and listing
-   * five refusals at someone who has not begun is noise, not guidance. Save is already disabled without a patient.
-   */
-  const bulletinCnam = patients.find((p) => p.id === selectedPatient)?.cnamInfo
-  const bulletinIdentifiant = (bulletinCnam?.identifiantUnique || "").trim()
-  const bulletinRegime = (bulletinCnam?.regime || "").trim()
-  const bulletinLien = (bulletinCnam?.maladeLien || "").trim()
-  const bulletinRang = (bulletinCnam?.maladeLienRang || "").trim()
-  const bulletinDoctorCode = (selectedDoctor?.codeProfessionnelSante || "").trim()
-
-  /** One entry per unusable field. `onPatient` = fixed on the patient's fiche, not here. */
-  const bulletinProblems: Array<{ key: string; message: string; onPatient: boolean }> = []
-  if (documentType === "bulletin-cnam" && selectedPatient) {
-    if (!bulletinIdentifiant) {
-      bulletinProblems.push({
-        key: "identifiant",
-        message: "L'identifiant unique CNAM du patient est absent de sa fiche.",
-        onPatient: true,
-      })
-    } else if (!isValidCnamIdentifiant(bulletinIdentifiant)) {
-      // K7: the renderer combs one digit per printed cell and used to drop the tail without a trace.
-      bulletinProblems.push({
-        key: "identifiant",
-        message:
-          `L'identifiant unique CNAM ne tient pas dans le formulaire ` +
-          `(${cnamIdentifiantDigitCount(bulletinIdentifiant)} chiffres pour ${CNAM_IDENTIFIANT_DIGITS} cases).`,
-        onPatient: true,
-      })
-    }
-
-    if (!bulletinRegime) {
-      bulletinProblems.push({ key: "regime", message: "Le régime est absent.", onPatient: true })
-    } else if (!isKnownCnamRegime(bulletinRegime)) {
-      bulletinProblems.push({
-        key: "regime",
-        message: `Le régime ${quoteFr(bulletinRegime)} n'est pas reconnu.`,
-        onPatient: true,
-      })
-    }
-
-    if (!bulletinLien) {
-      bulletinProblems.push({ key: "lien", message: "Le lien de parenté est absent.", onPatient: true })
-    } else if (!isKnownCnamLien(bulletinLien)) {
-      bulletinProblems.push({
-        key: "lien",
-        message: `Le lien de parenté ${quoteFr(bulletinLien)} n'est pas reconnu.`,
-        onPatient: true,
-      })
-    } else if (cnamLienRequiresRang(bulletinLien) && !bulletinRang) {
-      bulletinProblems.push({
-        key: "rang",
-        message: `Le rang est obligatoire pour le lien ${quoteFr(bulletinLien)}.`,
-        onPatient: true,
-      })
-    }
-
-    if (bulletinFields.acts.length === 0) {
-      bulletinProblems.push({ key: "acts", message: "Le bulletin ne porte aucun acte.", onPatient: false })
-    }
-
-    if (!bulletinDoctorCode) {
-      bulletinProblems.push({
-        key: "code",
-        message: selectedDoctor
-          ? `Aucun code conventionnel sur le profil de ${selectedDoctor.name}.`
-          : "Aucun praticien traitant sélectionné — son code conventionnel s'imprime sur chaque ligne d'acte.",
-        onPatient: false,
-      })
-    }
-  }
-
-  const bulletinBlocked = bulletinProblems.length > 0
-
-  /*
-   * The arrêt de travail's own gate (L11), mirroring `ArretTravailValidation` message for message — same reason as
-   * the bulletin's: the two are read minutes apart by the same person, and a client that paraphrases the server
-   * reads as a second, disagreeing opinion.
-   *
-   * ⚠️ **The motif is absent from this list on purpose.** P 061's practitioner half carries no diagnosis field —
-   * the form's own « partie confidentielle au verso » is where a medical reason goes, and the front is what the
-   * patient hands their employer. Requiring it would demand a value with nowhere to print.
-   */
-  const arretProblems: Array<{ key: string; message: string; onPatient: boolean }> = []
-  if (documentType === "arret-travail" && selectedPatient) {
-    const days = arretFields.days.trim()
-    const parsedDays = Number.parseInt(days, 10)
-    if (!days) {
-      arretProblems.push({ key: "days", message: "La durée de l'arrêt (en jours) est absente.", onPatient: false })
-    } else if (!Number.isFinite(parsedDays) || parsedDays <= 0) {
-      arretProblems.push({
-        key: "days",
-        message: `La durée ${quoteFr(days)} n'est pas un nombre de jours valide.`,
-        onPatient: false,
-      })
-    } else if (parsedDays > ARRET_MAX_DAYS) {
-      arretProblems.push({
-        key: "days",
-        message: `La durée de ${parsedDays} jours dépasse le maximum accepté (${ARRET_MAX_DAYS} jours).`,
-        onPatient: false,
-      })
-    }
-
-    if (!arretFields.fromDate) {
-      arretProblems.push({ key: "fromDate", message: "La date de début de l'arrêt est absente.", onPatient: false })
-    }
-
-    if (!selectedDoctor) {
-      arretProblems.push({
-        key: "doctor",
-        message: "Aucun praticien traitant sélectionné — son nom et son code s'impriment sur le certificat.",
-        onPatient: false,
-      })
-    } else if (!(selectedDoctor.codeProfessionnelSante || "").trim() && !(selectedDoctor.ordreNumberCnomdt || "").trim()) {
-      // One of the two, never both: a conventionné dentist has a code conventionnel, one who is not still has a
-      // CNOMDT ordre number, and requiring both would refuse a legitimate practitioner.
-      arretProblems.push({
-        key: "code",
-        message: `Ni code conventionnel ni n° au Conseil de l'Ordre sur le profil de ${selectedDoctor.name}.`,
-        onPatient: false,
-      })
-    }
-
-    // The box and its two hours are one statement; half of it is worse than none, because the caisse reads the
-    // empty hour slot beside a ticked box as the answer.
-    if (Boolean(arretFields.outingsFrom.trim()) !== Boolean(arretFields.outingsTo.trim())) {
-      arretProblems.push({
-        key: "outings",
-        message: "Les sorties autorisées demandent une heure de début et une heure de fin.",
-        onPatient: false,
-      })
-    }
-  }
-
-  const arretBlocked = arretProblems.length > 0
-
-  /*
-   * The two gates, unioned once. Only one of the lists is ever non-empty (each is guarded on its own
-   * `documentType`), so this is a merge rather than a combination — but it is what lets the banner, the Save
-   * button's `disabled` and the Save-time refusal read a single value. Three separate `bulletinBlocked ||
-   * arretBlocked` expressions is how the third one gets forgotten and a blocked document saves.
-   */
-  const officialFormProblems = documentType === "arret-travail" ? arretProblems : bulletinProblems
-  const officialFormBlocked = bulletinBlocked || arretBlocked
-
-  /**
-   * The arrêt's `ContentJson` — and the PDF data, which is the same object. Keys come from `lib/arret-travail.ts`'s
-   * backend mirror rather than typed here: the editor writes them, the server's validation reads them and the
-   * renderer stamps from them, so a literal spelled differently in one of the three degrades **silently**.
-   *
-   * The patient identity half is prefilled from the fiche because the form's left panel asks the *patient* for
-   * exactly the values the product already holds — and an identifiant unique copied out by hand is where a digit
-   * gets lost.
-   */
-  /**
-   * `dd/MM/yyyy` → `yyyy-MM-dd`, for hydrating a `<input type="date">` from a stored value.
-   *
-   * <p>The arrêt persists its start date in the form it **prints** — a French calendar day — because that string is
-   * what the renderer stamps and re-deriving it at render time from an ISO value would be a second date authority.
-   * Reopening the document therefore has to parse it back, and it is done by splitting on `/` rather than by
-   * `new Date(...)`: the latter reads `04/08/2026` as 4 August in some locales and 8 April in others, which would
-   * silently move the start of somebody's arrêt on every reopen.</p>
-   */
-  const frenchDayToIso = (value: unknown): string => {
-    if (typeof value !== "string") return ""
-    const parts = value.trim().split("/")
-    if (parts.length !== 3) return ""
-    const [day, month, year] = parts
-    if (year.length !== 4) return ""
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
-  }
-
-  const buildArretContent = (patient: PatientDto): Record<string, string> => {
-    const address = patient.address
-      ? [patient.address.street, patient.address.city, patient.address.state]
-          .filter((part) => part && part.trim())
-          .join(", ")
-      : ""
-    return {
-      identifiantUnique: patient.cnamInfo?.identifiantUnique || "",
-      patientFirstName: patient.firstName || "",
-      patientLastName: patient.lastName || "",
-      patientDateOfBirth: patient.dateOfBirth ? formatDateFr(patient.dateOfBirth) : "",
-      patientAddress: address,
-      // The comb takes four digits; the value is stored free-text, so the server strips non-digits too.
-      postalCode: patient.address?.zipCode || "",
-      patientPhone: patient.phoneNumber || "",
-      doctorName: selectedDoctor?.name || "",
-      doctorQuality: specialtyLabel(selectedDoctor?.specialty) || "",
-      city: clinicInfo?.city || "",
-      doctorCodeConventionnel: (selectedDoctor?.codeProfessionnelSante || "").trim(),
-      doctorOrdreNumber: (selectedDoctor?.ordreNumberCnomdt || "").trim(),
-      days: arretFields.days.trim(),
-      // ⚠️ Printed as a French calendar day. `formatDateFr` and never `toISOString()`, which would shift an arrêt
-      // starting on the 1st into the previous month.
-      fromDate: arretFields.fromDate ? formatDateFr(arretFields.fromDate) : "",
-      outingsFrom: arretFields.outingsFrom.trim(),
-      outingsTo: arretFields.outingsTo.trim(),
-      traumaCause: arretFields.traumaCause,
-      hospitalised: arretFields.hospitalised,
-      // Kept, deliberately never printed — see arretProblems.
-      motif: arretFields.motif.trim(),
-      // The « ..........le,.......... » line above the practitioner's stamp.
-      signPlace: clinicInfo?.city || "",
-      signDate: formatDateFr(formFields.date),
-    }
-  }
-
-  // Shared bulletin ContentJson (also the PDF data). When the malade is the insured, the assuré identity
-  // defaults to the patient's own name (spec edge case — no double entry).
-  const buildBulletinContent = (patient: PatientDto): Record<string, string> => {
-    const cnam = patient.cnamInfo
-    const isSelf = (cnam?.maladeLien || "") === "Assuré lui-même"
-    return {
-      careType: bulletinFields.careType,
-      apciCode: bulletinFields.apciCode || "",
-      acts: JSON.stringify(bulletinFields.acts),
-      identifiantUnique: cnam?.identifiantUnique || "",
-      regime: cnam?.regime || "",
-      assureFirstName: (isSelf ? patient.firstName : cnam?.assureFirstName) || "",
-      assureLastName: (isSelf ? patient.lastName : cnam?.assureLastName) || "",
-      assureAddress: cnam?.assureAddress || "",
-      assurePostalCode: cnam?.assurePostalCode || "",
-      maladeLien: cnam?.maladeLien || "",
-      maladeLienRang: cnam?.maladeLienRang || "",
-      // The malade is the patient — the BS1 "Le malade" box uses the patient's own identity/contact,
-      // and the acts table stamps the treating doctor's CNAM provider code on every row.
-      maladeFirstName: patient.firstName || "",
-      maladeLastName: patient.lastName || "",
-      // Real date of birth (dd/MM/yyyy) for the BS1 "Le malade" box — persisted in the content so the
-      // saved/background-job PDF shows the DOB, not the patient's age.
-      patientDateOfBirth: patient.dateOfBirth
-        ? new Date(patient.dateOfBirth).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
-        : "",
-      patientPhone: patient.phoneNumber || "",
-      doctorCodeProfessionnel: selectedDoctor?.codeProfessionnelSante || "",
-    }
-  }
 
   // Certificat médical (FR-2) — the single source of truth for the body text, shared by the read-only
   // preview and the Word export (the PDF is rendered server-side by CertificatTextBuilder with the same
@@ -1690,10 +1072,6 @@ export function DocumentEditorContent() {
       // raw and that was the whole of the « Ces champs ne sont pas valides » refusal — see below.
       content.acts = honorairesContentActs(formFields.honorairesActs);
       content.note = formFields.honorairesNote || "";
-    } else if (documentType === "bulletin-cnam") {
-      Object.assign(content, buildBulletinContent(patientData));
-    } else if (documentType === "arret-travail") {
-      Object.assign(content, buildArretContent(patientData));
     }
 
     /*
@@ -1704,7 +1082,7 @@ export function DocumentEditorContent() {
      * out of the string. »
      *
      * It is enforced HERE, once, rather than trusted to each branch, because trusting the branches is exactly
-     * what failed: `prescription` stringified its medications and `buildBulletinContent` its acts, while
+     * what failed: `prescription` stringified its medications and the bulletin's builder its acts, while
      * `honoraires` sent a raw array — so `POST /medical-documents/generate-pdf-download` refused to bind the
      * body and answered « Ces champs ne sont pas valides ou n'ont pas été envoyés : documentData, acts ».
      * Both « Télécharger PDF » and « Imprimer » were dead on every note d'honoraires.
@@ -1766,12 +1144,15 @@ export function DocumentEditorContent() {
    * mistaken for something submittable. « Télécharger PDF » is the export for this document type.
    */
   /**
-   * Neither official form has a Word export, and that is not an omission: the deliverable is an overlay onto a
-   * pre-printed CNAM form, so a `.docx` could only ever be the letterhead with none of the form on it. The K-series
+   * Every remaining document type is free-form, so all of them support a Word export.
+   *
+   * ⚠️ It used to be `!isOfficialForm`: the two CNAM overlays had none, because the deliverable was a stamp onto
+   * a pre-printed form and a `.docx` could only be the letterhead with none of the form on it. The K-series
    * defect was exactly that — the branch chain had no `bulletin-cnam` case and no `else`, so pressing the button
-   * produced a letterhead-only file **and** a success toast.
+   * produced a letterhead-only file **and** a success toast. **Keep the constant**: it is the seam a new
+   * stamped-form type would reuse instead of repeating that.
    */
-  const wordExportSupported = !isOfficialForm
+  const wordExportSupported = true
 
   /**
    * ⚠️ **« Télécharger Word » is WITHDRAWN from the whole app, on purpose and for now.** The owner's call:
@@ -2109,105 +1490,6 @@ export function DocumentEditorContent() {
   };
 
   /**
-   * Hand the generated form to the OS — the only working preview *and* print route in a native shell (AC-8).
-   *
-   * `downloadBlob` tries the shell's `saveFile` first (which writes the file and offers to open it, landing in
-   * Android's `PdfRenderer` / iOS's `QLPreviewController`), then the share sheet on a coarse browser. The OS
-   * viewer owns the printing from there; there is no `window.print()` to reach in an Android WebView.
-   */
-  const deliverOfficialFormPdf = async (reason: "preview" | "print") => {
-    const blob = bs1BlobRef.current;
-    if (!blob) {
-      toast.error("Document indisponible", {
-        description: "Le document n'a pas encore été généré. Complétez le formulaire, puis réessayez.",
-        duration: 4000,
-      });
-      return;
-    }
-    if (reason === "print") {
-      // Announced BEFORE delivery, so a `downloadBlob` failure toast lands after it and is the last word.
-      toast.info("Ouverture du document", {
-        description: "Utilisez l'impression de la visionneuse de votre appareil pour l'imprimer sur le formulaire pré-imprimé.",
-        duration: 5000,
-      });
-    }
-    await downloadBlob(blob, buildPdfFileName());
-  };
-
-  /*
-   * K4 — printing a bulletin is a **different operation**, and conflating the two is what broke it.
-   *
-   * « Imprimer » always failed on a BS1: the print path read a ref attached to the `<Card>` in the *else* branch
-   * of the `bulletin-cnam ? … : (…)` preview ternary, so for a bulletin it was null and the guard refused with
-   * « Le contenu du document n'est pas disponible pour l'impression » — on the one document a conventionné
-   * dentist prints all day. The fix was to gate on the document type rather than move the ref.
-   *
-   * ⚠️ **That gate is now the only difference, and it is a small one**: `handlePrint` prints the server's PDF
-   * for every other type too, so neither branch clones any DOM. What still separates them is WHICH server
-   * rendering — a bulletin is an overlay on the pre-printed CNAM form, already on screen in this iframe, and
-   * re-requesting it would print something other than what the caisse receives.
-   *
-   * ⚠️ `contentWindow.print()` on the live preview iframe is the primary path (same-origin `blob:`, so it is
-   * reachable) and is what keeps the printed sheet byte-identical to the preview. Chromium and Firefox honour it;
-   * where the embedded PDF viewer refuses, the `catch` falls back to opening the blob in its own tab so the user
-   * still has a print dialog one keystroke away, with a French toast saying so. Never silently nothing.
-   */
-  const printBulletinPdf = () => {
-    if (bs1PreviewLoading) {
-      toast.info("Aperçu en cours de génération", {
-        description: "Attendez la fin de la génération de l'aperçu avant d'imprimer.",
-        duration: 3000,
-      });
-      return;
-    }
-
-    if (!bs1PreviewUrl) {
-      toast.error("Impossible d'imprimer", {
-        description:
-          "L'aperçu du bulletin n'a pas encore été généré. Sélectionnez un patient et complétez le bulletin, puis réessayez.",
-        duration: 4000,
-      });
-      return;
-    }
-
-    /*
-     * ⚠️ Where the frame is not actually rendered, printing *through* it prints nothing (AC-8).
-     * `offsetParent === null` reads the `coarse:hidden` tree below rather than re-deriving its media query —
-     * one hinge, so the two cannot disagree about whether a frame is on screen. That covers the native shell,
-     * where an embedded `blob:` PDF has no viewer and an Android WebView has no `window.print()` at all: a
-     * blank frame beside an inert « Imprimer » is exactly what this criterion forbids.
-     */
-    const hiddenFrame = bs1IframeRef.current;
-    if (!hiddenFrame || hiddenFrame.offsetParent === null) {
-      void deliverOfficialFormPdf("print");
-      return;
-    }
-
-    try {
-      const frame = bs1IframeRef.current;
-      if (frame?.contentWindow) {
-        frame.contentWindow.focus();
-        frame.contentWindow.print();
-        return;
-      }
-      throw new Error("preview iframe unavailable");
-    } catch {
-      const printWindow = window.open(bs1PreviewUrl, "_blank");
-      if (!printWindow) {
-        toast.error("Fenêtre bloquée", {
-          description: "Autorisez les fenêtres pop-up de votre navigateur pour lancer l'impression.",
-          duration: 4000,
-        });
-        return;
-      }
-      toast.info("Bulletin ouvert dans un nouvel onglet", {
-        description: "Utilisez l'impression de votre lecteur PDF pour l'imprimer sur le formulaire BS1.",
-        duration: 4000,
-      });
-    }
-  };
-
-  /**
    * Print the document — **the bytes the server renders, never a clone of the A4 block on screen**.
    *
    * <p>It used to `window.open('')` and write in a copy of `documentRef`'s subtree plus
@@ -2228,14 +1510,6 @@ export function DocumentEditorContent() {
   const handlePrint = async () => {
     if (saving) {
       return; // Prevent action while saving
-    }
-
-    // Both official forms preview as the SERVER-rendered PDF in an iframe, not as a `<Card>` — there is no HTML
-    // to clone, so Print must go through the iframe (K4). Reaching the DOM path here is the defect that made
-    // « Imprimer » fail silently on the one document a conventionné dentist prints all day.
-    if (isOfficialForm) {
-      printBulletinPdf();
-      return;
     }
 
     if (!patientData) {
@@ -2344,17 +1618,6 @@ export function DocumentEditorContent() {
     // No « destinataire requis » refusal any more: a lettre de liaison has no recipient field to fill, so the
     // only thing that guard could do is refuse every letter this editor can now write.
 
-    // K2 — the same refusal the disabled button already explains above the form. Kept as a guard rather than
-    // relying on `disabled` alone: this function is also reachable by keyboard submit, and the authoritative gate
-    // is the server's (`BulletinCnamValidation`) — this only spares the round trip and keeps the wording identical.
-    if (officialFormBlocked) {
-      toast.error("Bulletin de soins incomplet", {
-        description: officialFormProblems.map((p) => p.message).join(" "),
-        duration: 6000,
-      })
-      return
-    }
-
     setSaving(true)
     try {
       // Build content JSON from form fields
@@ -2398,10 +1661,6 @@ export function DocumentEditorContent() {
         // a figure on the paper cannot disagree with the rows above it.
         content.acts = honorairesContentActs(formFields.honorairesActs)
         content.note = formFields.honorairesNote
-      } else if (documentType === "bulletin-cnam") {
-        Object.assign(content, buildBulletinContent(patientData))
-      } else if (documentType === "arret-travail") {
-        Object.assign(content, buildArretContent(patientData))
       }
 
       const contentJson = JSON.stringify(content)
@@ -2507,10 +1766,6 @@ export function DocumentEditorContent() {
         return "Certificat médical"
       case "honoraires":
         return "Note d'honoraires"
-      case "bulletin-cnam":
-        return "Bulletin de soins CNAM"
-      case "arret-travail":
-        return "Arrêt de travail"
       default:
         return "Document"
     }
@@ -2522,71 +1777,6 @@ export function DocumentEditorContent() {
 
   const patientData = getSelectedPatientData()
   const patientAge = patientData ? calculateAge(patientData.dateOfBirth) : null
-
-  // ---- CNAM BS1 live preview (bulletin-cnam only) ----
-  // Embed the real generated BS1 PDF in the preview pane, regenerated ~800ms after editing pauses,
-  // via the same medicalDocumentsApi.generatePdfForDownload(buildDocumentData()) the Download button uses.
-  const [bs1PreviewUrl, setBs1PreviewUrl] = useState<string | null>(null)
-  const [bs1PreviewLoading, setBs1PreviewLoading] = useState(false)
-  const [bs1PreviewError, setBs1PreviewError] = useState(false)
-  const bs1UrlRef = useRef<string | null>(null)
-  // The blob behind that URL. Kept because where the frame cannot render it, the file itself is the answer
-  // (AC-8) and `downloadBlob` takes bytes, not a `blob:` URL — re-fetching one we already hold would be silly.
-  const bs1BlobRef = useRef<Blob | null>(null)
-  // The preview iframe itself, so « Imprimer » can print the overlaid PDF the dentist is looking at rather than
-  // re-deriving the paper from the DOM (K4 — see printBulletinPdf).
-  const bs1IframeRef = useRef<HTMLIFrameElement>(null)
-
-  // Serialized snapshot of the inputs that feed the BS1 PDF; the effect re-runs only when it changes.
-  // null when no patient is selected (buildDocumentData() returns null) — short-circuits without an API call (AC-5).
-  const bs1DocumentData = isOfficialForm ? buildDocumentData() : null
-  const bs1DataKey = bs1DocumentData ? JSON.stringify(bs1DocumentData) : null
-
-  useEffect(() => {
-    if (!isOfficialForm) return
-    // No patient / missing required data → neutral state, no API call (AC-5).
-    if (!bs1DataKey) {
-      setBs1PreviewLoading(false)
-      setBs1PreviewError(false)
-      return
-    }
-    let cancelled = false
-    // Debounce: regenerate ~800ms after edits pause. Cleanup cancels a pending/in-flight render so a
-    // superseded response never overwrites a newer one (AC-3) and none runs after unmount/type change.
-    const timer = setTimeout(async () => {
-      setBs1PreviewLoading(true)
-      setBs1PreviewError(false)
-      try {
-        const blob = await medicalDocumentsApi.generatePdfForDownload(JSON.parse(bs1DataKey))
-        if (cancelled) return
-        const url = URL.createObjectURL(blob)
-        // Revoke the previous object URL so blobs don't leak (AC-3).
-        if (bs1UrlRef.current) URL.revokeObjectURL(bs1UrlRef.current)
-        bs1UrlRef.current = url
-        bs1BlobRef.current = blob
-        setBs1PreviewUrl(url)
-      } catch {
-        // Keep the last good preview; surface the error state (AC-4). Next successful edit recovers.
-        if (!cancelled) setBs1PreviewError(true)
-      } finally {
-        if (!cancelled) setBs1PreviewLoading(false)
-      }
-    }, 800)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [bs1DataKey, documentType])
-
-  // Revoke the last preview object URL on unmount to avoid leaking the blob.
-  useEffect(() => {
-    return () => {
-      if (bs1UrlRef.current) {
-        URL.revokeObjectURL(bs1UrlRef.current)
-        bs1UrlRef.current = null
-      }
-    }
-  }, [])
 
   return (
     // `flex-1 min-h-0`, not `h-screen`: this renders inside `AppShell`'s `<main>`, which is already a bounded
@@ -3142,522 +2332,10 @@ export function DocumentEditorContent() {
             )}
 
 
-            {documentType === "arret-travail" && (
-              <div className="space-y-5">
-                {/*
-                  The treating practitioner FIRST, chosen — never `doctors[0]`. His name, his quality and his code
-                  are printed on the certificate and are what the caisse attributes the arret to, so the K3 lesson
-                  applies here from the start rather than after the first misattributed form.
-                */}
-                <div className="space-y-2">
-                  <Label htmlFor="arretDoctor" className="text-sm font-semibold text-foreground">
-                    Praticien traitant
-                  </Label>
-                  <Select value={selectedDoctorId || undefined} onValueChange={setSelectedDoctorId}>
-                    <SelectTrigger id="arretDoctor" className="h-11 w-full">
-                      <SelectValue placeholder="Choisir le praticien…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {doctors
-                        .filter((d) => d.id)
-                        .map((d) => (
-                          <SelectItem key={d.id} value={d.id as string}>
-                            {d.name}
-                            {d.codeProfessionnelSante
-                              ? ` — ${d.codeProfessionnelSante}`
-                              : d.ordreNumberCnomdt
-                                ? ` — CNOMDT ${d.ordreNumberCnomdt}`
-                                : " — sans code ni n° d'ordre"}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  {/* Names the missing value AND where it is entered — visible text, not a `title`: a tooltip is
-                      unreachable on the reception tablet these are filled on. */}
-                  {selectedDoctor &&
-                    !(selectedDoctor.codeProfessionnelSante || "").trim() &&
-                    !(selectedDoctor.ordreNumberCnomdt || "").trim() && (
-                      <p className="text-xs text-warning-ink">
-                        Ni code conventionnel ni n° au Conseil de l&apos;Ordre sur ce profil — renseignez-le dans
-                        «&nbsp;Mon profil&nbsp;».
-                      </p>
-                    )}
-                </div>
-
-                {/* The duration IS the document. `sm:grid-cols-2`, so one-up below — two number fields side by
-                    side at 320 px leaves neither readable. */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="arretDays" className="text-sm font-semibold text-foreground">
-                      Durée de l&apos;arrêt (en jours)
-                    </Label>
-                    <Input
-                      id="arretDays"
-                      type="number"
-                      min="1"
-                      max={ARRET_MAX_DAYS}
-                      placeholder="Ex : 5"
-                      value={arretFields.days}
-                      onChange={(e) => setArretFields({ ...arretFields, days: e.target.value })}
-                      className="h-11 md:text-sm"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="arretFrom" className="text-sm font-semibold text-foreground">
-                      À compter du
-                    </Label>
-                    <Input
-                      id="arretFrom"
-                      type="date"
-                      value={arretFields.fromDate}
-                      onChange={(e) => setArretFields({ ...arretFields, fromDate: e.target.value })}
-                      className="h-11 md:text-sm"
-                    />
-                  </div>
-                </div>
-
-                {/* « Sorties autorisées » — one statement made of a box and two hours, so both or neither. The
-                    server refuses half of it; this is the visual half of that rule. */}
-                <details className="rounded-lg border px-4 py-3">
-                  <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    Sorties autorisées (facultatives)
-                  </summary>
-                  <div className="grid grid-cols-1 gap-4 pt-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="arretOutFrom" className="text-sm font-semibold text-foreground">
-                        De (heure)
-                      </Label>
-                      <Input
-                        id="arretOutFrom"
-                        type="number"
-                        min="0"
-                        max="23"
-                        placeholder="Ex : 10"
-                        value={arretFields.outingsFrom}
-                        onChange={(e) => setArretFields({ ...arretFields, outingsFrom: e.target.value })}
-                        className="h-11 md:text-sm"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="arretOutTo" className="text-sm font-semibold text-foreground">
-                        À (heure)
-                      </Label>
-                      <Input
-                        id="arretOutTo"
-                        type="number"
-                        min="0"
-                        max="23"
-                        placeholder="Ex : 16"
-                        value={arretFields.outingsTo}
-                        onChange={(e) => setArretFields({ ...arretFields, outingsTo: e.target.value })}
-                        className="h-11 md:text-sm"
-                      />
-                    </div>
-                  </div>
-                </details>
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="arretTrauma" className="text-sm font-semibold text-foreground">
-                      En cas de traumatisme
-                    </Label>
-                    {/* An empty-string value is not selectable in a Radix Select, so « aucun » is its own explicit
-                        option rather than a blank item — and it is the default, because most arrets are not
-                        traumatic and the form leaves all three boxes empty then. */}
-                    <Select
-                      value={arretFields.traumaCause || "none"}
-                      onValueChange={(v) => setArretFields({ ...arretFields, traumaCause: v === "none" ? "" : v })}
-                    >
-                      <SelectTrigger id="arretTrauma" className="h-11 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Aucun / sans objet</SelectItem>
-                        {TRAUMA_CAUSES.map((cause) => (
-                          <SelectItem key={cause} value={cause}>
-                            {TRAUMA_CAUSE_LABELS_FR[cause as TraumaCause]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="arretHosp" className="text-sm font-semibold text-foreground">
-                      Hospitalisé pendant l&apos;arrêt&nbsp;?
-                    </Label>
-                    {/* Three states, and « Non renseigné » is the default: ticking « Non » by default would make
-                        the software assert a clinical fact nobody entered, on a form that decides an indemnity. */}
-                    <Select
-                      value={arretFields.hospitalised || "unknown"}
-                      onValueChange={(v) =>
-                        setArretFields({ ...arretFields, hospitalised: v === "unknown" ? "" : v })
-                      }
-                    >
-                      <SelectTrigger id="arretHosp" className="h-11 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unknown">Non renseigné</SelectItem>
-                        <SelectItem value="false">Non</SelectItem>
-                        <SelectItem value="true">Oui (joindre l&apos;attestation)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="arretMotif" className="text-sm font-semibold text-foreground">
-                    Motif (dossier interne — non imprimé)
-                  </Label>
-                  <Textarea
-                    id="arretMotif"
-                    rows={2}
-                    placeholder="Ex : avulsion de 38, œdème post-opératoire"
-                    value={arretFields.motif}
-                    onChange={(e) => setArretFields({ ...arretFields, motif: e.target.value })}
-                    className="md:text-sm"
-                  />
-                  {/* Stated, because a field that looks like every other field and behaves differently is a trap:
-                      the practitioner needs to know the employer will not read this. */}
-                  <p className="text-xs text-muted-foreground">
-                    Conservé dans le dossier du patient, <strong>jamais imprimé</strong> sur le certificat&nbsp;: le
-                    recto du formulaire P 061 est remis à l&apos;employeur et ne porte aucun diagnostic.
-                  </p>
-                </div>
-
-                <p className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
-                  L&apos;identité du patient (identifiant unique, nom, date de naissance, adresse, code postal,
-                  téléphone) est reprise automatiquement de sa fiche et pré-remplie sur la partie
-                  «&nbsp;assuré social&nbsp;» du formulaire. Les deux signatures et le cachet restent à apposer sur
-                  le papier.
-                </p>
-              </div>
-            )}
-
-            {documentType === "bulletin-cnam" && (
-              <div className="space-y-5">
-                {/*
-                  K3 — the treating practitioner, chosen. First field of the bulletin, because its code
-                  conventionnel is stamped on **every** act row of the printed form and it used to be
-                  `doctors[0]` with nothing on screen naming anyone.
-                  Kept visible even in a single-dentist cabinet (pre-filled, not hidden): what the form asserts
-                  about who performed the acts should be readable before it is printed, not inferred.
-                */}
-                <div className="space-y-2">
-                  <Label htmlFor="bulletinDoctor" className="text-sm font-semibold text-foreground">
-                    Praticien traitant
-                  </Label>
-                  <Select value={selectedDoctorId || undefined} onValueChange={setSelectedDoctorId}>
-                    <SelectTrigger id="bulletinDoctor" className="h-11 w-full">
-                      <SelectValue placeholder="Choisir le praticien…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {doctors
-                        .filter((d) => d.id)
-                        .map((d) => (
-                          <SelectItem key={d.id} value={d.id as string}>
-                            {d.name}
-                            {d.codeProfessionnelSante ? ` — ${d.codeProfessionnelSante}` : " — sans code conventionnel"}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  {/*
-                    The certificat's CNOMDT treatment, applied to the code conventionnel: name the missing value and
-                    where it is entered. Visible text, not a `title` — a tooltip is unreachable on a reception
-                    tablet, which is where a secretary fills these.
-                  */}
-                  {selectedDoctor && !bulletinDoctorCode ? (
-                    <p className="text-xs text-warning-ink">
-                      Aucun code conventionnel sur le profil de {selectedDoctor.name}. Ajoutez-le dans «&nbsp;
-                      <button
-                        type="button"
-                        className="underline underline-offset-2"
-                        onClick={() => router.push("/mon-profil")}
-                      >
-                        Mon profil
-                      </button>
-                      &nbsp;»&nbsp;: il s&apos;imprime sur chaque ligne d&apos;acte du bulletin.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Son code conventionnel est imprimé sur chaque ligne d&apos;acte du formulaire.
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-foreground">Type de prise en charge</Label>
-                  <Select value={bulletinFields.careType} onValueChange={(v) => setBulletinFields((p) => ({ ...p, careType: v }))}>
-                    <SelectTrigger className="h-11 w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="APCI">APCI (affection prise en charge intégralement)</SelectItem>
-                      <SelectItem value="MO">Maladie ordinaire (MO)</SelectItem>
-                      <SelectItem value="Hospitalisation">Hospitalisation</SelectItem>
-                      <SelectItem value="Suivi de grossesse">Suivi de grossesse</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {bulletinFields.careType === "APCI" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="apciCode" className="text-sm font-semibold text-foreground">Code APCI</Label>
-                    <Input id="apciCode" value={bulletinFields.apciCode} onChange={(e) => setBulletinFields((p) => ({ ...p, apciCode: e.target.value }))} className="h-11" placeholder="Ex : 12" />
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  <Label className="text-sm font-semibold text-foreground">Actes (depuis les soins dentaires)</Label>
-                  {/* Two date fields at ~120px each on a 360px phone — see the medication card above (defect #3). */}
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <div className="flex flex-col gap-1">
-                      <Label className="text-xs text-muted-foreground">Du</Label>
-                      <Input type="date" value={bulletinFields.actsFrom} onChange={(e) => setBulletinFields((p) => ({ ...p, actsFrom: e.target.value }))} className="h-10" />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <Label className="text-xs text-muted-foreground">Au</Label>
-                      <Input type="date" value={bulletinFields.actsTo} onChange={(e) => setBulletinFields((p) => ({ ...p, actsTo: e.target.value }))} className="h-10" />
-                    </div>
-                  </div>
-
-                  {/* A failed read of the patient's soins would otherwise render « Pré-remplir depuis les soins
-                      (0) », disabled — indistinguishable from a patient with no soins at all, and the bulletin
-                      then gets typed from memory (defect #1). */}
-                  {dentalRecordsFailed ? (
-                    <CatalogLoadFailed
-                      label="Les soins du patient"
-                      onRetry={() => setDentalRecordsReload((n) => n + 1)}
-                    />
-                  ) : (
-                    <Button type="button" variant="outline" size="sm" className="w-full" onClick={prefillActsFromRecords} disabled={!selectedPatient || dentalRecords.length === 0}>
-                      <Search className="w-4 h-4 mr-2" />
-                      Pré-remplir depuis les soins ({dentalRecords.length})
-                    </Button>
-                  )}
-
-                  {bulletinFields.acts.length === 0 ? (
-                    <EmptyState
-                      size="compact"
-                      icon={ClipboardList}
-                      chipClassName={zoneChipClass(ZONES.clinical)}
-                      title="Aucun acte sur ce bulletin"
-                      description="Pré-remplissez depuis les soins enregistrés du patient, ou ajoutez une ligne à la main."
-                      action={
-                        <Button type="button" variant="outline" size="sm" onClick={addBulletinAct}>
-                          <Plus className="w-4 h-4 mr-2" />
-                          Ajouter un acte
-                        </Button>
-                      }
-                    />
-                  ) : (
-                    <div className="space-y-3">
-                      {bulletinFields.acts.map((act, index) => {
-                        const actEstimate = actEstimates[index] ?? null
-                        const estimateReason = actEstimateReasons[index] ?? null
-                        // K1: the catalogue row behind this act's code, if the code is one of ours. `undefined`
-                        // for a hand-typed code and for every act of a pre-K1 bulletin (stored mnemonics).
-                        const catalogAct = dentalActFor(act.codeActe)
-                        // A catalogue act whose cotation the DCH list does not carry (the seed leaves every
-                        // Coefficient null — it lives in the NGAP arrêté). Named, because the alternative is an
-                        // estimate column that is simply blank, which reads as « non remboursable ».
-                        const missingCoefficient =
-                          catalogAct != null && catalogAct.coefficient == null && !parseCotation(act.cotation)
-                        return (
-                        <div key={index} className="p-3 border rounded-lg space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium text-muted-foreground">Acte {index + 1}</span>
-                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Retirer l'acte ${index + 1}`} onClick={() => setBulletinFields((p) => ({ ...p, acts: p.acts.filter((_, i) => i !== index) }))}>
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                          {/*
-                            Same collapse as the other four grids (defect #3), plus the `md:text-sm` prefix on
-                            every field (defect #4): `ui/input.tsx` ships `text-base md:text-sm` precisely so
-                            iOS Safari does not zoom a focused field — and it never zooms back out. An
-                            UNPREFIXED `text-sm` from a call site is in the same tailwind-merge group, so it
-                            *removes* the primitive's `text-base` and the field is 14px at every width.
-
-                            ⚠️ The child below needs `col-span-1 sm:col-span-2`: a `span 2` item in a
-                            one-column grid creates an implicit second column, which would break the row rather
-                            than let it stack.
-                          */}
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <Input type="date" value={act.date} onChange={(e) => updateBulletinAct(index, "date", e.target.value)} className="h-9 md:text-sm" />
-                            <Input placeholder="Dent(s)" value={act.teeth} onChange={(e) => updateBulletinAct(index, "teeth", e.target.value)} className="h-9 md:text-sm" />
-                            <div className="col-span-1 flex gap-2 sm:col-span-2">
-                              <Input placeholder="Code acte" value={act.codeActe} onChange={(e) => updateBulletinAct(index, "codeActe", e.target.value)} className="h-9 flex-1 md:text-sm" />
-                              <Popover open={openActLookup === index} onOpenChange={(o) => setOpenActLookup(o ? index : null)} modal>
-                                <PopoverTrigger asChild>
-                                  <Button type="button" variant="outline" size="sm" className="h-9 px-3 shrink-0" title="Rechercher un acte dentaire CNAM (DCH)">
-                                    <Search className="w-4 h-4" />
-                                    <span className="sr-only">Rechercher un acte dentaire CNAM (DCH)</span>
-                                  </Button>
-                                </PopoverTrigger>
-                                {/* `w-[min(20rem,calc(100vw-2rem))]`: an unqualified `w-80` is 320px inside a
-                                    320px viewport, i.e. edge to edge with no gutter. */}
-                                <PopoverContent className="p-0 w-[min(20rem,calc(100vw-2rem))]" align="end">
-                                  <Command>
-                                    <CommandInput placeholder="Rechercher un acte (code DCH ou désignation)…" />
-                                    <CommandList>
-                                      {dentalActCatalogFailed ? (
-                                        <CatalogLoadFailed
-                                          label="Le catalogue des actes dentaires"
-                                          onRetry={() => setDentalActCatalogReload((n) => n + 1)}
-                                        />
-                                      ) : (
-                                        <>
-                                          <CommandEmpty>Aucun acte ne correspond.</CommandEmpty>
-                                          <CommandGroup>
-                                            {dentalActCatalog.map((entry) => (
-                                              <CommandItem key={entry.codeActe} value={`${entry.codeActe} ${entry.designationFr} ${entry.lettreCle} ${entry.category}`} onSelect={() => selectDentalAct(index, entry)}>
-                                                <div className="flex min-w-0 flex-col">
-                                                  <span className="text-sm font-medium">{entry.designationFr}</span>
-                                                  <span className="text-xs text-muted-foreground">
-                                                    {entry.codeActe} · {entry.lettreCle}
-                                                    {entry.coefficient != null ? ` ${entry.coefficient}` : ""} · {entry.category}
-                                                  </span>
-                                                  {/* K1's free win: the flag was seeded correctly and consumed by
-                                                      nothing but its own admin table. Shown at the point of choice
-                                                      as well as on the row, because « demander l'accord d'abord »
-                                                      is a decision made when picking the act. */}
-                                                  {entry.requiresAccordPrealable && (
-                                                    <span className="text-xs text-warning-ink">Accord préalable requis</span>
-                                                  )}
-                                                </div>
-                                              </CommandItem>
-                                            ))}
-                                          </CommandGroup>
-                                        </>
-                                      )}
-                                    </CommandList>
-                                  </Command>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <Input placeholder="Cotation" value={act.cotation} onChange={(e) => updateBulletinAct(index, "cotation", e.target.value)} className="h-9 md:text-sm" />
-                            <Input placeholder="Honoraires (DT)" value={act.honoraires} onChange={(e) => updateBulletinAct(index, "honoraires", e.target.value)} className="h-9 md:text-sm" />
-                          </div>
-                          {/* K1's free win, on the row this time: `RequiresAccordPrealable` is correctly seeded
-                              and was consumed by nothing outside its own admin table. Now that the bulletin reads
-                              this catalogue it costs nothing to say so — and an act sent without the accord is a
-                              claim the caisse refuses. Derived from the code at render time, never persisted:
-                              nothing on the BS1 carries the flag, and it is per-clinic and correctable. */}
-                          {catalogAct?.requiresAccordPrealable && (
-                            <p className="text-xs text-warning-ink">
-                              Accord préalable requis&nbsp;— joignez la demande avant d&apos;envoyer ce bulletin.
-                            </p>
-                          )}
-                          {/* A catalogue act carrying no coefficient. Says which half is missing and where it is
-                              filled in, instead of leaving the estimate column silently empty — « pas d'estimation »
-                              and « non remboursable » must never look the same. */}
-                          {missingCoefficient && (
-                            <p className="text-xs text-muted-foreground">
-                              Cotation à compléter&nbsp;: le catalogue ne fixe pas de coefficient pour cet acte
-                              (il figure à l&apos;arrêté NGAP). Saisissez «&nbsp;{catalogAct?.lettreCle}&nbsp;
-                              coefficient&nbsp;» pour obtenir une estimation — le remboursement reste calculé par la
-                              CNAM dans tous les cas.
-                            </p>
-                          )}
-                          {/* A cotation that parses but whose lettre clé the convention values at nothing. Unlike
-                              the case above, this is not a gap anybody can close — so it says so rather than
-                              pointing at the catalogue, and never renders as 0. */}
-                          {actEstimate == null && estimateReason === 'NoLetterValue' && (
-                            <p className="text-xs text-muted-foreground">
-                              Aucune estimation&nbsp;: la convention ne fixe pas de valeur pour la lettre clé
-                              «&nbsp;{parseCotation(act.cotation)?.lettreCle}&nbsp;». Le remboursement reste calculé
-                              par la CNAM.
-                            </p>
-                          )}
-                          {/* `formatDT`, not `toFixed(3) + " TND"` (defect #5): a period decimal separator and a
-                              currency code the product uses nowhere else, on a CNAM document. */}
-                          {actEstimate != null && (
-                            <p className="text-xs text-muted-foreground">Remb. indicatif&nbsp;: <span className="font-medium text-foreground">{formatDT(actEstimate)}</span></p>
-                          )}
-                        </div>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={addBulletinAct}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Ajouter un acte
-                  </Button>
-
-                  {/* On the theme's warning family rather than four hand-maintained `amber-*` / `dark:amber-*`
-                      pairs. `--warning-ink` exists because `--warning` itself lands near 3.5:1 on its own wash. */}
-                  {estimateFailed && (
-                    <div role="status" className="rounded-lg border border-dashed border-warning/40 bg-warning-wash p-3">
-                      <p className="text-xs text-warning-ink">
-                        Estimation du remboursement indisponible — le calcul n&apos;a pas pu être effectué. Le bulletin
-                        reste valide&nbsp;: l&apos;estimation est indicative et ne figure pas sur le formulaire.
-                      </p>
-                    </div>
-                  )}
-
-                  {!estimateFailed && hasAnyBulletinEstimate && (
-                    <div className="rounded-lg border border-dashed p-3 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground">Remboursement indicatif (total)</span>
-                        <span className="text-sm font-semibold text-foreground">{formatDT(bulletinEstimateTotal)}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">Estimation indicative, non contractuelle — montant réel fixé par la CNAM. Taux selon l'âge du patient (70&nbsp;% de 4 à 18&nbsp;ans, 60&nbsp;% sinon).</p>
-                    </div>
-                  )}
-
-                  {/*
-                    L10 — the ceiling, right under the estimate it caps. Rendered whenever a patient is selected and
-                    NOT gated on `hasAnyBulletinEstimate`: « ce patient a déjà épuisé son plafond » is worth knowing
-                    *before* the acts are typed, which is the moment an alternative can still be discussed. It passes
-                    the running total so it can also answer « et après ce bulletin ? » without a second request.
-                  */}
-                  <CnamCeilingNotice
-                    patientId={selectedPatient || null}
-                    pendingEstimate={hasAnyBulletinEstimate ? bulletinEstimateTotal : undefined}
-                  />
-                </div>
-              </div>
-            )}
-
             <Separator />
 
             {/* Actions */}
             <div className="space-y-3 pt-2">
-              {/*
-                K2 — the reason Save is unavailable, as **visible text** above the button.
-                Not a `title` and not only a toast: a `title` is unreachable on the reception tablet these are
-                filled on, and a toast fires after the press, i.e. after the practitioner has already decided the
-                bulletin was finished. Each line says where the value is entered, because four of the five live on
-                the patient's fiche or the practitioner's profile rather than in this editor.
-                `role="status"` so the list is announced as it changes while the fiche is being completed.
-              */}
-              {officialFormBlocked && (
-                <div
-                  role="status"
-                  className="space-y-2 rounded-lg border border-warning/40 bg-warning-wash p-3"
-                >
-                  <p className="text-xs font-medium text-warning-ink">
-                    {documentType === "arret-travail"
-                      ? "Arrêt de travail incomplet — la caisse le refuserait :"
-                      : "Bulletin incomplet — la caisse le refuserait :"}
-                  </p>
-                  <ul className="list-disc space-y-1 ps-4 text-xs text-warning-ink">
-                    {officialFormProblems.map((problem) => (
-                      <li key={problem.key}>{problem.message}</li>
-                    ))}
-                  </ul>
-                  {officialFormProblems.some((p) => p.onPatient) && selectedPatient && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => router.push(`/patients/${selectedPatient}`)}
-                    >
-                      Ouvrir la fiche du patient
-                    </Button>
-                  )}
-                </div>
-              )}
               {documentLoadFailed && (
                 <LoadFailureNotice
                   message="Le document enregistré n'a pas pu être chargé."
@@ -3668,7 +2346,7 @@ export function DocumentEditorContent() {
               <Button
                 className="w-full h-11 bg-primary hover:bg-primary/90 text-base font-medium"
                 onClick={() => handleSave()}
-                disabled={saving || loadingDocument || documentLoadFailed || !selectedPatient || officialFormBlocked}
+                disabled={saving || loadingDocument || documentLoadFailed || !selectedPatient}
               >
                 <Save className="w-4 h-4 mr-2" />
                 {loadingDocument
@@ -3692,9 +2370,9 @@ export function DocumentEditorContent() {
                 controls below this. Two doors instead, both stated.
 
                 ⚠️ « Voir le document » frames the **server-rendered PDF** (`DocumentPreviewDialog`), never a
-                second HTML rendering of a legal document — see that component. It is withheld for the two
-                official CNAM forms, whose paper is the pre-printed overlay their own « Imprimer » produces
-                and which `GET /medical-documents/{id}/pdf` cannot render.
+                second HTML rendering of a legal document — see that component. It used to be withheld for the
+                two official CNAM forms, whose paper was a pre-printed overlay `GET /medical-documents/{id}/pdf`
+                cannot render; with those withdrawn, every remaining type renders through it.
               */}
               {documentId && selectedPatient && (
                 <div className="space-y-2 rounded-lg border bg-muted/40 p-3" role="status">
@@ -3705,18 +2383,16 @@ export function DocumentEditorContent() {
                   {/* `flex-wrap` + a real basis on each: two French labels that can neither shrink nor wrap
                       measure past this panel at 320 px — the `RecordSection` trap, one surface over. */}
                   <div className="flex flex-wrap gap-2">
-                    {!isOfficialForm && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="min-w-0 shrink grow basis-40 coarse:h-11"
-                        onClick={() => setSavedPreviewOpen(true)}
-                      >
-                        <FileText className="mr-2 h-4 w-4 shrink-0" />
-                        Voir le document
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-w-0 shrink grow basis-40 coarse:h-11"
+                      onClick={() => setSavedPreviewOpen(true)}
+                    >
+                      <FileText className="mr-2 h-4 w-4 shrink-0" />
+                      Voir le document
+                    </Button>
                     <Button
                       type="button"
                       variant="outline"
@@ -3799,18 +2475,6 @@ export function DocumentEditorContent() {
                   </Button>
                 )}
               </div>
-              {/* Says why rather than just omitting the control: a button that was there yesterday and is gone
-                  today reads as a bug. See `wordExportSupported`. ⚠️ Gated on the withdrawal too: with Word
-                  offered nowhere, singling out the two CNAM forms for lacking it explains a contrast the
-                  reader can no longer see. */}
-              {WORD_EXPORT_OFFERED && !wordExportSupported && (
-                <p className="text-xs text-muted-foreground">
-                  {documentType === "arret-travail"
-                    ? "L'arrêt de travail n'a pas d'export Word : c'est une impression sur le formulaire officiel CNAM P 061."
-                    : "Le bulletin de soins n'a pas d'export Word : c'est une impression sur le formulaire officiel BS1."}{" "}
-                  Utilisez «&nbsp;Télécharger PDF&nbsp;» ou «&nbsp;Imprimer&nbsp;».
-                </p>
-              )}
             </div>
           </div>
         </div>
@@ -3821,109 +2485,6 @@ export function DocumentEditorContent() {
             a hand-written dark twin. */}
         <div className="min-w-0 flex-1 bg-gradient-to-br from-muted to-accent/60 p-4 xl:overflow-y-auto xl:p-12">
           <div className="max-w-4xl mx-auto">
-            {isOfficialForm ? (
-              <>
-                <div className="mb-6 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Aperçu du document</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {documentType === "arret-travail"
-                        ? "Aperçu en direct du formulaire CNAM P 061 généré"
-                        : "Aperçu en direct du bulletin BS1 généré"}
-                    </p>
-                  </div>
-                  <div className="text-sm text-muted-foreground">Format A4</div>
-                </div>
-
-                {/*
-                  `.light` — a document surface, not app chrome (AC-39, see the `@custom-variant dark` comment
-                  at the top of globals.css). The variant is `&:is(.dark *):not(:is(.light, .light *))`, so this
-                  subtree keeps the light palette *and* stops every `dark:` utility inside it. That is the point:
-                  the BS1 the patient files at the CNAM is black on white, and a preview that renders it on slate
-                  in dark mode is showing the dentist something other than what will be printed. It is also why
-                  the `dark:bg-slate-900` this element used to carry is gone rather than merely overridden — the
-                  variant makes it inert, and a class that cannot fire is a class that misleads the next reader.
-                */}
-                <div className="light relative bg-white shadow-2xl rounded-lg overflow-hidden min-h-[1123px] flex flex-col">
-                  {!patientData ? (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-3 p-12 text-center">
-                      <FileText className="w-12 h-12 text-muted-foreground/40" />
-                      <p className="text-sm text-muted-foreground">
-                        Sélectionnez un patient pour afficher l&apos;aperçu du bulletin de soins CNAM.
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      {bs1PreviewUrl ? (
-                        <>
-                          {/* Two trees behind `coarse:`, the same shape as `patient-file-pdf-preview.tsx` — and
-                              for the same reason: an Android WebView renders an embedded `blob:` PDF **blank**
-                              and iOS Safari renders it as one non-scrollable page. CSS, not `useMediaQuery`,
-                              which returns false on the first client render and would tear down a loaded PDF. */}
-                          <iframe
-                            ref={bs1IframeRef}
-                            src={bs1PreviewUrl}
-                            title={officialFormPreviewTitle}
-                            className="block flex-1 w-full border-0 coarse:hidden"
-                            style={{ minHeight: "1123px" }}
-                          />
-
-                          <div className="hidden flex-1 flex-col items-center justify-center gap-3 p-6 text-center coarse:flex">
-                            <FileText className="w-12 h-12 text-muted-foreground/40" />
-                            <p className="font-medium text-foreground">Aperçu non disponible sur cet appareil</p>
-                            <p className="max-w-[42ch] text-sm text-muted-foreground">
-                              Les visionneuses PDF intégrées ne fonctionnent pas de façon fiable sur mobile. Ouvrez le
-                              document pour le consulter et l&apos;imprimer depuis la visionneuse de votre appareil,
-                              sur le formulaire pré-imprimé.
-                            </p>
-                            {/* 44px on a finger, grown rather than overlaid: it is the panel's only control. */}
-                            <Button onClick={() => void deliverOfficialFormPdf("preview")} className="coarse:h-11">
-                              <ExternalLink className="me-2 h-4 w-4" />
-                              Ouvrir le document
-                            </Button>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-12 text-center">
-                          {bs1PreviewError && !bs1PreviewLoading ? (
-                            <>
-                              <FileText className="w-12 h-12 text-destructive" />
-                              <p className="text-sm font-medium text-foreground">Impossible de générer l&apos;aperçu du PDF</p>
-                              <p className="text-xs text-muted-foreground">
-                                Une erreur s&apos;est produite. Modifiez un champ pour réessayer.
-                              </p>
-                            </>
-                          ) : (
-                            !bs1PreviewLoading && (
-                              <p className="text-sm text-muted-foreground">Préparation de l&apos;aperçu…</p>
-                            )
-                          )}
-                        </div>
-                      )}
-
-                      {bs1PreviewLoading && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-card/70 backdrop-blur-sm">
-                          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                          <p className="text-sm text-muted-foreground">Génération de l&apos;aperçu…</p>
-                        </div>
-                      )}
-
-                      {/* The theme's destructive family, which is what `--destructive-wash` was added for —
-                          replacing a `red-50/200/600` trio plus three `dark:` twins that no theme could follow.
-                          Inside the `.light` island above, these resolve to the light palette, i.e. on paper. */}
-                      {bs1PreviewError && !bs1PreviewLoading && bs1PreviewUrl && (
-                        <div className="absolute inset-x-0 top-0 border-b border-destructive/25 bg-destructive-wash px-4 py-2">
-                          <p className="text-xs text-destructive text-center">
-                            Impossible de mettre à jour l&apos;aperçu — dernière version affichée. Modifiez un champ pour réessayer.
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Aperçu du document</p>
@@ -3943,8 +2504,9 @@ export function DocumentEditorContent() {
               on which `p-16` would again leave only ~276px of content. 40px is ~7.5 % of 532px — about what a
               real A4's 2cm margin is — where 24px would read as no margin at all.
 
-              `.light` — the second document surface (AC-39; see the BS1 wrapper above and the `@custom-variant
-              dark` comment in globals.css). `bg-white` stays and the `dark:bg-slate-900` twin goes: a certificat
+              `.light` — the document surface (AC-39; see the `@custom-variant dark` comment in globals.css,
+              which still names the CNAM overlay this file no longer renders). `bg-white` stays and the
+              `dark:bg-slate-900` twin goes: a certificat
               médical that is white-on-black on screen and black-on-white on paper is not a preview of anything.
             */}
             <Card className="light p-6 sm:p-10 xl:p-16 bg-white shadow-2xl min-h-[1123px] flex flex-col" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
@@ -4187,8 +2749,6 @@ export function DocumentEditorContent() {
                 </div>
               </div>
             </Card>
-              </>
-            )}
           </div>
         </div>
         </div>

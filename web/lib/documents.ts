@@ -41,10 +41,11 @@ export interface DocumentTemplate {
    * directions.</p>
    *
    * <p>Three types set it false, for two different reasons. `examens`: the fiche de soins is its only writer, so
-   * there is no blank form to start from. `arret-travail` and `bulletin-cnam`: the two official CNAM forms are
-   * <b>withheld until they are finished</b> — their editors, validators, overlay renderers and tests are all
-   * still here and still build, they are simply not offered, because a form filled today would be filed at a
-   * caisse that rejects it. Flipping either back to true is the whole of « ship it ».</p>
+   * there is no blank form to start from. `arret-travail` and `bulletin-cnam`: the two official CNAM forms were
+   * withheld, and their editor has since been <b>removed from the browser altogether</b> with the rest of the
+   * CNAM interface (`features/cnam-ui-withdrawal/notes.md`). Flipping either back to true is no longer « ship
+   * it » — the form is gone from `document-editor-content.tsx`, and `WITHDRAWN_DOCUMENT_TYPES` below is what
+   * refuses the route.</p>
    */
   creatable?: boolean
 }
@@ -96,8 +97,11 @@ export const DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = [
     tile: "bg-chart-3/12 text-chart-3",
   },
   {
-    // ⚠️ Withheld, not retired — see `creatable`. The P 061 overlay renderer, the validation and the editor
-    // form all still exist and still build; the form is not offered because it is not finished.
+    // ⚠️ **This row must stay**, even though the browser can no longer write or edit one. `documentTypeLabel`
+    // is derived from this array, so removing it makes an already-saved arrêt render as the raw key
+    // « arret-travail » in the patient's Documents tab — which shipped once — and `check:responsive`'s
+    // `document-type-set-has-one-owner` compares this array against `api/…/DocumentTypes.cs` in BOTH
+    // directions, where the type is still declared. See `WITHDRAWN_DOCUMENT_TYPES`.
     type: "arret-travail",
     title: "Arrêt de travail",
     description: "Certificat médical d'arrêt de travail sur le formulaire officiel CNAM P 061",
@@ -106,7 +110,7 @@ export const DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = [
     creatable: false,
   },
   {
-    // ⚠️ Withheld, not retired — same as the arrêt de travail above.
+    // ⚠️ Must stay for the same two reasons as the arrêt de travail above.
     type: "bulletin-cnam",
     title: "Bulletin de soins CNAM",
     description: "Bulletin de remboursement des frais de soins (BS1) à déposer à la CNAM",
@@ -135,12 +139,31 @@ export const documentTypeLabel = (type: string): string =>
  * money ledger: it minted draft factures every balance in the app sums. Now it saves a printable sheet like an
  * ordonnance — no number, no ledger row, nothing in la caisse. The numbered fiscal note is still raised in the
  * Factures module. What this list removes is `examens` (the <b>fiche de soins alone</b> writes it, so
- * there is no blank form to start from) and the two CNAM forms, `arret-travail` and `bulletin-cnam`, which are
- * withheld until they are finished — see `creatable`.</p>
+ * there is no blank form to start from) and the two CNAM forms, `arret-travail` and `bulletin-cnam`, whose
+ * editor no longer exists — see `creatable` and {@link WITHDRAWN_DOCUMENT_TYPES}.</p>
  */
 export const CREATABLE_DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = DOCUMENT_TEMPLATES.filter(
   (template) => template.creatable !== false,
 )
+
+/**
+ * The types whose EDITOR was removed, as opposed to merely not offered.
+ *
+ * <p>The two official CNAM forms went with the rest of the CNAM interface
+ * (`features/cnam-ui-withdrawal/notes.md`). They are not the same as a `creatable: false` type: `examens` has no
+ * blank form to start from but its editor still renders one that exists, while these two have no branch left in
+ * `document-editor-content.tsx` at all.</p>
+ *
+ * <p>⚠️ <b>This is why `/documents/[type]` has to refuse them, and refusing is not cosmetic.</b> That route
+ * never validated its segment, so without this the generic editor would mount over an already-saved bulletin —
+ * an empty free-form document rendered on top of a legal form, one « Enregistrer » away from replacing it.
+ * Reading a saved one still works everywhere it did: the preview dialog frames the server's PDF, which is
+ * untouched.</p>
+ */
+export const WITHDRAWN_DOCUMENT_TYPES: readonly string[] = ["arret-travail", "bulletin-cnam"]
+
+/** True for a stored type this build can no longer open in the editor. @see WITHDRAWN_DOCUMENT_TYPES */
+export const isWithdrawnDocumentType = (type: string): boolean => WITHDRAWN_DOCUMENT_TYPES.includes(type)
 
 /**
  * The document types whose editor shows the patient's « Alertes médicales » panel.

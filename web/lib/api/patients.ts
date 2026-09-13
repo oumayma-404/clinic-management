@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { CnamInfo, PatientDto, PatientDeletionCheckDto, ReminderConsent, TobaccoUse } from './types';
+import type { PatientDto, PatientDeletionCheckDto, ReminderConsent, TobaccoUse } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const patientsApi = {
@@ -103,12 +103,6 @@ export const patientsApi = {
     consultationReason?: string;
     /** « Tabac ». Omit to leave it unanswered — never send a `NonSmoker` block to mean « nobody asked ». */
     tobaccoUse?: TobaccoUse | null;
-    /**
-     * The CNAM identity block, as the shared `CnamInfo` rather than a re-listed literal. It used to be spelled out
-     * inline here, so L10's two ceiling fields typechecked on the update path (which reads `CnamInfo`) and failed on
-     * this one — a copy of a shape is a copy that goes one field out of date.
-     */
-    cnamInfo?: CnamInfo;
     medicalHistoryEntries?: Array<{
       description: string;
       date?: string;

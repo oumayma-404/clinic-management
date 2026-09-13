@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CNAM_LIENS, CNAM_REGIMES } from "@/lib/cnam"
 import {
   MAX_TOBACCO_PER_DAY,
   SMOKING_STATUSES,
@@ -42,7 +41,7 @@ import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
-import { User, MapPin, Heart, Pill, CreditCard, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
+import { User, MapPin, Heart, Pill, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
 import { RecordSection } from "@/components/record/record-section"
 import { cn } from "@/lib/utils"
 import { patientsApi } from "@/lib/api/patients"
@@ -61,8 +60,7 @@ import { ApiError, ApiErrorCode } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR, DEFAULT_REGION, regionOf } from "@/lib/phone"
 import type { CountryCode } from "libphonenumber-js/max"
 import { PhoneField } from "@/components/ui/phone-field"
-import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes } from "@/lib/format"
-import { CNAM_DENTAL_ALLOWANCE, CNAM_PLAFOND_SUPPLEMENTS, cnamBaseCeiling, cnamDefaultCeiling } from "@/lib/cnam"
+import { quoteFr } from "@/lib/format"
 import { SELECTABLE_GENDERS, genderLabel } from "@/components/appointment-labels"
 import { handleHealthBulletKeyDown } from "@/lib/health-list"
 import {
@@ -74,29 +72,6 @@ import {
   dentitionFromAge,
   type Dentition,
 } from "@/lib/dentition"
-
-/**
- * A blank / unreadable numeric CNAM field → `null`, not `0` (L10).
- *
- * <p>The distinction is load-bearing on both fields. A dependant count of `0` is a real statement (« assuré seul »)
- * and so is a ceiling of `0` — which is why the server clamps a non-positive value away rather than storing it: a
- * zero ceiling would report every patient as fully consumed, i.e. « CNAM refuses this patient ». Sending `null` for
- * a box nobody filled says « not recorded », which is what it is.</p>
- */
-function parseOptionalCount(value: string): number | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const parsed = Number.parseInt(trimmed, 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
-}
-
-/** @see parseOptionalCount — the dinar sibling, through the product's own amount parser (comma or point). */
-function parseOptionalAmount(value: string): number | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const parsed = parseAmountInput(trimmed)
-  return Number.isFinite(parsed) && parsed > 0 ? roundMillimes(parsed) : null
-}
 
 /**
  * What a history section shows when its read **failed** — deliberately not the same thing as an empty one.
@@ -142,7 +117,8 @@ interface EditPatientDialogProps {
    * block is never folded — so it scrolls and unfolds nothing.
    *
    * ⚠️ Typed as the anchor map's own keys, not `SectionKey`: only a block that HAS an id can be scrolled to, so
-   * asking for « cnam » must be a compile error rather than a button that opens the form and goes nowhere.
+   * asking for a section with no anchor must be a compile error rather than a button that opens the form and
+   * goes nowhere.
    */
   focusSection?: PatientFormAnchor | null
 }
@@ -182,8 +158,8 @@ const SECTION_ANCHOR = {
 
 export type PatientFormAnchor = keyof typeof SECTION_ANCHOR
 
-/** The four foldable sections of the patient form, in the order they appear. */
-type SectionKey = "medical" | "notes" | "coordonnees" | "cnam"
+/** The three foldable sections of the patient form, in the order they appear. */
+type SectionKey = "medical" | "notes" | "coordonnees"
 
 /**
  * The opening state of each foldable section.
@@ -194,9 +170,13 @@ type SectionKey = "medical" | "notes" | "coordonnees" | "cnam"
  * unrecorded at the one moment somebody is sitting there answering. That still holds, so the two blocks carrying a
  * clinical question stay open.
  *
- * What is folded is the pair the practice itself describes as rarely filled — the postal address with the e-mail
- * and the reminder consent, and the CNAM identity. Both keep a summary that states what they hold, so folding
- * makes a value read-only rather than invisible.
+ * What is folded is the block the practice itself describes as rarely filled — the postal address with the
+ * e-mail and the reminder consent. It keeps a summary that states what it holds, so folding makes a value
+ * read-only rather than invisible.
+ *
+ * ⚠️ « Identité CNAM » was the second folded section and went with the CNAM interface
+ * (`features/cnam-ui-withdrawal/notes.md`). The stored block is untouched — this form simply stops sending the
+ * key, which the server reads as « unchanged ».
  *
  * ⚠️ This is the second reversal on this line and the first one is worth keeping in view: every section used to be
  * open, which was itself a reversal of every section being folded. Neither extreme was the answer — the form was
@@ -204,7 +184,7 @@ type SectionKey = "medical" | "notes" | "coordonnees" | "cnam"
  * more or less of it.
  */
 function defaultSections(): Record<SectionKey, boolean> {
-  return { medical: true, notes: true, coordonnees: false, cnam: false }
+  return { medical: true, notes: true, coordonnees: false }
 }
 
 export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focusSection }: EditPatientDialogProps) {
@@ -347,15 +327,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
   const [smokingPerDay, setSmokingPerDay] = useState("")
   const [smokingUnit, setSmokingUnit] = useState<TobaccoUnit>("Cigarettes")
 
-  // CNAM identity (optional — pre-fills the Bulletin de soins BS1).
-  const [cnam, setCnam] = useState({
-    identifiantUnique: "", regime: "", assureFirstName: "", assureLastName: "",
-    assureAddress: "", assurePostalCode: "", maladeLien: "", maladeLienRang: "",
-    // L10 — the two inputs to the annual ceiling. Strings like every other field here: they are form inputs,
-    // parsed once on submit, so a half-typed « 1 1 » never becomes NaN in state.
-    dependantCount: "", annualCeilingOverride: "",
-  })
-
   // Flags State
 
   const [loading, setLoading] = useState(false)
@@ -449,7 +420,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
             .filter(Boolean)
             .join(" · ")
         : "aucune information",
-    cnam: cnam.identifiantUnique.trim() || (cnam.regime.trim() ? cnam.regime.trim() : "aucun identifiant"),
   }
 
   /**
@@ -531,21 +501,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
       // « Motif de consultation » — why they came in the first place.
       setConsultationReason(patient.consultationReason || "")
 
-      // CNAM identity
-      setCnam({
-        identifiantUnique: patient.cnamInfo?.identifiantUnique || "",
-        regime: patient.cnamInfo?.regime || "",
-        assureFirstName: patient.cnamInfo?.assureFirstName || "",
-        assureLastName: patient.cnamInfo?.assureLastName || "",
-        assureAddress: patient.cnamInfo?.assureAddress || "",
-        assurePostalCode: patient.cnamInfo?.assurePostalCode || "",
-        maladeLien: patient.cnamInfo?.maladeLien || "",
-        maladeLienRang: patient.cnamInfo?.maladeLienRang || "",
-        dependantCount: patient.cnamInfo?.dependantCount != null ? String(patient.cnamInfo.dependantCount) : "",
-        annualCeilingOverride:
-          patient.cnamInfo?.annualCeilingOverride != null ? formatAmount(patient.cnamInfo.annualCeilingOverride) : "",
-      })
-
       // Medical info - parse from strings
       setAllergies(patient.allergies || "")
       setMedications(patient.medications || "")
@@ -582,7 +537,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
         setAllergies("")
         setMedications("")
         setConsultationReason("")
-        setCnam({ identifiantUnique: "", regime: "", assureFirstName: "", assureLastName: "", assureAddress: "", assurePostalCode: "", maladeLien: "", maladeLienRang: "", dependantCount: "", annualCeilingOverride: "" })
         // ⚠️ `null`, not `"NonSmoker"` — a fresh form has asked nobody anything.
         setSmokingStatus(null)
         setSmokingPerDay("")
@@ -1003,18 +957,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           // ⚠️ Always present, **including `null`**. The key is tri-state server-side: an omitted one leaves the
           // stored answer alone, so `undefined` would make un-recording « Tabac » impossible — the L1b defect.
           tobaccoUse: tobaccoPayload(),
-          cnamInfo: {
-            identifiantUnique: cnam.identifiantUnique.trim() || null,
-            regime: cnam.regime.trim() || null,
-            assureFirstName: cnam.assureFirstName.trim() || null,
-            assureLastName: cnam.assureLastName.trim() || null,
-            assureAddress: cnam.assureAddress.trim() || null,
-            assurePostalCode: cnam.assurePostalCode.trim() || null,
-            maladeLien: cnam.maladeLien.trim() || null,
-            maladeLienRang: cnam.maladeLienRang.trim() || null,
-            dependantCount: parseOptionalCount(cnam.dependantCount),
-            annualCeilingOverride: parseOptionalAmount(cnam.annualCeilingOverride),
-          },
+          // ⚠️ **`cnamInfo` is deliberately ABSENT, and that is what preserves the stored block.**
+          // `UpdatePatientCommand` reads it as tri-state — an omitted key leaves the CNAM identity alone, while
+          // an object built from cleared state would wipe the identifiant, the régime and the lien of every
+          // patient on the next ordinary save. See `features/cnam-ui-withdrawal/notes.md`.
         }
 
         /*
@@ -1119,18 +1065,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           // `?? undefined`, not `null`: on create there is nothing stored to clear, so an unanswered « Tabac »
           // is simply omitted.
           tobaccoUse: tobaccoPayload() ?? undefined,
-          cnamInfo: {
-            identifiantUnique: cnam.identifiantUnique.trim() || null,
-            regime: cnam.regime.trim() || null,
-            assureFirstName: cnam.assureFirstName.trim() || null,
-            assureLastName: cnam.assureLastName.trim() || null,
-            assureAddress: cnam.assureAddress.trim() || null,
-            assurePostalCode: cnam.assurePostalCode.trim() || null,
-            maladeLien: cnam.maladeLien.trim() || null,
-            maladeLienRang: cnam.maladeLienRang.trim() || null,
-            dependantCount: parseOptionalCount(cnam.dependantCount),
-            annualCeilingOverride: parseOptionalAmount(cnam.annualCeilingOverride),
-          },
+          // ⚠️ **`cnamInfo` is deliberately ABSENT, and that is what preserves the stored block.**
+          // `UpdatePatientCommand` reads it as tri-state — an omitted key leaves the CNAM identity alone, while
+          // an object built from cleared state would wipe the identifiant, the régime and the lien of every
+          // patient on the next ordinary save. See `features/cnam-ui-withdrawal/notes.md`.
           medicalHistoryEntries: medicalHistoryEntriesToSend.length > 0 ? medicalHistoryEntriesToSend : undefined,
           familyHistoryEntries: familyHistoryEntriesToSend.length > 0 ? familyHistoryEntriesToSend : undefined,
           // Absent on the first attempt, so the server checks whether this person is already on file. Only the
@@ -1290,10 +1228,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                 {/*
                   Autofill tokens run across the identity fields below. This form is filled at a reception desk on a
                   shared tablet, and inputs with no `autocomplete` mean the browser can offer nothing at all.
-
-                  ⚠️ Deliberately NOT on the CNAM assuré: those fields describe a *different* person from the
-                  patient, so a `tel`/`postal-code` suggestion there would be a confidently wrong answer written
-                  into a clinical record.
 
                   ⚠️ **No « (facultatif) » markers inside this box, and that is deliberate.** The heading already
                   says « suffit à enregistrer le patient » and exactly two fields carry an asterisk; six repetitions
@@ -1788,7 +1722,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                       </Label>
                       {/* ⚠️ `inputMode="numeric"`, never `type="number"` — spinners, a scroll wheel that
                           silently changes the value, and a locale-dependent decimal separator, on a field that
-                          is a plain count. Same rule as the postal code and the identifiant CNAM above. */}
+                          is a plain count. Same rule as the postal code above. */}
                       <Input
                         id="smokingPerDay"
                         value={smokingPerDay}
@@ -2131,137 +2065,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
             {/* Medical Information Section */}
 
 
-            {/* CNAM Identity Section */}
-            <RecordSection
-              size="md"
-              icon={<CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
-              title="Identité CNAM"
-              summary={sectionSummary.cnam}
-              open={openSections.cnam}
-              onToggle={() => toggleSection("cnam")}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="cnamIdentifiant">Identifiant Unique</Label>
-                  {/* Digit keypad, but still a text field — see the postal-code note above: an identifiant is
-                      an identifier, and `type="number"` would let a scroll gesture change a CNAM number. */}
-                  <Input id="cnamIdentifiant" inputMode="numeric" value={cnam.identifiantUnique} onChange={(e) => setCnam({ ...cnam, identifiantUnique: e.target.value })} placeholder="Ex : 12345678" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnamRegime">Régime</Label>
-                  <Select value={cnam.regime || undefined} onValueChange={(v) => setCnam({ ...cnam, regime: v })}>
-                    <SelectTrigger id="cnamRegime" className="w-full"><SelectValue placeholder="Choisir…" /></SelectTrigger>
-                    {/* From `lib/cnam.ts`, not literals: the stored string is what the BS1 renderer matches to
-                        tick the box, so a retyped « Convention bilatérale » missing its accent prints an empty
-                        régime and raises nothing. The bulletin editor validates against the same list. */}
-                    <SelectContent>
-                      {CNAM_REGIMES.map((r) => (
-                        <SelectItem key={r} value={r}>
-                          {r}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnamMaladeLien">Lien du malade à l'assuré</Label>
-                  <Select value={cnam.maladeLien || undefined} onValueChange={(v) => setCnam({ ...cnam, maladeLien: v })}>
-                    <SelectTrigger id="cnamMaladeLien" className="w-full"><SelectValue placeholder="Choisir…" /></SelectTrigger>
-                    <SelectContent>
-                      {CNAM_LIENS.map((l) => (
-                        <SelectItem key={l} value={l}>
-                          {l}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnamRang">Rang enfant / Père-Mère (ascendant)</Label>
-                  <Input id="cnamRang" value={cnam.maladeLienRang} onChange={(e) => setCnam({ ...cnam, maladeLienRang: e.target.value })} placeholder="Ex : 1 — ou père/mère" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnamAssureFirst">Prénom de l'assuré</Label>
-                  <Input id="cnamAssureFirst" value={cnam.assureFirstName} onChange={(e) => setCnam({ ...cnam, assureFirstName: e.target.value })} placeholder="Si différent du patient" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnamAssureLast">Nom de l'assuré</Label>
-                  <Input id="cnamAssureLast" value={cnam.assureLastName} onChange={(e) => setCnam({ ...cnam, assureLastName: e.target.value })} placeholder="Si différent du patient" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnamAssureAddr">Adresse de l'assuré</Label>
-                  <Input id="cnamAssureAddr" value={cnam.assureAddress} onChange={(e) => setCnam({ ...cnam, assureAddress: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnamAssureCp">Code postal de l'assuré</Label>
-                  <Input id="cnamAssureCp" inputMode="numeric" value={cnam.assurePostalCode} onChange={(e) => setCnam({ ...cnam, assurePostalCode: e.target.value })} />
-                </div>
-
-                {/*
-                  L10 — the two inputs to the annual ceiling. They sit in the CNAM block and not with the insurance
-                  fields because they describe the *caisse's* cover, and « Remboursement indicatif » is computed
-                  from them.
-
-                  ⚠️ `md:col-span-2` on the wrapper: the barème preview under the count and the supplement list
-                  under the override are prose, and prose in a half-width column at 820 px wraps to five lines.
-                */}
-                <div className="space-y-4 md:col-span-2">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="cnamDependants">Ayants droit à charge</Label>
-                      {/* Digit keypad, text field — the same reason as the identifiant and the postal code above:
-                          `type="number"` lets a scroll gesture over the field change the value. */}
-                      <Input
-                        id="cnamDependants"
-                        inputMode="numeric"
-                        value={cnam.dependantCount}
-                        onChange={(e) => setCnam({ ...cnam, dependantCount: e.target.value })}
-                        placeholder="Ex : 2 — laisser vide si assuré seul"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Barème : {formatDT(cnamBaseCeiling(parseOptionalCount(cnam.dependantCount) ?? 0))} pour le
-                        foyer, + {formatDT(CNAM_DENTAL_ALLOWANCE)} dédiés aux soins dentaires externes ={" "}
-                        <span className="font-medium text-foreground">
-                          {formatDT(cnamDefaultCeiling(parseOptionalCount(cnam.dependantCount) ?? 0))}
-                        </span>
-                        .
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cnamCeiling">Plafond annuel (si connu)</Label>
-                      <Input
-                        id="cnamCeiling"
-                        inputMode="decimal"
-                        value={cnam.annualCeilingOverride}
-                        onChange={(e) => setCnam({ ...cnam, annualCeilingOverride: e.target.value })}
-                        placeholder="Laisser vide pour utiliser le barème"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Remplace le barème. À utiliser pour les suppléments, que le logiciel n'enregistre pas :{" "}
-                        {CNAM_PLAFOND_SUPPLEMENTS.map((s, i) => (
-                          <span key={s.label}>
-                            {i > 0 ? " · " : ""}
-                            {formatDT(s.amount)} {s.label}
-                          </span>
-                        ))}
-                        .
-                      </p>
-                    </div>
-                  </div>
-                  {/*
-                    § 13 and the L10 spec's own ⚠️: the figure must be labelled an estimate and must say WHY, or it
-                    becomes a confident wrong number. Two independent reasons, both stated — the barème is not
-                    officially confirmed, and this clinic can only count its own acts.
-                  */}
-                  <p className="rounded-md bg-warning-wash p-3 text-xs text-warning-ink" role="note">
-                    Le plafond et le « reste » affichés sur les documents sont <strong>indicatifs</strong> : le
-                    barème 2024 ci-dessus provient de sources concordantes mais non officielles, et ce cabinet ne
-                    voit que les actes qu'il a lui-même réalisés — un patient soigné ailleurs a consommé un plafond
-                    invisible ici. Le montant réellement remboursé est fixé par la CNAM.
-                  </p>
-                </div>
-              </div>
-            </RecordSection>
           </form>
         </DialogBody>
 

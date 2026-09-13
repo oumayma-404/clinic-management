@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { TimeInput } from "@/components/ui/time-field"
 import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -952,21 +953,19 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                           <Label htmlFor={`day-${day}-from`} className="sr-only">
                             {`Heure d'ouverture — ${weekdayLabelsFr[day] ?? day}`}
                           </Label>
-                          <Input
+                          <TimeInput
                             id={`day-${day}-from`}
-                            type="time"
                             value={workingHours[day].from}
-                            onChange={(e) => updateWorkingHours(day, "from", e.target.value)}
+                            onChange={(next) => updateWorkingHours(day, "from", next)}
                           />
                           <span className="text-muted-foreground text-sm">à</span>
                           <Label htmlFor={`day-${day}-to`} className="sr-only">
                             {`Heure de fermeture — ${weekdayLabelsFr[day] ?? day}`}
                           </Label>
-                          <Input
+                          <TimeInput
                             id={`day-${day}-to`}
-                            type="time"
                             value={workingHours[day].to}
-                            onChange={(e) => updateWorkingHours(day, "to", e.target.value)}
+                            onChange={(next) => updateWorkingHours(day, "to", next)}
                           />
                         </div>
                       )}

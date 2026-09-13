@@ -27,6 +27,10 @@ export default function NotFound() {
         <p className="text-sm text-muted-foreground">
           L&apos;adresse demandée est introuvable. Elle a peut-être changé, ou le lien est incomplet.
         </p>
+        {/* Fixe, jamais tiré au sort : cette page est un composant serveur, et un tirage daté y serait figé au build. */}
+        <p className="text-base font-semibold text-foreground sm:text-lg">
+          Cette page a été extraite 🦷 Sans anesthésie.
+        </p>
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
           <Button asChild className="coarse:h-11">
             <Link href="/">Tableau de bord</Link>

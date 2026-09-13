@@ -7,6 +7,7 @@ import Link from "next/link"
 import { PageHeader } from "@/components/ui/page-header"
 import { FilterChip, ListToolbar } from "@/components/ui/list-toolbar"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { InitialsAvatar, toneIndexFor } from "@/components/ui/initials-avatar"
@@ -255,6 +256,7 @@ export function PatientFilesDirectory() {
                   ? "Aucun patient n'a encore de fichier"
                   : "Aucun patient enregistré"
             }
+            joke={isFiltered ? undefined : <EmptyJoke surface="firstPatients" />}
             description={
               isFiltered
                 ? undefined

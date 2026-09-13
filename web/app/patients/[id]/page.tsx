@@ -2921,7 +2921,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                       size="compact"
                       chipClassName={zoneChipClass(ZONES.daily)}
                       title="Aucun document enregistré"
-                      description="Ordonnances, certificats et bulletins CNAM apparaîtront ici."
+                      description="Ordonnances, certificats et lettres de liaison apparaîtront ici."
                       action={documentTemplateActions}
                     />,
                   )
