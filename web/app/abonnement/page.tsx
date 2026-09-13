@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { CalendarClock, CreditCard, Lock, Mail, Phone, ShieldAlert, Wallet } from "lucide-react"
+import { CalendarClock, CreditCard, Lock, Mail, MessageCircle, Phone, ShieldAlert } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -20,19 +20,24 @@ import {
   subscriptionApi,
   type SubscriptionDto,
   type SubscriptionHistoryPageDto,
-  type SubscriptionPlanPriceDto,
 } from "@/lib/api/subscription"
 import { useSession } from "@/lib/auth/session"
 import { useSubscription } from "@/lib/subscription/subscription-context"
 import { getErrorMessage } from "@/lib/errors"
-import { formatCalendarDay, formatDT } from "@/lib/format"
+import { formatCalendarDay } from "@/lib/format"
+import { EXTERNAL_LINK_REL, whatsAppUrl } from "@/lib/whatsapp"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 
 /** Whether this deployment works by subscription at all — `unknown` until the probe answers. */
 type Availability = "unknown" | "available" | "unavailable"
 
 /**
- * « Abonnement » — where the cabinet stands and how to pay (`clinic-subscription` Part C, US-2).
+ * « Abonnement » — where the cabinet stands, what it has paid, and who to call (`clinic-subscription` Part C, US-2).
+ *
+ * <p><b>Three sections and no others</b>, on the owner's call: l'état, l'historique, nous contacter. « Tarif » and
+ * « Comment payer » were withdrawn — the tariff is negotiated before the cabinet ever opens this screen, and the
+ * bank details are given by the vendor over the channel the contact card names. The DTO still carries `plans` and
+ * `paymentInstructions`; nothing server-side changed, so putting either card back is a render, not a feature.</p>
  *
  * <p><b>Reachable by every role, including a secretary</b> (AC-2.2): she is usually the one who meets
  * « Votre abonnement a expiré … » on a save, and pointing that refusal at a screen she cannot open would be worse
@@ -149,19 +154,13 @@ export default function AbonnementPage() {
               two narrow ones (« do not stretch to two just because the width allows it »).
             */}
             <div className="grid gap-6 lg:grid-cols-2">
-              <div className="space-y-6">
-                <StateCard subscription={subscription} />
-                <TariffCard subscription={subscription} />
-              </div>
-              <div className="space-y-6">
-                <PaymentInstructionsCard subscription={subscription} />
-                <ContactCard subscription={subscription} />
-              </div>
+              <StateCard subscription={subscription} />
+              <ContactCard subscription={subscription} />
             </div>
 
-            <section className="space-y-3" aria-labelledby="historique-paiements">
-              <h2 id="historique-paiements" className="text-lg font-semibold text-foreground">
-                Historique des paiements
+            <section className="space-y-3" aria-labelledby="historique-abonnement">
+              <h2 id="historique-abonnement" className="text-lg font-semibold text-foreground">
+                Historique de l&apos;abonnement
               </h2>
               {sessionLoading ? (
                 <AppLoader className="py-6" />
@@ -180,20 +179,20 @@ export default function AbonnementPage() {
               ) : (
                 /*
                  * Rendered *instead of* the table, so its fetch never fires (AC-2.3). The state, the date and the
-                 * payment instructions above stay fully readable — this withholds one section, not the screen.
+                 * contact details above stay fully readable — this withholds one section, not the screen.
                  *
                  * ⚠️ An `EmptyState`, deliberately **not** `AccessDeniedCard`. That component is a whole-screen
                  * refusal: its root is `min-h-full items-center justify-center p-6`, whose centring resolves against
                  * `<main>` and therefore needs `width="none"` on the AppShell (which this page does not pass), and
                  * its only control is a `backHref` defaulting to « Retour à l'agenda » — navigating a secretary off
-                 * the page she was sent to by a refused save, away from the bank details she came for.
+                 * the page she was sent to by a refused save, away from the contact details she came for.
                  */
                 <EmptyState
                   icon={Lock}
                   size="compact"
                   chipClassName={zoneChipClass(ZONES.config)}
                   title="Historique réservé aux administrateurs"
-                  description="Le détail des paiements de l'abonnement — dates, montants, références — est réservé aux administrateurs du cabinet. L'état de l'abonnement et la marche à suivre pour payer restent visibles ci-dessus."
+                  description="Le détail des paiements de l'abonnement — dates, montants, références — est réservé aux administrateurs du cabinet. L'état de l'abonnement et nos coordonnées restent visibles ci-dessus."
                 />
               )}
             </section>
@@ -288,108 +287,18 @@ function StateCard({ subscription }: { subscription: SubscriptionDto }) {
   )
 }
 
-/** The published tariff. Every forfait is listed, including one with no figure — « sur devis » is a statement. */
-function TariffCard({ subscription }: { subscription: SubscriptionDto }) {
-  return (
-    <Card>
-      <CardHeader className="gap-2">
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden="true"
-            className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`}
-          >
-            <Wallet className="size-4" />
-          </span>
-          <CardTitle>Tarif</CardTitle>
-        </div>
-        <CardDescription>
-          {subscription.plans.length === 0
-            ? "Aucun tarif n'est publié sur cette installation."
-            : "Les tarifs ci-dessous sont ceux de cette installation. Tous les forfaits donnent accès à l'ensemble des fonctionnalités."}
-        </CardDescription>
-      </CardHeader>
-      {subscription.plans.length > 0 && (
-        <CardContent>
-          <ul className="space-y-2">
-            {subscription.plans.map((plan) => (
-              <TariffRow key={plan.plan} plan={plan} isCurrent={plan.plan === subscription.plan} />
-            ))}
-          </ul>
-        </CardContent>
-      )}
-    </Card>
-  )
-}
-
-function TariffRow({ plan, isCurrent }: { plan: SubscriptionPlanPriceDto; isCurrent: boolean }) {
-  return (
-    <li
-      className={`flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-lg border p-3 ${
-        isCurrent ? "border-primary/40 bg-primary/5" : "border-border"
-      }`}
-    >
-      <span className="flex flex-wrap items-center gap-2 font-medium text-foreground">
-        {plan.label}
-        {isCurrent && (
-          <Badge className={statusToneClass("accepted")} variant="secondary">
-            Votre forfait
-          </Badge>
-        )}
-      </span>
-      <span className="text-end text-sm tabular-nums text-muted-foreground">
-        {plan.priceMonthlyDt === null && plan.priceAnnualDt === null ? (
-          "Sur devis"
-        ) : (
-          <>
-            {plan.priceMonthlyDt !== null && <span className="text-foreground">{formatDT(plan.priceMonthlyDt)}/mois</span>}
-            {plan.priceAnnualDt !== null && (
-              <span className="block">{formatDT(plan.priceAnnualDt)}/an</span>
-            )}
-          </>
-        )}
-      </span>
-    </li>
-  )
-}
 
 /**
- * How to pay.
+ * « Contactez-nous ». Every channel is a real link, so a phone can message, dial and mail from the screen.
  *
- * <p><b>Never behind a disclosure</b>: this is the reason the screen exists, and a cabinet that cannot record work
- * is reading it precisely to find out what to do. `whitespace-pre-line` because the operator writes it as several
- * lines of bank details and losing the line breaks turns them into one unreadable run.</p>
+ * <p><b>WhatsApp leads</b> — it is the channel the vendor answers on, and it is built from the same
+ * `contactPhone` the « Appeler » row uses, through `whatsAppUrl`: the one place a `wa.me` URL is composed in
+ * this app, so a number the product cannot message renders no row rather than a link onto Meta's own error
+ * page. `null` is the honest answer for an unparseable number, which is why there is no fallback.</p>
  */
-function PaymentInstructionsCard({ subscription }: { subscription: SubscriptionDto }) {
-  return (
-    <Card>
-      <CardHeader className="gap-2">
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden="true"
-            className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`}
-          >
-            <CreditCard className="size-4" />
-          </span>
-          <CardTitle>Comment payer</CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {subscription.paymentInstructions ? (
-          <p className="whitespace-pre-line text-sm text-foreground">{subscription.paymentInstructions}</p>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Les modalités de paiement ne sont pas publiées sur cette installation. Contactez-nous et nous vous les
-            communiquerons.
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-/** Who to contact. Both channels are real links, so a phone can dial and mail from the screen. */
 function ContactCard({ subscription }: { subscription: SubscriptionDto }) {
-  const hasContact = Boolean(subscription.contactEmail || subscription.contactPhone)
+  const whatsapp = whatsAppUrl(subscription.contactPhone)
+  const hasContact = Boolean(whatsapp || subscription.contactEmail || subscription.contactPhone)
 
   return (
     <Card>
@@ -399,22 +308,28 @@ function ContactCard({ subscription }: { subscription: SubscriptionDto }) {
             aria-hidden="true"
             className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`}
           >
-            <Mail className="size-4" />
+            <MessageCircle className="size-4" />
           </span>
-          <CardTitle>Nous contacter</CardTitle>
+          <CardTitle>Contactez-nous</CardTitle>
         </div>
+        <CardDescription>
+          Pour votre abonnement, un paiement ou une question sur le logiciel.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {hasContact ? (
           <ul className="space-y-2 text-sm">
-            {subscription.contactEmail && (
+            {whatsapp && (
               <li>
                 <a
-                  href={`mailto:${subscription.contactEmail}`}
-                  className="inline-flex items-center gap-2 text-primary underline underline-offset-2 coarse:min-h-11 hover-hover:hover:no-underline"
+                  href={whatsapp}
+                  target="_blank"
+                  rel={EXTERNAL_LINK_REL}
+                  className="inline-flex items-center gap-2 text-success underline underline-offset-2 coarse:min-h-11 hover-hover:hover:no-underline"
                 >
-                  <Mail className="size-4 shrink-0" aria-hidden="true" />
-                  <span className="[overflow-wrap:anywhere]">{subscription.contactEmail}</span>
+                  <MessageCircle className="size-4 shrink-0" aria-hidden="true" />
+                  {/* Just « WhatsApp » — the number is the row directly below, and printing it twice reads as two numbers. */}
+                  <span>WhatsApp</span>
                 </a>
               </li>
             )}
@@ -429,10 +344,21 @@ function ContactCard({ subscription }: { subscription: SubscriptionDto }) {
                 </a>
               </li>
             )}
+            {subscription.contactEmail && (
+              <li>
+                <a
+                  href={`mailto:${subscription.contactEmail}`}
+                  className="inline-flex items-center gap-2 text-primary underline underline-offset-2 coarse:min-h-11 hover-hover:hover:no-underline"
+                >
+                  <Mail className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="[overflow-wrap:anywhere]">{subscription.contactEmail}</span>
+                </a>
+              </li>
+            )}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Aucune coordonnée n'est publiée sur cette installation.
+            Aucune coordonnée n&apos;est publiée sur cette installation.
           </p>
         )}
       </CardContent>
