@@ -40,7 +40,9 @@ android {
 
         // ⚠️ Must increase on every upload Play accepts, and it can never go back down for this `applicationId`.
         // 1 and 2 were pre-store builds that never left this machine; 3 is the first that may.
-        versionCode = 3
+        // 4 is 3 rebuilt with app.apexa.tn as the starting address — same code, so a new number is the only
+        // thing that lets the server and a phone tell the two binaries apart.
+        versionCode = 4
 
         // The single source of the shell's version. `BuildConfig.VERSION_NAME` is what reaches
         // `window.__clinicShell.version` and therefore `X-Client-Version`, so the build and the bridge cannot
@@ -50,7 +52,7 @@ android {
         // ⚠️ A change to the bridge's method set edits `mobile/shared/bridge.md` **and** bumps this — one without
         // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
         // (Part 7); its version history is the table at the foot of that file.
-        versionName = "1.1.0"
+        versionName = "1.1.1"
 
         // The address a fresh install starts on, so a phone that downloads this build from the product's own
         // download page connects with nothing typed — the friction the iOS route does not have, because there the
@@ -58,17 +60,17 @@ android {
         //
         // ⚠️ **A starting value, not a compiled-in server.** `ServerConfigStore` consults it only when nothing is
         // stored, « Serveur → Changer de serveur… » still reaches every address, and a chosen address is persisted
-        // and wins for ever after. Empty — the default, and what `gradle.properties` leaves it as — reproduces the
-        // original behaviour exactly: the address screen on first launch. So the invariant the shell is built on
-        // still holds, and it is worth restating precisely because this line looks like it breaks it: *one build
+        // and wins for ever after. Empty reproduces the behaviour that predates it exactly: the address screen on
+        // first launch — a LAN clinic reaches it through « Changer de serveur… ». So the invariant the shell is
+        // built on still holds, and it is worth restating because this line looks like it breaks it: *one build
         // still serves a clinic's own PC on a LAN and a hosted backend on the internet.* What is new is only that
         // a build published for one of them may be **aimed** at it.
         //
-        // Set it per build rather than committing a value: an address in `gradle.properties` is an address that
-        // rots in the repository, and the deployment a given APK is published for is a property of the publish,
-        // not of the source. See `mobile/README.md` § « Building the APK for the download page ».
-        //
-        //   ./gradlew assembleRelease -PclinicServerAddress=clinic.example.com
+        // ⚠️ **`gradle.properties` commits `app.apexa.tn`, reversing the « set it per build » rule that stood
+        // here** — an APK built without the flag shipped with NO address, which asks a hosted clinic for a
+        // hostname only we know. It is the desktop shell's `ServerConfig.HostedHost` and the two move together:
+        // changing either is a client RELEASE, since installed clients keep the address they already stored.
+        // Override per build with `-PclinicServerAddress=…`; empty restores the first-launch address screen.
         buildConfigField(
             "String",
             "DEFAULT_SERVER_ADDRESS",
