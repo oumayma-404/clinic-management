@@ -28,6 +28,7 @@ import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, Mor
 */
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyJoke } from "@/components/ui/empty-joke"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
   DropdownMenu,
@@ -167,6 +168,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
         icon={Stethoscope}
         size={size}
         title="Aucun type d'acte défini"
+        joke={<EmptyJoke surface="firstProcedures" />}
         description={
           isAdmin
             ? "Les actes de ce catalogue donnent à l'agenda sa couleur et sa durée, et préremplissent les devis et les fiches de soins. « Charger les actes courants » installe les actes tunisiens usuels en une fois."
