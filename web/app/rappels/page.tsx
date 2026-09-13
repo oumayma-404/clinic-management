@@ -30,12 +30,11 @@ export default function RappelsPage() {
           <Card className="w-full max-w-md">
             <CardHeader className="space-y-3 text-center">
               <p aria-hidden="true" className="text-6xl leading-none">
-                🎭
+                ⏳
               </p>
               <CardTitle>Bientôt disponible</CardTitle>
               <CardDescription>
-                Les rappels par SMS et WhatsApp arrivent — le temps de raccorder les opérateurs. Restez à
-                l&apos;écoute&nbsp;!
+                Rincez, crachez… et revenez plus tard. Les rappels SMS et WhatsApp ne sont pas encore branchés.
               </CardDescription>
             </CardHeader>
             <CardContent>
