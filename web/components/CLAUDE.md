@@ -205,6 +205,19 @@ Add new primitives with the shadcn CLI (`web/components.json`, base color neutra
 ⚠️ **`popover.tsx` caps its height on `--radix-popover-content-available-height`**, the room Radix actually measures between the anchor and the collision boundary — as `select.tsx` and `dropdown-menu.tsx` always have, and as this file did not, for **77 call sites**. Three of them had each hand-written the same wrong guess: `max-h-[70dvh]` measures the *viewport*, not the space above the anchor, and tailwind-merge lets a caller's value win over the base — so the override did not duplicate the cap, it **disabled** it. `check:responsive`'s `popover-height-is-radix-measured` fails on a fourth. `relative` came with it: the content is now a scroll container, and a static one does not clip its own `absolute` children.
 
 Non-shadcn additions to the same layer:
+- **`time-field.tsx`** — the product's one time control, a **masked 24-hour text input**, exported as
+  `TimeInput` (a `"HH:mm"` string, `allowEmpty` for an optional « pause ») and `TimeField` (the `HH`/`mm` pair
+  the booking dialogs' validation and duration arithmetic are written against). ⚠️ **Not `<input type="time">`,
+  and the reason is not style**: that control renders in the **browser's UI locale**, which no attribute
+  overrides — measured in Chrome, `lang="en-US"`, `lang="fr"` and `lang="ar-TN"` inputs rendered identically,
+  all following the browser — so on an English-locale Chrome every time in this product was picked and read as
+  « 02:30 PM ». ⚠️ **A call site must never pass `min-w-0`**: the native control had a ~105 px intrinsic width
+  that made a too-narrow row *wrap*, a text input has none, and the `min-w-[4.5rem]` declared here is the same
+  tailwind-merge group — so the caller wins and the floor is gone, which collapsed `/settings`' « Pause » fields
+  to 26 px at 320 px. Put `min-w-0` on the wrapper and let the row `flex-wrap`; `check:responsive`'s
+  `time-input-keeps-its-width-floor` fails on the other shape. Typing is the point (`0930` off the numpad,
+  `inputMode="numeric"` for the phone keypad, ↑/↓ stepping five minutes); the native clock popup is the one
+  thing traded for a locale that cannot lie.
 - **`phone-field.tsx`** — a phone number and the country it belongs to, as **one row**: a compact
   `flag + indicatif` trigger over a searchable ~245-country `Popover`+`Command`, then the number. Used by the
   four surfaces where a number reaches a human (patient, emergency contact, the booking dialog's inline new

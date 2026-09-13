@@ -4,6 +4,8 @@ import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
 import { Input } from "@/components/ui/input"
+import { TimeInput } from "@/components/ui/time-field"
+import { todayLocalIso } from "@/lib/format"
 import { Label } from "@/components/ui/label"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
@@ -381,12 +383,31 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
               <Label htmlFor="startDateTime">
                 Date et heure de début <span className="text-destructive">*</span>
               </Label>
-              <Input
-                id="startDateTime"
-                type="datetime-local"
-                value={startDateTime}
-                onChange={(e) => setStartDateTime(e.target.value)}
-              />
+              {/* Two fields rather than one `datetime-local`: that control renders its time half in the
+                  BROWSER's locale, so on an English Chrome it asked for the hour in AM/PM. */}
+              <div className="flex items-center gap-2">
+                <Input
+                  id="startDateTime"
+                  type="date"
+                  value={startDateTime.slice(0, 10)}
+                  onChange={(e) =>
+                    setStartDateTime(e.target.value ? `${e.target.value}T${startDateTime.slice(11) || "09:00"}` : "")
+                  }
+                  className="min-w-0 flex-1"
+                />
+                <Label htmlFor="startTime" className="sr-only">
+                  Heure de début
+                </Label>
+                <TimeInput
+                  id="startTime"
+                  value={startDateTime.slice(11)}
+                  allowEmpty
+                  onChange={(next) =>
+                    setStartDateTime(`${startDateTime.slice(0, 10) || todayLocalIso()}T${next || "09:00"}`)
+                  }
+                  className="h-9 basis-24"
+                />
+              </div>
               {errors.startDateTime && <p className="text-xs text-destructive">{errors.startDateTime}</p>}
             </div>
 

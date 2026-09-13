@@ -7,6 +7,7 @@ import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { TimeInput } from "@/components/ui/time-field"
 import { Label } from "@/components/ui/label"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Clock, Save, Trash2 } from "lucide-react"
@@ -169,44 +170,37 @@ export function DoctorWorkingHoursCard({
                         and it can never trigger the row's `flex-wrap`; a real basis is what lets the wrap fire,
                         and `sm:basis-0` puts it back on the day's line above the hinge.
                       • `min-w-0` on THIS box — a flex item's automatic minimum size is its content, and the
-                        content here is two `type="time"` fields with a ~106 px native intrinsic width each, so
-                        the wrapper was clamped UP to 234 px inside a 208 px card and painted straight out of it.
-                      • `min-w-0 flex-1 basis-28` on each field, so once the box can shrink the two of them
-                        share what is left — and, at 320 px where 91 px each would clip « 09:00 » down to
-                        « 09:( », the 7rem basis makes the second field wrap onto its own full-width line
-                        instead. A time you cannot read is not a narrower control, it is a broken one.
+                        content here is two time fields, which as native `type="time"` controls had a ~106 px
+                        intrinsic width each: the wrapper was clamped UP to 234 px inside a 208 px card and
+                        painted straight out of it. `TimeInput` is a text field and has no such floor, but the
+                        class stays — it is what stops any future content from re-imposing one.
+                      • `flex-1 basis-24` on each field, so once the box can shrink the two of them share
+                        what is left, and the 6rem basis makes the second wrap onto its own line rather than
+                        clip « 09:00 » to « 09:( ». Never `min-w-0` HERE: it is the same tailwind-merge group
+                        as `TimeInput`'s own `min-w-[4.5rem]` floor, so it would delete the floor that
+                        replaces the width the native `type="time"` control used to give for free.
                       (Same family of trap as `subscription-banner.tsx` and `ui/list-toolbar.tsx`.) */}
                   <div className="flex min-w-0 flex-1 basis-52 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap sm:basis-0">
                     <Label htmlFor={fromId} className="sr-only">
                       {`Heure d'ouverture — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={fromId}
-                      type="time"
                       value={day.from}
-                      onChange={(e) => updateDay(weekday, { from: e.target.value })}
+                      onChange={(next) => updateDay(weekday, { from: next })}
                       disabled={saving || !day.enabled}
-                      // `min-w-0 flex-1`: a `type="time"` field will not go below its native intrinsic width
-                      // (~105 px) on its own, so even on its own wrapped line the pair measured 234 px against
-                      // the 182 px this card gives it at 320 px. Sharing the row explicitly is what makes both
-                      // fields fit; they are wide enough for « 09:00 » and the picker glyph at that size.
-                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
+                      className="h-7 flex-1 basis-24 md:text-xs"
                     />
                     <span className="text-xs text-muted-foreground">à</span>
                     <Label htmlFor={toId} className="sr-only">
                       {`Heure de fermeture — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={toId}
-                      type="time"
                       value={day.to}
-                      onChange={(e) => updateDay(weekday, { to: e.target.value })}
+                      onChange={(next) => updateDay(weekday, { to: next })}
                       disabled={saving || !day.enabled}
-                      // `min-w-0 flex-1`: a `type="time"` field will not go below its native intrinsic width
-                      // (~105 px) on its own, so even on its own wrapped line the pair measured 234 px against
-                      // the 182 px this card gives it at 320 px. Sharing the row explicitly is what makes both
-                      // fields fit; they are wide enough for « 09:00 » and the picker glyph at that size.
-                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
+                      className="h-7 flex-1 basis-24 md:text-xs"
                     />
                   </div>
                   {/* The mid-day closure, mirroring the clinic-wide editor. Empty means « pas de pause ». */}
@@ -215,25 +209,25 @@ export function DoctorWorkingHoursCard({
                     <Label htmlFor={breakFromId} className="sr-only">
                       {`Début de la pause — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={breakFromId}
-                      type="time"
                       value={day.breakFrom ?? ""}
-                      onChange={(e) => updateDay(weekday, { breakFrom: e.target.value || null })}
+                      onChange={(next) => updateDay(weekday, { breakFrom: next || null })}
+                      allowEmpty
                       disabled={saving || !day.enabled}
-                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
+                      className="h-7 flex-1 basis-24 md:text-xs"
                     />
                     <span className="text-xs text-muted-foreground">à</span>
                     <Label htmlFor={breakToId} className="sr-only">
                       {`Fin de la pause — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={breakToId}
-                      type="time"
                       value={day.breakTo ?? ""}
-                      onChange={(e) => updateDay(weekday, { breakTo: e.target.value || null })}
+                      onChange={(next) => updateDay(weekday, { breakTo: next || null })}
+                      allowEmpty
                       disabled={saving || !day.enabled}
-                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
+                      className="h-7 flex-1 basis-24 md:text-xs"
                     />
                   </div>
                 </div>

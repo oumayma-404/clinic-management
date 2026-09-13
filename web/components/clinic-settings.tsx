@@ -10,6 +10,7 @@ import { AppLoader } from "@/components/ui/app-loader"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { TimeInput } from "@/components/ui/time-field"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -1273,57 +1274,55 @@ export default function ClinicSettings() {
                     </Label>
                   </div>
                   {/* Full width on its own wrapped line below `sm:`, sharing the row above it. */}
-                  <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-1">
+                  <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 sm:w-auto sm:flex-1 sm:flex-nowrap">
                     <Label htmlFor={`clinic-hours-${item.day}-from`} className="sr-only">
                       {`Heure d'ouverture — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={`clinic-hours-${item.day}-from`}
-                      type="time"
                       value={item.from}
-                      onChange={(e) => updateWorkingHours(item.day, "from", e.target.value)}
+                      onChange={(next) => updateWorkingHours(item.day, "from", next)}
                       disabled={!isEditingHours || !item.enabled}
-                      className={`h-7 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
+                      className={`h-7 flex-1 basis-24 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
                     />
                     <span className="text-xs text-muted-foreground">à</span>
                     <Label htmlFor={`clinic-hours-${item.day}-to`} className="sr-only">
                       {`Heure de fermeture — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={`clinic-hours-${item.day}-to`}
-                      type="time"
                       value={item.to}
-                      onChange={(e) => updateWorkingHours(item.day, "to", e.target.value)}
+                      onChange={(next) => updateWorkingHours(item.day, "to", next)}
                       disabled={!isEditingHours || !item.enabled}
-                      className={`h-7 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
+                      className={`h-7 flex-1 basis-24 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
                     />
                   </div>
                   {/* The mid-day closure. Optional and empty by default, so a cabinet that does not close at
                       lunch sees no change; leaving both blank is « pas de pause ». */}
-                  <div className="flex w-full items-center gap-2 sm:basis-full">
+                  <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 sm:basis-full">
                     <span className="w-32 shrink-0 text-xs text-muted-foreground">Pause (facultative)</span>
                     <Label htmlFor={`clinic-hours-${item.day}-break-from`} className="sr-only">
                       {`Début de la pause — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={`clinic-hours-${item.day}-break-from`}
-                      type="time"
                       value={item.breakFrom ?? ""}
-                      onChange={(e) => updateWorkingHours(item.day, "breakFrom", e.target.value)}
+                      onChange={(next) => updateWorkingHours(item.day, "breakFrom", next)}
+                      allowEmpty
                       disabled={!isEditingHours || !item.enabled}
-                      className={`h-7 min-w-0 flex-1 basis-28 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
+                      className={`h-7 flex-1 basis-24 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
                     />
                     <span className="text-xs text-muted-foreground">à</span>
                     <Label htmlFor={`clinic-hours-${item.day}-break-to`} className="sr-only">
                       {`Fin de la pause — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
                     </Label>
-                    <Input
+                    <TimeInput
                       id={`clinic-hours-${item.day}-break-to`}
-                      type="time"
                       value={item.breakTo ?? ""}
-                      onChange={(e) => updateWorkingHours(item.day, "breakTo", e.target.value)}
+                      onChange={(next) => updateWorkingHours(item.day, "breakTo", next)}
+                      allowEmpty
                       disabled={!isEditingHours || !item.enabled}
-                      className={`h-7 min-w-0 flex-1 basis-28 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
+                      className={`h-7 flex-1 basis-24 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
                     />
                   </div>
                 </div>

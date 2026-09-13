@@ -160,6 +160,7 @@ how it was built, `notes.md` is what shipped.
 
 **The clinical loop**
 
+- [`time-24h-clock`](features/time-24h-clock/notes.md) — L'heure se saisit et se lit sur 24 heures, partout — et `lang="fr"` n'y était pour rien
 - [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`unfinished-act-continuation`](features/unfinished-act-continuation/notes.md) — Un acte peut être noté « non terminé », et ce qui reste apparaît quelque part · « Suites à planifier » n'est PAS une quatrième question de la clôture
@@ -264,6 +265,18 @@ touching the area.
   `LastTickOfLocalDayUtc`, or a midnight payment lands in two adjacent periods.
 - **On the client, `todayLocalIso()`** (`web/lib/format.ts`), never `new Date().toISOString().slice(0, 10)`:
   for the first hour of every Tunisian day the latter pre-fills *yesterday*, and on the 1st, last month.
+- **`<input type="time">` renders in the BROWSER's UI locale, and `lang` does not touch it.** Measured in
+  Chrome 2026-09-13: inputs carrying `lang="en-US"`, `lang="fr"`, `lang="ar-TN"` and none at all under
+  `<html lang="fr">` all rendered identically, every one following the browser. So on an English-locale Chrome —
+  the ordinary case on a Windows PC — all 11 time inputs asked for and displayed « 02:30 PM » in a product whose
+  prose, PDFs, SMS reminders and agenda all say « 14:30 ». `ui/time-field.tsx` is a **masked 24-hour text input**
+  for that reason, and its own docstring had asserted the opposite for as long as it existed. ⚠️ Its trap is what
+  the native control gave for free: a ~105 px intrinsic width no flex context could shrink past, so a row too
+  narrow for two of them **wrapped**. A text input has none — the component declares `min-w-[4.5rem]` and a call
+  site passing `min-w-0` deletes it (same tailwind-merge group, `ui/popover.tsx`'s trap one primitive over),
+  which collapsed `/settings`' two « Pause » fields to **26 px at 320 px** with tsc, `check:responsive` and the
+  build all green. `check:responsive`'s `time-input-keeps-its-width-floor` holds it. See
+  [`features/time-24h-clock/notes.md`](features/time-24h-clock/notes.md).
 - **An update DTO is tri-state.** Omitting a key means "unchanged"; `[]` or an explicit null means "clear".
   Conflating them deletes data — `{ status }` alone on an appointment would drop every act of the séance.
 - **A field of a recorded ACT is kept alive only by the fiche's editor, and forgetting either half rewrites the
