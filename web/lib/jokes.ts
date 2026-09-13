@@ -74,7 +74,7 @@ export const EMPTY_JOKES: Record<JokeSurface, readonly string[]> = {
 
   unfinishedActs: [
     "Rien ne reste en plan 🎯",
-    "Personne n'est laissé le bec dans l'eau 🦆",
+    "Personne ne reste le bec dans l'eau 🦆",
     "Pas un acte à moitié fait 🏁",
     "Tout est allé jusqu'au bout 💪",
     "Aucune suite à donner 😌 Le carnet est clair.",
