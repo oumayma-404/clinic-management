@@ -154,7 +154,6 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/rappels", "ops"],
   ["/procedure-types", "config"],
   ["/medications", "config"],
-  ["/dental-acts", "config"],
   ["/users", "config"],
   ["/settings", "config"],
   ["/journal", "config"],

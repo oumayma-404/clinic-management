@@ -1074,18 +1074,16 @@ export default function ClinicSettings() {
                             className="h-7 md:text-sm"
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label htmlFor={`${fieldId}-cnam`} className="text-xs">
-                            Code prof. santé (CNAM)
-                          </Label>
-                          <Input
-                            id={`${fieldId}-cnam`}
-                            value={doctor.codeProfessionnelSante || ""}
-                            onChange={(e) => updateDoctor(doctor.id, "codeProfessionnelSante", e.target.value)}
-                            disabled={!isEditingDoctors}
-                            className="h-7 md:text-sm"
-                          />
-                        </div>
+                        {/*
+                          ⚠️ « Code prof. santé (CNAM) » stood here and went with the CNAM interface
+                          (`features/cnam-ui-withdrawal/notes.md`). Its only readers in the browser were the BS1
+                          and the P 061 — both withdrawn — so the input had nothing left to feed.
+
+                          ⚠️ **`codeProfessionnelSante` is still hydrated into `doctor` and still sent**, which
+                          is what preserves a code already on file: the roster rewrite posts the whole doctor,
+                          and dropping the field from state would blank the column on the next ordinary save of
+                          the Médecins list. Removing the control is not the same as clearing the value.
+                        */}
                         {/* AC-P2.30 — the CNOMDT number and cachet « Mon profil » already told the admin they
                             could set from here. Read-only in the roster because they belong to
                             `PUT /api/doctors/{id}`, not to the roster rewrite; « Modifier » opens that. */}
@@ -1149,7 +1147,8 @@ export default function ClinicSettings() {
                       sizes summed past the container, free space went negative, and the `flex-1 min-w-0`
                       field grid (flex-basis 0, with its automatic min-content floor removed by `min-w-0`)
                       had nothing to grow into. Every doctor field — nom, spécialité, téléphone, email, code
-                      CNAM, identité documentaire — collapsed to 0px, at every viewport, for every admin.
+                      CNAM (since withdrawn), identité documentaire — collapsed to 0px, at every viewport, for
+                      every admin.
                       As a block-level sibling it is full width by construction, so `w-full` is gone too.
                     */}
                     {isClinicAdmin && !isEditingDoctors && doctor.id && !doctor.id.startsWith("doctor-") && (

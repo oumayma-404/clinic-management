@@ -17,7 +17,7 @@ import { pdfSourceUrl } from "@/lib/pdf-sources"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { MedicalDocumentDto } from "@/lib/api/types"
 import { downloadBlob } from "@/lib/download"
-import { documentTypeLabel, isExamenLine, type PrescriptionLine } from "@/lib/documents"
+import { documentTypeLabel, isExamenLine, isWithdrawnDocumentType, type PrescriptionLine } from "@/lib/documents"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatDate } from "@/lib/format"
 
@@ -297,7 +297,16 @@ export function DocumentPreviewDialog({
                   <Download className="me-2 h-4 w-4" aria-hidden="true" />
                   Télécharger
                 </Button>
-                {document?.dentalRecordId && onEditInFiche ? (
+                {/*
+                  ⚠️ **No « Modifier » for a withdrawn type**, and the omission is load-bearing rather than tidy.
+                  Both official CNAM forms lost their editor with the rest of the CNAM interface
+                  (`features/cnam-ui-withdrawal/notes.md`), so this button used to push `/documents/{type}?id=…`
+                  at a route that would mount the GENERIC editor over a legal form. The route refuses them too —
+                  two gates, because this one keeps a dead-end button off the screen and that one is the guard.
+                  Imprimer and Télécharger stay: they frame the server's PDF, which still renders the real form.
+                */}
+                {document && isWithdrawnDocumentType(document.documentType) ? null : document?.dentalRecordId &&
+                  onEditInFiche ? (
                   <Button
                     type="button"
                     onClick={() => onEditInFiche(document.dentalRecordId!)}

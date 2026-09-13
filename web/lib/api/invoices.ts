@@ -7,7 +7,10 @@ export interface InvoiceLineInput {
   quantity: number;
   unitPriceHt: number;
   dentalRecordId?: string | null;
-  /** Optional catalog CNAM/DCH act this line bills (drives the reimbursable split); omit for free text. */
+  /**
+   * The catalog act this line bills (drives the server's reimbursable split); omit for free text. ⚠️ Nothing
+   * attaches one any more, but the form must keep round-tripping it — see `InvoiceLineDto`.
+   */
   dentalActCodeId?: string | null;
   codeActe?: string | null;
 }

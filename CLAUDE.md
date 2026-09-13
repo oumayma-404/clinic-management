@@ -2,7 +2,8 @@
 
 Full-stack **dental/medical clinic management** system (Tunisia-targeted: French UI labels, Tunisian
 governorates). Multi-tenant by clinic, with patient records, appointments + Google Calendar sync,
-medical/dental documents, file storage, billing and CNAM.
+medical/dental documents, file storage and billing. ⚠️ CNAM is built and served on the API and reachable
+from **no screen** — see [`features/cnam-ui-withdrawal/notes.md`](features/cnam-ui-withdrawal/notes.md).
 
 > **Read this first.** This file is the **map**: where things live, how to run it, and where the reasoning is
 > written down. Each major folder has its own `CLAUDE.md`; cross-cutting design lives in
@@ -169,6 +170,10 @@ how it was built, `notes.md` is what shipped.
 - [`booking-treatment-suggestions`](features/booking-treatment-suggestions/notes.md) — Le rappel ne nommait qu'un traitement, et se taisait pour 47 patients sur 318
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
+- [`cnam-ui-withdrawal`](features/cnam-ui-withdrawal/notes.md) — La CNAM n'a plus d'interface, et tout le
+  serveur est intact · **six choses ont délibérément survécu** (les deux entrées `DOCUMENT_TEMPLATES`, la clé
+  realtime `DentalActs`, l'aller-retour `dentalActCodeId`, `cnamInfo` omis et non vidé, un contrat de test
+  skippé par attribut, un refus de route) · la conséquence qu'un `revert` ne défera pas
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
 - [`dicom-interactive-viewer`](features/dicom-interactive-viewer/notes.md) — A radiograph you can read, not just look at: window/level, zoom, frame scrolling and a ruler that refuses to invent millimetres

@@ -442,10 +442,6 @@ const CARD_FALLBACK_EXEMPT = new Map([
       "exactly the defect this check exists for, so it carries a real CardList",
   ],
   [
-    "components/cnam-letter-values-card.tsx",
-    "a form in a table: the value cell is an editable <Input> with a per-row save, not a value to read",
-  ],
-  [
     "components/factures/invoice-detail-modal.tsx",
     "4 read-only line columns inside a dialog that already fits — nothing to escape from",
   ],
@@ -972,7 +968,7 @@ check(
     // (`version: 0`, the documented "not supplied") is not a round-trip and is not in scope.
     const SENDS = /version:\s*[A-Za-z_$][\w$]*\s*\??\./;
     // ⚠️ `Api.get*` / `Api.list*`, not only the bare two. A per-row action legitimately re-reads through a
-    // named read (`cnamNomenclatureApi.listLetterValues()`, `usersApi.listPaged()`) and that is exactly the
+    // named read (`usersApi.listPaged()`, `suppliersApi.list()`) and that is exactly the
     // shape this check asks for — a stricter pattern rejected the honest fix, and the answer to that would
     // have been a per-file exemption, which is how a check stops working.
     const READS = /(?:useFreshVersion|Api\.(?:get|list)[A-Za-z]*\()/;

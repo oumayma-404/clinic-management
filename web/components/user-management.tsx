@@ -879,8 +879,8 @@ export function UserManagement() {
             {createRole === "doctor" && (
               <div className="space-y-4 rounded-lg border bg-muted/40 p-3">
                 <p className="text-xs text-muted-foreground">
-                  Ces informations créent la fiche praticien : elles apparaissent sur les ordonnances, les
-                  certificats et les bulletins CNAM.
+                  Ces informations créent la fiche praticien : elles apparaissent sur les ordonnances et les
+                  certificats.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">

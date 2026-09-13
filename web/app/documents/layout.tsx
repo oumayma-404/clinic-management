@@ -7,7 +7,7 @@ import type { Metadata } from "next"
  */
 export const metadata: Metadata = {
   title: "Documents",
-  description: "Ordonnances, certificats, lettres et bulletins CNAM.",
+  description: "Ordonnances, certificats, lettres de liaison et notes d'honoraires.",
 }
 
 export default function DocumentsLayout({ children }: { children: React.ReactNode }) {

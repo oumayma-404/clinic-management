@@ -7,7 +7,7 @@
 
 ## 1. What the product is
 
-A full-stack **dental / medical practice management system** built for the Tunisian market: French UI throughout, Tunisian governorates, CNAM (national health insurance) forms and reimbursement rules, TND money handling, post-dated cheques, WhatsApp as a first-class patient channel.
+A full-stack **dental / medical practice management system** built for the Tunisian market: French UI throughout, Tunisian governorates, TND money handling, post-dated cheques, WhatsApp as a first-class patient channel.
 
 It is **multi-tenant by clinic** and ships in **two deployment topologies from one codebase** — a clinic's own Windows PC on an offline LAN, and a hosted multi-tenant SaaS. Native shells (Windows desktop, Android, iOS) render the server's own web bundle.
 
@@ -21,10 +21,10 @@ It is **multi-tenant by clinic** and ships in **two deployment topologies from o
 |---|--------|----------|
 | 1 | **Agenda & scheduling** | Day/week/month calendar, drag-to-move, multi-act visits, recurring series, waiting list, Google Calendar two-way sync |
 | 2 | **Patient records** | Full clinical file: odontogram, fiches de soins, antécédents, documents, file storage, flags, alerts |
-| 3 | **Clinical documents** | 6 document types incl. **CNAM BS1** and **arrêt de travail P061** stamped onto the real official forms; PDF + Word + email delivery |
+| 3 | **Clinical documents** | 5 document types — ordonnance, demande d'examens, certificat médical, lettre de liaison, note d'honoraires; PDF + Word + email delivery |
 | 4 | **Billing & cash** | Notes d'honoraires, avoirs, la caisse with a full statement, cheque register, receivables, per-patient balance |
 | 5 | **Treatment plans (devis)** | Ordered act plans, acceptance, amendment, instalment schedules, devis→facture bridge |
-| 6 | **CNAM** | Nomenclature catalog, reimbursement estimates, annual ceiling tracking per patient |
+| 6 | **CNAM** | ⚠️ **Server-side only — no screen reaches it.** The act catalogue, reimbursement estimates, annual ceiling and both official-form renderers are built and served; the whole interface was withdrawn (`features/cnam-ui-withdrawal/notes.md`) |
 | 7 | **Stock & suppliers** | Batches with expiry, movements, per-act material lists with auto-consumption, supplier directory with WhatsApp |
 | 8 | **Lab orders** | Bons de prothèse with a 4-stage lifecycle, linked to the prosthetist's supplier record |
 | 9 | **Patient communication** | SMS + WhatsApp reminders (multi-tier, quiet hours), recall/relance, in-app feed, OS push notifications |
@@ -70,8 +70,8 @@ Six document types, produced as **PDF server-side**, with a live editor and prev
 | **Lettre de liaison** | Structured norms; Word export |
 | **Certificat médical** | Word export |
 | **Note d'honoraires** | Linked to the billing subsystem |
-| **Bulletin de soins CNAM (BS1)** | Rendered as an **overlay on the genuine CNAM form**; live reimbursement estimate per act row |
-| **Certificat d'arrêt de travail** | Overlay on the genuine **CNAM P 061** form; the motif is deliberately never printed |
+| **Bulletin de soins CNAM (BS1)** | ⚠️ **No editor.** The overlay renderer on the genuine CNAM form is still on the server and a saved one still prints; the form was withdrawn from the browser |
+| **Certificat d'arrêt de travail** | ⚠️ **No editor**, same as the BS1 — the **CNAM P 061** overlay is still rendered server-side, and the motif is still deliberately never printed |
 
 - **Practitioner identity** (cachet, n° d'ordre CNOMDT) is snapshotted into the document, resolved from the *chosen* practitioner — so a document authored by reception still carries the right dentist.
 - **Email delivery** of documents, with a queued outbox and delivery status.
@@ -98,9 +98,13 @@ Six document types, produced as **PDF server-side**, with a live editor and prev
 - A **plan workspace**: timeline, progress bar, per-act state derived from the appointments pointing at it, the invoice that bills it, and « Planifier ensemble / séparément » to book acts into one visit or several.
 - Devis PDF.
 
-### 3.6 CNAM
+### 3.6 CNAM — built, served, and reachable from no screen
 
-- **Nomenclature catalog** and letter values, per clinic and editable.
+⚠️ Everything below **exists and works on the API**; the whole browser interface for it was withdrawn — the
+« Actes dentaires » page, the BS1 and P 061 editors, the patient's « Identité CNAM » block and the plafond
+notice. See [`features/cnam-ui-withdrawal/notes.md`](features/cnam-ui-withdrawal/notes.md).
+
+- **Act catalogue** and letter values, per clinic, still seeded into every new cabinet.
 - **Reimbursement estimates**, batched so a multi-act bulletin computes live per row; the rate turns on the patient's age *at the care date*.
 - **Annual ceiling tracking**: the dependants barème, the dedicated dental allowance, which categories are hors plafond, what this clinic has consumed this year and what remains — stated honestly as an estimate bounded to this clinic's own acts.
 - **Dental act codes** catalog.

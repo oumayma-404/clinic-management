@@ -284,8 +284,6 @@ export function InvoiceFormModal({
     setPickerOpenIndex(null)
   }
 
-  const detachAct = (index: number) => updateLine(index, { dentalActCodeId: null, codeActe: null })
-
   const totalHt = lines.reduce((sum, l) => {
     const qty = Number(l.quantity)
     const price = parseAmountInput(l.unitPriceHt)
@@ -563,19 +561,16 @@ export function InvoiceFormModal({
                             </PopoverContent>
                           </Popover>
                         </div>
-                        {line.codeActe && (
-                          <Badge variant="secondary" className="gap-1 font-mono text-xs">
-                            {line.codeActe}
-                            <button
-                              type="button"
-                              onClick={() => detachAct(index)}
-                              className="ml-1 rounded-full hover:text-destructive"
-                              title="Détacher l'acte CNAM (reste à charge intégral)"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
-                        )}
+                        {/*
+                          ⚠️ A `<Badge>` showing `line.codeActe` with a « Détacher l'acte CNAM » ✕ stood here
+                          and went with the CNAM interface (`features/cnam-ui-withdrawal/notes.md`). Nothing in
+                          this form has attached a code since the picker moved to `/procedure-types`, so the
+                          control only ever appeared on legacy lines.
+
+                          ⚠️ **`dentalActCodeId` / `codeActe` still round-trip** — see `hydrate` and the save
+                          payload. This form is the ONLY writer of that field in the product, so dropping it
+                          would silently strip the code from every line of a note somebody merely reopens.
+                        */}
                       </div>
                       <Button
                         type="button"

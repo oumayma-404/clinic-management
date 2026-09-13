@@ -25,9 +25,28 @@ namespace ClinicManagement.UnitTests.Features.Documents;
 /// restating its contents — for the same reason <c>RealtimeResourceResolverTests</c> does: a hand-maintained
 /// expectation list can only fail on the rows someone remembered to write.
 /// </para>
+/// <para>
+/// ⚠️ <b>DORMANT, not deleted.</b> The browser half — <c>web/lib/cnam.ts</c> — was removed with the rest of the
+/// CNAM interface (<c>features/cnam-ui-withdrawal/notes.md</c>). The server half is untouched, so the contract
+/// still describes something real; it simply has one party today, and one copy cannot drift from itself.
+/// </para>
+/// <para>
+/// ⚠️ It is skipped <b>by a declared attribute</b> rather than by returning early when the file is missing, and
+/// the difference is the whole point of <see cref="CnamModulePath"/>'s « fail loudly rather than skipping »
+/// rule: a declared skip is visible in the run as « skipped, because the browser module was withdrawn », while
+/// an inferred one reports green whether the module was withdrawn on purpose or the path merely broke. That
+/// loud failure is deliberately LEFT IN PLACE below — so if someone deletes these <c>Skip</c> attributes
+/// without restoring the module, this class fails exactly as it did before. Re-arming the contract is deleting
+/// one constant's worth of attributes.
+/// </para>
 /// </remarks>
 public class CnamClosedSetContractTests
 {
+    /// <summary>Why every fact here is skipped. Delete the <c>Skip</c> arguments to re-arm the contract.</summary>
+    private const string WithdrawnReason =
+        "web/lib/cnam.ts was withdrawn with the CNAM interface (features/cnam-ui-withdrawal/notes.md). "
+        + "The server half is untouched; re-arm this contract when the browser declares the constants again.";
+
     // ---- Parsing the frontend module ------------------------------------------------
 
     /// <summary>Reads a `export const NAME = ["a", "b"] as const` array out of <c>web/lib/cnam.ts</c>.</summary>
@@ -86,7 +105,7 @@ public class CnamClosedSetContractTests
 
     // ---- The contract ---------------------------------------------------------------
 
-    [Fact] // [K2] The régime set is identical on both sides, in order and in spelling.
+    [Fact(Skip = WithdrawnReason)] // [K2] The régime set is identical on both sides, in order and in spelling.
     public void Regimes_Match_The_Domain_Exactly()
     {
         // Ordered comparison, not set equality: the order is what the patient dialog renders, and « CNSS » first
@@ -94,19 +113,19 @@ public class CnamClosedSetContractTests
         Assert.Equal(CnamInfo.AllowedRegimes, DeclaredArray("CNAM_REGIMES"));
     }
 
-    [Fact] // [K2] The lien set is identical on both sides.
+    [Fact(Skip = WithdrawnReason)] // [K2] The lien set is identical on both sides.
     public void Liens_Match_The_Domain_Exactly()
     {
         Assert.Equal(CnamInfo.AllowedLiens, DeclaredArray("CNAM_LIENS"));
     }
 
-    [Fact] // [K2] And the subset that also needs a rang.
+    [Fact(Skip = WithdrawnReason)] // [K2] And the subset that also needs a rang.
     public void Liens_Requiring_A_Rang_Match_The_Domain_Exactly()
     {
         Assert.Equal(CnamInfo.LiensRequiringRang, DeclaredArray("CNAM_LIENS_REQUIRING_RANG"));
     }
 
-    [Fact] // [K7] The comb's cell count is one number, not two.
+    [Fact(Skip = WithdrawnReason)] // [K7] The comb's cell count is one number, not two.
     public void Identifiant_Digit_Count_Matches_The_Domain()
     {
         // If these ever disagree the editor and the server refuse different identifiants: the browser would let a
@@ -114,7 +133,7 @@ public class CnamClosedSetContractTests
         Assert.Equal(CnamInfo.IdentifiantUniqueDigits, DeclaredNumber("CNAM_IDENTIFIANT_DIGITS"));
     }
 
-    [Fact] // [K2] The accented value is present verbatim — the specific spelling that used to fail silently.
+    [Fact(Skip = WithdrawnReason)] // [K2] The accented value is present verbatim — the specific spelling that used to fail silently.
     public void The_Accented_Regime_Is_Spelled_With_Its_Accent_On_Both_Sides()
     {
         // Asserted explicitly as well as through the set comparison above. The set comparison would catch this,
@@ -123,7 +142,7 @@ public class CnamClosedSetContractTests
         Assert.Contains("Convention bilatérale", DeclaredArray("CNAM_REGIMES"));
     }
 
-    [Fact] // [K2] Nothing outside the declared sets is smuggled in as a literal elsewhere in the module.
+    [Fact(Skip = WithdrawnReason)] // [K2] Nothing outside the declared sets is smuggled in as a literal elsewhere in the module.
     public void The_Module_Declares_No_Other_Regime_Or_Lien_Literals()
     {
         // Guards the shape rather than the values: if someone adds a fifth lien as a bare string in a helper

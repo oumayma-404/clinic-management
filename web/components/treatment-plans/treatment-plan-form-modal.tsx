@@ -974,7 +974,7 @@ export function TreatmentPlanFormModal({
           {pickersFailed && (
             <LoadFailureNotice
               message="Les listes de sélection n'ont pas pu être chargées."
-              detail="Patients, actes CNAM et « Mes actes » sont peut-être incomplets — un acte saisi à la main n'aura ni code CNAM ni procédure."
+              detail="La liste des patients et celle de « Mes actes » sont peut-être incomplètes — un acte saisi à la main ne sera rattaché à aucune procédure du catalogue."
               onRetry={() => void loadPickers()}
             />
           )}

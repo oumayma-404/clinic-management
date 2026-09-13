@@ -518,7 +518,7 @@ next section to derive.
 | MONEY-27 | 1 | ∅ | Record an installment payment of 0 or negative | Refused: « Le montant encaissé doit être supérieur à 0. » | — |
 | MONEY-28 | 1 | ∅ | Record an installment payment on a **non-accepted** plan | Refused: « Le plan doit être accepté pour enregistrer un paiement. » | — |
 | MONEY-29 | 0 | a patient with a note **and** an independent devis | Read « Solde patient » | The sum of the two, each once | — |
-| MONEY-30 | 1 | ∅ | Read the reimbursement estimate (CNAM) | It knows what is **left** | L10 |
+| MONEY-30 | 1 | ∅ | Read the reimbursement estimate (CNAM) | ⚠️ **No surface — withdrawn.** The read is still served; see `features/cnam-ui-withdrawal/notes.md`. Kept rather than deleted: it is tier-1 and untested, so `check-coverage` is unaffected either way, and the row is what a re-enablement would test against | L10 |
 
 ---
 
