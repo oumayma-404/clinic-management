@@ -83,6 +83,28 @@ public interface IFileStorage
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Removes every blob this deployment holds for <paramref name="clinicId"/> — the whole
+    /// <c>clinics/{clinicId}/</c> prefix — and returns how many objects were removed. Written for the console's
+    /// « supprimer définitivement ce cabinet ».
+    ///
+    /// <para><b>A prefix sweep, not a key-by-key pass over the rows</b>, because the rows are the very thing being
+    /// deleted beside it. Harvesting keys from the six columns that hold one would miss a logo whose row has
+    /// already gone, the staged parts of an upload nobody finished (<c>clinics/{id}/uploads/…</c>, which
+    /// <c>MinioResumableUploadStore</c> writes and no row names), and every blob a column added later holds. The
+    /// prefix is the one authority on « which blobs belong to this cabinet », and <c>ClinicStorageKey</c> is what
+    /// makes that true of every key written since US-5.</para>
+    ///
+    /// <para>⚠️ <b>A flat pre-US-5 key is outside the prefix and therefore survives</b> — amendment M2 again, and
+    /// correct rather than merely tolerated: those rows exist only on a LAN install, where the practice owns the
+    /// disk and there is no console to call this.</para>
+    ///
+    /// <para>⚠️ <b>Best effort by contract.</b> It runs after the rows are committed, so a blob it cannot remove is
+    /// wasted bytes and not a wrong record — an implementation logs and carries on rather than throwing, and the
+    /// count it returns is what it actually removed.</para>
+    /// </summary>
+    Task<int> DeleteByClinicAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Confirms the backend is reachable and usable — the bucket answers, or the base folder exists and is
     /// writable — <b>without</b> storing anything (multi-tenant-cloud US-6, the <c>/health</c> storage check).
     ///

@@ -167,6 +167,11 @@ public class SubscriptionExemptionCoverageTests
         // stay reachable for the mirror reason — a mis-keyed forfait is the vendor's own bookkeeping.
         "PlatformMessaging.RecordAllowance",
         "PlatformMessaging.CancelAllowance",
+
+        // --- Deleting a cabinet for good (`clinic-account-removal`). An abandoned trial whose cover lapsed is the
+        // likeliest thing this route is pointed at, so gating it on that cabinet's own entitlement would make the
+        // rows it left behind permanent — and would push the deletion back to SSH, where nothing is recorded.
+        "PlatformClinicDeletion.Delete",
     };
 
     /// <summary>

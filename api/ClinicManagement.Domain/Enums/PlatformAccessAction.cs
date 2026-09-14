@@ -123,5 +123,23 @@ public enum PlatformAccessAction
     /// for the sole administrator whose e-mail is also unreachable — the last resort, and the reason it is the
     /// heaviest-audited of the three.</para>
     /// </summary>
-    PasswordReset = 9
+    PasswordReset = 9,
+
+    /// <summary>
+    /// A console account <b>deleted a cabinet</b> — every row it held, its accounts, and its files — with a written
+    /// motif (<c>clinic-account-removal</c>).
+    ///
+    /// <para>⚠️ <b>This row is the only thing that will ever say the cabinet existed.</b> Every other action here
+    /// leaves its subject behind to be read afterwards; this one does not, which is why
+    /// <c>PlatformAccessEntryConfiguration</c> carries <c>ClinicName</c> and <c>AccountEmail</c> denormalised and
+    /// declares no foreign key to <c>Clinics</c> — a cascade would delete the record of the deletion.</para>
+    ///
+    /// <para>⚠️ The motif is <b>mandatory</b>, and it is what tells « cabinet de test » from « le cabinet a demandé
+    /// la suppression de ses données » a year later — two very different facts about the same missing rows. The
+    /// <c>Reason</c> column it lands in is the one <see cref="SecondFactorReset"/> added.</para>
+    ///
+    /// <para>⚠️ It is recorded in the <b>same transaction</b> as the deletion: a cabinet gone with no record of who
+    /// removed it is the one outcome this ledger exists to make impossible.</para>
+    /// </summary>
+    DeletedClinic = 10
 }

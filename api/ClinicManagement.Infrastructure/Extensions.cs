@@ -480,6 +480,10 @@ public static class Extensions
         // above, for the same reason they are: it resolves the EF model, which only this assembly can see.
         services.AddScoped<IClinicArchiveStore, ClinicArchiveStore>();
 
+        // The console's « supprimer définitivement ce cabinet » (clinic-account-removal). Here for the reason above
+        // and one of its own: it derives its whole delete plan from the EF model, which no other assembly can see.
+        services.AddScoped<IClinicPurge, ClinicPurge>();
+
         // Per-clinic reference-catalog seeder (feature cloud-security-and-tenant-isolation, #5): clones the
         // shared default CNAM/medication/dental-act catalogs into each clinic on creation + a startup backfill.
         services.AddScoped<IClinicCatalogSeeder, ClinicCatalogSeeder>();

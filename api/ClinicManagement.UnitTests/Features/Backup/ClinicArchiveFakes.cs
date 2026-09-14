@@ -77,6 +77,23 @@ internal sealed class FakeBlobStore : IFileStorage
     public Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("A restore deletes nothing.");
 
+    /// <summary>Every clinic this fake was asked to clear, in order — the console's deletion asserts on it.</summary>
+    public List<Guid> ClearedClinics { get; } = new();
+
+    public Task<int> DeleteByClinicAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        ClearedClinics.Add(clinicId);
+
+        var prefix = $"clinics/{clinicId}/";
+        var keys = Blobs.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+        foreach (var key in keys)
+        {
+            Blobs.Remove(key);
+        }
+
+        return Task.FromResult(keys.Count);
+    }
+
     public Task ProbeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 

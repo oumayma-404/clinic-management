@@ -159,6 +159,40 @@ public class LocalDiskFileStorage : IFileStorage
     }
 
     /// <summary>
+    /// Removes the clinic's own folder, recursively — the disk twin of MinIO's prefix sweep.
+    ///
+    /// <para>⚠️ The count is taken <b>before</b> the delete and the folder goes in one call: enumerating and
+    /// deleting file by file would be slower and would leave the empty directory tree behind, which on a LAN
+    /// install is what an operator sees when they look for the cabinet they just removed.</para>
+    ///
+    /// <para>⚠️ Best effort, per the contract: a folder that cannot be removed is logged and the caller is told
+    /// how many files were counted rather than being handed an exception after its rows are already gone.</para>
+    /// </summary>
+    public Task<int> DeleteByClinicAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var folder = ResolveWithinBase($"{ClinicStorageKey.Prefix}/{clinicId}");
+
+            if (!Directory.Exists(folder))
+            {
+                return Task.FromResult(0);
+            }
+
+            var count = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count();
+            Directory.Delete(folder, recursive: true);
+
+            _logger.LogInformation("Cleared {Count} files under {Folder}", count, folder);
+            return Task.FromResult(count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not clear the local folder of clinic {ClinicId}", clinicId);
+            return Task.FromResult(0);
+        }
+    }
+
+    /// <summary>
     /// Confirms the base folder exists and is writable, by creating it if absent and then opening — and
     /// immediately deleting — a probe file. The write half is the point: an unmounted volume, a full disk and a
     /// folder the service account cannot write to all present as an existing directory, and every one of them

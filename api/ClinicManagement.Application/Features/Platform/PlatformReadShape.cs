@@ -262,6 +262,33 @@ public static class PlatformReadShape
         "TargetName",
         "TargetRole",
         "Reason",
-        "ResetAt"
+        "ResetAt",
+
+        // ── Deleting a cabinet (`clinic-account-removal`). Answering this file's own question — « can this field
+        // name, or ever hold, a patient, an appointment, a document, a note, or a per-patient amount? »:
+        //
+        // `Tallies`, `Label`, `Rows`, `RowsTotal`, `RowsDeleted`, `FileCount`, `FileBytes`, `FilesDeleted` and
+        // `AddressRowsCleared` are **counts of rows and a French plural noun** — « patients », « rendez-vous »,
+        // « fiches de soins ». `Label` is the TABLE's own name in French, the same category as `EntityLabel`
+        // already declared for the restore above, and every figure beside it is a `COUNT(*)`. A count cannot name
+        // anybody: this is deliberately the same shape as the activity block's `Patients`/`Appointments30d`, which
+        // has been on this surface since Part 2.
+        //
+        // ⚠️ `FreedEmails` is the one to think hardest about, and it is the category `AdminEmail` settled: these
+        // are the cabinet's own **staff account** addresses — the accounts whose deletion frees the address, which
+        // is the entire point of the action — read from `Users` where a password is present. A patient has no
+        // account and cannot appear in it by any code path. It is plural where `AdminEmail` is singular because a
+        // practice has several colleagues and the vendor has to be told every address that becomes free; a list of
+        // one is the ordinary case.
+        "Tallies",
+        "Label",
+        "Rows",
+        "RowsTotal",
+        "RowsDeleted",
+        "FileCount",
+        "FileBytes",
+        "FilesDeleted",
+        "AddressRowsCleared",
+        "FreedEmails"
     };
 }

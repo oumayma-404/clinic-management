@@ -5,6 +5,7 @@ import { ActivityTrend } from "@/components/activity-trend";
 import { CancelPeriodDialog } from "@/components/cancel-period-dialog";
 import { MessagingSection } from "@/components/messaging-section";
 import { RecordPaymentSheet } from "@/components/record-payment-sheet";
+import { DeleteClinicDialog } from "@/components/delete-clinic-dialog";
 import { ResetClinicPasswordDialog } from "@/components/reset-clinic-password-dialog";
 import { ResetSecondFactorDialog } from "@/components/reset-second-factor-dialog";
 import { SuspendDialog } from "@/components/suspend-dialog";
@@ -131,6 +132,8 @@ export default async function CabinetDetailPage({ params }: PageProps) {
           <Administrator detail={detail} />
           <ClinicJournalLink clinicId={clinic.clinicId} name={clinic.name} />
         </div>
+
+        <DangerZone clinicId={clinic.clinicId} clinicName={clinic.name} />
       </div>
     </main>
   );
@@ -364,6 +367,44 @@ function Administrator({ detail }: { detail: PlatformClinicDetail }) {
           paramètres.
         </p>
       )}
+    </section>
+  );
+}
+
+/**
+ * « Zone dangereuse » — the one control on this fiche that destroys a practice's records
+ * (`clinic-account-removal`).
+ *
+ * ⚠️ **Last on the page, in a section of its own, and the only one drawn on a destructive border.** Beside
+ * « Suspendre » it would read as a stronger version of the same lever, which is the mental model whose misuse here
+ * cannot be undone — and a vendor reaching for a way to stop a cabinet must meet suspension first: it is
+ * reversible, it costs the practice no paid day, and it is what nearly every case actually needs.
+ *
+ * ⚠️ **It states the alternative before the button.** « Le cabinet ne paie plus » and « ces données ne doivent plus
+ * exister » are different problems with different answers, and only the second one is this.
+ */
+function DangerZone({ clinicId, clinicName }: { clinicId: string; clinicName: string }) {
+  return (
+    <section
+      aria-labelledby="danger-heading"
+      className="rounded-lg border border-destructive/40 bg-card p-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h2 id="danger-heading" className="text-base font-semibold text-destructive">
+          Zone dangereuse
+        </h2>
+        <DeleteClinicDialog clinicId={clinicId} clinicName={clinicName} />
+      </div>
+
+      <p className="mt-2 text-sm text-muted-foreground">
+        La suppression efface définitivement ce cabinet et tout ce qu&apos;il contient — patients, rendez-vous,
+        fiches de soins, notes d&apos;honoraires, fichiers et comptes — et libère les adresses e-mail de ses
+        comptes. Il n&apos;y a pas de corbeille.
+      </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Pour un cabinet qui ne paie plus ou dont l&apos;usage pose problème, utilisez plutôt « Suspendre ce
+        cabinet » ci-dessus : c&apos;est réversible et aucun jour payé n&apos;est consommé.
+      </p>
     </section>
   );
 }

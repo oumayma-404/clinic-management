@@ -38,6 +38,9 @@ public static class PlatformAccessLabels
         // read on the journal as the vendor having lowered a cabinet's protection.
         PlatformAccessAction.SecondFactorReset => "Second facteur d'un compte réinitialisé",
         PlatformAccessAction.PasswordReset => "Mot de passe d'un compte réinitialisé",
+        // « Cabinet supprimé », flatly, and it is the only row here whose subject no longer exists — which is why
+        // the journal prints the cabinet's stored name beside it rather than resolving one.
+        PlatformAccessAction.DeletedClinic => "Cabinet supprimé définitivement",
         _ => action.ToString()
     };
 
