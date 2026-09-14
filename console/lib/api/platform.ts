@@ -644,3 +644,73 @@ export async function fetchAccessLog(token: string, query: AccessLogQuery): Prom
   const suffix = accessLogSearchParams(query).toString();
   return consoleFetch<PlatformAccessLogPage>(`/platform/access-log${suffix ? `?${suffix}` : ""}`, { token });
 }
+
+// ── Deleting a cabinet (`clinic-account-removal`) ───────────────────────────────────────────────────────────
+
+/** One named figure the panel states before the deletion — « 12 patients ». The label is the server's French. */
+export interface PlatformClinicDeletionTally {
+  label: string;
+  rows: number;
+}
+
+/**
+ * What deleting a cabinet would remove, read as the panel opens.
+ *
+ * ⚠️ **`rowsTotal` is derived from the deletion's own plan while `tallies` is a curated selection of it**, so the
+ * named figures are what a human recognises and the total is what stays true if one of those names ever stops
+ * matching the model. The panel shows both for that reason, and a reader who finds them inconsistent should
+ * believe the total.
+ *
+ * ⚠️ `freedEmails` is the whole point of the action: these are the cabinet's own staff-account addresses, which
+ * become available again — and **one of them is what the vendor types to confirm**. It is never a patient's: a
+ * patient has no account.
+ *
+ * ⚠️ `confirmationKind` is the SERVER's answer to « what must be typed », not something to re-derive from
+ * `freedEmails` being empty: the check applies that rule too, and a second copy in the browser would be the one
+ * that asks for a value the server refuses. `Address` for a cabinet with an account, `Name` for one without —
+ * a cabinet's name is not unique, so it is only ever the fall-back.
+ */
+export interface PlatformClinicDeletionPreview {
+  clinicId: string;
+  clinicName: string;
+  freedEmails: string[];
+  tallies: PlatformClinicDeletionTally[];
+  rowsTotal: number;
+  fileCount: number;
+  fileBytes: number;
+  confirmationKind: "Address" | "Name";
+}
+
+/** What the deletion answers with, stated in the past — the panel shows it instead of closing on success. */
+export interface PlatformClinicDeleted {
+  clinicId: string;
+  clinicName: string;
+  freedEmails: string[];
+  tallies: PlatformClinicDeletionTally[];
+  rowsDeleted: number;
+  filesDeleted: number;
+  addressRowsCleared: number;
+}
+
+export const CLINIC_CONFIRMATION_MISMATCH_CODE = "clinic_confirmation_mismatch";
+
+export const CLINIC_DELETION_REASON_REQUIRED_CODE = "clinic_deletion_reason_required";
+
+export async function fetchClinicDeletionPreview(
+  token: string,
+  clinicId: string,
+): Promise<PlatformClinicDeletionPreview> {
+  return consoleFetch<PlatformClinicDeletionPreview>(`/platform/clinics/${clinicId}/deletion-preview`, { token });
+}
+
+export async function deleteClinic(
+  token: string,
+  clinicId: string,
+  body: { confirmation: string; reason: string },
+): Promise<PlatformClinicDeleted> {
+  return consoleFetch<PlatformClinicDeleted>(`/platform/clinics/${clinicId}/delete`, {
+    method: "POST",
+    token,
+    body,
+  });
+}

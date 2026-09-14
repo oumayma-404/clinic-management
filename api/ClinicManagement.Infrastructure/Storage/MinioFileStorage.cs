@@ -311,6 +311,73 @@ public class MinioFileStorage : IFileStorage
     }
 
     /// <summary>
+    /// Every object under <c>clinics/{clinicId}/</c>, removed one at a time.
+    ///
+    /// <para>⚠️ <b>Per object rather than <c>RemoveObjectsAsync</c>'s batch</b>, and that is the right trade for a
+    /// sweep whose caller has already committed: a batch is all-or-nothing per request and reports its failures
+    /// through a second <c>IObservable</c>, so one unremovable key would either abort the rest or need the same
+    /// bridging twice. Here each failure is logged where it happened and the sweep carries on.</para>
+    ///
+    /// <para>⚠️ The listing itself <b>does</b> throw, through <see cref="ListKeysUnderPrefixAsync"/>: a listing that
+    /// failed halfway would otherwise read as « nothing left to remove » and report a clean sweep.</para>
+    /// </summary>
+    public async Task<int> DeleteByClinicAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        var prefix = $"{ClinicStorageKey.Prefix}/{clinicId}/";
+        var keys = await ListKeysUnderPrefixAsync(prefix, cancellationToken);
+        var removed = 0;
+
+        foreach (var key in keys)
+        {
+            try
+            {
+                await _minioClient.RemoveObjectAsync(
+                    new RemoveObjectArgs().WithBucket(_bucketName).WithObject(key),
+                    cancellationToken);
+                removed++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not remove {StorageKey} while clearing clinic {ClinicId}", key, clinicId);
+            }
+        }
+
+        _logger.LogInformation(
+            "Cleared {Removed} of {Found} objects under {Prefix}", removed, keys.Count, prefix);
+
+        return removed;
+    }
+
+    /// <summary>
+    /// Every object key under a prefix. <c>ListObjectsAsync</c> hands back an <c>IObservable&lt;Item&gt;</c> and this
+    /// solution takes no reactive dependency, so the subscription is bridged by hand — the same bridge, for the same
+    /// reason, as <c>MinioResumableUploadStore.ListStagedKeysAsync</c>. Both callbacks settle one task, so a listing
+    /// that fails is awaited into an exception instead of returning a short list.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ListKeysUnderPrefixAsync(
+        string prefix, CancellationToken cancellationToken)
+    {
+        var keys = new List<string>();
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var subscription = _minioClient
+            .ListObjectsAsync(
+                new ListObjectsArgs().WithBucket(_bucketName).WithPrefix(prefix).WithRecursive(true),
+                cancellationToken)
+            .Subscribe(
+                item => keys.Add(item.Key),
+                error => completion.TrySetException(error),
+                () => completion.TrySetResult(true));
+
+        await using (cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken)))
+        {
+            await completion.Task;
+        }
+
+        return keys;
+    }
+
+    /// <summary>
     /// Asks MinIO whether the bucket exists. That single call exercises everything the storage path depends on —
     /// DNS, the endpoint, TLS and the credentials — and it neither creates nor stores anything.
     ///
