@@ -1,3 +1,5 @@
+using ClinicManagement.Application.Common.Email;
+
 namespace ClinicManagement.Application.Common;
 
 /// <summary>
@@ -56,14 +58,39 @@ public static class SecondFactorResetNotice
         + "connexion. " + WhoToTell(by);
 
     /// <summary>
-    /// The e-mail body. Longer than the in-app row on purpose — it is read outside the application, by somebody who
+    /// The e-mail. Longer than the in-app row on purpose, and it carries the enrolment walk-through the
+    /// in-app row cannot: the reader is by definition unable to sign in, so « enrôlez un nouveau second
+    /// facteur » is an instruction with no screen behind it until they are told what the screen will ask.
+    /// The four steps are the ones <c>TotpEnrolmentStep</c> actually renders — not a hopeful description of them — it is read outside the application, by somebody who
     /// may not be able to sign in at all, which is precisely the situation this message is about.
     /// </summary>
-    public static string EmailBody(SecondFactorResetBy by) =>
-        Actor(by) + " a réinitialisé le second facteur d'authentification de votre compte. Votre application "
-        + "d'authentification actuelle ne fonctionne plus et vos anciens codes de récupération ont été annulés. "
-        + "À votre prochaine connexion, il vous sera demandé d'enrôler un nouveau second facteur : conservez la "
-        + "nouvelle série de codes de récupération hors de votre téléphone. " + WhoToTell(by);
+    public static EmailContent Email(SecondFactorResetBy by) => new()
+    {
+        Title = Title,
+        Preheader = "Vous enrôlerez une nouvelle application d'authentification à votre prochaine connexion.",
+        Intro =
+        [
+            Actor(by) + " a réinitialisé le second facteur d'authentification de votre compte. Votre "
+            + "application d'authentification actuelle ne fonctionne plus et vos anciens codes de "
+            + "récupération ont été annulés."
+        ],
+        StepsTitle = "À votre prochaine connexion",
+        Steps =
+        [
+            new EmailStep(
+                "Saisissez votre adresse e-mail et votre mot de passe",
+                "Ils n'ont pas changé."),
+            new EmailStep(
+                "Scannez le QR code affiché avec votre application d'authentification",
+                "Google Authenticator, Microsoft Authenticator ou FreeOTP — au choix."),
+            new EmailStep(
+                "Saisissez le code à six chiffres qu'elle affiche"),
+            new EmailStep(
+                "Conservez la nouvelle série de codes de récupération",
+                "Hors de votre téléphone : ils servent précisément le jour où vous ne l'avez plus.")
+        ],
+        Outro = [WhoToTell(by)]
+    };
 
     private static string Actor(SecondFactorResetBy by) => by switch
     {

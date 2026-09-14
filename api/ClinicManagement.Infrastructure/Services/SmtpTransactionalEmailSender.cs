@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Mail;
+using System.Net.Mime;
+using System.Text;
+using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -27,12 +30,16 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(20);
 
     private readonly IConfiguration _configuration;
+    private readonly IPublicAppUrlProvider _appUrl;
     private readonly ILogger<SmtpTransactionalEmailSender> _logger;
 
     public SmtpTransactionalEmailSender(
-        IConfiguration configuration, ILogger<SmtpTransactionalEmailSender> logger)
+        IConfiguration configuration,
+        IPublicAppUrlProvider appUrl,
+        ILogger<SmtpTransactionalEmailSender> logger)
     {
         _configuration = configuration;
+        _appUrl = appUrl;
         _logger = logger;
     }
 
@@ -48,7 +55,7 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
     public async Task<TransactionalEmailResult> SendAsync(
         string recipientEmail,
         string subject,
-        string body,
+        EmailContent content,
         CancellationToken cancellationToken = default)
     {
         if (!IsConfigured)
@@ -66,6 +73,8 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
         {
             return TransactionalEmailResult.NotConfigured;
         }
+
+        var plainText = EmailLayout.PlainText(content);
 
         try
         {
@@ -93,10 +102,25 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
                     ? new MailAddress(fromAddress)
                     : new MailAddress(fromAddress, fromName),
                 Subject = subject,
-                Body = body,
+                SubjectEncoding = Encoding.UTF8,
+                // The plain-text alternate is ALSO the `Body`, so a client reading only that property (and a
+                // spam filter scoring the message) sees prose rather than markup.
+                Body = plainText,
+                BodyEncoding = Encoding.UTF8,
                 IsBodyHtml = false
             };
             mail.To.Add(new MailAddress(recipientEmail));
+
+            // ⚠️ `multipart/alternative` — both parts, always, and in this order. `AlternateViews` is ordered
+            // least-preferred first: a client picks the LAST one it can render, so appending the plain text
+            // after the HTML would hand every graphical client the unstyled version. Sending the HTML *alone*
+            // is the other failure — a reader with HTML refused gets raw tags or an empty message.
+            var plain = AlternateView.CreateAlternateViewFromString(
+                plainText, Encoding.UTF8, MediaTypeNames.Text.Plain);
+            var html = AlternateView.CreateAlternateViewFromString(
+                EmailLayout.Html(content, _appUrl.BaseUrl), Encoding.UTF8, MediaTypeNames.Text.Html);
+            mail.AlternateViews.Add(plain);
+            mail.AlternateViews.Add(html);
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(SendTimeout);

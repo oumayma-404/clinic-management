@@ -1,4 +1,5 @@
-﻿using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Email;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -31,7 +32,7 @@ public class RequestPasswordResetCommandHandlerTests
         _email.SetupGet(e => e.IsConfigured).Returns(true);
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TransactionalEmailResult.Sent);
         _appUrl.SetupGet(u => u.IsConfigured).Returns(true);
         _appUrl.SetupGet(u => u.BaseUrl).Returns("https://cabinet.tn");
@@ -63,7 +64,7 @@ public class RequestPasswordResetCommandHandlerTests
         Assert.True(result.IsSuccess);
         _requests.Verify(r => r.AddAsync(It.IsAny<PasswordResetRequest>(), It.IsAny<CancellationToken>()), Times.Once);
         _email.Verify(
-            e => e.SendAsync("dr@clinic.tn", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            e => e.SendAsync("dr@clinic.tn", It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -79,8 +80,9 @@ public class RequestPasswordResetCommandHandlerTests
         string? body = null;
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, string, CancellationToken>((_, _, b, _) => body = b)
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, EmailContent, CancellationToken>(
+                (_, _, c, _) => body = EmailLayout.PlainText(c))
             .ReturnsAsync(TransactionalEmailResult.Sent);
 
         await Ask();
@@ -98,8 +100,9 @@ public class RequestPasswordResetCommandHandlerTests
         string? body = null;
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, string, CancellationToken>((_, _, b, _) => body = b)
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, EmailContent, CancellationToken>(
+                (_, _, c, _) => body = EmailLayout.PlainText(c))
             .ReturnsAsync(TransactionalEmailResult.Sent);
 
         await Ask();
@@ -142,7 +145,7 @@ public class RequestPasswordResetCommandHandlerTests
         Assert.True(result.IsSuccess);
         _requests.Verify(r => r.AddAsync(It.IsAny<PasswordResetRequest>(), It.IsAny<CancellationToken>()), Times.Never);
         _email.Verify(
-            e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -208,7 +211,7 @@ public class RequestPasswordResetCommandHandlerTests
         KnownUser(Local());
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TransactionalEmailResult.Failed("smtp refused"));
 
         var result = await Ask();
@@ -238,7 +241,7 @@ public class RequestPasswordResetCommandHandlerTests
         Assert.True(result.IsSuccess);
         Assert.Equal("HASH-1", live.TokenHash);
         _email.Verify(
-            e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -279,7 +282,7 @@ public class RequestPasswordResetCommandHandlerTests
             .ReturnsAsync(live);
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TransactionalEmailResult.Failed("smtp refused"));
 
         var result = await Ask();

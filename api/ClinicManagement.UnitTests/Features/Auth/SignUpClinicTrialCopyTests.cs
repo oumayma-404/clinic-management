@@ -1,3 +1,4 @@
+﻿using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Domain.Entities;
@@ -86,8 +87,11 @@ public class SignUpClinicTrialCopyTests
         var sender = new Mock<ITransactionalEmailSender>();
         sender.SetupGet(s => s.IsConfigured).Returns(true);
         sender.Setup(s => s.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, string, CancellationToken>((_, _, body, _) => captured = body)
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            // Captures the RENDERED text rather than the content object: every assertion below is about a
+            // sentence a dentist reads, and `EmailLayout` is what turns the structure into sentences.
+            .Callback<string, string, EmailContent, CancellationToken>(
+                (_, _, content, _) => captured = EmailLayout.PlainText(content))
             .ReturnsAsync(TransactionalEmailResult.Sent);
 
         var appUrl = new Mock<IPublicAppUrlProvider>();

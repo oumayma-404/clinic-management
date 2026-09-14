@@ -1,4 +1,5 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Application.Features.Platform;
@@ -63,7 +64,7 @@ public class PlatformPasswordResetTests
 
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TransactionalEmailResult.Sent);
     }
 
@@ -298,7 +299,7 @@ public class PlatformPasswordResetTests
                 SubscriptionVendorHarness.ClinicId, user.Id, PasswordResetBy.Vendor, It.IsAny<CancellationToken>()),
             Times.Once);
         _email.Verify(
-            e => e.SendAsync(TargetEmail, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            e => e.SendAsync(TargetEmail, It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -314,8 +315,9 @@ public class PlatformPasswordResetTests
         var bodies = new List<string>();
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, string, CancellationToken>((_, _, b, _) => bodies.Add(b))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, EmailContent, CancellationToken>(
+                (_, _, c, _) => bodies.Add(EmailLayout.PlainText(c)))
             .ReturnsAsync(TransactionalEmailResult.Sent);
 
         await Handler().Handle(Reset(), CancellationToken.None);
@@ -335,7 +337,7 @@ public class PlatformPasswordResetTests
             .ThrowsAsync(new InvalidOperationException("feed down"));
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("smtp down"));
 
         var result = await Handler().Handle(Reset(), CancellationToken.None);

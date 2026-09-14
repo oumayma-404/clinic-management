@@ -1,3 +1,5 @@
+using ClinicManagement.Application.Common.Email;
+
 namespace ClinicManagement.Application.Common.Interfaces;
 
 /// <summary>The outcome of one transactional-email attempt.</summary>
@@ -25,7 +27,7 @@ public sealed record TransactionalEmailResult(TransactionalEmailOutcome Outcome,
 }
 
 /// <summary>
-/// Sends one plain-text email that belongs to <b>no clinic</b> — the first such path in the product.
+/// Sends one email that belongs to <b>no clinic</b> — the first such path in the product.
 ///
 /// <para>⚠️ <b>It reads the per-install <c>Notification:Smtp:*</c> settings, deliberately, and must keep doing
 /// so.</b> Every other outbound email here goes through <c>IDocumentEmailSender</c>, which takes a
@@ -47,9 +49,26 @@ public interface ITransactionalEmailSender
     /// </summary>
     bool IsConfigured { get; }
 
+    /// <summary>
+    /// Sends one message as <c>multipart/alternative</c> — the HTML a mail client paints and the
+    /// <c>text/plain</c> alternate beside it, both rendered from <paramref name="content"/> by
+    /// <see cref="EmailLayout"/>.
+    ///
+    /// <para>⚠️ <b>It takes the message as structure, not as a <c>string body</c> plus an optional
+    /// <c>htmlBody</c>.</b> An optional parameter compiles unchanged at every existing call site, so each one
+    /// would keep sending bare plain text until somebody remembered it — and the symptom is an e-mail that
+    /// <i>arrives perfectly</i>, merely unstyled, which no test and no derived check in this repository could
+    /// see. Taking the content makes it unrepresentable.</para>
+    ///
+    /// <para>⚠️ <b>Rendering happens in the implementation, on purpose.</b> The HTML loads the lockup
+    /// from this deployment's own web origin, which is <c>FrontendUrl</c> — the value
+    /// <see cref="IPublicAppUrlProvider"/> reads. Composing the markup in the handlers instead would oblige all
+    /// seven of them to inject that provider in order to say nothing about it; only the two that put a
+    /// <i>link</i> in the message have a reason to know the origin.</para>
+    /// </summary>
     Task<TransactionalEmailResult> SendAsync(
         string recipientEmail,
         string subject,
-        string body,
+        EmailContent content,
         CancellationToken cancellationToken = default);
 }

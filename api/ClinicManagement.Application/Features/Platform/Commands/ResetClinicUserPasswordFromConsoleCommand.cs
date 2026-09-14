@@ -282,7 +282,7 @@ public class ResetClinicUserPasswordFromConsoleCommandHandler
             var sent = await _email.SendAsync(
                 email,
                 PasswordResetNotice.EmailSubject,
-                PasswordResetNotice.EmailBody(PasswordResetBy.Vendor),
+                PasswordResetNotice.Email(PasswordResetBy.Vendor),
                 cancellationToken);
 
             if (sent.Outcome != TransactionalEmailOutcome.Sent)

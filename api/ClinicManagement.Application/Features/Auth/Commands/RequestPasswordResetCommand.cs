@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -262,7 +263,7 @@ public class RequestPasswordResetCommandHandler
         PasswordResetRequest row, User user, string rawToken, CancellationToken cancellationToken)
     {
         var sent = await _emailSender.SendAsync(
-            row.Email, EmailSubject, BuildEmailBody(user.FullName, rawToken), cancellationToken);
+            row.Email, EmailSubject, BuildEmail(user.FullName, row.Email, rawToken), cancellationToken);
 
         if (sent.Outcome == TransactionalEmailOutcome.Sent)
         {
@@ -309,21 +310,41 @@ public class RequestPasswordResetCommandHandler
 
     private const string EmailSubject = "Réinitialisation de votre mot de passe";
 
-    private string BuildEmailBody(string? fullName, string rawToken) =>
-        $"""
-        {EmailGreeting.For(fullName)}
+    /// <summary>
+    /// ⚠️ <b>The link is in the panel as well as on the button</b>, for the reason the signup mail
+    /// states: it is the only credential in the message, and a client with images or active content stripped
+    /// renders no button at all.
+    /// </summary>
+    private EmailContent BuildEmail(string? fullName, string email, string rawToken)
+    {
+        var link = BuildResetLink(rawToken);
 
-        Une réinitialisation de mot de passe vient d'être demandée pour votre compte. Pour choisir un
-        nouveau mot de passe, ouvrez le lien ci-dessous :
-
-        {BuildResetLink(rawToken)}
-
-        Ce lien est valable 1 heure et ne peut servir qu'une seule fois. Votre mot de passe actuel reste
-        valable jusqu'à ce que vous en choisissiez un nouveau.
-
-        Si vous n'êtes pas à l'origine de cette demande, ignorez simplement ce message : rien n'a été
-        modifié. Votre code de vérification à six chiffres reste par ailleurs exigé à la connexion.
-        """;
+        return new EmailContent
+        {
+            Title = "Choisissez un nouveau mot de passe",
+            Preheader = "Le lien de réinitialisation est valable 1 heure.",
+            Greeting = EmailGreeting.For(fullName),
+            Intro =
+            [
+                "Une réinitialisation de mot de passe vient d'être demandée pour votre compte APEXA."
+            ],
+            Details =
+            [
+                new EmailDetail("Compte concerné", email),
+                new EmailDetail("Lien de réinitialisation", link, IsLink: true)
+            ],
+            Action = new EmailAction("Choisir un nouveau mot de passe", link),
+            Outro =
+            [
+                "Votre code de vérification à six chiffres reste exigé à la connexion : il n'a pas "
+                + "été modifié et votre application d'authentification continue de fonctionner."
+            ],
+            Note =
+                "Ce lien est valable 1 heure et ne peut servir qu'une seule fois. Votre mot de passe actuel reste "
+                + "valable jusqu'à ce que vous en choisissiez un nouveau. Si vous n'êtes pas à "
+                + "l'origine de cette demande, ignorez simplement ce message : rien n'a été modifié."
+        };
+    }
 
     /// <summary>
     /// Built from <see cref="IPublicAppUrlProvider"/>, i.e. from <c>FrontendUrl</c> — so no host is compiled in and
