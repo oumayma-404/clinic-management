@@ -662,7 +662,13 @@ export interface PlatformClinicDeletionTally {
  * believe the total.
  *
  * ⚠️ `freedEmails` is the whole point of the action: these are the cabinet's own staff-account addresses, which
- * become available again. It is never a patient's — a patient has no account.
+ * become available again — and **one of them is what the vendor types to confirm**. It is never a patient's: a
+ * patient has no account.
+ *
+ * ⚠️ `confirmationKind` is the SERVER's answer to « what must be typed », not something to re-derive from
+ * `freedEmails` being empty: the check applies that rule too, and a second copy in the browser would be the one
+ * that asks for a value the server refuses. `Address` for a cabinet with an account, `Name` for one without —
+ * a cabinet's name is not unique, so it is only ever the fall-back.
  */
 export interface PlatformClinicDeletionPreview {
   clinicId: string;
@@ -672,6 +678,7 @@ export interface PlatformClinicDeletionPreview {
   rowsTotal: number;
   fileCount: number;
   fileBytes: number;
+  confirmationKind: "Address" | "Name";
 }
 
 /** What the deletion answers with, stated in the past — the panel shows it instead of closing on success. */
@@ -685,7 +692,7 @@ export interface PlatformClinicDeleted {
   addressRowsCleared: number;
 }
 
-export const CLINIC_NAME_MISMATCH_CODE = "clinic_name_mismatch";
+export const CLINIC_CONFIRMATION_MISMATCH_CODE = "clinic_confirmation_mismatch";
 
 export const CLINIC_DELETION_REASON_REQUIRED_CODE = "clinic_deletion_reason_required";
 
@@ -699,7 +706,7 @@ export async function fetchClinicDeletionPreview(
 export async function deleteClinic(
   token: string,
   clinicId: string,
-  body: { confirmationName: string; reason: string },
+  body: { confirmation: string; reason: string },
 ): Promise<PlatformClinicDeleted> {
   return consoleFetch<PlatformClinicDeleted>(`/platform/clinics/${clinicId}/delete`, {
     method: "POST",

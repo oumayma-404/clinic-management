@@ -59,19 +59,21 @@ public class PlatformClinicDeletionController : ApiControllerBase
     }
 
     /// <summary>
-    /// Deletes the cabinet. The body carries the cabinet's name as the vendor typed it and a mandatory motif.
+    /// Deletes the cabinet. The body carries the confirmation the vendor typed — one of the cabinet's account
+    /// addresses — and a mandatory motif.
     ///
     /// <para>⚠️ <b>A POST on a sub-resource, never <c>DELETE /clinics/{id}</c>.</b> A <c>DELETE</c> advertises
     /// something a mis-aimed client can perform with no body at all, and this call is refused without two of them —
     /// the typed name and the motif. It also does more than remove rows: it writes the journal row that is the only
     /// thing that will ever say the cabinet existed.</para>
     ///
-    /// <para>⚠️ <b>The name is verified against the cabinet the id resolved to, server-side.</b> A client comparing
-    /// two strings of its own would agree with itself; the failure being caught is a wrong row in the list.</para>
+    /// <para>⚠️ <b>The confirmation is verified against the cabinet the id resolved to, server-side.</b> A client
+    /// comparing two strings of its own would agree with itself; the failure being caught is a wrong row in the
+    /// list — and an <i>address</i> is asked for rather than the cabinet's name because the name is not unique.</para>
     ///
     /// <para>⚠️ The refusals a client acts on differently carry <b>codes</b>: an unknown cabinet is a 404, a
-    /// mis-typed name and a missing motif are 400s with their own codes. None is recovered by matching the French
-    /// sentence.</para>
+    /// mis-typed confirmation and a missing motif are 400s with their own codes. None is recovered by matching the
+    /// French sentence.</para>
     /// </summary>
     [HttpPost("clinics/{clinicId:guid}/delete")]
     [AllowsWithoutSubscription(
@@ -87,7 +89,7 @@ public class PlatformClinicDeletionController : ApiControllerBase
             new DeleteClinicFromConsoleCommand
             {
                 ClinicId = clinicId,
-                ConfirmationName = request.ConfirmationName,
+                Confirmation = request.Confirmation,
                 Reason = request.Reason,
             },
             cancellationToken);
@@ -101,7 +103,7 @@ public class PlatformClinicDeletionController : ApiControllerBase
         {
             ClinicDeletionRefusals.UnknownClinicCode
                 => NotFound(new { error = result.Error, code = result.Code }),
-            ClinicDeletionRefusals.NameMismatchCode
+            ClinicDeletionRefusals.ConfirmationMismatchCode
                 => BadRequest(new { error = result.Error, code = result.Code }),
             ClinicDeletionRefusals.ReasonRequiredCode
                 => BadRequest(new { error = result.Error, code = result.Code }),

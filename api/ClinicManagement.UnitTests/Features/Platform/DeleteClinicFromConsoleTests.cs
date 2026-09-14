@@ -114,8 +114,8 @@ public class DeleteClinicFromConsoleTests
             NullLogger<DeleteClinicFromConsoleCommandHandler>.Instance);
 
     private static DeleteClinicFromConsoleCommand Delete(
-        string? name = ClinicName, string? reason = Motif) =>
-        new() { ClinicId = SubscriptionVendorHarness.ClinicId, ConfirmationName = name, Reason = reason };
+        string? confirmation = AdminEmail, string? reason = Motif) =>
+        new() { ClinicId = SubscriptionVendorHarness.ClinicId, Confirmation = confirmation, Reason = reason };
 
     private void AssertNothingWasTouched()
     {
@@ -200,8 +200,11 @@ public class DeleteClinicFromConsoleTests
     {
         foreach (var refused in new[]
                  {
-                     Delete(name: "Cabinet Test 4"),
-                     Delete(name: null),
+                     Delete(confirmation: "o.benkhalifa+t4@exemple.tn"),
+                     // ⚠️ The cabinet's NAME, refused: it is not unique, so accepting it would leave the weaker
+                     // answer available — which is the one somebody reaches for.
+                     Delete(confirmation: ClinicName),
+                     Delete(confirmation: null),
                      Delete(reason: "   "),
                      Delete(reason: null),
                  })
@@ -214,17 +217,57 @@ public class DeleteClinicFromConsoleTests
     }
 
     [Fact]
-    public async Task A_Mis_Typed_Name_And_A_Missing_Motif_Are_Told_Apart_By_Code()
+    public async Task A_Mis_Typed_Confirmation_And_A_Missing_Motif_Are_Told_Apart_By_Code()
     {
-        var mismatch = await Handler().Handle(Delete(name: "Cabinet Test 4"), CancellationToken.None);
+        var mismatch = await Handler().Handle(
+            Delete(confirmation: "o.benkhalifa+t4@exemple.tn"), CancellationToken.None);
         var noReason = await Handler().Handle(Delete(reason: null), CancellationToken.None);
 
-        Assert.Equal(ClinicDeletionRefusals.NameMismatchCode, mismatch.Code);
+        Assert.Equal(ClinicDeletionRefusals.ConfirmationMismatchCode, mismatch.Code);
         Assert.Equal(ClinicDeletionRefusals.ReasonRequiredCode, noReason.Code);
 
-        // Neither refusal spells the expected name out: the point of typing it is that the vendor reads the row
-        // they are about to destroy.
-        Assert.DoesNotContain(ClinicName, mismatch.Error);
+        // The refusal does not spell the expected value out: the point of typing it is that the vendor reads the
+        // row they are about to destroy.
+        Assert.DoesNotContain(AdminEmail, mismatch.Error);
+    }
+
+    [Fact]
+    public async Task The_Cabinets_Name_Is_Refused_While_It_Has_An_Account()
+    {
+        // The whole point of the change. `Clinic.Name` has no unique index — nothing checks it at creation — so
+        // two cabinets may both be called « Cabinet Test » and a typed name passes « the wrong row under the same
+        // name », which is the likeliest mistake on a deployment full of trials.
+        var result = await Handler().Handle(Delete(confirmation: ClinicName), CancellationToken.None);
+
+        Assert.Equal(ClinicDeletionRefusals.ConfirmationMismatchCode, result.Code);
+        AssertNothingWasTouched();
+    }
+
+    [Fact]
+    public async Task Any_One_Of_The_Cabinets_Addresses_Confirms_It()
+    {
+        // A cabinet with four colleagues must not need four addresses typed: each already identifies it alone.
+        GivenTheStaff(
+            User.CreateLocalUser(SubscriptionVendorHarness.ClinicId, User.RoleAdmin, AdminEmail, "H", "Oumayma"),
+            User.CreateLocalUser(
+                SubscriptionVendorHarness.ClinicId, User.RoleSecretary, "reception@exemple.tn", "H", "Salma"));
+
+        var result = await Handler().Handle(
+            Delete(confirmation: "reception@exemple.tn"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task A_Cabinet_With_No_Account_Falls_Back_To_Its_Name()
+    {
+        // Otherwise a cabinet with no password-backed account could never be confirmed, i.e. never be deleted.
+        GivenTheStaff();
+
+        var byName = await Handler().Handle(Delete(confirmation: ClinicName), CancellationToken.None);
+
+        Assert.True(byName.IsSuccess);
+        Assert.Empty(byName.Value!.FreedEmails);
     }
 
     [Fact]
@@ -288,22 +331,42 @@ public class DeleteClinicFromConsoleTests
         AssertNothingWasTouched();
     }
 
-    // ------------------------------------------------------------------ the typed name
+    // ------------------------------------------------------------------ the typed confirmation
+
+    private static readonly string[] Addresses = { AdminEmail };
 
     [Theory]
-    [InlineData("Cabinet Test 3")]
-    [InlineData("  Cabinet Test 3  ")]
-    [InlineData("cabinet test 3")]
-    [InlineData("Cabinet  Test   3")]
-    public void A_Name_Read_Off_The_Panel_Is_Accepted_However_It_Was_Typed(string typed) =>
-        Assert.True(ClinicDeletionRefusals.NamesTheClinic(typed, ClinicName));
+    [InlineData("o.benkhalifa+t3@exemple.tn")]
+    [InlineData("  o.benkhalifa+t3@exemple.tn  ")]
+    [InlineData("O.BenKhalifa+T3@Exemple.TN")]
+    public void An_Address_Read_Off_The_Panel_Is_Accepted_However_It_Was_Typed(string typed) =>
+        Assert.True(ClinicDeletionRefusals.Confirms(typed, Addresses, ClinicName));
 
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData(null)]
-    [InlineData("Cabinet Test")]
-    [InlineData("Cabinet Test 33")]
-    public void Anything_That_Does_Not_Name_This_Cabinet_Is_Refused(string? typed) =>
-        Assert.False(ClinicDeletionRefusals.NamesTheClinic(typed, ClinicName));
+    [InlineData("o.benkhalifa@exemple.tn")]
+    [InlineData("o.benkhalifa+t33@exemple.tn")]
+    // The cabinet's own name, which is not unique and therefore not an answer while an address exists.
+    [InlineData(ClinicName)]
+    public void Anything_That_Does_Not_Identify_This_Cabinet_Is_Refused(string? typed) =>
+        Assert.False(ClinicDeletionRefusals.Confirms(typed, Addresses, ClinicName));
+
+    [Theory]
+    [InlineData("Cabinet Test 3")]
+    [InlineData("  cabinet  test   3 ")]
+    public void With_No_Account_The_Name_Confirms_However_It_Was_Typed(string typed) =>
+        Assert.True(ClinicDeletionRefusals.Confirms(typed, Array.Empty<string>(), ClinicName));
+
+    [Fact]
+    public void The_Kind_The_Panel_Asks_For_Is_The_Kind_The_Check_Applies()
+    {
+        // One rule, two readers (the preview's `ConfirmationKind` and `Confirms`) — a second copy in the browser
+        // would be the one that asks for a value the server refuses.
+        Assert.Equal(ClinicDeletionRefusals.ConfirmationKind.Address, ClinicDeletionRefusals.KindFor(Addresses));
+        Assert.Equal(
+            ClinicDeletionRefusals.ConfirmationKind.Name,
+            ClinicDeletionRefusals.KindFor(Array.Empty<string>()));
+    }
 }

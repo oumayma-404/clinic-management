@@ -83,7 +83,9 @@ public class GetPlatformClinicDeletionPreviewQueryHandler
                 Tallies: PlatformClinicFootprint.Tallies(census),
                 RowsTotal: census.Rows,
                 FileCount: PlatformClinicFootprint.FileCount(census),
-                FileBytes: census.FileBytes));
+                FileBytes: census.FileBytes,
+                // The panel asks for what the check will accept, and the two are decided in one place.
+                ConfirmationKind: ClinicDeletionRefusals.KindFor(freed).ToString()));
         }
         catch (Exception ex)
         {

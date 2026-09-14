@@ -84,10 +84,18 @@ name against a sentence describing what it held an hour ago.
 no deletion at all: « ce cabinet ne contient rien » is the one sentence that would make this button look safe and
 be wrong.
 
-⚠️ **A typed name, never a « je comprends » tick**: the failure being caught is a *wrong row* (several cabinets are
-called « Cabinet Test N »), which a checkbox cannot catch. It is checked again server-side against the cabinet the
-id resolved to — the browser comparing two of its own strings would agree with itself. Trimmed, inner whitespace
-collapsed, case-insensitive: the check is « did you read the right row », not « can you reproduce the capitals ».
+⚠️ **A typed value, never a « je comprends » tick — and it is the ACCOUNT'S E-MAIL ADDRESS, not the cabinet's
+name.** The first version asked for the name and that was a measured hole: `Clinic.Name` carries **no unique index**
+(only `Code` does, and nothing checks the name at creation), so two cabinets may both be called « Cabinet Test » —
+the name catches « the wrong row, under another name » and *passes* « the wrong row, under the same name », which is
+the likeliest mistake on a deployment holding a pile of trials. An address is unique per install by construction
+(`Users.Email`, filtered on a password being present), so it can only ever confirm one cabinet. **Any one** of the
+cabinet's addresses is accepted; the name stays as the fall-back for a cabinet with no password-backed account, and
+**while an address exists the name is refused** — accepting either would leave the weaker answer available, which is
+the one somebody reaches for. `ConfirmationKind` is decided server-side and sent with the preview, so the field
+cannot ask for something the check will refuse. Verified again server-side against the cabinet the id resolved to;
+trimmed, inner whitespace collapsed, case-insensitive — the check is « did you read the right row », not « can you
+reproduce the capitals ».
 
 ⚠️ **The panel does not close on success.** It shows what was removed and which addresses are free — that list is
 the whole reason the action was taken and there is nowhere left to read it afterwards.

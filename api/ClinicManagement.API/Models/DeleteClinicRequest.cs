@@ -7,11 +7,15 @@ namespace ClinicManagement.API.Models;
 public class DeleteClinicRequest
 {
     /// <summary>
-    /// The cabinet's name exactly as the panel shows it, typed by the vendor. Compared server-side against the
-    /// cabinet the URL's id resolved to — the failure being caught is a wrong row in the portfolio, which a client
-    /// comparing two of its own strings cannot see.
+    /// What the vendor typed to confirm: <b>one of the cabinet's account addresses</b> exactly as the panel shows
+    /// it, or its name where the cabinet has no account. Compared server-side against the cabinet the URL's id
+    /// resolved to — the failure being caught is a wrong row in the portfolio, which a client comparing two of its
+    /// own strings cannot see.
+    ///
+    /// <para>⚠️ An address and not the name, because <c>Clinic.Name</c> is not unique: two cabinets may share one,
+    /// and a typed name cannot tell them apart.</para>
     /// </summary>
-    public string? ConfirmationName { get; set; }
+    public string? Confirmation { get; set; }
 
     /// <summary>
     /// Why. It lands on the journal row, which is the only thing that outlives the cabinet — and it is what

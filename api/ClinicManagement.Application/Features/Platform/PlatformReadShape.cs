@@ -289,6 +289,8 @@ public static class PlatformReadShape
         "FileBytes",
         "FilesDeleted",
         "AddressRowsCleared",
-        "FreedEmails"
+        "FreedEmails",
+        // Which of two words the panel must ask for — `Address` or `Name`. A fixed pair, about a form field.
+        "ConfirmationKind"
     };
 }

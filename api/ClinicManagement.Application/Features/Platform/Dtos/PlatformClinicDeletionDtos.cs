@@ -18,7 +18,11 @@ public sealed record PlatformClinicDeletionTallyDto(string Label, long Rows);
 /// the curated rows would silently understate a deletion the day an entity was renamed.</para>
 ///
 /// <para><c>FreedEmails</c> is every password-backed account of the cabinet: those addresses become available
-/// again, which is the whole reason this feature exists.</para>
+/// again, which is the whole reason this feature exists — and one of them is what the vendor types to confirm.</para>
+///
+/// <para>⚠️ <c>ConfirmationKind</c> (<c>Address</c> | <c>Name</c>) is decided <b>server-side</b> although the
+/// browser could infer it from <c>FreedEmails</c> being empty: inferring it would be a second copy of the rule the
+/// check itself applies, and the copy that drifts is the one that asks for a value the server will refuse.</para>
 /// </summary>
 public sealed record PlatformClinicDeletionPreviewDto(
     Guid ClinicId,
@@ -27,7 +31,8 @@ public sealed record PlatformClinicDeletionPreviewDto(
     IReadOnlyList<PlatformClinicDeletionTallyDto> Tallies,
     long RowsTotal,
     int FileCount,
-    long FileBytes);
+    long FileBytes,
+    string ConfirmationKind);
 
 /// <summary>
 /// What a completed deletion removed. Same shape as the preview, stated in the past.

@@ -19,9 +19,12 @@ namespace ClinicManagement.Application.Features.Platform.Commands;
 /// owner has, and nothing in the product could release it. The other half is the portfolio — a hosted deployment
 /// accumulating abandoned cabinets has no way to say which of its rows are real practices.</para>
 ///
-/// <para><b>⚠️ What guards it, and what deliberately does not.</b> The barriers are the <b>typed cabinet name</b>
-/// (checked server-side, so a mis-clicked row in the list cannot be deleted whatever the client sent), a
-/// <b>mandatory motif</b>, and a journal row written in the same transaction. There is deliberately <b>no refusal
+/// <para><b>⚠️ What guards it, and what deliberately does not.</b> The barriers are a <b>typed confirmation</b> —
+/// one of the cabinet's own account addresses, checked server-side, so a mis-clicked row in the list cannot be
+/// deleted whatever the client sent — a <b>mandatory motif</b>, and a journal row written in the same transaction.
+/// ⚠️ <b>The address rather than the cabinet's name</b>, because <c>Clinic.Name</c> has no unique index: two
+/// cabinets may both be called « Cabinet Test », and a typed name passes « the wrong row under the same name ».
+/// See <c>ClinicDeletionRefusals.Confirms</c>. There is deliberately <b>no refusal
 /// for a cabinet holding money or patients</b>: that was asked and decided — such a rule would make the test
 /// cabinets this exists for undeletable the moment somebody records a payment in one, and it would push the real
 /// deletions back to SSH, where nothing is recorded at all.</para>
@@ -41,8 +44,11 @@ public class DeleteClinicFromConsoleCommand : IRequest<Result<PlatformClinicDele
 {
     public Guid ClinicId { get; set; }
 
-    /// <summary>The cabinet's name as the vendor typed it. Refused unless it names this cabinet.</summary>
-    public string? ConfirmationName { get; set; }
+    /// <summary>
+    /// What the vendor typed to confirm: one of the cabinet's account addresses, or its name where it has no
+    /// account. Refused unless it identifies <i>this</i> cabinet.
+    /// </summary>
+    public string? Confirmation { get; set; }
 
     /// <summary>Mandatory. Lands on the journal row, which is all that survives the cabinet.</summary>
     public string? Reason { get; set; }
@@ -102,21 +108,21 @@ public class DeleteClinicFromConsoleCommandHandler
                 ClinicDeletionRefusals.UnknownClinic, ClinicDeletionRefusals.UnknownClinicCode);
         }
 
-        // Against the cabinet the id actually resolved to, never against a name the client also sent: the failure
+        // Read while the accounts still exist — afterwards the answer is structurally unavailable — and read
+        // BEFORE the confirmation, because the addresses are what the confirmation is checked against.
+        var freed = await ClinicDeletionAddresses.FreedByDeletingAsync(_users, clinic.Id, cancellationToken);
+
+        // Against the cabinet the id actually resolved to, never against a value the client also sent: the failure
         // this catches is a wrong row, and a client comparing two of its own strings would agree with itself.
-        if (!ClinicDeletionRefusals.NamesTheClinic(request.ConfirmationName, clinic.Name))
+        if (!ClinicDeletionRefusals.Confirms(request.Confirmation, freed, clinic.Name))
         {
             return Result<PlatformClinicDeletedDto>.Failure(
-                ClinicDeletionRefusals.NameMismatch, ClinicDeletionRefusals.NameMismatchCode);
+                ClinicDeletionRefusals.MismatchFor(freed), ClinicDeletionRefusals.ConfirmationMismatchCode);
         }
 
         // Resolved before anything is written, `SetClinicSuspensionFromConsoleCommand`'s rule: « nous ne savons pas
         // qui » has to stop the write rather than be discovered while recording it.
         var accountId = PlatformAccessLedger.RequireAccountId(_session);
-
-        // Read while the accounts still exist. Afterwards the answer is structurally unavailable, and this list is
-        // the one thing the vendor came for.
-        var freed = await ClinicDeletionAddresses.FreedByDeletingAsync(_users, clinic.Id, cancellationToken);
 
         var clinicId = clinic.Id;
         var clinicName = clinic.Name;

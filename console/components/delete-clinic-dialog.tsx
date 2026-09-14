@@ -30,10 +30,14 @@ import { formatCount } from "@/lib/format";
  * **absent**, not merely disabled — a form that can be filled in before anybody has been told what it does is a
  * form somebody fills in.
  *
- * ⚠️ **A typed name, not a « je comprends » tick.** The failure this is guarding against is a *wrong row* — several
- * cabinets are named « Cabinet Test N » — and a checkbox cannot catch that; typing the name means the vendor has
- * read the cabinet they are about to destroy. It is checked **again server-side** against the cabinet the id
- * resolved to, so this half is a courtesy: the browser comparing two of its own strings would agree with itself.
+ * ⚠️ **A typed value, not a « je comprends » tick** — and **the account's e-mail address rather than the cabinet's
+ * name**. The failure being guarded against is a *wrong row*, and `Clinic.Name` carries no unique index: several
+ * cabinets really are called « Cabinet Test », so a typed name passes « the wrong row under the same name », which
+ * is the likeliest mistake on a deployment full of trials. An address is unique per install by construction. The
+ * name stays as the fall-back for a cabinet with no account, and **the server decides which** (`confirmationKind`)
+ * so the field cannot ask for something the check will refuse. It is verified **again server-side** against the
+ * cabinet the id resolved to; this half is a courtesy, since a browser comparing two of its own strings would agree
+ * with itself.
  *
  * ⚠️ **The panel does not close on success.** It shows what was removed and which addresses are free, because that
  * list is the whole reason the action was taken and there is nowhere left to read it afterwards — the cabinet is
@@ -49,7 +53,7 @@ export function DeleteClinicDialog({ clinicId, clinicName }: { clinicId: string;
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<PlatformClinicDeletionPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [typedName, setTypedName] = useState("");
+  const [typed, setTyped] = useState("");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +109,7 @@ export function DeleteClinicDialog({ clinicId, clinicName }: { clinicId: string;
       setPreviewError(null);
       setPreview(null);
       setDeleted(null);
-      setTypedName("");
+      setTyped("");
       setReason("");
       setOpen(true);
       return;
@@ -119,7 +123,7 @@ export function DeleteClinicDialog({ clinicId, clinicName }: { clinicId: string;
     // a prompt on an untouched form is the one people learn to dismiss without reading.
     if (
       deleted === null &&
-      (typedName.trim() !== "" || reason.trim() !== "") &&
+      (typed.trim() !== "" || reason.trim() !== "") &&
       !window.confirm("Abandonner cette suppression ? Rien ne sera supprimé.")
     ) {
       return;
@@ -143,7 +147,7 @@ export function DeleteClinicDialog({ clinicId, clinicName }: { clinicId: string;
       const response = await fetch("/bff/suppression", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clinicId, confirmationName: typedName, reason: reason.trim() }),
+        body: JSON.stringify({ clinicId, confirmation: typed, reason: reason.trim() }),
       });
 
       const raw = await response.text();
@@ -176,6 +180,9 @@ export function DeleteClinicDialog({ clinicId, clinicName }: { clinicId: string;
   }
 
   const ready = preview !== null && deleted === null;
+  // The server's answer, never re-derived from `freedEmails.length`: the check applies the same rule, and the copy
+  // that drifts is the one that asks for a value the server refuses.
+  const byAddress = preview?.confirmationKind === "Address";
 
   return (
     <Sheet open={open} onOpenChange={openChanged}>
@@ -228,19 +235,27 @@ export function DeleteClinicDialog({ clinicId, clinicName }: { clinicId: string;
             {ready ? (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor={`${fieldId}-name`}>Nom du cabinet</Label>
+                  <Label htmlFor={`${fieldId}-confirmation`}>
+                    {byAddress ? "Adresse e-mail d'un compte de ce cabinet" : "Nom du cabinet"}
+                  </Label>
                   <Input
-                    id={`${fieldId}-name`}
+                    id={`${fieldId}-confirmation`}
                     required
                     autoComplete="off"
-                    value={typedName}
-                    onChange={(e) => setTypedName(e.target.value)}
+                    // `inputMode`, not `type="email"`: the browser's own validation would refuse the NAME in the
+                    // fall-back case, and one field with two meanings must not validate as only one of them.
+                    inputMode={byAddress ? "email" : "text"}
+                    value={typed}
+                    onChange={(e) => setTyped(e.target.value)}
                     disabled={submitting}
-                    placeholder={clinicName}
+                    placeholder={byAddress ? (preview?.freedEmails[0] ?? "") : clinicName}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Recopiez le nom affiché ci-dessus pour confirmer. Il est vérifié par le serveur contre le
-                    cabinet que cette fiche a ouvert.
+                    {byAddress
+                      ? "Recopiez l'une des adresses listées ci-dessus. C'est l'adresse et non le nom qui est " +
+                        "demandée : deux cabinets peuvent porter le même nom, jamais la même adresse."
+                      : "Ce cabinet n'a aucun compte avec mot de passe : recopiez son nom pour confirmer."}{" "}
+                    Le serveur le vérifie contre le cabinet que cette fiche a ouvert.
                   </p>
                 </div>
 

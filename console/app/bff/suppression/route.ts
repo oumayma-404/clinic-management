@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Session de console requise." }, { status: 401 });
   }
 
-  let body: { clinicId?: string; confirmationName?: string; reason?: string };
+  let body: { clinicId?: string; confirmation?: string; reason?: string };
 
   try {
     body = (await request.json()) as typeof body;
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Requête illisible." }, { status: 400 });
   }
 
-  const { clinicId, confirmationName, reason } = body;
+  const { clinicId, confirmation, reason } = body;
 
   if (!clinicId) {
     return NextResponse.json({ error: "Cabinet non précisé." }, { status: 400 });
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       token,
       // Neither is defaulted or trimmed into existence here: both are mandatory one layer up, and a blank one has
       // to come back as that layer's own French refusal rather than as a 400 this file invented.
-      body: { confirmationName, reason },
+      body: { confirmation, reason },
     });
 
     return NextResponse.json(deleted);
