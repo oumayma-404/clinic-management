@@ -20,6 +20,10 @@ namespace ClinicManagement.Infrastructure.Services;
 /// runs before any clinic exists. Moving it onto <c>IReminderSettingsProvider</c> would compile and would leave
 /// the feature with no way to send anything.</para>
 ///
+/// <para>It sends <c>multipart/alternative</c> — the <c>text/plain</c> part and the HTML — with the brand
+/// lockup as a <c>LinkedResource</c> on the HTML view, so the message carries its own image and depends on no
+/// host being reachable. See <see cref="EmailLayout.LogoContentId"/>.</para>
+///
 /// <para>Never throws: a failure is classified so the caller can turn it into a French refusal the visitor can
 /// act on.</para>
 /// </summary>
@@ -30,16 +34,12 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(20);
 
     private readonly IConfiguration _configuration;
-    private readonly IPublicAppUrlProvider _appUrl;
     private readonly ILogger<SmtpTransactionalEmailSender> _logger;
 
     public SmtpTransactionalEmailSender(
-        IConfiguration configuration,
-        IPublicAppUrlProvider appUrl,
-        ILogger<SmtpTransactionalEmailSender> logger)
+        IConfiguration configuration, ILogger<SmtpTransactionalEmailSender> logger)
     {
         _configuration = configuration;
-        _appUrl = appUrl;
         _logger = logger;
     }
 
@@ -74,8 +74,6 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
             return TransactionalEmailResult.NotConfigured;
         }
 
-        var plainText = EmailLayout.PlainText(content);
-
         try
         {
             // ⚠️ Deliberately NOT behind `PublicEgressGuard`, unlike `SmtpDocumentEmailSender` beside it. That
@@ -96,31 +94,7 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
                     username, SmtpConfig.Password(_configuration) ?? string.Empty);
             }
 
-            using var mail = new MailMessage
-            {
-                From = string.IsNullOrWhiteSpace(fromName)
-                    ? new MailAddress(fromAddress)
-                    : new MailAddress(fromAddress, fromName),
-                Subject = subject,
-                SubjectEncoding = Encoding.UTF8,
-                // The plain-text alternate is ALSO the `Body`, so a client reading only that property (and a
-                // spam filter scoring the message) sees prose rather than markup.
-                Body = plainText,
-                BodyEncoding = Encoding.UTF8,
-                IsBodyHtml = false
-            };
-            mail.To.Add(new MailAddress(recipientEmail));
-
-            // ⚠️ `multipart/alternative` — both parts, always, and in this order. `AlternateViews` is ordered
-            // least-preferred first: a client picks the LAST one it can render, so appending the plain text
-            // after the HTML would hand every graphical client the unstyled version. Sending the HTML *alone*
-            // is the other failure — a reader with HTML refused gets raw tags or an empty message.
-            var plain = AlternateView.CreateAlternateViewFromString(
-                plainText, Encoding.UTF8, MediaTypeNames.Text.Plain);
-            var html = AlternateView.CreateAlternateViewFromString(
-                EmailLayout.Html(content, _appUrl.BaseUrl), Encoding.UTF8, MediaTypeNames.Text.Html);
-            mail.AlternateViews.Add(plain);
-            mail.AlternateViews.Add(html);
+            using var mail = BuildMessage(recipientEmail, subject, content, fromAddress, fromName);
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(SendTimeout);
@@ -139,5 +113,63 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
             _logger.LogWarning(ex, "Transactional SMTP send failed.");
             return TransactionalEmailResult.Failed(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Assembles the <see cref="MailMessage"/> one send puts on the wire.
+    ///
+    /// <para><c>public</c> rather than <c>internal</c> because this solution has no
+    /// <c>InternalsVisibleTo</c> — <c>DirectoryAclHardener.ComposeGrantArguments</c>'s precedent, and for
+    /// its reason: the MIME shape below is the whole of « will the logo appear? », and the alternative is a
+    /// test that builds its own message and therefore proves nothing about this one. A URL-linked logo shipped
+    /// with every unit test green.</para>
+    /// </summary>
+    public static MailMessage BuildMessage(
+        string recipientEmail, string subject, EmailContent content, string fromAddress, string? fromName)
+    {
+        var plainText = EmailLayout.PlainText(content);
+
+        var mail = new MailMessage
+        {
+            From = string.IsNullOrWhiteSpace(fromName)
+                ? new MailAddress(fromAddress)
+                : new MailAddress(fromAddress, fromName),
+            Subject = subject,
+            SubjectEncoding = Encoding.UTF8,
+            // The plain-text alternate is ALSO the `Body`, so a client reading only that property (and a spam
+            // filter scoring the message) sees prose rather than markup.
+            Body = plainText,
+            BodyEncoding = Encoding.UTF8,
+            IsBodyHtml = false
+        };
+        mail.To.Add(new MailAddress(recipientEmail));
+
+        // ⚠️ `multipart/alternative` — both parts, always, and in this order. `AlternateViews` is
+        // ordered least-preferred first: a client picks the LAST one it can render, so appending the plain text
+        // after the HTML would hand every graphical client the unstyled version. Sending the HTML *alone* is
+        // the other failure — a reader with HTML refused gets raw tags or an empty message.
+        var plain = AlternateView.CreateAlternateViewFromString(
+            plainText, Encoding.UTF8, MediaTypeNames.Text.Plain);
+        var html = AlternateView.CreateAlternateViewFromString(
+            EmailLayout.Html(content), Encoding.UTF8, MediaTypeNames.Text.Html);
+
+        // ⚠️ The lockup is a LinkedResource on the HTML view, not a URL and not an `Attachments`
+        // entry. `EmailLayout.LogoContentId` records why it is not a URL; the reason it is not an ordinary
+        // attachment is that a `cid:` reference only resolves against the view that carries the resource, and a
+        // client that cannot match the id shows the image as a paperclip the reader has to open. `ContentId` is
+        // assigned AFTER construction because no constructor overload sets it.
+        var logo = new LinkedResource(
+            new MemoryStream(EmailLayout.LogoPng.ToArray()), MediaTypeNames.Image.Png)
+        {
+            ContentId = EmailLayout.LogoContentId,
+            TransferEncoding = TransferEncoding.Base64
+        };
+        logo.ContentType.Name = "apexa.png";
+        html.LinkedResources.Add(logo);
+
+        mail.AlternateViews.Add(plain);
+        mail.AlternateViews.Add(html);
+
+        return mail;
     }
 }
