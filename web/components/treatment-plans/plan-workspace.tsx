@@ -68,7 +68,7 @@ import {
 import { PlanProgressBar } from "./plan-progress-bar"
 import {
   PlanActPrimaryAction, PlanActReorderControls, PlanActRow, PlanActSelectionBox, PlanActStateBadge,
-  PlanActStepsAction, planActCardFields,
+  PlanActStepsAction, PlanActEditAction, planActCardFields,
 } from "./plan-act-row"
 import { PlanStepStrip } from "./plan-step-strip"
 import { PlanItemStepsDialog } from "./plan-item-steps-dialog"
@@ -234,6 +234,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   /** The act catalogue read failed — not the same as a devis whose acts are legitimately all free text. */
   const [catalogFailed, setCatalogFailed] = useState(false)
   const [amendOpen, setAmendOpen] = useState(false)
+  /**
+   * Which act « Modifier le devis » should open on. Null when the header's « ⋯ » opened it, which is the
+   * whole-plan case and legitimately lands on the first line.
+   */
+  const [amendFocusItemId, setAmendFocusItemId] = useState<string | null>(null)
+  const openAmend = (item?: TreatmentPlanItemDto) => {
+    setAmendFocusItemId(item?.id ?? null)
+    setAmendOpen(true)
+  }
   const [reviseOpen, setReviseOpen] = useState(false)
   /** « Arrêter le traitement » — see the button's note. */
   const [stopOpen, setStopOpen] = useState(false)
@@ -1015,7 +1024,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   */}
                   {(canAmend || isActive || plan.status === "Completed") && <DropdownMenuSeparator />}
                   {canAmend && (
-                    <DropdownMenuItem disabled={busy} onSelect={() => setAmendOpen(true)}>
+                    <DropdownMenuItem disabled={busy} onSelect={() => openAmend()}>
                       <FilePen className="h-4 w-4" />
                       Modifier les actes et les prix
                     </DropdownMenuItem>
@@ -1351,11 +1360,23 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                        * This is verbatim the case `CardList.primaryAction` documents — « the action a user
                        * opens the page to perform » — and planning the next étape is why this screen exists.
                        */
-                      actions={(a) =>
-                        canCorrectActs ? (
+                      actions={(a) => {
+                        const steps = canCorrectActs ? (
                           <PlanActStepsAction item={a.item} onEditSteps={setStepsTarget} />
-                        ) : undefined
-                      }
+                        ) : null
+                        // « Modifier » sits beside « Séances » in the card header for the same reason it
+                        // does in the row: the act is where a dentist looks for it.
+                        const edit = canAmend ? (
+                          <PlanActEditAction item={a.item} onEdit={openAmend} />
+                        ) : null
+                        if (!steps && !edit) return undefined
+                        return (
+                          <span className="flex items-center gap-1">
+                            {steps}
+                            {edit}
+                          </span>
+                        )
+                      }}
                       primaryAction={(a) => (
                         <PlanActPrimaryAction
                           plan={plan}
@@ -1404,6 +1425,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       onSchedule={(target) => startBooking([[target]])}
                       onUndo={canCorrectActs ? setUndoTarget : undefined}
                       onEditSteps={canCorrectActs ? setStepsTarget : undefined}
+                      onEdit={canAmend ? openAmend : undefined}
                       selection={
                         canGroup
                           ? {
@@ -1967,6 +1989,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         onOpenChange={setAmendOpen}
         editingPlan={plan}
         amendMode
+        focusItemId={amendFocusItemId}
         presetPatientId={plan.patientId}
         presetPatientName={plan.patientName ?? "Patient"}
         onSuccess={() => {

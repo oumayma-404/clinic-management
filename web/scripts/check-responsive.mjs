@@ -2490,6 +2490,76 @@ check(
 );
 
 check(
+  "act-removal-has-one-owner",
+  "N38",
+  "« May this act be taken off the devis? » is asked through `actRemovalPlan`, never derived from the état",
+  "The amend dialog derived it from `planItemState`, which answers for the act's NEXT STEP — a deliberate " +
+    "choice for the badge and the wrong question here, wrong in three directions at once. A rendez-vous that " +
+    "had already PASSED disabled the bin with « un rendez-vous est prévu » on a removal the server allows; a " +
+    "bridge with one séance delivered and the next unbooked ENABLED it on one the server refuses; and a " +
+    "séance booked out of protocol order did the same. None of the three errors anywhere — the control is " +
+    "simply grey, or the save bounces a sentence the form had already promised would not come. " +
+    "`actRemovalPlan` mirrors `TreatmentPlan.EnsureItemRemovable` term for term (delivered work is the one " +
+    "refusal) and also reports the booking that travels with the act, which is what the confirmation names. " +
+    "`plan-next-action.ts` says so in its own docstring; this is what stops a second surface re-deriving it.",
+  () => {
+    const offenders = [];
+    const OWNER = "components/treatment-plans/plan-next-action.ts";
+
+    /*
+     * The shape the defect had: a removal control whose `disabled` / blocker is decided a few lines from a
+     * `planItemState` call. Anchored on the two appearing in ONE file, because `planItemState` is perfectly
+     * correct wherever it drives a badge or a primary action — a guard that fires on correct code is one
+     * somebody deletes.
+     */
+    const REMOVAL_WORD = /\b(removalBlocker|removalBlocked|removalPlans|canRemoveAct|removeItemIds)\b/;
+
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      if (relPath === OWNER) continue;
+
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      if (!REMOVAL_WORD.test(code)) continue;
+      if (!/\bplanItemState\b/.test(code)) continue;
+
+      offenders.push({
+        file: relPath,
+        line: lineAt(code, code.search(/\bplanItemState\b/)),
+        text:
+          "decides whether an act may be removed beside a `planItemState` call — ask `actRemovalPlan(plan, " +
+          "item)` instead. That function answers for the act's next STEP, so a passed rendez-vous blocks a " +
+          "removal the server allows and a part-done act does not block one it refuses",
+      });
+    }
+
+    /*
+     * The owner must still exist and must still be the one asking the delivered-work question, or the guard
+     * points callers at nothing. No candidate tripwire: zero offenders is the correct steady state here,
+     * every writer having been routed through the helper.
+     */
+    const owner = read(tsx().find((f) => rel(f) === OWNER) ?? "");
+    if (!/export function actRemovalPlan/.test(owner)) {
+      offenders.push({
+        file: OWNER,
+        text: "`actRemovalPlan` is gone — the guard has nothing to point callers at",
+      });
+    } else if (!/hasDeliveredWork/.test(owner)) {
+      offenders.push({
+        file: OWNER,
+        text:
+          "`actRemovalPlan` no longer asks `hasDeliveredWork` — that is the server's single refusal, so the " +
+          "two have drifted",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
   "public-routes-have-one-owner",
   "N24",
   "One list decides which routes are reached without a session, and every guard asks it",

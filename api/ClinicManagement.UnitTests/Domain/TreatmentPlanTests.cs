@@ -361,8 +361,11 @@ public class TreatmentPlanTests
         Assert.Equal(before + 1, plan.RevisionNumber);
     }
 
-    // [AC-21] The domain half of the removal guards: a Done act is refused outright, and a booked one is
-    // refused when the caller supplies the booking (the aggregate cannot query appointments itself).
+    // [AC-21] The domain half of the removal guard, and there is now exactly ONE: delivered work. An act
+    // nothing has been recorded against comes off the devis whatever is booked for it — the visit is the
+    // handler's to settle, which is the cascade this aggregate cannot perform and therefore cannot condition
+    // on. The refusal for a booked act used to live here and made changing one's mind about work that had not
+    // started a trip to the agenda and back.
     [Fact]
     public void RemoveItem_Refuses_A_Done_Act()
     {
@@ -370,19 +373,42 @@ public class TreatmentPlanTests
         var itemId = plan.Items.First().Id;
         plan.MarkItemDone(itemId, DoneOn, RecordId);
 
-        Assert.Throws<InvalidOperationException>(() => plan.RemoveItem(itemId));
+        var ex = Assert.Throws<InvalidOperationException>(() => plan.RemoveItem(itemId));
+
+        Assert.Contains("fiche de soins", ex.Message);
     }
 
     [Fact]
-    public void RemoveItem_Refuses_An_Act_With_A_Live_Appointment()
+    public void RemoveItem_Accepts_An_Act_Nothing_Has_Been_Recorded_Against()
     {
         var plan = AcceptedPlan(actCount: 2);
         var itemId = plan.Items.First().Id;
+        var cost = plan.Items.First().PlannedCost;
+        var totalBefore = plan.TotalPlanned;
 
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => plan.RemoveItem(itemId, new DateTime(2026, 8, 12, 9, 0, 0, DateTimeKind.Utc)));
+        plan.RemoveItem(itemId);
 
-        Assert.Contains("12/08", ex.Message);
+        Assert.DoesNotContain(plan.Items, i => i.Id == itemId);
+        Assert.Equal(totalBefore - cost, plan.TotalPlanned);
+    }
+
+    // The other half of « one guard »: a stepped act part-way through is `InProgress`, not `Done`, and the
+    // step rows carry the only link to the fiches that evidence it.
+    [Fact]
+    public void RemoveItem_Refuses_An_Act_With_One_Séance_Delivered()
+    {
+        var plan = AcceptedPlan(actCount: 2);
+        var itemId = plan.Items.First().Id;
+        plan.SetItemSteps(itemId, new[]
+        {
+            new TreatmentPlanItemStepInput(null, "Préparation", 45, null),
+            new TreatmentPlanItemStepInput(null, "Scellement", 30, 14),
+        });
+        plan.MarkItemDone(itemId, DoneOn, RecordId);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => plan.RemoveItem(itemId));
+
+        Assert.Contains("1 séance(s) réalisée(s)", ex.Message);
     }
 
     // [AC-22c] A cosmetic reorder is not an amendment — it must not bump the revision.

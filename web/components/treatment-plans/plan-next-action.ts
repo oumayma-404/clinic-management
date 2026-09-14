@@ -124,6 +124,69 @@ export function hasDeliveredWork(item: TreatmentPlanItemDto): boolean {
   return item.status === "Done" || (item.steps?.some((s) => s.doneDate) ?? false)
 }
 
+/** The visit that goes with an act being removed, and what will happen to it. */
+export interface ActRemovalBooking {
+  appointmentId: string
+  /** ISO instant, so the caller formats it with the app's own 24-hour helpers. */
+  at: string
+  /** Other acts of this same devis that the visit also covers. `> 0` means the visit stands. */
+  sharedWith: number
+}
+
+/** What removing one act from a devis will do — see {@link actRemovalPlan}. */
+export type ActRemovalPlan =
+  | { removable: false; reason: string }
+  | { removable: true; booking: ActRemovalBooking | null }
+
+/**
+ * Whether an act may be taken off the devis, and what its rendez-vous will do if it is.
+ *
+ * <p>⚠️ <b>This, and never {@link planItemState}, is what the removal control asks.</b> That function answers
+ * for the act's <i>next step</i> — deliberately, so the badge says what to do next — and reading it as
+ * « is this removable? » was wrong in three directions at once: a visit that had already passed disabled the
+ * bin with « un rendez-vous est prévu » while the server would happily have allowed the removal; a bridge with
+ * one séance delivered and the next unbooked *enabled* the bin on work the server refuses; and a séance booked
+ * out of protocol order did the same. The mirror of `TreatmentPlan.EnsureItemRemovable`, term for term.</p>
+ *
+ * <p>The one refusal is <b>delivered work</b> — a fiche. Everything else comes off, and the booking travels
+ * with it: the handler cancels a visit this act was the only reason for and drops the act from one that
+ * carries others, which is why this reports which of the two it will be rather than refusing.</p>
+ */
+export function actRemovalPlan(plan: TreatmentPlanDto, item: TreatmentPlanItemDto): ActRemovalPlan {
+  if (item.status === "Done") {
+    return {
+      removable: false,
+      reason: `Acte déjà réalisé — utilisez « Détacher la fiche » sur la ligne de l'acte, puis réessayez.`,
+    }
+  }
+  if (hasDeliveredWork(item)) {
+    const done = item.steps?.filter((s) => s.doneDate).length ?? 0
+    return {
+      removable: false,
+      reason: `${done} séance(s) déjà réalisée(s) — détachez-les de leur fiche de soins, puis réessayez.`,
+    }
+  }
+
+  // The act's own booking, else the earliest one any of its séances carries. Past or future alike: a slot that
+  // has gone by with nobody recording anything is still a standing rendez-vous, and it is precisely the one a
+  // dentist changing their mind wants gone.
+  const fromSteps = (item.steps ?? [])
+    .filter((s) => s.scheduledAppointmentId && s.scheduledAt)
+    .sort((a, b) => (a.scheduledAt! < b.scheduledAt! ? -1 : 1))[0]
+  const appointmentId = item.scheduledAppointmentId ?? fromSteps?.scheduledAppointmentId ?? null
+  const at = item.scheduledAt ?? fromSteps?.scheduledAt ?? null
+  if (!appointmentId || !at) return { removable: true, booking: null }
+
+  // How many OTHER acts of this devis the same visit covers. It may also carry acts from elsewhere — a walk-in
+  // détartrage — which this cannot see; the server decides for real, and it only ever errs towards keeping the
+  // visit, so the sentence never promises a cancellation that does not happen.
+  const sharedWith = plan.items.filter(
+    (other) => other.id !== item.id && other.scheduledAppointmentId === appointmentId,
+  ).length
+
+  return { removable: true, booking: { appointmentId, at, sharedWith } }
+}
+
 /** An act parked by « Arrêter le traitement »: not treatment any more, and nothing about it is lost. */
 export function isItemWithdrawn(item: TreatmentPlanItemDto): boolean {
   return item.isWithdrawn === true || item.status === "Withdrawn"

@@ -1,6 +1,8 @@
+using MediatR;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Appointments.Commands;
 using ClinicManagement.Application.Features.TreatmentPlans.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -33,6 +35,7 @@ public class AmendTreatmentPlanCommandHandlerTests
     private readonly Mock<IAppointmentRepository> _appointments = new();
     private readonly Mock<IProcedureTypeRepository> _procedureTypes = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
+    private readonly Mock<IMediator> _mediator = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
     public AmendTreatmentPlanCommandHandlerTests()
@@ -41,11 +44,13 @@ public class AmendTreatmentPlanCommandHandlerTests
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         NoBridgeInvoice();
         NoAppointments();
+        CancellationsSucceed();
     }
 
     private AmendTreatmentPlanCommandHandler CreateHandler() => new(
         _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _procedureTypes.Object,
-        _clinicResolver.Object, _uow.Object, NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
+        _clinicResolver.Object, _mediator.Object, _uow.Object,
+        NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
 
     private void NoBridgeInvoice() =>
         _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -63,14 +68,25 @@ public class AmendTreatmentPlanCommandHandlerTests
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
 
-    private void BookedFor(Guid itemId, DateTime at) =>
+    /// <summary>One live visit booked for this act, and nothing else. Returns its id.</summary>
+    private Guid BookedFor(Guid itemId, DateTime at)
+    {
+        var appointment = new Appointment(
+            Guid.NewGuid(), ClinicId, PatientId, null, at, TimeSpan.FromMinutes(30),
+            treatmentPlanItemId: itemId);
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[]
-            {
-                new Appointment(Guid.NewGuid(), ClinicId, PatientId, null, at, TimeSpan.FromMinutes(30),
-                    treatmentPlanItemId: itemId)
-            });
+            .ReturnsAsync(new[] { appointment });
+        return appointment.Id;
+    }
+
+    /// <summary>
+    /// MediatR never hands a handler back a null response, and Moq's default does — which surfaces as the
+    /// generic « Erreur lors de la modification du devis. » rather than as a missing stub.
+    /// </summary>
+    private void CancellationsSucceed() =>
+        _mediator.Setup(m => m.Send(It.IsAny<UpdateAppointmentCommand>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<AppointmentDto>.Success(new AppointmentDto()));
 
     /// <summary>An accepted 1 000 DT devis (two acts) with a single lump-sum échéance.</summary>
     private TreatmentPlan AcceptedPlan()
@@ -185,15 +201,16 @@ public class AmendTreatmentPlanCommandHandlerTests
         NothingCommitted();
     }
 
-    // [AC-21] An act the patient is still booked for cannot be removed, and the message names the date and
-    // the remedy — the patient would otherwise be expected (reminders already sent) for work that no longer
-    // exists, with no FK to catch the orphaned appointment.
+    // [AC-21] An act the patient is booked for comes off the devis, and the visit it was the only reason for
+    // is cancelled with it — through `UpdateAppointmentCommand`, because cancelling is five things (the staff
+    // notification, the post-visit review, the unsent reminders, the Google event, the broadcast) and a
+    // hand-rolled `appointment.Cancel()` here would be a sixth writer that forgets every one of them.
     [Fact]
-    public async Task Removing_An_Act_With_A_Live_Appointment_Is_Rejected_With_Its_Date()
+    public async Task Removing_A_Booked_Act_Removes_It_And_Cancels_The_Visit()
     {
         var plan = AcceptedPlan();
         var bookedId = plan.Items.First().Id;
-        BookedFor(bookedId, DateTime.UtcNow.AddDays(9));
+        var appointmentId = BookedFor(bookedId, DateTime.UtcNow.AddDays(9));
 
         var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
         {
@@ -202,10 +219,51 @@ public class AmendTreatmentPlanCommandHandlerTests
             Installments = Schedule(400m),
         }, CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Contains("rendez-vous", result.Error!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Annulez ou déplacez", result.Error!);
-        NothingCommitted();
+        Assert.True(result.IsSuccess);
+        Assert.Single(plan.Items);
+        _mediator.Verify(
+            m => m.Send(
+                It.Is<UpdateAppointmentCommand>(c => c.Id == appointmentId && c.Status == "Cancelled"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    // The same removal on a visit that carries somebody else's act too: the séance stands, it just stops
+    // covering the act that left. Decided per procedure row, never per plan link.
+    [Fact]
+    public async Task Removing_An_Act_From_A_Shared_Visit_Keeps_The_Visit()
+    {
+        var plan = AcceptedPlan();
+        var removedId = plan.Items.First().Id;
+        var keptId = plan.Items.Last().Id;
+
+        var appointment = new Appointment(
+            Guid.NewGuid(), ClinicId, PatientId, null, DateTime.UtcNow.AddDays(9), TimeSpan.FromMinutes(60));
+        appointment.SetProcedures(new[]
+        {
+            new AppointmentProcedureInput(Guid.NewGuid(), "Couronne", 30, "#111111", 400m, removedId),
+            new AppointmentProcedureInput(Guid.NewGuid(), "Détartrage", 30, "#222222", 100m, keptId),
+        });
+        _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { appointment });
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            RemoveItemIds = new List<Guid> { removedId },
+            Installments = Schedule(400m),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        _mediator.Verify(
+            m => m.Send(It.IsAny<UpdateAppointmentCommand>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        var kept = Assert.Single(appointment.Procedures);
+        Assert.Equal(keptId, kept.TreatmentPlanItemId);
+        // The agreed price rides along: `SetProcedures` replaces the whole list, so a kept row re-sent
+        // without its price silently reverts to the catalogue tarif.
+        Assert.Equal(100m, kept.AgreedCost);
     }
 
     // [AC-2][AC-21] Cancelling the appointment is what unblocks the removal: the projection excludes

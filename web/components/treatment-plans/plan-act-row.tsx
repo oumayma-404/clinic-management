@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import type { CardListField } from "@/components/ui/card-list"
 import {
   CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown, Unlink, Layers,
-  ListOrdered,
+  ListOrdered, FilePen,
 } from "lucide-react"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
@@ -58,6 +58,11 @@ interface PlanActRowProps {
    * the control — the server refuses both.
    */
   onEditSteps?: (item: TreatmentPlanItemDto) => void
+  /**
+   * Opens « Modifier le devis » with this act's line in focus. Omitted on a plan the server will not amend,
+   * which is also what hides the control.
+   */
+  onEdit?: (item: TreatmentPlanItemDto) => void
   reorder?: PlanActReorder
 }
 
@@ -362,6 +367,38 @@ export function PlanActStepsAction({
 }
 
 /**
+ * « Modifier » — the act's désignation, its fee and its teeth, on the row where they are read.
+ *
+ * <p>⚠️ It opens the plan-wide amendment dialog, and it exists because that dialog had exactly one door: a
+ * « Modifier les actes et les prix » item inside the header's « ⋯ » menu. A dentist looking at the act they
+ * wanted to change did not find it — reported as « I struggled to find how to edit ». The act's id travels
+ * with it so the dialog can put that line in front of the reader instead of opening on the first one.</p>
+ *
+ * <p>A word rather than a mute icon, for `PlanActStepsAction`'s reason one component up: a `title` needs a
+ * hover, and the device this product is used on most does not have one.</p>
+ */
+export function PlanActEditAction({
+  item,
+  onEdit,
+}: {
+  item: TreatmentPlanItemDto
+  onEdit: (item: TreatmentPlanItemDto) => void
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-8 shrink-0 gap-1.5 px-2 text-muted-foreground coarse:h-10 hover-hover:hover:text-foreground"
+      onClick={() => onEdit(item)}
+      aria-label={`Modifier ${quoteFr(item.designationFr)} — désignation, honoraires, dents`}
+    >
+      <FilePen className="h-4 w-4" />
+      <span className="hidden sm:inline">Modifier</span>
+    </Button>
+  )
+}
+
+/**
  * What an act's « Coût » column says.
  *
  * <p>⚠️ **An act another document bills shows the NOTE, never a bare « 0,000 DT ».** The 0 is correct and
@@ -430,6 +467,7 @@ export function PlanActRow({
   onSchedule,
   onUndo,
   onEditSteps,
+  onEdit,
   reorder,
   selection,
   sessionActCount = 1,
@@ -482,6 +520,7 @@ export function PlanActRow({
         <div className="flex items-center justify-end gap-1">
           <PlanActPrimaryAction plan={plan} item={item} onSchedule={onSchedule} onUndo={onUndo} />
           {onEditSteps && <PlanActStepsAction item={item} onEditSteps={onEditSteps} />}
+          {onEdit && <PlanActEditAction item={item} onEdit={onEdit} />}
         </div>
       </TableCell>
     </TableRow>
