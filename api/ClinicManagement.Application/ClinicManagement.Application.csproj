@@ -1,6 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- The e-mail lockup travels INSIDE the assembly, so `SmtpTransactionalEmailSender` can attach it to the
+         message itself. See `EmailLayout.LogoContentId` for why it is not a URL. -->
+    <EmbeddedResource Include="Common\Email\apexa-email-lockup.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ClinicManagement.Domain\ClinicManagement.Domain.csproj" />
   </ItemGroup>
 

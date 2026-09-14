@@ -354,11 +354,17 @@ writeFileSync(join(IOS_APPICON, "AppIcon-1024.png"), appIcon);
 console.log(`  ✓ ${"mobile/ios/…/AppIcon-1024".padEnd(26)} 1024×1024, no alpha`);
 
 /**
- * The e-mail lockup — a **PNG**, and that is the whole point of it existing beside `apexa-lockup.svg`.
+ * The e-mail lockup — a **PNG**, written into the **API** project and not into `web/public`.
  *
  * ⚠️ Gmail, Outlook.com and Yahoo all strip `<img src="…svg">` outright, so a transactional e-mail cannot
  * reference the committed SVG lockup and every recipient would see the `alt` text. Rasterised at 3× the 140 px
  * it is displayed at, because a mail client on a retina screen resamples whatever it is given.
+ *
+ * ⚠️ **It lives in `api/…/Common/Email/`, embedded in the Application assembly, and NOT in `web/public`.**
+ * The e-mail attaches it to the message (`EmailLayout.LogoContentId`) rather than linking it, so the asset has
+ * to travel with the **API**. It was in `web/public` for one commit and the consequence was measured on the live
+ * deployment: the file answered 307 while every other public asset answered 200, because `web/` ships only when
+ * the web image is rebuilt — an e-mail sent between the two deploys had no logo, permanently.
  *
  * ⚠️ It is the **light** lockup (dark ink), not `apexa-lockup-dark.svg`: the e-mail's header sits on a white
  * card, for the reason `EmailLayout` states — a lockup whose mark is already a gradient plate disappears on a
@@ -366,6 +372,8 @@ console.log(`  ✓ ${"mobile/ios/…/AppIcon-1024".padEnd(26)} 1024×1024, no al
  * blue instead.
  */
 const EMAIL_LOCKUP_WIDTH = 420;
+const EMAIL_LOCKUP_DIR = join(
+  REPO_ROOT, "api", "ClinicManagement.Application", "Common", "Email");
 const emailLockup = await sharp(
   readFileSync(join(OUT_DIR, "apexa-lockup.svg")),
   { density: 300 },
@@ -373,5 +381,6 @@ const emailLockup = await sharp(
   .resize({ width: EMAIL_LOCKUP_WIDTH })
   .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
   .toBuffer();
-writeFileSync(join(OUT_DIR, "apexa-email-lockup.png"), emailLockup);
-console.log(`  ✓ ${"apexa-email-lockup.png".padEnd(26)} ${EMAIL_LOCKUP_WIDTH}px wide, 3× of 140`);
+writeFileSync(join(EMAIL_LOCKUP_DIR, "apexa-email-lockup.png"), emailLockup);
+console.log(
+  `  ✓ ${"api/…/Email/apexa-email-lockup".padEnd(26)} ${EMAIL_LOCKUP_WIDTH}px wide, 3× of 140`);

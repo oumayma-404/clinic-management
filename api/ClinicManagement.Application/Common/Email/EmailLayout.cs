@@ -1,4 +1,5 @@
-using System.Net;
+﻿using System.Net;
+using System.Reflection;
 using System.Text;
 
 namespace ClinicManagement.Application.Common.Email;
@@ -12,11 +13,14 @@ namespace ClinicManagement.Application.Common.Email;
 /// <c>background-image</c>, no <c>border-radius</c> on a cell and no external stylesheet. Every rule below is
 /// either supported by the worst client in the set or decorative enough to lose silently. Specifically:</para>
 /// <list type="bullet">
-///   <item><b>No SVG anywhere.</b> Gmail, Outlook.com and Yahoo strip <c>&lt;img src="…svg"&gt;</c> outright,
-///   which is why <c>apexa-email-lockup.png</c> exists beside the committed lockup at all.</item>
-///   <item><b>Every image has a styled <c>alt</c>, and nothing structural depends on one loading.</b> Outlook and
-///   Gmail block remote images until the reader asks for them, so the lockup's <c>alt</c> is « APEXA » in brand
-///   colour at the logo's own size — a blocked header still reads as a header.</item>
+///   <item><b>No SVG anywhere, and no remote image either.</b> Gmail, Outlook.com and Yahoo strip
+///   <c>&lt;img src="…svg"&gt;</c> outright — which is why <c>apexa-email-lockup.png</c> exists beside the
+///   committed lockup — and the PNG is attached to the message rather than linked, for the three reasons
+///   <see cref="LogoContentId"/> records.</item>
+///   <item><b>Every image has a styled <c>alt</c>, and nothing structural depends on one loading.</b> The
+///   lockup's <c>alt</c> is « APEXA » in brand colour at the logo's own size, so a client that refuses the
+///   attachment still shows a header. ⚠️ It carries <c>max-width</c> and not a fixed <c>width</c>: a
+///   140 px box crops the word, which is how a fallback becomes an empty rectangle.</item>
 ///   <item><b>The button is a table, not a styled anchor.</b> Outlook refuses padding on an inline
 ///   <c>&lt;a&gt;</c>, so a padded anchor arrives as bare blue text on the one client a Tunisian practice is
 ///   most likely to be running.</item>
@@ -70,23 +74,51 @@ public static class EmailLayout
     private const string SupportAddress = "contact@apexa.tn";
 
     /// <summary>
-    /// The lockup, served from the deployment's own web origin.
+    /// The <c>Content-ID</c> the HTML references and the sender attaches the lockup under, so the image
+    /// <b>travels inside the message</b>.
     ///
-    /// <para>⚠️ <b>Built from <c>IPublicAppUrlProvider.BaseUrl</c> and never compiled in</b>, for the reason that
-    /// interface exists: one install's e-mail must not load another install's asset, and an offline-LAN cabinet
-    /// has no route to <c>apexa.tn</c> at all — there, this resolves to the clinic's own PC, which is the only
-    /// host that will answer.</para>
+    /// <para>⚠️ <b>It was a URL on the deployment's own web origin, and that was wrong twice over.</b>
+    /// Measured on the live deployment 2026-09-14, after a real signup: the file answered <c>307</c> at
+    /// <c>/apexa-email-lockup.png</c> while <c>/icon-192.png</c> answered <c>200</c> — the asset is in
+    /// <c>web/</c>, so it ships only when the <i>web</i> image is rebuilt, and an e-mail whose logo depends on
+    /// another service's deploy cadence is broken by default on the day it is written. Worse, the web sends
+    /// <c>Cross-Origin-Resource-Policy: same-site</c>, so a mail client fetching it <i>directly</i> (Apple Mail,
+    /// Outlook desktop) is refused even once the file is there. And a remote image is blocked by default for
+    /// unknown senders in Outlook and Gmail regardless.</para>
+    ///
+    /// <para>A <c>LinkedResource</c> has none of those failure modes: no network, no deploy coupling, nothing to
+    /// block, and it works on the offline-LAN install where there is no route to anything. It costs ~7 KB per
+    /// message.</para>
     /// </summary>
-    private static string LogoUrl(string baseUrl) => $"{baseUrl.TrimEnd('/')}/apexa-email-lockup.png";
+    public const string LogoContentId = "apexa-lockup";
 
     /// <summary>
-    /// The HTML body.
+    /// The lockup's bytes, from this assembly. Read once — a transactional send is not a hot path, but the
+    /// stream is, and re-reading it per message would be a manifest lookup per e-mail for no reason.
+    /// </summary>
+    public static ReadOnlyMemory<byte> LogoPng => LazyLogo.Value;
+
+    private static readonly Lazy<byte[]> LazyLogo = new(() =>
+    {
+        // The name is the default `<RootNamespace>.<folder path>.<file>` the SDK assigns an EmbeddedResource.
+        const string resource = "ClinicManagement.Application.Common.Email.apexa-email-lockup.png";
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource)
+            ?? throw new InvalidOperationException(
+                $"The e-mail lockup is not embedded in this assembly under '{resource}'. It is declared as an "
+                + "EmbeddedResource in ClinicManagement.Application.csproj and regenerated by "
+                + "web/scripts/generate-icons.mjs.");
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    });
+
+    /// <summary>
+    /// The HTML body. The lockup is referenced as <c>cid:</c> — see <see cref="LogoContentId"/> — so the
+    /// sender <b>must</b> attach <see cref="LogoPng"/> as a linked resource or the header renders as a broken
+    /// image.
     /// </summary>
     /// <param name="content">What to say.</param>
-    /// <param name="baseUrl">
-    /// The deployment's public web origin, from <c>IPublicAppUrlProvider.BaseUrl</c> — the logo is loaded from it.
-    /// </param>
-    public static string Html(EmailContent content, string baseUrl)
+    public static string Html(EmailContent content)
     {
         var sb = new StringBuilder(4096);
 
@@ -118,8 +150,8 @@ public static class EmailLayout
         sb.Append(
             $"""
             <tr><td class="px" style="padding:30px 32px 0 32px;">
-              <img src="{Escape(LogoUrl(baseUrl))}" width="140" height="42" alt="APEXA"
-                   style="display:block;width:140px;height:42px;border:0;outline:none;text-decoration:none;font-family:{Font};font-size:22px;font-weight:700;color:{BrandDeep};">
+              <img src="cid:{LogoContentId}" width="140" height="42" alt="APEXA"
+                   style="display:block;height:42px;max-width:140px;border:0;outline:none;text-decoration:none;font-family:{Font};font-size:22px;font-weight:700;letter-spacing:-0.01em;color:{BrandDeep};">
             </td></tr>
             <tr><td class="px" style="padding:20px 32px 0 32px;">
               <h1 class="h1" style="margin:0;font-family:{Font};font-size:28px;line-height:1.22;font-weight:700;color:{Ink};">{Escape(content.Title)}</h1>

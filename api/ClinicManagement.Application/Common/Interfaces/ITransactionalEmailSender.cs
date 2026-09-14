@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Email;
+﻿using ClinicManagement.Application.Common.Email;
 
 namespace ClinicManagement.Application.Common.Interfaces;
 
@@ -60,11 +60,10 @@ public interface ITransactionalEmailSender
     /// <i>arrives perfectly</i>, merely unstyled, which no test and no derived check in this repository could
     /// see. Taking the content makes it unrepresentable.</para>
     ///
-    /// <para>⚠️ <b>Rendering happens in the implementation, on purpose.</b> The HTML loads the lockup
-    /// from this deployment's own web origin, which is <c>FrontendUrl</c> — the value
-    /// <see cref="IPublicAppUrlProvider"/> reads. Composing the markup in the handlers instead would oblige all
-    /// seven of them to inject that provider in order to say nothing about it; only the two that put a
-    /// <i>link</i> in the message have a reason to know the origin.</para>
+    /// <para>⚠️ <b>Rendering happens in the implementation, on purpose.</b> The HTML references the brand
+    /// lockup as <c>cid:</c> and the implementation is what attaches it to the message, so composing the markup
+    /// in the handlers would give seven callers a resource to remember to attach — and forgetting it produces
+    /// a broken image, not an error. <see cref="EmailLayout.LogoContentId"/> has the rest.</para>
     /// </summary>
     Task<TransactionalEmailResult> SendAsync(
         string recipientEmail,
