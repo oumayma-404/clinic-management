@@ -287,22 +287,22 @@ const HOUR_CELL_HALVES = (
 )
 
 /**
- * Mois on a phone is a **continuous scroll into the following months**, and these three numbers bound it.
+ * Mois on a phone is **one month, on one screen** — the month's own 4–6 weeks sharing the height, no scroll.
  *
- * A month that stops at its own last row is a dead end on a phone: the desktop grid can afford ‹ › arrows in a
- * toolbar, but the phone gesture for "what about after that" is to keep scrolling — so the weeks simply carry on,
- * with a month heading where each new month starts, exactly like Google Calendar's month view.
+ * ⚠️ It used to scroll on into the following months, growing the span (and the fetch window) as the thumb
+ * reached the bottom. That was a dead end made navigable, but it cost the thing the view is for: a cell sized by
+ * content is a cell too short to name anybody, so a day said « three dots » where Google's own month view says
+ * three names. One month at a time gives every cell a sixth of the screen, and ‹ › / the swipe already change
+ * months in every view.
  *
- * ⚠️ The span is **not** fixed at the maximum, because the rendered weeks decide the fetch window (see `endDate`):
- * asking for a year of appointments up front to draw dots nobody scrolled to would make Mois the most expensive
- * read in the app. It starts at three months and grows only as the user actually reaches the bottom.
+ * These two numbers are how a cell decides how many names it can hold — see `phoneMonthChipSlots`, which
+ * measures the rendered cell rather than assuming a phone size.
  */
-const PHONE_MONTH_AHEAD_INITIAL = 2
-const PHONE_MONTH_AHEAD_STEP = 3
-const PHONE_MONTH_AHEAD_MAX = 11
-// Distance from the bottom at which the next batch of months is appended.
-const PHONE_MONTH_GROW_THRESHOLD_PX = 240
-// Dots per day cell in the phone month view before the rest go unshown (the cell is ~52px wide).
+const PHONE_MONTH_CHIP_ROW_PX = 17
+const PHONE_MONTH_DATE_ROW_PX = 24
+/** A row never shrinks past a thumb: below this the month scrolls rather than squeezing the cells to nothing. */
+const PHONE_MONTH_ROW_FLOOR_PX = 44
+// Dots per day cell when the cell is too short for even one named chip (a short phone, or a 6-row month).
 const PHONE_MONTH_MAX_DOTS = 3
 /**
  * Weekday initials for the phone month header, Monday-first like every other grid here. Hardcoded rather than
@@ -690,15 +690,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     setMounted(true)
   }, [])
 
-  /**
-   * How many months past the selected one the phone's Mois view currently renders — and therefore fetches.
-   * Reset whenever the selected month changes, so navigating months never inherits a previous scroll's span.
-   */
-  const [monthsAhead, setMonthsAhead] = useState(PHONE_MONTH_AHEAD_INITIAL)
-  const selectedMonthKey = format(selectedDate, "yyyy-MM")
-  useEffect(() => {
-    setMonthsAhead(PHONE_MONTH_AHEAD_INITIAL)
-  }, [selectedMonthKey])
+  /** The rendered height of one phone Mois cell, which is what decides how many names it can hold. */
+  const [phoneMonthCellPx, setPhoneMonthCellPx] = useState(0)
 
   /**
    * The clinic's saved working hours, used to shade closed periods (AC-P1.33).
@@ -852,18 +845,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
   const endDate = useMemo(() => {
     if (view === "day") return endOfDay(selectedDate)
-    if (view === "month") {
-      // The phone's Mois scrolls on into the following months, so the window is whatever it currently renders —
-      // the dots and the weeks have to come from one range or a scrolled-to month reads as an empty one.
-      if (isNarrow) {
-        return endOfDay(
-          endOfWeek(endOfMonth(addMonths(startOfMonth(selectedDate), monthsAhead)), { weekStartsOn: 1 }),
-        )
-      }
-      return endOfDay(addDays(startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 1 }), 41)) // 6 rows × 7 - 1
-    }
+    // One rule for both Mois grids: the desktop's fixed 6 rows, which is a superset of the phone's 4–6 weeks
+    // (both start on the same Monday), so neither can draw a day the fetch did not cover.
+    if (view === "month") return endOfDay(addDays(startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 1 }), 41))
     return endOfDay(addDays(startOfWeek(selectedDate, { weekStartsOn: 1 }), 6)) // 7 days (0-6)
-  }, [view, selectedDate, isNarrow, monthsAhead])
+  }, [view, selectedDate])
 
   /*
    * `error` used to be dropped on the floor here. A failed fetch therefore rendered a perfectly normal, empty
@@ -917,20 +903,27 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   }, [appointments])
 
   /**
-   * The weeks the phone's Mois renders: from the week containing the 1st of the selected month, on through the
-   * last week of the `monthsAhead`-th month after it. **Weeks, not month pages** — a boundary week belongs to two
-   * months and rendering it once (with a heading where the new month starts) is what makes the scroll continuous
-   * instead of a stack of grids that each repeat their neighbours' days.
+   * The days the phone's Mois renders: the selected month's own weeks, 4 to 6 rows — the month's real shape, not
+   * the desktop's fixed 6, because an unused row would take a sixth of the height every cell needs for names.
    */
-  const phoneMonthWeeks = useMemo(() => {
+  const phoneMonthDays = useMemo(() => {
     const first = startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 1 })
-    const last = endOfWeek(endOfMonth(addMonths(startOfMonth(selectedDate), monthsAhead)), { weekStartsOn: 1 })
-    const weeks: Date[][] = []
-    for (let cursor = first; cursor <= last; cursor = addDays(cursor, 7)) {
-      weeks.push(Array.from({ length: 7 }, (_, i) => addDays(cursor, i)))
-    }
-    return weeks
-  }, [selectedDate, monthsAhead])
+    const last = endOfWeek(endOfMonth(selectedDate), { weekStartsOn: 1 })
+    const days: Date[] = []
+    for (let cursor = first; cursor <= last; cursor = addDays(cursor, 1)) days.push(cursor)
+    return days
+  }, [selectedDate])
+  const phoneMonthRows = phoneMonthDays.length / 7
+
+  /**
+   * How many named chips one cell may paint — measured, never assumed: the same month is 5 rows in one month and
+   * 6 in the next, and a 320 × 568 phone gives a cell half the height a 430 × 932 one does. Zero is a real
+   * answer (the dots below stand in), and it is why the cell can never clip a half-drawn chip.
+   */
+  const phoneMonthChipSlots = Math.max(
+    0,
+    Math.floor((phoneMonthCellPx - PHONE_MONTH_DATE_ROW_PX) / PHONE_MONTH_CHIP_ROW_PX),
+  )
 
   // The 42 day cells (fixed 6 rows × 7 columns, weeks start Monday) covering the selected month plus
   // the leading/trailing days that fill the first/last weeks. Fixed length keeps the grid height stable
@@ -941,6 +934,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   }, [selectedDate])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const phoneMonthGridRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [currentTimePosition, setCurrentTimePosition] = useState<number | null>(null)
 
@@ -1116,6 +1110,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     observer.observe(scroller)
     return () => observer.disconnect()
   }, [view, isNarrow, mounted, loading])
+
+  /* The same measurement for the phone's Mois, which has no scrollport: the grid divides its own height between
+     the month's rows, and the cell height is what decides how many names a day can name. */
+  useEffect(() => {
+    const grid = phoneMonthGridRef.current
+    if (!grid) return
+    const measure = () => setPhoneMonthCellPx(grid.firstElementChild?.getBoundingClientRect().height ?? 0)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(grid)
+    return () => observer.disconnect()
+  }, [view, isNarrow, mounted, loading, phoneMonthRows])
 
   // Update current time every minute
   useEffect(() => {
@@ -2046,38 +2052,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     onDateChange(new Date())
   }
 
-  /**
-   * Append the next batch of months once the phone's Mois scroll nears its end — the gesture that means "and
-   * after that?" on a phone is to keep scrolling, not to find a chevron.
-   *
-   * Growing on scroll rather than rendering the cap up front is what keeps the read honest: the visible weeks are
-   * also the fetch window (see `endDate`), so a fixed year-wide span would fetch a year of appointments to draw
-   * dots on months nobody looked at.
-   *
-   * ⚠️ The latch is what makes that true in practice. `scroll` fires many times per flick, and every event inside
-   * the threshold band satisfied the test — so one thumb flick could step the span 2 → 5 → 8 → 11 and fetch a
-   * *year* of appointments in one gesture, which is exactly the read the incremental span exists to avoid. It is
-   * cleared by an effect keyed on `monthsAhead`, i.e. once the new weeks have actually rendered and there is
-   * genuinely more to reach. Staying latched at the cap is correct and deliberate: the span reset that follows a
-   * month change clears it.
-   */
-  const monthGrowLatchRef = useRef(false)
-  useEffect(() => {
-    monthGrowLatchRef.current = false
-  }, [monthsAhead])
-
-  const handlePhoneMonthScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    if (monthGrowLatchRef.current) return
-    const el = event.currentTarget
-    if (el.scrollHeight - el.scrollTop - el.clientHeight > PHONE_MONTH_GROW_THRESHOLD_PX) return
-    monthGrowLatchRef.current = true
-    setMonthsAhead((current) => Math.min(current + PHONE_MONTH_AHEAD_STEP, PHONE_MONTH_AHEAD_MAX))
-  }
-
   // A compact month-cell chip: start time + patient name, colored by the shared status/procedure rules
   // (AC-2). Clicking opens the edit dialog (AC-4); stopPropagation keeps the cell's day-navigation from
   // firing too.
-  const renderMonthChip = (appointment: AppointmentDto) => {
+  // `compact` is the phone cell: a ~52 px column where « 10:00 » alone eats half the width, so the hour leaves
+  // the chip (it stays in `chipLabel`) and the name gets all of it.
+  const renderMonthChip = (appointment: AppointmentDto, compact = false) => {
     const colorStyle = appointmentAppearance(appointment)
     const tone = appointmentTone(appointment)
     const start = format(new Date(appointment.appointmentDateTime), "HH:mm")
@@ -2095,7 +2075,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         className={cn(
           // `relative`: the strip is an absolutely-positioned child, and unlike the grid blocks (which are
           // absolute themselves) a month chip is in normal flow, so it has to establish the containing block.
-          "relative flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 pe-2 text-left text-2xs leading-tight transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-sm active:scale-[0.97]",
+          "relative flex w-full items-center gap-1 overflow-hidden rounded text-left text-2xs leading-tight transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-sm active:scale-[0.97]",
+          // A fixed row height on the phone, because `phoneMonthChipSlots` divides by it: a chip that grew with
+          // its content would be the one thing that could clip.
+          compact ? "h-4 flex-shrink-0 gap-0.5 px-1 pe-1.5" : "px-1 py-0.5 pe-2",
           colorStyle.className,
         )}
         style={colorStyle.style}
@@ -2107,8 +2090,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             strikethrough. */}
         {renderStatusEdge(appointment)}
         {tone === "negative" && <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />}
-        <span className="flex-shrink-0 font-semibold">{start}</span>
-        <span className="min-w-0 truncate">{appointment.patientName}</span>
+        {!compact && <span className="flex-shrink-0 font-semibold">{start}</span>}
+        <span className={cn("min-w-0 truncate", compact && "font-medium")}>{appointment.patientName}</span>
       </button>
     )
   }
@@ -2119,19 +2102,27 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // layout, current-time line, or scroll-centering (day/week only).
 
   /**
-   * Mois **below `md:`** — a sticky weekday header over a continuous vertical scroll of weeks, with a heading
-   * wherever a new month starts. Google Agenda's month view, and a real branch rather than responsive classes on
-   * the grid above, for the same reason `renderWeekStrip` is one.
+   * Mois **below `md:`** — one month, one screen: a weekday header over the month's own 4–6 rows, each cell
+   * naming the day's appointments. A real branch rather than responsive classes on the desktop grid, for the
+   * same reason `renderWeekStrip` was one: the chip is compact, the hour is dropped, and the rows are the
+   * month's rather than a fixed six.
    *
-   * ⚠️ The 6×7 grid it replaces was **fixed height**: 42 cells forced into `flex-1`, which on a phone is about
-   * 52 × 60 px per cell for a day that may hold four appointments, and — the part that made it feel like a
-   * cramped desktop rather than an app — it *ended*. There was nothing after the last row, so « et en octobre ? »
-   * meant finding a chevron. Here the weeks simply continue, and each cell is sized by content instead of by a
-   * division of the viewport.
+   * ⚠️ **It replaces a continuous scroll through the following months**, and gives up the one thing that scroll
+   * was good at — « et en octobre ? » without touching a control — to fix what it cost: cells sized by content
+   * are ~56 px tall, which holds a date and three dots, so the view could show *how busy* a day was and never
+   * *who*. One month at a time gives each cell a fifth of the screen, and ‹ › and the horizontal swipe already
+   * change the month in every view.
    *
-   * Days from adjacent months are **not dimmed**, deliberately: in a continuous scroll the boundary week is not
-   * "outside" anything, it is just the week it is, and the month headings are what carry the orientation. Dimming
-   * half of it would only make the same days look less real above the heading than below it.
+   * ⚠️ Days from adjacent months are dimmed again (the scroll deliberately did not dim them, because in a
+   * continuous scroll a boundary week is not "outside" anything). On a single month page it is: the row exists
+   * to complete the week, and the dimming is what stops the 1st of October reading as a day of September.
+   *
+   * ⚠️ Nothing here is sized in phone pixels. `phoneMonthChipSlots` measures the rendered cell, because the same
+   * month is 5 rows in September and 6 in August, and a 320 × 568 phone gives a cell half of what a 430 × 932
+   * one does.
+   *
+   * ⚠️ « One screen » stops at `PHONE_MONTH_ROW_FLOOR_PX`: a 420 px-tall window divides into 22 px rows, which
+   * is under the thumb floor and too short for even the dots — so past that the month scrolls (§ 0).
    */
   const renderPhoneMonthView = () => (
     <div className="flex h-full min-h-0 flex-col">
@@ -2147,106 +2138,121 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       </div>
 
       {loading ? (
-        <div className="flex-1 space-y-px p-px" role="status" aria-label="Chargement des rendez-vous">
-          {Array.from({ length: 7 }).map((_, row) => (
-            <div key={row} className="grid grid-cols-7 gap-px">
-              {Array.from({ length: 7 }).map((__, col) => (
-                <div key={col} className="flex h-14 flex-col items-center justify-center gap-1.5">
-                  <div className="h-7 w-7 animate-pulse rounded-full bg-muted" />
-                  {(row + col) % 3 === 0 && <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted" />}
-                </div>
-              ))}
+        // A skeleton shaped like the grid it stands in for — the month's own rows, so no cell resizes when the
+        // chips arrive.
+        <div
+          className="grid min-h-0 flex-1 grid-cols-7"
+          style={{ gridTemplateRows: `repeat(${phoneMonthRows}, minmax(${PHONE_MONTH_ROW_FLOOR_PX}px, 1fr))` }}
+          role="status"
+          aria-label="Chargement des rendez-vous"
+        >
+          {phoneMonthDays.map((day, i) => (
+            <div
+              key={day.toISOString()}
+              className="flex min-w-0 flex-col gap-1 border-b border-r px-0.5 pb-0.5 pt-1 last:border-r-0"
+            >
+              <div className="mx-auto h-[18px] w-[18px] animate-pulse rounded-full bg-muted" />
+              {i % 3 === 0 && <div className="h-4 animate-pulse rounded bg-muted" />}
             </div>
           ))}
         </div>
       ) : (
         <div
-          onScroll={handlePhoneMonthScroll}
+          ref={phoneMonthGridRef}
           className={cn(
-            "min-h-0 flex-1 overflow-y-auto transition-opacity duration-200 ease-snap",
+            "grid min-h-0 flex-1 grid-cols-7 overflow-y-auto transition-opacity duration-200 ease-snap",
             refetching && "opacity-60",
           )}
+          style={{ gridTemplateRows: `repeat(${phoneMonthRows}, minmax(${PHONE_MONTH_ROW_FLOOR_PX}px, 1fr))` }}
         >
-          {phoneMonthWeeks.map((week) => {
-            // The week that opens a month carries its heading. Every rendered span begins on the week holding a
-            // 1st, so the first week always has one — the scroll never starts under an unlabelled month.
-            const monthStart = week.find((day) => day.getDate() === 1)
+          {phoneMonthDays.map((day) => {
+            const dayAppointments = getAppointmentsForDay(day)
+            const inMonth = isSameMonth(day, selectedDate)
+            const selected = isSameDay(day, selectedDate)
+            // The last slot goes to « +N » whenever there is a rest, so a cell shows N names or N-1 names and
+            // the count of what it could not fit — never a chip cut in half.
+            const chipCount =
+              dayAppointments.length <= phoneMonthChipSlots
+                ? dayAppointments.length
+                : Math.max(0, phoneMonthChipSlots - 1)
+            const chips = dayAppointments.slice(0, chipCount)
+            const chipOverflow = dayAppointments.length - chipCount
+            /* Not one name fits (a short phone, or a 6-row month): the dots stand in. They are the density
+               signal this view had before it could name anybody, and one line is all they need. */
+            const dots = chipCount === 0 ? dayAppointments.slice(0, PHONE_MONTH_MAX_DOTS) : []
+            const dotOverflow = dayAppointments.length - dots.length
 
             return (
-              <div key={week[0].toISOString()}>
-                {monthStart && (
-                  <h3 className="px-3 pb-1 pt-3 text-sm font-semibold capitalize">
-                    {format(monthStart, "MMMM yyyy", { locale: fr })}
-                  </h3>
+              /*
+               * ⚠️ A `<div>` with a stretched `<button>` inside it, never a `<button>` cell — the chips are
+               * buttons, so a button cell would nest buttons (invalid DOM) and `role="button"` on the div would
+               * make its descendants presentational and hide every chip from assistive tech. `renderMonthView`
+               * carries the same note; this cell could be a plain button only while it held nothing but dots.
+               */
+              <div
+                key={day.toISOString()}
+                aria-current={selected ? "date" : undefined}
+                className={cn(
+                  "relative flex min-w-0 flex-col gap-px overflow-hidden border-b border-r px-0.5 pb-0.5 pt-1 last:border-r-0",
+                  !inMonth && "bg-muted/40 dark:bg-muted/20",
                 )}
-                <div className="grid grid-cols-7 border-b">
-                  {week.map((day) => {
-                    const dayAppointments = getAppointmentsForDay(day)
-                    const dots = dayAppointments.slice(0, PHONE_MONTH_MAX_DOTS)
-                    const dotOverflow = dayAppointments.length - dots.length
-                    const selected = isSameDay(day, selectedDate)
-
-                    return (
-                      <button
-                        key={day.toISOString()}
-                        type="button"
-                        onClick={() => onSelectDay?.(day)}
-                        aria-current={selected ? "date" : undefined}
-                        className="flex min-h-[56px] flex-col items-center gap-1 border-r py-1.5 transition-colors last:border-r-0 active:bg-accent/40"
-                      >
-                        <span
-                          className={cn(
-                            "grid h-7 w-7 place-items-center rounded-full text-sm tabular-nums transition-colors",
-                            isToday(day)
-                              ? "bg-primary font-semibold text-primary-foreground shadow-sm"
-                              : selected
-                                ? "border border-primary font-semibold text-primary"
-                                : "text-foreground",
-                          )}
-                        >
-                          {format(day, "d")}
-                        </span>
-                        {/* Dots are decoration; the count below is the accessible fact — the same split the
-                            month chips and the week strip already use.
-
-                            ⚠️ The « +N » is not decoration though. Capping at three dots and stopping made a day
-                            with eight appointments look exactly like a day with three, and *density* is the only
-                            thing this view is for — the week strip already said « +N » for the same reason. */}
-                        <span className="flex h-3 items-center gap-[3px]" aria-hidden="true">
-                          {dots.map((appointment) => (
-                            <span
-                              key={appointment.id}
-                              className="h-1.5 w-1.5 rounded-full"
-                              style={{
-                                backgroundColor:
-                                  parseProcedureHex(appointment.procedureColorHex) ?? "var(--muted-foreground)",
-                              }}
-                            />
-                          ))}
-                          {dotOverflow > 0 && (
-                            <span className="text-2xs leading-none text-muted-foreground">+{dotOverflow}</span>
-                          )}
-                        </span>
-                        <span className="sr-only">
-                          {format(day, "EEEE d MMMM", { locale: fr })}
-                          {dayAppointments.length > 0
-                            ? ` — ${dayAppointments.length} rendez-vous`
-                            : " — aucun rendez-vous"}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectDay?.(day)}
+                  aria-label={`Voir le ${format(day, "EEEE d MMMM", { locale: fr })} en vue Jour${
+                    dayAppointments.length > 0 ? ` — ${dayAppointments.length} rendez-vous` : " — aucun rendez-vous"
+                  }`}
+                  className="absolute inset-0 cursor-pointer transition-colors active:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                />
+                <span
+                  className={cn(
+                    "pointer-events-none relative mx-auto grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-xs tabular-nums transition-colors",
+                    isToday(day)
+                      ? "bg-primary font-semibold text-primary-foreground shadow-sm"
+                      : selected
+                        ? "border border-primary font-semibold text-primary"
+                        : inMonth
+                          ? "text-foreground"
+                          : "text-muted-foreground/70",
+                  )}
+                >
+                  {format(day, "d")}
+                </span>
+                {chips.map((appointment) => (
+                  <span key={appointment.id} className="relative flex">
+                    {renderMonthChip(appointment, true)}
+                  </span>
+                ))}
+                {/* Only beside a name: with no chip at all the dots below carry their own « +N », and two
+                    counts of the same day in one cell say different numbers. */}
+                {chips.length > 0 && chipOverflow > 0 && (
+                  // Not interactive: the stretched cell button behind it already opens the day, and a second
+                  // control saying the same thing would only add a tab stop per cell.
+                  <span className="pointer-events-none relative px-1 text-2xs font-medium leading-none text-muted-foreground">
+                    +{chipOverflow}
+                  </span>
+                )}
+                {dots.length > 0 && (
+                  <span className="pointer-events-none relative flex h-3 items-center justify-center gap-[3px]" aria-hidden="true">
+                    {dots.map((appointment) => (
+                      <span
+                        key={appointment.id}
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{
+                          backgroundColor:
+                            parseProcedureHex(appointment.procedureColorHex) ?? "var(--muted-foreground)",
+                        }}
+                      />
+                    ))}
+                    {dotOverflow > 0 && (
+                      <span className="text-2xs leading-none text-muted-foreground">+{dotOverflow}</span>
+                    )}
+                  </span>
+                )}
               </div>
             )
           })}
-          {monthsAhead >= PHONE_MONTH_AHEAD_MAX && (
-            // Says where the scroll stops rather than just stopping. Twelve months is the cap because the
-            // rendered weeks decide the fetch window, and « l'année prochaine » is a job for the date picker.
-            <p className="px-3 py-4 text-center text-2xs text-muted-foreground">
-              Utilisez la flèche du mois pour aller plus loin.
-            </p>
-          )}
         </div>
       )}
     </div>
