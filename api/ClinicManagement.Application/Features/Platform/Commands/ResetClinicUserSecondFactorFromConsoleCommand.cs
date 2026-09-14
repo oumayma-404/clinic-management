@@ -263,7 +263,7 @@ public class ResetClinicUserSecondFactorFromConsoleCommandHandler
             await _email.SendAsync(
                 email,
                 SecondFactorResetNotice.EmailSubject,
-                SecondFactorResetNotice.EmailBody(SecondFactorResetBy.Vendor),
+                SecondFactorResetNotice.Email(SecondFactorResetBy.Vendor),
                 cancellationToken);
         }
         catch (Exception ex)

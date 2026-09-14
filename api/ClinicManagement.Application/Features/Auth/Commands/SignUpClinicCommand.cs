@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -277,7 +278,7 @@ public class SignUpClinicCommandHandler
         ClinicSignup signup, string email, string rawToken, CancellationToken cancellationToken)
     {
         var sent = await _emailSender.SendAsync(
-            email, EmailSubject, BuildEmailBody(signup.FullName, rawToken), cancellationToken);
+            email, EmailSubject, BuildEmail(signup.FullName, email, rawToken), cancellationToken);
 
         if (sent.Outcome == TransactionalEmailOutcome.Sent)
         {
@@ -381,20 +382,46 @@ public class SignUpClinicCommandHandler
 
     private const string EmailSubject = "Vérifiez votre adresse pour créer votre cabinet";
 
-    private string BuildEmailBody(string fullName, string rawToken) =>
-        $"""
-        Bonjour {fullName},
+    /// <summary>
+    /// The verification message.
+    ///
+    /// <para>⚠️ <b>The link appears twice — as the button and as text in the panel — and that
+    /// is deliberate.</b> The address a visitor signs up with is frequently read on a phone and acted on at the
+    /// cabinet's PC, and a button cannot be copied; an Outlook install with images and active content stripped
+    /// shows the panel and nothing else. It is the one credential in the message, so it may not be the one thing
+    /// only a rendered button carries.</para>
+    ///
+    /// <para>⚠️ <b>The address is echoed back</b> for the reason a verification mail exists at all: it
+    /// is the last point at which a typo is cheap to fix, and it is what makes a message forwarded to the wrong
+    /// mailbox legible as a mistake rather than as a phishing attempt.</para>
+    /// </summary>
+    private EmailContent BuildEmail(string fullName, string email, string rawToken)
+    {
+        var link = BuildVerificationLink(rawToken);
 
-        Vous venez de demander la création de votre cabinet. Pour finaliser, ouvrez le lien ci-dessous :
-
-        {BuildVerificationLink(rawToken)}
-
-        Ce lien est valable 24 heures et ne peut servir qu'une seule fois. Votre cabinet ne sera créé
-        qu'après cette vérification.
-        {TrialSentence()}
-        Si vous n'êtes pas à l'origine de cette demande, ignorez simplement ce message : aucun compte
-        n'a été créé.
-        """;
+        return new EmailContent
+        {
+            Title = "Vérifiez votre adresse",
+            Preheader = "Un clic pour créer votre cabinet — le lien est valable 24 heures.",
+            Greeting = EmailGreeting.For(fullName),
+            Intro =
+            [
+                "Vous venez de demander la création de votre cabinet sur APEXA. Il reste une seule étape : "
+                + "confirmer que cette adresse est bien la vôtre."
+            ],
+            Details =
+            [
+                new EmailDetail("Adresse du compte", email),
+                new EmailDetail("Lien de vérification", link, IsLink: true)
+            ],
+            Action = new EmailAction("Vérifier mon adresse", link),
+            Outro = TrialSentence() is { Length: > 0 } trial ? [trial] : [],
+            Note =
+                "Ce lien est valable 24 heures et ne peut servir qu'une seule fois. Votre cabinet ne sera créé "
+                + "qu'après cette vérification. Si vous n'êtes pas à l'origine de cette demande, "
+                + "ignorez simplement ce message : aucun compte n'a été créé."
+        };
+    }
 
     /// <summary>
     /// AC-1.3's half of the promise the signup form already makes, restated in the e-mail — the two are the only

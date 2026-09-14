@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -185,18 +186,30 @@ public class CompletePasswordResetCommandHandler : IRequestHandler<CompletePassw
 
         try
         {
+            // ⚠️ No button, deliberately: this message asks for nothing. A « Se connecter » control on a
+            // security alert is the shape a phishing copy of it takes, and the reader who needs to act is the one
+            // who did NOT do this — whose next step is a telephone call, not a click.
             var sent = await _emailSender.SendAsync(
                 user.Email,
                 "Votre mot de passe a été modifié",
-                $"""
-                {EmailGreeting.For(user.FullName)}
-
-                Le mot de passe de votre compte vient d'être modifié. Vos autres appareils ont été
-                déconnectés et devront se reconnecter.
-
-                Si vous n'êtes pas à l'origine de ce changement, contactez immédiatement l'administrateur
-                de votre cabinet : quelqu'un a eu accès à votre boîte e-mail.
-                """,
+                new EmailContent
+                {
+                    Title = "Votre mot de passe a été modifié",
+                    Preheader =
+                        "Si ce n'est pas vous, prévenez immédiatement l'administrateur de votre cabinet.",
+                    Greeting = EmailGreeting.For(user.FullName),
+                    Intro =
+                    [
+                        "Le mot de passe de votre compte vient d'être modifié. Vos autres appareils ont "
+                        + "été déconnectés et devront se reconnecter."
+                    ],
+                    Outro =
+                    [
+                        "Si vous n'êtes pas à l'origine de ce changement, contactez immédiatement "
+                        + "l'administrateur de votre cabinet : quelqu'un a eu accès à votre boîte "
+                        + "e-mail."
+                    ]
+                },
                 cancellationToken);
 
             if (sent.Outcome != TransactionalEmailOutcome.Sent)

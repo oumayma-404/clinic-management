@@ -352,3 +352,26 @@ const appIcon = await sharp(
   .toBuffer();
 writeFileSync(join(IOS_APPICON, "AppIcon-1024.png"), appIcon);
 console.log(`  ✓ ${"mobile/ios/…/AppIcon-1024".padEnd(26)} 1024×1024, no alpha`);
+
+/**
+ * The e-mail lockup — a **PNG**, and that is the whole point of it existing beside `apexa-lockup.svg`.
+ *
+ * ⚠️ Gmail, Outlook.com and Yahoo all strip `<img src="…svg">` outright, so a transactional e-mail cannot
+ * reference the committed SVG lockup and every recipient would see the `alt` text. Rasterised at 3× the 140 px
+ * it is displayed at, because a mail client on a retina screen resamples whatever it is given.
+ *
+ * ⚠️ It is the **light** lockup (dark ink), not `apexa-lockup-dark.svg`: the e-mail's header sits on a white
+ * card, for the reason `EmailLayout` states — a lockup whose mark is already a gradient plate disappears on a
+ * gradient band, and Outlook renders no CSS gradient at all so half the recipients would get the mark on flat
+ * blue instead.
+ */
+const EMAIL_LOCKUP_WIDTH = 420;
+const emailLockup = await sharp(
+  readFileSync(join(OUT_DIR, "apexa-lockup.svg")),
+  { density: 300 },
+)
+  .resize({ width: EMAIL_LOCKUP_WIDTH })
+  .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
+  .toBuffer();
+writeFileSync(join(OUT_DIR, "apexa-email-lockup.png"), emailLockup);
+console.log(`  ✓ ${"apexa-email-lockup.png".padEnd(26)} ${EMAIL_LOCKUP_WIDTH}px wide, 3× of 140`);

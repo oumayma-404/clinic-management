@@ -1018,3 +1018,100 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (at === 'filed' || at === 'held') place(list, 0); else place(field, 40);
   });
 })();
+
+/* ── The demo form ────────────────────────────────────────────────────────
+   An ENHANCEMENT, like everything here: the <form> posts natively to
+   formsubmit.co with JS blocked and comes back on `?envoye=1`. With JS it
+   posts to the same service's `/ajax/` twin and never leaves the page.
+
+   ⚠️ A failed send must never look like a sent one. Every failure path ends
+   on a visible message carrying a mailto: that already holds what was typed —
+   a demo request silently dropped is a customer lost, and nothing else on
+   this page can tell the reader it happened. */
+(() => {
+  const form = document.querySelector('#demo-form');
+  const done = document.querySelector('#demo-done');
+  const note = document.querySelector('#demo-note');
+  if (!form || !done || !note) return;
+
+  const btn = form.querySelector('.s8-send');
+  const showDone = () => { form.hidden = true; done.hidden = false; };
+
+  // The no-JS round trip lands here.
+  if (new URLSearchParams(location.search).get('envoye') === '1') showDone();
+
+  const RULES = {
+    'f-nom':    v => v.trim().length >= 2 || 'Indiquez votre nom.',
+    'f-prenom': v => v.trim().length >= 2 || 'Indiquez votre prénom.',
+    'f-email':  v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim()) || 'Cette adresse email n’a pas l’air valide.',
+    // Digits only, because a Tunisian number is written 98 445 123, +216 98 445 123 or 0098…
+    'f-tel':    v => (v.replace(/\D/g, '').length >= 8) || 'Indiquez un numéro où vous joindre.',
+  };
+
+  const mark = (input, message) => {
+    const field = input.closest('.s8-field');
+    const slot = field?.querySelector('.s8-err');
+    field?.setAttribute('data-invalid', message ? 'true' : 'false');
+    if (slot) slot.textContent = message || '';
+    input.setAttribute('aria-invalid', message ? 'true' : 'false');
+  };
+
+  for (const id of Object.keys(RULES)) {
+    const input = form.querySelector('#' + id);
+    // Re-check on blur, and clear a standing error as soon as it is fixed.
+    input?.addEventListener('blur', () => { const r = RULES[id](input.value); mark(input, r === true ? '' : r); });
+    input?.addEventListener('input', () => { if (input.getAttribute('aria-invalid') === 'true') { const r = RULES[id](input.value); if (r === true) mark(input, ''); } });
+  }
+
+  const fallbackLink = () => {
+    const get = n => (form.querySelector(`[name="${n}"]`)?.value || '').trim();
+    const body = [
+      `Nom : ${get('Nom')}`, `Prénom : ${get('Prenom')}`,
+      `Email : ${get('Email')}`, `Téléphone : ${get('Telephone')}`, '', get('Message'),
+    ].join('\n');
+    return `mailto:contact@apexa.tn?subject=${encodeURIComponent('Demande de démo — apexa.tn')}&body=${encodeURIComponent(body)}`;
+  };
+
+  const fail = () => {
+    note.innerHTML = `L’envoi n’a pas abouti. Écrivez-nous directement&nbsp;: <a href="${fallbackLink()}">ouvrir votre messagerie</a>, ou contact@apexa.tn.`;
+    note.hidden = false;
+  };
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    note.hidden = true;
+
+    let first = null;
+    for (const id of Object.keys(RULES)) {
+      const input = form.querySelector('#' + id);
+      const r = RULES[id](input.value);
+      mark(input, r === true ? '' : r);
+      if (r !== true && !first) first = input;
+    }
+    if (first) { first.focus(); return; }
+
+    btn.dataset.busy = 'true';
+    btn.setAttribute('aria-busy', 'true');
+    try {
+      const data = new FormData(form);
+      data.delete('_next');                       // the no-JS redirect, meaningless here
+      const r = await fetch(form.action.replace('formsubmit.co/', 'formsubmit.co/ajax/'), {
+        method: 'POST', body: data, headers: { Accept: 'application/json' },
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      /* ⚠️ `r.ok` is NOT the answer: formsubmit replies 200 with
+         {"success":"false"} for a form that is not activated, and for a refused
+         one — measured on the first real send, which painted « C'est envoyé »
+         over a mail nobody received. The body decides. */
+      const body = await r.json().catch(() => null);
+      if (String(body?.success) !== 'true') throw new Error(body?.message || 'refus');
+      showDone();
+      done.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+    } catch {
+      fail();
+    } finally {
+      btn.dataset.busy = 'false';
+      btn.removeAttribute('aria-busy');
+    }
+  });
+})();

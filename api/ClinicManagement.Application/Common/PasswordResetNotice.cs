@@ -1,3 +1,5 @@
+using ClinicManagement.Application.Common.Email;
+
 namespace ClinicManagement.Application.Common;
 
 /// <summary>
@@ -63,20 +65,34 @@ public static class PasswordResetNotice
         + "communiqué directement, et il vous sera demandé d'en choisir un nouveau à la connexion. " + WhoToTell(by);
 
     /// <summary>
-    /// The e-mail body. Longer than the in-app row on purpose — it is read outside the application, by somebody who
+    /// The e-mail. Longer than the in-app row on purpose — it is read outside the application, by somebody who
     /// by definition cannot sign in, which is precisely the situation this message is about.
+    ///
+    /// <para>⚠️ <b>It has no button</b>, deliberately — `CompletePasswordResetCommand`'s reason: the
+    /// message asks for nothing, and the reader who must act is the one who did not do this.</para>
     ///
     /// <para>⚠️ <b>It carries no password</b>, and no version of it ever may. The temporary credential is shown once
     /// to the person who performed the reset, to be relayed by voice; mailing it would put a live credential in the
     /// mailbox an attacker most likely already holds, and would make this very notice the delivery mechanism for the
     /// takeover it exists to reveal.</para>
     /// </summary>
-    public static string EmailBody(PasswordResetBy by) =>
-        Actor(by) + " a réinitialisé le mot de passe de votre compte. Votre ancien mot de passe ne fonctionne plus "
-        + "et vos autres appareils ont été déconnectés. Un mot de passe temporaire a été remis à "
-        + Relay(by) + " : il vous sera communiqué de vive voix, jamais par e-mail, et vous devrez choisir votre "
-        + "propre mot de passe dès votre première connexion. Votre code de vérification à six chiffres reste "
-        + "exigé et n'a pas été modifié. " + WhoToTell(by);
+    public static EmailContent Email(PasswordResetBy by) => new()
+    {
+        Title = Title,
+        Preheader = WhoToTell(by),
+        Intro =
+        [
+            Actor(by) + " a réinitialisé le mot de passe de votre compte. Votre ancien mot de passe ne "
+            + "fonctionne plus et vos autres appareils ont été déconnectés.",
+            "Un mot de passe temporaire a été remis à " + Relay(by) + " : il vous sera communiqué "
+            + "de vive voix, jamais par e-mail, et vous devrez choisir votre propre mot de passe dès votre "
+            + "première connexion."
+        ],
+        Outro = [WhoToTell(by)],
+        Note =
+            "Votre code de vérification à six chiffres reste exigé à la connexion et n'a pas "
+            + "été modifié."
+    };
 
     private static string Actor(PasswordResetBy by) => by switch
     {

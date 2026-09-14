@@ -100,7 +100,7 @@ public class ResetUserTotpCommandHandler : IRequestHandler<ResetUserTotpCommand,
         // that four copies of one security sentence, and the copy that drifts is the one telling somebody where to
         // report an action they did not ask for.
         var subject = SecondFactorResetNotice.EmailSubject;
-        var body = SecondFactorResetNotice.EmailBody(SecondFactorResetBy.ClinicAdministrator);
+        var body = SecondFactorResetNotice.Email(SecondFactorResetBy.ClinicAdministrator);
 
         try
         {

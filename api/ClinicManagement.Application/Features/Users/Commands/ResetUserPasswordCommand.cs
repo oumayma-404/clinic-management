@@ -149,7 +149,7 @@ public class ResetUserPasswordCommandHandler : IRequestHandler<ResetUserPassword
             var sent = await _emailSender.SendAsync(
                 email,
                 PasswordResetNotice.EmailSubject,
-                PasswordResetNotice.EmailBody(PasswordResetBy.ClinicAdministrator),
+                PasswordResetNotice.Email(PasswordResetBy.ClinicAdministrator),
                 cancellationToken);
 
             if (sent.Outcome != TransactionalEmailOutcome.Sent)

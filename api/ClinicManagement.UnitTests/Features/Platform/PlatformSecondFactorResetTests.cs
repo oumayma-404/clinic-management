@@ -1,4 +1,5 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Application.Features.Platform;
@@ -330,10 +331,30 @@ public class PlatformSecondFactorResetTests
             e => e.SendAsync(
                 TargetEmail,
                 SecondFactorResetNotice.EmailSubject,
-                It.Is<string>(body => body == SecondFactorResetNotice.EmailBody(SecondFactorResetBy.Vendor)),
+                // ⚠️ Compared part by part, never `c == Notice.Email(by)`: `EmailContent` is a record
+                // whose list members compare by REFERENCE, so two calls never produce equal values and such a
+                // matcher silently matches nothing — which presents as « the e-mail was never sent ».
+                It.Is<EmailContent>(c => Matches(c, SecondFactorResetNotice.Email(SecondFactorResetBy.Vendor))),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
+
+    /// <summary>
+    /// Value-compares two <see cref="EmailContent"/>s. Needed because the record's own <c>==</c> compares its
+    /// <c>IReadOnlyList</c> members by reference, so it is <b>always false</b> between two separately-built
+    /// instances — and a Moq matcher that is always false reads as « the message was never sent ».
+    /// </summary>
+    private static bool Matches(EmailContent a, EmailContent b) =>
+        a.Title == b.Title
+        && a.Preheader == b.Preheader
+        && a.Greeting == b.Greeting
+        && a.Note == b.Note
+        && a.StepsTitle == b.StepsTitle
+        && a.Intro.SequenceEqual(b.Intro)
+        && a.Outro.SequenceEqual(b.Outro)
+        && a.Details.SequenceEqual(b.Details)
+        && a.Steps.SequenceEqual(b.Steps)
+        && a.Action == b.Action;
 
     /// <summary>
     /// Both notice channels are best-effort and post-commit: the reset has already happened, and a mail server that
@@ -350,7 +371,7 @@ public class PlatformSecondFactorResetTests
             .ThrowsAsync(new InvalidOperationException("feed down"));
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("smtp down"));
 
         var result = await Handler().Handle(Reset(), CancellationToken.None);
@@ -368,11 +389,19 @@ public class PlatformSecondFactorResetTests
     [Fact]
     public void The_Vendor_Notice_Does_Not_Send_People_To_Their_Administrator_Alone()
     {
-        var vendor = SecondFactorResetNotice.EmailBody(SecondFactorResetBy.Vendor);
-        var admin = SecondFactorResetNotice.EmailBody(SecondFactorResetBy.ClinicAdministrator);
+        var vendor = SecondFactorResetNotice.Email(SecondFactorResetBy.Vendor);
+        var admin = SecondFactorResetNotice.Email(SecondFactorResetBy.ClinicAdministrator);
 
-        Assert.NotEqual(vendor, admin);
-        Assert.Contains("support", vendor, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("support", admin, StringComparison.OrdinalIgnoreCase);
+        // ⚠️ Asserted on `Outro`, not on the whole message. Every other part of these two — the
+        // title, the intro, the four enrolment steps — is identical by design, so comparing the rendered
+        // bodies would pass on any pair differing anywhere, including in a way that left both sentences pointing
+        // at the administrator. Where to report it is the only thing that may differ, so it is the only thing
+        // tested.
+        var vendorOutro = Assert.Single(vendor.Outro);
+        var adminOutro = Assert.Single(admin.Outro);
+
+        Assert.NotEqual(vendorOutro, adminOutro);
+        Assert.Contains("support", vendorOutro, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("support", adminOutro, StringComparison.OrdinalIgnoreCase);
     }
 }

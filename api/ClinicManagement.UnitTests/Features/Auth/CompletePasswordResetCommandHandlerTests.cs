@@ -1,4 +1,5 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Domain.Entities;
@@ -28,7 +29,7 @@ public class CompletePasswordResetCommandHandlerTests
         _auth.Setup(a => a.HashPassword(It.IsAny<string>())).Returns("NEW-HASH");
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TransactionalEmailResult.Sent);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
     }
@@ -157,7 +158,7 @@ public class CompletePasswordResetCommandHandlerTests
         await Complete();
 
         _email.Verify(
-            e => e.SendAsync("dr@clinic.tn", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            e => e.SendAsync("dr@clinic.tn", It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -168,7 +169,7 @@ public class CompletePasswordResetCommandHandlerTests
         var (user, _) = Staged();
         _email
             .Setup(e => e.SendAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("smtp down"));
 
         var result = await Complete();
