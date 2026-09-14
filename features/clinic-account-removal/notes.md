@@ -113,12 +113,39 @@ the whole reason the action was taken and there is nowhere left to read it after
 - `ClinicPurgePlanTests` — 11 cases, derived from the model. The highest-value one is
   `Every_Step_Names_What_It_Is_Keyed_On`: a predicate that lost its parameter is a `DELETE` for every cabinet on
   the deployment, and a functional test of « this cabinet is gone » would pass.
-- `DeleteClinicFromConsoleTests` — 19 cases, most of them about what must **not** happen (nothing touched on a
+- `DeleteClinicFromConsoleTests` — 25 cases, most of them about what must **not** happen (nothing touched on a
   refusal; a failed purge rolls back and leaves the files alone; an unremovable blob does not un-delete the
   cabinet).
-- Whole suite green: **4638 passed, 0 failed**. `console`: `tsc --noEmit` + `npm run build` clean.
-- ⚠️ **Not exercised end to end against a database.** Nothing in `UnitTests` touches one, so the generated SQL was
-  read by eye (all 65 statements, dumped from the model) and the plan's shape is guarded — but the first real
-  deletion will be the first execution. Do it on a cabinet you created for the purpose.
+- Whole suite green: **4644 passed, 0 failed, 6 skipped** (the pre-existing CNAM contract skips). `console`:
+  `tsc --noEmit` + `npm run build` clean.
+- **Rehearsed against a real PostgreSQL schema** (2026-09-14) on a throwaway database built from the 143
+  migrations — never on `clinic_management`, because a plan holding one unparameterised predicate would have
+  destroyed the shared dev data it was being tested for. Two cabinets were seeded **from the model itself**, a
+  row in **65 of 65** of the plan's tables, so the delete order is exercised rather than assumed; plus a row in
+  each of the four exempted tables, so « untouched » is a measurement. Eleven checks, all green:
+
+  | What | Result |
+  |---|---|
+  | every table, column and predicate | all 65 statements ran; `CountAsync` = 65 rows, matching a table-by-table census |
+  | the foreign-key order | the pass completed with real rows in every parent **and** every child |
+  | the raw SQL rides the caller's transaction | a rolled-back purge left all 65 rows standing — so the self-verification's throw really does undo the whole pass |
+  | isolation | the other cabinet kept all 65 of its rows, and every table's total fell by **exactly** what the deleted cabinet held (130 → 65) |
+  | the exemptions | `PlatformAccessEntries`, `PlatformAccounts`, `PlatformRecoveryCodes`, `DataProtectionKeys` all untouched |
+  | a second press | 0 rows, no error |
+  | the blob sweeps | both backends removed the cabinet's two objects (the staged upload part included), kept the other cabinet's, and found nothing on a second sweep |
+
+  ⚠️ The first run reported a foreign-key-order defect that **did not exist**: the seed had synthesised a random
+  `ClinicId` for the fifteen tables that carry the column with no foreign key behind it, so its
+  `MedicalDocuments` row belonged to no cabinet. Triage the probe before the product (`verification.md` § 2).
+- ⚠️ **A row whose `ClinicId` names no cabinet BLOCKS the deletion**, and the rehearsal then reproduced that on
+  purpose. Fifteen tables carry `ClinicId` with **no foreign key**, and `MedicalDocuments.ClinicId` defaults to
+  `Guid.Empty` — so a row written before multi-tenancy belongs to no cabinet, no predicate reaches it, and its
+  `RESTRICT` foreign key onto `Patients` refuses the parent's delete. The outcome is the designed one — a loud
+  refusal, a whole rollback, the cabinet left intact — but such a database cannot be cleaned from the console
+  until the row is dealt with by hand. **Nothing to fix today: the dev database holds 0 such rows**, counted over
+  every `ClinicId` column. A `verify-schema` check would turn a surprise at delete time into a drift report.
+- ⚠️ **The screen and the HTTP path are still unexercised.** The rehearsal drives `ClinicPurge` directly, so
+  `GET deletion-preview`, `POST delete`, the typed confirmation, the journal row and the panel's own layout have
+  never been opened in a browser.
 - ⚠️ **It is not on the hosted deployment until `deploy-hosted.yml` runs**: `console`, `web` and `api` ship only
   through that workflow.
