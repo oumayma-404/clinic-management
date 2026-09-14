@@ -179,6 +179,26 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
   (`Invoices(ClinicId, Number)` and its siblings) is counted a conflict and *named*, never inserted. The existence
   read is scoped by the export's own predicate, so « déjà présent » vs « conflit » can no longer be used as a
   confirm-or-deny oracle over another practice's column values.
+- **`ClinicPurge.cs`** (`clinic-account-removal`) — empties one cabinet out of the database for the console's
+  « supprimer définitivement ce cabinet ». ⚠️ **The delete plan is DERIVED from the EF model, never written out**:
+  the set from `Model.GetEntityTypes()`, each predicate from the type's own `ClinicId` or from a single-column FK
+  path to one, the order from `GetReferencingForeignKeys()` — dependents before principals, the cabinet's row last
+  (65 steps today). A hand-kept list is this repo's dominant defect shape at the highest possible stake — the table
+  somebody forgets is the one whose patient rows survive a deletion reported as successful — and the derived plan
+  covers **eight** tables a hand list missed (`CreditNotes`, `SessionFamilies`, `UserDashboardPreferences`,
+  `PatientFileAnnotations`, `FileUploadSessions`, `RecurringExpenses`, `StockMovements`, `DocumentEmails`).
+  ⚠️ **Raw SQL rather than EF deletes**, and not for speed: loading the aggregates would go through the tenant
+  filter (which the console does not satisfy), pull every record into memory, and depend on each navigation
+  cascading — three ways to delete less than was asked. ⚠️ **It verifies itself and throws**: every covered table is
+  counted again afterwards and one surviving row aborts the caller's transaction, because a half-emptied cabinet
+  reads as deleted, cannot be signed into and still holds clinical rows. ⚠️ **Two tables have no clinic id to find
+  them by** — `ClinicSignup` and `PasswordResetRequest`, which hold the practice's name, an administrator's address
+  and a password hash — so they are swept **by address**, through a rule that is itself derived (clinic-less · not
+  exempted · carrying an `Email` column). ⚠️ `SurvivesByDesign` is the one hand-written list, four entries each with
+  a reason, and `ClinicPurgePlanTests` asserts it against the model in both directions; `DataProtectionKey` is in it
+  because the key ring is the **install's** and protects every cabinet's encrypted secrets. ⚠️ **Blobs are not its
+  business**: `IFileStorage.DeleteByClinicAsync` sweeps the object store *after* the commit, since an object store
+  cannot be rolled back.
 - **`MoneyReconciliationReader.cs`** / **`SchemaVerificationReader.cs`** — the read sides of the two console
   report verbs (`reconcile-money`, `verify-schema`). Both are read-only and cross-clinic: their verbs build a
   container from `AddInfrastructure` alone, so no `ICurrentClinicProvider` exists, the context's optional provider
@@ -606,6 +626,13 @@ no consent flag and no audit of which patient was sent.
     background thread and taking the host down.
   ⚠️ **The stream is forward-only now.** Nothing in the solution seeks a downloaded blob and no download action
   enables range processing; adding either means giving that caller a seekable copy, not re-buffering everyone's.
+- **`DeleteByClinicAsync` (both, `clinic-account-removal`)** — every blob under `clinics/{clinicId}/`, removed;
+  MinIO lists the prefix and removes object by object (a batch is all-or-nothing and reports failures through a
+  second `IObservable`, where a post-commit sweep wants to log one and carry on), local disk deletes the folder.
+  ⚠️ **A prefix sweep, not a pass over the six columns that hold a key**: those miss a logo whose row is already
+  gone, the staged parts of an unfinished upload (`clinics/{id}/uploads/…`, which no row names) and every blob a
+  column added later holds. ⚠️ A flat **pre-US-5** key is outside the prefix and survives — correct rather than
+  tolerated, since those rows exist only on a LAN install, where there is no console to call this.
 - **⚠️ `GetLengthAsync` exists because the download stream stopped being seekable.** ASP.NET derives
   `Content-Length` from a seekable stream's own length, so the old buffering supplied it as a side effect —
   without this a browser downloading a study reports « unknown size » and shows no progress, on exactly the
