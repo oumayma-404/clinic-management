@@ -825,3 +825,84 @@ NOT EXIST.** That was already true of « Essayer gratuitement » and « Demander
 adds a third link to the same missing page, and — because the price is now given *at the démo* —
 makes that page the only route to the one thing a visitor came for. It is item 2 of « Left to do »
 and it is now the site's most expensive gap.
+
+## Passe 14 — le référencement (14 septembre 2026)
+
+Le site n'était pas invisible sur Google par manque de contenu. Cinq défauts mesurés le 14/09 :
+
+| # | Mesuré en ligne | Conséquence |
+|---|---|---|
+| 1 | `canonical` = `https://oumayma-404.github.io/gestion-clinique-site/index.html` sur la page servie par apexa.tn | on désignait comme « vraie page » une URL qui **301 vers nous**. Google peut alors classer l'accueil « Autre page avec balise canonique correcte », c'est-à-dire ne jamais l'indexer |
+| 2 | `apexa.tn/robots.txt` → 404 · `apexa.tn/sitemap.xml` → 404 | aucune feuille de route pour le crawl |
+| 3 | aucun `application/ld+json` | rien ne disait à Google que ce site est un logiciel, ni de quoi il parle |
+| 4 | `/` et `/index.html` répondent 200, et le canonique désignait le second | deux URL pour une page |
+| 5 | `assets/scenes/*.html` — 3 documents autonomes indexables, titrés « Quatre temps », « La journée se remplit », « Une seule saisie » | 3 résultats parasites possibles sous le nom de la marque |
+
+Le titre et la description étaient corrects **mais ne contenaient pas la requête visée** : le site
+disait « logiciel de cabinet dentaire », la requête est « logiciel de gestion **de** cabinet
+dentaire ». Deux mots, une autre requête.
+
+### Ce qui a changé
+
+- **`BASE` = `https://apexa.tn/`** (`build.mjs`). Un seul littéral : `canonical`, `og:url`,
+  `og:image` et le sitemap en sortent tous. L'ancienne valeur était l'URL github.io.
+- **`canonOf`** : l'accueil est canonique à `/`, jamais à `/index.html`. Le jeton du gabarit est
+  `{{CANON}}` et non plus `{{PATH}}` — `meta.path` reste le chemin d'écriture.
+- **`robots.txt` + `sitemap.xml` générés** (étape 5). Le sitemap est dérivé de la boucle des
+  pages : **une page ajoutée demain y entre toute seule**, et elle y entre avec son chemin
+  *canonique*, pas son nom de fichier.
+- **`src/jsonld/<page>.json`** → `{{JSONLD}}`. L'accueil porte `Organization`, `WebSite`,
+  `SoftwareApplication` et `FAQPage` ; les autres pages un `WebPage`/`Article` + `BreadcrumbList`.
+  Le JSON est reparsé puis re-sérialisé, donc **un fichier invalide fait échouer le build** et
+  jamais la page en ligne. ⚠️ Les quatre règles qui font rejeter le balisage entier sont dans
+  `src/jsonld/README.md` — pas d'`aggregateRating`, pas d'`offers` sans prix public, le texte des
+  questions **mot pour mot**, et des URL qui répondent vraiment.
+- **Les trois scènes** portent `noindex` et sont en `Disallow`. Ceinture et bretelles, parce qu'un
+  `Disallow` seul n'enlève pas une URL déjà indexée. ⚠️ Deux d'entre elles
+  (`hero-journee-se-remplit`, `hero-une-seule-saisie`) **ne sont utilisées par aucune page** et
+  peuvent être supprimées.
+
+### L'eyebrow est passée DANS le `<h1>`
+
+Un `<title>` qui porte la requête au-dessus d'un `<h1>` qui ne la porte pas est à moitié fait. Le
+`<h1>` lit maintenant « Logiciel de gestion de cabinet dentaire · Une seule saisie. Tout le cabinet
+suit. » et **l'écran n'a pas bougé d'un pixel** : l'eyebrow est un `<span class="eyebrow">` bloc à
+l'intérieur du `h1`.
+
+⚠️ **Le `max-width: 17ch` est passé du `h1` à la phrase** (`.hero h1 .hero-claim`). Mesuré en `ch`
+de `h1` — 54 px — ce cap fait ~500 px, et l'eyebrow (39 caractères à 13 px) n'y tenait pas sur une
+ligne. Le cap appartient à la phrase, pas à la boîte. Vérifié à 320 / 390 / 820 / 1180 / 1440 :
+eyebrow sur une seule ligne partout, aucun débordement.
+
+⚠️ « en Tunisie » **n'a pas été ajouté à l'eyebrow** : ça l'aurait portée à 50 caractères et fait
+trois lignes sur un téléphone. C'est la lede juste en dessous qui le dit déjà — « Conçu en Tunisie,
+pour les dentistes d'ici. »
+
+### Trois pages de longue traîne
+
+`odontogramme.html`, `logiciel-dentaire-hors-ligne.html`,
+`guide-choisir-logiciel-cabinet-dentaire.html`. Une page ne peut pas être première sur toutes les
+variantes.
+
+- **Zéro CSS nouveau** : elles reprennent le vocabulaire `.cp-*` de `confidentialite.html`, qui est
+  la page prose de référence et qui tient déjà à 320 px.
+- **Aucun concurrent n'est nommé**, ni décrit en creux. Une page qui compare des produits nommés
+  est juridiquement exposée.
+- **Aucun chiffre de prix.** La question du prix dans le guide porte sur *ce qu'il faut demander*,
+  ce qui est vrai et utile tant que la section « L'essai et le prix » est parquée.
+- **Liées depuis le pied de page** sur toutes les pages : une page orpheline est à peine explorée,
+  même présente au sitemap.
+
+⚠️ Chaque affirmation de `odontogramme.html` est une décision documentée dans `features/` — l'état
+final charté seulement quand l'acte est terminé, l'étendue d'un bridge enregistrée et non devinée,
+la denture mixte. Les tombstones sont en commentaire en tête de la page.
+
+### Ce qui reste à la main
+
+`site/REFERENCEMENT.md` : la Search Console clic par clic, Bing, la fiche d'établissement (qui
+demande une adresse publique — décision de la propriétaire), et le seul vrai levier restant, un
+lien entrant depuis un site tunisien.
+
+⚠️ Un TXT `google-site-verification=zuSC9Mt6uj…` est **déjà** dans la zone DNS d'apexa.tn, à côté du
+SPF OVH et du code Brevo. La propriété est donc déjà validée, ou à un clic de l'être — et ces deux
+autres lignes ne doivent pas être écrasées en en ajoutant une.

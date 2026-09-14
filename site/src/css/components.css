@@ -138,7 +138,12 @@
 @media (min-width: 62rem) {
   .hero-grid { grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr); }
 }
-.hero h1 { margin-bottom: 1.25rem; max-width: 17ch; }
+/* ⚠️ Le `max-width: 17ch` est passé du h1 à la PHRASE. L'eyebrow vit dans le h1 pour
+   le référencement, et un 17ch mesuré en `ch` de h1 le cassait sur deux lignes alors
+   qu'il tient sur une : le cap appartient à la phrase, pas à la boîte. */
+.hero h1 { margin-bottom: 1.25rem; }
+.hero h1 .eyebrow { display: block; line-height: 1.5; }
+.hero h1 .hero-claim { display: block; max-width: 17ch; }
 .hero .lede { max-width: 36ch; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
 .hero-actions .btn { flex: 1 1 12rem; }

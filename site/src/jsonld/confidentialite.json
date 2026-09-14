@@ -1,0 +1,24 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://apexa.tn/confidentialite.html#page",
+      "url": "https://apexa.tn/confidentialite.html",
+      "name": "Confidentialité",
+      "description": "Ce qu'APEXA enregistre, qui y accède, combien de temps c'est conservé et comment c'est protégé. En clair, sans jargon.",
+      "inLanguage": "fr",
+      "isPartOf": { "@id": "https://apexa.tn/#website" },
+      "publisher": { "@id": "https://apexa.tn/#organization" },
+      "breadcrumb": { "@id": "https://apexa.tn/confidentialite.html#fil" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://apexa.tn/confidentialite.html#fil",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "APEXA", "item": "https://apexa.tn/" },
+        { "@type": "ListItem", "position": 2, "name": "Confidentialité" }
+      ]
+    }
+  ]
+}

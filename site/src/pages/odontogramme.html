@@ -1,0 +1,154 @@
+<!--{
+  "path": "odontogramme.html",
+  "root": "",
+  "home": "index.html",
+  "nav": "",
+  "bodyClass": "",
+  "barClass": "on-light",
+  "title": "Odontogramme : le schéma dentaire du logiciel | APEXA",
+  "desc": "Un odontogramme qui montre deux choses : ce qui reste à traiter, et le travail déjà fait. Denture temporaire, mixte et définitive, bridges, implants, actes par dent."
+}-->
+
+<!--
+  Page de longue traîne : « logiciel odontogramme », « schéma dentaire logiciel ».
+
+  ⚠️ CHAQUE PHRASE DE CETTE PAGE EST UNE AFFIRMATION SUR LE PRODUIT, et trois d'entre elles
+  sont des décisions documentées dans features/ — ne pas les reformuler sans les relire :
+
+    • « l'état final n'est charté qu'une fois l'acte terminé » = ToothChartingRules. Un acte
+      pluri-séances ne peut PAS annoncer son résultat dès la première séance.
+      features/multi-seance-treatment-steps/notes.md
+    • « l'étendue d'un bridge est enregistrée, jamais devinée » = ToothState.BridgeGroupId.
+      Elle était déduite de l'adjacence, et c'était faux dans les deux sens.
+      features/bridge-identity-and-tooth-gesture/notes.md
+    • « trois dentures » = DentitionType.Mixed, 6-12 ans. features/patient-form-density/notes.md
+
+  ⚠️ NE PAS parler de CNAM : l'interface a été retirée. features/cnam-ui-withdrawal/notes.md
+-->
+
+<section class="cp">
+  <div class="wrap">
+
+    <header class="cp-head">
+      <p class="cp-eyebrow rise">Odontogramme</p>
+      <h1 class="cp-h1 rise d1">Le schéma dentaire dit ce qui reste à faire, et ce qui est fait.</h1>
+      <p class="cp-lede rise d2">
+        Deux lectures de la même bouche, sur le même dessin&nbsp;: les diagnostics d’un côté, les
+        actes réalisés de l’autre. C’est l’écran qu’on ouvre en premier quand le patient s’assoit.
+      </p>
+
+      <ul class="cp-chips rise d3">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c3.5 0 5.5 2.2 5.5 5.3 0 2.6-1 4.2-1.4 6.7-.4 2.4-.7 5-2.1 5-1.3 0-1.3-2.6-2-2.6s-.7 2.6-2 2.6c-1.4 0-1.7-2.6-2.1-5C7.5 12.5 6.5 10.9 6.5 8.3 6.5 5.2 8.5 3 12 3Z"/></svg>
+          Deux onglets, un seul dessin
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          Temporaire, mixte, définitive
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+          Bridges et implants nommés
+        </li>
+      </ul>
+    </header>
+
+    <div class="cp-grid">
+
+      <article class="cp-card rise">
+        <h2>Diagnostics</h2>
+        <p>
+          Ce que vous voyez dans la bouche, posé sur la dent&nbsp;: carie, fracture, mobilité,
+          absente, à extraire, à couronner. Chaque dent porte son état et sa couleur, la légende est
+          sur l’écran, et la liste de ce qui reste à traiter se lit d’un coup d’œil.
+        </p>
+        <p class="cp-key">
+          Un diagnostic qui dit qu’un travail est nécessaire ne disparaît pas tant que le travail
+          n’est pas terminé.
+        </p>
+      </article>
+
+      <article class="cp-card rise">
+        <h2>Actes réalisés</h2>
+        <p>
+          Le même dessin, mais il raconte le travail&nbsp;: quel acte, sur quelle dent, à quelle
+          séance. La couleur désigne l’acte, pas un statut — et chaque symbole renvoie à la fiche de
+          soins qui l’a produit.
+        </p>
+        <p>
+          C’est ce deuxième onglet qui manque le plus souvent ailleurs&nbsp;: on sait ce qu’il y a à
+          faire, on ne voit pas ce qui a été fait.
+        </p>
+      </article>
+
+      <article class="cp-card cp-card--wide rise">
+        <h2>Ce que ce dessin refuse de deviner</h2>
+        <p>
+          Un schéma dentaire qui invente est pire qu’un schéma vide&nbsp;: on le lit en trois
+          secondes et on le croit. Trois choses sont donc <b>enregistrées</b> ici, jamais déduites.
+        </p>
+        <dl class="cp-duo">
+          <dt>L’étendue d’un bridge</dt>
+          <dd>Un bridge est un acte, et on dit quelles dents sont piliers et laquelle est pontique. La travée est dessinée à partir de ça — pas à partir de la position des dents, qui fait passer deux bridges voisins pour un seul et dessine un pilier en l’air.</dd>
+          <dt>Un pilier sur implant</dt>
+          <dd>Distingué d’un pilier sur dent. Le dessin ne met pas une racine sous un implant.</dd>
+          <dt>Le résultat d’un acte en plusieurs séances</dt>
+          <dd>Une couronne posée en trois séances ne s’affiche pas comme posée dès la première. L’état final apparaît quand l’acte est terminé, et la séance dit ce qu’elle a fait, pas ce qui viendra.</dd>
+        </dl>
+      </article>
+
+      <article class="cp-card rise">
+        <h2>Trois dentures, pas deux</h2>
+        <p>
+          Temporaire avant 6&nbsp;ans, <b>mixte de 6 à 12</b>, définitive à partir de 13. La denture
+          mixte n’est pas un réglage cosmétique&nbsp;: sans elle, le dossier d’un enfant de huit ans
+          s’ouvre sur l’arcade des adultes et ses dents de lait sont hors d’atteinte.
+        </p>
+        <p class="cp-sub">Le choix est sur la fiche du patient, et le dessin suit.</p>
+      </article>
+
+      <article class="cp-card rise">
+        <h2>De la dent à l’argent, sans ressaisie</h2>
+        <p>
+          Les dents cochées sur la fiche de soins partent avec l’acte&nbsp;: elles arrivent sur la
+          note d’honoraires, sur le devis, dans l’historique et sur l’odontogramme. Une seule saisie
+          au fauteuil.
+        </p>
+        <ul class="cp-list">
+          <li>La séance note les actes et les dents.</li>
+          <li>Les honoraires se calculent depuis vos tarifs, par dent ou au forfait.</li>
+          <li>L’encaissement va à la caisse du jour.</li>
+          <li>L’odontogramme se met à jour quand l’acte est fini.</li>
+        </ul>
+      </article>
+
+      <article class="cp-card cp-card--ink rise">
+        <h2>Ce qu’il ne fait jamais</h2>
+        <ul class="cp-nos">
+          <li>Afficher un implant des semaines avant que l’implant existe.</li>
+          <li>Effacer le « à traiter » avant que le soin soit terminé.</li>
+          <li>Relier deux bridges voisins en une seule barre.</li>
+          <li>Marquer une dent traitée sans dire par quel acte, ni quand.</li>
+          <li>Obliger à saisir le même bridge deux fois pour pouvoir le décrire.</li>
+        </ul>
+      </article>
+
+      <article class="cp-card cp-card--contact rise">
+        <h2>Le voir sur un cas à vous</h2>
+        <p>
+          Apportez un cas — un bridge, un enfant en denture mixte, un implant en cours — et on le
+          charte à l’écran pendant la démonstration.
+        </p>
+        <p class="cp-mail">
+          <a href="index.html#demande">Demander une démonstration</a>
+        </p>
+        <p class="cp-sub">
+          Voir aussi&nbsp;: <a href="logiciel-dentaire-hors-ligne.html">le logiciel sans internet</a>
+          et <a href="guide-choisir-logiciel-cabinet-dentaire.html">les questions à poser avant de choisir</a>.
+        </p>
+      </article>
+
+    </div>
+
+  </div>
+</section>

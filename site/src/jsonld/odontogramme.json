@@ -1,0 +1,29 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://apexa.tn/odontogramme.html#page",
+      "url": "https://apexa.tn/odontogramme.html",
+      "name": "Odontogramme : le schéma dentaire du logiciel",
+      "description": "Un odontogramme qui montre deux choses : ce qui reste à traiter, et le travail déjà fait. Denture temporaire, mixte et définitive, bridges, implants, actes par dent.",
+      "inLanguage": "fr",
+      "isPartOf": { "@id": "https://apexa.tn/#website" },
+      "about": { "@id": "https://apexa.tn/#logiciel" },
+      "publisher": { "@id": "https://apexa.tn/#organization" },
+      "primaryImageOfPage": {
+        "@type": "ImageObject",
+        "url": "https://apexa.tn/assets/img/m-odonto.webp"
+      },
+      "breadcrumb": { "@id": "https://apexa.tn/odontogramme.html#fil" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://apexa.tn/odontogramme.html#fil",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "APEXA", "item": "https://apexa.tn/" },
+        { "@type": "ListItem", "position": 2, "name": "Odontogramme" }
+      ]
+    }
+  ]
+}

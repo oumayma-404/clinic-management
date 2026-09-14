@@ -1,0 +1,25 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://apexa.tn/logiciel-dentaire-hors-ligne.html#page",
+      "url": "https://apexa.tn/logiciel-dentaire-hors-ligne.html",
+      "name": "Logiciel dentaire hors ligne, sans internet",
+      "description": "Logiciel dentaire installé sur le PC du cabinet : agenda, dossiers et caisse marchent sans internet. Et ce qui a vraiment besoin d'une ligne, dit clairement.",
+      "inLanguage": "fr",
+      "isPartOf": { "@id": "https://apexa.tn/#website" },
+      "about": { "@id": "https://apexa.tn/#logiciel" },
+      "publisher": { "@id": "https://apexa.tn/#organization" },
+      "breadcrumb": { "@id": "https://apexa.tn/logiciel-dentaire-hors-ligne.html#fil" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://apexa.tn/logiciel-dentaire-hors-ligne.html#fil",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "APEXA", "item": "https://apexa.tn/" },
+        { "@type": "ListItem", "position": 2, "name": "Logiciel dentaire hors ligne" }
+      ]
+    }
+  ]
+}

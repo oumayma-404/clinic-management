@@ -1,0 +1,116 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://apexa.tn/#organization",
+      "name": "APEXA",
+      "url": "https://apexa.tn/",
+      "email": "contact@apexa.tn",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://apexa.tn/assets/img/og-card.jpg",
+        "width": 1200,
+        "height": 630
+      },
+      "areaServed": {
+        "@type": "Country",
+        "name": "Tunisie"
+      },
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "sales",
+        "email": "contact@apexa.tn",
+        "availableLanguage": ["fr", "ar"],
+        "areaServed": "TN"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://apexa.tn/#website",
+      "url": "https://apexa.tn/",
+      "name": "APEXA",
+      "inLanguage": "fr-TN",
+      "publisher": { "@id": "https://apexa.tn/#organization" }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://apexa.tn/#logiciel",
+      "name": "APEXA",
+      "alternateName": "APEXA — logiciel de gestion de cabinet dentaire",
+      "url": "https://apexa.tn/",
+      "description": "Logiciel de gestion de cabinet dentaire conçu en Tunisie : agenda, dossier patient, odontogramme, fiche de soins, devis, caisse, rappels et sauvegardes vérifiées, dans un seul logiciel. Essai de 30 jours sans carte bancaire.",
+      "applicationCategory": "HealthApplication",
+      "applicationSubCategory": "Logiciel de gestion de cabinet dentaire",
+      "operatingSystem": "Windows 10, Windows 11, Android, iOS",
+      "inLanguage": "fr",
+      "isAccessibleForFree": false,
+      "publisher": { "@id": "https://apexa.tn/#organization" },
+      "provider": { "@id": "https://apexa.tn/#organization" },
+      "areaServed": {
+        "@type": "Country",
+        "name": "Tunisie"
+      },
+      "image": "https://apexa.tn/assets/img/og-card.jpg",
+      "screenshot": [
+        "https://apexa.tn/assets/img/m-dashboard.webp",
+        "https://apexa.tn/assets/img/m-agenda.webp",
+        "https://apexa.tn/assets/img/m-odonto.webp",
+        "https://apexa.tn/assets/img/m-caisse.webp"
+      ],
+      "featureList": [
+        "Agenda et prise de rendez-vous",
+        "Dossier patient et historique des séances",
+        "Odontogramme : diagnostics et actes réalisés",
+        "Fiche de soins et ordonnances",
+        "Devis et plans de traitement",
+        "Caisse, encaissements et chèques postdatés",
+        "Rappels SMS et WhatsApp",
+        "Sauvegardes horaires vérifiées et restaurables",
+        "Export des données en CSV",
+        "Applications Android et iPhone"
+      ],
+      "softwareHelp": { "@id": "https://apexa.tn/#faq" }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://apexa.tn/#faq",
+      "inLanguage": "fr",
+      "isPartOf": { "@id": "https://apexa.tn/#website" },
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Et si l’ordinateur lâche ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Une sauvegarde part toutes les heures. Chacune est vérifiée, et chacune se restaure."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Et mes données, si j’arrête ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Elles sortent en CSV quand vous voulez : patients, actes, paiements. Rien n’est retenu."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Combien de temps pour être opérationnel ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Une demi-journée. Actes, tarifs et rôles sont déjà en place."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Peut-on l’utiliser sur téléphone ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Oui, Android et iPhone."
+          }
+        }
+      ]
+    }
+  ]
+}

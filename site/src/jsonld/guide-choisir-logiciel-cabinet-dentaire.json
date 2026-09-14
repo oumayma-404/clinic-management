@@ -1,0 +1,29 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Article",
+      "@id": "https://apexa.tn/guide-choisir-logiciel-cabinet-dentaire.html#article",
+      "headline": "Choisir un logiciel de gestion de cabinet dentaire en Tunisie",
+      "description": "Dix questions à poser avant de signer : hors ligne, sauvegardes, export CSV, prix réel, reprise de l'existant, odontogramme, caisse en dinars et support.",
+      "url": "https://apexa.tn/guide-choisir-logiciel-cabinet-dentaire.html",
+      "inLanguage": "fr",
+      "datePublished": "2026-09-14",
+      "dateModified": "2026-09-14",
+      "author": { "@id": "https://apexa.tn/#organization" },
+      "publisher": { "@id": "https://apexa.tn/#organization" },
+      "isPartOf": { "@id": "https://apexa.tn/#website" },
+      "about": { "@id": "https://apexa.tn/#logiciel" },
+      "image": "https://apexa.tn/assets/img/og-card.jpg",
+      "breadcrumb": { "@id": "https://apexa.tn/guide-choisir-logiciel-cabinet-dentaire.html#fil" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://apexa.tn/guide-choisir-logiciel-cabinet-dentaire.html#fil",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "APEXA", "item": "https://apexa.tn/" },
+        { "@type": "ListItem", "position": 2, "name": "Choisir un logiciel de gestion de cabinet dentaire" }
+      ]
+    }
+  ]
+}

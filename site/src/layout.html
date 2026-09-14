@@ -6,7 +6,9 @@
 <title>{{TITLE}}</title>
 <meta name="description" content="{{DESC}}">
 <meta name="theme-color" content="#295AA8">
-<link rel="canonical" href="{{BASE}}{{PATH}}">
+<!-- ⚠️ {{CANON}} et non le chemin du fichier : l'accueil est canonique à `/`, pas à
+     `/index.html`, que GitHub Pages sert aussi en 200. build.mjs § canonOf. -->
+<link rel="canonical" href="{{BASE}}{{CANON}}">
 <!-- The mark on its gradient plate, inline so the page needs no extra request. A data: URI
      cannot include a partial, so this is a hand-kept copy of src/partials/mark.html's path;
      the two must move together and this comment is the only thing that says so. -->
@@ -17,7 +19,7 @@
 <meta property="og:site_name" content="APEXA">
 <meta property="og:title" content="{{TITLE}}">
 <meta property="og:description" content="{{DESC}}">
-<meta property="og:url" content="{{BASE}}{{PATH}}">
+<meta property="og:url" content="{{BASE}}{{CANON}}">
 <!-- ⚠️ An ABSOLUTE url, and a JPEG. A relative og:image is ignored by most
      scrapers, and a WebP one does not render in WhatsApp. -->
 <meta property="og:image" content="{{BASE}}assets/img/og-card.jpg">
@@ -29,6 +31,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="{{ROOT}}assets/site.css">
+
+<!-- Données structurées : src/jsonld/<page>.json, vide si le fichier n'existe pas. -->
+{{JSONLD}}
 </head>
 <body class="{{BODYCLASS}}">
 
