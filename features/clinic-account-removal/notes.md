@@ -144,8 +144,20 @@ the whole reason the action was taken and there is nowhere left to read it after
   refusal, a whole rollback, the cabinet left intact — but such a database cannot be cleaned from the console
   until the row is dealt with by hand. **Nothing to fix today: the dev database holds 0 such rows**, counted over
   every `ClinicId` column. A `verify-schema` check would turn a surprise at delete time into a drift report.
-- ⚠️ **The screen and the HTTP path are still unexercised.** The rehearsal drives `ClinicPurge` directly, so
-  `GET deletion-preview`, `POST delete`, the typed confirmation, the journal row and the panel's own layout have
-  never been opened in a browser.
+- **Driven in a browser, end to end** (2026-09-14) — `qa/plan.md`, `qa/walk.mjs`, `qa/run-1.md`: **21 scenarios
+  pass, 1 not exercised, 0 findings**, on a cabinet created for the pass. A real deletion went through the
+  console: the preview read 371 rows, the panel stayed open and named the freed address, the journal row carries
+  the action + the cabinet + the console account + the motif, the fiche then said « Ce cabinet n'existe plus »,
+  and **the address was re-used to provision a new cabinet** — which is the whole point of the feature. Refused,
+  with nothing deleted: a blank motif, a wrong address, and **the cabinet's own name**. Looked at at 320 · 390 ·
+  820 · 1180 · 1440 and at the owner's real 1536 × 730.
+  ⚠️ **An empty `401` from the API does not mean « refused », it means « no such route »** — the fallback policy
+  validates a console token against the *clinic* scheme, so `/platform/nope` answers 401 too. That is what made
+  a stale API process (started before this controller existed) look like an authorisation bug for four probe
+  cycles. Restart the API before concluding anything about a new platform route.
+  ⚠️ Five of the run's first « failures » were the probe, not the product (`run-1.md` § Probe bugs) — the
+  sharpest being the **hydration race**: filling a field right after `domcontentloaded` sets the DOM value
+  before React attaches, so the form posts *empty* credentials and the console answers 401, indistinguishable
+  from a wrong password.
 - ⚠️ **It is not on the hosted deployment until `deploy-hosted.yml` runs**: `console`, `web` and `api` ship only
   through that workflow.
