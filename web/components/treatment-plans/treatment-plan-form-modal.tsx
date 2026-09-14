@@ -14,6 +14,10 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Check, Plus, ReceiptText, Search, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
@@ -27,6 +31,7 @@ import {
 } from "@/lib/api/treatment-plans"
 import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
@@ -36,11 +41,11 @@ import type {
   PatientDto,
   ProcedureTypeDto,
 } from "@/lib/api/types"
-import { formatAmount, formatDT, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, formatDateTime, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
-import { planItemState } from "@/components/treatment-plans/plan-next-action"
+import { actRemovalPlan, type ActRemovalPlan } from "@/components/treatment-plans/plan-next-action"
 
 interface LineRow {
   /**
@@ -223,6 +228,14 @@ interface TreatmentPlanFormModalProps {
    * not an amendment.
    */
   amendMode?: boolean
+  /**
+   * The act the dialog was opened **about**, from « Modifier » on that act's own row. Its line is scrolled to
+   * and outlined; every other line is editable exactly as before.
+   *
+   * ⚠️ Without it, « Modifier » on the third act opens a dialog showing the first — which on a six-act devis
+   * is the same « where is it? » the control was added to remove.
+   */
+  focusItemId?: string | null
   /** When opened from a patient page, the patient is preset and locked. */
   presetPatientId?: string
   presetPatientName?: string
@@ -254,6 +267,7 @@ export function TreatmentPlanFormModal({
   onOpenChange,
   editingPlan,
   amendMode = false,
+  focusItemId = null,
   presetPatientId,
   presetPatientName,
   seedLines,
@@ -307,30 +321,29 @@ export function TreatmentPlanFormModal({
   const isAmending = amendMode && !!editingPlan
 
   /**
-   * Acts the server will refuse to remove, with the reason, so the form can say so *before* submit instead of
-   * bouncing a French sentence back from the API. Keyed by act id; an act absent from the map is removable.
+   * What removing each existing act would do, keyed by act id — the refusal when there is one, and otherwise
+   * the rendez-vous that travels with it. `actRemovalPlan` is the single mirror of
+   * `TreatmentPlan.EnsureItemRemovable`.
    *
-   * Mirrors `TreatmentPlan.RemoveItem`: a réalisé act cannot be retired from a devis (its fiche and possibly
-   * its invoice line point at it), and an act with a live appointment must have that appointment moved or
-   * cancelled first.
+   * ⚠️ It used to be derived from `planItemState`, which answers for the act's NEXT STEP: a passed visit
+   * disabled the bin with « un rendez-vous est prévu » on a removal the server allows, while a bridge one
+   * séance in enabled it on one the server refuses.
    */
-  const removalBlockers = new Map<string, string>()
+  const removalPlans = new Map<string, ActRemovalPlan>()
   if (isAmending && editingPlan) {
     for (const item of editingPlan.items) {
-      const state = planItemState(item)
-      if (state === "done") {
-        removalBlockers.set(
-          item.id,
-          "Acte déjà réalisé — détachez sa fiche de soins avant de le retirer du devis.",
-        )
-      } else if (state === "scheduled" || state === "to-record") {
-        removalBlockers.set(
-          item.id,
-          "Un rendez-vous est prévu pour cet acte — annulez ou déplacez-le avant de le retirer.",
-        )
-      }
+      removalPlans.set(item.id, actRemovalPlan(editingPlan, item))
     }
   }
+
+  const removalBlockerFor = (id: string | null): string | undefined => {
+    if (!id) return undefined
+    const plan = removalPlans.get(id)
+    return plan && !plan.removable ? plan.reason : undefined
+  }
+
+  /** The catalogue grouped by discipline — shared with the booking and fiche pickers, never re-derived. */
+  const procedureGroups = useMemo(() => groupProceduresByCategory(procedureTypes), [procedureTypes])
 
   /*
    * The three lists this editor picks from — and, crucially, **whether each read failed**.
@@ -447,6 +460,46 @@ export function TreatmentPlanFormModal({
   const removeLine = (index: number) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
 
+  /*
+   * The bin on an act the patient is booked for asks first, because the save will settle that booking too —
+   * cancelling a visit this act was the only reason for, and dropping the act from one that carries others.
+   * Asked at the press rather than at the save: the row is gone from the form immediately and cannot be
+   * re-added, so that press IS the decision.
+   */
+  const [pendingRemoval, setPendingRemoval] = useState<{ index: number; label: string } | null>(null)
+
+  /*
+   * Put the act « Modifier » was pressed on in front of the reader. Deferred a frame because the dialog's
+   * content mounts in the same tick `open` flips, so `scrollIntoView` in the effect body finds an element
+   * with no scrollport above it.
+   */
+  const lineRefs = useRef(new Map<string, HTMLDivElement | null>())
+  useEffect(() => {
+    if (!open || !focusItemId) return
+    const frame = requestAnimationFrame(() => {
+      lineRefs.current.get(focusItemId)?.scrollIntoView({ block: "center" })
+    })
+    return () => cancelAnimationFrame(frame)
+    // `lines` so the scroll happens once the acts have been hydrated, not against an empty form.
+  }, [open, focusItemId, lines])
+
+  const requestRemoveLine = (index: number) => {
+    const line = lines[index]
+    const plan = line.id ? removalPlans.get(line.id) : undefined
+    if (!plan || !plan.removable || !plan.booking) {
+      removeLine(index)
+      return
+    }
+    const when = formatDateTime(plan.booking.at)
+    setPendingRemoval({
+      index,
+      label:
+        plan.booking.sharedWith > 0
+          ? `L'acte sera retiré du rendez-vous du ${when}, qui reste prévu pour les autres actes.`
+          : `Le rendez-vous du ${when} sera annulé : cet acte est la seule raison de cette séance.`,
+    })
+  }
+
   /**
    * The fee a row should show after being re-pointed at a new act.
    *
@@ -485,18 +538,33 @@ export function TreatmentPlanFormModal({
   // so a plan-scheduled appointment got no procedure type, no colour and no default duration.
   const selectProcedureType = (index: number, pt: ProcedureTypeDto) => {
     setLines((prev) =>
-      prev.map((l, i) =>
-        i === index
-          ? {
-              ...l,
-              procedureTypeId: pt.id,
-              designationFr: pt.name,
-              plannedCost: repricedFor(l, pt.defaultCost),
-              // The act's protocol, proposed — unless the dentist has already edited this row's séances.
-              ...(l.stepsTouched ? {} : { steps: proposedStepsFor(pt) }),
-            }
-          : l,
-      ),
+      prev.map((l, i) => {
+        if (i !== index) return l
+        /*
+         * ⚠️ **Changing the act is not the same gesture as correcting its name, and conflating them is what
+         * the client reported.** A line loaded from an existing devis arrives `costTouched` + `stepsTouched`
+         * — rightly: a stored fee is the number agreed with the patient and a stored protocol is somebody's
+         * decision, so re-picking the *same* act to fix a typo must leave both alone. But swapping the act
+         * for a **different** one makes that fee and that protocol the *previous* act's, and keeping them is
+         * how « Détartrage » sat at the couronne's fee with the couronne's three séances under it.
+         *
+         * ⚠️ The séances only follow when **nothing has been recorded** on them: `SetSteps` refuses dropping
+         * a séance already carried out, so re-proposing the catalogue's list over a part-done act would make
+         * the save fail outright.
+         */
+        const swapped = (l.procedureTypeId ?? null) !== pt.id
+        const stepsAreRecorded = (l.steps ?? []).some((st) => st.done)
+        const follows = swapped && !stepsAreRecorded
+        const base: LineRow = follows ? { ...l, costTouched: false, stepsTouched: false } : l
+        return {
+          ...base,
+          procedureTypeId: pt.id,
+          designationFr: pt.name,
+          plannedCost: repricedFor(base, pt.defaultCost),
+          // The act's protocol, proposed — unless the dentist has already edited this row's séances.
+          ...(base.stepsTouched ? {} : { steps: proposedStepsFor(pt) }),
+        }
+      }),
     )
     setPickerOpenIndex(null)
   }
@@ -582,10 +650,18 @@ export function TreatmentPlanFormModal({
   const applyCandidate = (index: number, candidate: SeedCandidate) => {
     const line = lines[index]
     const cost = seedCost(candidate, line.toothNumbers.length)
+    // Same rule as `selectProcedureType`: a chip that swaps the act reprices and re-proposes the séances,
+    // one that re-picks the act already chosen leaves both alone. It used to reprice and never touch the
+    // protocol at all, so swapping a one-séance act for a six-séance one left the line with no protocol.
+    const swapped = (line.procedureTypeId ?? null) !== candidate.procedureTypeId
+    const stepsAreRecorded = (line.steps ?? []).some((st) => st.done)
+    const follows = swapped && !stepsAreRecorded
+    const pt = procedureTypes.find((p) => p.id === candidate.procedureTypeId)
     updateLine(index, {
       procedureTypeId: candidate.procedureTypeId,
       designationFr: candidate.name,
-      ...(line.costTouched || cost == null ? {} : { plannedCost: formatAmount(cost) }),
+      ...(follows ? { costTouched: false, stepsTouched: false, steps: proposedStepsFor(pt) } : {}),
+      ...((follows || !line.costTouched) && cost != null ? { plannedCost: formatAmount(cost) } : {}),
     })
   }
 
@@ -785,9 +861,9 @@ export function TreatmentPlanFormModal({
       const keptIds = new Set(parsedLines.map((l) => l.id).filter((id): id is string => !!id))
       const removeItemIds = [...originalIds].filter((id) => !keptIds.has(id))
 
-      const blocked = removeItemIds.filter((id) => removalBlockers.has(id))
-      if (blocked.length > 0) {
-        setError(removalBlockers.get(blocked[0])!)
+      const blocked = removeItemIds.map((id) => removalBlockerFor(id)).find(Boolean)
+      if (blocked) {
+        setError(blocked)
         return
       }
 
@@ -1035,9 +1111,20 @@ export function TreatmentPlanFormModal({
                 // Every field of an existing act is editable in amend mode — the endpoint now takes in-place
                 // edits, and a réalisé or booked act is precisely the one whose price cannot be corrected any
                 // other way, since it refuses removal. Only *removal* is still gated (`removalBlocked`).
-                const removalBlocked = line.id ? removalBlockers.get(line.id) : undefined
+                const removalBlocked = removalBlockerFor(line.id)
+                const focused = !!line.id && line.id === focusItemId
                 return (
-                <div key={index} className="rounded-lg border p-3 space-y-2">
+                <div
+                  key={index}
+                  ref={(el) => {
+                    if (line.id) lineRefs.current.set(line.id, el)
+                  }}
+                  className={cn(
+                    "rounded-lg border p-3 space-y-2",
+                    // A ring rather than a colour: the line is not in a state, it is the one being pointed at.
+                    focused && "ring-2 ring-primary/40",
+                  )}
+                >
                   {/*
                     ⚠️ **`min-w-0` on both flex children, or « Supprimer l'acte » leaves the screen.** A flex
                     item's `min-width` is `auto`, and an `<Input>`'s intrinsic width comes from its placeholder
@@ -1102,27 +1189,59 @@ export function TreatmentPlanFormModal({
                               <span className="sr-only">Choisir un acte du catalogue</span>
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent className="p-0 w-80" align="end">
+                          {/*
+                            The same list the booking dialog offers — grouped by discipline, with the act's
+                            own colour and, crucially, **how many séances it takes**. It was a flat run of the
+                            whole catalogue carrying a name and a price, so « Implant dentaire » sat between
+                            « Greffe osseuse » and « Contention » with nothing saying that picking it proposes
+                            six visits; the dentist learned that after the pick, which is the wrong order on a
+                            document a patient signs. `groupProceduresByCategory` is shared with that picker
+                            and the fiche's, so the three cannot disagree about where an act lives.
+
+                            ⚠️ The price is shown here and the duration there, deliberately: a devis is about
+                            money and a booking is about the diary.
+                          */}
+                          <PopoverContent
+                            className="p-0 w-[min(22rem,calc(100vw-2rem))]"
+                            align="end"
+                          >
                             <Command>
                               <CommandInput placeholder="Rechercher un acte…" />
                               <CommandList>
                                 <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
-                                <CommandGroup heading="Mes actes">
-                                  {procedureTypes.map((pt) => (
-                                    <CommandItem
-                                      key={pt.id}
-                                      value={`pt ${pt.name}`}
-                                      onSelect={() => selectProcedureType(index, pt)}
-                                    >
-                                      <div className="flex flex-col">
-                                        <span className="text-sm font-medium">{pt.name}</span>
-                                        {pt.defaultCost != null && pt.defaultCost > 0 && (
-                                          <span className="text-xs text-muted-foreground">{formatDT(pt.defaultCost)}</span>
+                                {procedureGroups.map(({ label, items }) => (
+                                  <CommandGroup key={label} heading={label}>
+                                    {items.map((pt) => (
+                                      <CommandItem
+                                        key={pt.id}
+                                        /* cmdk matches on `value` alone, so the discipline goes in it too —
+                                           « endo » has to reach « Traitement de canal ». */
+                                        value={pt.category ? `${pt.name} ${pt.category}` : pt.name}
+                                        onSelect={() => selectProcedureType(index, pt)}
+                                        className="coarse:py-3"
+                                      >
+                                        <span
+                                          className="me-2 size-3 shrink-0 rounded-full"
+                                          style={{ backgroundColor: pt.colorHex }}
+                                          aria-hidden
+                                        />
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate text-sm font-medium">{pt.name}</span>
+                                          {pt.defaultCost != null && pt.defaultCost > 0 && (
+                                            <span className="block text-xs text-muted-foreground">
+                                              {formatDT(pt.defaultCost)}
+                                            </span>
+                                          )}
+                                        </span>
+                                        {(pt.defaultSteps?.length ?? 0) > 1 && (
+                                          <span className="ms-2 shrink-0 rounded-full bg-primary/10 px-1.5 text-2xs font-medium text-primary">
+                                            {pt.defaultSteps!.length} séances
+                                          </span>
                                         )}
-                                      </div>
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                ))}
                               </CommandList>
                             </Command>
                           </PopoverContent>
@@ -1230,7 +1349,7 @@ export function TreatmentPlanFormModal({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => removeLine(index)}
+                      onClick={() => requestRemoveLine(index)}
                       disabled={loading || lines.length === 1 || !!removalBlocked}
                       aria-label="Supprimer l'acte"
                       title={removalBlocked ?? "Supprimer l'acte"}
@@ -1640,6 +1759,31 @@ export function TreatmentPlanFormModal({
       </DialogContent>
     </Dialog>
     <DiscardChangesDialog guard={guard} />
+    <AlertDialog
+      open={pendingRemoval !== null}
+      onOpenChange={(o) => !o && setPendingRemoval(null)}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Retirer cet acte du devis ?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {pendingRemoval?.label} Rien n&apos;est modifié tant que la révision n&apos;est pas enregistrée.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Garder l&apos;acte</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              if (pendingRemoval) removeLine(pendingRemoval.index)
+              setPendingRemoval(null)
+            }}
+          >
+            Retirer l&apos;acte
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   )
 }

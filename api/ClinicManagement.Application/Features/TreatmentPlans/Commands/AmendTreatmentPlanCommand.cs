@@ -6,7 +6,9 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Appointments.Commands;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 
@@ -87,6 +89,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IMediator _mediator;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<AmendTreatmentPlanCommandHandler> _logger;
 
@@ -97,6 +100,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
+        IMediator mediator,
         IUnitOfWork unitOfWork,
         ILogger<AmendTreatmentPlanCommandHandler> logger)
     {
@@ -106,6 +110,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
+        _mediator = mediator;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -201,13 +206,22 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
 
             // Removals next: taking an act out lowers the total, and doing it before the additions keeps
             // the appended acts' sequence numbers contiguous.
+            var appointmentsToCancel = new List<Guid>();
             if (request.RemoveItemIds.Count > 0)
             {
-                var liveByItemId = await LiveAppointmentsByItemAsync(plan, clinicId, cancellationToken);
+                // Every refusal first, before a single booking is touched — `EnsureItemRemovable` exists for
+                // exactly this ordering.
                 foreach (var itemId in request.RemoveItemIds)
                 {
-                    liveByItemId.TryGetValue(itemId, out var liveAt);
-                    plan.RemoveItem(itemId, liveAt);
+                    plan.EnsureItemRemovable(itemId);
+                }
+
+                appointmentsToCancel = await ReleaseBookingsAsync(
+                    request.RemoveItemIds, clinicId, cancellationToken);
+
+                foreach (var itemId in request.RemoveItemIds)
+                {
+                    plan.RemoveItem(itemId);
                 }
             }
 
@@ -274,6 +288,42 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            /*
+             * The visits that existed only for an act this amendment removed, cancelled **after** the plan is
+             * saved — deliberately, and in that order for two reasons.
+             *
+             * ⚠️ `UpdateAppointmentCommandHandler` calls `SaveChangesAsync` itself on this same scoped
+             * DbContext, so sending it earlier would commit the plan's half-applied edits *without* the
+             * expected-version check the line above exists to make.
+             *
+             * ⚠️ And it is sent through MediatR rather than by calling `appointment.Cancel()` here, because
+             * cancelling a visit is five things, not one: the staff notification, the post-visit review row,
+             * the unsent SMS/WhatsApp reminders, the Google Calendar event and the realtime broadcast all live
+             * in that handler. A hand-rolled cancel here would be a sixth writer that forgets every one of
+             * them.
+             *
+             * If a cancel fails the act is already gone and the slot is still booked — the recoverable
+             * direction, and the one a dentist can see and fix in the agenda.
+             */
+            foreach (var appointmentId in appointmentsToCancel)
+            {
+                var cancelled = await _mediator.Send(
+                    new UpdateAppointmentCommand
+                    {
+                        Id = appointmentId,
+                        Status = nameof(AppointmentStatus.Cancelled),
+                        CancellationReason = "Acte retiré du devis",
+                    },
+                    cancellationToken);
+
+                if (!cancelled.IsSuccess)
+                {
+                    _logger.LogWarning(
+                        "Amendment of plan {PlanId} removed an act but could not cancel appointment {AppointmentId}: {Error}",
+                        plan.Id, appointmentId, cancelled.Error);
+                }
+            }
+
             var patient = await _patientRepository.GetByIdAsync(plan.PatientId, cancellationToken);
             return Result<TreatmentPlanDto>.Success(plan.ToDto(patient?.GetFullName()));
         }
@@ -322,27 +372,76 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
     }
 
     /// <summary>
-    /// The still-standing appointment (if any) for each of the plan's acts, so <c>RemoveItem</c> can refuse to
-    /// strand a patient who is booked for work that would no longer exist. One batched read for the whole plan.
+    /// Let the acts being removed go from the visits booked for them, and report the visits that are left with
+    /// nothing to do — the caller cancels those once the plan itself is saved.
+    /// <para>
+    /// ⚠️ Decided per <b>procedure row</b>, never per plan link: a séance may legitimately carry a devis act
+    /// <i>and</i> a walk-in détartrage, and that visit still has a reason to happen once the devis act goes.
+    /// <c>SetProcedures</c> re-derives the lead-act snapshot and <c>TreatmentPlanItemId</c> from the rows it is
+    /// handed, so dropping a row is all this has to do — and <c>AgreedCost</c> is carried across on every kept
+    /// row, because the list is replace-semantics and a row re-sent without its price silently reverts to the
+    /// catalogue tarif.
+    /// </para>
+    /// <para>
+    /// ⚠️ A <b>Completed</b> visit is never cancelled, whatever it is left carrying. It happened; only its
+    /// link to a removed act is untrue, and that is what is dropped.
+    /// </para>
     /// </summary>
-    private async Task<Dictionary<Guid, DateTime?>> LiveAppointmentsByItemAsync(
-        TreatmentPlan plan, Guid clinicId, CancellationToken cancellationToken)
+    /// <returns>The ids of the visits that now carry nothing, to be cancelled after the plan is saved.</returns>
+    private async Task<List<Guid>> ReleaseBookingsAsync(
+        IReadOnlyCollection<Guid> removedItemIds, Guid clinicId, CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
-        var itemIds = plan.Items.Select(i => i.Id).ToList();
-        var workflow = await TreatmentPlanWorkflowProjection.BuildAsync(
-            new[] { plan }, clinicId, _appointmentRepository, _invoiceRepository, now, cancellationToken);
+        var removed = removedItemIds.ToHashSet();
+        var appointments = await _appointmentRepository.GetByTreatmentPlanItemIdsAsync(
+            clinicId, removedItemIds.ToList(), cancellationToken);
 
-        // Only a *future* booking blocks removal — that is the case the guard is about: a patient still
-        // expected, with reminders already sent, for work that would no longer exist. A past appointment is
-        // history; its plan link simply stops resolving, which is harmless because the derivation runs
-        // act → appointment, never the reverse. (A cancelled or no-show appointment is already excluded by
-        // the projection, so cancelling the RDV is what unblocks the removal.)
-        return itemIds.ToDictionary(
-            id => id,
-            id => workflow.ScheduledByItemId.TryGetValue(id, out var appointment)
-                  && appointment.AppointmentDateTime >= now
-                ? (DateTime?)appointment.AppointmentDateTime
-                : null);
+        var toCancel = new List<Guid>();
+        foreach (var appointment in appointments)
+        {
+            if (!TreatmentPlanWorkflowProjection.IsLive(appointment.Status))
+            {
+                // Already cancelled or a no-show: it books nothing, so there is nothing to release.
+                continue;
+            }
+
+            if (appointment.Status == AppointmentStatus.Completed)
+            {
+                // A visit that happened is a record of what happened, and rewriting its acts to tidy a devis
+                // would edit history. Its link to the removed act simply stops resolving, which is harmless:
+                // every derivation in this feature runs act → appointment, never the reverse.
+                continue;
+            }
+
+            var kept = appointment.Procedures
+                .Where(p => !(p.TreatmentPlanItemId.HasValue && removed.Contains(p.TreatmentPlanItemId.Value)))
+                .Select(p => new AppointmentProcedureInput(
+                    p.ProcedureTypeId,
+                    p.ProcedureName,
+                    p.DurationMinutes,
+                    p.ColorHex,
+                    p.AgreedCost,
+                    p.TreatmentPlanItemId,
+                    p.TreatmentPlanItemStepId))
+                .ToList();
+
+            var scalarPointsAtRemoved = appointment.TreatmentPlanItemId.HasValue
+                && removed.Contains(appointment.TreatmentPlanItemId.Value);
+
+            if (kept.Count == 0)
+            {
+                toCancel.Add(appointment.Id);
+                continue;
+            }
+
+            if (kept.Count == appointment.Procedures.Count && !scalarPointsAtRemoved)
+            {
+                continue;
+            }
+
+            appointment.SetProcedures(kept);
+            await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
+        }
+
+        return toCancel;
     }
 }

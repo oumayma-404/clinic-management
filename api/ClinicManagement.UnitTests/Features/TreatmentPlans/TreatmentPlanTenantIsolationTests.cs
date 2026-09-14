@@ -1,3 +1,4 @@
+using MediatR;
 using ClinicManagement.UnitTests.Common;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
@@ -262,7 +263,8 @@ public class TreatmentPlanTenantIsolationTests
 
         var handler = new AmendTreatmentPlanCommandHandler(
             _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _procedureTypes.Object,
-            _clinicResolver.Object, _uow.Object, NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
+            _clinicResolver.Object, new Mock<IMediator>().Object, _uow.Object,
+            NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
 
         var result = await handler.Handle(new AmendTreatmentPlanCommand
         {

@@ -1070,43 +1070,65 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Remove an act from an accepted or in-progress plan and lower <see cref="TotalPlanned"/> accordingly.
     /// Bumps the revision.
     /// <para>
-    /// Refused for an act already <c>Done</c>, and refused for an act the patient is still booked for —
-    /// <paramref name="liveAppointmentAt"/> carries that booking (the aggregate cannot query appointments, so
-    /// the caller supplies it). Removing a booked act would leave an appointment row pointing at a vanished
-    /// id, with the patient still expected — reminders already sent — for work that no longer exists, and no
-    /// FK to catch it. Whether to un-book the patient or repurpose the slot is a phone call, not a cascade.
+    /// <b><see cref="TreatmentPlanItem.HasDeliveredWork"/> is the only refusal.</b> An act nothing has been
+    /// recorded against is a plan, and a plan is a thing people change their minds about — so a booked act is
+    /// removable whether its rendez-vous is tomorrow or last week.
+    /// </para>
+    /// <para>
+    /// ⚠️ It used to refuse an act the patient was still booked for, on the ground that removing it would leave
+    /// an appointment row pointing at a vanished id with the patient still expected. That consequence is real
+    /// and the remedy was wrong: the refusal made the dentist leave the devis, find the visit in the agenda,
+    /// cancel it and come back, for the ordinary case of changing one's mind about work that has not started.
+    /// The booking is the <i>caller's</i> to settle — <c>AmendTreatmentPlanCommandHandler</c> cancels a visit
+    /// this act was the only reason for, and drops the act from one that carries others — which is the cascade
+    /// this aggregate cannot perform and therefore cannot condition on.
     /// </para>
     /// </summary>
-    public void RemoveItem(Guid itemId, DateTime? liveAppointmentAt = null)
+    public void RemoveItem(Guid itemId)
+    {
+        var item = EnsureItemRemovable(itemId);
+
+        _items.Remove(item);
+        RecomputeTotal();
+        Touch();
+    }
+
+    /// <summary>
+    /// Refuse now what <see cref="RemoveItem"/> would refuse later, without removing anything — so a caller
+    /// that has side effects to perform (cancelling the visit this act was the only reason for) can settle
+    /// every refusal <b>before</b> the first irreversible one.
+    /// <para>
+    /// ⚠️ Splitting this out is the point: a rendez-vous cancelled for an act that then turns out to be
+    /// un-removable is a phone call nobody can un-make.
+    /// </para>
+    /// </summary>
+    /// <returns>The act, so the caller does not look it up twice.</returns>
+    public TreatmentPlanItem EnsureItemRemovable(Guid itemId)
     {
         EnsureAmendable();
 
         var item = _items.FirstOrDefault(i => i.Id == itemId)
             ?? throw new InvalidOperationException("Acte introuvable.");
 
-        if (item.Status == TreatmentPlanItemStatus.Done)
-        {
-            throw new InvalidOperationException("Cet acte est déjà réalisé et ne peut plus être retiré du devis.");
-        }
-        // ⚠️ An act part-way through is `InProgress`, not `Done`, so the test above let a bridge with two of
-        // three séances delivered be deleted — with its step rows and the links to the two fiches that
+        // One question — « has any of this happened? » — asked in two shapes, because a step-less act that is
+        // Done has no séance count to quote and « a déjà 0 séance(s) réalisée(s) » would be the sentence.
+        // ⚠️ An act part-way through is `InProgress`, not `Done`, so the first test alone let a bridge with two
+        // of three séances delivered be deleted — with its step rows and the links to the two fiches that
         // evidenced them. Step-level removal has always refused this (« L'étape « X » est déjà réalisée et ne
         // peut pas être retirée »); the act level was the hole.
+        if (item.Status == TreatmentPlanItemStatus.Done)
+        {
+            throw new InvalidOperationException(
+                $"L'acte « {item.DesignationFr} » est déjà réalisé : détachez sa fiche de soins avant de le retirer du devis.");
+        }
         if (item.HasDeliveredWork)
         {
             throw new InvalidOperationException(
                 $"L'acte « {item.DesignationFr} » a déjà {item.StepsDone} séance(s) réalisée(s) et ne peut pas être retiré du devis. "
-                + "Arrêtez le traitement pour le mettre de côté sans perdre ce qui a été fait.");
-        }
-        if (liveAppointmentAt.HasValue)
-        {
-            throw new InvalidOperationException(
-                $"Cet acte a un rendez-vous prévu le {liveAppointmentAt.Value:dd/MM}. Annulez ou déplacez le rendez-vous avant de retirer l'acte.");
+                + "Détachez ces séances de leur fiche de soins, ou arrêtez le traitement pour le mettre de côté sans perdre ce qui a été fait.");
         }
 
-        _items.Remove(item);
-        RecomputeTotal();
-        Touch();
+        return item;
     }
 
     /// <summary>
