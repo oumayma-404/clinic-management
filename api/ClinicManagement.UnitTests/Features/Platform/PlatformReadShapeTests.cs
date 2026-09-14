@@ -76,7 +76,7 @@ public class PlatformReadShapeTests
         var encountered = EncounteredNames();
 
         Assert.True(requests.Count >= 4, $"Only {requests.Count} console request(s) found — the namespace scan is broken.");
-        Assert.Contains("ClinicCollectedThisMonthDt", encountered);
+        Assert.Contains("VendorCollectedThisMonthDt", encountered);
         Assert.Contains("Writes30d", encountered);
         Assert.Contains("Token", encountered);
         // Part 3's two reads, and one name from each: the detail's trend is reached only by recursing THROUGH a
@@ -84,6 +84,20 @@ public class PlatformReadShapeTests
         // here is what proves the recursion still descends rather than stopping at the top-level record.
         Assert.Contains("DaysMeasured", encountered);
         Assert.Contains("ActionLabel", encountered);
+    }
+
+    // The vendor does not get to know what a cabinet EARNS. « Encaissé par le cabinet » was withdrawn from the
+    // console — the DTO field, the snapshot column, the counter pass and the reader are all gone — and the only
+    // money name left is the vendor's own. Derived from what the reads actually return, so re-adding a turnover
+    // figure under any spelling fails here rather than shipping quietly.
+    [Fact]
+    public void No_Console_Read_Returns_A_Cabinets_Own_Turnover()
+    {
+        var money = EncounteredNames()
+            .Where(n => n.Contains("Collected", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.Equal("VendorCollectedThisMonthDt", Assert.Single(money));
     }
 
     // [AC-7.2] The red proof. The plan's own validation step is « adding a patient name to any console DTO fails

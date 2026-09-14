@@ -70,7 +70,6 @@ public class PlatformPortfolioQueryTests
             Users: 3, Patients: 412, Appointments30d: 96, Writes7d: 4, Writes30d: writes30d, ActiveDays30d: 9,
             LastWriteAt: new DateTime(2026, 8, 9, 10, 0, 0, DateTimeKind.Utc),
             LastLoginAt: new DateTime(2026, 8, 10, 7, 0, 0, DateTimeKind.Utc),
-            CollectedThisMonth: 14320.000m,
             CountersComputedAt: computedAt);
 
     private void WirePage(params PlatformClinicRow[] rows) =>
@@ -343,7 +342,6 @@ public class PlatformPortfolioQueryTests
         Assert.Equal(96, row.Appointments30d);
         Assert.Equal(12, row.Writes30d);
         Assert.Equal(9, row.ActiveDays30d);
-        Assert.Equal(14320.000m, row.ClinicCollectedThisMonthDt);
     }
 
     // [AC-2.7] The summary is one read over the portfolio, and the vendor's revenue comes from the VENDOR's own

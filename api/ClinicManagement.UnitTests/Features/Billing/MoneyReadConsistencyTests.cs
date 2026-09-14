@@ -9,7 +9,6 @@ using ClinicManagement.Application.Features.Billing.Queries;
 using ClinicManagement.Application.Features.Invoices.Queries;
 using ClinicManagement.Application.Features.Dashboard;
 using ClinicManagement.Application.Features.Dashboard.Readers;
-using ClinicManagement.Application.Features.Platform;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -730,77 +729,15 @@ public class MoneyReadConsistencyTests
         Assert.Equal(100.000m, revenue.TotalCollected);
     }
 
-    // ------------------------------------------------------------------ the FIFTH read: the vendor console
-
     /*
-     * [platform-console AC-2.1] « Encaissé par le cabinet » on the vendor's portfolio joins the four reads above.
+     * ── The vendor console was once the FIFTH cash read here, and it is gone on purpose.
      *
-     * It is the only one of the five read by somebody who is NOT at the practice, which is what makes drift here
-     * worse than anywhere else: the vendor quotes a cabinet its own turnover, the cabinet opens its caisse, and
-     * the two numbers disagree with nothing able to say which is right. Extending this file rather than writing a
-     * parallel class is the same argument J5 made — a consistency test that covers four of five reads does not
-     * catch the fifth.
-     *
-     * The contract, since la caisse reports CashIn gross with Refunds beside it:
-     *     console == caisse.CashIn − caisse.Refunds == revenue.TotalCollected
+     * « Encaissé par le cabinet » on the vendor's portfolio was pinned equal to la caisse by this file, through
+     * `PlatformCollectedReader`. Both are deleted: the console no longer reports what a practice earns — the
+     * vendor does not get to know — so there is no fifth figure to keep consistent. The vendor's OWN revenue is a
+     * read over `SubscriptionPeriods` and never touches these predicates. Do not add a clinic-turnover read back
+     * to the console; putting one here would be the second half of the same mistake.
      */
-
-    /// <summary>The console's figure, through the reader <c>ClinicActivityCounterJob</c> itself calls.</summary>
-    private async Task<decimal> ConsoleCollectedAsync(DashboardPeriod period) =>
-        await PlatformCollectedReader.ReadAsync(
-            _invoices.Object, _plans.Object, _creditNotes.Object,
-            ClinicId, period.From, period.ToInclusive, CancellationToken.None);
-
-    // [AC-2.1] All FIVE cash reads over one window and one fixture, with an avoir and a plan instalment in play —
-    // the two terms a hand-written SUM in the counter job would most plausibly have omitted.
-    [Fact]
-    public async Task The_Consoles_Cabinet_Turnover_Equals_That_Cabinets_Own_Caisse()
-    {
-        Wire(Array.Empty<Invoice>(), Array.Empty<TreatmentPlan>());
-
-        _invoices.Setup(r => r.GetCollectedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(4200.500m);
-        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
-            It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(800.250m);
-        _creditNotes.Setup(r => r.GetRefundedBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(150.750m);
-        // Non-zero on purpose: the console must NOT subtract the practice's costs. « Encaissé » is what came in,
-        // and a vendor reporting a cabinet's profit would be reporting something it has no business knowing.
-        _expenses.Setup(r => r.GetTotalBetweenAsync(
-            ClinicId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(1300.000m);
-
-        var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
-        var console = await ConsoleCollectedAsync(period);
-        var caisse = await CaisseAsync(period);
-        var revenue = await RevenueAsync(period);
-
-        Assert.Equal(4850.000m, console);
-        Assert.Equal(caisse.CashIn - caisse.Refunds, console);
-        Assert.Equal(revenue.TotalCollected, console);
-        // Expenses left the figure alone: 4850 with 1300 of costs in the window is still 4850.
-        Assert.NotEqual(caisse.Net, console);
-    }
-
-    // [AC-2.1] The bridged-plan de-dup reaches the console's read too. Without it one physical payment carried
-    // onto a bridge invoice is counted twice, and the cabinet the vendor is about to call about « growth » simply
-    // has a devis that became a note.
-    [Fact]
-    public async Task The_Consoles_Read_Passes_The_Billed_Plan_Ids_To_The_Installment_Read()
-    {
-        var plan = AcceptedPlan();
-        Wire(new[] { BridgeInvoiceFor(plan) }, new[] { plan });
-
-        await ConsoleCollectedAsync(DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow));
-
-        _plans.Verify(r => r.GetInstallmentCollectedBetweenAsync(
-                ClinicId,
-                It.IsAny<DateTime>(),
-                It.IsAny<DateTime>(),
-                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(plan.Id)),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
 
     // [AC-3][AC-6] The previous window is read with its OWN bounds, not the current ones. Without this the delta on
     // every money card would be a comparison of a figure against itself — a feature that looks present and is inert.

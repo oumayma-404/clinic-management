@@ -69,7 +69,6 @@ public static class PlatformClinicRowMapper
             ActiveDays30d: row.ActiveDays30d,
             LastWriteAt: row.LastWriteAt,
             LastLoginAt: row.LastLoginAt,
-            ClinicCollectedThisMonthDt: row.CollectedThisMonth,
             CountersComputedAt: row.CountersComputedAt,
             // ⚠️ Null, not zero, for a cabinet with no counting row (AC-8.3). The row carries a flag and two plain
             // ints — a projection cannot express « absent » in an int — and this is the one place that turns the flag

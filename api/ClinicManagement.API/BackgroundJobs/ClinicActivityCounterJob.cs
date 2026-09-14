@@ -46,9 +46,6 @@ public class ClinicActivityCounterJob
     private readonly IAuditEntryRepository _auditRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
-    private readonly IInvoiceRepository _invoiceRepository;
-    private readonly ITreatmentPlanRepository _planRepository;
-    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
@@ -60,9 +57,6 @@ public class ClinicActivityCounterJob
         IAuditEntryRepository auditRepository,
         IPatientRepository patientRepository,
         IUserRepository userRepository,
-        IInvoiceRepository invoiceRepository,
-        ITreatmentPlanRepository planRepository,
-        ICreditNoteRepository creditNoteRepository,
         IUnitOfWork unitOfWork,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
@@ -73,9 +67,6 @@ public class ClinicActivityCounterJob
         _auditRepository = auditRepository;
         _patientRepository = patientRepository;
         _userRepository = userRepository;
-        _invoiceRepository = invoiceRepository;
-        _planRepository = planRepository;
-        _creditNoteRepository = creditNoteRepository;
         _unitOfWork = unitOfWork;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
@@ -88,7 +79,7 @@ public class ClinicActivityCounterJob
     {
         _auditActor.RunAs(nameof(ClinicActivityCounterJob));
 
-        // US-2: this reads Patients, Invoices and TreatmentPlans — all clinic-filtered — for every cabinet.
+        // US-2: this reads Patients, Users and the audit ledger — all clinic-filtered — for every cabinet.
         // Without the declaration it would find nothing anywhere and log a clean pass, which is R-1's exact shape
         // and would surface as a portfolio where every practice looks idle.
         _tenantScope.UseSystemWide("ClinicActivityCounterJob measures every cabinet's activity for the vendor console");
@@ -132,7 +123,6 @@ public class ClinicActivityCounterJob
 
         var patients = await _patientRepository.CountByClinicIdAsync(clinic.Id);
         var staff = await _userRepository.GetStaffSummaryAsync(clinic.Id);
-        var collected = await CollectedThisMonthAsync(clinic.Id, todayLocal);
 
         var snapshot = existing ?? new ClinicActivitySnapshot(clinic.Id);
         snapshot.Restate(
@@ -144,7 +134,6 @@ public class ClinicActivityCounterJob
             patients: patients,
             users: staff.Count,
             lastLoginAt: staff.LastLoginAt,
-            collectedThisMonth: collected,
             computedAt: nowUtc);
 
         if (existing is null)
@@ -180,22 +169,5 @@ public class ClinicActivityCounterJob
                 existing.Restate(counts.Writes, counts.Appointments, counts.PatientsCreated, nowUtc);
             }
         }
-    }
-
-    /// <summary>
-    /// What the cabinet itself collected in the current clinic-local month, month-to-date — through
-    /// <see cref="PlatformCollectedReader"/>, which is where the « fifth money read » argument lives and which is
-    /// what <c>MoneyReadConsistencyTests</c> holds equal to la caisse.
-    ///
-    /// <para>Month-to-date rather than the whole month: the figure is stated as of <c>ComputedAt</c>, and a
-    /// window running to the end of a month not yet over would be a bound nothing can be measured against.</para>
-    /// </summary>
-    private async Task<decimal> CollectedThisMonthAsync(Guid clinicId, DateTime todayLocal)
-    {
-        var monthFrom = ClinicClock.StartOfLocalDayUtc(new DateTime(todayLocal.Year, todayLocal.Month, 1));
-        var monthTo = ClinicClock.LastTickOfLocalDayUtc(todayLocal);
-
-        return await PlatformCollectedReader.ReadAsync(
-            _invoiceRepository, _planRepository, _creditNoteRepository, clinicId, monthFrom, monthTo);
     }
 }

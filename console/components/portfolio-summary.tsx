@@ -17,8 +17,9 @@ import { cn } from "@/lib/utils";
  * labelled apart and placed after them. Lines that do not add up to the total above them is what makes a strip
  * unreadable at a glance.
  *
- * ⚠️ **The vendor's revenue is its own figure with its own label** (AC-2.7). It is never a sum of the cabinets'
- * « Encaissé (cabinet) », which is their turnover; the two names carry that distinction wherever they appear.
+ * ⚠️ **The only money on this screen is the vendor's own** (AC-2.7), and its label says so. A cabinet's own
+ * turnover was withdrawn from the console entirely — the vendor does not get to know what a practice earns — so
+ * there is no per-cabinet figure left for this one to be mistaken for.
  */
 export function PortfolioSummary({ summary }: { summary: PlatformSummary }) {
   const figures: Array<{ label: string; value: number; href?: string; tone?: "warning" }> = [

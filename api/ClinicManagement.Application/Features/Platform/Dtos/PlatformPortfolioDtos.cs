@@ -22,9 +22,6 @@ namespace ClinicManagement.Application.Features.Platform.Dtos;
 /// Whole clinic-local days left, <b>0 on the last working day</b>. Null with no end date and null once the date has
 /// passed — a negative countdown is never surfaced.
 /// </param>
-/// <param name="ClinicCollectedThisMonthDt">What the <b>cabinet</b> collected this month — its own turnover.
-/// Never to be confused with <see cref="PlatformSummaryDto.VendorCollectedThisMonthDt"/>, which is the vendor's
-/// revenue; AC-2.7 requires the two to be labelled apart, and the field names carry that distinction here.</param>
 /// <param name="CountersComputedAt">When this row's activity figures were measured, or null where the pass has
 /// never covered this cabinet. Null is a distinct statement from zero (EC-15).</param>
 /// <param name="AdminEmail">
@@ -65,7 +62,6 @@ public record PlatformClinicRowDto(
     int ActiveDays30d,
     DateTime? LastWriteAt,
     DateTime? LastLoginAt,
-    decimal ClinicCollectedThisMonthDt,
     DateTime? CountersComputedAt,
     bool MessagingMeasured = false,
     int? MessagingAllowance = null,
@@ -110,9 +106,9 @@ public record PlatformClinicPageDto(
 /// <summary>
 /// The strip above the list (AC-2.7).
 ///
-/// <para>⚠️ <see cref="VendorCollectedThisMonthDt"/> is the <b>vendor's</b> revenue and is <b>never</b> a sum of
-/// the cabinets' own <c>ClinicCollectedThisMonthDt</c>. They measure different money over different rows (FR-2),
-/// and one standing in for the other would tell the vendor its practices' turnover was its income.</para>
+/// <para>⚠️ <see cref="VendorCollectedThisMonthDt"/> is the <b>vendor's</b> revenue — the subscriptions the
+/// cabinets paid us. A cabinet's <b>own</b> turnover is deliberately nowhere in this feature: the vendor does not
+/// get to know what a practice earns, so there is no per-cabinet figure to sum and none to mistake this for.</para>
 ///
 /// <para>⚠️ <see cref="InTrial"/>, <see cref="Active"/>, <see cref="Expired"/>, <see cref="Suspended"/> and
 /// <see cref="NoEntitlement"/> are mutually exclusive and sum to <see cref="Clinics"/>.

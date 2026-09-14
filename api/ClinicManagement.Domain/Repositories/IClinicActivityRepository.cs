@@ -234,7 +234,6 @@ public record PlatformClinicRow(
     int ActiveDays30d,
     DateTime? LastWriteAt,
     DateTime? LastLoginAt,
-    decimal CollectedThisMonth,
     DateTime? CountersComputedAt,
     bool HasMessagingMonth = false,
     int MessagingAllowance = 0,

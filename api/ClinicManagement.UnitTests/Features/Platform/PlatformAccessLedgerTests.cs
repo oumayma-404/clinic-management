@@ -86,7 +86,6 @@ public class PlatformAccessLedgerTests
             Users: 3, Patients: 412, Appointments30d: 96, Writes7d: 4, Writes30d: 12, ActiveDays30d: 9,
             LastWriteAt: new DateTime(2026, 8, 9, 10, 0, 0, DateTimeKind.Utc),
             LastLoginAt: new DateTime(2026, 8, 10, 7, 0, 0, DateTimeKind.Utc),
-            CollectedThisMonth: 14320.000m,
             CountersComputedAt: new DateTime(2026, 8, 10, 3, 0, 0, DateTimeKind.Utc));
 
     private void WireCabinet(PlatformClinicRow? row, params ClinicActivityDay[] days)
@@ -322,7 +321,6 @@ public class PlatformAccessLedgerTests
         Assert.Equal(412, clinic.Patients);
         Assert.Equal(96, clinic.Appointments30d);
         Assert.Equal(12, clinic.Writes30d);
-        Assert.Equal(14320.000m, clinic.ClinicCollectedThisMonthDt);
     }
 
     // [AC-3.1][EC-15] Six months, oldest first, every one present — and a month the counter pass never covered

@@ -70,8 +70,9 @@ public static class PlatformReadShape
         "LastLoginAt",
         "CountersComputedAt",
 
-        // ── Money. Two totals that must never be read as each other (AC-2.7); the names carry the distinction.
-        "ClinicCollectedThisMonthDt",
+        // ── Money — the VENDOR's own, and only the vendor's. A cabinet's turnover has no name here on purpose:
+        // what a practice earns is none of the vendor's business, so the console never reads it and the closed set
+        // has nowhere to put it back.
         "VendorCollectedThisMonthDt",
 
         // ── The portfolio's own shape: paging and freshness.

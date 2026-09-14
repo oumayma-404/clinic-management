@@ -265,7 +265,6 @@ public class ClinicActivityRepository : IClinicActivityRepository
             x.snapshot != null ? x.snapshot.ActiveDays30d : 0,
             x.snapshot != null ? x.snapshot.LastWriteAt : null,
             x.snapshot != null ? x.snapshot.LastLoginAt : null,
-            x.snapshot != null ? x.snapshot.CollectedThisMonth : 0m,
             x.snapshot != null ? x.snapshot.ComputedAt : (DateTime?)null,
             // ⚠️ The flag carries « non mesuré », and the two figures below are meaningless without it — they read 0
             // for an absent row exactly as they would for a quiet month, which are opposite facts (AC-8.3). Nothing

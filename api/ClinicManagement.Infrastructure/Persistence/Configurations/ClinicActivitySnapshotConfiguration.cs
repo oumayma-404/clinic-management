@@ -31,7 +31,6 @@ public class ClinicActivitySnapshotConfiguration : IEntityTypeConfiguration<Clin
         builder.Property(s => s.ActiveDays30d).IsRequired();
         builder.Property(s => s.Patients).IsRequired();
         builder.Property(s => s.Users).IsRequired();
-        builder.Property(s => s.CollectedThisMonth).IsRequired();
         builder.Property(s => s.ComputedAt).IsRequired();
 
         builder.HasIndex(s => s.ClinicId)

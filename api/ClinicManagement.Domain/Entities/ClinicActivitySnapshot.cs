@@ -18,11 +18,11 @@ namespace ClinicManagement.Domain.Entities;
 /// read as nearly empty. That is a figure wrong in the direction of « this cabinet is barely used », which is
 /// precisely the churn signal the list exists to give.</para>
 ///
-/// <para>⚠️ <see cref="CollectedThisMonth"/> makes the console the <b>fifth</b> money read in this product. It is
-/// computed from the same repository predicates la caisse sums, through <c>PlanBillingRules.BilledPlanIds</c> —
-/// never a hand-written <c>SUM</c> here. The vendor quoting a cabinet its own turnover from a figure the
-/// cabinet's own caisse contradicts is the worst possible place for that drift, which is why
-/// <c>MoneyReadConsistencyTests</c> pins the two equal.</para>
+/// <para>⚠️ <b>No money figure here, and that is the decision.</b> This row once carried
+/// <c>CollectedThisMonth</c> — what the cabinet itself collected — which made the console the fifth money read in
+/// the product. It was withdrawn: the vendor does not get to know what a practice earns, so the figure is not
+/// served, not stored and not computed. The vendor's own revenue is a separate read over
+/// <c>SubscriptionPeriods</c> and is unaffected. Do not put a turnover column back here.</para>
 /// </summary>
 public class ClinicActivitySnapshot : Entity<Guid>
 {
@@ -52,13 +52,6 @@ public class ClinicActivitySnapshot : Entity<Guid>
 
     /// <summary>The most recent sign-in by any of them, or null where nobody has ever signed in.</summary>
     public DateTime? LastLoginAt { get; private set; }
-
-    /// <summary>
-    /// What the <b>cabinet itself</b> collected in the current clinic-local month, in dinars — « encaissé par le
-    /// cabinet ». Deliberately never confusable with the vendor's own revenue (AC-2.7): that one is a separate
-    /// figure on the summary, and the two are labelled apart on screen.
-    /// </summary>
-    public decimal CollectedThisMonth { get; private set; }
 
     /// <summary>
     /// When the pass that wrote this row ran — the whole of AC-2.8. Every figure above is only as fresh as this,
@@ -92,7 +85,6 @@ public class ClinicActivitySnapshot : Entity<Guid>
         int patients,
         int users,
         DateTime? lastLoginAt,
-        decimal collectedThisMonth,
         DateTime computedAt)
     {
         Writes7d = NotNegative(writes7d, nameof(writes7d));
@@ -103,7 +95,6 @@ public class ClinicActivitySnapshot : Entity<Guid>
         Patients = NotNegative(patients, nameof(patients));
         Users = NotNegative(users, nameof(users));
         LastLoginAt = lastLoginAt;
-        CollectedThisMonth = collectedThisMonth;
         ComputedAt = computedAt;
     }
 

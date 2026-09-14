@@ -396,7 +396,6 @@ public class PlatformCancelPeriodTests
                 LatestCoverKind: SubscriptionPeriodKind.Paid,
                 Users: 3, Patients: 412, Appointments30d: 96, Writes7d: 4, Writes30d: 12, ActiveDays30d: 9,
                 LastWriteAt: null, LastLoginAt: null,
-                CollectedThisMonth: 0m,
                 CountersComputedAt: new DateTime(2026, 8, 10, 3, 0, 0, DateTimeKind.Utc)));
 
         _activity.Setup(r => r.GetDaysAsync(

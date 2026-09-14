@@ -396,7 +396,7 @@ public class PlatformMessagingWriteTests
                 SubscriptionIsSuspended: false,
                 LatestCoverKind: SubscriptionPeriodKind.Grandfathered,
                 Users: 3, Patients: 412, Appointments30d: 96, Writes7d: 4, Writes30d: 12, ActiveDays30d: 9,
-                LastWriteAt: null, LastLoginAt: null, CollectedThisMonth: 0m, CountersComputedAt: null,
+                LastWriteAt: null, LastLoginAt: null, CountersComputedAt: null,
                 HasMessagingMonth: measured && month is not null,
                 MessagingAllowance: month?.AllowanceMessages ?? 0,
                 MessagingConsumed: month?.ConsumedMessages ?? 0));

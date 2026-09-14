@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260914215715_DropClinicActivityCollectedThisMonth")]
+    partial class DropClinicActivityCollectedThisMonth
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3910,6 +3913,16 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<decimal>("WriteOffAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<string>("WriteOffReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DoctorId");
@@ -3939,6 +3952,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
 
                     b.Property<DateTime?>("DoneDate")
                         .HasColumnType("timestamp with time zone");
