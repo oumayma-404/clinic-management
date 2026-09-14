@@ -169,6 +169,19 @@ const HOUR_HEIGHT_PHONE = 64
 const MIN_APPT_HEIGHT = 18
 const MIN_APPT_HEIGHT_PHONE = 28
 
+/** One painted line of a phone Semaine block's name: 11 px `text-2xs` × `leading-[1.15]` — move both together. */
+const PHONE_WEEK_NAME_LINE_PX = 12.65
+/** Name lines a block may paint, indexed by the lines its height pays for — literals, since Tailwind cannot scan `line-clamp-${n}`. */
+const PHONE_WEEK_NAME_CLAMP = [
+  "line-clamp-1",
+  "line-clamp-1",
+  "line-clamp-2",
+  "line-clamp-3",
+  "line-clamp-4",
+  "line-clamp-5",
+  "line-clamp-6",
+] as const
+
 /**
  * The week grid's columns — **one definition, used by the header, the hour grid and the loading skeleton**,
  * because three copies of a column template is three chances for the dates to sit over the wrong columns.
@@ -1614,6 +1627,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     appointment: AppointmentDto,
     positionStyle: CSSProperties,
     minutesToNextStart: number,
+    // Lanes the block shares its column with — a phone's Semaine name only wraps when it has the column alone.
+    colCount: number,
   ) => {
     const aptStart = new Date(appointment.appointmentDateTime)
     const durationMinutes = parseDurationToMinutes(appointment.duration)
@@ -1745,6 +1760,16 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
        * the whole width of the screen — which is exactly the split Google Agenda's own two phone views make.
        */
       const narrowColumn = view === "week"
+      // A ~45 px column fits ~6 characters, so « Benkhalifa » on one line is « Benkh… »: wrap the name over the
+      // lines the block's own height pays for, which is what Google Agenda's phone Semaine does.
+      //
+      // ⚠️ Only when the block has the column to itself. Two lanes leave ~22 px, where wrapping breaks the name
+      // into a stack of single characters — that reads as a rendering fault, where « E… » reads as no room.
+      const nameWraps = narrowColumn && colCount <= 1
+      const nameLines = Math.min(
+        PHONE_WEEK_NAME_CLAMP.length - 1,
+        Math.max(1, Math.floor(height / PHONE_WEEK_NAME_LINE_PX)),
+      )
       return (
         <button
           key={appointment.id}
@@ -1773,7 +1798,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             {tone === "negative" && !narrowColumn && <UserX className="h-3 w-3 shrink-0" aria-hidden="true" />}
             <span
               className={cn(
-                "min-w-0 truncate font-semibold",
+                "min-w-0 font-semibold",
+                // `break-words`, not `[overflow-wrap:anywhere]`: a name only breaks mid-word when the word
+                // cannot fit a line of its own, which at this width it usually cannot.
+                nameWraps ? cn("break-words", PHONE_WEEK_NAME_CLAMP[nameLines]) : "truncate",
                 narrowColumn || isVerySmall || tightLines ? "text-2xs leading-[1.15]" : "text-xs leading-[1.3]",
               )}
             >
@@ -3395,6 +3423,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                           appointment,
                           laneStyle(weekBandLeftExpr(dayIndex), weekBandWidthExpr, colIndex, colCount),
                           minutesToNextStart,
+                          colCount,
                         ),
                     ),
                   )
@@ -3404,6 +3433,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                         appointment,
                         laneStyle(dayBandLeftExpr, dayBandWidthExpr, colIndex, colCount),
                         minutesToNextStart,
+                        colCount,
                       ),
                   )}
 
