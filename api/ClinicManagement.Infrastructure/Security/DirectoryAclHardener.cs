@@ -30,7 +30,7 @@ public enum AclHardeningOutcome
 /// console verb (invoked by the server installer) and the one-click backup, whose output folder would
 /// otherwise hand out an unprotected copy of everything the install protects.
 ///
-/// <para><b>Mechanism.</b> <c>icacls</c>, matching what <c>clinic-server.iss</c> already did and requiring no
+/// <para><b>Mechanism.</b> <c>icacls</c>, matching what <c>clinic-setup.iss</c> already did and requiring no
 /// new dependency (both projects target <c>net8.0</c>, not <c>net8.0-windows</c>, so the managed
 /// <c>System.Security.AccessControl</c> APIs are unavailable). Every invocation's exit code is checked and a
 /// failure throws with the command output attached — a permission step that cannot be applied must fail

@@ -1,11 +1,11 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
     Phase 5 (S6/S7) build & publish orchestration for the Local / offline-LAN Windows install.
 
 .DESCRIPTION
-    Stages everything the Inno Setup installers (server/clinic-server.iss, client/clinic-client.iss)
-    bundle, into packaging/build-output/ (gitignored):
+    Stages everything the Inno Setup installer (setup/clinic-setup.iss) bundles, into
+    packaging/build-output/ (gitignored):
 
       build-output/server/
         api/        self-contained win-x64 publish of ClinicManagement.API (+ Windows-service exe)
@@ -14,6 +14,9 @@
         postgres/   EnterpriseDB PostgreSQL 16 Windows binaries (initdb/pg_ctl/pg_dump/pg_restore)
       build-output/client/
         shell/      self-contained win-x64 publish of ClinicManagement.DesktopShell (WebView2 client)
+        releases/   the Velopack feed packed from shell/ -- copied into server/updates/, which the server
+                    installer carries and the API serves at /api/meta/client-feed and /client-download.
+                    It is BOTH the workstation's first install and every update after it.
 
     This script does NOT fabricate the third-party runtimes. Point -PostgresDir and -NodeDir at local
     copies of EDB PostgreSQL 16 and a Node.js runtime; the script copies them into the staging tree.
@@ -67,16 +70,16 @@ $Rid = 'win-x64'
 # --- One version number, stamped everywhere -------------------------------------------------------
 #
 # ⚠️ **This exists because the number used to live in three hand-edited literals** — the shell's
-# `<Version>`, `client\clinic-client.iss`'s `#define AppVersion` and the server one — and nothing compared
-# them. The shell reports its ASSEMBLY version as `X-Client-Version` and `ClientRequirements` compares that
+# `<Version>` and one `#define AppVersion` in each of the two `.iss` files that have since been merged into
+# one — and nothing compared them. The shell reports its ASSEMBLY version as `X-Client-Version` and `ClientRequirements` compares that
 # against `Clients:MinimumShellVersion`, while the `.iss` value only names the setup file. So bumping the
 # `.iss` alone shipped `…Setup-1.1.0.exe` around a binary still reporting `1.0.0`: the operator sees 1.1.0
 # installed, raises the floor to 1.1.0, and every updated PC is refused by the wall — with no log line,
 # no error and no screen anywhere naming a version mismatch. The failure is indistinguishable from the
 # update not having been installed at all.
 #
-# The shell `.csproj` is the source; `-Version` overrides it for a one-off build. Both `.iss` files take
-# it through `/DAppVersion`, which wins over their `#ifndef` fallback.
+# The shell `.csproj` is the source; `-Version` overrides it for a one-off build. The `.iss` takes it
+# through `/DAppVersion`, which wins over its `#ifndef` fallback.
 function Resolve-Version([string]$Explicit, [string]$Csproj) {
     if ($Explicit) {
         $resolved = $Explicit
@@ -250,15 +253,19 @@ dotnet publish $ShellProject `
     -o $ShellOut
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish (DesktopShell) failed with exit code $LASTEXITCODE." }
 
-# The client installer imports the server CA; the operator drops ca.crt here (exported by the server, S6).
-New-Item -ItemType Directory -Path (Join-Path $ClientOut 'ca') -Force | Out-Null
-
-# WebView2 Evergreen runtime (Finding 16): on an offline LAN PC without the runtime the shell can't render
-# and there is no internet to fetch a bootstrapper. Drop the OFFLINE standalone installer
-# (MicrosoftEdgeWebView2Setup.exe, "Evergreen Standalone Installer") here on the build machine; the client
-# installer bundles it (optional) and runs it silently only when the runtime is missing.
-New-Item -ItemType Directory -Path (Join-Path $ClientOut 'webview2') -Force | Out-Null
-Write-Host "Drop the offline WebView2 runtime installer into: $(Join-Path $ClientOut 'webview2')\MicrosoftEdgeWebView2Setup.exe"
+# ⚠️ NEITHER `client\ca` NOR `client\webview2` IS STAGED ANY MORE, and their removal is the fix rather
+# than a simplification.
+#
+#   `ca.crt` — the old client installer imported the clinic's certificate authority from a file an operator
+#   was told to stage here by hand. A CA is minted on the clinic's OWN server at ITS first boot, which on a
+#   build machine has not happened, so the folder was empty on every build that ever ran and the `[Files]`
+#   entry was `skipifsourcedoesntexist`: every compiled client setup imported nothing, silently, and every
+#   staff PC met a certificate warning. The workstation branch of `setup\clinic-setup.iss` fetches the CA
+#   from the server the user just named, shows its fingerprint and asks — the only version that can be right.
+#
+#   `MicrosoftEdgeWebView2Setup.exe` — same shape, same outcome: staged by hand, therefore never staged. The
+#   runtime ships with Windows 11 and Windows 10 21H2+, so the check almost never fires; when it does, the
+#   workstation branch downloads the bootstrapper and says so in French if it cannot.
 
 # --- 6. Compile the installers (optional) -------------------------------------------------------
 if (-not $SkipInstallers) {
@@ -278,42 +285,33 @@ if (-not $SkipInstallers) {
         # /DAppVersion wins over each .iss's own `#ifndef` fallback, so the setup files are named after the
         # very number stamped into the shell assembly a few steps above.
         #
-        # ⚠️ **THE CLIENT IS COMPILED FIRST, and the order is load-bearing.** The server installer now carries
-        # the client setup into `{app}\updates`, so that a clinic's own server can serve the update to its own
-        # PCs (`ClientUpdatePackage` → `GET /api/meta/client-download`). On an offline LAN that is the difference
-        # between an update the shells can fetch and one they can only announce. Compiling the server first would
-        # bundle whatever stale client setup happened to be left in `build-output` — or nothing at all on a clean
-        # checkout, silently, since the `[Files]` entry is `skipifsourcedoesntexist`.
-        & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'client\clinic-client.iss')
-        if ($LASTEXITCODE -ne 0) { throw "ISCC (client) failed with exit code $LASTEXITCODE." }
-
-        $ClientSetup = Join-Path $OutputRoot "ClinicManagementClientSetup-$Version.exe"
-        if (-not (Test-Path $ClientSetup)) {
-            throw "The client installer was compiled but '$ClientSetup' is not there. The server installer would ship no update payload."
-        }
-
+        # ⚠️ ONE installer now, and the ordering below is what is left of the old two-pass dance.
+        # `clinic-client.iss` was deleted: it shipped without the certificate authority it existed to install
+        # (see step 5 above), and the shell it produced could never self-update — `ShellUpdater` gives up when
+        # `UpdateManager.IsInstalled` is false, which is exactly what an Inno install under %ProgramFiles% is.
+        # The workstation role now downloads the VELOPACK setup from the clinic's own server.
+        #
+        # ⚠️ **THE FEED IS STAGED BEFORE ISCC RUNS, and that order is still load-bearing** — for the feed now
+        # rather than for a second installer. `{app}\updates` is a `[Files]` payload of the server installer,
+        # so a feed packed afterwards would simply not be in the .exe, silently, since that entry carries
+        # `skipifsourcedoesntexist`.
         Write-Step 'Staging the update payload into the server bundle (served at /api/meta/client-feed)'
         $UpdatesStage = Join-Path $ServerOut 'updates'
         Clear-Dir $UpdatesStage
 
-        # The legacy Inno setup, for a FIRST install on a LAN: it is the only thing that imports the clinic's
-        # certificate authority into the machine store and bootstraps the WebView2 runtime, both of which need
-        # elevation and neither of which a per-user Velopack setup can do.
-        Copy-Item $ClientSetup $UpdatesStage
-        $ClientSetupMb = [math]::Round((Get-Item $ClientSetup).Length / 1MB, 1)
-        Write-Host "  staged $(Split-Path $ClientSetup -Leaf) ($ClientSetupMb MB) - first installs"
-
-        # Then the Velopack feed, which is what every UPDATE after that comes through.
+        # The Velopack feed: BOTH the first install (its own Setup.exe, fetched by the workstation role over
+        # /api/meta/client-download) and every update after it (delta packages, ~160 KB, no elevation).
         #
         # Without it an offline-LAN clinic could self-update from nowhere: its own server is the only host its PCs
         # can reach, and Velopack's SimpleWebSource reads this folder over /api/meta/client-feed. A delta measures
         # ~160 KB against a 49 MB setup and needs no elevation at all, which is the whole reason the shell moved
         # off Inno for updates.
         #
-        # vpk is a dotnet tool and may not be on an operator's machine. Missing is a WARNING, not a failure: the
-        # server installer is still correct without a feed (clients simply do not self-update until one is
-        # published), and refusing to build a server because a client-side tool is absent is the wrong trade on
-        # the day somebody needs the server.
+        # ⚠️ **A MISSING `vpk` IS NOW A FAILURE, where it used to be a warning, and the change is forced.**
+        # The old reasoning was that a server without a feed is « correct but reduced » — clients simply would
+        # not self-update. That stopped being true the moment the Inno client installer was deleted: the feed's
+        # own Setup.exe is the ONLY thing a workstation install can download, so a server built without one
+        # cannot set up a single staff PC. Building it anyway would ship a clinic a server nobody can connect to.
         if (Get-Command vpk -ErrorAction SilentlyContinue) {
             Write-Step "Packing the Velopack update feed (APEXA $Version)"
             $FeedStage = Join-Path $ClientOut 'releases'
@@ -342,11 +340,11 @@ if (-not $SkipInstallers) {
             }
         }
         else {
-            Write-Warning 'vpk not found (dotnet tool install -g vpk) - no Velopack feed staged, so installed clients will not self-update from this server.'
+            throw 'vpk not found. Install it with `dotnet tool install -g vpk`. Without the Velopack feed this server ships no client installer at all, so no staff PC could be set up from it.'
         }
 
-        & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'server\clinic-server.iss')
-        if ($LASTEXITCODE -ne 0) { throw "ISCC (server) failed with exit code $LASTEXITCODE." }
+        & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'setup\clinic-setup.iss')
+        if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE." }
     } else {
         Write-Warning 'ISCC.exe (Inno Setup 6) not found -- skipping installer compilation. Payloads are staged under build-output/.'
     }

@@ -15,7 +15,7 @@ import { treatmentPlansApi, type TreatmentPlanInstallmentInput } from "@/lib/api
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto } from "@/lib/api/types"
 import { isPlanBilled } from "./plan-next-action"
-import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDateFr, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 import { installmentDueInputValue, installmentDueLabel } from "./treatment-plan-labels"
 
 interface Row {
@@ -38,6 +38,8 @@ interface Row {
   isAutoRaised: boolean
   /** What to send when an auto-raised row is left blank — see {@link Row.isAutoRaised}. */
   storedDueDate: string
+  /** The last live payment's date, or null. An auto-raised row has no agreed date but a collected one has THIS. */
+  lastPaidOn: string | null
 }
 
 interface ReviseInstallmentsModalProps {
@@ -72,6 +74,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
         amountPaid: inst.amountPaid,
         isAutoRaised: inst.isAutoRaised === true,
         storedDueDate: inst.dueDate.slice(0, 10),
+        lastPaidOn: inst.lastPaidOn,
       })),
     )
     setError(null)
@@ -83,7 +86,15 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
   const addRow = () =>
     setRows((prev) => [
       ...prev,
-      { id: null, dueDate: todayLocalIso(), amount: "", amountPaid: 0, isAutoRaised: false, storedDueDate: "" },
+      {
+        id: null,
+        dueDate: todayLocalIso(),
+        amount: "",
+        amountPaid: 0,
+        isAutoRaised: false,
+        storedDueDate: "",
+        lastPaidOn: null,
+      },
     ])
 
   const removeRow = (index: number) => setRows((prev) => prev.filter((_, i) => i !== index))
@@ -245,11 +256,6 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
                             : "Date de l'échéance"
                         }
                       />
-                      {row.isAutoRaised && !row.dueDate && (
-                        <span className="block text-2xs text-muted-foreground">
-                          Solde à régler — aucune date convenue. Laissez vide pour le garder tel quel.
-                        </span>
-                      )}
                     </div>
                     <div className="min-w-0 flex-1 basis-28 space-y-1 sm:max-w-36">
                       {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
@@ -281,10 +287,23 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
                       {collected ? <Lock className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
                     </Button>
                   </div>
-                  {collected && (
+                  {/* The hint lives here, not inside the date cell: a taller cell knocked the two columns
+                      out of line under `items-end`. And an auto-raised row that has COLLECTED is not dateless —
+                      the day is `lastPaidOn`, stated rather than pre-filled (pre-filling is the half of M25
+                      that writes an agreed date nobody typed). */}
+                  {collected ? (
                     <p className="text-xs text-muted-foreground">
                       Déjà encaissé : {formatDT(row.amountPaid)}
+                      {row.lastPaidOn ? ` — encaissée le ${formatDateFr(row.lastPaidOn)}` : ""}
+                      {row.isAutoRaised && !row.dueDate && " · aucune date convenue"}
                     </p>
+                  ) : (
+                    row.isAutoRaised &&
+                    !row.dueDate && (
+                      <p className="text-xs text-muted-foreground">
+                        Solde à régler — aucune date convenue. Laissez vide pour le garder tel quel.
+                      </p>
+                    )
                   )}
                 </div>
               )

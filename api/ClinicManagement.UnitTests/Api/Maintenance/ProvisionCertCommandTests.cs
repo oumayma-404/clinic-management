@@ -21,7 +21,7 @@ namespace ClinicManagement.UnitTests.Api.Maintenance;
 public sealed class ProvisionCertCommandTests
 {
     // [AC-1] The command verb is the exact string the installer passes to ClinicManagement.API.exe
-    // (packaging/server/clinic-server.iss). A drift here silently breaks the install-time provisioning
+    // (packaging/setup/clinic-setup.iss). A drift here silently breaks the install-time provisioning
     // step, so the producer (installer) ↔ consumer (this command) contract is pinned in code.
     [Fact]
     public void CommandName_is_the_verb_the_installer_invokes()

@@ -387,9 +387,14 @@ public sealed class DeploymentProfile
             selfSignsCertificate: true,
             runsAsWindowsService: true,
             defersMigrations: true,
-            // False because the work is deferred, not because the profile does not owe it: DeferredStartupService
-            // runs the catalog seed instead. ⚠️ It does NOT run the clinic-admin backfill — a pre-existing gap
-            // this refactor deliberately preserves rather than silently changing Local behaviour.
+            // False because the work is DEFERRED, not because the profile does not owe it: DeferredStartupService
+            // runs the same backfills after the host has bound, so the SCM's start timeout is not spent on them.
+            // ⚠️ THIS FLAG NAMES A CODE PATH, NOT A SET OF OBLIGATIONS, and reading it as the second is how two
+            // backfills went missing here — the admin one for a release, then the Google-token one (a LAN clinic's
+            // calendar push stopped silently). The note that used to sit here said the admin backfill was
+            // deliberately absent, and it stayed after that was fixed, so the next reader was told a gap was
+            // intentional when it was not. StartupBackfillCoverageTests compares the two paths' call sets, which
+            // is the only thing that makes the sentence above true rather than aspirational.
             runsStartupBackfills: false,
             exposesTrustEndpoints: true,
             hasLocalDbTooling: true,
