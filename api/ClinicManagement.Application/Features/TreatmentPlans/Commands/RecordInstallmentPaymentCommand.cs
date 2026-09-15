@@ -1,10 +1,10 @@
+using ClinicManagement.Application.Features.Invoices;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
@@ -33,6 +33,9 @@ public class RecordInstallmentPaymentCommand : IRequest<Result<TreatmentPlanDto>
 
     /// <inheritdoc cref="ChequeNumber"/>
     public DateTime? ChequeDueDate { get; set; }
+
+    /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
+    public uint Version { get; set; }
 }
 
 public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInstallmentPaymentCommand, Result<TreatmentPlanDto>>
@@ -103,15 +106,13 @@ public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInst
              * double-count the payments the bridge already carried across — the plan's money is excluded
              * *because* the invoice now represents it.
              *
-             * The authority is the same `PlanBillingRules` the reads use, read through the same light bridge-link
-             * projection, so the guard and the exclusion cannot disagree about which invoices count. A `Draft`
-             * bridge does not represent the plan and a `Cancelled` one is void, so collecting on a plan whose
-             * bridge was later cancelled still works.
+             * The authority is `PlanBridgeLookup`, shared with the VOID path — the same rule the money reads
+             * de-duplicate through, so the guard and the exclusion cannot disagree about which invoices count.
+             * A `Draft` bridge does not represent the plan and a `Cancelled` one is void, so collecting on a
+             * plan whose bridge was later cancelled still works.
              */
-            var bridge = (await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicResult.Value, cancellationToken))
-                .Where(l => l.TreatmentPlanId == plan.Id && PlanBillingRules.RepresentsItsPlan(l.Status))
-                .Select(l => l.Number)
-                .FirstOrDefault();
+            var bridge = await PlanBridgeLookup.RepresentingNoteAsync(
+                _invoiceRepository, clinicResult.Value, plan.Id, cancellationToken);
             if (bridge != null)
             {
                 return Result<TreatmentPlanDto>.Failure(
@@ -125,6 +126,7 @@ public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInst
 
             plan.RecordInstallmentPayment(request.InstallmentId, request.Amount, method, request.PaidOn, cheque);
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

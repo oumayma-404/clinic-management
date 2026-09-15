@@ -52,7 +52,22 @@ public class StepProtocolCoverageTests
     /// empty map is the claim that today there is none — not a formality. The moment it holds an entry, that
     /// entry has to survive being read aloud.</para>
     /// </summary>
-    private static readonly Dictionary<string, string> AppliesItElsewhere = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, string> AppliesItElsewhere = new(StringComparer.Ordinal)
+    {
+        /*
+         * ⚠️ Read this aloud before removing it. « Dupliquer ce devis » copies the SOURCE act's own steps —
+         * the sequence a dentist confirmed for that patient, which the source's acceptance already applied the
+         * catalogue protocol to. Calling `ApplyAsync` on the copy would overwrite that confirmed sequence with
+         * whatever the catalogue says TODAY, which is the exact defect `ContinueRecordedActCommand` documents
+         * (« an implant's six researched séances are the wrong answer about work already one séance in »).
+         *
+         * And the empty branch is sound too: an act whose source carries no steps carries none because the
+         * source's own acceptance decided that — either the catalogue had none, or the dentist unticked them.
+         * Re-applying the protocol here would silently reverse a decision somebody made.
+         */
+        ["DuplicateTreatmentPlanCommand.cs"] =
+            "copies the source act's confirmed steps; applying the catalogue protocol would overwrite them",
+    };
 
     [Fact]
     public void Every_Path_That_Adds_Acts_To_A_Live_Plan_Applies_The_Catalogue_Protocol()

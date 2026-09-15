@@ -41,6 +41,19 @@ public class TreatmentPlansControllerAuthorizationTests
     /// </summary>
     private static readonly string[] AdminOrDoctorActions =
     {
+        // The reversibility remediation's six new doors. Every one alters a numbered document or what a
+        // patient owes on it, which is exactly the class this policy exists for:
+        //   Uncancel   — brings a cancelled devis and its balance back into service
+        //   Withdraw   / Restore — move an act's fee in and out of the total, re-spreading the échéancier
+        //   DetachNote — changes what a note d'honoraires is understood to cover
+        //   Reassign   — re-files a numbered document under a different patient
+        //   SetDoctor  — decides who the next note raised from this devis credits
+        nameof(TreatmentPlansController.UncancelPlan),
+        nameof(TreatmentPlansController.WithdrawItem),
+        nameof(TreatmentPlansController.RestoreItem),
+        nameof(TreatmentPlansController.DetachNote),
+        nameof(TreatmentPlansController.ReassignPatient),
+        nameof(TreatmentPlansController.SetPlanDoctor),
         nameof(TreatmentPlansController.CancelPlan),
         nameof(TreatmentPlansController.AmendPlan),
         nameof(TreatmentPlansController.ReviseInstallments),
@@ -103,6 +116,27 @@ public class TreatmentPlansControllerAuthorizationTests
         // controller reaches across to a numbered note; classifying it as reception's would put the clinic's own
         // billing arithmetic behind the front desk.
         nameof(TreatmentPlansController.ContinueRecordedAct),
+        // Phase 4's capabilities. Each one alters what a numbered document says or what the patient owes on it:
+        //   SetItemDiscount — a remise moves `TotalPlanned` and re-spreads the échéancier
+        //   DuplicatePlan   — authors a new proposal (un-numbered, so it claims nothing, but it IS authorship)
+        //   RelinkSeance    — re-states which act a recorded séance evidences
+        nameof(TreatmentPlansController.SetItemDiscount),
+        nameof(TreatmentPlansController.DuplicatePlan),
+        nameof(TreatmentPlansController.RelinkSeance),
+    };
+
+    /// <summary>
+    /// The one door narrower than <c>AdminOrDoctor</c>.
+    ///
+    /// <para>« Passer la créance en perte » abandons money the cabinet is owed, and the figure it records is
+    /// what the practice reports as a loss. That is not a clinical decision and it is not reception's — it is
+    /// the owner's, and it is the only operation on this controller that is true of. It is reversible through
+    /// « Reprendre le traitement », which is `AdminOrDoctor` deliberately: undoing a write-off puts the créance
+    /// back, which harms nobody.</para>
+    /// </summary>
+    private static readonly string[] AdminOnlyActions =
+    {
+        nameof(TreatmentPlansController.WriteOffPlan),
     };
 
     /// <summary>
@@ -136,6 +170,10 @@ public class TreatmentPlansControllerAuthorizationTests
         // the visit that finishes the work is reception's job, so a read only the dentist could open would be a
         // worklist the person who works it cannot see — the mistake « À clôturer » was built to avoid.
         nameof(TreatmentPlansController.GetUnfinishedActs),
+        // « Régler le devis » (S3) — one payment spread over the échéancier. Classified with
+        // `RecordInstallmentPayment` and for exactly its reason: reception takes the money, and the only
+        // difference is that this one does not make the person at the desk pick which line it lands on.
+        nameof(TreatmentPlansController.SettlePlan),
     };
 
     [Theory]
@@ -199,10 +237,26 @@ public class TreatmentPlansControllerAuthorizationTests
             .Select(m => m.Name)
             .ToHashSet();
 
-        var classified = AdminOrDoctorActions.Concat(AnyClinicRoleActions).ToHashSet();
+        var classified = AdminOrDoctorActions
+            .Concat(AnyClinicRoleActions)
+            .Concat(AdminOnlyActions)
+            .ToHashSet();
 
         Assert.Empty(actions.Except(classified));
     }
+
+    [Theory]
+    [MemberData(nameof(AdminOnlyActionData))]
+    public void Loss_Recognition_Requires_AdminOnly(string action)
+    {
+        var method = typeof(TreatmentPlansController).GetMethod(action);
+        Assert.NotNull(method);
+        var authorize = method!.GetCustomAttribute<AuthorizeAttribute>();
+        Assert.NotNull(authorize);
+        Assert.Equal(AuthorizationPolicies.AdminOnly, authorize!.Policy);
+    }
+
+    public static IEnumerable<object[]> AdminOnlyActionData() => AdminOnlyActions.Select(a => new object[] { a });
 
     public static IEnumerable<object[]> AdminOrDoctorActionData() => AdminOrDoctorActions.Select(a => new object[] { a });
     public static IEnumerable<object[]> AnyClinicRoleActionData() => AnyClinicRoleActions.Select(a => new object[] { a });

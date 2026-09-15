@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -31,6 +32,9 @@ public class SetInstallmentPaymentBankedCommand : IRequest<Result<TreatmentPlanD
 
     /// <summary>True to record it as banked, false to clear the mark.</summary>
     public bool Banked { get; set; }
+
+    /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
+    public uint Version { get; set; }
 }
 
 public class SetInstallmentPaymentBankedCommandHandler
@@ -87,6 +91,7 @@ public class SetInstallmentPaymentBankedCommandHandler
             plan.SetInstallmentPaymentBanked(
                 request.InstallmentId, request.PaymentId, request.Banked, actorUserId, actorName);
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -105,8 +110,11 @@ public class SetInstallmentPaymentBankedCommandHandler
         {
             return Result<TreatmentPlanDto>.Failure(ex.Message);
         }
-        catch (Exception)
+        // ⚠️ The `when` filter is load-bearing — without it a 409 is flattened into the generic sentence and
+        // the concurrency check above detects nothing a user can act on.
+        catch (Exception ex) when (ex is not ConflictException)
         {
+            _logger.LogError(ex, "Error marking installment payment {PaymentId} banked on plan {PlanId}", request.PaymentId, request.PlanId);
             return Result<TreatmentPlanDto>.Failure("Erreur lors de la mise à jour de l'encaissement du chèque.");
         }
     }

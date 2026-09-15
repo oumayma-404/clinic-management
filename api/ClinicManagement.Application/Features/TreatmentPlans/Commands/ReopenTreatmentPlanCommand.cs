@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -70,7 +71,9 @@ public class ReopenTreatmentPlanCommandHandler
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
-            plan.Reopen();
+            // ⚠️ The clinic clock, never `DateTime.Today` — the restored balance lands on one échéance dated
+            // today, and Tunisia is UTC+1. `Reopen` re-spreads now, so the date is required.
+            plan.Reopen(ClinicClock.ClinicToday());
 
             _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);

@@ -710,15 +710,30 @@ public class TreatmentPlanTests
         Assert.Equal("2026-0001", plan.Number);
     }
 
-    // Same window as the amendment verbs: a Completed plan is closed and a Cancelled one is void.
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void UpdateDetails_Is_Rejected_On_A_Closed_Plan(bool completed)
+    // Same window as the amendment verbs — and that is now literally true: `UpdateDetails` calls
+    // `EnsureAmendable`, so only a Cancelled devis is refused.
+    [Fact]
+    public void UpdateDetails_Is_Rejected_On_A_Cancelled_Plan()
     {
-        var plan = completed ? CompletedPlan() : AcceptedPlan();
-        if (!completed) plan.Cancel("Patient parti");
+        var plan = AcceptedPlan();
+        plan.Cancel("Patient parti");
 
         Assert.Throws<InvalidOperationException>(() => plan.UpdateDetails("Autre titre", null));
+    }
+
+    /// <summary>
+    /// ⚠️ The **regression this replaces**: `UpdateDetails` carried its own status list (Draft / Accepted /
+    /// InProgress) while `EnsureAmendable` refuses only Cancelled — so on a Completed or Stopped devis,
+    /// amending an act's price succeeded while correcting its title failed the whole save. The amend modal
+    /// always sends the title, so every amendment of a closed-but-correctable plan hit it.
+    /// </summary>
+    [Fact]
+    public void UpdateDetails_Is_Allowed_On_A_Completed_Plan()
+    {
+        var plan = CompletedPlan();
+
+        plan.UpdateDetails("Titre corrigé", null);
+
+        Assert.Equal("Titre corrigé", plan.Title);
     }
 }

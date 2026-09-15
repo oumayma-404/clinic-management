@@ -45,10 +45,14 @@ public class TreatmentPlanStatusCoverageTests
         TreatmentPlanStatus.Stopped,
     };
 
-    /// <summary>The one status that is deliberately in neither set: a cancelled devis is void.</summary>
+    /// <summary>
+    /// The statuses deliberately in neither set: a cancelled devis is void, and a written-off one has had its
+    /// balance abandoned — neither is running and neither is owed.
+    /// </summary>
     private static readonly HashSet<TreatmentPlanStatus> ExpectedNeither = new()
     {
         TreatmentPlanStatus.Cancelled,
+        TreatmentPlanStatus.WrittenOff,
     };
 
     private static TreatmentPlanStatus[] AllStatuses => Enum.GetValues<TreatmentPlanStatus>();
@@ -117,6 +121,24 @@ public class TreatmentPlanStatusCoverageTests
         // The whole reason the status exists, as one sentence: the work stops, the money does not.
         Assert.False(TreatmentPlanLifecycle.IsLive(TreatmentPlanStatus.Stopped));
         Assert.True(PlanBillingRules.CarriesDebt(TreatmentPlanStatus.Stopped));
+    }
+
+    [Fact]
+    public void A_written_off_treatment_is_closed_on_both_tracks_and_keeps_its_cash()
+    {
+        // The status in one sentence: nothing more will be done and nothing more is owed — but the money
+        // already taken is not being un-taken, which is what separates it from `Cancel`.
+        Assert.False(TreatmentPlanLifecycle.IsLive(TreatmentPlanStatus.WrittenOff));
+        Assert.False(PlanBillingRules.CarriesDebt(TreatmentPlanStatus.WrittenOff));
+    }
+
+    [Fact]
+    public void WrittenOff_is_appended_and_is_not_Cancelled()
+    {
+        // The enum persists as an int, so the value may never be renumbered; and the two closed-and-unowed
+        // statuses must stay distinguishable, because only one of them keeps the collected cash.
+        Assert.NotEqual(TreatmentPlanStatus.Cancelled, TreatmentPlanStatus.WrittenOff);
+        Assert.Equal(6, (int)TreatmentPlanStatus.WrittenOff);
     }
 
     [Fact]

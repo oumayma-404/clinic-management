@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
+import { installmentDueLabel } from "./treatment-plan-labels"
 import { ApiError } from "@/lib/api/client"
 import { showErrorToast } from "@/lib/errors"
 import type { InstallmentDto } from "@/lib/api/types"
@@ -141,7 +142,15 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
         <DialogHeader>
           <DialogTitle>Enregistrer un paiement</DialogTitle>
           <DialogDescription>
-            {installment ? `Échéance du ${formatDateFr(installment.dueDate)}` : "Échéance"} — reste dû{" "}
+            {/*
+              ⚠️ **« Échéance du 14/03/2026 » was printed unconditionally, and 159 of the 184 rows on the dev
+              database have no such date.** `Accept` writes a single lump-sum row dated at the acceptance
+              instant whenever no schedule was given — a ledger container, not a day anybody agreed — and the
+              échéancier itself stopped showing it. This is the dialog that collects against that row, so it
+              was naming a due date to the person handing over the money. `installmentDueLabel` is the one
+              owner; N39 fails on a fourth surface formatting `dueDate` itself.
+            */}
+            {installment ? installmentDueLabel(installment) : "Échéance"} — reste dû{" "}
             {installment ? formatDT(installment.outstanding) : ""}
           </DialogDescription>
         </DialogHeader>

@@ -146,20 +146,49 @@ public class RecallWorklistRulesTests
         Assert.Equal(RecallReasonKind.StalledPlan, Assert.Single(reasons).Kind);
     }
 
-    // The other half of the exclusivity: a Draft with nothing left to do is not stalled, so the unanswered-devis
-    // reason is still reachable and a plan is never reported under two contradictory reasons at once.
+    // The other half of the exclusivity, and ⚠️ it used to run the OTHER WAY and was wrong both ways.
+    //
+    // « Au point mort » means started and abandoned; « jamais répondu » means never started. So a treatment with
+    // NOTHING delivered belongs to the second, and `IsStalled` yields to it. Written the old way round —
+    // unanswered = « a Draft whose every act is already done » — the reason could only fire on a state that
+    // cannot occur (a Draft with all acts Done auto-completes), so it was dead on this surface while the
+    // dashboard's own count of the same question fired on every fresh treatment.
     [Fact]
-    public void A_Draft_With_No_Acts_Left_Is_Unanswered_And_Not_Also_Stalled()
+    public void A_Draft_Nobody_Has_Started_Is_Unanswered_And_Not_Also_Stalled()
     {
         var created = Now.AddDays(-(RecallWorklistRules.UnansweredDevisGraceDays + 1));
 
         var reasons = Reasons(
             Now.AddDays(-1),
-            new[] { Plan(TreatmentPlanStatus.Draft, created, total: 6, done: 6) });
+            new[] { Plan(TreatmentPlanStatus.Draft, created, total: 6, done: 0) });
 
         var reason = Assert.Single(reasons);
         Assert.Equal(RecallReasonKind.UnansweredDevis, reason.Kind);
         Assert.Equal(created, reason.DueSince);
+    }
+
+    // The SQL twin of that rule answers identically — two askers, one owner. `CountUnansweredDraftsAsync`
+    // takes its cutoff from here rather than restating the fortnight.
+    [Fact]
+    public void The_Grace_Cutoff_Is_The_Grace_Period_Expressed_As_A_Bound()
+    {
+        Assert.Equal(
+            Now.AddDays(-RecallWorklistRules.UnansweredDevisGraceDays),
+            RecallWorklistRules.UnansweredGraceCutoff(Now));
+
+        Assert.True(RecallWorklistRules.NeverAnswered(
+            TreatmentPlanStatus.Draft, hasDeliveredWork: false,
+            createdAt: Now.AddDays(-(RecallWorklistRules.UnansweredDevisGraceDays + 1)), nowUtc: Now));
+
+        // Delivered work is the discriminator, not the count of acts left.
+        Assert.False(RecallWorklistRules.NeverAnswered(
+            TreatmentPlanStatus.Draft, hasDeliveredWork: true,
+            createdAt: Now.AddDays(-365), nowUtc: Now));
+
+        // A numbered devis was answered by definition — `Accept` is the only writer of `Number`.
+        Assert.False(RecallWorklistRules.NeverAnswered(
+            TreatmentPlanStatus.Accepted, hasDeliveredWork: false,
+            createdAt: Now.AddDays(-365), nowUtc: Now));
     }
 
     [Fact]
@@ -197,9 +226,10 @@ public class RecallWorklistRulesTests
             plans: new[]
             {
                 Plan(TreatmentPlanStatus.Accepted, old, old),
-                // `done == total`, so this one is unanswered rather than stalled — the two reasons are mutually
-                // exclusive now, and composing them needs a plan genuinely in each state.
-                Plan(TreatmentPlanStatus.Draft, old, total: 6, done: 6, number: "2026-0009")
+                // Nothing delivered, so this one is « jamais répondu » rather than « au point mort » — the two
+                // are mutually exclusive, and composing them needs a plan genuinely in each state. It carries
+                // no number, because `Accept` is the only writer of one and a Draft has never been accepted.
+                Plan(TreatmentPlanStatus.Draft, old, total: 6, done: 0)
             },
             oldestOverdue: Now.AddDays(-10),
             outstanding: 500m);

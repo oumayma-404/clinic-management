@@ -100,10 +100,11 @@ export function ChequesTable() {
   const [pending, setPending] = useState<ChequeDto | null>(null)
   const [marking, setMarking] = useState(false)
 
-  // Both ledgers feed this list, so both keys have to wake it: a cheque taken on a devis échéance next door is
-  // exactly the row that must appear without a manual refresh.
+  // Three ledgers feed this list, so all three keys have to wake it: a cheque taken on a devis échéance next
+  // door is exactly the row that must appear without a manual refresh — and a cheque handed over at the chair
+  // is written by the fiche de soins, a `Features.Patients` command. N42 holds it.
   useClinicRealtime(
-    [RealtimeResource.Invoices, RealtimeResource.TreatmentPlans],
+    [RealtimeResource.Invoices, RealtimeResource.TreatmentPlans, RealtimeResource.Patients],
     useCallback(() => setReloadKey((k) => k + 1), []),
   )
 

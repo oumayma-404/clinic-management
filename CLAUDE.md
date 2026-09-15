@@ -10,6 +10,10 @@ from **no screen** — see [`features/cnam-ui-withdrawal/notes.md`](features/cna
 > [`ARCHITECTURE.md`](ARCHITECTURE.md); each shipped feature has `features/<slug>/notes.md`. Jump to the right
 > one instead of re-reading source.
 
+> **How to talk to the owner: [`.claude/rules/response-style.md`](.claude/rules/response-style.md).**
+> Short bullets, simple words, tables when comparing. No paragraphs, no preamble, no recap. Applies to
+> every answer, summary, suggestion, report, review and code comment — she asks a follow-up if she wants more.
+
 ## Stack at a glance
 
 | Layer | Tech | Location |
@@ -124,6 +128,25 @@ The **dependency direction** in `api/` is strict Clean Architecture: `API → Ap
   over every affected area, collect *all* failures, fix them together, re-run. The unfiltered suite is the gate
   (a `--filter` once hid 21 failures for a whole feature), a failing check is a probe bug until excluded, and
   « no error string » is not « loaded ». `frontend-web.md` is its rendering-side twin.
+- **What else this change could break** → [`.claude/rules/regression-safety.md`](.claude/rules/regression-safety.md)
+  — the **blast-radius table**, written *before* the first edit: every symbol you touch, who else consumes it,
+  and one of three verdicts. Three greps, about two minutes. Its § 2 is the eight change-shapes whose reach is
+  bigger than it looks (a replace-whole-list setter · a tri-state DTO · a shared predicate with N call sites ·
+  a mirrored set · a read/SQL filter · a shared UI primitive · a status transition or a concurrent writer · a
+  migration). Nothing in this repo has cost more than a correct change wired to one call site out of four.
+- **Starting the stack, or killing anything** → [`.claude/rules/shared-stack.md`](.claude/rules/shared-stack.md)
+  first. **Several Claude sessions run on this machine**, against these same ports, this same database, the one
+  Playwright Chrome profile and usually the same working tree. `stack-lease.ps1 status` (three seconds) answers
+  « is it up, and whose is it »: **UP → use it, start nothing** · **BUSY → a peer is starting it, poll** ·
+  **down → claim, start, record**. The race is the API's 2–4 min cold build, during which the port is silent and
+  two sessions both decide to start one, then fight over `api/**/bin`. Never `taskkill /IM dotnet.exe`; never
+  `-Reset` with a peer live; and when you genuinely need a rebuild of a tier a peer owns, **announce it** —
+  a surprise restart makes their results fiction.
+- **QA'ing a change in the browser** → `/test-in-browser` (plan first, drive once, fix nothing, file findings)
+  then `/fix-qa-findings` (challenge, fix all, re-run the whole plan). Three cycles, then stop. `/clinic-browser`
+  is how either one reaches a screen — stack, TOTP, deep links, the overlay traps. **Do not improvise a browser
+  pass**: an unplanned one turns into open → find a bug → fix → reopen, which was measured at most of an
+  afternoon and misses more than it finds.
 
 ## Running locally
 
@@ -168,6 +191,7 @@ how it was built, `notes.md` is what shipped.
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
 - [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu · Deux surfaces annonçaient l'étape SUIVANTE comme si elle avait eu lieu
+- [`treatment-plan-lifecycle`](features/treatment-plan-lifecycle/notes.md) — A stop has THREE outcomes, and the browser knew two · Two appended statuses (`Stopped`, `WrittenOff`), and why « appended » is load-bearing · One respread rule, and it is the only place the money invariant lives · The capabilities behind the driving complaint (S1–S7) · Two rules that look wrong and are not
 - [`booking-treatment-suggestions`](features/booking-treatment-suggestions/notes.md) — Le rappel ne nommait qu'un traitement, et se taisait pour 47 patients sur 318
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
 - [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
@@ -443,6 +467,48 @@ touching the area.
   `Installment.IsAutoRaised` is what tells it from a schedule a dentist typed, and `InstallmentLateness` is the
   one rule — it needs the plan's status, its note, its unrealised work and the clinic's day, so it is computed
   server-side onto `InstallmentDto.IsOverdue` and never re-derived from `dueDate`.
+- **A stop has THREE outcomes and a surface that knows two promises one it cannot deliver.**
+  `TreatmentPlan.StopTreatment` sorts a stop into **cancel** · **stop** · *refuse until the cash is refunded*,
+  and the third arm is created by the second's own money term: `StopWouldCancel` answers false for a devis
+  carrying a deposit — deliberately, so the dentist is not routed to a `Cancel` that `EnsureNoLiveMoney`
+  refuses — and **nothing then asked whether the stop it was routed to can land**. So the ⋯ menu offered
+  « Arrêter le traitement », the dialog listed the acts under « Mis de côté », stated « le traitement passe à
+  « Arrêté » » and showed « L'échéancier est ramené au total conservé (0,000 DT) », and the press came back
+  refused with the devis still « En cours ». Measured 2026-09-15 on two plans. Ask
+  **`stopNeedsRefundFirst`** (TS) — it mirrors the aggregate term for term, `Number != null` included, because
+  an un-numbered treatment carrying money is **not** this case. ⚠️ A **named refusal, never a withheld
+  control** (M26's rule): the entry stays and the dialog states the amount and the avoir *before* the press,
+  with « Retour » as the only button — a confirm whose one outcome is a red toast is the « discover the rule
+  by breaking it » shape the motif field beside it already exists to avoid. ⚠️ « Cette action est
+  irréversible » belongs to the **cancel** branch only; on the refund branch nothing irreversible happens and
+  what the dialog owes is the remedy. `check:responsive`'s **N40** fails any surface reading
+  `stopWouldCancelPlan` without `stopNeedsRefundFirst` — with comments masked on both sides, because the prose
+  explaining the rule satisfied a first cut that scanned raw source.
+- **`TreatmentPlanStatus` grew two members, `Stopped = 5` and `WrittenOff = 6`, and each has to be classified
+  in TWO places where a miss is silent.** `PlanBillingRules.CarriesDebt` and
+  `TreatmentPlanLifecycle.LiveStatuses` — a `Stopped` plan **carries debt and is not live**, a `WrittenOff`
+  one is **neither**. `TreatmentPlanStatusCoverageTests` enumerates the enum and fails on a member classified
+  by neither; `check:responsive`'s N41 is the label/tone twin. ⚠️ **Appended, never inserted** — the enum
+  persists through `HasConversion<int>()`, so slotting either where it belongs in reading order repoints every
+  stored row. ⚠️ `Reopen` admits `WrittenOff`, which is what stops it being a second absorbing state, and
+  **clears** `WriteOffAmount`/`WriteOffReason` on the way — unlike a cancellation motif, that figure is
+  reported as a loss and leaving it on a plan that is collecting again double-counts the year's pertes.
+- **`RespreadSchedule` is the ONE place « `TotalPlanned` may never fall below what was collected » lives**, and
+  it must stay at the top of the method — the rebuild below it trims collected rows to what they took, which
+  destroys the evidence the refusal is made of. It had lived on `StopTreatment` and `ReviseInstallments` and
+  **not** on the branch the amend handler takes when it changes a total without being sent a schedule, so
+  removing a 200 DT act from a 500 DT devis with 500 DT collected left `Σ Amount` at 500 against a
+  `TotalPlanned` of 300: `Outstanding` clamped at 0, both balances read 0, and **200 DT of the patient's money
+  became unreachable** with no error and no avoir prompt. ⚠️ A collected row is **kept and trimmed, never
+  dropped**, and `MarkAutoRaised` is re-applied — `Revise` clears `IsAutoRaised`, so without the re-mark a
+  respread silently promotes the auto lump-sum into an « agreed » date and puts « En retard » back on it. Its
+  visible consequence is two undated « Solde à régler » rows after a stop→reopen, one of them a settled
+  receipt; that is correct and `installmentDueLabel` keys purely on `isAutoRaised`. ⚠️ **`Reopen` re-spreads
+  too**, and leaving it out put two different balances on two screens — « Solde patient » is
+  `TotalPlanned − AmountPaid` while « Créances », the dashboard and `PatientDebtLines` sum
+  `Amount − AmountPaid` over the installment **rows**, so a 1 200 DT devis stopped at 400 kept and 400
+  collected reopened reading 800 DT owed on the patient's file and **0 DT in « Créances »**, with the payable
+  room then 0 so the receptionist could not take the money.
 - **A step rank derived as `stepsDone + 1` is the step still to COME, and a bare « 2 / 3 » is read as
   progress.** The odontogramme's tooth tooltip printed « séance 2 sur 3 · essai de l'armature à planifier » on a
   couronne whose only delivered séance was the préparation — a false clinical claim on the one diagram read at a

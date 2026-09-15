@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Queries;
 
@@ -21,6 +22,7 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetTreatmentPlanQueryHandler> _logger;
 
@@ -30,6 +32,7 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         IDentalRecordRepository dentalRecordRepository,
+        IDoctorRepository doctorRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetTreatmentPlanQueryHandler> logger)
     {
@@ -38,6 +41,7 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _dentalRecordRepository = dentalRecordRepository;
+        _doctorRepository = doctorRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -63,9 +67,39 @@ public class GetTreatmentPlanQueryHandler : IRequestHandler<GetTreatmentPlanQuer
             var workflow = await TreatmentPlanWorkflowProjection.BuildAsync(
                 new[] { plan }, clinicResult.Value, _appointmentRepository, _invoiceRepository,
                 // The record repository fills `TreatedToothNumbers` — the teeth the act's earlier séances marked.
-                DateTime.UtcNow, cancellationToken, _dentalRecordRepository);
+                // The doctor repository fills `DoctorName` - the practitioner the devis is attributed to (M6).
+                DateTime.UtcNow, cancellationToken, _dentalRecordRepository, _doctorRepository);
 
-            return Result<TreatmentPlanDto>.Success(plan.ToDto(patient?.GetFullName(), workflow));
+            var dto = plan.ToDto(patient?.GetFullName(), workflow);
+
+            /*
+             * S7 — « cet acte est déjà sur un autre devis ». One extra read, bounded to this patient's plans,
+             * and only when this devis itself carries debt: a Draft, a cancelled or a written-off one produces
+             * no second claim, so there is nothing to warn about and nothing to read.
+             *
+             * ⚠️ A notice, never a refusal — a second opinion legitimately re-quotes. See
+             * `DuplicateActDetection` for why it keys on the procedure + the tooth and not on the désignation.
+             */
+            if (PlanBillingRules.CarriesDebt(plan.Status))
+            {
+                var siblings = await _planRepository.GetFilteredAsync(
+                    clinicResult.Value, patientId: plan.PatientId, paging: null,
+                    cancellationToken: cancellationToken);
+
+                dto.DuplicateActs = DuplicateActDetection.Find(plan, siblings.Items)
+                    .Select(d => new DuplicateActDto
+                    {
+                        ItemId = d.ItemId,
+                        DesignationFr = d.DesignationFr,
+                        ToothNumbers = d.ToothNumbers.ToList(),
+                        OtherPlanId = d.OtherPlanId,
+                        OtherPlanNumber = d.OtherPlanNumber,
+                        OtherPlanTitle = d.OtherPlanTitle,
+                    })
+                    .ToList();
+            }
+
+            return Result<TreatmentPlanDto>.Success(dto);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

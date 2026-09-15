@@ -1,5 +1,59 @@
 // French labels for treatment plan / devis status + item status (backend enum names → UI copy).
 import { statusToneClass, type StatusTone } from "@/components/ui/status-tone";
+import { formatDateFr } from "@/lib/format";
+
+/**
+ * What ONE échéance is called, wherever it is named: on the échéancier, in the encaissement modal's heading,
+ * in the void confirmation and on the revise form's rows.
+ *
+ * <p>⚠️ <b>An auto-raised row has NO date, and four surfaces printed one.</b> `TreatmentPlan.Accept` writes a
+ * single lump-sum row dated at the acceptance instant whenever no schedule was given — a ledger container so a
+ * payment has somewhere to live, not a day anybody promised. 159 of the 184 installment rows on the dev
+ * database are these. The workspace's own cell stopped showing that date (and `InstallmentLateness` stopped
+ * comparing it), while « Échéance du 14/03/2026 » went on appearing in the modal that collects against it, in
+ * the dialog that annuls a payment on it, and as an <i>editable</i> pre-filled `type="date"` in the revise
+ * form — where re-saving it turns a fabricated instant into a date a dentist appears to have typed.</p>
+ *
+ * <p>One owner, `check:responsive`'s N39 holds it: a surface printing `formatDateFr(inst.dueDate)` directly
+ * fails the scan.</p>
+ */
+export function installmentDueLabel(inst: { dueDate: string; isAutoRaised?: boolean }): string {
+  return inst.isAutoRaised ? "Solde à régler" : formatDateFr(inst.dueDate);
+}
+
+/**
+ * The same answer inside a sentence — « sur le solde à régler de ce devis » / « sur l'échéance du 14/03/2026 ».
+ *
+ * <p>⚠️ <b>It exists because the label form cannot be dropped into prose, and four surfaces wrote their own
+ * instead.</b> The timeline said « Échéance du 14/03/2026 » on a row nobody dated; the workspace's card title
+ * said « Total dû » and its menu « du solde à régler » where this file said « Solde à régler »; the void panel
+ * and the revise form each had a fifth wording. Three names for one row, two of them eight pixels apart. A
+ * second export is the cheap way to make the sentence form reachable, so nobody re-derives it.</p>
+ */
+export function installmentDueSentence(inst: { dueDate: string; isAutoRaised?: boolean }): string {
+  return inst.isAutoRaised ? "le solde à régler de ce devis" : `l'échéance du ${formatDateFr(inst.dueDate)}`;
+}
+
+/**
+ * The same answer as a heading — « Solde à régler » / « Échéance du 14/03/2026 ».
+ *
+ * <p>Third and last shape: {@link installmentDueLabel} is the bare cell, {@link installmentDueSentence} goes
+ * mid-sentence, and this one starts one. They exist as three exports rather than as a capitalisation helper
+ * because the auto-raised branch is not a case change — « Solde à régler » never gains the word « Échéance ».</p>
+ */
+export function installmentDueTitle(inst: { dueDate: string; isAutoRaised?: boolean }): string {
+  return inst.isAutoRaised ? "Solde à régler" : `Échéance du ${formatDateFr(inst.dueDate)}`;
+}
+
+/**
+ * The same answer for a form field: the day to pre-fill, or `""` for a row that has no agreed date.
+ *
+ * <p>Separate from {@link installmentDueLabel} because a `<input type="date">` cannot hold a sentence — and
+ * pre-filling the auto-raised instant is the half of M25 that <b>writes</b> rather than merely displays.</p>
+ */
+export function installmentDueInputValue(inst: { dueDate: string; isAutoRaised?: boolean }): string {
+  return inst.isAutoRaised ? "" : inst.dueDate.slice(0, 10);
+}
 
 export const PLAN_STATUS_LABELS: Record<string, string> = {
   /*
@@ -20,6 +74,13 @@ export const PLAN_STATUS_LABELS: Record<string, string> = {
    * a devis; a dentist reading the list has to be able to tell them apart at a glance.
    */
   Stopped: "Arrêté",
+  /*
+   * ⚠️ « Créance abandonnée », not « Perte » or « Irrécouvrable ». The badge is read on a patient's file by
+   * whoever picks it up next, and it has to say what happened to the MONEY without accusing the patient: the
+   * work was done, the cabinet decided it would not chase what was left. « Reprendre le traitement » brings
+   * the créance back, so this is not a terminal judgement either.
+   */
+  WrittenOff: "Créance abandonnée",
   Cancelled: "Annulé",
 };
 
@@ -35,6 +96,13 @@ export const PLAN_STATUS_TONE: Record<string, StatusTone> = {
    * outcomes nobody wanted, and only « Terminé » is the green one.
    */
   Stopped: "negative",
+  /*
+   * `neutral`, not `negative` — and the difference from « Arrêté » is the point. An arrêt leaves a balance
+   * somebody may still chase, which is why it is red; a write-off is a decision that has been taken and
+   * closed, so nothing about it is outstanding. Red would put a permanent alarm on a row nobody needs to act
+   * on, which is how a colour stops being read.
+   */
+  WrittenOff: "neutral",
   Cancelled: "negative",
 };
 

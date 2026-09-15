@@ -88,8 +88,30 @@ public static class TreatmentPlanWorkflowProjection
         CancellationToken cancellationToken,
         // Optional: the read paths supply it, the amend response does not — the frontend reloads after every
         // mutation, so a command response leaving `TreatedToothNumbers` empty costs nothing.
-        IDentalRecordRepository? dentalRecordRepository = null)
+        IDentalRecordRepository? dentalRecordRepository = null,
+        // Same contract, for « Praticien » (M6). See `DoctorNameById`.
+        IDoctorRepository? doctorRepository = null)
     {
+        /*
+         * The practitioner a devis is attributed to, by name.
+         *
+         * It reads the clinic's ROSTER rather than a batched by-id read, exactly as `AppointmentDoctorNames`
+         * does: the bound is the practice's own staff, not the page, so one call answers for every row and no
+         * new repository method is needed - and it is clinic-scoped, so a stale `DoctorId` belonging to another
+         * practice resolves to nothing rather than leaking a name.
+         *
+         * There is no snapshot fallback, unlike an appointment's: a plan stores only the id, so the live name
+         * is the only source and a dentist correcting their own spelling sees it everywhere.
+         */
+        var doctorNames = new Dictionary<Guid, string>();
+        if (doctorRepository != null && plans.Any(p => p.DoctorId.HasValue))
+        {
+            foreach (var doctor in await doctorRepository.GetByClinicIdAsync(clinicId, cancellationToken))
+            {
+                doctorNames[doctor.Id] = doctor.FullName;
+            }
+        }
+
         var itemIds = plans.SelectMany(p => p.Items).Select(i => i.Id).ToList();
 
         /*
@@ -279,7 +301,7 @@ public static class TreatmentPlanWorkflowProjection
 
         return new TreatmentPlanWorkflow(
             scheduledByItemId, invoiceByPlanId, nextAppointmentAtByPlanId, scheduledByStepId, treatedTeeth,
-            carriedInvoiceByItemId);
+            carriedInvoiceByItemId, doctorNames);
     }
 
     /// <summary>
@@ -321,7 +343,12 @@ public sealed record TreatmentPlanWorkflow(
     /// <c>TreatmentPlanItem.BilledOnInvoiceId</c>. Empty for every ordinary plan, and the whole reason the
     /// treatment's money can finally be stated as a whole instead of the devis' share of it.
     /// </summary>
-    IReadOnlyDictionary<Guid, PlanCarriedInvoice> CarriedInvoiceByItemId)
+    IReadOnlyDictionary<Guid, PlanCarriedInvoice> CarriedInvoiceByItemId,
+    /// <summary>
+    /// The clinic's practitioners by id, for <c>TreatmentPlanDto.DoctorName</c> - empty when the caller
+    /// supplied no doctor repository, or when no plan on the page names one.
+    /// </summary>
+    IReadOnlyDictionary<Guid, string> DoctorNameById)
 {
     public static TreatmentPlanWorkflow Empty { get; } = new(
         new Dictionary<Guid, Appointment>(),
@@ -329,7 +356,8 @@ public sealed record TreatmentPlanWorkflow(
         new Dictionary<Guid, DateTime?>(),
         new Dictionary<Guid, Appointment>(),
         new Dictionary<Guid, IReadOnlyList<int>>(),
-        new Dictionary<Guid, PlanCarriedInvoice>());
+        new Dictionary<Guid, PlanCarriedInvoice>(),
+        new Dictionary<Guid, string>());
 }
 
 /// <summary>

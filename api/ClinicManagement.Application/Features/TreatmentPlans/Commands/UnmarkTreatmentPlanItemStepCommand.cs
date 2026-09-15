@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Invoices;
+using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
@@ -44,6 +45,8 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
     private readonly IPatientRepository _patientRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICreditNoteRepository _creditNoteRepository;
+    private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IToothStateRepository _toothStateRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UnmarkTreatmentPlanItemStepCommandHandler> _logger;
@@ -53,6 +56,8 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
         IPatientRepository patientRepository,
         IInvoiceRepository invoiceRepository,
         ICreditNoteRepository creditNoteRepository,
+        IDentalRecordRepository dentalRecordRepository,
+        IToothStateRepository toothStateRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UnmarkTreatmentPlanItemStepCommandHandler> logger)
@@ -61,6 +66,8 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
         _patientRepository = patientRepository;
         _invoiceRepository = invoiceRepository;
         _creditNoteRepository = creditNoteRepository;
+        _dentalRecordRepository = dentalRecordRepository;
+        _toothStateRepository = toothStateRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -108,7 +115,16 @@ public class UnmarkTreatmentPlanItemStepCommandHandler
                 return Result<TreatmentPlanDto>.Failure(billedCheck.Error!);
             }
 
+            // BEFORE the unmark - it clears the very links this needs. See `ToothChartingSync`.
+            var evidencedBy = ToothChartingSync.EvidencingRecordIds(item);
+
             plan.UnmarkItemStep(request.ItemId, request.StepId);
+
+            // Releasing a step un-finishes the act, so the end state is withheld again - the act-level twin's
+            // rule at step granularity, because a stepped act charts only when its LAST step lands.
+            await ToothChartingSync.ApplyAsync(
+                item, evidencedBy, clinicResult.Value,
+                _dentalRecordRepository, _toothStateRepository, cancellationToken);
 
             _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);

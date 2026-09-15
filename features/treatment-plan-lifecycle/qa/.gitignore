@@ -1,0 +1,8 @@
+# ⚠️ `.artifacts/` holds a LIVE admin session cookie and a bearer token for the QA account, plus the run's
+# minted test-data ids. Same rule and same reason as `e2e/.gitignore`: a credential in a git history is
+# permanent and survives a change of repository visibility.
+.artifacts/
+
+# The run's screenshots — evidence for the report that produced them, not source. They are named by scenario
+# id and regenerate on the next `node walk.mjs`, and they are of a database holding real-shaped patient data.
+shots/

@@ -75,7 +75,15 @@ public static class PlanBillingRules
         TreatmentPlanStatus.InProgress => true,
         TreatmentPlanStatus.Completed => true,
         TreatmentPlanStatus.Stopped => true,
-        TreatmentPlanStatus.Cancelled => false
+        TreatmentPlanStatus.Cancelled => false,
+        /*
+         * ⚠️ **False, and the cash stays.** A write-off abandons the UNPAID balance — that is the whole point
+         * of the status — so the plan leaves « Créances », « Solde patient », the dashboard and « Chèques à
+         * encaisser » exactly as a cancellation would. What it does NOT do is touch the payments already
+         * collected: those rows, their receipts and the days they belong to in la caisse are untouched, which
+         * is precisely why `Cancel` was the wrong instrument for this.
+         */
+        TreatmentPlanStatus.WrittenOff => false
     };
 
     /// <summary>

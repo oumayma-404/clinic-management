@@ -9,7 +9,8 @@ import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { ApiError } from "@/lib/api/client"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { formatDT, formatDateFr } from "@/lib/format"
-import type { InstallmentPaymentDto } from "@/lib/api/types"
+import { installmentDueSentence } from "./treatment-plan-labels"
+import type { InstallmentDto, InstallmentPaymentDto } from "@/lib/api/types"
 
 /**
  * Annuler un encaissement d'échéance — the échéancier's half of a correction the invoice track has had all along.
@@ -31,8 +32,14 @@ import type { InstallmentPaymentDto } from "@/lib/api/types"
 export interface VoidInstallmentPaymentProps {
   planId: string
   installmentId: string
-  /** Due date of the échéance the payment sits on — the row's own identity on this screen. */
-  installmentDueDate: string
+  /**
+   * The échéance the payment sits on — the row's own identity on this screen.
+   *
+   * ⚠️ **It used to be the bare `dueDate` string, and this panel printed it.** An auto-raised row's date is
+   * the acceptance instant, not a day anybody agreed, so « sur l'échéance du 14/03/2026 » invented a promise
+   * inside a confirmation about money. The whole row is passed now so {@link installmentDueSentence} can answer.
+   */
+  installment: InstallmentDto
   payment: InstallmentPaymentDto
   onCancel: () => void
   /** Called after the void committed; the parent refetches the plan. */
@@ -42,7 +49,7 @@ export interface VoidInstallmentPaymentProps {
 export function VoidInstallmentPayment({
   planId,
   installmentId,
-  installmentDueDate,
+  installment,
   payment,
   onCancel,
   onVoided,
@@ -76,7 +83,9 @@ export function VoidInstallmentPayment({
     <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
       <p className="text-sm">
         Annuler cet encaissement de <span className="font-semibold">{formatDT(payment.amount)}</span> du{" "}
-        {formatDateFr(payment.paidOn)}, sur l&apos;échéance du {formatDateFr(installmentDueDate)} ?
+        {formatDateFr(payment.paidOn)},{" "}
+        sur {installmentDueSentence(installment)}{" "}
+        ?
         L&apos;encaissement sera retiré du devis et de la caisse, à sa date d&apos;origine. Cette action est
         définitive.
       </p>

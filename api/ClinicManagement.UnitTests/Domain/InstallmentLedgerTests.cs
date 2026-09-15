@@ -150,16 +150,58 @@ public class InstallmentLedgerTests
     }
 
     // [AC-21] A cancelled devis's payments are frozen.
+    //
+    // ⚠️ The arrangement changed and the change IS the point: `Cancel` now refuses a devis holding live money
+    // (see `A_Devis_Holding_Money_Cannot_Be_Cancelled` below), so the only way to reach a cancelled plan that
+    // has ever seen a payment is to void it first. The guard under test is checked before the installment is
+    // even looked up, so it still fires on the re-void attempt — which is exactly the state a user reaches.
     [Fact]
     public void Payments_On_A_Cancelled_Plan_Cannot_Be_Voided()
     {
         var plan = AcceptedPlan();
         var installment = SoleInstallment(plan);
         var payment = plan.RecordInstallmentPayment(installment.Id, 400m, PaymentMethod.Cash, January);
+        plan.VoidInstallmentPayment(installment.Id, payment.Id, "Erreur de saisie");
         plan.Cancel("Devis à revoir");
 
-        Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<InvalidOperationException>(
             () => plan.VoidInstallmentPayment(installment.Id, payment.Id, "Erreur"));
+
+        Assert.Contains("annulé", ex.Message);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>The defect this pins: cancelling a devis erased collected cash from days already closed.</b>
+    /// <c>Cancelled</c> is absent from <c>DebtBearingPlanStatuses</c> and all four caisse reads filter on it, so
+    /// a devis that took 500 DT in March and was cancelled in April **retroactively removed those 500 DT from
+    /// March's extrait**, from the dashboard and from « Chèques à encaisser » — with no error, and with the
+    /// fiche still printing « Encaissé sur le traitement ». <c>Invoice.Cancel</c> has always had this guard.
+    /// </summary>
+    [Fact]
+    public void A_Devis_Holding_Money_Cannot_Be_Cancelled()
+    {
+        var plan = AcceptedPlan();
+        var installment = SoleInstallment(plan);
+        plan.RecordInstallmentPayment(installment.Id, 400m, PaymentMethod.Cash, January);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => plan.Cancel("Devis à revoir"));
+
+        Assert.Contains("avoir", ex.Message);
+        Assert.Equal(TreatmentPlanStatus.InProgress, plan.Status);
+    }
+
+    /// <summary>A voided payment is not money, so it cannot block the cancellation either.</summary>
+    [Fact]
+    public void A_Devis_Whose_Only_Payment_Was_Voided_Can_Be_Cancelled()
+    {
+        var plan = AcceptedPlan();
+        var installment = SoleInstallment(plan);
+        var payment = plan.RecordInstallmentPayment(installment.Id, 400m, PaymentMethod.Cash, January);
+        plan.VoidInstallmentPayment(installment.Id, payment.Id, "Erreur de saisie");
+
+        plan.Cancel("Devis à revoir");
+
+        Assert.Equal(TreatmentPlanStatus.Cancelled, plan.Status);
     }
 
     // [AC-19] Overpayment is still refused, now measured against the live ledger sum.

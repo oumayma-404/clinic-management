@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -23,12 +24,16 @@ public class VoidInstallmentPaymentCommand : IRequest<Result<TreatmentPlanDto>>
     public Guid InstallmentId { get; set; }
     public Guid PaymentId { get; set; }
     public string Reason { get; set; } = string.Empty;
+
+    /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
+    public uint Version { get; set; }
 }
 
 public class VoidInstallmentPaymentCommandHandler
     : IRequestHandler<VoidInstallmentPaymentCommand, Result<TreatmentPlanDto>>
 {
     private readonly ITreatmentPlanRepository _planRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -38,6 +43,7 @@ public class VoidInstallmentPaymentCommandHandler
 
     public VoidInstallmentPaymentCommandHandler(
         ITreatmentPlanRepository planRepository,
+        IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
         IUserRepository userRepository,
         ICurrentClinicResolver clinicResolver,
@@ -46,6 +52,7 @@ public class VoidInstallmentPaymentCommandHandler
         ILogger<VoidInstallmentPaymentCommandHandler> logger)
     {
         _planRepository = planRepository;
+        _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
         _userRepository = userRepository;
         _clinicResolver = clinicResolver;
@@ -78,12 +85,33 @@ public class VoidInstallmentPaymentCommandHandler
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
+            /*
+             * A payment on a plan a note d'honoraires represents is not ours to void — the mirror of the
+             * refusal `RecordInstallmentPaymentCommand` has always made, through the same
+             * `PlanBridgeLookup`.
+             *
+             * ⚠️ Without it this reported success and changed nothing. `CarryOverPlanPaymentsAsync` copies the
+             * receipt onto the note when the bridge is issued, and from then on every installment money read
+             * excludes the plan — so voiding the plan-side row left the invoice `Payment` live, la caisse
+             * still counting it, and the user reading « paiement annulé ». The correction has to be made on
+             * the note itself, which is what the sentence names.
+             */
+            var bridge = await PlanBridgeLookup.RepresentingNoteAsync(
+                _invoiceRepository, clinicResult.Value, plan.Id, cancellationToken);
+            if (bridge != null)
+            {
+                return Result<TreatmentPlanDto>.Failure(
+                    $"Ce devis est facturé (note n° {bridge}) : le paiement est porté par la note. "
+                    + "Annulez-le sur la note d'honoraires.");
+            }
+
             var actorUserId = _clinicContext.GetUserId();
             var actorName = await ResolveActorNameAsync(actorUserId, cancellationToken);
 
             plan.VoidInstallmentPayment(
                 request.InstallmentId, request.PaymentId, request.Reason, actorUserId, actorName);
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -102,8 +130,11 @@ public class VoidInstallmentPaymentCommandHandler
         {
             return Result<TreatmentPlanDto>.Failure(ex.Message);
         }
-        catch (Exception)
+        // ⚠️ The `when` filter is load-bearing — without it a 409 is flattened into the generic sentence and
+        // the concurrency check above detects nothing a user can act on.
+        catch (Exception ex) when (ex is not ConflictException)
         {
+            _logger.LogError(ex, "Error voiding installment payment {PaymentId} on plan {PlanId}", request.PaymentId, request.PlanId);
             return Result<TreatmentPlanDto>.Failure("Erreur lors de l'annulation du paiement.");
         }
     }

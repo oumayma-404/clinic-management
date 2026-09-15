@@ -1560,7 +1560,22 @@ export interface TreatmentPlanItemDto {
    * See `TreatmentPlanItemDto.TreatedToothNumbers` for why the odontogram fix made this load-bearing.
    */
   treatedToothNumbers?: number[];
+  /** The act's tarif, before any remise. Never what the patient owes — read `netCost`. */
   plannedCost: number;
+  /**
+   * The remise granted on this act (S2), 0 on an ordinary line.
+   *
+   * ⚠️ A surface printing money for this act reads `netCost`. Both figures are here so the row can show
+   * « 400,000 − 50,000 » rather than a 350 nobody can account for — which is the whole reason a remise is a
+   * field instead of a lower price typed over the tarif. Absent on an older response = no remise.
+   */
+  discountAmount?: number;
+  /**
+   * What this act costs the patient: `plannedCost − discountAmount`. **Served, never subtracted here** — a
+   * second implementation of a money rule is this repo's dominant defect shape. Fall back to `plannedCost`
+   * when absent (an older response carries no remise either).
+   */
+  netCost?: number;
   /**
    * The note d'honoraires that already collects this act's fee, when the devis deliberately holds it at **0**.
    * Null on every ordinary line.
@@ -1648,6 +1663,20 @@ export interface TreatmentPlanItemStepDto {
    * the chair time above. Null means the interval is clinically free, never zero.
    */
   minDaysAfterPrevious?: number | null;
+  /**
+   * The earliest day this step should be carried out — `minDaysAfterPrevious` counted from the PREVIOUS step's
+   * own date (S5). Null when either is unknown, which is the ordinary case on a fresh devis and means « no
+   * opinion »: a step whose predecessor has not happened has no earliest day at all.
+   *
+   * ⚠️ **Served, never derived here.** The rule is `TreatmentPlanItemStep.DueFrom(previousStepDoneOn)` and it
+   * needs the SIBLING's date, which a step on the wire does not carry — a browser-side `previous.doneDate + N`
+   * would be a second implementation of a domain method. `plan-act-row.tsx` carried a TODO saying exactly this.
+   *
+   * ⚠️ It is a « pas avant », never a « pas après ». A date that has passed breaks no promise, so no surface
+   * may call the step late — the error `InstallmentLateness` was rewritten to stop making about an auto-raised
+   * échéance.
+   */
+  earliestOn?: string | null;
   /**
    * Derived read-back: the appointment that currently speaks for **this step**. Null when the step is not
    * booked, including when its only linked visit was cancelled.
@@ -2139,7 +2168,30 @@ export interface TreatmentPlanDto {
   notes: string | null;
   acceptedDate: string | null;
   cancellationReason: string | null;
+  /**
+   * Why this devis' créance was abandoned, and how much of it — null / 0 on every plan not written off (S4).
+   * See `TreatmentPlan.WriteOff`: the unpaid balance is given up, the cash already collected is not.
+   */
+  writeOffReason?: string | null;
+  /** @see writeOffReason */
+  writeOffAmount?: number;
+  /**
+   * The praticien this devis is attributed to — who the next note d'honoraires raised from it credits. Null on
+   * a plan created before the field existed, and on one nobody has attributed.
+   */
+  doctorId?: string | null;
+  /** @see doctorId — resolved server-side, like `patientName`, so a rename shows up without a backfill. */
+  doctorName?: string | null;
+  /** What the patient owes — the acts' **net** total, after any remise. */
   totalPlanned: number;
+  /**
+   * The acts' tarifs before remise, and what the cabinet gave away (S2). `totalGross === totalPlanned` and
+   * `totalDiscount === 0` on every devis that grants none, which is what lets a surface render the remise
+   * lines only when there is one. Absent on an older response — treat that as « no remise », never as unknown.
+   */
+  totalGross?: number;
+  /** @see totalGross */
+  totalDiscount?: number;
   amountPaid: number;
   outstanding: number;
   createdAt: string;
@@ -2196,6 +2248,26 @@ export interface TreatmentPlanDto {
   treatmentOutstanding?: number | null;
   items: TreatmentPlanItemDto[];
   installments: InstallmentDto[];
+  /**
+   * Acts of this devis another debt-bearing devis of the same patient also quotes (S7) — **empty** on every
+   * ordinary plan, and a **notice**, never a refusal: a second opinion legitimately re-quotes.
+   *
+   * ⚠️ Served on the single-plan read only (the workspace). The list would need one extra read per row, and
+   * the answer is only actionable where the other document can be named and opened.
+   */
+  duplicateActs?: DuplicateActDto[];
+}
+
+/** One act quoted on two live devis at once — see `DuplicateActDetection` server-side. */
+export interface DuplicateActDto {
+  /** The act on THIS devis, so the notice sits on its own row. */
+  itemId: string;
+  designationFr: string;
+  toothNumbers: number[];
+  otherPlanId: string;
+  /** The other devis' number, or null when it has none; its title is the fallback name. */
+  otherPlanNumber: string | null;
+  otherPlanTitle: string;
 }
 
 /** A note d'honoraires collecting an act that a live, un-bridged devis carries at 0. */

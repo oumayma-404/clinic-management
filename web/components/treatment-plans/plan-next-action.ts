@@ -1,5 +1,6 @@
 import type { PlanActContinuation, PresetPlanAct } from "@/components/appointment-acts-picker"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
+import { PLAN_STATUS_LABELS, planHasRecordedWork } from "./treatment-plan-labels"
 
 /** Derived workflow état of one planned act. */
 export type PlanItemState = "to-schedule" | "scheduled" | "to-record" | "done"
@@ -48,6 +49,11 @@ export interface DetachOutcome {
   /** The séance being released, when the act is cut into séances. Null for an act done in one sitting. */
   stepLabel: string | null
   /**
+   * That séance's id — what « … et la rattacher à » (S6) sends as `fromStepId`. Null for a step-less act,
+   * which is exactly what the server reads as « the act itself ».
+   */
+  stepId: string | null
+  /**
    * The fiche that will be released. **Read before the call, because the call is what clears the link** — it
    * is the only pointer a devis surface has to that record, and re-pointing it is the correction the dentist
    * is in the middle of making.
@@ -74,7 +80,7 @@ export interface DetachOutcome {
 export function detachOutcome(item: TreatmentPlanItemDto): DetachOutcome {
   const steps = item.steps ?? []
   if (steps.length === 0) {
-    return { stepLabel: null, dentalRecordId: item.linkedDentalRecordId, remaining: null }
+    return { stepLabel: null, stepId: null, dentalRecordId: item.linkedDentalRecordId, remaining: null }
   }
 
   const done = [...steps]
@@ -84,11 +90,67 @@ export function detachOutcome(item: TreatmentPlanItemDto): DetachOutcome {
 
   return {
     stepLabel: released?.label ?? null,
+    stepId: released?.id ?? null,
     // The step's own link is the specific fact; the act's is the same record once it is complete, and the
     // fallback covers a response that predates per-step links.
     dentalRecordId: released?.linkedDentalRecordId ?? item.linkedDentalRecordId,
     remaining: { done: Math.max(0, done.length - 1), total: steps.length },
   }
+}
+
+/** One place a detached séance can be re-attached to — an act, or one séance of an act (S6). */
+export interface RelinkTarget {
+  /** Stable across a re-render; the `itemId:stepId` pair the call needs. */
+  key: string
+  itemId: string
+  stepId: string | null
+  /** « Couronne 16 · Empreinte » — the act, and the séance when the act has a protocol. */
+  label: string
+}
+
+/**
+ * Where the séance being detached could belong instead (S6).
+ *
+ * <p>⚠️ <b>Steps, not just acts</b> — and that is the half the fiche's own picker structurally could not
+ * offer: its Select names acts, so a séance attached to the wrong <i>step</i> of the right act needed the
+ * booking edited on a third screen. A stepped act contributes one option per séance; a step-less act
+ * contributes itself.</p>
+ *
+ * <p>⚠️ A séance that is <b>already recorded</b> is excluded: an act (or a step) may not carry two fiches, so
+ * offering one would produce a refusal from a control the product had just offered. The source itself is
+ * excluded for the same reason it would be a no-op. Withdrawn acts are out — parked work is not where a
+ * recorded séance belongs.</p>
+ */
+export function relinkTargets(
+  plan: TreatmentPlanDto,
+  from: { itemId: string; stepId: string | null },
+): RelinkTarget[] {
+  const targets: RelinkTarget[] = []
+
+  for (const item of activeItems(plan)) {
+    const steps = item.steps ?? []
+
+    if (steps.length === 0) {
+      if (item.id === from.itemId && from.stepId === null) continue
+      // A step-less act already carrying a fiche cannot take another.
+      if (item.linkedDentalRecordId) continue
+      targets.push({ key: `${item.id}:`, itemId: item.id, stepId: null, label: item.designationFr })
+      continue
+    }
+
+    for (const step of steps) {
+      if (item.id === from.itemId && step.id === from.stepId) continue
+      if (step.doneDate) continue
+      targets.push({
+        key: `${item.id}:${step.id}`,
+        itemId: item.id,
+        stepId: step.id,
+        label: `${item.designationFr} · ${step.label}`,
+      })
+    }
+  }
+
+  return targets
 }
 
 /**
@@ -185,6 +247,230 @@ export function actRemovalPlan(plan: TreatmentPlanDto, item: TreatmentPlanItemDt
   ).length
 
   return { removable: true, booking: { appointmentId, at, sharedWith } }
+}
+
+/**
+ * ── The plan-level permissions, in ONE place ────────────────────────────────────────────────────────────────
+ *
+ * <p>⚠️ Every one of these lived inline in `plan-workspace.tsx` and nowhere else, so the devis <b>list</b> —
+ * the same data, the same rules — offered « Modifier le brouillon » on a followed treatment with recorded
+ * séances (which the server now refuses outright), no « Facturer » at all, and no way to annuler a devis
+ * issued by mistake. That is this repo's dominant defect shape: a correct rule wired to one call site.</p>
+ */
+
+/**
+ * The statuses in which a devis is closed to every write — the browser twin of `EnsureAmendable`'s refusals.
+ *
+ * <p>⚠️ <b>`WrittenOff` had to be added HERE and to nine other tests the day the status was appended</b>, and
+ * that is exactly the shape `TreatmentPlanStatusCoverageTests` exists for on the server: a status no predicate
+ * names falls through to whatever the negative test happens to be. Written out once and read by the four
+ * permissions below.</p>
+ */
+const CLOSED_TO_WRITES = ["Cancelled", "WrittenOff"]
+
+/**
+ * Is this devis closed to every write?
+ *
+ * <p>Exported because three controls on the workspace asked it as <code>plan.status !== "Cancelled"</code> —
+ * the hand-written negative shape, which reads an appended status as OPEN. Two of the three were offers the
+ * server refuses by name: « Encaisser » on a written-off devis bounces « Le plan doit être accepté pour
+ * enregistrer un paiement. » (`EnsurePayable`), and correcting one of its actes bounces « Ce devis est
+ * annulé » — a sentence about a state the devis is not in. N40 fails on a fourth copy.</p>
+ */
+export function isPlanClosedToWrites(plan: { status: string }): boolean {
+  return CLOSED_TO_WRITES.includes(plan.status)
+}
+
+/** Can the acts, the fees and the échéancier still be corrected? Mirrors the server's `EnsureAmendable`. */
+export function canAmendPlan(plan: TreatmentPlanDto): boolean {
+  return !CLOSED_TO_WRITES.includes(plan.status)
+}
+
+/**
+ * Can this plan be edited through the DRAFT editor (`PUT /treatment-plans/{id}`), which replaces the acts
+ * wholesale — as opposed to the amend door, which preserves each act's id?
+ *
+ * <p>⚠️ <b>A `Draft` is not enough.</b> « Suivre ce traitement » creates un-numbered drafts that carry real
+ * séances and links to the fiches evidencing them, and `SetItems` now throws on any act with steps or
+ * delivered work. So a draft that has been worked on goes through the amend door like everything else, or the
+ * dentist meets a refusal from a button the product offered them.</p>
+ */
+export function canUseDraftEditor(plan: TreatmentPlanDto): boolean {
+  return plan.status === "Draft" && !planHasRecordedWork(plan)
+}
+
+/** Can the plan be destroyed outright? Mirrors `TreatmentPlan.CanBeDeleted`. */
+export function canDeletePlan(plan: TreatmentPlanDto): boolean {
+  return canUseDraftEditor(plan)
+}
+
+/**
+ * Is « Facturer le devis » offered? Every live status except a draft, minus a devis a note already bills —
+ * except where an amendment has grown the devis past what that note carries, which the server bills as a
+ * supplementary note.
+ *
+ * <p>⚠️ Deliberately wider than « is this plan active »: a plan auto-completes the instant its last step is
+ * recorded, so gating on active withdrew the button at the exact moment the treatment became billable.</p>
+ */
+export function canBillPlan(plan: TreatmentPlanDto): boolean {
+  // ⚠️ `WrittenOff` refuses too: raising a note for a balance the practice has just decided to abandon would
+  // put the créance straight back, on a second document, under a different number.
+  if (plan.status === "Draft" || CLOSED_TO_WRITES.includes(plan.status)) return false
+  if (!isPlanBilled(plan)) return true
+  return plan.linkedInvoiceTotal != null && plan.totalPlanned - plan.linkedInvoiceTotal > 0.0005
+}
+
+/**
+ * Would « Arrêter le traitement » come out as a <b>cancellation</b>? Mirrors `TreatmentPlan.StopWouldCancel`.
+ *
+ * <p>⚠️ The money term is load-bearing and was added with C2: a numbered devis carrying a deposit takes the
+ * <i>stop</i> branch, because `Cancel` refuses live money outright and sending the dentist there would name a
+ * remedy the product then refuses.</p>
+ */
+export function stopWouldCancelPlan(plan: TreatmentPlanDto): boolean {
+  return (
+    plan.number != null
+    && plan.amountPaid <= 0.0005
+    && !activeItems(plan).some(hasDeliveredWork)
+  )
+}
+
+/**
+ * Would « Arrêter le traitement » be <b>refused</b>, because money was taken and nothing was delivered?
+ *
+ * <p>⚠️ <b>The server has THREE outcomes and this file only knew two.</b> `TreatmentPlan.StopTreatment` sorts a
+ * stop into cancel · stop · <i>refuse until the cash is refunded</i>, and that third arm
+ * (`TreatmentPlan.cs`, « Aucun acte de ce devis n'a été réalisé, mais … DT y ont déjà été encaissés ») is
+ * exactly the shape {@link stopWouldCancelPlan}'s money term creates: the deposit pushes the devis off the
+ * cancel branch, and nothing then asked whether the stop it was pushed onto can actually land. Measured
+ * 2026-09-15: the ⋯ menu offered « Arrêter le traitement », the dialog listed the acts under « Mis de côté »
+ * and stated « le traitement passe à « Arrêté » », and the press was refused with the devis left « En cours ».</p>
+ *
+ * <p>It is a <b>named refusal, never a withheld control</b> — the same rule as « pourquoi Encaisser a
+ * disparu » (M26). A dentist who cannot find the button learns nothing; one who reads « remboursez d'abord les
+ * 200,000 DT par un avoir » knows what to do next.</p>
+ *
+ * <p>⚠️ Mirrors the server condition exactly, including `Number != null`: an un-numbered treatment carrying
+ * money is not this case — it stops normally, because there is no document and `kept.Count == 0` is only
+ * refused on a numbered devis.</p>
+ */
+export function stopNeedsRefundFirst(plan: TreatmentPlanDto): boolean {
+  return (
+    plan.number != null
+    && plan.amountPaid > 0.0005
+    && !activeItems(plan).some(hasDeliveredWork)
+  )
+}
+
+/**
+ * Is « Annuler le devis » offered as its own entry?
+ *
+ * <p>⚠️ <b>Only where « Arrêter le traitement » cannot reach the cancellation itself.</b> The two were folded
+ * into one control on purpose — « le patient ne poursuit pas » is one intention and the arithmetic decides the
+ * outcome — but the fold left a numbered devis with delivered work, or one already closed, with <i>no</i> route
+ * to an annulation at all: `POST /{id}/cancel` was reachable from nowhere in the browser. A devis issued to the
+ * wrong patient, or for work that was then re-quoted, is a real case and the number has to be voided with a
+ * motif rather than left standing.</p>
+ *
+ * <p>Refused on live money for the server's own reason (`EnsureNoLiveMoney`): cancelling drops the plan out of
+ * every caisse read, so a cancellation over collected cash rewrites days that are already closed.</p>
+ */
+export function canCancelPlan(plan: TreatmentPlanDto): boolean {
+  return (
+    plan.number != null
+    && !CLOSED_TO_WRITES.includes(plan.status)
+    && plan.amountPaid <= 0.0005
+    && !stopWouldCancelPlan(plan)
+  )
+}
+
+/**
+ * Is « Passer la créance en perte » offered (S4)?
+ *
+ * <p>A numbered devis with something still outstanding, not already abandoned and not already cancelled — and
+ * <b>not one a note d'honoraires represents</b>, because there the note carries the créance and writing off
+ * the plan moves nothing at all (the server refuses it by name). An un-numbered treatment claims nothing, so
+ * there is nothing to abandon.</p>
+ */
+export function canWriteOffPlan(plan: TreatmentPlanDto): boolean {
+  if (plan.number == null) return false
+  if (plan.status === "Cancelled" || plan.status === "WrittenOff") return false
+  if (isPlanBilled(plan)) return false
+  const owed = displayedOutstanding(plan)
+  return owed != null && !owed.isBilled && owed.amount > 0.0005
+}
+
+/**
+ * Is « Reprendre le traitement » offered? The way back from all three closed states — and it is what stops
+ * `WrittenOff` becoming a second absorbing state, which is the defect `canUncancelPlan` had to be written for.
+ */
+export function canReopenPlan(plan: TreatmentPlanDto): boolean {
+  return plan.status === "Completed" || plan.status === "Stopped" || plan.status === "WrittenOff"
+}
+
+/**
+ * What one act costs the patient — its tarif minus any remise (S2).
+ *
+ * <p>⚠️ <b>Read this, never `plannedCost`, wherever money for an act is printed or summed.</b> `netCost` is
+ * served precisely so the browser does not re-implement the subtraction; the fallback covers an older response
+ * that carries neither field, where the tarif IS the net.</p>
+ */
+export function itemNetCost(item: TreatmentPlanItemDto): number {
+  return item.netCost ?? item.plannedCost
+}
+
+/** What was given away on this act, 0 on an ordinary line. */
+export function itemDiscount(item: TreatmentPlanItemDto): number {
+  return item.discountAmount ?? 0
+}
+
+/** One échéance a settlement will land on, and how much of it. */
+export interface InstallmentLanding {
+  installmentId: string
+  dueDate: string
+  isAutoRaised?: boolean
+  amount: number
+}
+
+/**
+ * Where a single settlement (S3) will land — the échéances it fills, in order, with the slice each takes.
+ *
+ * <p>⚠️ <b>The server's own order, term for term</b>: `TreatmentPlan.CollectChairside` walks
+ * `OrderBy(DueDate).ThenBy(Id)` and fills each row's remaining room. This mirrors it so the dialog can SAY
+ * what the press will do — and it is a display only: the server does the arithmetic that matters, and a
+ * disagreement here shows a wrong preview rather than writing a wrong figure.</p>
+ */
+export function installmentsPayableRoom(
+  plan: TreatmentPlanDto,
+  amount: number,
+): InstallmentLanding[] {
+  const landing: InstallmentLanding[] = []
+  let remaining = amount
+
+  const ordered = [...plan.installments].sort((a, b) =>
+    a.dueDate === b.dueDate ? a.id.localeCompare(b.id) : a.dueDate.localeCompare(b.dueDate),
+  )
+
+  for (const inst of ordered) {
+    if (remaining <= 0.0005) break
+    const room = inst.outstanding
+    if (room <= 0.0005) continue
+    const slice = Math.min(room, remaining)
+    landing.push({
+      installmentId: inst.id,
+      dueDate: inst.dueDate,
+      isAutoRaised: inst.isAutoRaised,
+      amount: slice,
+    })
+    remaining -= slice
+  }
+
+  return landing
+}
+
+/** Is « Rétablir ce devis annulé » offered? The only way out of `Cancelled`, which nothing could leave. */
+export function canUncancelPlan(plan: TreatmentPlanDto): boolean {
+  return plan.status === "Cancelled"
 }
 
 /** An act parked by « Arrêter le traitement »: not treatment any more, and nothing about it is lost. */
@@ -308,6 +594,16 @@ export function planHeadline(plan: TreatmentPlanDto, now: Date = new Date()): st
   return "Rien à faire";
 }
 
+/**
+ * The order the chips are read in — derived from {@link PLAN_STATUS_LABELS}' own key order, which is already
+ * written « how much attention does this deserve »: sans devis, accepté, en cours, terminé, arrêté, annulé.
+ *
+ * <p>⚠️ <b>It was a hand-written array and it had no `Stopped`</b>, so every arrêté plan of a patient vanished
+ * from the summary — the exact defect the chips were introduced to fix for `Completed`, repeated the day
+ * `Stopped` was appended to the enum. Derived, a seventh status cannot be forgotten here.</p>
+ */
+const PLAN_STATUS_ORDER = Object.keys(PLAN_STATUS_LABELS);
+
 /** One status group of a patient's plans, for the summary chips. */
 export interface PlanStatusCount {
   status: string;
@@ -325,7 +621,6 @@ export interface PlanStatusCount {
  * <p>Ordered by how much attention the status deserves rather than alphabetically or by count.</p>
  */
 export function planStatusCounts(plans: TreatmentPlanDto[], excludeId?: string): PlanStatusCount[] {
-  const order = ["Draft", "Accepted", "InProgress", "Completed", "Cancelled"];
   const counts = new Map<string, number>();
 
   for (const plan of plans) {
@@ -333,9 +628,13 @@ export function planStatusCounts(plans: TreatmentPlanDto[], excludeId?: string):
     counts.set(plan.status, (counts.get(plan.status) ?? 0) + 1);
   }
 
-  return order
-    .filter((status) => counts.has(status))
-    .map((status) => ({ status, count: counts.get(status)! }));
+  const seen = new Set(PLAN_STATUS_ORDER);
+  return [
+    ...PLAN_STATUS_ORDER.filter((status) => counts.has(status)),
+    // A status the label map does not know yet still gets a chip — with its raw key, which is ugly and visible,
+    // rather than being dropped and reported as a patient with no plans at all.
+    ...[...counts.keys()].filter((status) => !seen.has(status)).sort(),
+  ].map((status) => ({ status, count: counts.get(status)! }));
 }
 
 /**
@@ -499,6 +798,11 @@ export function isPlanLive(status: TreatmentPlanDto["status"]): boolean {
  */
 export function isPlanStopped(status: TreatmentPlanDto["status"]): boolean {
   return status === "Stopped"
+}
+
+/** Has this devis' unpaid balance been abandoned (S4)? A different fact from « arrêté » and from « annulé ». */
+export function isPlanWrittenOff(status: TreatmentPlanDto["status"]): boolean {
+  return status === "WrittenOff"
 }
 
 /**

@@ -151,8 +151,14 @@ public class CreateInvoiceFromTreatmentPlanCommandHandler
                 // ⚠️ No DCH code travels from a devis any more — a devis line carries only a ProcedureType, so
                 // there is nothing to carry and the invoice's own CNAM split is empty for this path.
                 // Parked acts are excluded: they are not treatment any more and their fee left the total.
+                /*
+                 * ⚠️ `NetCost`, never `PlannedCost` — the remise. Billing the tarif would raise a note whose
+                 * total is larger than `plan.TotalPlanned`, so the patient would owe the discount back, the
+                 * supplementary-note guard above (`TotalPlanned − linkedInvoiceTotal > 0`) would go permanently
+                 * negative, and `displayedOutstanding` would report two different balances for one treatment.
+                 */
                 invoice.SetLines(plan.ActiveItems.Select(i =>
-                    (i.DesignationFr, 1, i.PlannedCost, (Guid?)null, (Guid?)null, (string?)null)));
+                    (i.DesignationFr, 1, i.NetCost, (Guid?)null, (Guid?)null, (string?)null)));
             }
 
             await _invoiceRepository.AddAsync(invoice, cancellationToken);

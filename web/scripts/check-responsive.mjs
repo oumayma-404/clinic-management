@@ -3625,6 +3625,327 @@ check(
   }
 );
 
+check(
+  "installment-date-has-one-owner",
+  "N39",
+  "An échéance's date is named through `installmentDueLabel` / `Sentence` / `Title`, never formatted at the call site",
+  "159 of the 184 installment rows on the dev database are AUTO-RAISED: `TreatmentPlan.Accept` writes one " +
+    "lump-sum row dated at the acceptance instant so a payment has somewhere to live. It is a ledger " +
+    "container, not a day anybody promised — so « Échéance du 14/03/2026 » on one is a commitment the product " +
+    "invented, printed inside sentences about money. The workspace's own cell had been fixed and FIVE other " +
+    "surfaces went on formatting `dueDate` themselves: the timeline feed (no branch at all — every payment " +
+    "entry named a fabricated date), the card title (« Total dû », a second name for the row eight pixels " +
+    "from « Solde à régler »), its action menu (a third), the void-payment panel (a fourth) and both " +
+    "installment forms, one of which printed the raw `2026-03-14` into French prose. Three shapes, one " +
+    "owner: `installmentDueLabel` for a cell, `installmentDueSentence` mid-sentence, `installmentDueTitle` at " +
+    "the start of one. `installmentDueInputValue` is the same answer for a `type=\"date\"` field, which is " +
+    "the half of M25 that WRITES: re-saving a pre-filled acceptance instant turns it into a date a dentist " +
+    "appears to have typed.",
+  () => {
+    const offenders = [];
+    const OWNER = "components/treatment-plans/treatment-plan-labels.ts";
+
+    /*
+     * The exact defect shape: an échéance handed to the date formatter at the call site.
+     *
+     * ⚠️ Anchored on the RECEIVER's name, not on the field alone. A **cheque** also has a `dueDate` —
+     * « encaissable le », the day the patient wrote on the paper — and that is a real promise which must be
+     * printed: the chèques table's `formatDateFr(r.dueDate)` is correct and this scan must not touch it. The
+     * names below are what this feature calls an échéance at every one of its call sites, the two forms'
+     * `row` included.
+     */
+    const HAND_FORMATTED = /formatDateFr\s*\(\s*(?:inst|installment|échéance|echeance|row)[?.]*\.dueDate\b/i;
+
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      if (relPath === OWNER) continue;
+
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+
+      lines.forEach((line, i) => {
+        if (masked[i]) return;
+        if (!HAND_FORMATTED.test(line)) return;
+        offenders.push({
+          file: relPath,
+          line: i + 1,
+          text:
+            "formats an échéance's `dueDate` itself — call `installmentDueLabel` / `installmentDueSentence` / " +
+            "`installmentDueTitle` instead. An auto-raised row's date is the acceptance instant, so this " +
+            "prints a due date nobody agreed to",
+        });
+      });
+    }
+
+    /*
+     * No `candidates === 0` tripwire: zero is the correct steady state, every surface having been routed
+     * through the owner. The owner's own three exports are what the scan points callers at, so their absence
+     * is the failure that would leave it mute.
+     */
+    const owner = read(tsx().find((f) => rel(f) === OWNER) ?? "");
+    for (const fn of ["installmentDueLabel", "installmentDueSentence", "installmentDueTitle", "installmentDueInputValue"]) {
+      if (!new RegExp(`export function ${fn}\\b`).test(owner)) {
+        offenders.push({
+          file: OWNER,
+          text: `\`${fn}\` is gone — the guard has nothing to point callers at`,
+        });
+      }
+    }
+    if (!/isAutoRaised/.test(owner)) {
+      offenders.push({
+        file: OWNER,
+        text: "the owner no longer branches on `isAutoRaised`, so all three shapes now print the fabricated date",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "plan-money-rules-have-one-owner",
+  "N40",
+  "An act's fee is read through `itemNetCost`, and a devis's money permissions through `plan-next-action.ts`",
+  "Two halves of one rule, both silent when wrong. **The fee:** S2 put a remise on the act, and " +
+    "`TotalPlanned` sums the NET — which is what makes a remise reach the échéancier, « Créances », « Solde " +
+    "patient », la caisse and the note d'honoraires with nothing else learning the word. Any surface still " +
+    "printing or summing `plannedCost` therefore states the tarif where the patient owes the net: the stop " +
+    "dialog listed both act columns gross and then SUMMED them under « l'échéancier est ramené au total " +
+    "conservé », which is the one figure a dentist checks before abandoning half a treatment. The two " +
+    "legitimate gross reads say so in their own prose (the remise dialog's « tarif », and the struck-through " +
+    "line beside it), which is what this scan accepts. **The permissions:** `plan.status !== \"Cancelled\"` " +
+    "is the hand-written negative shape, and it reads an appended status as OPEN — it offered « Encaisser » " +
+    "and act corrections on a written-off devis, both of which the server refuses by name. Ask " +
+    "`isPlanClosedToWrites`; and a live-money test belongs to `stopWouldCancelPlan` / `canCancelPlan`, which " +
+    "mirror `EnsureNoLiveMoney` term for term.",
+  () => {
+    const offenders = [];
+    const FEE_OWNER = "components/treatment-plans/plan-next-action.ts";
+
+    // A fee being PRINTED or SUMMED — not merely named in a type, a payload or a form field.
+    const GROSS_PRINTED = /formatDT\s*\([^;]*\bplannedCost\b/;
+    const GROSS_SUMMED = /\+\s*[A-Za-z_$][\w.$?]*\.plannedCost\b/;
+    // The tarif is legitimately gross in exactly two places, and both name it in the words on screen.
+    const TARIF_IS_THE_POINT = /tarif|line-through/i;
+
+    // A plan-level money permission written out by hand. `0.0005` is the epsilon the owner's rules use; a
+    // display test asking « is there anything collected to mention » writes `> 0` and is left alone.
+    const HAND_MONEY_RULE = /\bplan[?.]*\.amountPaid\b[^\n]{0,40}0\.0005|0\.0005[^\n]{0,40}\bplan[?.]*\.amountPaid\b/;
+    // The hand-written closed-status test, in both spellings.
+    const HAND_CLOSED_RULE = /\bplan[?.]*\.status\s*!==\s*"Cancelled"|"Cancelled"\s*!==\s*\bplan[?.]*\.status\b/;
+
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      if (relPath === FEE_OWNER) continue;
+
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+
+      lines.forEach((line, i) => {
+        if (masked[i]) return;
+
+        if (GROSS_PRINTED.test(line) || GROSS_SUMMED.test(line)) {
+          // The justification may sit on the line itself or in the sentence it is spliced into, which spans a
+          // couple of lines in this codebase's JSX. Two lines either way, comments included: the prose IS the
+          // reason, and « tarif » is a word the reader sees.
+          const around = lines.slice(Math.max(0, i - 2), i + 3).join("\n");
+          if (!TARIF_IS_THE_POINT.test(around)) {
+            offenders.push({
+              file: relPath,
+              line: i + 1,
+              text:
+                "prints or sums an act's `plannedCost` — read `itemNetCost(item)` instead, or the figure is " +
+                "the tarif on a devis whose total, échéancier and balance are all the net",
+            });
+          }
+        }
+
+        if (HAND_MONEY_RULE.test(line)) {
+          offenders.push({
+            file: relPath,
+            line: i + 1,
+            text:
+              "writes a plan's live-money test by hand — ask `stopWouldCancelPlan` / `canCancelPlan` / " +
+              "`canWriteOffPlan`, which mirror the aggregate's `EnsureNoLiveMoney`",
+          });
+        }
+
+        if (HAND_CLOSED_RULE.test(line)) {
+          offenders.push({
+            file: relPath,
+            line: i + 1,
+            text:
+              "tests « not cancelled » by hand — ask `isPlanClosedToWrites(plan)`. `WrittenOff` was appended " +
+              "and this shape reads it as open, so the control is offered and the save bounces a sentence " +
+              "about a state the devis is not in",
+          });
+        }
+      });
+    }
+
+    /*
+     * ⚠️ **The stop has THREE outcomes, and a surface that knows two promises one it cannot deliver.**
+     * `TreatmentPlan.StopTreatment` sorts a stop into cancel · stop · *refuse until the cash is refunded*, and
+     * `stopWouldCancelPlan`'s money term is what creates that third case: a deposit pushes the devis off the
+     * cancel branch onto a stop the aggregate then refuses. Measured 2026-09-15 on a 720,000 DT devis carrying
+     * 200,000 DT with nothing delivered — the ⋯ menu offered it, the dialog listed the acts under « Mis de
+     * côté » and stated « le traitement passe à « Arrêté » », and the press came back refused with the devis
+     * still « En cours ».
+     *
+     * So: any surface reading `stopWouldCancelPlan` is rendering that fork, and must read the third arm too.
+     */
+    for (const f of tsx()) {
+      const relPath = rel(f);
+      if (relPath === FEE_OWNER) continue;
+      // ⚠️ Comments must be masked on BOTH sides. A first cut tested the raw source and the prose explaining
+      // the rule — « see `stopNeedsRefundFirst` » — satisfied it, so the guard passed over a file that had the
+      // call deleted. A guard proven only green is not proven.
+      const srcLines = read(f).split(/\r?\n/);
+      const srcMask = commentMask(srcLines);
+      const code = srcLines.filter((_, i) => !srcMask[i]).join("\n");
+      if (!/\bstopWouldCancelPlan\s*\(/.test(code)) continue;
+      if (/\bstopNeedsRefundFirst\s*\(/.test(code)) continue;
+      offenders.push({
+        file: relPath,
+        text:
+          "renders the stop's cancel-or-stop fork without asking `stopNeedsRefundFirst(plan)` — the server " +
+          "has a third arm (money taken, nothing delivered) that it REFUSES, so this surface promises an " +
+          "« Arrêté » it cannot deliver and the dentist finds out by pressing",
+      });
+    }
+
+    // The owner must still hold all five answers, or the guard points callers at nothing.
+    const owner = read(tsx().find((f) => rel(f) === FEE_OWNER) ?? "");
+    for (const fn of [
+      "itemNetCost",
+      "isPlanClosedToWrites",
+      "stopWouldCancelPlan",
+      "stopNeedsRefundFirst",
+      "canCancelPlan",
+    ]) {
+      if (!new RegExp(`export function ${fn}\\b`).test(owner)) {
+        offenders.push({
+          file: FEE_OWNER,
+          text: `\`${fn}\` is gone — the guard has nothing to point callers at`,
+        });
+      }
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "plan-status-maps-agree",
+  "N41",
+  "Every devis status the labels know has a tone, and every tone a label",
+  "The browser twin of `TreatmentPlanStatusCoverageTests`, which holds the same rule on the server for " +
+    "`CarriesDebt` and `LiveStatuses`. `planStatusCounts` is already safe — it derives its chip order from " +
+    "`PLAN_STATUS_LABELS`, so a seventh status cannot be dropped from a patient's summary the way `Stopped` " +
+    "was. What is NOT derived is the pair of maps beside it: a status present in the labels and missing from " +
+    "`PLAN_STATUS_TONE` reaches `statusToneClass(undefined)`, so the badge renders with its text and no " +
+    "colour at all — and the reverse leaves a toned status printing its raw English key, which is exactly how " +
+    "`arret-travail` shipped into a patient's Documents tab. Both directions, because both have happened.",
+  () => {
+    const offenders = [];
+    const OWNER = "components/treatment-plans/treatment-plan-labels.ts";
+    const src = read(tsx().find((f) => rel(f) === OWNER) ?? "");
+
+    /** The keys of one `Record<string, …>` literal, parsed from the file rather than mirrored here. */
+    const keysOf = (name) => {
+      const block = new RegExp(
+        `export const ${name}[^=]*=\\s*\\{(?<body>[\\s\\S]*?)\\n\\};`,
+      ).exec(src);
+      if (!block) return null;
+      return new Set(
+        [...block.groups.body.matchAll(/^\s{2}(\w+)\s*:/gm)].map((m) => m[1]),
+      );
+    };
+
+    const labels = keysOf("PLAN_STATUS_LABELS");
+    const tones = keysOf("PLAN_STATUS_TONE");
+
+    if (!labels || !tones) {
+      // A parser that has drifted makes this check pass while measuring nothing, which is worse than no check.
+      return [
+        {
+          file: OWNER,
+          text:
+            "could not parse `PLAN_STATUS_LABELS` / `PLAN_STATUS_TONE` — fix this parser rather than deleting " +
+            "the check, and do NOT replace it with a copy of the key list",
+        },
+      ];
+    }
+
+    for (const status of labels) {
+      if (!tones.has(status)) {
+        offenders.push({
+          file: OWNER,
+          text: `\`${status}\` has a label and no tone — its badge renders colourless, with no error anywhere`,
+        });
+      }
+    }
+    for (const status of tones) {
+      if (!labels.has(status)) {
+        offenders.push({
+          file: OWNER,
+          text: `\`${status}\` has a tone and no label — the badge prints the raw English enum name`,
+        });
+      }
+    }
+
+    // A floor on the parse itself: seven statuses today, and a regex that matched one key would otherwise
+    // compare two tiny sets and pass.
+    if (labels.size < 7) {
+      offenders.push({
+        file: OWNER,
+        text:
+          `only ${labels.size} status labels were parsed, so the comparison above is vacuous — the map shape ` +
+          "changed and this parser has not",
+      });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "plan-surfaces-follow-the-money-keys",
+  "N42",
+  "A surface subscribing to `treatmentplans` also subscribes to `patients`",
+  "`RealtimeBroadcastBehavior` keys off the COMMAND's namespace, and the thing that moves a devis's money " +
+    "most often is not a treatment-plan command at all: `CreateDentalRecordCommand` — the fiche de soins — " +
+    "carries « Encaissé sur le traitement », raises the séance's note d'honoraires, marks the act réalisé and " +
+    "re-derives the plan's status. It lives in `Features/Patients`, so it broadcasts `patients`. Eight of the " +
+    "eleven plan surfaces had learnt that; the three that had not are the money ones: la caisse (the screen " +
+    "whose whole job is « what is in the drawer right now » — the commonest cash of the day is taken at the " +
+    "chair), the chèques list, and « Créances », which lists the very balances a fiche moves and prints a " +
+    "server-resolved `patientName` on every row. None of them errors; the figure is simply yesterday's. " +
+    "`reassignPatient` broadcasts on the same key.",
+  () => {
+    const offenders = [];
+
+    for (const f of tsx()) {
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      if (!/RealtimeResource\.TreatmentPlans\b/.test(code)) continue;
+      if (/RealtimeResource\.Patients\b/.test(code)) continue;
+
+      offenders.push({
+        file: rel(f),
+        line: lineAt(code, code.search(/RealtimeResource\.TreatmentPlans\b/)),
+        text:
+          "watches `treatmentplans` and not `patients` — so saving a fiche de soins next door moves this " +
+          "screen's figures and never wakes it. Add `RealtimeResource.Patients` to the subscription",
+      });
+    }
+
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

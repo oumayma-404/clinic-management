@@ -7,6 +7,7 @@ import type { LucideIcon } from "lucide-react"
 import type { TreatmentPlanDto } from "@/lib/api/types"
 import { EmptyState } from "@/components/ui/empty-state"
 import { formatDT, formatDateFr } from "@/lib/format"
+import { installmentDueTitle } from "./treatment-plan-labels"
 
 /** One entry in the plan's « Parcours » feed. A null date sorts last (see the invoice note below). */
 interface TimelineEntry {
@@ -131,9 +132,9 @@ function buildEntries(plan: TreatmentPlanDto): TimelineEntry[] {
         at: installment.lastPaidOn,
         icon: Wallet,
         title: `Paiement encaissé — ${formatDT(installment.amountPaid)}`,
-        detail: method
-          ? `Échéance du ${formatDateFr(installment.dueDate)} · ${method}`
-          : `Échéance du ${formatDateFr(installment.dueDate)}`,
+        // ⚠️ Through the owner: 159 of the 184 rows on the dev database are auto-raised, and this feed
+        // printed the acceptance instant for every one of them as « Échéance du … ».
+        detail: method ? `${installmentDueTitle(installment)} · ${method}` : installmentDueTitle(installment),
       })
     }
   }

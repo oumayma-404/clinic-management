@@ -40,6 +40,77 @@ public class TreatmentPlanItem : Entity<Guid>
     public decimal PlannedCost { get; private set; }
 
     /// <summary>
+    /// The remise given on this act, in millimes — 0 on every ordinary line.
+    ///
+    /// <para>
+    /// ⚠️ <b>It exists because the only way to give a discount was to overtype the tarif</b>, and that loses
+    /// the fact that a discount was given at all: the devis then prints as though the reduced figure were the
+    /// price, and the practice cannot answer « combien avons-nous offert cette année ? » — a number every
+    /// cabinet is asked for. The gesture is the same for the dentist; what changes is that the act keeps its
+    /// tarif and the reduction is a line of its own.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b><see cref="NetCost"/> is what the patient owes, and that is what the plan totals.</b>
+    /// <c>TreatmentPlan.TotalPlanned</c> sums the NET — so the échéancier, « Créances », « Solde patient », la
+    /// caisse and the note d'honoraires all move with the remise and none of them had to learn about it. The
+    /// gross stays readable through <c>TreatmentPlan.TotalGross</c> for the devis and for reporting.
+    /// </para>
+    /// <para>
+    /// ⚠️ Capped at <see cref="PlannedCost"/>: a remise larger than the act is a negative price, which
+    /// <c>Installment</c> and every money read would take at face value. Refused rather than clamped — a
+    /// silently trimmed figure is a discount the dentist believes they gave.
+    /// </para>
+    /// </summary>
+    public decimal DiscountAmount { get; private set; }
+
+    /// <summary>
+    /// What this act actually costs the patient: <see cref="PlannedCost"/> minus <see cref="DiscountAmount"/>.
+    /// Not mapped — derived, so the two stored figures can never disagree with it.
+    /// </summary>
+    public decimal NetCost => InvoiceCalculator.RoundMoney(PlannedCost - DiscountAmount);
+
+    /// <summary>
+    /// Give (or clear, with 0) the remise on this act.
+    ///
+    /// <para>
+    /// ⚠️ Its own mutator rather than a parameter on <see cref="Revise"/>: a remise is a commercial decision
+    /// taken at a different moment from correcting a mistyped fee, and the amend dialog sends every act's
+    /// designation and cost on every save. Folding it in would mean an older caller that does not know about
+    /// remises silently clears one on the next ordinary save — the tri-state trap this repository has paid for
+    /// three times on <c>DentalRecordAct</c>. Nothing calls this except the surface that means to.
+    /// </para>
+    /// <para>
+    /// The caller must re-spread the échéancier afterwards, exactly as after a price change: this moves
+    /// <c>TotalPlanned</c>.
+    /// </para>
+    /// </summary>
+    public void SetDiscount(decimal discountAmount)
+    {
+        var amount = InvoiceCalculator.RoundMoney(discountAmount);
+        if (amount < 0m)
+        {
+            throw new ArgumentException("La remise ne peut pas être négative.", nameof(discountAmount));
+        }
+        if (amount > PlannedCost)
+        {
+            throw new InvalidOperationException(
+                $"La remise sur « {DesignationFr} » ({amount:0.000} DT) dépasse son tarif ({PlannedCost:0.000} DT).");
+        }
+        /*
+         * ⚠️ An act another document bills sits at 0 on the devis by rule (`IsBilledElsewhere`), so a remise
+         * here would take the devis line negative and claim a reduction on money this document does not hold.
+         * The remise belongs on the note that carries the fee.
+         */
+        if (IsBilledElsewhere && amount > 0m)
+        {
+            throw new InvalidOperationException(
+                $"L'acte « {DesignationFr} » est facturé sur une note d'honoraires : la remise se fait sur la note.");
+        }
+
+        DiscountAmount = amount;
+    }
+
+    /// <summary>
     /// The note d'honoraires that already bills this act, when the devis deliberately holds it at <b>0</b>
     /// because another document collects it. Null for every ordinary line — the devis owns its own fee.
     ///
@@ -231,8 +302,8 @@ public class TreatmentPlanItem : Entity<Guid>
 
         /*
          * ⚠️ An act another document bills stays at 0, and the refusal is what keeps the two documents
-         * disjoint. Amending a continuation devis is otherwise perfectly legal — the plan is deliberately NOT
-         * bridged, so `AmendTreatmentPlanCommand.EnsureNotBilledAsync` lets it through — and typing the note's
+         * disjoint. Amending a continuation devis is otherwise perfectly legal — nothing refuses an amendment
+         * on a billed plan any more (that guard was deleted as dead code, spec AC-17) — and typing the note's
          * own 90 back onto the devis line would bill the patient twice for one act, on two live documents, with
          * every balance read agreeing that they owe it. Imposed here rather than offered in the browser, for
          * the same reason `PlanCarriedActPricing` is imposed server-side.
@@ -260,6 +331,19 @@ public class TreatmentPlanItem : Entity<Guid>
         DesignationFr = designationFr.Trim();
         PlannedCost = InvoiceCalculator.RoundMoney(plannedCost);
         ProcedureTypeId = procedureTypeId;
+        /*
+         * ⚠️ **The remise is trimmed to the new tarif, and it must be — but only downwards.** Correcting a
+         * 400 DT act to 150 while a 300 DT remise stands would leave `NetCost` at −150, and every money read
+         * takes that at face value: `RecomputeTotal` would subtract it from the devis total, the échéancier
+         * would be re-spread onto a figure smaller than the acts, and « Solde patient » would show the patient
+         * as owed money by the cabinet. Trimming (rather than refusing) is right here because the correction
+         * is about the tarif and the dentist is looking at the act; `SetDiscount` refuses in the other
+         * direction, where the remise IS what is being typed.
+         */
+        if (DiscountAmount > PlannedCost)
+        {
+            DiscountAmount = PlannedCost;
+        }
         _toothNumbers.Clear();
         _toothNumbers.AddRange(teeth);
     }
@@ -374,6 +458,33 @@ public class TreatmentPlanItem : Entity<Guid>
         BilledOnInvoiceId = invoiceId;
         BilledOnInvoiceAmount = InvoiceCalculator.RoundMoney(billedAmount);
         PlannedCost = 0m;
+    }
+
+    /// <summary>
+    /// The note no longer speaks for this act — clear the marker so the devis may price the line again.
+    /// <para>
+    /// ⚠️ <b>It is the remedy <see cref="Revise"/>'s own refusal names</b> (« …ou détachez-la de ce
+    /// traitement »), and until now that sentence pointed at nothing: the marker was write-once, so an act
+    /// attached to the wrong note stayed at 0 for ever with no route back.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>The price is deliberately NOT restored.</b> Nothing here knows what the act was worth before the
+    /// marker imposed the 0 — <see cref="MarkBilledOnInvoice"/> overwrote it — and inventing a figure on a
+    /// devis is worse than leaving a 0 the dentist can see and type over. The caller's next step is the
+    /// amendment that prices it.
+    /// </para>
+    /// </summary>
+    /// <returns>True when a marker was actually cleared, so the caller can tell a no-op from a change.</returns>
+    internal bool ClearBilledOnInvoice()
+    {
+        if (BilledOnInvoiceId is null)
+        {
+            return false;
+        }
+
+        BilledOnInvoiceId = null;
+        BilledOnInvoiceAmount = 0m;
+        return true;
     }
 
     /// <summary>

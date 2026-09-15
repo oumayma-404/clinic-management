@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { History } from "lucide-react"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -198,7 +199,15 @@ export function ContinueSessionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 overflow-y-auto">
+        {/*
+          ⚠️ **`DialogBody`, and `overflow-y-auto` on a bare `<div>` was doing nothing at all.** The content is a
+          flex column, so a middle with neither `flex-1` nor `min-h-0` refuses to shrink below its content: the
+          scroller never engaged and the panel simply grew past the sheet. Measured at 320 px it is 1021 px in a
+          436 px window, which pushed the `role="status"` warning **and** « Ajouter au rendez-vous » off screen
+          with no way to reach them. That is exactly the failure `DialogBody` exists for, and this was the one
+          sheet in the feature not using it.
+        */}
+        <DialogBody className="space-y-3">
           {error && <FormErrorBanner message={error} />}
 
           {failed ? (
@@ -352,7 +361,7 @@ export function ContinueSessionDialog({
               </p>
             </div>
           )}
-        </div>
+        </DialogBody>
 
         {/*
           ⚠️ **Outside the scroller, so it is on screen when the button is.** This is the line that replaced

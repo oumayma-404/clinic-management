@@ -13,6 +13,17 @@ public class CancelTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 {
     public Guid Id { get; set; }
     public string Reason { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The plan's <c>xmin</c> as the caller read it. <b>0 means « not supplied »</b> and skips the check — the
+    /// solution-wide convention that keeps jobs and older callers unaffected.
+    /// <para>
+    /// ⚠️ This was the one <b>irreversible</b> write on the aggregate with no version check at all, so a cancel
+    /// landed over a colleague's concurrent amendment with no 409 and no trace, on a plan that — before
+    /// <see cref="UncancelTreatmentPlanCommand"/> — could never be recovered.
+    /// </para>
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class CancelTreatmentPlanCommandHandler : IRequestHandler<CancelTreatmentPlanCommand, Result<TreatmentPlanDto>>
@@ -64,6 +75,7 @@ public class CancelTreatmentPlanCommandHandler : IRequestHandler<CancelTreatment
             await TreatmentPlanBridgeRelease.DetachAsync(
                 _invoiceRepository, clinicResult.Value, plan.Id, cancellationToken);
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

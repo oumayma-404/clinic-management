@@ -38,6 +38,8 @@ public class TreatmentPlanTenantIsolationTests
     // Stubbed empty, not merely constructed: an unstubbed Moq collection returns null, which NREs inside
     // `TreatmentPlanWorkflowProjection` and surfaces as a generic French failure rather than as a null ref.
     private readonly Mock<IDentalRecordRepository> _records = new();
+    private readonly Mock<IToothStateRepository> _toothStates = new();
+    private readonly Mock<IDoctorRepository> _doctors = new();
 
     private void NoTreatedTeeth() =>
         _records
@@ -88,7 +90,7 @@ public class TreatmentPlanTenantIsolationTests
 
         var handler = new GetTreatmentPlanQueryHandler(
             _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _records.Object,
-            _clinicResolver.Object, NullLogger<GetTreatmentPlanQueryHandler>.Instance);
+            _doctors.Object, _clinicResolver.Object, NullLogger<GetTreatmentPlanQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetTreatmentPlanQuery { Id = foreign.Id }, CancellationToken.None);
 
@@ -207,7 +209,8 @@ public class TreatmentPlanTenantIsolationTests
         var itemId = foreign.Items.First().Id;
 
         var handler = new MarkTreatmentPlanItemDoneCommandHandler(
-            _plans.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            _plans.Object, _patients.Object, _records.Object, _toothStates.Object,
+            _clinicResolver.Object, _uow.Object,
             NullLogger<MarkTreatmentPlanItemDoneCommandHandler>.Instance);
 
         var result = await handler.Handle(
@@ -262,7 +265,7 @@ public class TreatmentPlanTenantIsolationTests
         PlanIsLoadable(foreign);
 
         var handler = new AmendTreatmentPlanCommandHandler(
-            _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _procedureTypes.Object,
+            _plans.Object, _patients.Object, _appointments.Object, _procedureTypes.Object,
             _clinicResolver.Object, new Mock<IMediator>().Object, _uow.Object,
             NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
 
@@ -348,7 +351,7 @@ public class TreatmentPlanTenantIsolationTests
 
         var handler = new GetTreatmentPlansQueryHandler(
             _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _records.Object,
-            _clinicResolver.Object, NullLogger<GetTreatmentPlansQueryHandler>.Instance);
+            _doctors.Object, _clinicResolver.Object, NullLogger<GetTreatmentPlansQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetTreatmentPlansQuery(), CancellationToken.None);
 

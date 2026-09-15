@@ -37,11 +37,13 @@ public class GetTreatmentPlansQueryHandlerTests
             .Setup(r => r.GetTreatedTeethAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, int)>());
+    // Same reason as `_records`: the roster read fills `DoctorName`, and an unstubbed Moq collection is null.
+    private readonly Mock<IDoctorRepository> _doctors = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
     private GetTreatmentPlansQueryHandler CreateHandler() => new(
         _plans.Object, _patients.Object, _appointments.Object, _invoices.Object, _records.Object,
-        _clinicResolver.Object, NullLogger<GetTreatmentPlansQueryHandler>.Instance);
+        _doctors.Object, _clinicResolver.Object, NullLogger<GetTreatmentPlansQueryHandler>.Instance);
 
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))

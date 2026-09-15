@@ -56,11 +56,23 @@ export default function TreatmentPlanWorkspacePage() {
     load()
   }, [load])
 
-  // Three keys, as on every plan surface: the acts' états come from Appointment rows and « Facturé » from
-  // Invoice rows, and RealtimeBroadcastBehavior keys off the *command's* namespace — so a peer cancelling
-  // the séance broadcasts "appointments", never "treatmentplans".
+  /*
+   * Four keys, as on every plan surface: the acts' états come from Appointment rows and « Facturé » from
+   * Invoice rows, and RealtimeBroadcastBehavior keys off the *command's* namespace — so a peer cancelling the
+   * séance broadcasts "appointments", never "treatmentplans".
+   *
+   * ⚠️ **`Patients` is the fourth and it was absent.** Saving the fiche de soins is what marks an act réalisé,
+   * re-derives the plan's status and moves `displayedOutstanding` — and it is a `Features.Patients` command,
+   * so it broadcasts `patients`. This page is the one a dentist leaves open while the fiche is written on
+   * another screen, and it was the one that did not follow. `patientName` on the header is the same key.
+   */
   useClinicRealtime(
-    [RealtimeResource.TreatmentPlans, RealtimeResource.Appointments, RealtimeResource.Invoices],
+    [
+      RealtimeResource.TreatmentPlans,
+      RealtimeResource.Appointments,
+      RealtimeResource.Invoices,
+      RealtimeResource.Patients,
+    ],
     load,
   )
 

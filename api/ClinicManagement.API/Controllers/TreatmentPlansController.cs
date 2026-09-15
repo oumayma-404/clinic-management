@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using MediatR;
@@ -140,13 +140,24 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     /// <summary>
-    /// Close a plan (« Terminer »), leaving any unrealised act unrealised — which is what the confirmation says.
+    /// Close a plan whose work is finished (« Terminer »). No UI caller; the endpoint and the automatic
+    /// clôture stay.
+    /// <para>
+    /// ⚠️ It now REFUSES a plan with acts still « non réalisé » — see <see cref="CompleteTreatmentPlanCommand"/>.
+    /// Closing over unfinished work left the patient owing for séances nobody would do, on a devis where every
+    /// remedy had been withdrawn; « Arrêter le traitement » owns that case and parks them.
+    /// </para>
     /// </summary>
     [HttpPost("{id:guid}/complete")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
-    public async Task<ActionResult<TreatmentPlanDto>> CompletePlan(Guid id)
+    public async Task<ActionResult<TreatmentPlanDto>> CompletePlan(
+        Guid id, [FromBody] CompleteTreatmentPlanCommand? command)
     {
-        var result = await _mediator.Send(new CompleteTreatmentPlanCommand { Id = id });
+        var result = await _mediator.Send(new CompleteTreatmentPlanCommand
+        {
+            Id = id,
+            Version = command?.Version ?? 0,
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
@@ -513,5 +524,173 @@ public class TreatmentPlansController : ApiControllerBase
             return HandleFailure(result);
         }
         return Ok(result.Value);
+    }
+    /// <summary>
+    /// « Rétablir ce devis annulé » — the way out of <c>Cancelled</c>, which nothing in the product could
+    /// leave. AdminOrDoctor: it brings a numbered document and its balance back into service.
+    /// </summary>
+    [HttpPost("{id:guid}/uncancel")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> UncancelPlan(
+        Guid id, [FromBody] UncancelTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Mettre cet acte de côté » — park one act, keeping its fiche links, dropping its fee from the total and
+    /// re-spreading the échéancier. AdminOrDoctor: it changes what the patient owes on a numbered document.
+    /// </summary>
+    [HttpPost("{id:guid}/items/{itemId:guid}/withdraw")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> WithdrawItem(
+        Guid id, Guid itemId, [FromBody] WithdrawTreatmentPlanItemCommand? command)
+    {
+        var result = await _mediator.Send(new WithdrawTreatmentPlanItemCommand
+        {
+            PlanId = id,
+            ItemId = itemId,
+            Version = command?.Version ?? 0,
+        });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>« Remettre au devis » — the mirror of <see cref="WithdrawItem"/>. Same class.</summary>
+    [HttpPost("{id:guid}/items/{itemId:guid}/restore")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> RestoreItem(
+        Guid id, Guid itemId, [FromBody] RestoreTreatmentPlanItemCommand? command)
+    {
+        var result = await _mediator.Send(new RestoreTreatmentPlanItemCommand
+        {
+            PlanId = id,
+            ItemId = itemId,
+            Version = command?.Version ?? 0,
+        });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Détacher la note d'honoraires » — one note stops speaking for this devis, and the devis stays where it
+    /// is. The remedy three refusals name and nothing implemented. AdminOrDoctor: it moves what a numbered
+    /// fiscal document is understood to cover.
+    /// </summary>
+    [HttpPost("{id:guid}/notes/{invoiceId:guid}/detach")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> DetachNote(
+        Guid id, Guid invoiceId, [FromBody] DetachTreatmentPlanNoteCommand? command)
+    {
+        var result = await _mediator.Send(new DetachTreatmentPlanNoteCommand
+        {
+            PlanId = id,
+            InvoiceId = invoiceId,
+            Version = command?.Version ?? 0,
+        });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Move a devis to the patient it was actually for. Refused once anything has been delivered or a live note
+    /// names it. AdminOrDoctor: it re-files a numbered document under a different person.
+    /// </summary>
+    [HttpPost("{id:guid}/patient")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> ReassignPatient(
+        Guid id, [FromBody] ReassignTreatmentPlanPatientCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Passer la créance en perte » (S4) — the practice abandons the unpaid balance and says so once, instead
+    /// of leaving it in « Créances » for ever. AdminOnly: it is a decision about the cabinet's own money, not a
+    /// clinical one, and it is what a written-off figure is reported from.
+    /// </summary>
+    [HttpPost("{id:guid}/write-off")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<TreatmentPlanDto>> WriteOffPlan(
+        Guid id, [FromBody] WriteOffTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Give (or clear, with 0) the remise on one act (S2). AdminOrDoctor, like every other operation that moves
+    /// what a numbered document claims.
+    /// </summary>
+    [HttpPut("{id:guid}/items/{itemId:guid}/discount")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> SetItemDiscount(
+        Guid id, Guid itemId, [FromBody] SetTreatmentPlanItemDiscountCommand command)
+    {
+        command.PlanId = id;
+        command.ItemId = itemId;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « … et la rattacher à » (S6) — move a recorded séance from the wrong act (or the wrong step) to the right
+    /// one, in one save. AdminOrDoctor, like the detach it replaces: it re-states which work was carried out.
+    /// </summary>
+    [HttpPost("{id:guid}/relink-seance")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> RelinkSeance(
+        Guid id, [FromBody] RelinkTreatmentPlanSeanceCommand command)
+    {
+        command.PlanId = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Régler le devis » (S3) — one payment spread over the échéancier. Unpoliced like its per-échéance
+    /// sibling above (`RecordInstallmentPayment`): taking money at the desk is reception's job.
+    /// </summary>
+    [HttpPost("{id:guid}/settle")]
+    public async Task<ActionResult<TreatmentPlanDto>> SettlePlan(
+        Guid id, [FromBody] SettleTreatmentPlanCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Dupliquer ce devis » (S1) — the same protocol again, as an un-numbered draft. AdminOrDoctor: it creates
+    /// a proposal, which is authoring work; it consumes no number and claims no money.
+    /// </summary>
+    [HttpPost("{id:guid}/duplicate")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> DuplicatePlan(
+        Guid id, [FromBody] DuplicateTreatmentPlanCommand? command)
+    {
+        var result = await _mediator.Send(new DuplicateTreatmentPlanCommand
+        {
+            Id = id,
+            PatientId = command?.PatientId,
+            Title = command?.Title,
+        });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Change which practitioner the devis is attributed to. AdminOrDoctor, like every other authoring
+    /// operation: it decides who the next note d'honoraires raised from this devis credits.
+    /// </summary>
+    [HttpPut("{id:guid}/doctor")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<TreatmentPlanDto>> SetPlanDoctor(
+        Guid id, [FromBody] SetTreatmentPlanDoctorCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 }

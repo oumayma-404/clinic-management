@@ -43,8 +43,11 @@ export function ReceivablesTable() {
   // from another screen; without this it kept showing balances that had already been paid.
   const [reloadKey, setReloadKey] = useState(0)
 
+  // ⚠️ `Patients` is the third. Saving a fiche de soins collects on the treatment, raises its note and
+  // re-derives the plan's status — all of which move the balance this table lists — and it broadcasts
+  // `patients`, never `treatmentplans`. Every row's `patientName` is served too. N42 holds it.
   useClinicRealtime(
-    [RealtimeResource.Invoices, RealtimeResource.TreatmentPlans],
+    [RealtimeResource.Invoices, RealtimeResource.TreatmentPlans, RealtimeResource.Patients],
     useCallback(() => setReloadKey((k) => k + 1), []),
   )
 

@@ -239,7 +239,40 @@ public interface ITreatmentPlanRepository
     /// (<c>StopTreatment</c> leaves the plan <c>Completed</c>).
     /// </para>
     /// </summary>
-    Task<int> CountUnansweredDraftsAsync(Guid clinicId, CancellationToken cancellationToken = default);
+    /// <param name="graceBeforeUtc">
+    /// Only plans created on or before this instant count — the caller passes
+    /// <c>now − RecallWorklistRules.UnansweredDevisGraceDays</c>.
+    /// ⚠️ <b>The grace is the caller's because the rule has one owner</b>
+    /// (<c>RecallWorklistRules.NeverAnswered</c>) and two askers: this count and the recall worklist. They
+    /// disagreed — the worklist waited fourteen days and this counted from the instant of creation, so the
+    /// dashboard chased a treatment started an hour earlier.
+    /// </param>
+    Task<int> CountUnansweredDraftsAsync(
+        Guid clinicId, DateTime graceBeforeUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many devis this clinic's patients ACCEPTED in the window — keyed on <c>AcceptedDate</c> and on
+    /// nothing else.
+    ///
+    /// <para>
+    /// ⚠️ <b>It replaces <c>CountByStatusAsync(Accepted, byAcceptedDate: true)</c> on the dashboard, which
+    /// made the tile SHRINK as the clinic did the work.</b> The first payment or the first fiche moves a plan
+    /// to <c>InProgress</c> and finishing it moves it to <c>Completed</c>, while <c>AcceptedDate</c> never
+    /// changes — so « devis acceptés ce mois » silently meant « acceptés ce mois et pas encore commencés »,
+    /// the opposite of the sales figure it is read as. The drill-through repeated the same filter, so the list
+    /// agreed with the wrong number and nothing looked broken.
+    /// </para>
+    /// <para>
+    /// Cancelled and already-billed plans count: the patient did say yes, in that month. The predicate is
+    /// literally the one <see cref="GetFilteredAsync"/> applies for <c>acceptedFrom</c>/<c>acceptedTo</c>, so
+    /// the number and the list it opens cannot disagree.
+    /// </para>
+    /// </summary>
+    Task<int> CountAcceptedByDateAsync(
+        Guid clinicId,
+        DateTime? from = null,
+        DateTime? toInclusive = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Highest sequence number already assigned for a clinic in a given year (0 when none). The next

@@ -173,13 +173,13 @@ export const treatmentPlansApi = {
   accept: async (id: string): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/accept`, {}),
 
-  complete: async (id: string): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/complete`, {}),
+  complete: async (id: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/complete`, { version }),
 
   recordInstallmentPayment: async (
     id: string,
     installmentId: string,
-    data: RecordInstallmentPaymentRequest,
+    data: RecordInstallmentPaymentRequest & { version?: number },
   ): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/installments/${installmentId}/payments`, data),
 
@@ -364,15 +364,126 @@ export const treatmentPlansApi = {
   reviseInstallments: async (
     id: string,
     installments: TreatmentPlanInstallmentInput[],
+    version?: number,
   ): Promise<TreatmentPlanDto> =>
-    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/installments`, { installments }),
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/installments`, { installments, version }),
 
   /** Reorder the acts. Cosmetic — no role policy, no revision bump. Send every act id, once. */
-  reorderItems: async (id: string, itemIds: string[]): Promise<TreatmentPlanDto> =>
-    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/items/order`, { itemIds }),
+  reorderItems: async (id: string, itemIds: string[], version?: number): Promise<TreatmentPlanDto> =>
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/items/order`, { itemIds, version }),
 
-  cancel: async (id: string, reason: string): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/cancel`, { reason }),
+  cancel: async (id: string, reason: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/cancel`, { reason, version }),
+
+  /**
+   * « Rétablir ce devis annulé » — the only way out of `Cancelled`, which nothing in the product could leave.
+   * Keeps the number (the série reste sans trou) and appends the motif to the original one rather than
+   * erasing it. AdminOrDoctor.
+   */
+  uncancel: async (id: string, reason: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/uncancel`, { reason, version }),
+
+  /**
+   * « Mettre cet acte de côté » — park one act: its fee leaves the total, the échéancier re-spreads, and its
+   * fiche links are kept. Refused on an act with delivered work, and on the last active act of the devis.
+   */
+  withdrawItem: async (id: string, itemId: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/withdraw`, { version }),
+
+  /** « Remettre au devis » — the mirror of `withdrawItem`. Does not re-derive the plan's own status. */
+  restoreItem: async (id: string, itemId: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/restore`, { version }),
+
+  /**
+   * « Détacher la note d'honoraires » — one note stops representing this devis; the devis stays where it is
+   * and carries its own balance again. The remedy three server refusals name.
+   */
+  detachNote: async (id: string, invoiceId: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/notes/${invoiceId}/detach`, { version }),
+
+  /** Move a devis to the patient it was actually for. Refused once anything is delivered or a live note names it. */
+  reassignPatient: async (id: string, patientId: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/patient`, { patientId, version }),
+
+  /** Change the praticien the devis is attributed to — who the next note raised from it credits. */
+  setDoctor: async (id: string, doctorId: string | null, version?: number): Promise<TreatmentPlanDto> =>
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/doctor`, { doctorId, version }),
+
+  /**
+   * « Passer la créance en perte » (S4) — the practice abandons what is still owed and says so once.
+   *
+   * ⚠️ **Not a cancellation.** The unpaid balance leaves every money read; the cash already collected, its
+   * receipts and its days in la caisse are untouched — which is exactly why `cancel` is the wrong instrument
+   * (it is refused outright once any money has been taken). AdminOnly. Reversible with `reopenTreatment`.
+   */
+  writeOff: async (id: string, reason: string, version?: number): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/write-off`, { reason, version }),
+
+  /**
+   * « Remise » on one act (S2) — 0 clears it. The act keeps its tarif and the reduction is a line of its own,
+   * so the devis prints « 400,000 − 50,000 » and the practice can report what it gave away.
+   *
+   * ⚠️ It moves money: `totalPlanned` sums the NET, so the server re-spreads the échéancier and bumps the
+   * révision. Round-trip `plan.version`.
+   */
+  setItemDiscount: async (
+    id: string,
+    itemId: string,
+    discountAmount: number,
+    version?: number,
+  ): Promise<TreatmentPlanDto> =>
+    apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/discount`, {
+      discountAmount,
+      version,
+    }),
+
+  /**
+   * « Dupliquer ce devis » (S1) — the acts, their fees, their remises, their teeth and their séances, as a new
+   * **un-numbered Draft**. No number is consumed, no échéancier is raised and no money is claimed.
+   *
+   * `patientId` re-files the copy (« la même chose pour sa sœur »); omitted keeps the source's patient.
+   */
+  duplicate: async (
+    id: string,
+    data?: { patientId?: string; title?: string },
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/duplicate`, data ?? {}),
+
+  /**
+   * « Régler le devis » (S3) — ONE payment spread over the échéancier from the earliest unpaid row onwards.
+   *
+   * ⚠️ The same spreading the fiche already used (`CollectChairside`), which was reachable from a séance and
+   * nowhere else — so a patient settling three instalments at the desk was taken through « Encaisser » three
+   * times. Deliberately **not** idempotent: pressing it twice takes the money twice, exactly as « Encaisser »
+   * does; the server's `outstanding` bound is what stops the second press.
+   */
+  settle: async (
+    id: string,
+    data: RecordInstallmentPaymentRequest & { version?: number },
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/settle`, data),
+
+  /**
+   * « … et la rattacher à » (S6) — move a recorded séance from the wrong act (or the wrong step) to the right
+   * one, in **one** save.
+   *
+   * ⚠️ One call and not detach-then-mark, because detaching clears the only pointer the devis has to that
+   * fiche and the séance's own date has to travel with it — done in two calls, the re-attached work claims to
+   * have happened today. Within one devis only.
+   */
+  relinkSeance: async (
+    id: string,
+    data: {
+      fromItemId: string
+      /** Null = the act itself, which is what a step-less act has. */
+      fromStepId?: string | null
+      toItemId: string
+      /** @see fromStepId */
+      toStepId?: string | null
+      version?: number
+    },
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/relink-seance`, data),
 
   remove: async (id: string): Promise<void> => apiDelete<void>(`/treatment-plans/${id}`),
 
