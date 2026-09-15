@@ -11,8 +11,16 @@ namespace ClinicManagement.API.Startup;
 /// <para><b>Why a startup pass and not SQL in the migration.</b> Encrypting needs the Data Protection key ring,
 /// which a migration cannot reach — raw SQL there could only copy the plaintext across, which encrypts nothing
 /// and would let <c>google-token-protected</c> report success over a column still readable off a stolen disk.
-/// So the migration adds the column and this moves the values, on the same
-/// <c>RunsStartupBackfills</c> pass as the catalog seeder and the admin backfill.</para>
+/// So the migration adds the column and this moves the values, on the startup pass that owns the catalog seeder
+/// and the admin backfill.</para>
+///
+/// <para>⚠️ <b>That pass is TWO code paths, and this ran on only one of them for a release.</b>
+/// <c>RunsStartupBackfills</c> gates the synchronous block in <c>Program.cs</c>; a deployment that defers its
+/// migrations runs <see cref="DeferredStartupService"/> instead, and the two are not the same list unless
+/// somebody keeps them so. <c>StartupBackfillCoverageTests</c> is what keeps them so — it derives the call set
+/// from both sources and fails on a backfill invoked by one and not the other. A fourth backfill added to either
+/// path alone is caught the day it is written; this one was not, and a LAN clinic's Google Calendar push stopped
+/// silently for it.</para>
 ///
 /// <para><b>Idempotent</b> — it selects only rows that still hold a plaintext token, and each one it converts
 /// stops matching. A second boot converts nothing.</para>

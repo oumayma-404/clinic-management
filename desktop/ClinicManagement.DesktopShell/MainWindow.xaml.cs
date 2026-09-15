@@ -782,6 +782,8 @@ public partial class MainWindow : Window
         ServerConfigCancelButton.Visibility = Visibility.Visible;
         ServerConfigCancelButton.Content = _config.IsConfigured ? "Annuler" : "Retour";
 
+        UpdateServerAddressHint(); // an already-configured IP must be advised about on the way IN, not only on edit.
+
         ServerConfigPanel.Visibility = Visibility.Visible;
         WebView.Visibility = Visibility.Collapsed;
         ConnectingPanel.Visibility = Visibility.Collapsed;
@@ -789,6 +791,29 @@ public partial class MainWindow : Window
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
         ModeChoicePanel.Visibility = Visibility.Collapsed;
         ServerAddressTextBox.Focus();
+    }
+
+    private void ServerAddressTextBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) =>
+        UpdateServerAddressHint();
+
+    /// <summary>
+    /// Shows the « une adresse IP peut changer » advisory while what is typed parses to a LAN IPv4 literal.
+    /// Never blocks the save — see <see cref="ServerConfigStore.IsIpLiteral"/> for why an IP stays a legitimate
+    /// answer. It runs through <see cref="ServerConfigStore.ParseAddress"/> rather than testing the raw text, so
+    /// « https://192.168.1.10:5001 » is recognised as the same mistake as « 192.168.1.10 ».
+    /// </summary>
+    private void UpdateServerAddressHint()
+    {
+        // Fires from TextChanged, which WPF raises while the control tree is still being built.
+        if (ServerAddressHint is null)
+        {
+            return;
+        }
+
+        var host = ServerConfigStore.ParseAddress(ServerAddressTextBox.Text).Host;
+        ServerAddressHint.Visibility = ServerConfigStore.IsIpLiteral(host)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void ShowUnreachable(string detail)

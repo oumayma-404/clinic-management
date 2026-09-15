@@ -76,7 +76,15 @@ clinic-management/
 │                                   ios/             = Swift + WKWebView ⚠️ WRITTEN, NEVER COMPILED — no Mac here,
 │                                                      so .github/workflows/ios-shell.yml (free macos-latest) is
 │                                                      the first compiler it will meet. Read mobile/ios/README.md
-├── packaging/                    Local/offline-LAN publish + installers (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
+├── packaging/                    Local/offline-LAN publish + installer (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
+│                                   ⚠️ ONE installer now — `setup/clinic-setup.iss`, whose first page asks
+│                                   whether this PC is the cabinet's SERVER or a POSTE. The old
+│                                   `client/clinic-client.iss` was deleted rather than kept: it imported a
+│                                   `ca.crt` staged by hand from a server that does not exist at build time
+│                                   (so it imported NOTHING and every staff PC met a certificate warning), and
+│                                   the shell it installed could never self-update (`UpdateManager.IsInstalled`
+│                                   is false for an Inno install under %ProgramFiles%). The poste role fetches
+│                                   the CA from the server, shows its fingerprint, and runs the Velopack setup
 ├── console/                      The VENDOR's private back-office (Next 15) — `platform-console`, HostedMultiTenant
 │                                   only, served on its own loopback-published Caddy site behind an SSH tunnel.
 │                                   Contains NO clinic surfaces: that is FR-2, not a packaging choice.
@@ -89,6 +97,12 @@ clinic-management/
 │                                                               server pulls them instead of building; nothing else
 ├── backend/                      EMPTY (only .idea/) — ignore
 ├── .github/workflows/            ci.yml = the api · web · desktop · android gate (see below)
+│                                   ⚠️ its `local-mode` job is the ONLY thing anywhere that exercises
+│                                   `SelfHostedLan`: `appsettings.Development.json` pins `HostedMultiTenant`, so
+│                                   every `dotnet run`, every `dotnet ef` and the whole `e2e` suite resolve the
+│                                   HOSTED profile. It boots with `Deployment__Profile=SelfHostedLan`, plants a
+│                                   legacy plaintext Google token, asserts `verify-schema` REPORTS it (exit 2),
+│                                   restarts and asserts the deferred startup pass converged it (exit 0)
 │                                   ios-shell.yml = the iOS shell's only compiler, path-filtered (billed macOS runner)
 │                                   client-installer.yml = « Client release ». On a `desktop/**` change landing on main
 │                                                       (or a `client-v*` tag): builds the shell, packs a **Velopack**

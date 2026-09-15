@@ -24,7 +24,11 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FILES = [join(HERE, "server", "clinic-server.iss"), join(HERE, "client", "clinic-client.iss")];
+// ⚠️ ONE file now. `server/clinic-server.iss` and `client/clinic-client.iss` were merged into
+// `setup/clinic-setup.iss`, which asks on its first page whether this PC is the server or a workstation.
+// The client half was deleted rather than kept: it shipped without the certificate authority it existed to
+// install, and the shell it installed could never self-update. See that file's own header.
+const FILES = [join(HERE, "setup", "clinic-setup.iss")];
 
 /** Inno constants whose own `}` would close a `{ }` comment. Not exhaustive by design — any `{word}` counts. */
 const CONSTANT = /\{[a-z][a-z0-9]*\}/g;

@@ -1,20 +1,43 @@
 ﻿; ============================================================================================
-; Clinic Management — Server Installer (Phase 5 / S6)
+; APEXA — Installer (Local / offline-LAN)
 ;
-; One-click stand-up of the whole Local/offline-LAN stack on a clinic PC:
-;   - bundled PostgreSQL 16 (fresh cluster, auto-start service, clinic_management + clinic_user)
-;   - the .NET API as an auto-start Windows service (Kestrel = sole LAN-facing HTTPS front door)
-;   - the Next.js web bundle as a localhost-only Node service (reverse-proxied by Kestrel)
-;   - Local config written on the target; signing key + HTTPS cert self-generated on first boot
+; ONE installer, and the first page asks what this PC is.
 ;
-; Dependency order: PostgreSQL -> Web (Node) -> API front door. Only the HTTPS port is opened on
-; the LAN firewall; the Node web port and the API's plain-HTTP port stay loopback-only.
+;   « Serveur du cabinet » — the whole stack, unchanged from the installer this replaces:
+;       - bundled PostgreSQL 16 (fresh cluster, auto-start service, clinic_management + clinic_user)
+;       - the .NET API as an auto-start Windows service (Kestrel = sole LAN-facing HTTPS front door)
+;       - the Next.js web bundle as a localhost-only Node service (reverse-proxied by Kestrel)
+;       - Local config written on the target; signing key + HTTPS cert self-generated on first boot
+;     Dependency order: PostgreSQL -> Web (Node) -> API front door. Only the HTTPS port is opened on
+;     the LAN firewall; the Node web port and the API's plain-HTTP port stay loopback-only.
 ;
-; R-1: committed-but-not-executed here. Build the payload with ..\publish-server.ps1 on an operator
-; build machine, then compile this script with Inno Setup 6 (ISCC.exe). See ..\README.md.
+;   « Poste de travail » — carries NO payload at all. It asks for the server's address, fetches that
+;     server's certificate authority over the cleartext trust port, shows its fingerprint for a human
+;     to accept, imports it, then downloads and runs the shell's own setup from the same server.
+;
+; ⚠️ WHY THIS REPLACED TWO INSTALLERS, because « one file is tidier » was not the reason.
+;
+;   (1) NO CLIENT INSTALLER EVER SHIPPED WITH A CERTIFICATE AUTHORITY. `clinic-client.iss` took its
+;       `ca.crt` from `build-output\client\ca\`, staged BY HAND, with `skipifsourcedoesntexist` — and a
+;       CA is minted on the clinic's own server at ITS first boot, which on a build machine has not
+;       happened and never will. So every compiled client setup imported nothing, silently by design
+;       (« absent is a valid state »), and every staff PC met a certificate warning. Fetching the CA
+;       from the server the user just named is the only version of this that can be correct, and it
+;       removes the per-clinic rebuild that was never actually being done.
+;
+;   (2) A SHELL INSTALLED BY INNO COULD NEVER UPDATE ITSELF. `ShellUpdater.CheckAndStageAsync` returns
+;       null when `UpdateManager.IsInstalled` is false, which is exactly what an Inno install under
+;       %ProgramFiles% is — so « Mettre à jour maintenant » did nothing, for ever, with no error. The
+;       poste branch runs the VELOPACK setup instead (per-user, delta, no UAC), which is the only
+;       channel where the update path works. `/api/meta/client-download` already prefers the Velopack
+;       package over the legacy Inno one when both are present, so nothing in the API changes.
+;
+; R-1: committed-but-not-executed here — build the payload with ..\publish-server.ps1 on an operator
+; build machine. It does now COMPILE in CI though: `.github/workflows/ci.yml` § installers runs ISCC
+; on windows-latest against stub payloads, which is what this file went months without.
 ; ============================================================================================
 
-#define AppName        "APEXA — Serveur"
+#define AppName        "APEXA"
 #ifndef AppVersion
   ; The fallback for a hand-run `ISCC.exe this.iss`. `publish-server.ps1 -Version x.y.z` passes
   ; /DAppVersion and WINS over this — see ..\README.md § « Publier une mise a jour du shell ».
@@ -57,7 +80,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir={#SourcePath}\..\build-output
 ; ASCII and stable: this filename is typed into a URL and printed in the operator guide.
-OutputBaseFilename=ClinicManagementServerSetup-{#AppVersion}
+OutputBaseFilename=ClinicManagementSetup-{#AppVersion}
 SetupIconFile={#AppIcon}
 UninstallDisplayName={#AppName}
 Compression=lzma2
@@ -76,38 +99,41 @@ PrivilegesRequired=admin
 ; account). The directories are created here and SECURED after install by the API's `harden-permissions`
 ; console verb, which breaks inheritance and removes Users/Everyone -- one testable implementation, shared
 ; with the one-click backup so the two cannot drift.
-Name: "{app}\api\.local"
-Name: "{app}\api\Files"
-Name: "{app}\api\logs"
+; ⚠️ Every entry carries `Check: IsServerRole`. A « poste de travail » install creates NONE of these: it holds
+; no database, no blobs and no config, and an empty api\Backups on a secretary's PC would be a destination the
+; backup screen could offer on a machine with nothing to back up.
+Name: "{app}\api\.local"; Check: IsServerRole
+Name: "{app}\api\Files"; Check: IsServerRole
+Name: "{app}\api\logs"; Check: IsServerRole
 ; L4b -- the real default backup destination. The config used to carry "" for it while the settings
 ; screen said "leave the field blank to use the server default folder", so the documented default path
 ; failed on every fresh install. Created here and hardened with the other data directories below.
-Name: "{app}\api\Backups"
+Name: "{app}\api\Backups"; Check: IsServerRole
 ; Where the matching client installer is staged, so a clinic's own server can serve the shell update to its
 ; own PCs (ClientUpdatePackage -> GET /api/meta/client-download). On an offline LAN this is what makes
 ; « Mettre a jour maintenant » able to FETCH an update rather than only announce one.
-Name: "{app}\updates"
-Name: "{app}\pgdata"
-Name: "{commonappdata}\ClinicManagement"
+Name: "{app}\updates"; Check: IsServerRole
+Name: "{app}\pgdata"; Check: IsServerRole
+Name: "{commonappdata}\ClinicManagement"; Check: IsServerRole
 
 [Files]
 ; Payloads staged by ..\publish-server.ps1 into build-output\server\.
-Source: "{#SourcePath}\..\build-output\server\api\*";      DestDir: "{app}\api";      Flags: recursesubdirs createallsubdirs ignoreversion
-Source: "{#SourcePath}\..\build-output\server\web\*";      DestDir: "{app}\web";      Flags: recursesubdirs createallsubdirs ignoreversion
-Source: "{#SourcePath}\..\build-output\server\node\*";     DestDir: "{app}\node";     Flags: recursesubdirs createallsubdirs ignoreversion
-Source: "{#SourcePath}\..\build-output\server\postgres\*"; DestDir: "{app}\postgres"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#SourcePath}\..\build-output\server\api\*";      DestDir: "{app}\api";      Flags: recursesubdirs createallsubdirs ignoreversion; Check: IsServerRole
+Source: "{#SourcePath}\..\build-output\server\web\*";      DestDir: "{app}\web";      Flags: recursesubdirs createallsubdirs ignoreversion; Check: IsServerRole
+Source: "{#SourcePath}\..\build-output\server\node\*";     DestDir: "{app}\node";     Flags: recursesubdirs createallsubdirs ignoreversion; Check: IsServerRole
+Source: "{#SourcePath}\..\build-output\server\postgres\*"; DestDir: "{app}\postgres"; Flags: recursesubdirs createallsubdirs ignoreversion; Check: IsServerRole
 ; NSSM (Non-Sucking Service Manager) hosts the Node web server as a Windows service (R-8).
 ; Operator drops nssm.exe into packaging\server\tools\ before compiling; optional at compile time.
-Source: "{#SourcePath}\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourcePath}\..\server\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist; Check: IsServerRole
 ; The client installer this release was built with, staged by ..\publish-server.ps1 (which compiles the
 ; client FIRST for exactly this reason). Served by the API to shells asking for an update.
 ; ⚠️ skipifsourcedoesntexist: a -SkipInstallers staging run has no client setup to copy, and a server
 ; installer without an update payload is correct-but-reduced (clients then need Clients:StoreUrls:Windows),
 ; not broken. The API answers 404 on the download route when the folder is empty.
-Source: "{#SourcePath}\..\build-output\server\updates\*"; DestDir: "{app}\updates"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourcePath}\..\build-output\server\updates\*"; DestDir: "{app}\updates"; Flags: ignoreversion skipifsourcedoesntexist; Check: IsServerRole
 
 [Icons]
-Name: "{group}\APEXA (serveur — localhost)"; Filename: "https://localhost:{#HttpsPort}"
+Name: "{group}\APEXA (serveur — localhost)"; Filename: "https://localhost:{#HttpsPort}"; Check: IsServerRole
 Name: "{group}\Désinstaller {#AppName}"; Filename: "{uninstallexe}"
 
 [UninstallRun]
@@ -120,6 +146,13 @@ Filename: "{app}\postgres\bin\pg_ctl.exe"; Parameters: "unregister -N ""{#Servic
 ; Remove the LAN firewall holes opened by OpenFirewall — otherwise they persist after uninstall (Finding 4).
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management HTTPS"""; Flags: runhidden; RunOnceId: "DelFwRule"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management Trust"""; Flags: runhidden; RunOnceId: "DelFwRuleTrust"
+; The clinic's certificate authority, imported by whichever role installed it. Matched on the CA's SUBJECT,
+; which CertificateProvisioner freezes at this exact string -- renaming it there orphans every installed CA.
+; ⚠️ No Check: the entries above have none either, and deliberately: all of them are best-effort removals of
+; something that may not exist, and `runhidden` swallows the "not found" exit. Making them role-conditional
+; would mean persisting the role somewhere the UNINSTALLER can read it, which is a second source of truth
+; about a machine whose role can only have been one thing.
+Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Clinic Management Local CA"""; Flags: runhidden; RunOnceId: "DelCa"
 
 [Code]
 { SW_HIDE is a built-in Inno Setup constant — do not redeclare it (duplicate-identifier compile error). }
@@ -128,6 +161,40 @@ var
   DbPassword: string;       { clinic_user login password (also baked into the connection string) }
   PgSuperPassword: string;   { postgres superuser password (scram-sha-256, Finding 10) }
   LastVerbOutput: AnsiString; { stdout+stderr of the most recent API console verb, for operator messages }
+  RolePage: TInputOptionWizardPage;  { page 1 -- « ce PC est le serveur » / « ce PC est un poste » }
+  AddressPage: TInputQueryWizardPage; { page 2, poste only -- the server's name or address }
+  BackupPage: TInputDirWizardPage;    { page 2, server only -- where the nightly backup is written }
+
+// Which of the two the operator picked. Consulted by every [Dirs], [Files] and [Icons] entry, so it must
+// answer before any of them is evaluated -- which it does: Inno evaluates Check functions during the file
+// copy, long after the wizard pages have been through.
+//
+// ⚠️ It answers TRUE before the wizard has run, and that is deliberate rather than an accident of ordering.
+// Inno evaluates Check functions in contexts that never see the page (/SILENT with no /ROLE, a restarted
+// setup resuming), and « server » is the answer that installs the product rather than the answer that
+// installs nothing. An unattended install that silently produced an empty directory would be the worse
+// failure, because it looks like it worked.
+function IsServerRole: Boolean;
+begin
+  if RolePage = nil then
+    Result := True
+  else
+    Result := (RolePage.SelectedValueIndex = 0);
+end;
+
+function IsWorkstationRole: Boolean;
+begin
+  Result := not IsServerRole;
+end;
+
+// What the operator typed on the address page, trimmed. Empty on a server install.
+function TypedServerAddress: string;
+begin
+  if AddressPage = nil then
+    Result := ''
+  else
+    Result := Trim(AddressPage.Values[0]);
+end;
 
 { OS CSPRNG (bcrypt.dll) — replaces Inno's non-cryptographic, unseeded Random for generated secrets
   (Finding 12). BCRYPT_USE_SYSTEM_PREFERRED_RNG = 2; hAlgorithm = NULL (0). Returns STATUS_SUCCESS (0). }
@@ -401,7 +468,15 @@ begin
   PgDump    := AppDir + '\postgres\bin\pg_dump.exe';
   PgRestore := AppDir + '\postgres\bin\pg_restore.exe';
   Files     := AppDir + '\api\Files';
-  Backups   := AppDir + '\api\Backups';
+  // The destination the operator chose on the backup page, falling back to the in-install folder when they
+  // left it empty. ⚠️ That fallback is the ORIGINAL behaviour and it is the weak one: a dump beside the data
+  // it dumps dies with the disk. It stays available because a single-PC cabinet with no external disk has
+  // nowhere else, and the page says so in words before the operator accepts it -- what is not acceptable is
+  // arriving there silently, which is what happened before this page existed.
+  if (BackupPage <> nil) and (Trim(BackupPage.Values[0]) <> '') then
+    Backups := Trim(BackupPage.Values[0])
+  else
+    Backups := AppDir + '\api\Backups';
   ConnStr := 'Host=localhost;Port={#DbPort};Database={#DbName};Username={#DbUser};Password=' + DbPassword;
 
   { Escape backslashes for JSON. }
@@ -835,6 +910,364 @@ begin
   Sleep(5000);
 end;
 
+// ============================================================================================
+// The role wizard, and the two post-install branches it decides between.
+// ============================================================================================
+
+procedure InitializeWizard;
+begin
+  // Page 1. Exclusive (radio) rather than a checkbox list: a PC is one thing or the other, and a wizard
+  // that lets somebody tick both would have to invent an answer for it.
+  RolePage := CreateInputOptionPage(
+    wpWelcome,
+    'Ce PC',
+    'Quel rôle ce poste joue-t-il dans le cabinet ?',
+    'APEXA s''installe une seule fois sur le PC qui garde les dossiers. Les autres postes s''y connectent.',
+    True, False);
+  RolePage.Add('Le serveur du cabinet — il garde les dossiers et les sauvegardes');
+  RolePage.Add('Un poste de travail — il se connecte au serveur du cabinet');
+  RolePage.SelectedValueIndex := 0;
+
+  // Page 2a, poste only.
+  AddressPage := CreateInputQueryPage(
+    RolePage.ID,
+    'Serveur du cabinet',
+    'À quelle adresse ce poste doit-il se connecter ?',
+    'Saisissez le NOM du PC serveur (par exemple clinic-server). Le nom est préférable à une adresse IP :'
+    + ' une adresse change toute seule le jour où la box en attribue une autre, et ce poste ne se connecte'
+    + ' alors plus. Le programme d''installation du serveur affiche le nom à utiliser.');
+  AddressPage.Add('Nom ou adresse du serveur :', False);
+
+  // Page 2b, server only. `TInputDirWizardPage` gives the folder browser for free, which matters because
+  // the right answer is on a disk the operator has to go and find.
+  BackupPage := CreateInputDirPage(
+    RolePage.ID,
+    'Sauvegarde',
+    'Où les sauvegardes du cabinet doivent-elles être écrites ?',
+    'Choisissez un disque externe ou un dossier réseau. Une sauvegarde posée sur le disque qui contient'
+    + ' déjà les dossiers disparaît avec lui — ce n''est pas une sauvegarde, c''est une copie.',
+    False, '');
+  BackupPage.Add('');
+end;
+
+// The two role pages are mutually exclusive, and each is skipped for the other role.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  if PageID = AddressPage.ID then
+    Result := IsServerRole
+  else if PageID = BackupPage.ID then
+    Result := IsWorkstationRole
+  else
+    Result := False;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Address: string;
+begin
+  Result := True;
+
+  if CurPageID = AddressPage.ID then
+  begin
+    Address := TypedServerAddress;
+    if Address = '' then
+    begin
+      MsgBox('Saisissez le nom ou l''adresse du serveur du cabinet.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    // Deliberately NOT validated further here, and not probed either. A name this installer cannot resolve
+    // right now may resolve perfectly once the PC is on the clinic's own network, and refusing it would send
+    // somebody away from an install that would have worked. The CA fetch below is where a wrong address is
+    // actually found out, and it says so in words.
+  end;
+
+  if CurPageID = BackupPage.ID then
+  begin
+    // ⚠️ A WARNING, NOT A REFUSAL. A single-PC cabinet with no external disk and no share has nowhere else to
+    // put it, and refusing to install the product over it would be absurd. What is not acceptable is the
+    // previous behaviour: silently defaulting to a folder inside the install directory and never mentioning
+    // that the backup shares the fate of what it is backing up.
+    if (BackupPage.Values[0] = '')
+       or (Uppercase(Copy(BackupPage.Values[0], 1, 3)) = Uppercase(Copy(ExpandConstant('{sd}'), 1, 3))) then
+    begin
+      if MsgBox('Les sauvegardes seront écrites sur le même disque que les dossiers du cabinet.' + #13#10#13#10 +
+                'Si ce disque tombe en panne, les dossiers ET les sauvegardes sont perdus en même temps.' + #13#10#13#10 +
+                'Continuer quand même ?', mbConfirmation, MB_YESNO) = IDNO then
+        Result := False;
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------------------------
+// Server role
+// ---------------------------------------------------------------------------------------------
+
+// Stop Windows putting the clinic's server to sleep.
+//
+// ⚠️ This is the single cheapest thing in this file and it prevents the loudest outage: a PC that suspends
+// takes every desk in the practice down at once, the symptom is « le logiciel ne marche plus » on machines
+// that are themselves fine, and nothing anywhere names the cause. A server is a server whether or not it also
+// has somebody's keyboard attached to it.
+//
+// Only the AC (mains) timeouts are touched. The DC ones are left alone on purpose: a laptop acting as the
+// clinic server and running on battery is going to stop being a server shortly regardless, and forbidding it
+// to sleep would flatten it instead.
+procedure DisableSleepOnMains;
+var
+  Rc: Integer;
+begin
+  // Best-effort: powercfg can be refused by group policy on a managed machine, and a clinic PC that will not
+  // take the setting is a smaller problem than an install that aborts over it.
+  RunWait(ExpandConstant('{sys}\powercfg.exe'), '/change standby-timeout-ac 0', '', Rc);
+  RunWait(ExpandConstant('{sys}\powercfg.exe'), '/change hibernate-timeout-ac 0', '', Rc);
+  RunWait(ExpandConstant('{sys}\powercfg.exe'), '/change disk-timeout-ac 0', '', Rc);
+end;
+
+// What the other PCs must be told to type. The whole point of preferring a name over an address is undone if
+// the person installing the server never learns the name, so this is shown rather than logged.
+procedure AnnounceServerAddress;
+begin
+  MsgBox('Le serveur du cabinet est installé.' + #13#10#13#10 +
+         'Sur les AUTRES postes, lancez le même programme d''installation, choisissez'
+         + ' « Un poste de travail », et saisissez :' + #13#10#13#10 +
+         '        ' + GetComputerNameString + #13#10#13#10 +
+         'C''est le nom de ce PC. Préférez-le à une adresse IP : il ne change pas.' + #13#10#13#10 +
+         'Sur CE PC, l''application s''ouvre sur https://localhost:{#HttpsPort}',
+         mbInformation, MB_OK);
+end;
+
+// ---------------------------------------------------------------------------------------------
+// Workstation role
+// ---------------------------------------------------------------------------------------------
+
+// Run a command line through cmd.exe capturing stdout+stderr, as RunApiVerbQuiet does for the API verbs.
+// Returns True on exit code 0; the output is left in LastVerbOutput either way.
+function RunCaptured(const CommandLine: string): Boolean;
+var
+  Rc: Integer;
+  LogFile: string;
+begin
+  Result := False;
+  LastVerbOutput := '';
+  LogFile := ExpandConstant('{tmp}\setup-cmd.log');
+
+  if not Exec(ExpandConstant('{sys}\cmd.exe'),
+              '/C "' + CommandLine + ' > "' + LogFile + '" 2>&1"',
+              ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, Rc) then
+    Exit;
+
+  LoadStringFromFile(LogFile, LastVerbOutput);
+  DeleteFile(LogFile);
+  Result := (Rc = 0);
+end;
+
+// True when C is a hexadecimal digit. Pascal Script has no character classes.
+function IsHexDigit(C: Char): Boolean;
+begin
+  Result := ((C >= '0') and (C <= '9')) or ((C >= 'a') and (C <= 'f')) or ((C >= 'A') and (C <= 'F'));
+end;
+
+// The SHA-256 of a file, as certutil prints it, or '' when it cannot be read. Used to show a human the
+// fingerprint of the authority they are about to trust.
+//
+// ⚠️ It scans for a run of 64 hex characters rather than reading a line by NUMBER, and rather than trusting
+// certutil's wording. That output is localised -- a Tunisian clinic PC is frequently a French Windows -- and
+// older builds space the digest into pairs, so both a line index and a label match would find nothing exactly
+// where this matters most. Spaces are dropped before the scan for the same reason.
+function FileFingerprint(const Path: string): string;
+var
+  Raw, Compact: string;
+  I, Run, Start: Integer;
+begin
+  Result := '';
+  if not RunCaptured('certutil -hashfile "' + Path + '" SHA256') then
+    Exit;
+
+  Raw := String(LastVerbOutput);
+  Compact := '';
+  for I := 1 to Length(Raw) do
+    if IsHexDigit(Raw[I]) then
+      Compact := Compact + Raw[I]
+    else if (Raw[I] <> ' ') and (Raw[I] <> #13) and (Raw[I] <> #10) then
+      Compact := Compact + '.';   // a separator, so a 64-run cannot span two different words
+
+  Run := 0;
+  Start := 0;
+  for I := 1 to Length(Compact) do
+  begin
+    if Compact[I] = '.' then
+      Run := 0
+    else
+    begin
+      if Run = 0 then
+        Start := I;
+      Run := Run + 1;
+      if Run = 64 then
+      begin
+        Result := Uppercase(Copy(Compact, Start, 64));
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+// Fetch the clinic server's certificate authority and, with the operator's consent, trust it on this machine.
+//
+// ⚠️ THE FINGERPRINT PROMPT IS NOT CEREMONY. The CA is fetched over PLAIN HTTP -- it has to be, because the
+// device cannot trust the HTTPS port until it holds this very file -- so anything on the path between this PC
+// and the server could answer instead. Installing a certificate authority into the machine Root store is
+// handing whatever holds its private key the ability to impersonate any site to this PC. The previous
+// installer did it with `certutil -addstore -f` and no human ever saw a fingerprint.
+//
+// ⚠️ Its predecessor was worse than unverified: it shipped a `ca.crt` staged by hand from a server that did
+// not exist at build time, so it imported NOTHING and every staff PC met a certificate warning instead.
+function FetchAndTrustCa(const Host: string): Boolean;
+var
+  CaPath, Url, Fingerprint: string;
+  Rc: Integer;
+  Bytes: Int64;
+begin
+  Result := False;
+  CaPath := ExpandConstant('{tmp}\ca.crt');
+  Url := 'http://' + Host + ':{#TrustPort}/api/trust/ca.crt';
+
+  try
+    Bytes := DownloadTemporaryFile(Url, 'ca.crt', '', nil);
+  except
+    MsgBox('Impossible de récupérer le certificat du serveur « ' + Host + ' ».' + #13#10#13#10 +
+           'Vérifiez que le serveur du cabinet est allumé, qu''il est sur le même réseau que ce PC,'
+           + ' et que le nom saisi est correct.' + #13#10#13#10 +
+           'Détail : ' + GetExceptionMessage, mbError, MB_OK);
+    Exit;
+  end;
+
+  if not FileExists(CaPath) then
+  begin
+    MsgBox('Le certificat du serveur n''a pas pu être enregistré sur ce PC.', mbError, MB_OK);
+    Exit;
+  end;
+
+  Fingerprint := FileFingerprint(CaPath);
+  if Fingerprint = '' then
+    Fingerprint := '(empreinte illisible)';
+
+  if MsgBox('Ce PC va faire confiance au serveur « ' + Host + ' ».' + #13#10#13#10 +
+            'Empreinte du certificat (SHA-256) :' + #13#10 +
+            Fingerprint + #13#10#13#10 +
+            'Elle doit correspondre à celle affichée sur le PC serveur'
+            + ' (http://' + Host + ':{#TrustPort}/api/trust).' + #13#10#13#10 +
+            'Faire confiance à ce serveur ?', mbConfirmation, MB_YESNO) = IDNO then
+  begin
+    MsgBox('Certificat refusé. Ce poste ne pourra pas se connecter au serveur tant que le certificat'
+           + ' n''est pas installé.', mbInformation, MB_OK);
+    Exit;
+  end;
+
+  if not RunWait(ExpandConstant('{sys}\certutil.exe'), '-addstore -f Root "' + CaPath + '"', '', Rc) then
+  begin
+    MsgBox('L''installation du certificat a échoué (code ' + IntToStr(Rc) + ').' + #13#10#13#10 +
+           'Le navigateur affichera un avertissement de sécurité. Importez ca.crt manuellement dans'
+           + ' « Autorités de certification racines de confiance » (voir README).', mbError, MB_OK);
+    Exit;
+  end;
+
+  Result := True;
+end;
+
+// Fetch the shell's own setup from the server this poste was just pointed at, and run it.
+//
+// ⚠️ IT IS THE VELOPACK SETUP, NOT AN INNO ONE, and that is the whole reason this branch downloads rather
+// than carrying a payload. `ShellUpdater.CheckAndStageAsync` gives up when `UpdateManager.IsInstalled` is
+// false -- which is exactly what a shell installed into %ProgramFiles% by Inno is -- so the previous client
+// installer produced a shell whose « Mettre à jour maintenant » did nothing for ever, silently. The API's
+// `/api/meta/client-download` already prefers the Velopack package over the legacy Inno one when both are in
+// the folder, so this needs nothing new on the server.
+//
+// ⚠️ Over HTTPS, and only AFTER the CA has been trusted. The other order fails on a certificate this PC does
+// not yet recognise, which would read as « the server is unreachable ».
+function FetchAndRunShellSetup(const Host: string): Boolean;
+var
+  SetupPath: string;
+  Rc: Integer;
+  Bytes: Int64;
+begin
+  Result := False;
+  SetupPath := ExpandConstant('{tmp}\apexa-shell-setup.exe');
+
+  try
+    Bytes := DownloadTemporaryFile('https://' + Host + ':{#HttpsPort}/api/meta/client-download',
+                                   'apexa-shell-setup.exe', '', nil);
+  except
+    MsgBox('Impossible de télécharger l''application depuis le serveur « ' + Host + ' ».' + #13#10#13#10 +
+           'Le certificat est installé, mais le serveur n''a pas fourni de programme d''installation.'
+           + ' Mettez à jour le serveur du cabinet, puis relancez cette installation.' + #13#10#13#10 +
+           'Détail : ' + GetExceptionMessage, mbError, MB_OK);
+    Exit;
+  end;
+
+  // /SILENT, not /VERYSILENT: Velopack's setup shows its own brief progress, and a wizard that appears to
+  // hang for a 50 MB LAN transfer is how somebody reboots the PC halfway through.
+  if not RunWait(SetupPath, '/SILENT', ExpandConstant('{tmp}'), Rc) then
+  begin
+    MsgBox('L''installation de l''application a échoué (code ' + IntToStr(Rc) + ').', mbError, MB_OK);
+    Exit;
+  end;
+
+  Result := True;
+end;
+
+// The WebView2 runtime, without which the shell opens to a blank window.
+//
+// ⚠️ Present on Windows 11 and on Windows 10 21H2+, so this almost never fires -- which is exactly why it
+// must not be a hard failure: refusing the install on the rare machine that lacks it, on a LAN with no
+// internet, would strand the one PC this check exists to help. It says so instead.
+procedure EnsureWebView2;
+var
+  Dummy: string;
+  Rc: Integer;
+  RuntimePath: string;
+  Bytes: Int64;
+begin
+  if RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Dummy)
+     or RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Dummy)
+     or RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Dummy) then
+    Exit;
+
+  RuntimePath := ExpandConstant('{tmp}\MicrosoftEdgeWebView2Setup.exe');
+  try
+    Bytes := DownloadTemporaryFile('https://go.microsoft.com/fwlink/p/?LinkId=2124703',
+                                   'MicrosoftEdgeWebView2Setup.exe', '', nil);
+    RunWait(RuntimePath, '/silent /install', ExpandConstant('{tmp}'), Rc);
+  except
+    MsgBox('Le composant Microsoft WebView2 est absent de ce PC et n''a pas pu être téléchargé'
+           + ' (ce PC n''a peut-être pas d''accès à internet).' + #13#10#13#10 +
+           'Installez « Microsoft Edge WebView2 Runtime » sur ce poste, puis relancez APEXA.',
+           mbInformation, MB_OK);
+  end;
+end;
+
+// Everything a workstation install does. No payload was copied; this is the whole of it.
+procedure InstallWorkstation;
+var
+  Host: string;
+begin
+  Host := TypedServerAddress;
+
+  if not FetchAndTrustCa(Host) then
+    Exit;
+
+  EnsureWebView2;
+
+  if not FetchAndRunShellSetup(Host) then
+    Exit;
+
+  MsgBox('Ce poste est prêt.' + #13#10#13#10 +
+         'APEXA s''ouvre depuis le menu Démarrer et se connecte à « ' + Host + ' ».' + #13#10#13#10 +
+         'Les mises à jour se feront ensuite toutes seules, depuis le serveur du cabinet.',
+         mbInformation, MB_OK);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   StopClinicServices;
@@ -846,7 +1279,17 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then
+  if CurStep <> ssPostInstall then
+    Exit;
+
+  // A workstation copied no payload, so none of the server work below applies to it: there is no API to run
+  // a console verb from, no cluster to create and no service to register. It fetches trust and the app.
+  if IsWorkstationRole then
+  begin
+    InstallWorkstation;
+    Exit;
+  end;
+
   begin
     // The console verbs invoked from here refuse to run outside Local mode, and Auth:Mode=Local lives in the
     // generated appsettings.Production.json -- which WriteProductionConfig cannot write until the DB
@@ -870,6 +1313,11 @@ begin
       SetupAppServices;
       OpenFirewall;
       StartAndExportCa;
+
+      // Last, and in this order: the machine has to be a working server before it is announced as one, and
+      // it has to stay awake to remain one.
+      DisableSleepOnMains;
+      AnnounceServerAddress;
     end;
   end;
 end;

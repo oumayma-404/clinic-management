@@ -30,7 +30,7 @@ public static class CredentialProtectionCommand
     public const string ProtectCommandName = "protect-credentials";
     public const string ReadCommandName = "read-credentials";
 
-    /// <summary>File name inside <c>.local/</c>. Must match <c>clinic-server.iss</c>'s DbCredentialsFile.</summary>
+    /// <summary>File name inside <c>.local/</c>. Must match <c>clinic-setup.iss</c>'s DbCredentialsFile.</summary>
     private const string CredentialsFileName = "db-credentials";
 
     /// <summary>
@@ -111,7 +111,7 @@ public static class CredentialProtectionCommand
             var content = File.ReadAllText(credentialsPath);
             var read = protector.ReadFileContent(content);
 
-            // Two plaintext lines, in the order clinic-server.iss expects.
+            // Two plaintext lines, in the order clinic-setup.iss expects.
             WriteAtomically(
                 outputPath,
                 read.Credentials.ClinicUserPassword + "\r\n" + read.Credentials.PostgresSuperPassword + "\r\n");
