@@ -60,7 +60,13 @@ public class DashboardAlertsReader : IDashboardAlertsReader
         /*
          * Draft, not Accepted: « en attente de réponse » is a devis presented to the patient with no answer yet.
          * An accepted-but-unstarted plan is a different state (said yes, not begun) and belongs to « Devis
-         * acceptés ». No date bound — a devis from three months ago with no answer is exactly the one to chase.
+         * acceptés ».
+         *
+         * ⚠️ <b>The fourteen-day grace comes from `RecallWorklistRules`, which is the rule's owner.</b>
+         * This count had NO date bound while the recall worklist waited a fortnight, so one surface chased a
+         * treatment started an hour earlier and the other would not chase it at all — two askers, two answers,
+         * about the same plan. A devis from three months ago with no answer is still exactly the one to chase;
+         * one from this morning is not yet.
          *
          * ⚠️ **`CountUnansweredDraftsAsync`, not `CountByStatusAsync(Draft)`.** Since « Suivre ce traitement » an
          * un-numbered plan is usually a treatment being carried out right now, so counting the status alone put
@@ -68,7 +74,8 @@ public class DashboardAlertsReader : IDashboardAlertsReader
          * with nothing to answer — a Draft has never been handed a devis, `Accept` being the only writer of
          * `Number`. Identical premise to `RecallWorklistRules.IsUnanswered`, whose copy was already corrected.
          */
-        var draftPlans = await _planRepository.CountUnansweredDraftsAsync(clinicId, cancellationToken);
+        var draftPlans = await _planRepository.CountUnansweredDraftsAsync(
+            clinicId, RecallWorklistRules.UnansweredGraceCutoff(nowUtc), cancellationToken);
 
         var patientsToRecall = await CountPatientsToRecallAsync(clinicId, clinic?.RecallIntervalMonths, nowUtc, cancellationToken);
 

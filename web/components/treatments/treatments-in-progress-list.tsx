@@ -154,9 +154,21 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
     void load()
   }, [load])
 
-  // A séance booked or cancelled elsewhere changes what this list offers, and a fiche saved elsewhere advances a
-  // step — so both keys matter.
-  useClinicRealtime([RealtimeResource.TreatmentPlans, RealtimeResource.Appointments], load)
+  /*
+   * A séance booked or cancelled elsewhere changes what this list offers, and a fiche saved elsewhere advances
+   * a step — so three keys matter, not two.
+   *
+   * ⚠️ **`Patients` is the one that was missing, and the comment here asserted the opposite.** It said « a
+   * fiche saved elsewhere advances a step — so both keys matter », but a fiche save is
+   * `Features.Patients.Commands`, and `RealtimeBroadcastBehavior` keys off the **command's** namespace: it
+   * broadcasts `patients`, never `treatmentplans`. So the single gesture this list exists to react to — the
+   * one that moves an act from « à enregistrer » to « fait » and takes the row off the list — was the one it
+   * did not hear.
+   */
+  useClinicRealtime(
+    [RealtimeResource.TreatmentPlans, RealtimeResource.Appointments, RealtimeResource.Patients],
+    load,
+  )
 
   const rows = data?.items ?? []
 

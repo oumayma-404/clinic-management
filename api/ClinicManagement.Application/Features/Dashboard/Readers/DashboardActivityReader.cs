@@ -50,14 +50,25 @@ public class DashboardActivityReader : IDashboardActivityReader
         var previousNewPatients = await _patientRepository.CountCreatedBetweenAsync(
             clinicId, period.PreviousFrom, period.PreviousToInclusive, cancellationToken: cancellationToken);
 
-        // byAcceptedDate: « devis acceptés ce mois » means the patient said yes this month, not that a devis created
-        // this month happens to be accepted now. The drill-through filters on AcceptedDate for the same reason.
-        var acceptedPlans = await _planRepository.CountByStatusAsync(
-            clinicId, TreatmentPlanStatus.Accepted, period.From, period.ToInclusive,
-            byAcceptedDate: true, cancellationToken);
-        var previousAcceptedPlans = await _planRepository.CountByStatusAsync(
-            clinicId, TreatmentPlanStatus.Accepted, period.PreviousFrom, period.PreviousToInclusive,
-            byAcceptedDate: true, cancellationToken);
+        /*
+          * byAcceptedDate: « devis acceptés ce mois » means the patient said yes this month, not that a devis
+          * created this month happens to be accepted now. The drill-through filters on AcceptedDate too.
+          *
+          * ⚠️ <b>It used to match `Status == Accepted` exactly, so the tile SHRANK as the clinic did
+          * the work.</b> The first payment or the first fiche moves a plan to `InProgress` — and finishing it
+          * moves it to `Completed` — while `AcceptedDate` never changes, so a devis signed on the 3rd left
+          * the month's figure the moment anything happened on it. « Acceptés ce mois » then meant « acceptés
+          * ce mois et pas encore commencés », which is the opposite of a sales figure. The drill-through
+          * repeated the same filter, so the list agreed with the wrong number and nothing looked broken.
+          *
+          * The owner is `CountAcceptedByDateAsync`, keyed on `Number != null` — `Accept` is the only writer
+          * of `Number`, so « a devis was accepted » is exactly « it has one », whatever happened afterwards.
+          * Cancelled and already-billed plans count: the patient did say yes, in that month.
+          */
+        var acceptedPlans = await _planRepository.CountAcceptedByDateAsync(
+            clinicId, period.From, period.ToInclusive, cancellationToken);
+        var previousAcceptedPlans = await _planRepository.CountAcceptedByDateAsync(
+            clinicId, period.PreviousFrom, period.PreviousToInclusive, cancellationToken);
 
         return new DashboardActivityDto
         {

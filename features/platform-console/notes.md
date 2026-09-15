@@ -76,11 +76,19 @@ constants**, never a retyped literal.
 ⚠️ **Not every figure is audit-derived, and one of them must not be.** `patients` is a `COUNT` over the cabinet's
 patients — *never* audit `Insert` rows: the ledger only exists since `adoption-qa-i`, so an established practice
 would read as nearly empty, which is wrong in the direction of « barely used », i.e. exactly the churn signal the
-list exists to give. `users`/`lastLoginAt` come from `IUserRepository.GetStaffSummaryAsync`, and
-`clinicCollectedThisMonthDt` from **`PlatformCollectedReader`** — the same repository predicates la caisse sums,
-through `PlanBillingRules.BilledPlanIds`. That makes the console the **fifth** money read, and
-`MoneyReadConsistencyTests` was extended to pin it equal to `caisse.CashIn − caisse.Refunds`: the vendor quoting
-a practice a turnover its own caisse contradicts is the worst possible place for drift.
+list exists to give. `users`/`lastLoginAt` come from `IUserRepository.GetStaffSummaryAsync`.
+⚠️ **The console no longer knows what a cabinet EARNS, and that is a withdrawal, not an omission.**
+`clinicCollectedThisMonthDt` shipped here — « Encaissé (cabinet) » on the list, « Encaissé ce mois par le
+cabinet » on the fiche — computed by `PlatformCollectedReader` off la caisse's own predicates, which made the
+console the **fifth** money read and had `MoneyReadConsistencyTests` pinning it equal to
+`caisse.CashIn − caisse.Refunds`. All of it is gone: the two labels, the DTO field, the name in
+`PlatformReadShape`, the `ClinicActivitySnapshots.CollectedThisMonth` column (dropped, stored values with it),
+the counter job's month-to-date read and its three money repositories, the reader, and the two consistency
+tests. The vendor does not get to know a practice's turnover — the decision is about what we hold, not about
+what we display, which is why the column went too. **The vendor's own revenue is untouched**: it is a separate
+read over `SubscriptionPeriods` (`vendorCollectedThisMonthDt`), and it is now the only money on the console.
+`PlatformReadShapeTests.No_Console_Read_Returns_A_Cabinets_Own_Turnover` derives the refusal from what the
+reads actually return, so re-adding a turnover figure under any spelling fails rather than shipping quietly.
 ⚠️ **`PlatformReadShape` is the whole of AC-7.2, and the tenant filter explicitly is not (AC-7.2a).** The filter
 is *lifted* on this surface by design — a portfolio is a cross-cabinet read — so the guarantee is carried by a
 **closed set of returned field names**, checked by `PlatformReadShapeTests`, which reflects over every

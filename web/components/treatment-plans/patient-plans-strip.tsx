@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import { ArrowRight, ChevronRight, Loader2 } from "lucide-react"
 import { toast } from "sonner"
@@ -66,6 +70,17 @@ interface PatientPlansStripProps {
  */
 export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStripProps) {
   const [accepting, setAccepting] = useState(false)
+  /**
+   * The devis whose acceptance is waiting for a yes — M20.
+   *
+   * <p>⚠️ <b>It fired straight off the click.</b> Accepting spends a per-clinic-per-year devis number, ends
+   * free editing of the acts and turns the total into a live créance in « Solde patient », in the créances and
+   * on the dashboard — and its only exits are an annulation carrying a motif or the rétablissement that
+   * follows one. The workspace guards the identical transition (« Éditer le devis ») with a full dialog naming
+   * the definitive number; this band, which sits on the patient page under a « Voir les plans » button of the
+   * same size, had none at all.</p>
+   */
+  const [acceptTarget, setAcceptTarget] = useState<TreatmentPlanDto | null>(null)
   const router = useRouter()
 
   if (plans.length === 0) return null
@@ -77,6 +92,7 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
     try {
       await treatmentPlansApi.accept(planId)
       toast.success("Devis accepté")
+      setAcceptTarget(null)
       onChanged?.()
     } catch (err) {
       // `showErrorToast`, not a hand-rolled `toast.error`: the 8-second error duration and the network-only
@@ -161,7 +177,7 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
         </span>
 
         {next.kind === "accept" ? (
-          <Button size="sm" onClick={() => handleAccept(plan.id)} disabled={accepting} className="gap-2">
+          <Button size="sm" onClick={() => setAcceptTarget(plan)} disabled={accepting} className="gap-2">
             {accepting && <Loader2 className="h-4 w-4 animate-spin" />}
             {planNextActionLabel("accept")}
           </Button>
@@ -240,6 +256,44 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
       </div>
 
       <PlanActsFold plans={livePlans} />
+      {/*
+        M20 — the same shape the workspace uses for « Éditer le devis »: an `AlertDialog`, modal, not
+        dismissible by a click outside, focus on the cancel. It names the money, because the figure is what
+        makes the consequence real — « un numéro sera attribué » is abstract until it says to whom and for how
+        much.
+      */}
+      <AlertDialog
+        open={!!acceptTarget}
+        onOpenChange={(open) => { if (!open && !accepting) setAcceptTarget(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Accepter ce devis&nbsp;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {acceptTarget && (
+                <>
+                  Un numéro de devis définitif sera attribué à {planDisplayName(acceptTarget)} et son total,{" "}
+                  {formatDT(acceptTarget.totalPlanned)}, devient exigible&nbsp;: il apparaîtra dans le solde du
+                  patient, dans les créances et dans la caisse. Le numéro ne se libère pas — une erreur
+                  s&apos;annule avec un motif, elle ne se supprime pas.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={accepting}>Retour</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={accepting}
+              onClick={(event) => {
+                event.preventDefault()
+                if (acceptTarget) void handleAccept(acceptTarget.id)
+              }}
+            >
+              Accepter le devis
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }

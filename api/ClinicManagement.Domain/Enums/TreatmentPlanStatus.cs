@@ -40,5 +40,30 @@ public enum TreatmentPlanStatus
     /// Reversible through <c>TreatmentPlan.Reopen</c>, which also restores the parked acts.
     /// </para>
     /// </summary>
-    Stopped = 5
+    Stopped = 5,
+
+    /// <summary>
+    /// The balance has been abandoned: the practice has decided it will never be collected, and says so once
+    /// rather than leaving a créance standing for ever.
+    /// <para>
+    /// ⚠️ <b>It exists because there was no third answer.</b> A patient who dies, emigrates or simply cannot
+    /// pay leaves a live <c>Stopped</c> devis, and <c>CarriesDebt(Stopped)</c> is true — correctly, the work
+    /// was delivered — so the amount sat in « Créances », in « Solde patient », on the dashboard and in
+    /// « Chèques à encaisser » indefinitely. The invoice track has the avoir for this; the devis track had only
+    /// <c>Cancel</c>, which is the wrong instrument twice over: it is refused outright once any money has been
+    /// collected, and it removes the whole document from la caisse, rewriting days that are already closed.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>What is written off is the OUTSTANDING balance, never the cash.</b> Payments already taken stay
+    /// exactly where they are — they really were received, and la caisse's past days must not move. So
+    /// <c>CarriesDebt</c> is false (nothing more is owed) while <c>AmountPaid</c>, the ledger rows and every
+    /// receipt are untouched. That is the whole difference from <see cref="Cancelled"/>.
+    /// </para>
+    /// <para>
+    /// Closed clinically (<c>IsLive</c> false — no new séance) and closed financially. Reversible through
+    /// <c>TreatmentPlan.Reopen</c>, which is how a write-off entered by mistake is undone: a status nothing can
+    /// leave is the defect <c>Uncancel</c> exists for, and appending a second absorbing state would repeat it.
+    /// </para>
+    /// </summary>
+    WrittenOff = 6
 }

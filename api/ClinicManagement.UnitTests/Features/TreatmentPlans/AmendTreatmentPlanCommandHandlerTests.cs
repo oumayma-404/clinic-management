@@ -47,8 +47,11 @@ public class AmendTreatmentPlanCommandHandlerTests
         CancellationsSucceed();
     }
 
+    // ⚠️ No invoice repository: the handler's billed-plan guard was DEAD CODE (private, zero call sites)
+    // and is deleted with its dependency (spec AC-17). The surplus an amendment creates is billable now
+    // (`CreateInvoiceFromTreatmentPlanCommand`'s supplementary note), not refused.
     private AmendTreatmentPlanCommandHandler CreateHandler() => new(
-        _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _procedureTypes.Object,
+        _plans.Object, _patients.Object, _appointments.Object, _procedureTypes.Object,
         _clinicResolver.Object, _mediator.Object, _uow.Object,
         NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
 

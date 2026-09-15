@@ -291,12 +291,12 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // counted. A plan with no AcceptedDate has not been accepted, so it cannot fall in an accepted-date window.
         if (acceptedFrom.HasValue)
         {
-            query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate >= acceptedFrom.Value);
+            query = query.Where(AcceptedFromUtc(acceptedFrom.Value));
         }
 
         if (acceptedTo.HasValue)
         {
-            query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate <= acceptedTo.Value);
+            query = query.Where(AcceptedToUtc(acceptedTo.Value));
         }
 
         // Devis number, title, notes, or the patient's name. The patient half is an EXISTS for the same reason
@@ -413,7 +413,13 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
          * of a patient's visits must not lose a séance because the treatment was later stopped.
          */
         var stepLinks = await _context.TreatmentPlans
-            .Where(p => p.ClinicId == clinicId)
+            // ⚠️ `ContinuationTracking.TrackingStatuses`, not « no status filter at all »: this read is
+            // what makes a fiche render « Suivi comme traitement » with a live link, and a CANCELLED devis
+            // speaks for nothing — so the link pointed at a devis that no longer exists, on precisely the
+            // fiches whose recovery path (cancel the wrong devis, redo the continuation) cancelling exists to
+            // open. Same owner as the offer/accept pair, so all three answer identically.
+            .Where(p => p.ClinicId == clinicId
+                        && ContinuationTracking.TrackingStatuses.Contains(p.Status))
             .SelectMany(plan => plan.Items
                 .SelectMany(item => item.Steps
                     .Where(s => s.LinkedDentalRecordId != null && ids.Contains(s.LinkedDentalRecordId!.Value))
@@ -429,7 +435,8 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .ToListAsync(cancellationToken);
 
         var actLinks = await _context.TreatmentPlans
-            .Where(p => p.ClinicId == clinicId)
+            .Where(p => p.ClinicId == clinicId
+                        && ContinuationTracking.TrackingStatuses.Contains(p.Status))
             .SelectMany(plan => plan.Items
                 .Where(item => item.LinkedDentalRecordId != null
                                && ids.Contains(item.LinkedDentalRecordId!.Value))
@@ -449,18 +456,67 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
 
     /// <inheritdoc />
     public async Task<int> CountUnansweredDraftsAsync(
-        Guid clinicId, CancellationToken cancellationToken = default)
+        Guid clinicId, DateTime graceBeforeUtc, CancellationToken cancellationToken = default)
     {
-        // `HasDeliveredWork` in SQL — the act is Done, or one of its steps carries a DoneDate. Written as a
-        // negated `Any` so the whole thing is one indexed COUNT with two EXISTS, never a materialised load.
+        /*
+         * ⚠️ <b>`RecallWorklistRules.NeverAnswered` is the owner and this is its SQL twin, term for
+         * term.</b> The two askers of « un devis que personne n'a jamais suivi » answered DIFFERENTLY: the
+         * dashboard counted every untouched Draft from the instant it was created, while the recall worklist
+         * applied a fourteen-day grace and then yielded to « au point mort » — which claimed every such plan,
+         * so the reason was effectively unreachable on one surface and immediate on the other.
+         *
+         * `HasDeliveredWork` in SQL: the act is Done, or one of its steps carries a DoneDate. Written as a
+         * negated `Any` so the whole thing is one indexed COUNT with two EXISTS, never a materialised load.
+         */
         return await _context.TreatmentPlans
             .Where(p => p.ClinicId == clinicId
                         && p.Status == TreatmentPlanStatus.Draft
+                        && p.CreatedAt <= graceBeforeUtc
                         && !p.Items.Any(i =>
                             i.Status == TreatmentPlanItemStatus.Done
                             || i.Steps.Any(s => s.DoneDate != null)))
             .CountAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<int> CountAcceptedByDateAsync(
+        Guid clinicId,
+        DateTime? from = null,
+        DateTime? toInclusive = null,
+        CancellationToken cancellationToken = default)
+    {
+        /*
+         * ⚠️ <b>« Devis acceptés ce mois » counts the ACCEPTANCE, never the current status.</b> Matching
+         * `Status == Accepted` made the tile shrink as the clinic did the work: the first payment or fiche
+         * moves a plan to `InProgress` and finishing it to `Completed`, while `AcceptedDate` never changes.
+         *
+         * `AcceptedDate != null` is the test, and it is the SAME predicate `GetFilteredAsync`'s
+         * `acceptedFrom`/`acceptedTo` applies — literally, through `AcceptedFromUtc`/`AcceptedToUtc` — so the
+         * drill-through list cannot disagree with the number that opened it. (It is also equivalent to
+         * `Number != null`: `Accept` is the only writer of either, and it writes both.)
+         */
+        var query = _context.TreatmentPlans.Where(p => p.ClinicId == clinicId && p.AcceptedDate != null);
+
+        if (from.HasValue)
+        {
+            query = query.Where(AcceptedFromUtc(from.Value));
+        }
+
+        if (toInclusive.HasValue)
+        {
+            query = query.Where(AcceptedToUtc(toInclusive.Value));
+        }
+
+        return await query.CountAsync(cancellationToken);
+    }
+
+    /// <summary>The accepted-date lower bound, stated once — see <see cref="CountAcceptedByDateAsync"/>.</summary>
+    private static System.Linq.Expressions.Expression<Func<TreatmentPlan, bool>> AcceptedFromUtc(DateTime from) =>
+        p => p.AcceptedDate != null && p.AcceptedDate >= from;
+
+    /// <summary>The accepted-date upper bound (inclusive), stated once.</summary>
+    private static System.Linq.Expressions.Expression<Func<TreatmentPlan, bool>> AcceptedToUtc(DateTime toInclusive) =>
+        p => p.AcceptedDate != null && p.AcceptedDate <= toInclusive;
 
     public async Task<int> GetMaxSequenceForYearAsync(Guid clinicId, int year, CancellationToken cancellationToken = default)
     {

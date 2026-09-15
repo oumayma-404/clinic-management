@@ -62,9 +62,25 @@ public class DeleteTreatmentPlanCommandHandler : IRequestHandler<DeleteTreatment
                     + "Utilisez « Arrêter le traitement » pour le clôturer en conservant ce qui a été fait.");
             }
 
+            /*
+              * ⚠️ « … il doit être annulé » sent the dentist to the one IRREVERSIBLE action without saying
+              * so, and it fired identically on a closed treatment — where cancelling would freeze a
+              * delivered-work record for ever — and on a live one, where « Annuler le devis » is not even on
+              * screen (the capability is a branch of « Arrêter le traitement », reachable only while nothing
+              * has been delivered). Two refusals, because they name two different next steps.
+              */
+            if (plan.Status is TreatmentPlanStatus.Completed or TreatmentPlanStatus.Stopped
+                or TreatmentPlanStatus.Cancelled)
+            {
+                return Result.Failure(
+                    "Ce traitement est clôturé : il se conserve et ne peut plus être supprimé.");
+            }
+
             if (!plan.CanBeDeleted)
             {
-                return Result.Failure("Un plan accepté ne peut pas être supprimé ; il doit être annulé.");
+                return Result.Failure(
+                    "Un devis accepté ne peut pas être supprimé : utilisez « Arrêter le traitement », "
+                    + "qui conserve ce qui a déjà été fait.");
             }
 
             await _planRepository.DeleteAsync(plan.Id, cancellationToken);

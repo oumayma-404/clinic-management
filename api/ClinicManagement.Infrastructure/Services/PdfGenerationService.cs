@@ -392,7 +392,20 @@ public class PdfGenerationService : IPdfGenerationService
 
                                 foreach (var line in data.Lines)
                                 {
-                                    table.Cell().Element(BodyCell).Text(line.Designation);
+                                    // ⚠️ The remise is a second line UNDER the désignation, never a fourth
+                                    // column: an extra column would narrow the désignation on every devis in
+                                    // the practice to carry a figure that is 0 on almost all of them. A line
+                                    // that grants none renders exactly as before.
+                                    table.Cell().Element(BodyCell).Column(cell =>
+                                    {
+                                        cell.Item().Text(line.Designation);
+                                        if (line.DiscountAmount > 0)
+                                        {
+                                            cell.Item()
+                                                .Text($"Remise : −{FormatDt(line.DiscountAmount)}")
+                                                .FontSize(9).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+                                        }
+                                    });
                                     table.Cell().Element(BodyCell).Text(line.Teeth);
                                     table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(line.PlannedCost));
                                 }
@@ -401,6 +414,16 @@ public class PdfGenerationService : IPdfGenerationService
                             column.Item().AlignRight().Column(totals =>
                             {
                                 totals.Spacing(3);
+                                // The two remise lines exist only when one was granted, so nothing changes on
+                                // the devis of a practice that never gives them. « Total » stays the last word
+                                // and stays what the patient owes.
+                                if (data.TotalDiscount > 0)
+                                {
+                                    totals.Item().Text($"Sous-total : {FormatDt(data.TotalGross)}")
+                                        .FontSize(11).FontFamily("Helvetica");
+                                    totals.Item().Text($"Remise : −{FormatDt(data.TotalDiscount)}")
+                                        .FontSize(11).FontColor(Colors.Grey.Darken2).FontFamily("Helvetica");
+                                }
                                 totals.Item().Text($"Total : {FormatDt(data.TotalPlanned)}")
                                     .FontSize(13).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
 

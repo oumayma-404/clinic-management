@@ -17,11 +17,11 @@ namespace ClinicManagement.Application.Features.Platform.Queries;
 /// AC-2.4a defect with the arithmetic done in the browser instead of the database — and the figures above a
 /// table must describe the portfolio, not the page under them.</para>
 ///
-/// <para>⚠️ <b>The vendor's revenue is read from the vendor's own ledger and is never a sum of the cabinets'.</b>
-/// AC-2.7 asks for what the <i>vendor</i> was paid this month; summing the practices'
-/// <c>ClinicCollectedThisMonthDt</c> would produce a plausible number for an entirely different quantity — their
-/// turnover presented as the vendor's income — which is the one confusion AC-2.7 exists to forbid. Hence a separate
-/// repository, a separate table and a separate field name.</para>
+/// <para>⚠️ <b>The vendor's revenue is read from the vendor's own ledger, and it is the only money the console
+/// knows.</b> AC-2.7 asks for what the <i>vendor</i> was paid this month — a separate repository, a separate table
+/// and a separate field name. A cabinet's own turnover was withdrawn from this feature outright (the vendor does
+/// not get to know what a practice earns), so there is nothing here to sum and nothing to confuse this with. Do
+/// not reintroduce a per-cabinet takings figure to build it from.</para>
 /// </summary>
 public class GetPlatformSummaryQuery : IRequest<Result<PlatformSummaryDto>>
 {

@@ -9,12 +9,14 @@ import { cn } from "@/lib/utils"
 import type { CardListField } from "@/components/ui/card-list"
 import {
   CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown, Unlink, Layers,
-  ListOrdered, FilePen,
+  ListOrdered, FilePen, Archive, ArchiveRestore, BadgePercent,
 } from "lucide-react"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import { itemWorkflowLabel, itemWorkflowBadgeClass } from "./treatment-plan-labels"
-import { isPlanLive, planItemState, nextStepOf } from "./plan-next-action"
+import {
+  isPlanLive, planItemState, nextStepOf, isItemWithdrawn, detachOutcome, itemNetCost, itemDiscount,
+} from "./plan-next-action"
 import { PlanStepStrip } from "./plan-step-strip"
 
 /** Up/down controls for the act's clinical position; omitted when the plan can't be reordered. */
@@ -63,6 +65,19 @@ interface PlanActRowProps {
    * which is also what hides the control.
    */
   onEdit?: (item: TreatmentPlanItemDto) => void
+  /**
+   * Opens « Mettre cet acte de côté » (M1) — the per-act park: its fee leaves the total, the échéancier
+   * re-spreads, its fiche links are kept and « Remettre au devis » brings it back. Omitted for an act that
+   * cannot be parked (delivered work, or the last active act of the devis), which is also what hides it.
+   */
+  onWithdraw?: (item: TreatmentPlanItemDto) => void
+  /** Opens « Remettre au devis » (M2) — the mirror, offered only on an act that is already parked. */
+  onRestore?: (item: TreatmentPlanItemDto) => void
+  /**
+   * Opens « Remise » for this act (S2). Omitted on a plan the server will not amend, and on an act another
+   * document bills (its fee is 0 here by rule, so a remise would take the line negative).
+   */
+  onDiscount?: (item: TreatmentPlanItemDto) => void
   reorder?: PlanActReorder
 }
 
@@ -134,6 +149,26 @@ export function PlanActReorderControls({
  * that share the appointment, so repeating it per card would say the same thing twice.
  */
 export function PlanActStateBadge({ item }: { item: TreatmentPlanItemDto }) {
+  /*
+   * ⚠️ **A parked act rendered as an ordinary outstanding one.** Both trees map `plan.items`, so an act
+   * « mis de côté » showed the badge « À planifier » with no button and no marker — indistinguishable from
+   * work the patient is still waiting for, on the screen that answers « what is left to do? ». The header's
+   * « · N mis de côté » counted it and no row said which. This is the état, so it replaces the workflow badge
+   * rather than sitting beside it: `planItemState` speaks for the act's next step, which a parked act has not
+   * got.
+   */
+  if (isItemWithdrawn(item)) {
+    return (
+      <>
+        <Badge variant="outline" className="gap-1 whitespace-nowrap font-normal text-muted-foreground">
+          <Archive className="h-3 w-3" />
+          Mis de côté
+        </Badge>
+        <span className="text-xs text-muted-foreground">ne compte plus dans le total</span>
+      </>
+    )
+  }
+
   const state = planItemState(item)
   // ⚠️ The date has to follow whatever the badge is answering for. On a stepped act the badge speaks for the
   // NEXT step (see `planItemState`), so printing the act's own `scheduledAt` beside it would pair « Planifié »
@@ -153,16 +188,26 @@ export function PlanActStateBadge({ item }: { item: TreatmentPlanItemDto }) {
         <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDateFr(scheduledAt)}</span>
       )}
       {/*
-        TODO(treatment-plan-lifecycle AC-12): state the protocol's own earliest date here — « dès le 3 juin » —
-        in the cell that already answers « when? ».
-        ⚠️ **It must be SERVED, not derived here.** `TreatmentPlanItemStep.DueFrom(previousStepDoneOn)` is the
-        rule and it lives in the domain; the wire carries only `minDaysAfterPrevious`, so a browser-side
-        `previous.doneDate + N` would be a second implementation of it — this repository's dominant defect
-        shape. The fix is one projected field (`earliestOn`) on `TreatmentPlanItemStepDto`, fed by that method.
-        ⚠️ And it is « dès le », never « en retard »: `MinDaysAfterPrevious` says *pas avant*, not *pas après*,
-        so calling a step late once the date passes invents a promise nobody made — the exact error
-        `InstallmentLateness` was rewritten to stop making about an auto-raised échéance.
+        S5 — the protocol's own earliest day, in the cell that already answers « when? ».
+
+        ⚠️ **SERVED, not derived here.** `TreatmentPlanItemStep.DueFrom(previousStepDoneOn)` is the rule and it
+        lives in the domain; the wire carries `minDaysAfterPrevious` but not the SIBLING's date, so a
+        browser-side `previous.doneDate + N` would be a second implementation of it — this repository's
+        dominant defect shape. `earliestOn` is that method's answer.
+
+        ⚠️ **« dès le », never « en retard ».** `MinDaysAfterPrevious` says *pas avant*, not *pas après*, so a
+        date that has gone by breaks no promise and calling the step late would invent one — the exact error
+        `InstallmentLateness` was rewritten to stop making about an auto-raised échéance. That is also why
+        nothing here compares it with today: there is no state in which this line turns red.
+
+        ⚠️ Withheld once the séance is booked: the appointment IS the answer to « when? » by then, and two
+        dates in one cell read as a contradiction.
       */}
+      {state === "to-schedule" && next?.earliestOn && (
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
+          dès le {formatDateFr(next.earliestOn)}
+        </span>
+      )}
     </>
   )
 }
@@ -182,12 +227,18 @@ export function PlanActPrimaryAction({
   item,
   onSchedule,
   onUndo,
+  onWithdraw,
+  onRestore,
   block = false,
 }: {
   plan: TreatmentPlanDto
   item: TreatmentPlanItemDto
   onSchedule: (item: TreatmentPlanItemDto) => void
   onUndo?: (item: TreatmentPlanItemDto) => void
+  /** @see PlanActRowProps.onWithdraw */
+  onWithdraw?: (item: TreatmentPlanItemDto) => void
+  /** @see PlanActRowProps.onRestore */
+  onRestore?: (item: TreatmentPlanItemDto) => void
   /**
    * Full width on its own row — the card tree's `primaryAction` slot.
    *
@@ -213,6 +264,32 @@ export function PlanActPrimaryAction({
   // question, since what is being booked is one séance of it and the dentist has to know which.
   const next = nextStepOf(item)
 
+  /*
+   * ⚠️ **The booking may be on the STEP, not on the act**, and the two action arms below asked the act. The
+   * badge is derived from the next *step*'s `scheduledAt` (`planItemState`), so a stepped act whose séance is
+   * booked against the step read « À enregistrer · 12/08 » with no « Enregistrer la fiche » beside it — an
+   * empty cell on the row that says work is waiting. `actRemovalPlan` already proves the act's own
+   * `scheduledAppointmentId` can be null while the step carries one.
+   */
+  const bookedAppointmentId = next?.scheduledAppointmentId ?? item.scheduledAppointmentId ?? null
+
+  // A parked act has no next step and nothing to book — what it has is a way back.
+  if (isItemWithdrawn(item)) {
+    if (!onRestore) return null
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className={cn("h-8 gap-1", block && "w-full justify-center")}
+        onClick={() => onRestore(item)}
+        aria-label={`Remettre ${quoteFr(item.designationFr)} au devis`}
+      >
+        <ArchiveRestore className="h-4 w-4" />
+        Remettre au devis
+      </Button>
+    )
+  }
+
   if (state === "to-schedule" && planIsActive) {
     return (
       <Button
@@ -236,13 +313,13 @@ export function PlanActPrimaryAction({
     )
   }
 
-  if (state === "scheduled" && item.scheduledAppointmentId) {
+  if (state === "scheduled" && bookedAppointmentId) {
     return (
       <Button
         variant="ghost"
         size="sm"
         className={cn("h-8 gap-1", block && "w-full justify-center")}
-        onClick={() => router.push(`/appointments?appointmentId=${item.scheduledAppointmentId}`)}
+        onClick={() => router.push(`/appointments?appointmentId=${bookedAppointmentId}`)}
       >
         <CalendarCheck className="h-4 w-4" />
         Voir le RDV
@@ -252,14 +329,14 @@ export function PlanActPrimaryAction({
 
   // The visit has passed with no fiche. The patient page's existing post-visit deep-link opens the record modal
   // already bound to that appointment, so saving closes the loop in one step.
-  if (state === "to-record" && item.scheduledAppointmentId) {
+  if (state === "to-record" && bookedAppointmentId) {
     return (
       <Button
         variant="outline"
         size="sm"
         className={cn("h-8 gap-1", block && "w-full justify-center")}
         onClick={() =>
-          router.push(`/patients/${plan.patientId}?addRecord=1&appointmentId=${item.scheduledAppointmentId}`)
+          router.push(`/patients/${plan.patientId}?addRecord=1&appointmentId=${bookedAppointmentId}`)
         }
       >
         <FilePlus2 className="h-4 w-4" />
@@ -269,6 +346,12 @@ export function PlanActPrimaryAction({
   }
 
   if (state === "done") {
+    const outcome = detachOutcome(item)
+    const detachLabel =
+      outcome.stepLabel && (outcome.remaining?.done ?? 0) > 0
+        ? `Détacher la séance ${quoteFr(outcome.stepLabel)} de sa fiche de soins — `
+          + `${quoteFr(item.designationFr)} repassera à « En cours »`
+        : `Détacher la fiche de soins de ${quoteFr(item.designationFr)} — il repassera à « Prévu »`
     /*
      * ⚠️ **`flex-wrap` + a real `basis` + an explicit `shrink`, and all three are load-bearing.** `Button` is
      * `whitespace-nowrap shrink-0`, and `flex-1` does **not** clear that — they are different tailwind-merge
@@ -304,7 +387,15 @@ export function PlanActPrimaryAction({
               block && "flex-1 basis-28 shrink justify-center",
             )}
             onClick={() => onUndo(item)}
-            title="Ramener cet acte à « Prévu » et détacher sa fiche de soins"
+            /*
+             * ⚠️ **The `title` said « Ramener cet acte à « Prévu » », which is the exact false claim
+             * `detachOutcome` exists to remove**: `Unmark` releases the LAST séance recorded, so a
+             * three-séance couronne lands on « En cours », 2 étapes sur 3 faites. And a `title` needs a hover,
+             * which the tablet this app runs on has not got. Replaced by the outcome's own sentence on the
+             * accessible name, where a screen reader and a keyboard both reach it; the full arithmetic is in
+             * the confirmation the press opens.
+             */
+            aria-label={detachLabel}
           >
             <Unlink className="h-4 w-4" />
             Détacher
@@ -314,7 +405,26 @@ export function PlanActPrimaryAction({
     )
   }
 
-  return null
+  /*
+   * ⚠️ **The tail was a bare `return null` — an empty cell on a row that plainly has something to say.** Every
+   * arm above needs either a live plan or a booking, so a `Completed`, `Stopped` or `Cancelled` devis with
+   * unrealised acts rendered a column of blanks: the badge said « À planifier » and the action column said
+   * nothing at all, on the one screen a dentist opens to find out what is left. A muted sentence naming *why*
+   * there is no action is not a control and costs no capability.
+   */
+  return (
+    <span className={cn("text-xs text-muted-foreground", block && "block w-full text-center")}>
+      {plan.status === "Cancelled"
+        ? "Devis annulé"
+        : plan.status === "Stopped"
+          ? "Traitement arrêté"
+          : plan.status === "WrittenOff"
+            ? "Créance abandonnée"
+            : plan.status === "Completed"
+              ? "Traitement clôturé"
+              : "Rien à faire pour l'instant"}
+    </span>
+  )
 }
 
 /**
@@ -362,6 +472,76 @@ export function PlanActStepsAction({
     >
       <ListOrdered className="h-4 w-4" />
       <span className="hidden sm:inline">Séances</span>
+    </Button>
+  )
+}
+
+/**
+ * « Remise » — the act's discount (S2), beside « Modifier ».
+ *
+ * <p>⚠️ <b>Its own control and its own command, not a field on the amend form.</b> The amend dialog sends every
+ * act's designation and cost on every save, so folding the remise in would mean an older caller — or a save
+ * made from a surface that does not know about remises — silently clears one. That is the tri-state trap this
+ * repository has paid for three times on `DentalRecordAct`.</p>
+ */
+export function PlanActDiscountAction({
+  item,
+  onDiscount,
+}: {
+  item: TreatmentPlanItemDto
+  onDiscount: (item: TreatmentPlanItemDto) => void
+}) {
+  const discount = itemDiscount(item)
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={cn(
+        "h-8 shrink-0 gap-1.5 px-2 coarse:h-10 hover-hover:hover:text-foreground",
+        discount > 0.0005 ? "text-foreground" : "text-muted-foreground",
+      )}
+      onClick={() => onDiscount(item)}
+      aria-label={
+        discount > 0.0005
+          ? `Modifier la remise de ${quoteFr(item.designationFr)}`
+          : `Accorder une remise sur ${quoteFr(item.designationFr)}`
+      }
+    >
+      <BadgePercent className="h-4 w-4" />
+      <span className="hidden sm:inline">Remise</span>
+    </Button>
+  )
+}
+
+/**
+ * « Mettre de côté » — the per-act park (M1), beside « Séances » and « Modifier ».
+ *
+ * <p>⚠️ <b>This is the capability behind the literal complaint.</b> Removing an act with delivered work is
+ * refused, and the refusal's named remedy is a three-deep chain the message does not disclose: détacher la
+ * fiche → refused if that fiche is on a live note → whose own remedy is refused if the note has a payment. The
+ * keep is correct; what was missing is a way to say « cet acte ne se fera pas » that preserves the fiche
+ * links, drops the fee from the total, re-spreads the échéancier and needs none of the chain.</p>
+ *
+ * <p>A word rather than a mute icon, for `PlanActStepsAction`'s reason: a `title` needs a hover and this app
+ * runs on a tablet.</p>
+ */
+export function PlanActWithdrawAction({
+  item,
+  onWithdraw,
+}: {
+  item: TreatmentPlanItemDto
+  onWithdraw: (item: TreatmentPlanItemDto) => void
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-8 shrink-0 gap-1.5 px-2 text-muted-foreground coarse:h-10 hover-hover:hover:text-foreground"
+      onClick={() => onWithdraw(item)}
+      aria-label={`Mettre ${quoteFr(item.designationFr)} de côté — il sort du total, rien n'est supprimé`}
+    >
+      <Archive className="h-4 w-4" />
+      <span className="hidden sm:inline">De côté</span>
     </Button>
   )
 }
@@ -418,7 +598,28 @@ export function PlanActEditAction({
  */
 function planActCost(item: TreatmentPlanItemDto) {
   if (!item.billedOnInvoiceId) {
-    return <span className="tabular-nums">{formatDT(item.plannedCost)}</span>
+    const discount = itemDiscount(item)
+    /*
+     * ⚠️ **S2 — the tarif and the remise are both shown, and the NET is the figure.** Printing the net alone
+     * is exactly the state the remise exists to leave behind: a 350 nobody can account for, on a devis whose
+     * catalogue says 400. The two extra lines render only when a remise was granted, so an ordinary act's cell
+     * is unchanged.
+     */
+    if (discount <= 0.0005) {
+      // The same figure as the tarif on an act with no remise, read through the owner all the same: what the
+      // cell means is « what the patient owes for this act », and N40 is what keeps that one question one read.
+      return <span className="tabular-nums">{formatDT(itemNetCost(item))}</span>
+    }
+    return (
+      <span className="block">
+        <span className="tabular-nums">{formatDT(itemNetCost(item))}</span>
+        <span className="block text-2xs text-muted-foreground">
+          <span className="line-through">{formatDT(item.plannedCost)}</span>
+          {" · "}
+          remise {formatDT(discount)}
+        </span>
+      </span>
+    )
   }
 
   const amount = item.billedOnInvoiceAmount ?? 0
@@ -468,12 +669,21 @@ export function PlanActRow({
   onUndo,
   onEditSteps,
   onEdit,
+  onWithdraw,
+  onRestore,
+  onDiscount,
   reorder,
   selection,
   sessionActCount = 1,
 }: PlanActRowProps) {
+  const withdrawn = isItemWithdrawn(item)
   return (
-    <TableRow data-state={selection?.checked ? "selected" : undefined}>
+    <TableRow
+      data-state={selection?.checked ? "selected" : undefined}
+      // A parked act is still part of the devis' history and stays on the list; it is quietened rather than
+      // hidden, which is the same treatment a voided payment gets two cards down.
+      className={cn(withdrawn && "opacity-60")}
+    >
       {selection && (
         <TableCell>
           <PlanActSelectionBox item={item} selection={selection} />
@@ -485,7 +695,7 @@ export function PlanActRow({
         </TableCell>
       )}
       <TableCell className="align-top">
-        <span className="font-medium">{item.designationFr}</span>
+        <span className={cn("font-medium", withdrawn && "text-muted-foreground")}>{item.designationFr}</span>
         {/* Under the act's own name, not in the État cell: the strip describes THIS ACT's progress, while the
             État cell answers a different question — what to do next about it. */}
         <PlanStepStrip steps={item.steps} nextStepId={item.nextStepId} />
@@ -518,9 +728,20 @@ export function PlanActRow({
       </TableCell>
       <TableCell className="align-top text-right">
         <div className="flex items-center justify-end gap-1">
-          <PlanActPrimaryAction plan={plan} item={item} onSchedule={onSchedule} onUndo={onUndo} />
-          {onEditSteps && <PlanActStepsAction item={item} onEditSteps={onEditSteps} />}
-          {onEdit && <PlanActEditAction item={item} onEdit={onEdit} />}
+          <PlanActPrimaryAction
+            plan={plan}
+            item={item}
+            onSchedule={onSchedule}
+            onUndo={onUndo}
+            onWithdraw={onWithdraw}
+            onRestore={onRestore}
+          />
+          {!withdrawn && onEditSteps && <PlanActStepsAction item={item} onEditSteps={onEditSteps} />}
+          {!withdrawn && onEdit && <PlanActEditAction item={item} onEdit={onEdit} />}
+          {!withdrawn && onDiscount && <PlanActDiscountAction item={item} onDiscount={onDiscount} />}
+          {/* « Mettre de côté » is a secondary control beside the act's own action, never the row's primary
+              one: the thing to do with an act is to carry it out. */}
+          {!withdrawn && onWithdraw && <PlanActWithdrawAction item={item} onWithdraw={onWithdraw} />}
         </div>
       </TableCell>
     </TableRow>

@@ -7,6 +7,7 @@ import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useConflict } from "@/lib/hooks/use-conflict"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -33,7 +34,6 @@ import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/compone
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { patientsApi } from "@/lib/api/patients"
-import { ApiError } from "@/lib/api/client"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import type {
   TreatmentPlanDto,
@@ -42,6 +42,7 @@ import type {
   ProcedureTypeDto,
 } from "@/lib/api/types"
 import { formatAmount, formatDT, formatDateTime, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
+import { installmentDueLabel } from "./treatment-plan-labels"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
@@ -244,24 +245,6 @@ interface TreatmentPlanFormModalProps {
   onSuccess?: () => void
 }
 
-/**
- * Upgrade the message when the same edit conflicts twice running. The first 409 means "someone saved before
- * you"; the second means "someone is editing this right now", and telling the user to reload again would be
- * repeating advice that has already failed.
- */
-function conflictMessage(err: unknown, fallback: string, consecutive: React.MutableRefObject<number>): string {
-  if (err instanceof ApiError && err.status === 409) {
-    consecutive.current += 1
-    if (consecutive.current > 1) {
-      return "L'enregistrement a encore été modifié pendant votre saisie. Quelqu'un travaille probablement "
-        + "dessus en même temps — coordonnez-vous avant de réessayer."
-    }
-    return err.message || fallback
-  }
-  consecutive.current = 0
-  return err instanceof ApiError ? err.message : fallback
-}
-
 export function TreatmentPlanFormModal({
   open,
   onOpenChange,
@@ -305,9 +288,26 @@ export function TreatmentPlanFormModal({
   const [installments, setInstallments] = useState<InstallmentRow[]>([])
   const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  /**
+   * The form's error state, and it knows about 409s — C10.
+   *
+   * <p>⚠️ <b>This dialog is the poisoned-dialog trap the root guide records, and it had the whole shape of
+   * it.</b> A hand-rolled `conflictMessage` wrote the refusal into a plain `setError`, and the save
+   * deliberately does <b>not</b> re-read on a 409 (rightly — a silent resync + retry overwrites the colleague
+   * who caused it). So the version the form holds never moved, every later press repeated the identical
+   * refusal, and the escalated second message then told the user to coordinate with a colleague while
+   * offering no control to see what that colleague had written. The measured production case on the
+   * appointment dialog was six refusals over 81 minutes until the user reloaded the page.</p>
+   *
+   * <p>`useConflict` supplies the same escalation and, crucially, `isConflict` — which drives the
+   * « Recharger » action on the banner. The rule that a retry must not silently resync is unchanged; what
+   * changed is that reloading is now something the user can <b>ask for</b>, which is exactly what the server's
+   * own sentence tells them to do.</p>
+   */
+  const conflict = useConflict()
+  const error = conflict.error
+  const setError = conflict.setError
   const guard = useDirtyGuard(open, onOpenChange)
-  const conflictStreak = useRef(0)
   // The version this devis saves with, kept equal to the row's current one. ⚠️ The VERSION only — the read
   // lands after hydration, so its items and échéances would replace what the user has edited.
   const { source: freshPlan, resync } = useFreshVersion(
@@ -448,8 +448,10 @@ export function TreatmentPlanFormModal({
       )
       setInstallments([])
     }
-    setError(null)
+    // `reset`, not `setError(null)`: a fresh open starts a fresh conflict streak.
+    conflict.reset()
     // Seeds once when the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `conflict.reset` is stable; listing it re-seeds
   }, [open, editingPlan, presetPatientId, seedLines, loadPickers])
 
   const updateLine = (index: number, patch: Partial<LineRow>) => {
@@ -749,7 +751,10 @@ export function TreatmentPlanFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
+    // ⚠️ `clearMessage`, never `setError(null)`: that one resets the consecutive-conflict counter, so a form
+    // clearing its banner at the top of every submit can never reach a second 409 and the escalated wording
+    // is unreachable. `use-conflict.ts` records this measured verbatim.
+    conflict.clearMessage()
 
     if (!patientId) {
       setError("Veuillez sélectionner un patient.")
@@ -849,7 +854,9 @@ export function TreatmentPlanFormModal({
         const row = installments[i]
         if (row.amountPaid > 0 && parsedInstallments[i].amount < row.amountPaid - 0.0005) {
           setError(
-            `L'échéance du ${row.dueDate} a déjà encaissé ${formatDT(row.amountPaid)} — son montant ne peut pas être ramené en dessous.`,
+            // Named the way the échéancier names it. It printed the raw `2026-03-14` here.
+            `${installmentDueLabel({ dueDate: row.dueDate })} : déjà encaissé ${formatDT(row.amountPaid)} — `
+              + "son montant ne peut pas être ramené en dessous.",
           )
           return
         }
@@ -941,8 +948,9 @@ export function TreatmentPlanFormModal({
         onSuccess?.()
         onOpenChange(false)
       } catch (err) {
-        setError(conflictMessage(err, "Échec de la modification du devis.", conflictStreak))
-        if (!(err instanceof ApiError && err.status === 409)) await resync()
+        // A non-conflict failure may still have moved the row; a real 409 is left alone, or the retry would
+        // silently overwrite the colleague who caused it — « Recharger » on the banner is their door instead.
+        if (!conflict.capture(err, "Échec de la modification du devis.")) await resync()
       } finally {
         setLoading(false)
       }
@@ -981,10 +989,9 @@ export function TreatmentPlanFormModal({
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      setError(conflictMessage(err, "Échec de l'enregistrement du plan.", conflictStreak))
       // A non-conflict failure may still have moved the row; a real 409 is left alone, or the retry would
-      // silently overwrite the colleague who caused it.
-      if (!(err instanceof ApiError && err.status === 409)) await resync()
+      // silently overwrite the colleague who caused it — « Recharger » on the banner is their door instead.
+      if (!conflict.capture(err, "Échec de l'enregistrement du plan.")) await resync()
     } finally {
       setLoading(false)
     }
@@ -997,8 +1004,11 @@ export function TreatmentPlanFormModal({
       <DialogContent mobile="sheet" className="md:max-h-[90dvh] md:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
+            {/* m15 — « Modifier les actes et les prix », the same words the workspace's menu uses. « Modifier
+                le devis » was renamed there precisely because it is a homophone of « Éditer le devis », which
+                mints the number; leaving the stale wording on the dialog's own title reintroduced it. */}
             {isAmending
-              ? "Modifier le devis"
+              ? "Modifier les actes et les prix"
               : isEditing
                 ? "Modifier le plan de traitement"
                 : "Nouveau plan de traitement"}
@@ -1043,7 +1053,26 @@ export function TreatmentPlanFormModal({
         {/* The form owns the remaining height so `DialogBody` scrolls and the footer stays on screen (AC-21). */}
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogBody className="space-y-4">
-          <FormErrorBanner message={error} />
+          {/*
+            ⚠️ **The « Recharger » that makes a 409 recoverable.** `resync` re-reads the plan and updates the
+            version the form saves with — and the user's own input is deliberately left untouched, so they
+            re-read what they typed and press Enregistrer again rather than losing it. Without this the banner
+            said « rechargez » with no control to do it, which is half a fix.
+          */}
+          <FormErrorBanner
+            message={error}
+            action={
+              conflict.isConflict
+                ? {
+                    label: "Recharger",
+                    onClick: () => {
+                      void resync().then(() => conflict.clearMessage())
+                    },
+                    disabled: loading,
+                  }
+                : undefined
+            }
+          />
 
           {/* One notice for the three picker reads: they load together, they fail together in practice, and three
               separate banners over one form would say the same thing three times. */}
@@ -1676,17 +1705,24 @@ export function TreatmentPlanFormModal({
                 const collected = row.amountPaid > 0
                 return (
                 <div key={index} className="space-y-1">
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1 space-y-1">
+                  {/*
+                    ⚠️ **`flex-wrap` + a real `basis-*`, identical to `revise-installments-modal`'s row.** With
+                    no wrap, a `flex-1` `type="date"` (~120 px intrinsic minimum) beside a `w-36` amount and a
+                    40 px bin cannot reach its floor in the ~90 px left at 320 px, and the dialog scrolls
+                    sideways. `min-w-0` on both, since `Input` does not shrink past its intrinsic width alone.
+                  */}
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-0 flex-1 basis-40 space-y-1">
                       {index === 0 && <span className="text-xs text-muted-foreground">Échéance</span>}
                       <Input
                         type="date"
                         value={row.dueDate}
                         onChange={(e) => updateInstallment(index, { dueDate: e.target.value })}
                         disabled={loading}
+                        aria-label="Date de l'échéance"
                       />
                     </div>
-                    <div className="w-36 space-y-1">
+                    <div className="min-w-0 flex-1 basis-28 space-y-1 sm:max-w-36">
                       {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
                       {/* Same conversion as « Coût » above (J8). The `min` it drops was never the real guard:
                           the server refuses an échéance below what it has already collected, and the locked-row

@@ -18,6 +18,11 @@ public class ReviseTreatmentPlanInstallmentsCommand : IRequest<Result<TreatmentP
 {
     public Guid Id { get; set; }
     public List<InstallmentRequest> Installments { get; set; } = new();
+
+    /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
+    /// <remarks>It rewrites the <b>whole</b> échéancier, so two people revising one devis silently overwrote
+    /// each other's schedule.</remarks>
+    public uint Version { get; set; }
 }
 
 public class ReviseTreatmentPlanInstallmentsCommandHandler
@@ -81,6 +86,7 @@ public class ReviseTreatmentPlanInstallmentsCommandHandler
             plan.ReviseInstallments(request.Installments.Select(i => (i.Id, i.DueDate, i.Amount)));
             plan.RecordAmendment();
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

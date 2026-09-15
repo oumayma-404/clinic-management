@@ -9,23 +9,25 @@ using ClinicManagement.Domain.Repositories;
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 
 /// <summary>
-/// Close an accepted/in-progress plan — the manual « Terminer » action.
+/// Close a plan whose work is finished — the API half of « Terminer ». No UI caller (spec: the button was
+/// removed and « Arrêter le traitement » took its place); the endpoint and the automatic clôture stay.
 /// <para>
-/// ⚠️ It closes a plan whose acts are <b>not all réalisé</b>, leaving them so. That is what the confirmation has
-/// always said in words — « Les N actes non réalisés resteront non réalisés — la clôture ne les valide pas » —
-/// and what the aggregate used to refuse, making this endpoint fail in exactly the case the dialog bothered to
-/// explain. No case could be built from the UI in which it succeeded: with any act unrealised the server
-/// refused, and once every act was realised the plan had already auto-completed and the button was not rendered.
+/// ⚠️ <b>It refuses a plan with acts still « non réalisé », and that refusal is deliberate.</b> It used to pass
+/// <c>leaveUnrealisedActs: true</c>, closing the plan over unfinished work and leaving the échéancier untouched
+/// — so the patient went on owing for séances nobody would ever do, on a devis badged « Terminé » where every
+/// remedy had been withdrawn. That case belongs to <c>StopTreatmentPlanCommand</c>, which parks the unrealised
+/// acts and re-spreads the balance onto what was kept, in one transition.
 /// </para>
 /// <para>
-/// The automatic clôture fired when the last step lands still asserts that everything really is done — see
-/// <c>TreatmentPlan.Complete</c>'s parameter. Money is untouched either way: « Terminé » means the work is over,
-/// not that the patient has paid.
+/// Money is untouched either way: « Terminé » means the work is over, not that the patient has paid.
 /// </para>
 /// </summary>
 public class CompleteTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 {
     public Guid Id { get; set; }
+
+    /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
+    public uint Version { get; set; }
 }
 
 public class CompleteTreatmentPlanCommandHandler : IRequestHandler<CompleteTreatmentPlanCommand, Result<TreatmentPlanDto>>
@@ -67,8 +69,23 @@ public class CompleteTreatmentPlanCommandHandler : IRequestHandler<CompleteTreat
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
-            plan.Complete(leaveUnrealisedActs: true);
+            /*
+             * ⚠️ `leaveUnrealisedActs` is NOT passed any more, and dropping it is the fix — « Arrêter le
+             * traitement » owns that case now.
+             *
+             * Closing a plan with acts still « non réalisé » left them so AND left the échéancier alone, so the
+             * patient went on owing for work nobody would ever do: a live créance on a devis badged « Terminé »,
+             * outside every remedy (« Arrêter » is withdrawn once the plan is closed). `StopTreatment` parks the
+             * unrealised acts, re-spreads the balance onto what was kept and closes the plan in one transition —
+             * which is what this endpoint's confirmation was describing all along.
+             *
+             * ⚠️ The endpoint and the automatic path are unchanged (spec AC-11 / API contract): the automatic
+             * clôture fires when the last step lands, so every act really is done and the default refuses
+             * nothing. What is gone is the API-only way to close a plan over unfinished work.
+             */
+            plan.Complete();
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

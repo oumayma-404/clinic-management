@@ -3,6 +3,7 @@
 import { CalendarPlus, ChevronRight, Route, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
+import { itemNetCost } from "./plan-next-action"
 import type { PlanStepSuggestion, PlanSuggestionSet } from "./plan-next-action"
 
 interface PlanStepSuggestionNoticeProps {
@@ -173,7 +174,7 @@ function DetailedRow({
           time, so there is very often something to take — just not a second fee. The figure's point is
           unchanged (it must not be charged again); what was wrong was the claim about the money.
         */}
-        {formatDT(item.plannedCost)} pour tout le traitement — cette séance n&apos;ajoute pas
+        {formatDT(itemNetCost(item))} pour tout le traitement — cette séance n&apos;ajoute pas
         d&apos;honoraires.
       </p>
 
@@ -254,7 +255,7 @@ function CompactRow({
         <p className="text-2xs text-muted-foreground [overflow-wrap:anywhere]">
           {plan.number && <span className="font-mono">{plan.number}</span>}
           {plan.number && " · "}
-          {formatDT(item.plannedCost)}
+          {formatDT(itemNetCost(item))}
         </p>
 
         <StepsDoneLine item={item} />

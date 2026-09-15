@@ -11,10 +11,48 @@ public class TreatmentPlanDto
     public string? Notes { get; set; }
     public DateTime? AcceptedDate { get; set; }
     public string? CancellationReason { get; set; }
+
+    /// <summary>
+    /// Why this devis' créance was abandoned, and how much of it — null / 0 on every plan that has not been
+    /// written off. See <c>TreatmentPlan.WriteOff</c>.
+    /// </summary>
+    public string? WriteOffReason { get; set; }
+
+    /// <inheritdoc cref="WriteOffReason"/>
+    public decimal WriteOffAmount { get; set; }
+
+    /// <summary>What the patient owes — the acts' <b>net</b> total, after any remise.</summary>
     public decimal TotalPlanned { get; set; }
+
+    /// <summary>
+    /// The acts' tarifs before remise, and what was given away. <c>TotalGross == TotalPlanned</c> and
+    /// <c>TotalDiscount == 0</c> on every devis that grants none, which is what lets a surface render the
+    /// remise lines only when there is one.
+    /// </summary>
+    public decimal TotalGross { get; set; }
+
+    /// <inheritdoc cref="TotalGross"/>
+    public decimal TotalDiscount { get; set; }
     public decimal AmountPaid { get; set; }
     public decimal Outstanding { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// The practitioner this devis is attributed to, and their name for display. <c>null</c> is a real state:
+    /// many treatments in a single-practitioner cabinet name nobody.
+    ///
+    /// <para>⚠️ <b>The DTO carried no doctor field at all</b>, so the attribution
+    /// <c>CreateInvoiceFromTreatmentPlanCommand</c> snapshots onto every note d'honoraires raised from a devis
+    /// was invisible on every screen — in a two-dentist cabinet, every dinar credited to the wrong person
+    /// with nothing showing it. <c>SetTreatmentPlanDoctorCommand</c> is how it is corrected.</para>
+    /// <para>⚠️ <b>The live name wins and there is no snapshot fallback</b>, unlike
+    /// <c>AppointmentDoctorNames</c>: a plan stores only the id, so a dentist correcting their own spelling
+    /// sees it everywhere. Populated on the query paths (and on the attribution command's own response).</para>
+    /// </summary>
+    public Guid? DoctorId { get; set; }
+
+    /// <inheritdoc cref="DoctorId"/>
+    public string? DoctorName { get; set; }
 
     /// <summary>
     /// Optimistic-concurrency token (PostgreSQL <c>xmin</c>). Send it back on the matching update command so
@@ -99,7 +137,34 @@ public class TreatmentPlanDto
     public decimal? TreatmentOutstanding { get; set; }
 
     public List<TreatmentPlanItemDto> Items { get; set; } = new();
+
+    /// <summary>
+    /// Acts of this devis that another debt-bearing devis of the same patient also quotes (S7) — <b>empty</b>
+    /// on every ordinary plan, and a <b>notice</b> rather than a refusal.
+    ///
+    /// <para>⚠️ Populated on the single-plan read only. The list screen would need one extra read per row to
+    /// answer it, and the answer is only actionable on the devis' own page, where the other document can be
+    /// named and opened.</para>
+    /// </summary>
+    public List<DuplicateActDto> DuplicateActs { get; set; } = new();
     public List<InstallmentDto> Installments { get; set; } = new();
+}
+
+/// <summary>
+/// One act quoted on two live devis at once — see <c>DuplicateActDetection</c>. Names the OTHER devis, so the
+/// dentist can go and look at it rather than search for it.
+/// </summary>
+public class DuplicateActDto
+{
+    /// <summary>The act on THIS devis, so the notice can sit on its own row.</summary>
+    public Guid ItemId { get; set; }
+    public string DesignationFr { get; set; } = string.Empty;
+    public List<int> ToothNumbers { get; set; } = new();
+    public Guid OtherPlanId { get; set; }
+
+    /// <summary>The other devis' number, or null when it has none. Its title is the fallback name.</summary>
+    public string? OtherPlanNumber { get; set; }
+    public string OtherPlanTitle { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -146,7 +211,24 @@ public class TreatmentPlanItemDto
 
     public string DesignationFr { get; set; } = string.Empty;
     public List<int> ToothNumbers { get; set; } = new();
+    /// <summary>The act's tarif, before any remise. Never what the patient owes — see <see cref="NetCost"/>.</summary>
     public decimal PlannedCost { get; set; }
+
+    /// <summary>
+    /// The remise granted on this act, 0 on an ordinary line.
+    ///
+    /// <para>⚠️ A surface printing money for this act reads <see cref="NetCost"/>. The two stored figures are
+    /// here so the devis and the act row can show « 400,000 − 50,000 » rather than a 350 nobody can account
+    /// for — which is the whole reason the remise is a field instead of a lower price typed over the tarif.</para>
+    /// </summary>
+    public decimal DiscountAmount { get; set; }
+
+    /// <summary>
+    /// What this act costs the patient: <see cref="PlannedCost"/> − <see cref="DiscountAmount"/>. Served rather
+    /// than subtracted in the browser, on `displayedOutstanding`'s precedent — a second implementation of a
+    /// money rule is this repository's dominant defect shape.
+    /// </summary>
+    public decimal NetCost { get; set; }
 
     /// <summary>
     /// The note d'honoraires that already collects this act's fee, when the devis holds it at <b>0</b> — null on
@@ -261,6 +343,22 @@ public class TreatmentPlanItemStepDto
     /// time are two different quantities; see <c>TreatmentPlanItemStep.MinDaysAfterPrevious</c>.
     /// </summary>
     public int? MinDaysAfterPrevious { get; set; }
+
+    /// <summary>
+    /// The earliest day this step should be carried out, from <see cref="MinDaysAfterPrevious"/> and the
+    /// previous step's own date — null when either is unknown, which is the ordinary case and means « no
+    /// opinion ».
+    ///
+    /// <para>⚠️ <b>Served, never derived in the browser.</b> The rule is
+    /// <c>TreatmentPlanItemStep.DueFrom(previousStepDoneOn)</c> and it needs the SIBLING's date, which a step
+    /// on the wire does not carry; a browser-side <c>previous.doneDate + N</c> would be a second
+    /// implementation of a domain method. `plan-act-row.tsx` carried a TODO saying exactly this.</para>
+    ///
+    /// <para>⚠️ It is a « pas avant », never a « pas après ». A date that has passed breaks no promise, so no
+    /// surface may call the step late — the same error <c>InstallmentLateness</c> was rewritten to stop making
+    /// about an auto-raised échéance.</para>
+    /// </summary>
+    public DateTime? EarliestOn { get; set; }
 
     // ---- Derived (never persisted) -------------------------------------------------------------------
     /// <summary>

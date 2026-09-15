@@ -269,8 +269,18 @@ function CaisseContent() {
   // La caisse had no realtime subscription at all — the one screen whose whole job is "what is in the
   // drawer right now" sat stale while a colleague recorded payments next door. Every money source it sums
   // is watched, because any of them moves the total.
+  //
+  // ⚠️ `Patients` is the fourth, and it was the one that actually pays at the chair: the fiche de soins
+  // carries « Encaissé sur le traitement » and its own note d'honoraires, and `CreateDentalRecordCommand` is
+  // a `Features.Patients` command — so the commonest cash of the day broadcast on a key la caisse was not
+  // listening to. N42 holds it.
   useClinicRealtime(
-    [RealtimeResource.Invoices, RealtimeResource.TreatmentPlans, RealtimeResource.Expenses],
+    [
+      RealtimeResource.Invoices,
+      RealtimeResource.TreatmentPlans,
+      RealtimeResource.Expenses,
+      RealtimeResource.Patients,
+    ],
     loadData,
   )
 

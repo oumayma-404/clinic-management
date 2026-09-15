@@ -240,9 +240,11 @@ public class ContinueRecordedActCommandHandler
              * « Créances », la caisse, the dashboard and the échéancier alike. Measured on the reported case: a
              * 30 DT coiffage billed on a note, continued at 10 DT, left the patient's balance reading 0.
              *
-             * `AmendTreatmentPlanCommand.EnsureNotBilledAsync` refuses precisely this state — « acts added
-             * afterwards would be invisible in every balance » — and this command reached it by another door,
-             * adding the line before attaching rather than after.
+             * ⚠️ `AmendTreatmentPlanCommand` used to REFUSE precisely this state — « acts added afterwards
+             * would be invisible in every balance » — and that guard is gone (dead code, deleted per spec
+             * AC-17). So nothing upstream catches it any more: the surplus is made billable instead, by
+             * `CreateInvoiceFromTreatmentPlanCommand`'s supplementary note. This command must therefore never
+             * reach the state itself, which is what the 0 below is for.
              *
              * So: the already-billed act goes on the devis at <b>0</b> (the note collected it and still does)
              * and the note is left unattached, which keeps the two documents disjoint instead of overlapping.

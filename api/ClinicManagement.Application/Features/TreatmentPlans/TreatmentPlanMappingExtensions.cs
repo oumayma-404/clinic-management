@@ -134,10 +134,21 @@ public static class TreatmentPlanMappingExtensions
             Notes = plan.Notes,
             AcceptedDate = plan.AcceptedDate,
             CancellationReason = plan.CancellationReason,
+            WriteOffReason = plan.WriteOffReason,
+            WriteOffAmount = plan.WriteOffAmount,
             TotalPlanned = plan.TotalPlanned,
+            TotalGross = plan.TotalGross,
+            TotalDiscount = plan.TotalDiscount,
             AmountPaid = plan.AmountPaid,
             Outstanding = plan.Outstanding,
             CreatedAt = plan.CreatedAt,
+            // M6 - the attribution `CreateInvoiceFromTreatmentPlanCommand` snapshots onto every note raised
+            // from this devis. The id is always served; the name only when the caller passed a roster.
+            DoctorId = plan.DoctorId,
+            DoctorName = plan.DoctorId.HasValue
+                && workflow.DoctorNameById.TryGetValue(plan.DoctorId.Value, out var doctorName)
+                    ? doctorName
+                    : null,
         Version = plan.Version,
             UpdatedAt = plan.UpdatedAt,
             RevisionNumber = plan.RevisionNumber,
@@ -218,6 +229,8 @@ public static class TreatmentPlanMappingExtensions
             DesignationFr = item.DesignationFr,
             ToothNumbers = item.ToothNumbers.ToList(),
             PlannedCost = item.PlannedCost,
+            DiscountAmount = item.DiscountAmount,
+            NetCost = item.NetCost,
             // Null on every ordinary line, which is what keeps the act row's shape unchanged for every plan
             // that carries nothing. The number and the outstanding come from the projection, never from the
             // marker alone — a cancelled note is dropped there, so this stays null and the row falls back to
@@ -242,12 +255,43 @@ public static class TreatmentPlanMappingExtensions
             ScheduledAppointmentId = hasAppointment ? appointment!.Id : null,
             ScheduledAt = hasAppointment ? appointment!.AppointmentDateTime : null,
             ScheduledAppointmentStatus = hasAppointment ? appointment!.Status.ToString() : null,
-            Steps = item.Steps.Select(s => ToStepDto(s, workflow)).ToList(),
+            // ⚠️ Projected in ONE pass over the ordered steps, because `EarliestOn` needs the PREVIOUS step's
+            // date — `DueFrom` takes it as a parameter precisely so a step never reaches back through a
+            // navigation to find its siblings (the unloaded-collection trap this solution has been bitten by).
+            Steps = ToStepDtos(item, workflow),
             StepsDone = item.StepsDone,
             NextStepId = item.NextStep?.Id,
             NextStepDueFrom = item.NextStepDueFrom,
             IsWithdrawn = item.IsWithdrawn,
         };
+    }
+
+    /// <summary>
+    /// One act's steps, in clinical order, each carrying the earliest day its protocol allows.
+    ///
+    /// <para>
+    /// ⚠️ <b>The « previous step » is the one before it in sequence, and its date is its <c>DoneDate</c>.</b>
+    /// A step whose predecessor has not been carried out has no earliest day at all — « pas avant 90 jours
+    /// après la pose » is meaningless until the pose has happened — so the answer is null and every surface
+    /// simply says nothing. That is the ordinary case on a fresh devis and it must stay silent rather than
+    /// guessing from today.
+    /// </para>
+    /// </summary>
+    private static List<TreatmentPlanItemStepDto> ToStepDtos(
+        TreatmentPlanItem item, TreatmentPlanWorkflow workflow)
+    {
+        var dtos = new List<TreatmentPlanItemStepDto>();
+        DateTime? previousDoneOn = null;
+
+        foreach (var step in item.Steps)
+        {
+            var dto = ToStepDto(step, workflow);
+            dto.EarliestOn = step.DueFrom(previousDoneOn);
+            dtos.Add(dto);
+            previousDoneOn = step.DoneDate;
+        }
+
+        return dtos;
     }
 
     private static TreatmentPlanItemStepDto ToStepDto(TreatmentPlanItemStep step, TreatmentPlanWorkflow workflow)

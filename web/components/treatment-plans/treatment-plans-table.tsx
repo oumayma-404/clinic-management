@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { MoreHorizontal, Plus, Loader2, ChevronRight, ClipboardList } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -26,6 +27,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
+import { invoicesApi } from "@/lib/api/invoices"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
@@ -35,8 +37,18 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
-import { planStatusLabel, planStatusBadgeClass, planHasRecordedWork } from "./treatment-plan-labels"
 import {
+  planStatusLabel,
+  planStatusBadgeClass,
+  planHasRecordedWork,
+  planDisplayName,
+} from "./treatment-plan-labels"
+import {
+  canAmendPlan,
+  canBillPlan,
+  canCancelPlan,
+  canDeletePlan,
+  canUseDraftEditor,
   displayedOutstanding,
   isPlanBilled,
   planItemState,
@@ -174,7 +186,19 @@ export function TreatmentPlansTable({
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<TreatmentPlanDto | null>(null)
+  /**
+   * Whether the open form is amending a numbered devis or rewriting a pristine draft — see `openEdit`.
+   * Held beside `editing` rather than derived at render, so it cannot change under an open dialog when a
+   * realtime refresh re-reads the plan.
+   */
+  const [editingAmend, setEditingAmend] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<TreatmentPlanDto | null>(null)
+  /** The devis whose annulation is being confirmed, with its motif. See `canCancelPlan`. */
+  const [cancelTarget, setCancelTarget] = useState<TreatmentPlanDto | null>(null)
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  /** The devis whose facturation is being confirmed. */
+  const [billTarget, setBillTarget] = useState<TreatmentPlanDto | null>(null)
   /** A refusal from the delete call, shown *inside* the dialog rather than replacing it with a toast. */
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -214,11 +238,20 @@ export function TreatmentPlansTable({
 
   const load = useCallback(() => setLocalRefresh((n) => n + 1), [])
 
-  // Three keys, not one: an act's état is derived from Appointment rows and the « Facturé » badge from Invoice
+  // Four keys, not one: an act's état is derived from Appointment rows and the « Facturé » badge from Invoice
   // rows, and RealtimeBroadcastBehavior keys off the *command's* namespace — so cancelling an appointment
   // broadcasts "appointments", never "treatmentplans".
+  //
+  // ⚠️ `Patients` is the fourth and it was missing: every row prints `patientName`, resolved server-side, so a
+  // colleague correcting a misspelt surname left this list showing the old one until something else happened
+  // to refresh it. Moving a devis to another patient (`reassignPatient`) broadcasts on that key too.
   useClinicRealtime(
-    [RealtimeResource.TreatmentPlans, RealtimeResource.Appointments, RealtimeResource.Invoices],
+    [
+      RealtimeResource.TreatmentPlans,
+      RealtimeResource.Appointments,
+      RealtimeResource.Invoices,
+      RealtimeResource.Patients,
+    ],
     load,
   )
 
@@ -296,12 +329,138 @@ export function TreatmentPlansTable({
 
   const openCreate = () => {
     setEditing(null)
+    setEditingAmend(false)
     setFormOpen(true)
   }
 
+  /**
+   * Edit a devis from the list.
+   *
+   * <p>⚠️ <b>It always opened the DRAFT editor, and that editor replaces the acts wholesale.</b> The list
+   * offered « Modifier le brouillon » on `status === "Draft"` alone — but « Suivre ce traitement » creates
+   * un-numbered drafts carrying real séances and links to the fiches evidencing them, and `SetItems` now
+   * refuses any act with steps or delivered work, naming « Modifier les actes et les prix ». So the list's
+   * own button led to a refusal, and every non-draft devis had no edit route here at all: the amend door
+   * existed only inside the workspace. `canUseDraftEditor` is the one test both trees read.</p>
+   */
   const openEdit = (plan: TreatmentPlanDto) => {
     setEditing(plan)
+    setEditingAmend(!canUseDraftEditor(plan))
     setFormOpen(true)
+  }
+
+  /** « Annuler le devis » — the motif is required, and the dialog keeps a refusal beside the row it is about. */
+  const openCancel = (plan: TreatmentPlanDto) => {
+    setCancelReason("")
+    setCancelError(null)
+    setCancelTarget(plan)
+  }
+
+  const confirmCancel = async () => {
+    if (!cancelTarget) return
+    setBusyId(cancelTarget.id)
+    setCancelError(null)
+    try {
+      await treatmentPlansApi.cancel(cancelTarget.id, cancelReason.trim(), cancelTarget.version)
+      toast.success("Devis annulé — le numéro est conservé avec son motif.")
+      setCancelTarget(null)
+      afterMutation()
+    } catch (err) {
+      setCancelError(getErrorMessage(err, "Échec de l'annulation du devis."))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /** « Facturer le devis » — a draft note d'honoraires, then the Factures screen. Same call the workspace makes. */
+  const confirmBill = async () => {
+    if (!billTarget) return
+    setBusyId(billTarget.id)
+    try {
+      await invoicesApi.createFromPlan(billTarget.id)
+      toast.success(
+        billTarget.amountPaid > 0
+          ? `Facture brouillon créée — ${formatDT(billTarget.amountPaid)} déjà encaissé sera reporté à l'émission`
+          : "Facture brouillon créée depuis le devis",
+      )
+      setBillTarget(null)
+      router.push("/factures")
+    } catch (err) {
+      showErrorToast(err, "Échec de la facturation du devis.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /**
+   * The row menu, rendered by BOTH trees.
+   *
+   * <p>⚠️ It used to be written out twice — once in the card list, once in the table — and the two had already
+   * drifted: « Planifier la prochaine séance » existed only on the card, so booking visit 1 of a freshly
+   * accepted devis was a capability a desktop did not have. One function, one set of entries; § 0 does not
+   * care which tree renders.</p>
+   */
+  const planMenuItems = (p: TreatmentPlanDto) => {
+    const draftEditor = canUseDraftEditor(p)
+    return (
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuItem onSelect={() => openWorkspace(p)}>Ouvrir le plan</DropdownMenuItem>
+        {/*
+          ⚠️ The action immediately after accepting a devis, and the page did not offer it. A freshly accepted
+          plan whose treatment has not started is absent from « Traitements en cours » — that list holds acts
+          *begun and unfinished* — and appeared here as « 0/1 actes » with no next-séance link and no scheduling
+          action at all, so booking visit 1 meant going back through the agenda.
+        */}
+        {bookableItemOf(p) && (
+          <DropdownMenuItem onSelect={() => startBooking(p)}>
+            Planifier la prochaine séance
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={() => handleDownloadPdf(p)}>
+          Télécharger le devis (PDF)
+        </DropdownMenuItem>
+
+        {canAmendPlan(p) && <DropdownMenuSeparator />}
+        {canAmendPlan(p) && (
+          <DropdownMenuItem onSelect={() => openEdit(p)}>
+            {/* One label source — the workspace's own wording. « Modifier le brouillon » is kept for the one
+                case where the draft editor really is what opens: a devis nobody has worked on yet. */}
+            {draftEditor ? "Modifier le brouillon" : "Modifier les actes et les prix"}
+          </DropdownMenuItem>
+        )}
+        {/*
+          ⚠️ « Facturer le devis » existed on no list surface at all: a devis whose work is finished could only
+          be billed from inside the workspace, and the plans screen is where a practice does its billing round.
+          `canBillPlan` is the same rule the workspace's primary action reads.
+        */}
+        {canBillPlan(p) && (
+          <DropdownMenuItem onSelect={() => setBillTarget(p)}>Facturer le devis</DropdownMenuItem>
+        )}
+
+        {(canCancelPlan(p) || canDeletePlan(p)) && <DropdownMenuSeparator />}
+        {/*
+          ⚠️ « Annuler le devis » is offered only where « Arrêter le traitement » cannot reach the annulation
+          itself — see `canCancelPlan`. The fold of the two verbs left a numbered devis with delivered work
+          with no route to a cancellation anywhere in the browser.
+        */}
+        {canCancelPlan(p) && (
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={() => openCancel(p)}
+          >
+            Annuler le devis
+          </DropdownMenuItem>
+        )}
+        {canDeletePlan(p) && (
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={() => openDelete(p)}
+          >
+            Supprimer le brouillon
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    )
   }
 
   const colSpan = showPatientColumn ? 8 : 7
@@ -440,7 +599,7 @@ export function TreatmentPlansTable({
           ariaLabel="Plans de traitement et devis"
           items={plans}
           getKey={(p) => p.id}
-          title={(p) => p.number ?? p.title}
+          title={(p) => planDisplayName(p)}
           subtitle={(p) => (showPatientColumn ? p.patientName : null)}
           onSelect={(p) => openWorkspace(p)}
           loading={loading}
@@ -467,7 +626,6 @@ export function TreatmentPlansTable({
             },
           ]}
           actions={(p) => {
-            const isDraft = p.status === "Draft"
             return (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -482,36 +640,7 @@ export function TreatmentPlansTable({
                     )}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => openWorkspace(p)}>Ouvrir le plan</DropdownMenuItem>
-                  {/*
-                    ⚠️ The action immediately after accepting a devis, and the page did not offer it. A freshly
-                    accepted plan whose treatment has not started is absent from « Traitements en cours » — that
-                    list holds acts *begun and unfinished* — and appeared here as « 0/1 actes » with no
-                    next-séance link and no scheduling action at all, so booking visit 1 meant going back
-                    through the agenda.
-                  */}
-                  {bookableItemOf(p) && (
-                    <DropdownMenuItem onSelect={() => startBooking(p)}>
-                      Planifier la prochaine séance
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onSelect={() => handleDownloadPdf(p)}>
-                    Télécharger le devis (PDF)
-                  </DropdownMenuItem>
-                  {isDraft && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={() => openEdit(p)}>Modifier le brouillon</DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onSelect={() => openDelete(p)}
-                      >
-                        Supprimer le brouillon
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
+                {planMenuItems(p)}
               </DropdownMenu>
             )
           }}
@@ -557,16 +686,36 @@ export function TreatmentPlansTable({
             ) : (
               plans.map((plan) => {
                 const isBusy = busyId === plan.id
-                const isDraft = plan.status === "Draft"
                 return (
+                  /*
+                    ⚠️ The row is the primary way into the workspace and it was **mouse-only**: `onClick` on a
+                    `<tr>` with no role, no tabindex and no key handler. The chevron in the first cell is
+                    decorative, so a keyboard user's only route was the « ⋯ » menu's « Ouvrir le plan ».
+                    `role="button"` + `tabIndex` + Enter/Space is the minimum that makes it operable; the cells
+                    stay plain so the table is still announced as a table.
+                  */
                   <TableRow
                     key={plan.id}
-                    className="cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Ouvrir ${planDisplayName(plan)}`}
+                    className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                     onClick={() => openWorkspace(plan)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      // The menu trigger and the patient link live inside the row; their own keypress must not
+                      // also navigate to the plan.
+                      if (event.target !== event.currentTarget) return
+                      event.preventDefault()
+                      openWorkspace(plan)
+                    }}
                   >
                     <TableCell className="font-medium">
                       <span className="inline-flex items-center gap-1">
-                        {plan.number ?? plan.title}
+                        {/* The column is headed « Numéro », so a numbered devis shows its number bare; only an
+                            un-numbered treatment falls back to the shared name, which never renders empty the
+                            way `plan.title` did on a devis whose title was blank. */}
+                        {plan.number ?? planDisplayName(plan)}
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </span>
                     </TableCell>
@@ -622,39 +771,7 @@ export function TreatmentPlansTable({
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => openWorkspace(plan)}>
-                              Ouvrir le plan
-                            </DropdownMenuItem>
-                            {/*
-                              ⚠️ **This item existed in the card menu and not here**, so booking the next séance
-                              from the devis list was a capability a desktop did not have — the same list, the
-                              same data, the action available only below the `lg:` hinge. § 0 does not care which
-                              tree renders. The gate is `bookableItemOf`, exactly as above.
-                            */}
-                            {bookableItemOf(plan) && (
-                              <DropdownMenuItem onSelect={() => startBooking(plan)}>
-                                Planifier la prochaine séance
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onSelect={() => handleDownloadPdf(plan)}>
-                              Télécharger le devis (PDF)
-                            </DropdownMenuItem>
-                            {isDraft && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onSelect={() => openEdit(plan)}>
-                                  Modifier le brouillon
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => openDelete(plan)}
-                                >
-                                  Supprimer le brouillon
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
+                          {planMenuItems(plan)}
                         </DropdownMenu>
                       </div>
                     </TableCell>
@@ -681,6 +798,7 @@ export function TreatmentPlansTable({
         open={formOpen}
         onOpenChange={setFormOpen}
         editingPlan={editing}
+        amendMode={editingAmend}
         presetPatientId={patientId}
         presetPatientName={patientName}
         onSuccess={afterMutation}
@@ -701,6 +819,114 @@ export function TreatmentPlansTable({
           }}
         />
       )}
+
+      {/*
+        « Facturer le devis » from the list — the same call and the same consequence the workspace states, said
+        before the navigation rather than in a toast that lands on /factures after it.
+      */}
+      <AlertDialog
+        open={!!billTarget}
+        onOpenChange={(open) => {
+          if (open || busyId === billTarget?.id) return
+          setBillTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {billTarget ? `Facturer ${planDisplayName(billTarget)} ?` : "Facturer ce devis ?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {billTarget && (
+                <>
+                  Une note d&apos;honoraires en brouillon de {formatDT(billTarget.totalPlanned)} sera créée et
+                  vous serez redirigé vers Factures.
+                  {billTarget.amountPaid > 0 && (
+                    <>
+                      {" "}
+                      Les {formatDT(billTarget.amountPaid)} déjà encaissés sur ce devis seront reportés sur la
+                      facture à son émission, pas sur le brouillon.
+                    </>
+                  )}
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busyId === billTarget?.id}>Retour</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmBill()
+              }}
+              disabled={busyId === billTarget?.id}
+            >
+              Créer la facture
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        « Annuler le devis » — the motif is <b>required</b> and the confirm stays disabled until it is typed,
+        rather than refusing afterwards: the rule the form can enforce should never be discovered by breaking
+        it. The motif is printed on the cancelled devis and read by whoever picks the file up later.
+      */}
+      <AlertDialog
+        open={!!cancelTarget}
+        onOpenChange={(open) => {
+          if (open || busyId === cancelTarget?.id) return
+          setCancelTarget(null)
+          setCancelError(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {cancelTarget?.number ? `Annuler le devis ${cancelTarget.number} ?` : "Annuler ce devis ?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Le devis sort de tous les soldes et de la caisse. Son numéro reste consommé — c&apos;est ce qui
+              garde la série sans trou — et le motif est conservé avec lui. Les séances déjà réalisées et leurs
+              fiches de soins ne sont pas touchées.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-1.5">
+            {/* A real `<Label htmlFor>`, never a placeholder standing in for one: a placeholder disappears on
+                the first keystroke, so the field becomes unlabelled exactly when it holds content. */}
+            <Label htmlFor="plan-list-cancel-reason">Motif d&apos;annulation (obligatoire)</Label>
+            <Textarea
+              id="plan-list-cancel-reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Ex. : devis édité pour le mauvais patient"
+              rows={3}
+              disabled={busyId === cancelTarget?.id}
+              aria-describedby="plan-list-cancel-hint"
+            />
+            <p id="plan-list-cancel-hint" className="text-2xs text-muted-foreground">
+              « Annuler le devis » reste inactif tant qu&apos;aucun motif n&apos;est saisi.
+            </p>
+          </div>
+
+          <FormErrorBanner message={cancelError} />
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busyId === cancelTarget?.id}>Retour</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmCancel()
+              }}
+              disabled={busyId === cancelTarget?.id || !cancelReason.trim()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Annuler le devis
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/*
         ⚠️ The confirmation **names the devis it is about to destroy**.

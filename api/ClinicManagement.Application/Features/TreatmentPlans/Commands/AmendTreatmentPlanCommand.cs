@@ -85,7 +85,6 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
 {
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
-    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -96,7 +95,6 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
     public AmendTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
-        IInvoiceRepository invoiceRepository,
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
@@ -106,7 +104,6 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
     {
         _planRepository = planRepository;
         _patientRepository = patientRepository;
-        _invoiceRepository = invoiceRepository;
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
@@ -216,8 +213,9 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                     plan.EnsureItemRemovable(itemId);
                 }
 
-                appointmentsToCancel = await ReleaseBookingsAsync(
-                    request.RemoveItemIds, clinicId, cancellationToken);
+                // Shared with `ReassignTreatmentPlanPatientCommand` — see `PlanBookingRelease`.
+                appointmentsToCancel = await PlanBookingRelease.ReleaseAsync(
+                    request.RemoveItemIds, clinicId, _appointmentRepository, cancellationToken);
 
                 foreach (var itemId in request.RemoveItemIds)
                 {
@@ -350,98 +348,5 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
     private static string? NormalizeNotes(string? notes)
         => string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
 
-    /// <summary>
-    /// A plan already represented by a real invoice cannot be amended. This is a **correctness** guard, not a
-    /// convenience one: every money read counts such a plan through its invoice, and the invoice's lines froze
-    /// at issue with no re-sync command anywhere — so acts added afterwards would be invisible in every
-    /// balance. A silent undercount is exactly the bug class the unified money reads exist to prevent.
-    /// The escape hatch already exists (cancel the invoice while unpaid, or issue an avoir once paid), and a
-    /// plan whose only bridge is cancelled is amendable again.
-    /// <para>
-    /// Lives in the handler rather than the aggregate because <c>TreatmentPlan</c> holds no invoice reference.
-    /// </para>
-    /// </summary>
-    private async Task<Result> EnsureNotBilledAsync(TreatmentPlan plan, Guid clinicId, CancellationToken cancellationToken)
-    {
-        var links = await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
-        var billed = PlanBillingRules.BilledPlanIds(links);
 
-        return billed.Contains(plan.Id)
-            ? Result.Failure("Ce devis est déjà facturé. Annulez la facture (ou émettez un avoir) avant de modifier le plan.")
-            : Result.Success();
-    }
-
-    /// <summary>
-    /// Let the acts being removed go from the visits booked for them, and report the visits that are left with
-    /// nothing to do — the caller cancels those once the plan itself is saved.
-    /// <para>
-    /// ⚠️ Decided per <b>procedure row</b>, never per plan link: a séance may legitimately carry a devis act
-    /// <i>and</i> a walk-in détartrage, and that visit still has a reason to happen once the devis act goes.
-    /// <c>SetProcedures</c> re-derives the lead-act snapshot and <c>TreatmentPlanItemId</c> from the rows it is
-    /// handed, so dropping a row is all this has to do — and <c>AgreedCost</c> is carried across on every kept
-    /// row, because the list is replace-semantics and a row re-sent without its price silently reverts to the
-    /// catalogue tarif.
-    /// </para>
-    /// <para>
-    /// ⚠️ A <b>Completed</b> visit is never cancelled, whatever it is left carrying. It happened; only its
-    /// link to a removed act is untrue, and that is what is dropped.
-    /// </para>
-    /// </summary>
-    /// <returns>The ids of the visits that now carry nothing, to be cancelled after the plan is saved.</returns>
-    private async Task<List<Guid>> ReleaseBookingsAsync(
-        IReadOnlyCollection<Guid> removedItemIds, Guid clinicId, CancellationToken cancellationToken)
-    {
-        var removed = removedItemIds.ToHashSet();
-        var appointments = await _appointmentRepository.GetByTreatmentPlanItemIdsAsync(
-            clinicId, removedItemIds.ToList(), cancellationToken);
-
-        var toCancel = new List<Guid>();
-        foreach (var appointment in appointments)
-        {
-            if (!TreatmentPlanWorkflowProjection.IsLive(appointment.Status))
-            {
-                // Already cancelled or a no-show: it books nothing, so there is nothing to release.
-                continue;
-            }
-
-            if (appointment.Status == AppointmentStatus.Completed)
-            {
-                // A visit that happened is a record of what happened, and rewriting its acts to tidy a devis
-                // would edit history. Its link to the removed act simply stops resolving, which is harmless:
-                // every derivation in this feature runs act → appointment, never the reverse.
-                continue;
-            }
-
-            var kept = appointment.Procedures
-                .Where(p => !(p.TreatmentPlanItemId.HasValue && removed.Contains(p.TreatmentPlanItemId.Value)))
-                .Select(p => new AppointmentProcedureInput(
-                    p.ProcedureTypeId,
-                    p.ProcedureName,
-                    p.DurationMinutes,
-                    p.ColorHex,
-                    p.AgreedCost,
-                    p.TreatmentPlanItemId,
-                    p.TreatmentPlanItemStepId))
-                .ToList();
-
-            var scalarPointsAtRemoved = appointment.TreatmentPlanItemId.HasValue
-                && removed.Contains(appointment.TreatmentPlanItemId.Value);
-
-            if (kept.Count == 0)
-            {
-                toCancel.Add(appointment.Id);
-                continue;
-            }
-
-            if (kept.Count == appointment.Procedures.Count && !scalarPointsAtRemoved)
-            {
-                continue;
-            }
-
-            appointment.SetProcedures(kept);
-            await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
-        }
-
-        return toCancel;
-    }
 }

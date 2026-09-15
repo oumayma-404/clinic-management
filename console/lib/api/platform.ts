@@ -45,8 +45,6 @@ export interface PlatformClinicRow {
   activeDays30d: number;
   lastWriteAt: string | null;
   lastLoginAt: string | null;
-  /** The CABINET's own turnover this month — never the vendor's revenue. */
-  clinicCollectedThisMonthDt: number;
   /** Null where the counter pass has never covered this cabinet: « pas encore mesuré », not « rien fait ». */
   countersComputedAt: string | null;
   /**
@@ -103,7 +101,12 @@ export interface PlatformSummary {
   expired: number;
   suspended: number;
   noEntitlement: number;
-  /** The VENDOR's revenue this month — never a sum of the cabinets' own turnover (FR-2). */
+  /**
+   * The VENDOR's revenue this month — the subscriptions the cabinets paid us.
+   *
+   * ⚠️ The console has **no** figure for a cabinet's own turnover, deliberately: the vendor does not get to know
+   * what a practice earns. There is nothing to sum here and nothing to confuse this with.
+   */
   vendorCollectedThisMonthDt: number;
 }
 

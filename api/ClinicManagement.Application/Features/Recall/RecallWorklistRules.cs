@@ -114,10 +114,19 @@ public static class RecallWorklistRules
     /// screen said anything.
     /// </para>
     /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>It yields to <see cref="NeverAnswered"/> now, which is the reverse of the old direction and
+    /// is what made both reasons reachable.</b> « Au point mort » means started and abandoned; a plan with
+    /// nothing delivered at all was never started, so it belongs to the other reason. Written the other way
+    /// round, `IsStalled` claimed every untouched Draft past its grace and « jamais répondu » could only fire
+    /// on a Draft whose every act was already done — a state that cannot occur, so the reason was dead while
+    /// the dashboard's own count of it fired on every fresh treatment.
+    /// </remarks>
     public static bool IsStalled(RecallPlanFact plan, DateTime nowUtc) =>
         TreatmentPlanLifecycle.IsLive(plan.Status)
         && plan.DoneItems < plan.TotalItems
-        && (plan.AcceptedDate ?? plan.CreatedAt).AddDays(StalledPlanGraceDays) <= nowUtc;
+        && (plan.AcceptedDate ?? plan.CreatedAt).AddDays(StalledPlanGraceDays) <= nowUtc
+        && !NeverAnswered(plan.Status, plan.DoneItems > 0, plan.CreatedAt, nowUtc);
 
     /// <summary>
     /// A devis presented to a patient and never answered, past its grace period.
@@ -137,7 +146,38 @@ public static class RecallWorklistRules
     /// </para>
     /// </summary>
     public static bool IsUnanswered(RecallPlanFact plan, DateTime nowUtc) =>
-        plan.Status == TreatmentPlanStatus.Draft
-        && !IsStalled(plan, nowUtc)
-        && plan.CreatedAt.AddDays(UnansweredDevisGraceDays) <= nowUtc;
+        NeverAnswered(plan.Status, plan.DoneItems > 0, plan.CreatedAt, nowUtc);
+
+    /// <summary>
+    /// <b>The rule, and its only statement.</b> A treatment nobody has answered: un-numbered
+    /// (<c>Draft</c> — <c>Accept</c> is the only writer of <c>Number</c>), with nothing delivered on it, past
+    /// the grace period.
+    ///
+    /// <para>
+    /// ⚠️ <b>Two surfaces asked this question and gave different answers.</b> The dashboard's
+    /// « Devis en attente de réponse » counted every untouched Draft from the instant of creation, while this
+    /// file waited fourteen days and then yielded to <see cref="IsStalled"/> — which claimed the whole
+    /// population, leaving the worklist reason effectively dead. `ITreatmentPlanRepository.CountUnansweredDraftsAsync`
+    /// is now the SQL twin of this predicate, term for term, and takes its cutoff from
+    /// <see cref="UnansweredGraceCutoff"/>.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>Phrased over primitives, not over <see cref="RecallPlanFact"/></b>, so the SQL asker can hold
+    /// itself against it without materialising a projection row per plan — and so the « nothing delivered »
+    /// term can be handed the fact each caller actually has (this file counts done ACTS; the repository also
+    /// counts a done STEP, which is strictly more delivered work and never less).
+    /// </para>
+    /// </summary>
+    public static bool NeverAnswered(
+        TreatmentPlanStatus status, bool hasDeliveredWork, DateTime createdAt, DateTime nowUtc) =>
+        status == TreatmentPlanStatus.Draft
+        && !hasDeliveredWork
+        && createdAt <= UnansweredGraceCutoff(nowUtc);
+
+    /// <summary>
+    /// The instant a treatment must have been created on or before to count as unanswered — the grace stated
+    /// as a bound, so a SQL caller applies exactly the same one.
+    /// </summary>
+    public static DateTime UnansweredGraceCutoff(DateTime nowUtc) =>
+        nowUtc.AddDays(-UnansweredDevisGraceDays);
 }

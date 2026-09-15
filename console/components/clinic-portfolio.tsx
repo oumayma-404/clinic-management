@@ -6,18 +6,18 @@ import { useRouter } from "next/navigation";
 import type { PlatformClinicPage, PlatformClinicRow } from "@/lib/api/platform";
 import { CardList } from "@/components/ui/card-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { EM_DASH, formatCount, formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { EM_DASH, formatCount, formatDate, formatDateTime } from "@/lib/format";
 
 /**
  * The portfolio itself — one table above `lg:`, one card list below it (`platform-console` AC-2.1).
  *
- * ⚠️ **Two trees, not one that reflows.** Fourteen columns cannot be made readable at 320 px by any amount of
+ * ⚠️ **Two trees, not one that reflows.** Thirteen columns cannot be made readable at 320 px by any amount of
  * CSS on a `<table>`; see `card-list.tsx` on why `display: block` is the wrong answer even before the width is.
  * Both live in this one file so `check:responsive`'s `card-fallback` rule counts them together — a table that
  * grows a column here cannot quietly lose its small-screen form.
  *
  * ⚠️ **The breakpoint is `lg` (1024 px), not `md`.** A tablet in portrait is already past `md:` and would get
- * fourteen columns on a 768 px-wide screen; the plan says so explicitly, and it is the one place this app
+ * thirteen columns on a 768 px-wide screen; the plan says so explicitly, and it is the one place this app
  * departs from the clinic bundle's usual `md:` table boundary.
  *
  * ⚠️ **One row action, and it is an explicit link rather than a menu** (Part 3; the Part-2 note that said « no row
@@ -74,9 +74,6 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                 </TableHead>
                 <TableHead scope="col">Dernier enreg.</TableHead>
                 <TableHead scope="col">Dernière connexion</TableHead>
-                <TableHead scope="col" className="text-right">
-                  Encaissé (cabinet)
-                </TableHead>
                 {/* AC-8.2's « consumption against its allowance » as one figure, plus what is left — the number the
                     vendor acts on. Both are for `page.messagingMonth`, which the summary strip states. */}
                 <TableHead scope="col" className="text-right">
@@ -86,8 +83,8 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                   Reste
                 </TableHead>
                 <TableHead scope="col">Créé le</TableHead>
-                {/* The action column's header is not empty: a blank `<th>` leaves a screen reader announcing
-                    « colonne 13 » for the one cell that does something. */}
+                {/* The action column's header is not empty: a blank `<th>` leaves a screen reader announcing a
+                    column number for the one cell that does something. */}
                 <TableHead scope="col">Fiche</TableHead>
               </TableRow>
             </TableHeader>
@@ -122,9 +119,6 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                   <TableCell className="text-right tabular-nums">{measured(clinic, clinic.activeDays30d)}</TableCell>
                   <TableCell className="whitespace-nowrap">{formatDateTime(clinic.lastWriteAt)}</TableCell>
                   <TableCell className="whitespace-nowrap">{formatDateTime(clinic.lastLoginAt)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-right tabular-nums">
-                    {clinic.countersComputedAt ? formatMoney(clinic.clinicCollectedThisMonthDt) : EM_DASH}
-                  </TableCell>
                   <TableCell className="whitespace-nowrap text-right tabular-nums">
                     {messagingConsumption(clinic)}
                   </TableCell>
@@ -176,8 +170,8 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                 ? { label: "Compteurs", value: "Dormant (30 j)" }
                 : false,
             clinic.endsOn ? { label: "Fin d'abonnement", value: formatDate(clinic.endsOn) } : false,
-            // Ordered by what a churn conversation needs first: is it being used, then how much money, then the
-            // rest. The unmeasured cabinet drops every figure rather than showing zeros it cannot vouch for.
+            // Ordered by what a churn conversation needs first: is it being used, then the rest. The unmeasured
+            // cabinet drops every figure rather than showing zeros it cannot vouch for.
             clinic.countersComputedAt !== null && {
               label: "Enreg. (30 j)",
               value: formatCount(clinic.writes30d),
@@ -185,10 +179,6 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
             clinic.countersComputedAt !== null && {
               label: "Jours actifs (30 j)",
               value: formatCount(clinic.activeDays30d),
-            },
-            clinic.countersComputedAt !== null && {
-              label: "Encaissé (cabinet)",
-              value: formatMoney(clinic.clinicCollectedThisMonthDt),
             },
             // AC-8.2's figures join the card rather than becoming table columns at phone width, per the feature's own
             // device table. « Non mesuré » is a field of its own here — `CardList` drops an empty value, so a cabinet

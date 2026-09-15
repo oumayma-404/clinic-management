@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Invoices;
+using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -45,6 +46,8 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
     private readonly IPatientRepository _patientRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICreditNoteRepository _creditNoteRepository;
+    private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IToothStateRepository _toothStateRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UnmarkTreatmentPlanItemDoneCommandHandler> _logger;
@@ -54,6 +57,8 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
         IPatientRepository patientRepository,
         IInvoiceRepository invoiceRepository,
         ICreditNoteRepository creditNoteRepository,
+        IDentalRecordRepository dentalRecordRepository,
+        IToothStateRepository toothStateRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UnmarkTreatmentPlanItemDoneCommandHandler> logger)
@@ -62,6 +67,8 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
         _patientRepository = patientRepository;
         _invoiceRepository = invoiceRepository;
         _creditNoteRepository = creditNoteRepository;
+        _dentalRecordRepository = dentalRecordRepository;
+        _toothStateRepository = toothStateRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -106,7 +113,16 @@ public class UnmarkTreatmentPlanItemDoneCommandHandler
                 return Result<TreatmentPlanDto>.Failure(billedCheck.Error!);
             }
 
+            // BEFORE the unmark - it clears the very links this needs. See `ToothChartingSync`.
+            var evidencedBy = ToothChartingSync.EvidencingRecordIds(item);
+
             plan.UnmarkItemDone(request.ItemId);
+
+            // The act is back to « prevu », so its end state must be withheld again: without this the chart
+            // went on asserting « Implant » for an implant the devis now says was never placed.
+            await ToothChartingSync.ApplyAsync(
+                item, evidencedBy, clinicResult.Value,
+                _dentalRecordRepository, _toothStateRepository, cancellationToken);
 
             _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);

@@ -16,6 +16,7 @@ import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto } from "@/lib/api/types"
 import { isPlanBilled } from "./plan-next-action"
 import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { installmentDueInputValue, installmentDueLabel } from "./treatment-plan-labels"
 
 interface Row {
   /** The existing échéance this row revises; null for a row the user just added. */
@@ -24,6 +25,19 @@ interface Row {
   amount: string
   /** Cash already collected. > 0 makes the row locked against deletion and against being lowered. */
   amountPaid: number
+  /**
+   * This row is the lump-sum ledger container `TreatmentPlan.Accept` raises when no schedule was given — not
+   * an échéance anybody agreed.
+   *
+   * <p>⚠️ <b>Its `dueDate` was pre-filled into an editable `type="date"`, which is the half of M25 that
+   * WRITES.</b> Every other surface stopped printing that fabricated instant; here re-saving the form turned
+   * it into a date the dentist appears to have typed, and the row then reads as a real échéance for ever
+   * afterwards. The field opens <b>empty</b>, labelled for what the row is; leaving it empty sends the stored
+   * value back unchanged, and typing one is how a dentist deliberately turns the balance into a schedule.</p>
+   */
+  isAutoRaised: boolean
+  /** What to send when an auto-raised row is left blank — see {@link Row.isAutoRaised}. */
+  storedDueDate: string
 }
 
 interface ReviseInstallmentsModalProps {
@@ -53,9 +67,11 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
     setRows(
       plan.installments.map((inst) => ({
         id: inst.id,
-        dueDate: inst.dueDate.slice(0, 10),
+        dueDate: installmentDueInputValue(inst),
         amount: formatAmount(inst.amount),
         amountPaid: inst.amountPaid,
+        isAutoRaised: inst.isAutoRaised === true,
+        storedDueDate: inst.dueDate.slice(0, 10),
       })),
     )
     setError(null)
@@ -67,7 +83,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
   const addRow = () =>
     setRows((prev) => [
       ...prev,
-      { id: null, dueDate: todayLocalIso(), amount: "", amountPaid: 0 },
+      { id: null, dueDate: todayLocalIso(), amount: "", amountPaid: 0, isAutoRaised: false, storedDueDate: "" },
     ])
 
   const removeRow = (index: number) => setRows((prev) => prev.filter((_, i) => i !== index))
@@ -90,7 +106,8 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
     }
 
     for (const row of rows) {
-      if (!row.dueDate) {
+      // An auto-raised row is legitimately dateless — leaving it blank keeps it the balance it already is.
+      if (!row.dueDate && !row.isAutoRaised) {
         setError("Chaque échéance doit avoir une date.")
         return
       }
@@ -101,7 +118,10 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
       }
       if (row.amountPaid > 0 && amount < row.amountPaid - 0.0005) {
         setError(
-          `L'échéance du ${row.dueDate} a déjà encaissé ${formatDT(row.amountPaid)} — son montant ne peut pas être ramené en dessous.`,
+          // The row named as the échéancier names it — it used to print a raw `2026-03-14`, and invented a
+          // date for the auto-raised row.
+          `${installmentDueLabel(row)} : déjà encaissé ${formatDT(row.amountPaid)} — son montant ne peut pas `
+            + "être ramené en dessous.",
         )
         return
       }
@@ -128,13 +148,16 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
 
     const payload: TreatmentPlanInstallmentInput[] = rows.map((r) => ({
       id: r.id,
-      dueDate: `${r.dueDate}T00:00:00`,
+      // A blank auto-raised row sends its stored instant back untouched: nothing moves, and the row stays the
+      // ledger container it was. A typed date is a deliberate schedule and replaces it.
+      dueDate: `${r.dueDate || r.storedDueDate}T00:00:00`,
       amount: parseAmountInput(r.amount),
     }))
 
     setLoading(true)
     try {
-      await treatmentPlansApi.reviseInstallments(plan.id, payload)
+      // ⚠️ `plan.version` — this call rewrites the WHOLE échéancier and had no concurrency token at all.
+      await treatmentPlansApi.reviseInstallments(plan.id, payload, plan.version)
       toast.success("Échéancier modifié")
       onSuccess?.()
       onOpenChange(false)
@@ -200,17 +223,35 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
               const collected = row.amountPaid > 0
               return (
                 <div key={row.id ?? `new-${index}`} className="space-y-1">
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1 space-y-1">
+                  {/*
+                    ⚠️ **`flex-wrap` + a real `basis-*`, and both are load-bearing at 320 px.** The row was
+                    `flex items-end gap-2` with no wrap: a `flex-1` `type="date"` (~120 px intrinsic minimum)
+                    beside a `w-36` amount and a 40 px bin cannot reach its floor in the ~90 px left, so the
+                    dialog scrolled sideways. `basis-40` lets the date take a line of its own and the amount
+                    drop below it. `min-w-0` on both, since `Input` does not shrink past its intrinsic width
+                    on its own.
+                  */}
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-0 flex-1 basis-40 space-y-1">
                       {index === 0 && <span className="text-xs text-muted-foreground">Échéance</span>}
                       <Input
                         type="date"
                         value={row.dueDate}
                         onChange={(e) => updateRow(index, { dueDate: e.target.value })}
                         disabled={loading}
+                        aria-label={
+                          row.isAutoRaised && !row.dueDate
+                            ? "Solde à régler — aucune échéance convenue ; saisissez une date pour en fixer une"
+                            : "Date de l'échéance"
+                        }
                       />
+                      {row.isAutoRaised && !row.dueDate && (
+                        <span className="block text-2xs text-muted-foreground">
+                          Solde à régler — aucune date convenue. Laissez vide pour le garder tel quel.
+                        </span>
+                      )}
                     </div>
-                    <div className="w-36 space-y-1">
+                    <div className="min-w-0 flex-1 basis-28 space-y-1 sm:max-w-36">
                       {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
                       {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the
                           comma this product prints with, and a rejected keystroke returns an EMPTY value. The

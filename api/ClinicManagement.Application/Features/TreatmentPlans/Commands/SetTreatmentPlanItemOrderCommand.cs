@@ -16,8 +16,12 @@ public class SetTreatmentPlanItemOrderCommand : IRequest<Result<TreatmentPlanDto
 {
     public Guid Id { get; set; }
 
-    /// <summary>The plan's acts in the desired order — exactly its acts, each once.</summary>
+    /// <summary>The plan's <b>active</b> acts in the desired order — exactly those, each once. Parked acts keep
+    /// their sequence and are appended after.</summary>
     public List<Guid> ItemIds { get; set; } = new();
+
+    /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
+    public uint Version { get; set; }
 }
 
 public class SetTreatmentPlanItemOrderCommandHandler
@@ -63,6 +67,7 @@ public class SetTreatmentPlanItemOrderCommandHandler
 
             plan.SetItemOrder(request.ItemIds);
 
+            _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

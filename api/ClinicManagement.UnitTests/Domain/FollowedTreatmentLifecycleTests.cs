@@ -102,6 +102,37 @@ public class FollowedTreatmentLifecycleTests
             handWritten,
             "where plan.Status == TreatmentPlanStatus.Accepted || plan.Status == TreatmentPlanStatus.InProgress");
 
+        /*
+         * ⚠️ **The NEGATIVE spelling of the same rule, and it is what the aggregate itself was written in.**
+         * `UpdateDetails`, `Complete`, `StopTreatment` and `EnsureActive` each carried
+         * « != Draft && != Accepted && != InProgress » — four copies of `LiveStatuses` that the positive regex
+         * above cannot see, inside the one file this scan used to exempt outright. A sixth appended status
+         * would have moved the repository and the recall worklist and left all four guards quietly admitting
+         * it, with no error anywhere.
+         *
+         * The trailing lookahead is what keeps `EnsureCorrectable` and `EnsurePayable` out of it: those are
+         * genuinely different windows (five statuses and four), not copies of this one, so a condition naming
+         * a FOURTH status is not this rule.
+         */
+        var handWrittenNegative = new Regex(
+            @"!=\s*TreatmentPlanStatus\.(?:Draft|Accepted|InProgress)\s*&&[^;]*?"
+            + @"!=\s*TreatmentPlanStatus\.(?:Draft|Accepted|InProgress)\s*&&[^;]*?"
+            + @"!=\s*TreatmentPlanStatus\.(?:Draft|Accepted|InProgress)"
+            + @"(?![^;]*?!=\s*TreatmentPlanStatus\.)",
+            RegexOptions.Compiled | RegexOptions.Singleline);
+
+        // Red proof, both ways: it must match the shape it forbids …
+        Assert.Matches(
+            handWrittenNegative,
+            "if (Status != TreatmentPlanStatus.Draft\n && Status != TreatmentPlanStatus.Accepted\n"
+            + " && Status != TreatmentPlanStatus.InProgress)\n{ throw; }");
+        // … and must NOT match the correctable window, which is a different rule with its own members.
+        Assert.DoesNotMatch(
+            handWrittenNegative,
+            "if (Status != TreatmentPlanStatus.Draft\n && Status != TreatmentPlanStatus.Accepted\n"
+            + " && Status != TreatmentPlanStatus.InProgress\n && Status != TreatmentPlanStatus.Completed\n"
+            + " && Status != TreatmentPlanStatus.Stopped)\n{ throw; }");
+
         var scanned = 0;
         var offenders = new List<string>();
         foreach (var file in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
@@ -111,10 +142,14 @@ public class FollowedTreatmentLifecycleTests
             {
                 continue;
             }
-            // The entity states the transitions themselves (`UpdateDetails`, `Complete`, `StopTreatment` each
-            // list the states they accept, with Draft named alongside), the rule's own home, and this scan.
-            if (relative.EndsWith("Entities/TreatmentPlan.cs")
-                || relative.EndsWith("Services/TreatmentPlanLifecycle.cs")
+            /*
+             * ⚠️ **`Entities/TreatmentPlan.cs` is NO LONGER exempt, and the exemption is what the defect hid
+             * behind.** The reasoning was « the entity states the transitions themselves » — true of the
+             * *correctable* and *payable* windows, which name their own members and are excluded by the
+             * lookahead above, and false of the four copies of the LIVE list it was also covering. The
+             * aggregate now asks `TreatmentPlanLifecycle.IsLive` like everybody else.
+             */
+            if (relative.EndsWith("Services/TreatmentPlanLifecycle.cs")
                 || relative.EndsWith("Domain/FollowedTreatmentLifecycleTests.cs"))
             {
                 continue;
@@ -122,7 +157,7 @@ public class FollowedTreatmentLifecycleTests
 
             scanned++;
             var source = File.ReadAllText(file);
-            if (handWritten.IsMatch(source))
+            if (handWritten.IsMatch(source) || handWrittenNegative.IsMatch(source))
             {
                 offenders.Add(relative);
             }
@@ -200,7 +235,7 @@ public class FollowedTreatmentLifecycleTests
         Assert.Equal(TreatmentPlanStatus.Stopped, plan.Status);
         Assert.NotEqual(TreatmentPlanStatus.Completed, plan.Status);
 
-        plan.Reopen();
+        plan.Reopen(DateTime.UtcNow.Date);
 
         Assert.Equal(TreatmentPlanStatus.Draft, plan.Status);
         Assert.Null(plan.Number);
@@ -217,7 +252,7 @@ public class FollowedTreatmentLifecycleTests
         plan.MarkItemStepDone(item.Id, item.Steps.First().Id, Today, Guid.NewGuid());
 
         plan.StopTreatment(Today);
-        plan.Reopen();
+        plan.Reopen(DateTime.UtcNow.Date);
 
         Assert.Equal(TreatmentPlanStatus.InProgress, plan.Status);
         Assert.Equal("2026-0042", plan.Number);

@@ -41,6 +41,11 @@ public class TreatmentPlanItemConfiguration : IEntityTypeConfiguration<Treatment
 
         builder.Property(i => i.PlannedCost);
 
+        // S2 — the remise on this act, 0 everywhere else. `NetCost` is derived and not mapped.
+        builder.Property(i => i.DiscountAmount)
+            .IsRequired()
+            .HasDefaultValue(0m);
+
         // The note d'honoraires that already collects this act's fee — a soft reference, no FK, on purpose:
         // an FK with SET NULL would erase the marker exactly when the note is deleted, which is the silent
         // money loss it exists to prevent. Indexed because the cancel/delete guards ask the reverse question

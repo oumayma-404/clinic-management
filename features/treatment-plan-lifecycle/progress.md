@@ -154,3 +154,32 @@ its own flex item and so free to end a line; it is bound to the item it precedes
 3. **The praticien on the identity line** — needs `doctorName` projected onto `TreatmentPlanDto`.
 4. **Docs** — `web/components/CLAUDE.md`'s `plan-workspace` / `plan-act-row` rows, and a `notes.md`.
 5. `dotnet run -- verify-schema` before/after, to prove the appended enum needed no migration.
+
+---
+
+## Phase 5 — the derived guards ✅ (2026-09-14)
+
+Gate after the last edit: unfiltered `dotnet test -c Release` **4711 / 0 / 6 skipped** · `npx tsc --noEmit`
+clean · `npm run check:responsive` **70/70** · `npm run build` ✅.
+
+Four new `check:responsive` checks — **N39** `installment-date-has-one-owner`, **N40**
+`plan-money-rules-have-one-owner`, **N41** `plan-status-maps-agree`, **N42**
+`plan-surfaces-follow-the-money-keys`. The other three guards in the plan's table had already landed with
+Phases 1, 2 and 4. Each new check was proved able to fail: N39 fired on 5 surfaces, N40 on 8, N42 on 3, and
+N41 was fired deliberately by removing `WrittenOff` from `PLAN_STATUS_TONE` and then restored.
+
+**Writing them found 13 live defects**, every one fixed in the same pass (a guard that fires on shipped code
+cannot be committed). They are tabulated in `plan-remediation.md` § Phase 5. The three worth naming here:
+
+1. **The fiche de soins stated an act's TARIF where the patient owes the net** — « 400,000 DT convenus pour
+   tout le traitement » on a 400 DT act with 50 given away, and it prefilled that figure as the act's fee.
+   `PlanItemOption.plannedCost` is `netCost` now; the name was the bug.
+2. **« Arrêter le traitement » summed tarifs** under « l'échéancier est ramené au total conservé » — the one
+   figure a dentist checks before abandoning half a treatment, wrong by the whole remise.
+3. **La caisse did not watch `patients`** — the fiche de soins is what collects at the chair, and it is a
+   `Features.Patients` command, so the commonest cash of the day never woke the screen whose entire job is
+   « what is in the drawer right now ». « Créances » and the chèques list had the same gap.
+
+⚠️ One probe lesson: N39's first pattern fired on the **chèques** table, whose `dueDate` is « encaissable
+le » — a real day the patient wrote on the paper, which must be printed. The scan is anchored on the
+receiver's name for that reason, and it says so in its own comment.

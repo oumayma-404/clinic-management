@@ -46,6 +46,17 @@ public class TreatmentPlanConfiguration : IEntityTypeConfiguration<TreatmentPlan
         builder.Property(p => p.CancellationReason)
             .HasMaxLength(1000);
 
+        // S4 — why the créance was abandoned, and how much of it. Null / 0 on every plan not written off; no
+        // backfill is possible or wanted.
+        builder.Property(p => p.WriteOffReason)
+            .HasMaxLength(1000);
+
+        builder.Property(p => p.WriteOffAmount)
+            .IsRequired()
+            .HasDefaultValue(0m);
+
+        // ⚠️ NET of the acts' remises since S2. `TotalGross` and `TotalDiscount` are derived and deliberately
+        // NOT stored — two stored totals are two things to keep in step.
         builder.Property(p => p.TotalPlanned);
 
         builder.Property(p => p.CreatedAt)

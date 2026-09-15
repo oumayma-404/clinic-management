@@ -109,7 +109,7 @@ import { InstallmentPaymentModal } from "@/components/treatment-plans/installmen
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
-import { activeItems, isPlanLive, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
+import { activeItems, isPlanLive, itemNetCost, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { planItemHeading } from "@/components/treatment-plans/treatment-plan-labels"
 import { teethUnderTreatment } from "@/components/treatment-plans/teeth-under-treatment"
 import { invoicesApi } from "@/lib/api/invoices"
@@ -1617,7 +1617,7 @@ export default function PatientDetailsPage() {
      */
     label: `${planItemHeading(p, it)} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
     designationFr: it.designationFr,
-    plannedCost: it.plannedCost,
+    netCost: itemNetCost(it),
     /*
      * ⚠️ **The teeth already treated win over the devis LINE's, and the line is very often empty.** A row
      * reading « Implant dentaire — acte général » carries no teeth at all, so séance 2 opened on a blank

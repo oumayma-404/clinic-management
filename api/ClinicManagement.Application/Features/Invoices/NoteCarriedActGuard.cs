@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Features.TreatmentPlans;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -62,7 +63,9 @@ public static class NoteCarriedActGuard
         foreach (var row in await planRepository.GetPlansBilledOnInvoiceAsync(
             clinicId, invoice.Id, cancellationToken))
         {
-            if (row.Status != TreatmentPlanStatus.Cancelled)
+            // `ContinuationTracking.TracksStatus`, never a hand-written `!= Cancelled` — « does this devis
+            // still speak for the work? » has one owner, and this guard held two copies of it.
+            if (ContinuationTracking.TracksStatus(row.Status))
             {
                 numbers.Add(row.Number);
             }
@@ -89,7 +92,7 @@ public static class NoteCarriedActGuard
             foreach (var plan in await planRepository.GetByLinkedDentalRecordAsync(
                 clinicId, recordId, cancellationToken))
             {
-                if (plan.Status == TreatmentPlanStatus.Cancelled)
+                if (!ContinuationTracking.Tracks(plan))
                 {
                     continue;
                 }

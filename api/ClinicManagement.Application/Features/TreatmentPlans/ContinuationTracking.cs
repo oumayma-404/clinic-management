@@ -49,7 +49,24 @@ public static class ContinuationTracking
     /// A plan whose acts still speak for the fiches they evidence. False for a cancelled devis, which speaks
     /// for nothing.
     /// </summary>
-    public static bool Tracks(TreatmentPlan plan) => plan.Status != TreatmentPlanStatus.Cancelled;
+    public static bool Tracks(TreatmentPlan plan) => TracksStatus(plan.Status);
+
+    /// <summary>
+    /// The same rule over a bare status, for the callers that have a projection row rather than an aggregate —
+    /// <c>NoteCarriedActGuard</c> held two hand-written copies of it.
+    /// </summary>
+    public static bool TracksStatus(TreatmentPlanStatus status) => TrackingStatuses.Contains(status);
+
+    /// <summary>
+    /// The rule as a collection, so a <b>SQL</b> reader can state it too (<c>Contains</c> translates to
+    /// <c>IN</c>) — <c>TreatmentPlanLifecycle.LiveStatuses</c>' shape, and for the same reason: the read that
+    /// tells a fiche « Suivi comme traitement » ran with no status filter at all, so a cancelled devis's fiches
+    /// still rendered a live link into a devis that speaks for nothing.
+    /// </summary>
+    public static readonly IReadOnlyCollection<TreatmentPlanStatus> TrackingStatuses =
+        Enum.GetValues<TreatmentPlanStatus>()
+            .Where(s => s != TreatmentPlanStatus.Cancelled)
+            .ToArray();
 
     /// <summary>
     /// Every dental-record id already evidencing an act — or a step — of one of <paramref name="plans"/>.

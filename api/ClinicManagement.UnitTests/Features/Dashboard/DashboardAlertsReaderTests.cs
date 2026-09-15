@@ -44,7 +44,7 @@ public class DashboardAlertsReaderTests
                 It.IsAny<Guid>(), It.IsAny<TreatmentPlanStatus>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
                 It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _plans.Setup(r => r.CountUnansweredDraftsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+        _plans.Setup(r => r.CountUnansweredDraftsAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         _patients.Setup(r => r.GetRecallCandidatesAsync(
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
@@ -70,7 +70,7 @@ public class DashboardAlertsReaderTests
     {
         WireDefaults();
         _waitingList.Setup(r => r.CountWaitingAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(2);
-        _plans.Setup(r => r.CountUnansweredDraftsAsync(ClinicId, It.IsAny<CancellationToken>()))
+        _plans.Setup(r => r.CountUnansweredDraftsAsync(ClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(5);
         _labOrders.Setup(r => r.CountOverdueAsync(ClinicId, FixedNow, It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _stock.Setup(r => r.CountLowStockAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(3);
@@ -111,7 +111,7 @@ public class DashboardAlertsReaderTests
         await Reader().ReadAsync(ClinicId, FixedNow, CancellationToken.None);
 
         _plans.Verify(
-            r => r.CountUnansweredDraftsAsync(ClinicId, It.IsAny<CancellationToken>()), Times.Once);
+            r => r.CountUnansweredDraftsAsync(ClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
         // The status-only count must not be what feeds this figure any more — a followed treatment wears Draft.
         _plans.Verify(r => r.CountByStatusAsync(
             ClinicId, TreatmentPlanStatus.Draft, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),

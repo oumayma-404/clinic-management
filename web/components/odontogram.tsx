@@ -293,8 +293,17 @@ export function Odontogram({
     void loadCatalog()
   }, [loadCatalog])
 
-  // The odontogram also changes through the dental-record flow (broadcasts "patients"), so refresh live.
-  useClinicRealtime(RealtimeResource.Patients, load)
+  /*
+   * The odontogram changes through the dental-record flow (broadcasts "patients"), so refresh live.
+   *
+   * ⚠️ **And through the TREATMENT PLAN flow, which this did not listen to — the inverse of the gap on the
+   * plan surfaces.** « Détacher la fiche », `UnmarkStep` and « Arrêter le traitement » all return an act to
+   * non-`Done`, which is exactly the condition under which `ToothChartingRules` withholds its end state, and
+   * marking one réalisé from the workspace makes a withheld state chartable. Those are `Features.TreatmentPlans`
+   * commands, so they broadcast `treatmentplans` — and the chart went on asserting « Implant » or « Extrait »
+   * about a tooth whose act had just been undone, until something else happened to reload it.
+   */
+  useClinicRealtime([RealtimeResource.Patients, RealtimeResource.TreatmentPlans], load)
 
   /*
    * The view: the user's choice if they made one, else the widest of "what the patient is" and "what is already
@@ -527,7 +536,8 @@ export function Odontogram({
           teeth.length === 1 ? `dent ${teeth[0]}` : `dents ${teeth.join(", ")}`
         }`,
         diagnosisCondition: condition,
-        plannedCost: sole ? seedCost(sole, teeth.length) : undefined,
+        // A brand-new planned act, so the catalogue tarif IS its net — no remise can exist yet.
+        netCost: sole ? seedCost(sole, teeth.length) : undefined,
         procedureTypeId: sole?.procedureTypeId,
         candidates,
       }

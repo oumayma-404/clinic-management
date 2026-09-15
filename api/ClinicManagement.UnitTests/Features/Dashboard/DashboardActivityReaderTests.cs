@@ -123,6 +123,11 @@ public class DashboardActivityReaderTests
 
     // [AC-7] « Devis acceptés » must be counted by AcceptedDate, not CreatedAt — otherwise the card counts one set
     // and its drill-through link (which filters on acceptance) opens another.
+    //
+    // ⚠️ And it must be counted by acceptance ALONE, never by `Status == Accepted`: the first payment or fiche
+    // moves a plan to `InProgress` and finishing it to `Completed`, while `AcceptedDate` never changes — so the
+    // status-matched count made the tile shrink as the clinic did the work, and the drill-through repeated the
+    // same filter so the list agreed with the wrong number.
     [Fact]
     public async Task Accepted_Plans_Are_Counted_By_Their_Acceptance_Date()
     {
@@ -131,14 +136,18 @@ public class DashboardActivityReaderTests
 
         await Reader().ReadAsync(ClinicId, Period, CancellationToken.None);
 
-        _plans.Verify(r => r.CountByStatusAsync(
-                ClinicId, TreatmentPlanStatus.Accepted, Period.From, Period.ToInclusive,
-                true, It.IsAny<CancellationToken>()),
+        _plans.Verify(r => r.CountAcceptedByDateAsync(
+                ClinicId, Period.From, Period.ToInclusive, It.IsAny<CancellationToken>()),
             Times.Once);
-        _plans.Verify(r => r.CountByStatusAsync(
-                ClinicId, TreatmentPlanStatus.Accepted, Period.PreviousFrom, Period.PreviousToInclusive,
-                true, It.IsAny<CancellationToken>()),
+        _plans.Verify(r => r.CountAcceptedByDateAsync(
+                ClinicId, Period.PreviousFrom, Period.PreviousToInclusive, It.IsAny<CancellationToken>()),
             Times.Once);
+
+        // The regression, pinned: the status is no longer part of the question.
+        _plans.Verify(r => r.CountByStatusAsync(
+                ClinicId, TreatmentPlanStatus.Accepted, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
+                It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     // [AC-3] Both windows are read with their OWN bounds. Without this every activity delta compares a figure with

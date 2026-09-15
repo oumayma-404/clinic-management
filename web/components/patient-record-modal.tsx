@@ -101,8 +101,16 @@ export interface PlanItemOption {
   label: string
   /** Plan-step designation — prefilled into the composer on link (P0-1, carry-forward). */
   designationFr?: string
-  /** Plan-step planned cost — prefilled into the composer on link. */
-  plannedCost?: number
+  /**
+   * What the patient owes for the whole act — its tarif minus any remise — prefilled into the composer on link.
+   *
+   * <p>⚠️ <b>The net, never the tarif.</b> It was `plannedCost` and it was fed straight from
+   * `TreatmentPlanItemDto.plannedCost`, so the two sentences below stated « L'acte entier est chiffré 400,000
+   * DT » on an act quoted 400 with 50 given away — the devis, its échéancier and every balance all saying 350.
+   * Producers read `itemNetCost(item)`; the name says which figure this is, because the bug was that it
+   * did not. N40 holds it.</p>
+   */
+  netCost?: number
   /** Plan-step teeth — become the chart selection on link. */
   toothNumbers?: number[]
   /** The devis number, for the « Déjà facturé » notice. */
@@ -181,7 +189,8 @@ function planItemPrefill(item: PlanItemOption, appointment?: AppointmentDto | nu
     ? { toothNumbers: item.toothNumbers }
     : {
         designationFr: item.designationFr,
-        plannedCost: item.plannedCost,
+        // The fiche's own cost field takes the NET — what the patient owes for the act.
+        plannedCost: item.netCost,
         toothNumbers: item.toothNumbers,
         /*
          * ⚠️ **Always true here, and its absence made this whole branch a dead end.** Linking a devis step means
@@ -1146,10 +1155,10 @@ export function PatientRecordModal({
                   )}
                   sur la note n° {billedPlanItem.carriedOnNoteNumber}
                 </>
-              ) : billedPlanItem.plannedCost != null ? (
+              ) : billedPlanItem.netCost != null ? (
                 <>
                   L&apos;acte entier est chiffré{" "}
-                  <span className="font-mono tabular-nums">{formatDT(billedPlanItem.plannedCost)}</span>
+                  <span className="font-mono tabular-nums">{formatDT(billedPlanItem.netCost)}</span>
                 </>
               ) : (
                 "L'acte entier est chiffré une seule fois"
@@ -1245,7 +1254,7 @@ export function PatientRecordModal({
   const seanceScope = collectsOnTreatment ? " sur cette séance" : ""
 
   const treatmentOutstandingBefore = billedPlanItem
-    ? roundMillimes(billedPlanItem.planOutstanding ?? billedPlanItem.plannedCost ?? 0)
+    ? roundMillimes(billedPlanItem.planOutstanding ?? billedPlanItem.netCost ?? 0)
     : 0
   const collectedOnPlanAmount = parseAmountInput(collectedOnPlan) || 0
   /**
@@ -2579,10 +2588,10 @@ export function PatientRecordModal({
                       Cet acte est facturé sur la note n° {billedPlanItem.carriedOnNoteNumber} ·{" "}
                     </>
                   ) : (
-                    billedPlanItem?.plannedCost != null && (
+                    billedPlanItem?.netCost != null && (
                       <>
                         <span className="font-mono tabular-nums">
-                          {formatDT(billedPlanItem.plannedCost)}
+                          {formatDT(billedPlanItem.netCost)}
                         </span>{" "}
                         convenus pour tout le traitement
                         {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}

@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
@@ -61,6 +62,8 @@ public class StopTreatmentPlanCommandHandler
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IToothStateRepository _toothStateRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<StopTreatmentPlanCommandHandler> _logger;
@@ -69,6 +72,8 @@ public class StopTreatmentPlanCommandHandler
         ITreatmentPlanRepository planRepository,
         IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
+        IDentalRecordRepository dentalRecordRepository,
+        IToothStateRepository toothStateRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<StopTreatmentPlanCommandHandler> logger)
@@ -76,6 +81,8 @@ public class StopTreatmentPlanCommandHandler
         _planRepository = planRepository;
         _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
+        _dentalRecordRepository = dentalRecordRepository;
+        _toothStateRepository = toothStateRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -137,6 +144,23 @@ public class StopTreatmentPlanCommandHandler
             // the client used to build it from the browser's own clock, which dates it to yesterday for the
             // first hour of every Tunisian day and makes it « En retard » the moment it is written.
             var parked = plan.StopTreatment(ClinicClock.ClinicToday());
+
+            /*
+             * Parking un-finishes an act, so its end state must stop being charted — the fourth caller of
+             * `ToothChartingRules`, which had only the two fiche commands.
+             *
+             * ⚠️ In practice it charts nothing: `StopTreatment` parks only acts with **no delivered work**, and
+             * such an act has no fiche to re-draw, so every call here is a no-op today. It is wired anyway
+             * because « which acts may be parked » is `TreatmentPlan`'s to change and this is exactly the
+             * caller that would be forgotten — the repository's own defect shape, pre-empted for the cost of
+             * one loop over an empty list.
+             */
+            foreach (var item in parked)
+            {
+                await ToothChartingSync.ApplyAsync(
+                    item, ToothChartingSync.EvidencingRecordIds(item), clinicResult.Value,
+                    _dentalRecordRepository, _toothStateRepository, cancellationToken);
+            }
 
             _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);

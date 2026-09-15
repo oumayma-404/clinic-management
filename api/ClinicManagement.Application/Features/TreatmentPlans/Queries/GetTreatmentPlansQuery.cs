@@ -41,6 +41,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetTreatmentPlansQueryHandler> _logger;
 
@@ -50,6 +51,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         IDentalRecordRepository dentalRecordRepository,
+        IDoctorRepository doctorRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetTreatmentPlansQueryHandler> logger)
     {
@@ -58,6 +60,7 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _dentalRecordRepository = dentalRecordRepository;
+        _doctorRepository = doctorRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -112,7 +115,8 @@ public class GetTreatmentPlansQueryHandler : IRequestHandler<GetTreatmentPlansQu
             var workflow = await TreatmentPlanWorkflowProjection.BuildAsync(
                 plans, clinicId, _appointmentRepository, _invoiceRepository, DateTime.UtcNow, cancellationToken,
                 // The record repository fills `TreatedToothNumbers` — the teeth the act's earlier séances marked.
-                _dentalRecordRepository);
+                // The doctor repository fills `DoctorName` - the practitioner the devis is attributed to (M6).
+                _dentalRecordRepository, _doctorRepository);
 
             var dtos = page.Map(p => p.ToDto(names.TryGetValue(p.PatientId, out var name) ? name : null, workflow));
 

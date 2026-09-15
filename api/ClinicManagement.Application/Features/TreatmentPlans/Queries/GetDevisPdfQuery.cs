@@ -96,6 +96,8 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
         Date = plan.AcceptedDate ?? plan.CreatedAt,
         Status = plan.Status.ToString(),
         TotalPlanned = plan.TotalPlanned,
+        TotalGross = plan.TotalGross,
+        TotalDiscount = plan.TotalDiscount,
         AmountPaid = plan.AmountPaid,
         Outstanding = plan.Outstanding,
         Lines = plan.Items
@@ -103,7 +105,8 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
             {
                 Designation = i.DesignationFr,
                 Teeth = i.ToothNumbers.Count > 0 ? string.Join(", ", i.ToothNumbers) : string.Empty,
-                PlannedCost = i.PlannedCost
+                PlannedCost = i.PlannedCost,
+                DiscountAmount = i.DiscountAmount
             })
             .ToList(),
         Installments = plan.Installments
