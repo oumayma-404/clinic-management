@@ -29,6 +29,26 @@ public class TreatmentInProgressDto
     /// <summary>The act — « Bridge 4 dents ».</summary>
     public string DesignationFr { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The act's 1-based place in its devis, over the acts that still count (a parked one is excluded).
+    /// <para>
+    /// ⚠️ <b>The row is about one ACT and its loudest identifier is the devis number</b>, and only acts carrying
+    /// a protocol are listed at all — so a devis of three acts whose stepped one is the third appears here as a
+    /// single line reading « 2026-0015 · Retraitement endodontique », which is read as the devis being called
+    /// that. The rank is what says « il y en a d'autres, celui-ci est le 3ᵉ ». Printed only when
+    /// <see cref="PlanActCount"/> is past one.
+    /// </para>
+    /// <para>
+    /// ⚠️ A <b>position</b>, deliberately not a ratio. « acte 3 sur 3 » is the shape
+    /// <c>check:responsive</c>'s N31 exists to ban: a bare counter is read as progress, three times measured in
+    /// this product, and here it would say « les 3 actes sont faits » about a devis with nothing done.
+    /// </para>
+    /// </summary>
+    public int PlanActRank { get; set; }
+
+    /// <summary>How many acts the devis still counts — what gates the rank being printed at all.</summary>
+    public int PlanActCount { get; set; }
+
     public int StepsTotal { get; set; }
     public int StepsDone { get; set; }
 

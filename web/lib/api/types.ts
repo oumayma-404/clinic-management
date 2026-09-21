@@ -1070,6 +1070,19 @@ export interface TreatmentInProgressDto {
   patientName: string | null;
   itemId: string;
   designationFr: string;
+  /**
+   * The act's 1-based place in its devis, over the acts that still count (a parked one is excluded).
+   *
+   * ⚠️ The row is about one **act** while its loudest identifier is the devis number, and only the acts
+   * carrying a protocol are listed — so a devis of three acts whose stepped one is the third shows a single
+   * line reading « 2026-0015 · Retraitement endodontique », and that is read as the devis being *called* that.
+   *
+   * ⚠️ A position, never a ratio: « acte 3 sur 3 » is the shape N31 bans, and it would announce « les 3 actes
+   * sont faits » about a devis with nothing done.
+   */
+  planActRank: number;
+  /** How many acts the devis still counts — the rank is printed only past one. */
+  planActCount: number;
   stepsTotal: number;
   stepsDone: number;
   nextStepId: string | null;

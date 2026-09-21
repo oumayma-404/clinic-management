@@ -235,7 +235,25 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                     .OrderBy(s => s.SequenceNumber)
                     .Select(s => s.MinDaysAfterPrevious)
                     .FirstOrDefault(),
-                item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate));
+                item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate),
+                /*
+                 * The act's place in its devis, and how many acts the devis still counts.
+                 *
+                 * ⚠️ Counted over the acts that are NOT parked, never `item.SequenceNumber + 1`: a withdrawn act
+                 * keeps its stored rank (`TreatmentPlan.Reorder` merely pushes parked ones to the end), so the
+                 * raw column names the second act of a devis « 3ᵉ » as soon as one before it is set aside.
+                 *
+                 * ⚠️ `Status != Withdrawn` and not `!item.IsWithdrawn`: the domain property is computed and
+                 * unmapped, so it does not translate — it would throw at query time, where nothing but the page
+                 * can see it.
+                 */
+                _context.Set<TreatmentPlanItem>().Count(sib =>
+                    sib.TreatmentPlanId == item.TreatmentPlanId
+                    && sib.Status != TreatmentPlanItemStatus.Withdrawn
+                    && sib.SequenceNumber < item.SequenceNumber) + 1,
+                _context.Set<TreatmentPlanItem>().Count(sib =>
+                    sib.TreatmentPlanId == item.TreatmentPlanId
+                    && sib.Status != TreatmentPlanItemStatus.Withdrawn));
 
         var totalCount = await query.CountAsync(cancellationToken);
         if (paging is not { } page)

@@ -75,6 +75,8 @@ public static class TreatmentsInProgressReader
                     : null,
                 ItemId = fact.ItemId,
                 DesignationFr = fact.DesignationFr,
+                PlanActRank = fact.PlanActRank,
+                PlanActCount = fact.PlanActCount,
                 StepsTotal = fact.StepsTotal,
                 StepsDone = fact.StepsDone,
                 NextStepId = fact.NextStepId,

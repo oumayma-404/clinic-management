@@ -1895,11 +1895,22 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       </TableHead>
                     )}
                     {canReorder && <TableHead className="w-16">Ordre</TableHead>}
+                    {/*
+                      ⚠️ **Three columns, and « Dents » and « Action » are deliberately not among them.**
+                      The action cell carried up to five word-buttons — « Planifier la séance · Séances ·
+                      Modifier · Remise · De côté », ~450 px that `Button` makes `whitespace-nowrap shrink-0`
+                      and therefore un-shrinkable. A `<table>` in a `w-full` container squeezes the cells that
+                      CAN wrap down to their min-content to pay for that, so at the 1 217 px of page an
+                      ordinary laptop has, « 300,000 DT » broke across two lines and the remise line across
+                      four, beside a désignation column three words wide. Reported as « very bad ui ux ».
+                      The controls now sit on the act's own full-width sub-row (`PlanActRow`) — nothing folded
+                      into a « ⋯ », because `PlanActEditAction` exists precisely because a dentist could not
+                      find « Modifier » inside the header's menu. « Dents » moved under the désignation it
+                      qualifies; it was « — » on most rows and cost a column either way.
+                    */}
                     <TableHead>Désignation</TableHead>
-                    <TableHead>Dents</TableHead>
-                    <TableHead className="text-right">Coût</TableHead>
+                    <TableHead className="whitespace-nowrap text-right">Coût</TableHead>
                     <TableHead>État</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

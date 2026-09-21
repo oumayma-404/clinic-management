@@ -677,73 +677,108 @@ export function PlanActRow({
   sessionActCount = 1,
 }: PlanActRowProps) {
   const withdrawn = isItemWithdrawn(item)
+  // Désignation · Coût · État, plus the two optional leading columns — what the action sub-row has to span.
+  const columnCount = 3 + (selection ? 1 : 0) + (reorder ? 1 : 0)
+  /*
+   * The only case with nothing to offer: a parked act on a devis the reader may not amend. Every other path
+   * through `PlanActPrimaryAction` returns something — its tail is a muted sentence naming why there is no
+   * control, which is itself the fix for an earlier bare `return null`.
+   */
+  const hasActions = !withdrawn || Boolean(onRestore)
+  const selected = selection?.checked ? "selected" : undefined
+  /*
+   * ⚠️ **Two `<tr>` for one act, and the pair has to READ as one act.** `TableRow`'s default hover tint would
+   * otherwise light up half of it, and the hairline would run between the act and its own buttons — so the
+   * top row drops its border and both rows drop the hover. `data-state` goes on both, or ticking the checkbox
+   * tints the act and not its controls.
+   */
+  const pair = cn(withdrawn && "opacity-60", "hover:bg-transparent")
   return (
-    <TableRow
-      data-state={selection?.checked ? "selected" : undefined}
-      // A parked act is still part of the devis' history and stays on the list; it is quietened rather than
-      // hidden, which is the same treatment a voided payment gets two cards down.
-      className={cn(withdrawn && "opacity-60")}
-    >
-      {selection && (
-        <TableCell>
-          <PlanActSelectionBox item={item} selection={selection} />
-        </TableCell>
-      )}
-      {reorder && (
-        <TableCell>
-          <PlanActReorderControls item={item} reorder={reorder} />
-        </TableCell>
-      )}
-      <TableCell className="align-top">
-        <span className={cn("font-medium", withdrawn && "text-muted-foreground")}>{item.designationFr}</span>
-        {/* Under the act's own name, not in the État cell: the strip describes THIS ACT's progress, while the
-            État cell answers a different question — what to do next about it. */}
-        <PlanStepStrip steps={item.steps} nextStepId={item.nextStepId} />
-      </TableCell>
-      <TableCell className="align-top">
-        {item.toothNumbers.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {item.toothNumbers.map((tooth) => (
-              <Badge key={tooth} variant="secondary" className="text-xs">{tooth}</Badge>
-            ))}
-          </div>
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
+    <>
+      <TableRow
+        data-state={selected}
+        // A parked act is still part of the devis' history and stays on the list; it is quietened rather than
+        // hidden, which is the same treatment a voided payment gets two cards down.
+        className={cn(pair, hasActions && "border-0")}
+      >
+        {selection && (
+          <TableCell>
+            <PlanActSelectionBox item={item} selection={selection} />
+          </TableCell>
         )}
-      </TableCell>
-      <TableCell className="align-top text-right">{planActCost(item)}</TableCell>
-      <TableCell className="align-top">
-        <span className="flex flex-wrap items-center gap-2">
-          <PlanActStateBadge item={item} />
-          {/* Says « this act shares its visit », which is the only way the grouping is visible after booking —
-              without it, four acts on the same date look like four appointments. Below `md:` the same fact is
-              carried by the card list's section header instead. */}
-          {sessionActCount > 1 && item.scheduledAppointmentId && (
-            <Badge variant="outline" className="gap-1 whitespace-nowrap text-xs">
-              <Layers className="h-3 w-3" />
-              séance de {sessionActCount} actes
-            </Badge>
+        {reorder && (
+          <TableCell>
+            <PlanActReorderControls item={item} reorder={reorder} />
+          </TableCell>
+        )}
+        <TableCell className="align-top">
+          <span className={cn("font-medium", withdrawn && "text-muted-foreground")}>{item.designationFr}</span>
+          {/*
+            The teeth, under the act they qualify rather than in a column of their own — see the table header
+            for why the column went. ⚠️ The word « Dents » is VISIBLE and not a `title`: it was a column
+            heading, so dropping it silently would leave a bare « 14 15 16 » that only a dentist already
+            expecting teeth can read, and a `title` needs a hover this app's tablet has not got. Nothing is
+            drawn when the act names none — the old « — » said the same thing and cost a line.
+          */}
+          {item.toothNumbers.length > 0 && (
+            <span className="mt-1 flex flex-wrap items-center gap-1">
+              <span className="text-2xs uppercase tracking-wide text-muted-foreground">Dents</span>
+              {item.toothNumbers.map((tooth) => (
+                <Badge key={tooth} variant="secondary" className="text-xs">{tooth}</Badge>
+              ))}
+            </span>
           )}
-        </span>
-      </TableCell>
-      <TableCell className="align-top text-right">
-        <div className="flex items-center justify-end gap-1">
-          <PlanActPrimaryAction
-            plan={plan}
-            item={item}
-            onSchedule={onSchedule}
-            onUndo={onUndo}
-            onWithdraw={onWithdraw}
-            onRestore={onRestore}
-          />
-          {!withdrawn && onEditSteps && <PlanActStepsAction item={item} onEditSteps={onEditSteps} />}
-          {!withdrawn && onEdit && <PlanActEditAction item={item} onEdit={onEdit} />}
-          {!withdrawn && onDiscount && <PlanActDiscountAction item={item} onDiscount={onDiscount} />}
-          {/* « Mettre de côté » is a secondary control beside the act's own action, never the row's primary
-              one: the thing to do with an act is to carry it out. */}
-          {!withdrawn && onWithdraw && <PlanActWithdrawAction item={item} onWithdraw={onWithdraw} />}
-        </div>
-      </TableCell>
-    </TableRow>
+          {/* Under the act's own name, not in the État cell: the strip describes THIS ACT's progress, while the
+              État cell answers a different question — what to do next about it. */}
+          <PlanStepStrip steps={item.steps} nextStepId={item.nextStepId} />
+        </TableCell>
+        {/* ⚠️ `whitespace-nowrap`: it is the cell the squeeze lands on first, because « 300,000 DT » has a
+            space to break at and a button has none — it rendered as « 300,000 / DT » with the remise line
+            below it on four. */}
+        <TableCell className="align-top whitespace-nowrap text-right">{planActCost(item)}</TableCell>
+        <TableCell className="align-top">
+          <span className="flex flex-wrap items-center gap-2">
+            <PlanActStateBadge item={item} />
+            {/* Says « this act shares its visit », which is the only way the grouping is visible after booking —
+                without it, four acts on the same date look like four appointments. Below `md:` the same fact is
+                carried by the card list's section header instead. */}
+            {sessionActCount > 1 && item.scheduledAppointmentId && (
+              <Badge variant="outline" className="gap-1 whitespace-nowrap text-xs">
+                <Layers className="h-3 w-3" />
+                séance de {sessionActCount} actes
+              </Badge>
+            )}
+          </span>
+        </TableCell>
+      </TableRow>
+      {hasActions && (
+        <TableRow data-state={selected} className={pair}>
+          {/*
+            ⚠️ The controls keep their WORDS. Folding them behind a « ⋯ » was the obvious way to reclaim the
+            width and it is the mistake `PlanActEditAction` records: « Modifier » already lived in the header's
+            menu and a dentist « struggled to find how to edit ». A full-width row costs vertical space, which
+            this page has, instead of capability, which it has not.
+          */}
+          <TableCell colSpan={columnCount} className="pt-0 align-top">
+            <div className="flex flex-wrap items-center gap-1">
+              <PlanActPrimaryAction
+                plan={plan}
+                item={item}
+                onSchedule={onSchedule}
+                onUndo={onUndo}
+                onWithdraw={onWithdraw}
+                onRestore={onRestore}
+              />
+              {!withdrawn && onEditSteps && <PlanActStepsAction item={item} onEditSteps={onEditSteps} />}
+              {!withdrawn && onEdit && <PlanActEditAction item={item} onEdit={onEdit} />}
+              {!withdrawn && onDiscount && <PlanActDiscountAction item={item} onDiscount={onDiscount} />}
+              {/* « Mettre de côté » is a secondary control beside the act's own action, never the row's primary
+                  one: the thing to do with an act is to carry it out. */}
+              {!withdrawn && onWithdraw && <PlanActWithdrawAction item={item} onWithdraw={onWithdraw} />}
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   )
 }

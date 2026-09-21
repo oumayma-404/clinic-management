@@ -495,4 +495,21 @@ public sealed record TreatmentInProgressFact(
     int? NextStepMinDaysAfterPrevious,
     /// <summary>When the most recent carried-out step happened — « dernière séance il y a 12 j ». Never null in
     /// practice (an act under way has at least one step done), but nullable so the shape cannot lie if it is.</summary>
-    DateTime? LastStepDoneOn);
+    DateTime? LastStepDoneOn,
+    /// <summary>
+    /// The act's <b>1-based place in its devis</b>, counted over the acts that still count — a parked one is
+    /// excluded, so <c>SequenceNumber + 1</c> is not this number.
+    /// <para>
+    /// ⚠️ It exists because the list is one row per <i>act</i> while the row's most prominent identifier is the
+    /// devis number, and only the acts carrying a protocol are listed. A devis of three acts whose only stepped
+    /// one is the third showed a single row reading « 2026-0015 · Retraitement endodontique » — and was read as
+    /// the devis being <i>called</i> that. Reported in as many words: « the plan name is retraitement
+    /// endodontique, even though it's the last one in the plan, why ??? »
+    /// </para>
+    /// </summary>
+    int PlanActRank,
+    /// <summary>
+    /// How many acts the devis still counts. Served beside the rank because the screen prints the rank
+    /// <b>only</b> past one: « 1ᵉʳ acte du devis » on a single-act devis is noise on every row of the list.
+    /// </summary>
+    int PlanActCount);
