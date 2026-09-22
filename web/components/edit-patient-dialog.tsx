@@ -170,9 +170,12 @@ type SectionKey = "medical" | "notes" | "coordonnees"
  * unrecorded at the one moment somebody is sitting there answering. That still holds, so the two blocks carrying a
  * clinical question stay open.
  *
- * What is folded is the block the practice itself describes as rarely filled — the postal address with the
- * e-mail and the reminder consent. It keeps a summary that states what it holds, so folding makes a value
- * read-only rather than invisible.
+ * What is folded is the block the practice itself describes as rarely filled — the e-mail and the reminder
+ * consent. It keeps a summary that states what it holds, so folding makes a value read-only rather than
+ * invisible.
+ *
+ * ⚠️ The postal address used to be folded here too, and it was the FIRST thing in the section, i.e. the first
+ * thing hidden. It is the last field of « L'essentiel » now; the summary moved with it.
  *
  * ⚠️ « Identité CNAM » was the second folded section and went with the CNAM interface
  * (`features/cnam-ui-withdrawal/notes.md`). The stored block is untouched — this form simply stops sending the
@@ -420,11 +423,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
         ? [patientImportantNotes.trim() && "alertes", patientNotes.trim() && "notes"].filter(Boolean).join(" · ")
         : "aucune note",
     // ⚠️ This section is FOLDED on arrival, so its summary is the only thing most users will ever read of it —
-    // and it has to be true about all three of its fields. « non renseignés » on the rappels is deliberately
+    // and it has to be true about both of its fields. « non renseignés » on the rappels is deliberately
     // spelled out rather than omitted: an unrecorded consent still SENDS, which is the half people misread.
+    //
+    // ⚠️ `addressLine` was the first term here and went with the field: « Adresse » is in « L'essentiel » now, so
+    // a summary still naming it would announce, on a folded header, a value that is on screen two rows above.
     coordonnees:
       [
-        addressLine.trim(),
         email.trim(),
         reminderConsent === "Granted"
           ? "rappels acceptés"
@@ -433,7 +438,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
             : null,
       ]
         .filter(Boolean)
-        .join(" · ") || "adresse et rappels non renseignés",
+        .join(" · ") || "e-mail et rappels non renseignés",
     medical:
       filled(chronicDiseases, allergies, medications) > 0 || smokingStatus !== null
         ? [
@@ -1357,7 +1362,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                     id="consultationReason"
                     value={consultationReason}
                     onChange={(e) => setConsultationReason(e.target.value)}
-                    placeholder="Douleur 36, contrôle, suivi ortho…"
                   />
                 </div>
 
@@ -1367,7 +1371,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                     id="referredBy"
                     value={referredBy}
                     onChange={(e) => setReferredBy(e.target.value)}
-                    placeholder="Dr Ben Salah, Sfax — vide si le patient vient de lui-même"
                   />
                 </div>
 
@@ -1387,8 +1390,37 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                 <div className="grid grid-cols-1 gap-4 md:col-span-2 md:grid-cols-3 md:items-start">
                   {/* Phone */}
                   <div className="space-y-2">
-                    <div className="flex min-h-8 items-center">
+                    {/*
+                      ⚠️ **The « + » for a second number lives HERE, on the Téléphone label row.** It was a
+                      full « + Ajouter un numéro » pill on a header row of its own below the grid, and it read
+                      as an unrelated control: a button wider than the field it belongs to, two rows under it,
+                      with « Sexe » and « Naissance » in between. Reported on sight as « very annoying ».
+                      Beside the label it is unmistakably about this field, and it costs one row less.
+
+                      ⚠️ Icon-only is the exception this form makes, not its rule — a word is normally required
+                      here because a `title` needs a hover and this app runs on a tablet. « + » beside a
+                      telephone field is the one gesture that needs no word, and the accessible name carries it
+                      for anyone the glyph does not reach.
+                    */}
+                    <div className="flex min-h-8 items-center justify-between gap-2">
                       <Label htmlFor="phone">Téléphone</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="touch-target size-7 shrink-0 text-muted-foreground hover-hover:hover:text-foreground"
+                        /* The cap is the server's own (`Patient.MaxAdditionalPhoneNumbers`). Disabled rather
+                           than hidden, so the limit is visible instead of the control vanishing. */
+                        disabled={extraPhones.length >= MAX_EXTRA_PHONES}
+                        onClick={() => setExtraPhones((rows) => [...rows, newExtraPhoneRow()])}
+                        aria-label={
+                          extraPhones.length >= MAX_EXTRA_PHONES
+                            ? `Maximum de ${MAX_EXTRA_PHONES} numéros supplémentaires atteint`
+                            : "Ajouter un autre numéro"
+                        }
+                      >
+                        <Plus className="size-4" aria-hidden="true" />
+                      </Button>
                     </div>
                     <PhoneField
                       id="phone"
@@ -1412,12 +1444,93 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                       invalid={!!errors.phone}
                     />
                     {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
-                    {/* Optional does not mean consequence-free. Saying it here beats a neutral blank the user
-                        only understands weeks later, when the patient misses an appointment. */}
-                    {!phone.trim() && !errors.phone && (
-                      <p className="text-xs text-muted-foreground">
-                        Sans numéro, ce patient ne recevra ni rappel ni relance.
-                      </p>
+                    {/*
+                      « Autres numéros » — the mobile beside the landline, the spouse's line, the child's.
+
+                      ⚠️ **INSIDE the « Téléphone » cell, and the earlier note here said the opposite.** Below the
+                      grid it followed the phone only on a desktop, where the phone is the first of three columns.
+                      On a phone the grid is ONE column, so « Téléphone · Sexe · Naissance » stack and the list
+                      landed **after Naissance** — a second number filed under the date of birth, two fields away
+                      from the number it belongs to and from the « + » that created it. Reported on sight.
+
+                      The reason given for keeping it out — that a growing cell drags « Sexe » and « Naissance »
+                      down — does not hold: the grid is `md:items-start`, so each cell is top-aligned and a taller
+                      phone column makes the ROW taller without moving its neighbours.
+
+                      ⚠️ **The whole block is absent until there is a row**, and it carries no help line at all —
+                      a « + » beside a telephone field explains itself. Owner's rule: a control that needs a
+                      sentence is a control designed wrong.
+                    */}
+                    {extraPhones.length > 0 && (
+                      <div className="space-y-2">
+                        <Label>Autres numéros</Label>
+                        <ul className="space-y-2">
+                          {extraPhones.map((row, index) => {
+                            const rowError = errors[`extraPhone:${row.key}`]
+                            const numberId = `extra-phone-${row.key}`
+                            return (
+                              <li key={row.key} className="space-y-1">
+                                {/* A number and a way to remove it. Nothing else — see `PatientPhone`. */}
+                                <div className="flex items-start gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <label htmlFor={numberId} className="sr-only">
+                                      Numéro supplémentaire {index + 1}
+                                    </label>
+                                    <PhoneField
+                                      id={numberId}
+                                      value={row.value}
+                                      onChange={(next) => {
+                                        setExtraPhones((rows) =>
+                                          rows.map((r) => (r.key === row.key ? { ...r, value: next } : r)),
+                                        )
+                                        // Same rule as the primary: a corrected number clears its own error at
+                                        // once, or the red border reads as a control the user is fighting.
+                                        if (rowError) {
+                                          setErrors((prev) => {
+                                            const rest = { ...prev }
+                                            delete rest[`extraPhone:${row.key}`]
+                                            return rest
+                                          })
+                                        }
+                                      }}
+                                      country={row.country}
+                                      onCountryChange={(next) =>
+                                        setExtraPhones((rows) =>
+                                          rows.map((r) => (r.key === row.key ? { ...r, country: next } : r)),
+                                        )
+                                      }
+                                      /* ⚠️ `off`: a `tel` suggestion here writes the last patient's mobile into
+                                         this one's record. Same call the emergency contact makes. */
+                                      autoComplete="off"
+                                      invalid={!!rowError}
+                                    />
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="touch-target shrink-0 text-muted-foreground hover-hover:hover:text-destructive"
+                                    onClick={() => {
+                                      setExtraPhones((rows) => rows.filter((r) => r.key !== row.key))
+                                      // The row's error goes with the row, or a save stays blocked by a message
+                                      // about a field that is no longer on screen.
+                                      setErrors((prev) => {
+                                        const rest = { ...prev }
+                                        delete rest[`extraPhone:${row.key}`]
+                                        return rest
+                                      })
+                                    }}
+                                    aria-label={`Supprimer le numéro ${index + 1}`}
+                                  >
+                                    <Trash2 className="size-4" aria-hidden="true" />
+                                  </Button>
+                                </div>
+                                {rowError && <p className="text-sm text-destructive">{rowError}</p>}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </div>
                     )}
                   </div>
 
@@ -1530,7 +1643,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                             step={1}
                             value={approximateAge}
                             onChange={(e) => setApproximateAge(e.target.value)}
-                            placeholder="Ex. 42"
                             aria-invalid={!!errors.approximateAge}
                             className={cn("w-24", errors.approximateAge && "border-destructive")}
                           />
@@ -1547,129 +1659,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                     {errors.birthdate && <p className="text-sm text-destructive">{errors.birthdate}</p>}
                     {errors.approximateAge && <p className="text-sm text-destructive">{errors.approximateAge}</p>}
                   </div>
-                </div>
-
-                {/*
-                  « Autres numéros » — the mobile beside the landline, the spouse's line, the child's.
-
-                  ⚠️ **Below the grid, not inside the « Téléphone » cell.** A variable-length list in one cell of
-                  a three-column row grows that column and drags « Sexe » and « Naissance » down with it; and at
-                  320 px the cell is the whole width anyway, so nothing is gained by nesting it.
-
-                  ⚠️ **But it must still READ as attached to the number above it**, which is the whole reason the
-                  header below is left-aligned. `justify-between` put « Ajouter un numéro » against the right
-                  edge of a full-width row — diagonally opposite the « Téléphone » field it belongs to, with
-                  « Sexe » and « Naissance » between them — and it was reported on sight as being nowhere near
-                  the number. Left-aligned, the label and the button sit directly under the phone field's own
-                  column, and the `-mt-2` closes the grid's `gap-4` so the two read as one block.
-
-                  ⚠️ **Nothing is rendered until the practice asks for it.** Almost every patient has one number,
-                  and a permanently visible empty row would add a control to the commonest form in the product for
-                  a case that is rare. The button is the whole feature until it is pressed.
-                */}
-                <div className="-mt-2 space-y-2 md:col-span-2">
-                  <div className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1">
-                    <Label>Autres numéros</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="touch-target shrink-0"
-                      /* The cap is the server's own (`Patient.MaxAdditionalPhoneNumbers`). Disabled rather than
-                         hidden, so the limit is visible instead of the control silently disappearing. */
-                      disabled={extraPhones.length >= MAX_EXTRA_PHONES}
-                      onClick={() => setExtraPhones((rows) => [...rows, newExtraPhoneRow()])}
-                    >
-                      <Plus className="me-1.5 size-4" aria-hidden="true" />
-                      Ajouter un numéro
-                    </Button>
-                  </div>
-
-                  {/*
-                    One help line, two sentences, ALWAYS on its own row — never appended to the label inline.
-                    Measured at 320 and 390 px: beside the « Ajouter » button the label had ~110 px left, so an
-                    inline caption broke « Autres / numéros » across two lines and wrapped itself over two more.
-                    A full-width line wraps at word boundaries and costs the same vertical space.
-                  */}
-                  {extraPhones.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      Un deuxième numéro : le portable du conjoint, le fixe de la maison, celui d&apos;un parent.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Appelés à la main. Les rappels partent toujours sur le numéro principal.
-                    </p>
-                  )}
-
-                  {extraPhones.length > 0 && (
-                    <ul className="space-y-2">
-                      {extraPhones.map((row, index) => {
-                        const rowError = errors[`extraPhone:${row.key}`]
-                        const numberId = `extra-phone-${row.key}`
-                        return (
-                          <li key={row.key} className="space-y-1">
-                            {/* A number and a way to remove it. Nothing else — see `PatientPhone`. */}
-                            <div className="flex items-start gap-2">
-                              <div className="min-w-0 flex-1">
-                                <label htmlFor={numberId} className="sr-only">
-                                  Numéro supplémentaire {index + 1}
-                                </label>
-                                <PhoneField
-                                  id={numberId}
-                                  value={row.value}
-                                  onChange={(next) => {
-                                    setExtraPhones((rows) =>
-                                      rows.map((r) => (r.key === row.key ? { ...r, value: next } : r)),
-                                    )
-                                    // Same rule as the primary: a corrected number clears its own error at
-                                    // once, or the red border reads as a control the user is fighting.
-                                    if (rowError) {
-                                      setErrors((prev) => {
-                                        const rest = { ...prev }
-                                        delete rest[`extraPhone:${row.key}`]
-                                        return rest
-                                      })
-                                    }
-                                  }}
-                                  country={row.country}
-                                  onCountryChange={(next) =>
-                                    setExtraPhones((rows) =>
-                                      rows.map((r) => (r.key === row.key ? { ...r, country: next } : r)),
-                                    )
-                                  }
-                                  /* ⚠️ `off`: a `tel` suggestion here writes the last patient's mobile into
-                                     this one's record. Same call the emergency contact makes. */
-                                  autoComplete="off"
-                                  invalid={!!rowError}
-                                  placeholder="ex. : 20 123 456"
-                                />
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="touch-target shrink-0 text-muted-foreground hover-hover:hover:text-destructive"
-                                onClick={() => {
-                                  setExtraPhones((rows) => rows.filter((r) => r.key !== row.key))
-                                  // The row's error goes with the row, or a save stays blocked by a message
-                                  // about a field that is no longer on screen.
-                                  setErrors((prev) => {
-                                    const rest = { ...prev }
-                                    delete rest[`extraPhone:${row.key}`]
-                                    return rest
-                                  })
-                                }}
-                                aria-label={`Supprimer le numéro ${index + 1}`}
-                              >
-                                <Trash2 className="size-4" aria-hidden="true" />
-                              </Button>
-                            </div>
-                            {rowError && <p className="text-sm text-destructive">{rowError}</p>}
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
                 </div>
 
                 {/*
@@ -1760,6 +1749,32 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                   <p className="text-xs text-muted-foreground">
                     Détermine les dents affichées dans l&apos;odontogramme et les fiches de soins.
                   </p>
+                </div>
+
+                {/*
+                  Adresse — the last field of « L'essentiel », and until now the first of the folded
+                  « Coordonnées et rappels ».
+
+                  One box, whatever the desk wants to write in it: « Sfax » is as complete an answer as
+                  « 12 rue de Carthage, La Marsa 2070 ». It replaces a rue / gouvernorat / ville / code postal
+                  questionnaire whose four boxes asked for a precision nobody had and nothing reads.
+
+                  ⚠️ **No « (facultatif) » marker, unlike where it came from.** This box's own rule, stated at the
+                  top of it: the heading already says « suffit à enregistrer le patient » and exactly two fields
+                  carry an asterisk, so a seventh repetition of the word is the noise that rule exists to keep out.
+
+                  ⚠️ **Last, and not merely « moved up ».** Everything above identifies the patient or decides what
+                  the odontogramme draws; the address is the one field here nobody needs in order to register
+                  somebody, so it takes the row where leaving it empty costs least.
+                */}
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="addressLine">Adresse</Label>
+                  <Input
+                    id="addressLine"
+                    value={addressLine}
+                    onChange={(e) => setAddressLine(e.target.value)}
+                    autoComplete="street-address"
+                  />
                 </div>
               </div>
             </div>
@@ -2175,8 +2190,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
               onToggle={() => toggleSection("coordonnees")}
             >
               {/*
-                Folded on arrival, and holding the three fields the practice describes as rarely filled: where the
-                patient lives, their e-mail, and whether they may be texted.
+                Folded on arrival, and holding the two fields the practice describes as rarely filled: the
+                patient's e-mail, and whether they may be texted.
+
+                ⚠️ **« Adresse » is no longer here — it is the last field of « L'essentiel ».** It was the first
+                thing in this section and therefore the first thing hidden, and a folded address is one nobody
+                fills; the summary above no longer claims it either. Moving it *up* rather than deleting the
+                section is what keeps the e-mail and the consent folded, which is still right for both.
 
                 ⚠️ **The e-mail moved here out of « L'essentiel ».** Nothing in this product sends to it — not a
                 rappel, not a relance, not a note d'honoraires — so it is an archive field, and it was occupying a
@@ -2188,24 +2208,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                 sends.
               */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {/*
-                  One box, whatever the desk wants to write in it — « Sfax » is as complete an answer as
-                  « 12 rue de Carthage, La Marsa 2070 ». It replaces a rue / gouvernorat / ville / code postal
-                  questionnaire whose four boxes asked for a precision nobody had and nothing reads.
-                */}
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="addressLine">
-                    Adresse <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  <Input
-                    id="addressLine"
-                    value={addressLine}
-                    onChange={(e) => setAddressLine(e.target.value)}
-                    placeholder="Ville, quartier ou adresse complète — comme vous voulez"
-                    autoComplete="street-address"
-                  />
-                </div>
-
                 {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="email">
