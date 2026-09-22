@@ -97,6 +97,7 @@ public class MoneyReconciliationService
         }
 
         findings.AddRange(CheckOrphans(facts.Orphans));
+        findings.AddRange(CheckFicheOrphans(facts.FicheOrphans));
 
         return new MoneyReconciliationReport(findings, baseline);
     }
@@ -358,6 +359,34 @@ public class MoneyReconciliationService
             $"{orphans.Invoices} invoice(s), {orphans.TreatmentPlans} treatment plan(s), "
             + $"{orphans.ToothStates} tooth state(s), {orphans.Notifications} notification(s) "
             + "pointing at a patient that no longer exists",
+            total > 0 ? MoneyReconciliationSeverity.Drift : MoneyReconciliationSeverity.Info);
+    }
+
+    /// <summary>
+    /// Money still claimed for a fiche de soins that no longer exists.
+    ///
+    /// <para>
+    /// ⚠️ <b>This is the check that was missing when a patient paid twice.</b> Deleting a fiche used to leave
+    /// its chairside collection sitting on the devis and its note d'honoraires standing, so re-recording the
+    /// séance collected the same money again — and every other assertion in this report stayed green, because
+    /// each ledger still agreed with itself. « Does this money point at a record that exists » was simply never
+    /// asked.
+    /// </para>
+    /// <para>
+    /// The deletion path no longer creates these (<c>DentalRecordDeletionReversal</c>), so a non-zero count is
+    /// history — or a route nobody has noticed yet, which is exactly what this exists to surface.
+    /// </para>
+    /// </summary>
+    private static IEnumerable<MoneyReconciliationFinding> CheckFicheOrphans(FicheOrphanFacts orphans)
+    {
+        var total = orphans.InstallmentPayments + orphans.Invoices + orphans.MedicalDocuments;
+
+        yield return new MoneyReconciliationFinding(
+            "(all clinics)",
+            "no-money-without-a-fiche",
+            $"{orphans.InstallmentPayments} encaissement(s) de devis ({Money(orphans.InstallmentPaymentAmount)}), "
+            + $"{orphans.Invoices} note(s) d'honoraires ({Money(orphans.InvoiceAmountCollected)} encaissés) "
+            + $"et {orphans.MedicalDocuments} document(s) pointing at a fiche de soins that no longer exists",
             total > 0 ? MoneyReconciliationSeverity.Drift : MoneyReconciliationSeverity.Info);
     }
 

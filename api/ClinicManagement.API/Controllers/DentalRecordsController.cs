@@ -120,6 +120,33 @@ public class DentalRecordsController : ApiControllerBase
     /// delete — it is load-bearing, not the redundant restatement of the class it used to be. Recording a visit
     /// is reversible by editing; destroying the record it was billed from is not.</para>
     /// </summary>
+    /// <summary>
+    /// What deleting this fiche would undo, so the confirmation can say it <b>before</b> the user commits.
+    /// Same policy as the delete itself — it is a preview of that verb and it names money.
+    /// <para>
+    /// ⚠️ It shares <c>DentalRecordDeletionReversal.InspectAsync</c> with the delete rather than reading the
+    /// money a second way: a warning that can disagree with what follows is worse than no warning.
+    /// </para>
+    /// </summary>
+    [HttpGet("{id}/deletion-preview")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<DentalRecordDeletionPreviewDto>> PreviewDentalRecordDeletion(
+        Guid patientId, Guid id)
+    {
+        var result = await _mediator.Send(new GetDentalRecordDeletionPreviewQuery
+        {
+            PatientId = patientId,
+            Id = id,
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
     [HttpDelete("{id}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> DeleteDentalRecord(Guid patientId, Guid id)

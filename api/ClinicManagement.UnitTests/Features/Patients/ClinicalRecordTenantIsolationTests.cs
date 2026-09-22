@@ -87,7 +87,9 @@ public class ClinicalRecordTenantIsolationTests
 
         var handler = new DeleteDentalRecordCommandHandler(
             records.Object, _patients.Object, new Mock<ITreatmentPlanRepository>().Object,
-            new Mock<IInvoiceRepository>().Object, _clinicResolver.Object, _uow.Object,
+            new Mock<IInvoiceRepository>().Object, new Mock<ICreditNoteRepository>().Object,
+            new Mock<IMedicalDocumentRepository>().Object, new Mock<IUserRepository>().Object,
+            new Mock<IClinicContext>().Object, _clinicResolver.Object, _uow.Object,
             NullLogger<DeleteDentalRecordCommandHandler>.Instance);
 
         var result = await handler.Handle(

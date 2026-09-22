@@ -114,6 +114,42 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             Notifications: await _context.Notifications
                 .CountAsync(n => n.PatientId != null && !_context.Patients.Any(p => p.Id == n.PatientId), cancellationToken));
 
+        /*
+         * The second orphan family: money and documents pointing at a fiche de soins that is gone. None of
+         * these columns has a foreign key — `InstallmentPayment.DentalRecordId` and `Invoice.DentalRecordId`
+         * are soft by design — so nothing at the database level has ever prevented them, and every balance
+         * reconciles perfectly while they exist.
+         *
+         * ⚠️ Voided payments are excluded deliberately: a voided row is a correction that has already been
+         * made, and reporting it as drift would make the report noisier every time somebody fixed something.
+         * Cancelled invoices, likewise, claim nothing.
+         */
+        // No `DbSet<Installment>`: the échéancier is an aggregate child, so it is reached through its plan.
+        var orphanInstallmentPayments = await _context.TreatmentPlans
+            .SelectMany(t => t.Installments)
+            .SelectMany(i => i.Payments)
+            .Where(p => p.DentalRecordId != null
+                && !p.IsVoided
+                && !_context.DentalRecords.Any(r => r.Id == p.DentalRecordId))
+            .Select(p => p.Amount)
+            .ToListAsync(cancellationToken);
+
+        var orphanInvoices = await _context.Invoices
+            .Where(i => i.DentalRecordId != null
+                && i.Status != InvoiceStatus.Cancelled
+                && !_context.DentalRecords.Any(r => r.Id == i.DentalRecordId))
+            .Select(i => i.AmountCollected)
+            .ToListAsync(cancellationToken);
+
+        var ficheOrphans = new FicheOrphanFacts(
+            InstallmentPayments: orphanInstallmentPayments.Count,
+            InstallmentPaymentAmount: orphanInstallmentPayments.Sum(),
+            Invoices: orphanInvoices.Count,
+            InvoiceAmountCollected: orphanInvoices.Sum(),
+            MedicalDocuments: await _context.MedicalDocuments
+                .CountAsync(d => d.DentalRecordId != null
+                    && !_context.DentalRecords.Any(r => r.Id == d.DentalRecordId), cancellationToken));
+
         // Invoices that already hold at least one carried-over payment.
         var carriedInvoiceIds = (await _context.Invoices
             .AsNoTracking()
@@ -213,7 +249,7 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
                 UntransferredBridges: untransferred);
         }).ToList();
 
-        return new MoneyReconciliationFacts(perClinic, orphans);
+        return new MoneyReconciliationFacts(perClinic, orphans, ficheOrphans);
     }
 
     /// <summary>

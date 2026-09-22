@@ -113,6 +113,34 @@ public class MedicalDocument : Entity<Guid>, IAuditable
         CreatedAt = DateTime.UtcNow;
     }
     
+    /// <summary>
+    /// Cut this document loose from the fiche that emitted it — the fiche is being deleted, the paper is not.
+    ///
+    /// <para>
+    /// ⚠️ <b>The document survives, and that is the decision, not an omission.</b> A fiche never erases its own
+    /// ordonnance: the sheet may already be in the patient's hand, and destroying it is its own
+    /// <c>AdminOrDoctor</c> verb (<c>DeleteMedicalDocumentCommand</c>) taken deliberately, never a side effect
+    /// of tidying a record away.
+    /// </para>
+    /// <para>
+    /// ⚠️ What cannot survive is the pointer. « Modifier » routes on <see cref="DentalRecordId"/> because a
+    /// document a fiche owns is recomposed from that fiche's next save — and a deleted fiche has no next save,
+    /// so the document would send its reader to an editor that can never open it. Cleared, it is an ordinary
+    /// document again.
+    /// </para>
+    /// <para>Idempotent: a document that never belonged to a fiche is left exactly as it is.</para>
+    /// </summary>
+    public void ReleaseFromDentalRecord()
+    {
+        if (DentalRecordId is null)
+        {
+            return;
+        }
+
+        DentalRecordId = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void Update(
         DateTime documentDate,
         string contentJson,

@@ -166,6 +166,23 @@ public interface IInvoiceRepository
         GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The note d'honoraires raised FROM this fiche, by the invoice's own <c>DentalRecordId</c> header, loaded
+    /// with its lines and payments.
+    ///
+    /// <para>
+    /// ⚠️ <b>The header, not the lines — and that distinction is the whole reason this exists.</b>
+    /// <see cref="GetDentalRecordLinksAsync"/> projects <c>InvoiceLine.DentalRecordId</c>, and the fiche-delete
+    /// cleanup <i>clears exactly those line pointers</i>. So a note becomes invisible to that read the moment
+    /// the deletion starts, while the header is written once at creation and never cleared. Reversing a note
+    /// through the line projection would work on the first pass and find nothing on any later one — including
+    /// for every note already orphaned by a deletion that ran before this method existed.
+    /// </para>
+    /// <para>Normally zero or one row; a list because nothing in the schema forbids two.</para>
+    /// </summary>
+    Task<IReadOnlyList<Invoice>> GetByDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The money of specific invoices, by id — number, status, total, collected and outstanding, and nothing
     /// else. The fourth light projection of this repository, for callers holding invoice ids that no link table
     /// keys: <c>TreatmentPlanItem.BilledOnInvoiceId</c>, the note that collects a continuation's first act

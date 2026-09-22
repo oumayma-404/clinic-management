@@ -134,8 +134,57 @@ export const dentalRecordsApi = {
     return apiPut<DentalRecordDto>(`/patients/${patientId}/dental-records/${id}`, data);
   },
 
+  /**
+   * What deleting this fiche would undo — money included — so the confirmation can state it before the press.
+   *
+   * ⚠️ The server computes this with the very call the delete makes (`DentalRecordDeletionReversal`), so the
+   * figures cannot drift from what actually happens. Never re-derive them here from the plans or invoices the
+   * page already holds: those reads answer « what is owed », not « what this deletion reverses », and the two
+   * are different the moment a payment is voided or a note is cancelled.
+   */
+  deletionPreview: async (patientId: string, id: string): Promise<DentalRecordDeletionPreview> => {
+    return apiGet<DentalRecordDeletionPreview>(
+      `/patients/${patientId}/dental-records/${id}/deletion-preview`,
+    );
+  },
+
   delete: async (patientId: string, id: string): Promise<void> => {
     return apiDelete<void>(`/patients/${patientId}/dental-records/${id}`);
   },
 };
+
+/** One devis, and what this deletion takes back off its échéancier. */
+export interface DentalRecordDeletionPlanLine {
+  id: string;
+  /** Null for an un-numbered treatment — do not interpolate it blind. */
+  number: string | null;
+  title: string;
+  amount: number;
+}
+
+/** The note d'honoraires this fiche raised. */
+export interface DentalRecordDeletionNoteLine {
+  id: string;
+  /** Null on a draft. */
+  number: string | null;
+  amount: number;
+  /** A draft is deleted outright; a numbered note is annulée and keeps its number. */
+  isDraft: boolean;
+}
+
+/** @see dentalRecordsApi.deletionPreview */
+export interface DentalRecordDeletionPreview {
+  touchesMoney: boolean;
+  totalReversed: number;
+  plans: DentalRecordDeletionPlanLine[];
+  note: DentalRecordDeletionNoteLine | null;
+  /**
+   * The caisse days whose figures move, oldest first. A void lands on the day the money was RECEIVED, not
+   * today, so a deletion rewrites an extrait somebody may already have printed — which is why it is named.
+   */
+  affectedCaisseDays: string[];
+  documentsKept: number;
+  /** Non-null when the deletion will be refused: show it, and offer « Retour » rather than « Supprimer ». */
+  refusal: string | null;
+}
 

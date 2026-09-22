@@ -139,6 +139,32 @@ public interface ITreatmentPlanRepository
         Guid clinicId, IReadOnlyCollection<Guid> dentalRecordIds, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Every plan in the clinic that <b>collected money</b> at this fiche — matched on
+    /// <c>InstallmentPayment.DentalRecordId</c>, with the échéancier and its ledger rows loaded.
+    ///
+    /// <para>
+    /// ⚠️ <b>A separate read from <see cref="GetByLinkedDentalRecordAsync"/>, and it has to be, twice over.</b>
+    /// That one matches the <i>clinical</i> link (an act or a step evidenced by the fiche) and states in as many
+    /// words that it does not load the échéancier « since detaching an act never touches money ». Reusing it to
+    /// reverse a collection would hit the trap this solution has already paid for: an unloaded collection
+    /// navigation is <b>empty, not stale</b>, so <c>CollectedOnRecord</c> would answer 0,000 DT confidently and
+    /// wrongly, and <c>VoidInstallmentPayment</c> would then throw « Échéance introuvable » on money that is
+    /// plainly there.
+    /// </para>
+    /// <para>
+    /// ⚠️ And the two questions genuinely have different answers. The clinical link is cleared the moment an act
+    /// is un-marked, while the money keeps its own tag for ever — that asymmetry is exactly how a deleted fiche
+    /// came to leave a live encaissement behind with nothing pointing at it.
+    /// </para>
+    /// <para>
+    /// <c>Items</c> and their steps are included too: the caller that reverses a collection is the same one that
+    /// releases the note d'honoraires from the devis, and <c>TreatmentPlan.DetachNote</c> reads the acts.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<TreatmentPlan>> GetByCollectedDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every planned act of the clinic that is <b>under way</b> — some of its steps carried out and some still to
     /// come — as a flat projection, one row per act, paged.
     /// <para>

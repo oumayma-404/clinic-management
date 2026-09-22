@@ -87,6 +87,10 @@ public class ClinicalRecordAccessTests
     private static readonly (Type Controller, string Action)[] AdminOrDoctorActions =
     {
         (typeof(DentalRecordsController), nameof(DentalRecordsController.DeleteDentalRecord)),
+        // ⚠️ The preview is gated like the verb it previews, not like a read. It names what a deletion would
+        // annul — the amounts collected, the devis they sit on, the note's number — so treating it as an
+        // ordinary read would hand a secretary the money the delete itself refuses to let them touch.
+        (typeof(DentalRecordsController), nameof(DentalRecordsController.PreviewDentalRecordDeletion)),
         (typeof(MedicalDocumentsController), nameof(MedicalDocumentsController.DeleteDocument)),
         (typeof(PatientMedicalHistoryController), nameof(PatientMedicalHistoryController.DeleteMedicalHistory)),
         (typeof(PatientFamilyHistoryController), nameof(PatientFamilyHistoryController.DeleteFamilyHistory)),

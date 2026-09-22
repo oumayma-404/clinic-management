@@ -48,6 +48,22 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<TreatmentPlan>> GetByCollectedDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
+    {
+        // The échéancier AND its ledger rows, unlike the clinical read above — see the interface. Without the
+        // second Include, `CollectedOnRecord` reads an empty collection and reports 0,000 DT on money that is
+        // there, which is the quietest possible way to lose a patient's payment.
+        return await _context.TreatmentPlans
+            .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
+            .Include(p => p.Installments)
+                .ThenInclude(i => i.Payments)
+            .Where(p => p.ClinicId == clinicId
+                && p.Installments.Any(i => i.Payments.Any(pay => pay.DentalRecordId == dentalRecordId)))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordsAsync(
         Guid clinicId, IReadOnlyCollection<Guid> dentalRecordIds, CancellationToken cancellationToken = default)
     {
