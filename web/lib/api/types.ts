@@ -737,6 +737,25 @@ export interface TobaccoUse {
   unit?: TobaccoUnit | null;
 }
 
+/** One of a patient's additional numbers, as a screen reads it. Mirror of `PatientPhoneDto`. */
+export interface PatientPhoneDto {
+  /** The number as reception typed it. This is what is DISPLAYED. */
+  value: string;
+  /** The dialable form — what a `tel:` link and a WhatsApp action use. Never null, unlike `phoneE164`. */
+  e164: string;
+}
+
+/**
+ * One additional number as a WRITE carries it. Mirror of `PatientPhoneInputDto`.
+ *
+ * ⚠️ Carries its own `region` — the row's own country selector. A patient's mobile may be Tunisian and their
+ * son's French, so one region for the whole record would be wrong exactly where this feature earns its place.
+ */
+export interface PatientPhoneInput {
+  value: string;
+  region?: string | null;
+}
+
 export interface PatientDto {
   /**
    * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
@@ -780,6 +799,13 @@ export interface PatientDto {
    * mirror of the rule, and a second copy is how a patient becomes contactable on one screen and not another.
    */
   phoneE164?: string | null;
+  /**
+   * The patient's OTHER numbers, in the order the practice entered them — empty for almost every patient.
+   *
+   * ⚠️ `phoneNumber` above stays the primary and is unaffected: it is what the rappels dispatch to and what the
+   * duplicate check folds. These are the numbers a human dials when the first one does not answer.
+   */
+  additionalPhones?: PatientPhoneDto[];
   /**
    * Chronic conditions and known allergies — free text, and the two most safety-critical strings on the record.
    *

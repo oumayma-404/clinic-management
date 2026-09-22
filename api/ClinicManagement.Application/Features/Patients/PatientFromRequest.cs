@@ -139,6 +139,16 @@ public static class PatientFromRequest
         // « non-fumeur ». See `TobaccoUse`.
         patient.UpdateTobaccoUse(TobaccoUseMapping.ToDomain(request.TobaccoUse));
 
+        // The patient's other numbers. Validated per row by the same rule as the primary, and deduplicated
+        // against it — see `PatientPhoneMapping`. The CSV import reaches this line too and sends nothing, so
+        // an imported patient simply has none.
+        var additionalPhones = PatientPhoneMapping.Build(request.AdditionalPhones, patient.PhoneNumber);
+        if (!additionalPhones.IsSuccess)
+        {
+            return Result<Patient>.FailureFrom(additionalPhones);
+        }
+        patient.SetAdditionalPhoneNumbers(additionalPhones.Value!);
+
         return Result<Patient>.Success(patient);
     }
 }

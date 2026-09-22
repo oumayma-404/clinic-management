@@ -97,6 +97,24 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     public string? PhoneRegion { get; set; }
 
     /// <summary>
+    /// The patient's other numbers — <inheritdoc cref="CreatePatientCommand.AdditionalPhones" path="/summary/para"/>
+    ///
+    /// <para><b>Tri-state, and it has to be.</b> <c>Patient.SetAdditionalPhoneNumbers</c> replaces the WHOLE
+    /// list, so a caller that does not know these exist — the calendar import's review save, a partial PATCH
+    /// from a script, any future surface — would wipe them by not mentioning them. An omitted key never
+    /// reaches the setter; <c>[]</c> is how the last number is deleted.</para>
+    /// </summary>
+    public List<PatientPhoneInputDto>? AdditionalPhones
+    {
+        get => _additionalPhones;
+        set { _additionalPhones = value; AdditionalPhonesSpecified = true; }
+    }
+    private List<PatientPhoneInputDto>? _additionalPhones;
+
+    [JsonIgnore]
+    public bool AdditionalPhonesSpecified { get; private set; }
+
+    /// <summary>
     /// The postal address, tri-state like <see cref="Email"/>: omit the key to leave it alone, send an explicit
     /// <c>null</c> to clear it, send a block to set it.
     ///
@@ -303,6 +321,22 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     : patient.PhoneNumber;
 
                 patient.UpdateContact(email, phoneNumber);
+            }
+
+            /*
+             * The patient's other numbers, tri-state (see the property). Placed AFTER the contact block on
+             * purpose: the dedupe compares each row against the PRIMARY number, and in a request that changes
+             * both, the primary it must be compared against is the new one.
+             */
+            if (request.AdditionalPhonesSpecified)
+            {
+                var additionalPhones = PatientPhoneMapping.Build(request.AdditionalPhones, patient.PhoneNumber);
+                if (!additionalPhones.IsSuccess)
+                {
+                    return Result<PatientDto>.FailureFrom(additionalPhones);
+                }
+
+                patient.SetAdditionalPhoneNumbers(additionalPhones.Value!);
             }
 
             // « Motif de consultation ». Present sets it, present-but-blank clears it, omitted leaves it alone.

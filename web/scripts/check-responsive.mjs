@@ -3946,6 +3946,60 @@ check(
   },
 );
 
+check(
+  "stored-phone-country-has-one-owner",
+  "N43",
+  "A form seeds its country selector from the STORED E.164, through `storedPhoneCountry`",
+  "The country a number was written with is not a property of the number: what is stored is the answer it " +
+    "produced, `PhoneNumber.PersistedE164`, served as `phoneE164`. So `regionOf(record.phoneNumber)` " +
+    "re-derives against Tunisia and answers TN for every foreign number typed in national form — the patient " +
+    "edit dialog and the fournisseur dialog both did exactly that, and a French patient saved as " +
+    "`06 12 34 56 78` re-opened on +216 with no error anywhere. The second half is worse: the pre-check " +
+    "beside it then reads the number against Tunisia too, so the next ORDINARY save of that patient is " +
+    "refused with « Numéro de téléphone invalide », blaming the one field nobody touched. `storedPhoneCountry` " +
+    "is the one place the E.164-first order lives. ⚠️ `ui/phone-field.tsx` is the deliberate exception: its " +
+    "AC-11 effect reads the LIVE value so a pasted `+33…` moves the selector, which is a different question.",
+  () => {
+    const owner = join(WEB_ROOT, "lib", "phone.ts");
+    const offenders = [];
+
+    // Non-vacuity: this check is worthless if the owner is gone, or if nothing calls it any more.
+    if (!/export function storedPhoneCountry\b/.test(read(owner))) {
+      return [{ file: "lib/phone.ts", text: "`storedPhoneCountry` is gone — retarget this check rather than letting it pass vacuously" }];
+    }
+    let users = 0;
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      if (/\bstoredPhoneCountry\s*\(/.test(code)) users++;
+      // `lib/phone.ts` declares `regionOf` and is where `storedPhoneCountry` composes it;
+      // `ui/phone-field.tsx` is the live-value reader, and the only one. Everything else answers
+      // « what did the writer choose? », which only the stored E.164 knows.
+      if (name === "lib/phone.ts" || name === "components/ui/phone-field.tsx") continue;
+
+      const at = code.search(/\bregionOf\s*\(/);
+      if (at < 0) continue;
+      offenders.push({
+        file: name,
+        line: lineAt(code, at),
+        text:
+          "seeds a country from `regionOf(...)` — a stored national number resolves against Tunisia there, so " +
+          "the selector comes back +216 and the next save is refused. Use `storedPhoneCountry(e164, raw)`",
+      });
+    }
+
+    if (users === 0) {
+      offenders.push({ file: "lib/phone.ts", text: "no .tsx calls `storedPhoneCountry` — every seeding site was rewritten away, so this check proves nothing" });
+    }
+
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

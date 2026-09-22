@@ -69,7 +69,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
-import { dentalRecordsApi } from "@/lib/api/dental-records"
+import { dentalRecordsApi, type DentalRecordDeletionPreview } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto, InvoiceDto, InstallmentDto } from "@/lib/api/types"
@@ -956,6 +956,18 @@ export default function PatientDetailsPage() {
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   // Pending destructive confirmations (AC-P2.16 / AC-P2.20). null = dialog closed.
   const [recordToDelete, setRecordToDelete] = useState<DentalRecordDto | null>(null)
+  /*
+   * What deleting that fiche would undo, straight from the server — money included.
+   *
+   * ⚠️ **Asked for, never re-derived here.** The page already holds the plans and the invoices, so totting the
+   * figure up locally is one line and it answers the wrong question: those reads say what the patient OWES,
+   * while this says what the deletion REVERSES, and the two differ the moment a payment is voided or a note
+   * cancelled. The server computes it with the very call the delete then makes, so the number on screen and
+   * the number that moves cannot drift.
+   *
+   * `undefined` = not asked yet / in flight; a value = the answer, `refusal` included.
+   */
+  const [deletionPreview, setDeletionPreview] = useState<DentalRecordDeletionPreview | undefined>(undefined)
 
   /*
    * ⚠️ **All six templates, not one.** This panel offered « Nouvelle ordonnance » alone, so « Arrêt de
@@ -1496,6 +1508,40 @@ export default function PatientDetailsPage() {
         .map((item) => ({ planTitle: plan.title, designation: item.designationFr })),
     )
 
+  /*
+   * Ask what the deletion would undo, each time the dialog opens on a fiche.
+   *
+   * ⚠️ A failed read leaves `undefined`, and the dialog then keeps its « Supprimer » DISABLED rather than
+   * falling through to the old wording. The alternative — show the confirmation without the money paragraph —
+   * is the exact shape of the defect this whole change exists to remove: a destructive press whose monetary
+   * consequence nobody was told about.
+   */
+  useEffect(() => {
+    if (!recordToDelete) {
+      setDeletionPreview(undefined)
+      return
+    }
+    let cancelled = false
+    setDeletionPreview(undefined)
+    void (async () => {
+      try {
+        const preview = await dentalRecordsApi.deletionPreview(patientId, recordToDelete.id)
+        if (!cancelled) setDeletionPreview(preview)
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(
+            err instanceof ApiError
+              ? err.message
+              : "Impossible de vérifier ce que cette suppression annulerait.",
+          )
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [recordToDelete, patientId])
+
   const confirmDeleteRecord = async () => {
     if (!recordToDelete) return
     try {
@@ -1992,6 +2038,27 @@ procedureTypeId: it.procedureTypeId ?? null,
               ) : (
                 <span className="text-amber-700 dark:text-amber-400">Aucun téléphone</span>
               )}
+              {/*
+                The patient's other numbers, right behind the first — this strip is what somebody reads when
+                they are about to telephone, so a second number filed three cards further down is a number
+                nobody finds at the moment it is needed.
+
+                ⚠️ `extra.e164` and not `extra.value`: the stored value keeps its spaces and carries no country
+                code for a foreign number, and `tel:` with spaces in it is the shape that took the Windows
+                shell's whole window down. Here there is no fallback to write — the column is NOT NULL.
+
+                The label is printed beside the number rather than replacing it: « Époux » alone tells a
+                receptionist nothing they can dial.
+              */}
+              {(patient.additionalPhones ?? []).map((extra) => (
+                <a
+                  key={extra.e164 + extra.value}
+                  href={`tel:${extra.e164}`}
+                  className="touch-target inline-flex items-center gap-1.5 text-muted-foreground underline-offset-2 hover-hover:hover:underline"
+                >
+                  <span className="font-medium text-foreground">{extra.value}</span>
+                </a>
+              ))}
               {/*
                 « Tabac » takes the slot the assureur vacated, and it earns it on this strip's own terms: it is a
                 fact that changes what the practitioner does (healing, implant survival, periodontal work) and it
@@ -3721,6 +3788,20 @@ procedureTypeId: it.procedureTypeId ?? null,
                     )
                   }
                 />
+                {/*
+                  The other numbers in the record card too — the strip above is read at a glance and clamps, and
+                  this card is where a stored fact is read in full. `omitWhenEmpty`, like « E-mail » and
+                  « Adresse » beside it: almost every patient has none and a « — » row on every fiche is noise.
+
+                  A plain string, not links: the card is the record, and the header strip one screen up is the
+                  surface that dials.
+                */}
+                <RecordField
+                  label="Autres numéros"
+                  value={(patient.additionalPhones ?? []).map((extra) => extra.value).join(" · ")}
+                  wide
+                  omitWhenEmpty
+                />
                 {/* The denture was stored, drove every chart, and appeared NOWHERE on the patient's own file.
                     The record card is where a stored fact nothing else prints belongs. Full label
                     (« Denture mixte »), not the form control's short caption: here there is no group heading to
@@ -3960,14 +4041,88 @@ procedureTypeId: it.procedureTypeId ?? null,
                     ? `Fiche du ${formatDate(recordToDelete.interventionDate)} — ${recordToDelete.procedureType}. Cette action est irréversible.`
                     : "Cette action est irréversible."}
                 </p>
-                {recordToDelete && invoicedDentalRecordIds.has(recordToDelete.id) && (
+                {/*
+                  ⚠️ This paragraph used to promise « la note d'honoraires, son numéro et son montant ne
+                  changent pas : seul le lien vers la fiche est retiré ». That is no longer true and keeping it
+                  would be worse than saying nothing: the note is now annulée with the fiche, which is the whole
+                  point — a note left standing for a séance that no longer exists is how one patient came to pay
+                  80,000 DT twice for one extraction.
+                */}
+                {deletionPreview?.note && (
                   <p>
-                    Cette fiche est facturée sur la note d&apos;honoraires{" "}
-                    <span className="font-semibold">
-                      {invoicingNumberByRecordId.get(recordToDelete.id) ?? "en cours"}
-                    </span>
-                    . La note d&apos;honoraires, son numéro et son montant ne changent pas : seul le lien vers
-                    la fiche est retiré.
+                    {deletionPreview.note.isDraft ? (
+                      <>
+                        Le brouillon de note d&apos;honoraires de cette séance sera{" "}
+                        <span className="font-semibold">supprimé</span> (aucun numéro n&apos;a été utilisé).
+                      </>
+                    ) : (
+                      <>
+                        La note d&apos;honoraires{" "}
+                        <span className="font-semibold">n° {deletionPreview.note.number}</span> sera{" "}
+                        <span className="font-semibold">annulée</span>. Elle garde son numéro et reste
+                        consultable — la numérotation ne perd aucun rang.
+                      </>
+                    )}
+                  </p>
+                )}
+
+                {/*
+                  The warning the owner asked for, in as many words: « dis que l'argent est déjà entré dans la
+                  caisse ». It names the amount, where it sits, and — the part a dentist cannot guess — that the
+                  caisse day that moves is the day the money was RECEIVED, not today.
+                */}
+                {deletionPreview?.touchesMoney && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1.5">
+                    <p className="font-semibold">
+                      Cet argent est déjà entré dans la caisse — {formatDT(deletionPreview.totalReversed)}{" "}
+                      seront annulés.
+                    </p>
+                    <ul className="list-disc ps-5 space-y-0.5">
+                      {deletionPreview.plans.map((plan) => (
+                        <li key={plan.id}>
+                          {formatDT(plan.amount)} encaissés sur{" "}
+                          {plan.number ? `le devis ${plan.number}` : `le traitement ${quoteFr(plan.title)}`}
+                        </li>
+                      ))}
+                      {deletionPreview.note && deletionPreview.note.amount > 0 && (
+                        <li>
+                          {formatDT(deletionPreview.note.amount)} encaissés sur la note{" "}
+                          {deletionPreview.note.number ? `n° ${deletionPreview.note.number}` : "en brouillon"}
+                        </li>
+                      )}
+                    </ul>
+                    {deletionPreview.affectedCaisseDays.length > 0 && (
+                      <p>
+                        La caisse {deletionPreview.affectedCaisseDays.length === 1 ? "du" : "des"}{" "}
+                        <span className="font-semibold">
+                          {deletionPreview.affectedCaisseDays.map((day) => formatDate(day)).join(", ")}
+                        </span>{" "}
+                        {deletionPreview.affectedCaisseDays.length === 1 ? "sera modifiée" : "seront modifiées"}{" "}
+                        — pas celle d&apos;aujourd&apos;hui.
+                      </p>
+                    )}
+                    <p>
+                      Chaque encaissement est conservé et marqué annulé, avec votre nom et le motif. Rien
+                      n&apos;est effacé de l&apos;historique.
+                    </p>
+                  </div>
+                )}
+
+                {/* A named refusal, never a withheld control: the entry stays, the dialog states the rule. */}
+                {deletionPreview?.refusal && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                    <p className="font-semibold">Cette fiche ne peut pas être supprimée pour l&apos;instant.</p>
+                    <p>{deletionPreview.refusal}</p>
+                  </div>
+                )}
+
+                {!!deletionPreview?.documentsKept && (
+                  <p>
+                    {deletionPreview.documentsKept === 1
+                      ? "L'ordonnance de cette séance est conservée"
+                      : `Les ${deletionPreview.documentsKept} ordonnances de cette séance sont conservées`}{" "}
+                    — le papier est peut-être déjà chez le patient. Elle reste dans ses documents et se modifie
+                    normalement.
                   </p>
                 )}
                 {recordToDelete && planActsEvidencedBy(recordToDelete.id).length > 0 && (
@@ -3987,13 +4142,23 @@ procedureTypeId: it.procedureTypeId ?? null,
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>
+              {/* On a refusal there is nothing to confirm, so « Annuler » is the only way out and says so. */}
+              {deletionPreview?.refusal ? "Retour" : "Annuler"}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault()
                 void confirmDeleteRecord()
               }}
-              disabled={deleting}
+              /*
+               * ⚠️ Disabled until the preview lands, and hidden entirely on a refusal.
+               *
+               * A confirm whose one outcome is a red toast is the « discover the rule by breaking it » shape
+               * this codebase already refuses elsewhere; and pressing before the preview arrives is pressing
+               * without having been told what it costs, which is the defect being fixed.
+               */
+              disabled={deleting || deletionPreview === undefined || !!deletionPreview.refusal}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? "Suppression…" : "Supprimer"}

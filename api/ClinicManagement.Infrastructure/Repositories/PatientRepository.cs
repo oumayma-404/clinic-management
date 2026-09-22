@@ -147,8 +147,9 @@ public class PatientRepository : IPatientRepository
     /// « What a free-text search over patients means » — one expression, two reads.
     ///
     /// <para>The columns are the ones the pre-paging in-memory filter matched: first name, last name,
-    /// « prénom nom » and phone. The concatenation is there because staff type « ahmed ben salah » as one
-    /// string, which no single column contains.</para>
+    /// « prénom nom », the primary phone AND the patient's additional numbers. The concatenation is there
+    /// because staff type « ahmed ben salah » as one string, which no single column contains; the additional
+    /// numbers are there because the number on the caller ID is as often the second one as the first.</para>
     ///
     /// <para><b>A queryable-level builder, not the scalar helper <see cref="SqlSearch"/> rules out.</b> That
     /// note forbids a <c>Matches(column, pattern)</c> method — EF cannot translate a call inside a predicate,
@@ -180,7 +181,20 @@ public class PatientRepository : IPatientRepository
             EF.Functions.ILike(SqlSearch.Unaccent(p.LastName)!, pattern, SqlSearch.EscapeString) ||
             EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString) ||
             EF.Functions.ILike(SqlSearch.Unaccent(p.LastName + " " + p.FirstName)!, pattern, SqlSearch.EscapeString) ||
-            EF.Functions.ILike(SqlSearch.Unaccent(p.PhoneNumber!.Value)!, pattern, SqlSearch.EscapeString));
+            EF.Functions.ILike(SqlSearch.Unaccent(p.PhoneNumber!.Value)!, pattern, SqlSearch.EscapeString) ||
+            /*
+             * ⚠️ The patient's OTHER numbers, or the feature has no point at the desk: the number on the caller
+             * ID is as likely to be the second one as the first, and a search that only knows the primary sends
+             * reception to « aucun résultat » for a patient whose file holds the very number they typed.
+             *
+             * An `Any` over an owned collection translates to an `EXISTS` subquery — still one SQL statement,
+             * still narrowing the whole clinic before the page is cut, which is the property every read on this
+             * repository has. Both forms are matched because both are stored and either may be what was typed:
+             * « 20 123 456 » (as reception entered it) and « +21620123456 » (as it is dialled).
+             */
+            p.AdditionalPhoneNumbers.Any(extra =>
+                EF.Functions.ILike(SqlSearch.Unaccent(extra.Value)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(extra.E164)!, pattern, SqlSearch.EscapeString)));
     }
 
     /// <summary>

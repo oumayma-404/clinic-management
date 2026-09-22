@@ -44,7 +44,7 @@ import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { User, MapPin, Heart, Pill, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
 import { RecordSection } from "@/components/record/record-section"
 import { cn } from "@/lib/utils"
-import { patientsApi } from "@/lib/api/patients"
+import { patientsApi, type PatientUpdateBody } from "@/lib/api/patients"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import type {
@@ -57,7 +57,7 @@ import type {
   TobaccoUse,
 } from "@/lib/api/types"
 import { ApiError, ApiErrorCode } from "@/lib/api/client"
-import { isDeliverablePhone, PHONE_ERROR_FR, DEFAULT_REGION, regionOf } from "@/lib/phone"
+import { isDeliverablePhone, PHONE_ERROR_FR, DEFAULT_REGION, storedPhoneCountry } from "@/lib/phone"
 import type { CountryCode } from "libphonenumber-js/max"
 import { PhoneField } from "@/components/ui/phone-field"
 import { quoteFr } from "@/lib/format"
@@ -187,6 +187,23 @@ function defaultSections(): Record<SectionKey, boolean> {
   return { medical: true, notes: true, coordonnees: false }
 }
 
+/** One row of « Autres numéros », while it is being edited. `key` is local and never leaves the browser. */
+interface ExtraPhoneRow {
+  key: string
+  value: string
+  country: CountryCode
+}
+
+let extraPhoneKeySeed = 0
+const newExtraPhoneRow = (): ExtraPhoneRow => ({
+  key: `extra-phone-${++extraPhoneKeySeed}`,
+  value: "",
+  country: DEFAULT_REGION,
+})
+
+/** Mirrors `Patient.MaxAdditionalPhoneNumbers`; the server refuses beyond it, so the button stops offering. */
+const MAX_EXTRA_PHONES = 5
+
 export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focusSection }: EditPatientDialogProps) {
   // Personal Info State
   const [firstName, setFirstName] = useState("")
@@ -220,6 +237,15 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
   // The country each number is read against. Its own state, not derived per render: picking a country must
   // survive the next keystroke (see `PhoneField`). Seeded from the stored value on hydration below.
   const [phoneCountry, setPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
+  /*
+   * The patient's OTHER numbers. `key` is a client-side row identity and is never sent: without one, React
+   * keys on the index, so deleting the second of three rows re-uses the third's DOM node and the country
+   * popover that was open lands on the wrong row.
+   *
+   * ⚠️ Each row carries its own country, for the reason `PatientPhoneInput` states — a patient's mobile may be
+   * Tunisian and their son's French.
+   */
+  const [extraPhones, setExtraPhones] = useState<ExtraPhoneRow[]>([])
   const [email, setEmail] = useState("")
   /**
    * The whole address, on one line, exactly as the desk wants to write it.
@@ -468,9 +494,25 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
       setDentition((patient.dentition as Dentition) || null)
       setDentitionTouched(true)
       setPhone(patient.phoneNumber || "")
-      // A stored number re-opens its own country, so the control never contradicts the field beside it. Falls
-      // back to the default rather than to nothing: an unparseable legacy value has no country to show.
-      setPhoneCountry(regionOf(patient.phoneNumber) ?? DEFAULT_REGION)
+      // A stored number re-opens the country its WRITER chose — `phoneE164`, never `phoneNumber`, which
+      // re-derives against Tunisia and is why a French patient came back +216. See `storedPhoneCountry`.
+      setPhoneCountry(storedPhoneCountry(patient.phoneE164, patient.phoneNumber))
+      /*
+       * ⚠️ **Read back AND sent again, both halves.** `SetAdditionalPhoneNumbers` replaces the whole list
+       * server-side, so a form that displays these and forgets to re-send them erases every extra number on
+       * the next ordinary save — the `SetActs` shape this codebase has paid for three times. The save below
+       * sends `extraPhones` unconditionally for that reason.
+       *
+       * Each row re-opens its own country from its own stored E.164, never from the typed value — see
+       * `storedPhoneCountry`.
+       */
+      setExtraPhones(
+        (patient.additionalPhones ?? []).map((extra) => ({
+          key: `extra-phone-${++extraPhoneKeySeed}`,
+          value: extra.value,
+          country: storedPhoneCountry(extra.e164, extra.value),
+        })),
+      )
       setEmail(patient.email || "")
       
       // ⚠️ Folded, not truncated. A stored « 12 rue de Carthage / Tunis / La Marsa / 2070 » must come back into
@@ -528,6 +570,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
         setDentitionTouched(false)
         setPhone("")
         setPhoneCountry(DEFAULT_REGION)
+        setExtraPhones([])
         setEmail("")
         setAddressLine("")
         setReferredBy("")
@@ -833,6 +876,21 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
       newErrors.phone = PHONE_ERROR_FR
     }
 
+    /*
+     * Every extra number that HAS something in it must be reachable — the same rule as the primary, applied
+     * per row, and the same rule the server applies (`PatientPhoneMapping`).
+     *
+     * ⚠️ An empty row is not an error. « Ajouter un numéro » appends one, and a user who changes their mind
+     * leaves it there; refusing the save over it would make the button a trap. The server drops it too.
+     *
+     * The key is the ROW's own key, not an index: deleting a row must take its error with it.
+     */
+    for (const row of extraPhones) {
+      if (row.value.trim() && !isDeliverablePhone(row.value.trim(), row.country)) {
+        newErrors[`extraPhone:${row.key}`] = PHONE_ERROR_FR
+      }
+    }
+
     if (email && !validateEmail(email)) {
       newErrors.email = "Adresse e-mail invalide"
     }
@@ -902,7 +960,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
         // Edit mode: Update existing patient
         // ⚠️ `phoneRegion` is not a property of a patient and is deliberately not on `PatientDto` — it says how
         // to read the number in this request and nothing stores it. See `patientsApi.update`.
-        const updateData: Partial<PatientDto> & { phoneRegion?: string | null } = {
+        const updateData: PatientUpdateBody = {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           // "Unknown" when unanswered, never "" — the same value the create path sends, so a patient registered
@@ -920,6 +978,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           // nothing stores it, so it is always sent. Editing a patient to a foreign number was refused for the
           // same reason creating one was.
           phoneRegion: phoneCountry,
+          /*
+           * ⚠️ **Always sent, and that is not optional.** The server replaces the whole list, so omitting this
+           * key would leave the stored numbers alone — which sounds safe until the user DELETES one: the row
+           * would vanish from the form and come back on the next read. Sending the list is what makes
+           * « supprimer » work, and `[]` is how the last one goes. Blank rows are dropped here rather than
+           * refused, the same way the server drops them.
+           */
+          additionalPhones: extraPhones
+            .filter((row) => row.value.trim())
+            .map((row) => ({ value: row.value.trim(), region: row.country })),
           email: email.trim() || null,
           // The row's version as last read from the server — so a peer's save in the meantime is a 409, not a
           // silent overwrite of their work, and our own previous save is not mistaken for one.
@@ -1051,6 +1119,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           // The country control's own value. Without it the server reads the number as Tunisian whatever the
           // selector says, and refuses every foreign one with a sentence identical to this form's own pre-check.
           phoneRegion: phoneCountry,
+          // Same shape as the update path. Omitted when empty: on create there is nothing stored to clear.
+          additionalPhones: extraPhones.some((row) => row.value.trim())
+            ? extraPhones.filter((row) => row.value.trim()).map((row) => ({ value: row.value.trim(), region: row.country }))
+            : undefined,
           medicalHistory: chronicDiseases.trim() || undefined,
           allergies: allergies.trim() || undefined,
           medications: medications.trim() || undefined,
@@ -1475,6 +1547,129 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                     {errors.birthdate && <p className="text-sm text-destructive">{errors.birthdate}</p>}
                     {errors.approximateAge && <p className="text-sm text-destructive">{errors.approximateAge}</p>}
                   </div>
+                </div>
+
+                {/*
+                  « Autres numéros » — the mobile beside the landline, the spouse's line, the child's.
+
+                  ⚠️ **Below the grid, not inside the « Téléphone » cell.** A variable-length list in one cell of
+                  a three-column row grows that column and drags « Sexe » and « Naissance » down with it; and at
+                  320 px the cell is the whole width anyway, so nothing is gained by nesting it.
+
+                  ⚠️ **But it must still READ as attached to the number above it**, which is the whole reason the
+                  header below is left-aligned. `justify-between` put « Ajouter un numéro » against the right
+                  edge of a full-width row — diagonally opposite the « Téléphone » field it belongs to, with
+                  « Sexe » and « Naissance » between them — and it was reported on sight as being nowhere near
+                  the number. Left-aligned, the label and the button sit directly under the phone field's own
+                  column, and the `-mt-2` closes the grid's `gap-4` so the two read as one block.
+
+                  ⚠️ **Nothing is rendered until the practice asks for it.** Almost every patient has one number,
+                  and a permanently visible empty row would add a control to the commonest form in the product for
+                  a case that is rare. The button is the whole feature until it is pressed.
+                */}
+                <div className="-mt-2 space-y-2 md:col-span-2">
+                  <div className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1">
+                    <Label>Autres numéros</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="touch-target shrink-0"
+                      /* The cap is the server's own (`Patient.MaxAdditionalPhoneNumbers`). Disabled rather than
+                         hidden, so the limit is visible instead of the control silently disappearing. */
+                      disabled={extraPhones.length >= MAX_EXTRA_PHONES}
+                      onClick={() => setExtraPhones((rows) => [...rows, newExtraPhoneRow()])}
+                    >
+                      <Plus className="me-1.5 size-4" aria-hidden="true" />
+                      Ajouter un numéro
+                    </Button>
+                  </div>
+
+                  {/*
+                    One help line, two sentences, ALWAYS on its own row — never appended to the label inline.
+                    Measured at 320 and 390 px: beside the « Ajouter » button the label had ~110 px left, so an
+                    inline caption broke « Autres / numéros » across two lines and wrapped itself over two more.
+                    A full-width line wraps at word boundaries and costs the same vertical space.
+                  */}
+                  {extraPhones.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Un deuxième numéro : le portable du conjoint, le fixe de la maison, celui d&apos;un parent.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Appelés à la main. Les rappels partent toujours sur le numéro principal.
+                    </p>
+                  )}
+
+                  {extraPhones.length > 0 && (
+                    <ul className="space-y-2">
+                      {extraPhones.map((row, index) => {
+                        const rowError = errors[`extraPhone:${row.key}`]
+                        const numberId = `extra-phone-${row.key}`
+                        return (
+                          <li key={row.key} className="space-y-1">
+                            {/* A number and a way to remove it. Nothing else — see `PatientPhone`. */}
+                            <div className="flex items-start gap-2">
+                              <div className="min-w-0 flex-1">
+                                <label htmlFor={numberId} className="sr-only">
+                                  Numéro supplémentaire {index + 1}
+                                </label>
+                                <PhoneField
+                                  id={numberId}
+                                  value={row.value}
+                                  onChange={(next) => {
+                                    setExtraPhones((rows) =>
+                                      rows.map((r) => (r.key === row.key ? { ...r, value: next } : r)),
+                                    )
+                                    // Same rule as the primary: a corrected number clears its own error at
+                                    // once, or the red border reads as a control the user is fighting.
+                                    if (rowError) {
+                                      setErrors((prev) => {
+                                        const rest = { ...prev }
+                                        delete rest[`extraPhone:${row.key}`]
+                                        return rest
+                                      })
+                                    }
+                                  }}
+                                  country={row.country}
+                                  onCountryChange={(next) =>
+                                    setExtraPhones((rows) =>
+                                      rows.map((r) => (r.key === row.key ? { ...r, country: next } : r)),
+                                    )
+                                  }
+                                  /* ⚠️ `off`: a `tel` suggestion here writes the last patient's mobile into
+                                     this one's record. Same call the emergency contact makes. */
+                                  autoComplete="off"
+                                  invalid={!!rowError}
+                                  placeholder="ex. : 20 123 456"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="touch-target shrink-0 text-muted-foreground hover-hover:hover:text-destructive"
+                                onClick={() => {
+                                  setExtraPhones((rows) => rows.filter((r) => r.key !== row.key))
+                                  // The row's error goes with the row, or a save stays blocked by a message
+                                  // about a field that is no longer on screen.
+                                  setErrors((prev) => {
+                                    const rest = { ...prev }
+                                    delete rest[`extraPhone:${row.key}`]
+                                    return rest
+                                  })
+                                }}
+                                aria-label={`Supprimer le numéro ${index + 1}`}
+                              >
+                                <Trash2 className="size-4" aria-hidden="true" />
+                              </Button>
+                            </div>
+                            {rowError && <p className="text-sm text-destructive">{rowError}</p>}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
                 </div>
 
                 {/*

@@ -1,6 +1,22 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { PatientDto, PatientDeletionCheckDto, ReminderConsent, TobaccoUse } from './types';
+import type { PatientDto, PatientDeletionCheckDto, PatientPhoneInput, ReminderConsent, TobaccoUse } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
+
+/**
+ * The body `patientsApi.update` sends — `PatientDto` with the two fields a WRITE differs on.
+ *
+ * ⚠️ `phoneRegion` is NOT part of `PatientDto` and never will be: it is not a property of a patient, it is how
+ * to read the number in this one request. Nothing stores it, so omitting it means « assume Tunisia » and never
+ * « keep the stored one ».
+ *
+ * ⚠️ `additionalPhones` is REPLACED, not merged with the read shape: a row going out carries its own `region`
+ * and no `e164` (the server resolves it), a row coming back carries the `e164` and no region. Intersecting the
+ * two would require a client to send an E.164 the server ignores.
+ */
+export type PatientUpdateBody = Omit<Partial<PatientDto>, 'additionalPhones'> & {
+  phoneRegion?: string | null;
+  additionalPhones?: PatientPhoneInput[];
+};
 
 export const patientsApi = {
   /**
@@ -83,6 +99,15 @@ export const patientsApi = {
      * against the chosen `FR` and the server resolved it against `TN`. See `CreatePatientCommand.PhoneRegion`.
      */
     phoneRegion?: string | null;
+    /**
+     * The patient's other numbers, each with its own country.
+     *
+     * ⚠️ **Tri-state on update, and this matters more than usual.** The server replaces the WHOLE list, so
+     * `undefined` means « leave them alone » and `[]` means « delete them all ». A form that reads them back
+     * and forgets to send them again would erase every extra number on the next ordinary save — the
+     * `SetActs` shape. Send the list whenever the form showed it.
+     */
+    additionalPhones?: PatientPhoneInput[];
     medicalHistory?: string;
     allergies?: string;
     medications?: string;
@@ -140,12 +165,7 @@ export const patientsApi = {
 
   update: async (
     id: string,
-    /**
-     * ⚠️ `phoneRegion` is NOT part of `PatientDto` and never will be: it is not a property of a patient, it is
-     * how to read the number in this one request. Nothing stores it, so omitting it means « assume Tunisia »
-     * and never « keep the stored one ».
-     */
-    data: Partial<PatientDto> & { phoneRegion?: string | null },
+    data: PatientUpdateBody,
   ): Promise<PatientDto> => {
     return apiPut<PatientDto>(`/patients/${id}`, data);
   },
