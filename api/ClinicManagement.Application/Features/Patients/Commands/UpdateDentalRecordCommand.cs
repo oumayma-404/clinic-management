@@ -100,6 +100,13 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public List<FichePlanItemLink> AdditionalTreatmentPlanItems { get; set; } = new();
 
     /// <summary>
+    /// Acts of THIS séance the dentist is putting on the devis — the devis grows by their fee and the acts are
+    /// then recorded at 0, in this one transaction. See <see cref="FichePlanActAdditions"/> for why it is here
+    /// and not a second call from the browser.
+    /// </summary>
+    public List<FichePlanActAddition> PlanActAdditions { get; set; } = new();
+
+    /// <summary>
     /// What was prescribed at this séance. Creates the ordonnance, or updates the one this fiche already
     /// issued — <b>inside this save's transaction</b>, and never deleting it. See
     /// <see cref="Documents.FicheOrdonnanceEmitter"/>.
@@ -119,6 +126,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly IPatientRepository _patientRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     // Read only to answer « which steps did this séance carry out? » — see DentalRecordLinker.
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
@@ -139,6 +147,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         IPatientRepository patientRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         ICreditNoteRepository creditNoteRepository,
@@ -156,6 +165,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _patientRepository = patientRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _creditNoteRepository = creditNoteRepository;
@@ -219,7 +229,27 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             var extraActs = await FicheExtraPlanActs.ResolveAsync(
                 _treatmentPlanRepository, imposed.Acts, request.TreatmentPlanId, request.TreatmentPlanItemId,
                 request.AdditionalTreatmentPlanItems, dentalRecord.Id, clinicResult.Value, cancellationToken);
-            var acts = extraActs.Acts;
+
+            /*
+             * « Ajouter au devis » — an act of THIS séance joining the treatment it is being carried out for.
+             *
+             * ⚠️ AFTER `ResolveAsync`, and that order is what makes a re-save a no-op: an addition is applied
+             * only to an act index nothing has claimed, and the line a previous save created is linked to this
+             * fiche, so `ResolveAsync` claims it. See `FichePlanActAdditions`.
+             */
+            var additions = await FichePlanActAdditions.ApplyAsync(
+                _treatmentPlanRepository, _invoiceRepository, _procedureTypeRepository, extraActs.Acts,
+                request.TreatmentPlanId, request.TreatmentPlanItemId, request.PlanActAdditions,
+                extraActs.Extras, clinicResult.Value, _logger, cancellationToken);
+            if (additions.Refusal is not null)
+            {
+                return Result<DentalRecordDto>.Failure(
+                    additions.Refusal, FichePlanActAdditions.RefusalCode);
+            }
+            var acts = additions.Acts;
+            // The devis acts this fiche closes: the ones it was already carrying out, plus the ones it just put
+            // on the devis. One list from here on, so a later reader cannot consult only half of them.
+            var planExtras = extraActs.Extras.Concat(additions.Added).ToList();
 
             // AC-P4.10 on the EDIT path: consume only what this edit ADDS. A fiche is re-saved routinely (a
             // corrected note, one more tooth), and consuming the whole list again each time would draw stock for
@@ -397,7 +427,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 var releasedAny = false;
                 foreach (var heldItem in heldPlan.Items
                              .Where(i => i.Id != request.TreatmentPlanItemId
-                                         && extraActs.Extras.All(e => e.Item.Id != i.Id)
+                                         && planExtras.All(e => e.Item.Id != i.Id)
                                          && (i.LinkedDentalRecordId == dentalRecord.Id
                                              || i.Steps.Any(st => st.LinkedDentalRecordId == dentalRecord.Id)))
                              .ToList())
@@ -442,7 +472,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 
             // The séance's other devis acts, closed by this same fiche (C4).
             var extraLinks = new List<(int ActIndex, bool ItemIsComplete)>();
-            foreach (var extra in extraActs.Extras)
+            foreach (var extra in planExtras)
             {
                 var extraLink = await DentalRecordLinker.LinkPlanItemAsync(
                     _treatmentPlanRepository, _appointmentRepository,

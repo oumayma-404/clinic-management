@@ -121,6 +121,26 @@ export interface SessionAct {
    */
   billedOnPlan: boolean
   /**
+   * « Ajouter au devis » — this act is NOT on the treatment yet, and the dentist is putting it there.
+   *
+   * <p>The complaint this exists for: a séance carried by a devis, a second act done the same day, and the
+   * only way to charge it was a note d'honoraires — a separate document the devis' own balance never
+   * mentions. Typing the fee into « Encaissé sur le traitement » instead was refused, because the devis was
+   * still only worth what it was worth before the act existed.</p>
+   *
+   * <p>⚠️ <b>It is the opposite end of {@link billedOnPlan}, never the same flag.</b> `billedOnPlan` says
+   * « the devis already prices this, add nothing » and withholds the price field. This says « the devis is
+   * about to price this », so the field stays — somebody has to type the fee being agreed — and the act takes
+   * no share of the séance's own total, exactly as a carried act does. After the save the act IS carried, and
+   * a reopened fiche reads it back as `billedOnPlan`.</p>
+   *
+   * <p>⚠️ <b>Form state, never stored and never sent as an act field.</b> What reaches the server is an
+   * amendment of the devis plus the act's id in `additionalTreatmentPlanItems`. `actFromDto` therefore seeds
+   * it false: a saved act has already gone wherever it was going, and re-reading it as « about to be added »
+   * would add it a second time on the next ordinary re-save — the `SetActs` trap, on a flag that moves money.</p>
+   */
+  addToPlan: boolean
+  /**
    * « Acte non terminé » — the dentist's own statement that this act needs another séance.
    *
    * <p>⚠️ **The one fact nothing in this product can derive.** A fiche records what was *carried out* and says
@@ -155,6 +175,8 @@ const emptyAct = (key: string): SessionAct => ({
   surfaces: new Set<string>(),
   note: "",
   billedOnPlan: false,
+  // Off by default, always: putting an act on a devis raises what a patient owes, so it is only ever a press.
+  addToPlan: false,
   // Off by default, always: an act is unfinished only because somebody said so.
   isUnfinished: false,
   toothNumbers: [],
@@ -326,7 +348,14 @@ export function distributeSessionTotal(acts: SessionAct[], target: number): Sess
    * When EVERY act is carried there is nothing to distribute and the list comes back untouched — which is
    * also the case where `patient-record-modal` withdraws the « Total » field altogether.
    */
-  const named = acts.filter((a) => isActNamed(a) && !a.billedOnPlan)
+  /*
+   * ⚠️ `addToPlan` is excluded for the SAME reason and it is not the same fact: the act is not on the
+   * treatment yet, it is on its way there, and by the time « Total » is typed the fee it carries is the devis
+   * line's — not a share of this séance's honoraires. Left in, typing a séance total would re-spread the
+   * amount the dentist just agreed for the devis into the détartrage beside it, and the devis would then be
+   * amended with the re-spread figure rather than the typed one.
+   */
+  const named = acts.filter((a) => isActNamed(a) && !a.billedOnPlan && !a.addToPlan)
   if (named.length === 0) return acts
 
   // Integer millimes throughout — see the note above on why floats cannot hit the typed figure.
@@ -501,6 +530,10 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     // rule is that pricing intent is read, never guessed. `markBilledOnPlan` back-fills it once the modal knows
     // which devis act the fiche is for; see the effect in `patient-record-modal.tsx`.
     billedOnPlan: false,
+    // ⚠️ False, and unlike `isUnfinished` one line down that is NOT an oversight: this is an intent to amend the
+    // devis, discharged by the save that carried it. A stored act read back as « about to be added » would add
+    // itself again every time somebody reopened the fiche to fix a typo.
+    addToPlan: false,
     // ⚠️ Read back, never defaulted to false here: this is the dentist's own statement, and the payload sends
     // whatever this holds. An editor blind to the tick erases it on the next « Enregistrer ».
     isUnfinished: a.isUnfinished === true,
@@ -869,18 +902,28 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       if (index < 0) return state
       return {
         ...state,
-        acts: state.acts.map((a, i) => (i === index ? { ...a, billedOnPlan: true } : a)),
+        // ⚠️ `addToPlan` cleared on the way: the devis already carries this act, so « l'ajouter au devis » would
+        // quote it a second time. The two flags are mutually exclusive by construction, here and in the card.
+        acts: state.acts.map((a, i) =>
+          (i === index ? { ...a, billedOnPlan: true, addToPlan: false } : a)),
       }
     }
 
     case "releaseBilledOnPlan": {
-      if (!state.acts.some((a) => a.billedOnPlan)) return state
+      /*
+       * ⚠️ `addToPlan` is released here too, and forgetting it was the first bug this arm could have grown:
+       * « Aucun » means the séance carries no devis at all, so an act still marked « Ajouter au devis » would
+       * be an amendment aimed at a plan the save no longer names. The act simply keeps its own fee and is
+       * billed on this séance, which is what « Aucun » asks for.
+       */
+      if (!state.acts.some((a) => a.billedOnPlan || a.addToPlan)) return state
       return {
         ...state,
         acts: state.acts.map((a) => {
-          if (!a.billedOnPlan) return a
+          if (!a.billedOnPlan) return a.addToPlan ? { ...a, addToPlan: false } : a
           const released: SessionAct = {
-            ...a, billedOnPlan: false, unitCost: "", unitCostLocked: false, perToothLocked: false,
+            ...a, billedOnPlan: false, addToPlan: false,
+            unitCost: "", unitCostLocked: false, perToothLocked: false,
           }
           const pt = action.procedureTypes.find((p) => p.id === a.procedureTypeId)
           return pt ? applyProcedure(released, pt) : released
@@ -905,9 +948,34 @@ export function useSessionActs(record?: DentalRecordDto | null) {
   /** The acts that will actually be saved — a blank trailing card is not one of them. */
   const namedActs = useMemo(() => state.acts.filter(isActNamed), [state.acts])
 
+  /*
+   * The séance's OWN honoraires — what « Total », « Payé », `overpaid` and the note d'honoraires are about.
+   *
+   * ⚠️ An act on its way onto the devis contributes nothing, exactly as one already carried contributes
+   * nothing (`billedOnPlan` acts are already 0 and drop out arithmetically; `addToPlan` acts carry a real
+   * typed fee and must be filtered out by name). Left in, the séance would raise a note d'honoraires for an
+   * act the devis is being amended to carry — the double charge `PlanCarriedActPricing` exists to prevent,
+   * reached from the one direction it does not cover.
+   */
   const grandTotal = useMemo(
-    () => roundMillimes(namedActs.reduce((sum, a) => sum + actTotal(a), 0)),
+    () => roundMillimes(
+      namedActs.reduce((sum, a) => sum + (a.addToPlan ? 0 : actTotal(a)), 0),
+    ),
     [namedActs],
+  )
+
+  /**
+   * The acts the dentist is putting ON the devis with this save, in card order.
+   *
+   * <p>Derived here rather than in the modal so « which acts go on the devis » has one answer: the amendment
+   * that is sent and the figures that are shown must not be able to disagree about it.</p>
+   */
+  const planAdditionActs = useMemo(() => namedActs.filter((a) => a.addToPlan), [namedActs])
+
+  /** What those acts will add to the devis' total. */
+  const planAdditionTotal = useMemo(
+    () => roundMillimes(planAdditionActs.reduce((sum, a) => sum + actTotal(a), 0)),
+    [planAdditionActs],
   )
 
   const focusedAct = useMemo(
@@ -915,5 +983,5 @@ export function useSessionActs(record?: DentalRecordDto | null) {
     [state.acts, state.focusKey],
   )
 
-  return { ...state, namedActs, grandTotal, focusedAct, dispatch }
+  return { ...state, namedActs, grandTotal, planAdditionActs, planAdditionTotal, focusedAct, dispatch }
 }

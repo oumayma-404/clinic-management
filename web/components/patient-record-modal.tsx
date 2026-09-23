@@ -432,7 +432,10 @@ export function PatientRecordModal({
   /** The refusal banner that names no card — see `refuseSave` for why it needs a target of its own. */
   const pileSaveErrorRef = useRef<HTMLParagraphElement>(null)
 
-  const { acts, namedActs, grandTotal, focusedAct, focusKey, dispatch } = useSessionActs(record)
+
+  const {
+    acts, namedActs, grandTotal, planAdditionActs, planAdditionTotal, focusedAct, focusKey, dispatch,
+  } = useSessionActs(record)
 
   /**
    * What is being typed into « Total », or `null` when the field simply shows the derived figure.
@@ -1076,6 +1079,7 @@ export function PatientRecordModal({
   const carriedByDevis =
     billedPlanItem != null && (acts.some((a) => a.billedOnPlan) || carriedByAppointment)
 
+
   /**
    * WHICH séance of the treatment this fiche is — « Cette séance : étape 1 sur 3 · Préparation ».
    *
@@ -1304,6 +1308,29 @@ export function PatientRecordModal({
   const collectsOnTreatment = carriedByDevis && !billedPlanItem?.billedOnInvoiceNumber
 
   /**
+   * How « Ajouter au devis » names the treatment it will amend, or null when the choice is not offered.
+   *
+   * <p>Offered exactly when this séance is carrying out a devis that still collects its own money: that is
+   * the one treatment the fiche can amend without asking which, and it is the reported case — a second act
+   * done during a séance of a multi-séance treatment, whose fee had nowhere to go but a note d'honoraires
+   * the devis' balance never mentions.</p>
+   *
+   * <p>⚠️ <b>`collectsOnTreatment`, never `carriedByDevis`</b>, and that is the note-bridge trap rather than
+   * a tidier gate. Once a note d'honoraires represents the plan, `PlanBillingRules.BilledPlanIds` drops the
+   * plan <i>whole</i> from « Solde patient », « Créances », la caisse and the dashboard — so an act added to
+   * it would be a live debt in the one place nothing looks. `AmendTreatmentPlanCommand` refuses that state in
+   * as many words; withholding the control is how this screen keeps clear of it.</p>
+   *
+   * <p>⚠️ <b>A NUMBERED devis only, for now.</b> An un-numbered followed treatment has no échéancier, so the
+   * respread an amendment triggers would build it one — giving a « Solde à régler » to a treatment nobody has
+   * been quoted for. That is board row G10, an open defect of `RespreadSchedule` rather than of this control,
+   * and routing new traffic into it would make it somebody's money. Revisit when G10 lands: the act can then
+   * be added to a followed treatment too.</p>
+   */
+  const addToPlanTarget =
+    collectsOnTreatment && billedPlanItem?.planNumber ? billedPlanItem.planNumber : null
+
+  /**
    * « sur cette séance », for the figures that describe the séance's own note while the treatment's money is on
    * screen beside them — two scopes, each named, which is the rule the acts picker's own hint states.
    *
@@ -1330,10 +1357,24 @@ export function PatientRecordModal({
   const alreadyCollectedOnPlan = roundMillimes(record?.collectedOnTreatment ?? 0)
   /** What this save will actually add to the treatment. Negative means somebody is lowering it — see below. */
   const collectionDelta = roundMillimes(collectedOnPlanAmount - alreadyCollectedOnPlan)
+  /**
+   * What the devis will be worth to collect against once THIS save's additions have landed.
+   *
+   * <p>⚠️ <b>This is the whole complaint.</b> A séance carrying a 300 DT treatment with 100 collected offers
+   * 200 to collect; the dentist does a second act for 150 the same day, and every figure below — and the
+   * server's own cap — still said 200, so the 150 could not be taken and the save was disabled. The
+   * amendment raises the treatment's total before the collection is recorded
+   * (`CollectOnTreatmentCommand` runs post-commit, against the amended plan), so the room really is
+   * 200 + 150 by the time the money moves, and quoting anything less here would refuse a collection the
+   * server accepts.</p>
+   */
+  const treatmentOutstandingAfterAdditions = roundMillimes(
+    treatmentOutstandingBefore + planAdditionTotal,
+  )
   /** What will remain on the treatment once this séance's collection is recorded. */
   const treatmentRemaining = Math.max(
     0,
-    roundMillimes(treatmentOutstandingBefore - Math.max(0, collectionDelta)),
+    roundMillimes(treatmentOutstandingAfterAdditions - Math.max(0, collectionDelta)),
   )
   /**
    * More than the treatment is worth. Refused server-side (`treatment_collection_exceeds_outstanding`), so the
@@ -1344,7 +1385,7 @@ export function PatientRecordModal({
    * 100 left would refuse « 250 », which is a 50 DT collection the server accepts.
    */
   const overCollectedOnPlan =
-    collectsOnTreatment && collectionDelta > treatmentOutstandingBefore
+    collectsOnTreatment && collectionDelta > treatmentOutstandingAfterAdditions
   /**
    * Somebody is lowering a collection, which is refused server-side
    * (`treatment_collection_lowered`) — money on a numbered devis is un-received by voiding the payment on the
@@ -1370,8 +1411,15 @@ export function PatientRecordModal({
    * `namedActs.length > 0` because a fiche with no act yet is not « wholly on the treatment » — it is empty,
    * and `every` over nothing answers true.
    */
+  /*
+   * ⚠️ `addToPlan` counts as « on the treatment » here, and it has to: the séance's own honoraires are what
+   * this withholds, and an act on its way onto the devis contributes none of them (`grandTotal` already
+   * excludes it). Without this clause, adding the ONLY other act of a séance to the devis would put « Payé »,
+   * « Mode » and « Total » back on screen over a séance that comes to 0 — the exact state whose zeros sent a
+   * dentist to overtype an act's price, which is what `seanceIsWhollyOnTreatment` was written to stop.
+   */
   const seanceIsWhollyOnTreatment =
-    collectsOnTreatment && namedActs.length > 0 && namedActs.every((a) => a.billedOnPlan)
+    collectsOnTreatment && namedActs.length > 0 && namedActs.every((a) => a.billedOnPlan || a.addToPlan)
 
   /**
    * A stored « Payé » on a séance that is wholly carried by the treatment — so the field is **shown anyway**.
@@ -1390,8 +1438,25 @@ export function PatientRecordModal({
    * it gone. Typing 0 over it and saving therefore removes it from the next reopen, which is the correction.</p>
    */
   const hasStoredSeancePayment = (record?.amountPaid ?? 0) > 0
-  /** The withhold, with its one exception applied. Every « Payé » / « Mode » / « Total » gate reads this. */
-  const withholdSeanceMoneyFields = seanceIsWhollyOnTreatment && !hasStoredSeancePayment
+  /**
+   * A figure sitting in « Payé » right now, on a séance that has just become wholly the treatment's — so the
+   * field is **shown anyway**, exactly as a stored one is.
+   *
+   * <p>⚠️ <b>Without this, « Ajouter au devis » is a dead end.</b> Type 150 into « Payé » for a détartrage,
+   * then decide it goes on the devis instead: `grandTotal` drops to 0, so `overpaid` turns true and disables
+   * the save — while `seanceIsWhollyOnTreatment` withdraws the very field holding the 150. Refused, with the
+   * only control that could clear the refusal off screen. Measured as reachable on both the create and the
+   * edit path.</p>
+   *
+   * <p>⚠️ <b>It cannot make the field un-hide itself, which is the objection the stored rule documents.</b>
+   * The prefill effect writes `""` whenever `grandTotal` is 0, so an untouched séance never arrives here with
+   * a figure; the only way one exists is that somebody typed it, and they could only type it while the field
+   * was on screen.</p>
+   */
+  const hasTypedSeancePayment = roundMillimes(paidAmount) > 0
+  /** The withhold, with its two exceptions applied. Every « Payé » / « Mode » / « Total » gate reads this. */
+  const withholdSeanceMoneyFields =
+    seanceIsWhollyOnTreatment && !hasStoredSeancePayment && !hasTypedSeancePayment
   /**
    * Collecting will mint the devis number — <c>CollectOnTreatmentCommand</c> issues one when the treatment has
    * none. A gapless number can only be released by a cancellation carrying a motif, so this is said on the
@@ -1539,9 +1604,27 @@ export function PatientRecordModal({
         // `parseAmountInput` — was the correct 181,000 for two teeth. Reopening the fiche then showed 90,000
         // per tooth, and re-saving it wrote that half-dinar loss into the note.
         const unit = parseAmountInput(a.unitCost)
+        /*
+         * ⚠️ **An act going ONTO the devis is recorded on the fiche at 0, and this is not a duplicate of the
+         * server's own imposition.** `FicheExtraPlanActs` zeroes it too, once it is told the act is one of the
+         * devis lines this fiche closes — but the fee has already been agreed on the devis by the time this
+         * payload is built, and anything non-zero here is a second document claiming the same money. Left at
+         * its typed cost it would land in `record.Cost` and, the moment « Payé » is anything at all, in a note
+         * d'honoraires — the exact double charge the whole change removes, produced by the change itself.
+         *
+         * `unitCost` goes to 0 beside `cost`, never left behind: the fiche reopens a per-tooth act from its
+         * unit price, so a stale one restores the fee on the next « Enregistrer » — `PlanCarriedActPricing`
+         * records that same pairing for the same reason.
+         */
         return {
           procedureTypeId: a.procedureTypeId,
           procedureName: a.procedureName.trim(),
+          /*
+           * ⚠️ The REAL fee, including for an act going onto the devis — the server copies it onto the new
+           * devis line and zeroes the act itself (`FichePlanActAdditions`). Sending 0 here, as an earlier
+           * client-side version of this feature did, would put the act on the devis at nothing: two numbers
+           * that must agree, where one of them is the only one anybody typed.
+           */
           cost: actTotal(a),
           unitCost: Number.isFinite(unit) ? roundMillimes(unit) : null,
           isPerTooth: a.perTooth && a.toothNumbers.length > 0,
@@ -1574,6 +1657,7 @@ export function PatientRecordModal({
     setLoading(true)
     try {
       const linkedItem = planItems.find((p) => p.itemId === linkedPlanItemId)
+
       const recordData = {
         interventionDate,
         amountPaid: parseAmountInput(amountPaid) || 0,
@@ -1607,8 +1691,8 @@ export function PatientRecordModal({
         // The visit's other acts of the SAME devis, closed by this fiche too (C4). The server also keeps the ones
         // already linked to this fiche on a re-save, so a reopened fiche need not know them.
         additionalTreatmentPlanItems: linkedItem
-          ? [...new Map(
-              (appointment?.procedures ?? [])
+          ? [...new Map<string, { treatmentPlanItemId: string; treatmentPlanItemStepId: string | null }>([
+              ...(appointment?.procedures ?? [])
                 .filter((row) =>
                   row.treatmentPlanItemId
                   && row.treatmentPlanItemId !== linkedItem.itemId
@@ -1616,8 +1700,19 @@ export function PatientRecordModal({
                 .map((row) => [row.treatmentPlanItemId as string, {
                   treatmentPlanItemId: row.treatmentPlanItemId as string,
                   treatmentPlanItemStepId: row.treatmentPlanItemStepId ?? null,
-                }]),
-            ).values()]
+                }] as const),
+            ]).values()]
+          : [],
+        /*
+         * The acts this séance is putting ON the devis, named by their position in `acts` — the only identity
+         * an act has inside one save, since `SetActs` regenerates every id. The server amends the devis and
+         * links the new lines in the fiche's own transaction, so a failed save leaves no orphan line behind.
+         */
+        planActAdditions: linkedItem
+          ? parsedActs
+              .map((_, i) => i)
+              .filter((i) => namedActs[i]?.addToPlan === true)
+              .map((actIndex) => ({ actIndex }))
           : [],
         // Only carried on create — links the new record to the appointment it documents (closes the prompt).
         appointmentId: appointmentId ?? null,
@@ -2092,6 +2187,9 @@ export function PatientRecordModal({
               proposedFromAppointment={proposedFromAppointment.has(act.key)}
               seanceStepLine={act.key === stepLineActKey ? seanceStepLine : null}
               planNotice={act.key === planActKey ? planNotice : null}
+              // Withheld on the act the devis ALREADY carries — it is on the treatment, adding it again would
+              // quote the same work twice. Every other act of a devis-carried séance may join it.
+              addToPlanTarget={act.billedOnPlan ? null : addToPlanTarget}
               duplicate={duplicateKeys.has(act.key)}
               error={saveError?.actKey === act.key ? saveError.message : null}
               dispatch={dispatch}
@@ -2755,7 +2853,7 @@ export function PatientRecordModal({
                     <span className="font-medium text-destructive">
                       il ne reste que{" "}
                       <span className="font-mono tabular-nums">
-                        {formatDT(treatmentOutstandingBefore)}
+                        {formatDT(treatmentOutstandingAfterAdditions)}
                       </span>{" "}
                       à encaisser sur ce traitement
                     </span>
@@ -2809,6 +2907,18 @@ export function PatientRecordModal({
                   devis gives it one, and a gapless number can only be released by a cancellation carrying a
                   motif — so the one thing this must not do is happen quietly.
                 */}
+                {/*
+                  What « Ajouter au devis » will do, as a FIGURE — the one thing the act cards cannot say,
+                  because each of them knows only its own fee. Stated once, beside the treatment's own money,
+                  which is where a dentist reads « combien reste-t-il ? ».
+                */}
+                {planAdditionTotal > 0 && (
+                  <p role="status" className="w-full text-2xs font-medium text-primary">
+                    <span className="font-mono tabular-nums">+{formatDT(planAdditionTotal)}</span> sur le devis
+                    avec cet enregistrement
+                    {planAdditionActs.length > 1 ? ` (${planAdditionActs.length} actes)` : ""}
+                  </p>
+                )}
                 {collectionWillIssueDevis && (
                   <p role="status" className="w-full text-2xs text-warning-ink">
                     Ce traitement n&apos;a pas encore de devis : l&apos;encaisser lui en attribuera un.

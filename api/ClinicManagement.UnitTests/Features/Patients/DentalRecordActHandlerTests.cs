@@ -131,6 +131,9 @@ public class DentalRecordActHandlerTests
         /// <inheritdoc cref="Clinics"/>
         public Mock<IMedicalDocumentRepository> MedicalDocuments { get; } = new();
 
+        /// <summary>Consulted by `TreatmentPlanStepProtocol` for an act added to the devis from the fiche.</summary>
+        public Mock<IProcedureTypeRepository> ProcedureTypes { get; } = new();
+
         public CreateDentalRecordCommandHandler CreateHandler()
         {
             Doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -140,14 +143,15 @@ public class DentalRecordActHandlerTests
         }
 
         private CreateDentalRecordCommandHandler CreateHandlerCore() => new(
-            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Doctors.Object,
+            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, ProcedureTypes.Object,
+            Invoices.Object, Doctors.Object,
             Clinics.Object, MedicalDocuments.Object, Context.Object,
             Appointments.Object, Resolver.Object, Uow.Object, Generator.Object, StockConsumption.Object,
             Realtime.Object, Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
-            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Appointments.Object,
-            Invoices.Object,
+            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, ProcedureTypes.Object,
+            Appointments.Object, Invoices.Object,
             CreditNotes.Object, MedicalDocuments.Object, Clinics.Object, Doctors.Object, Context.Object,
             Resolver.Object, Uow.Object, StockConsumption.Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);

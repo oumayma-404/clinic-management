@@ -86,6 +86,13 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// devis acts used to close act 1 only — see <see cref="FicheExtraPlanActs"/>.
     /// </summary>
     public List<FichePlanItemLink> AdditionalTreatmentPlanItems { get; set; } = new();
+
+    /// <summary>
+    /// Acts of THIS séance the dentist is putting on the devis — the devis grows by their fee and the acts are
+    /// then recorded at 0, in this one transaction. See <see cref="FichePlanActAdditions"/> for why it is here
+    /// and not a second call from the browser.
+    /// </summary>
+    public List<FichePlanActAddition> PlanActAdditions { get; set; } = new();
     /// <summary>Optional appointment this record documents — completing it and dismissing its post-visit review
     /// prompt (finding #10), so recording the dental work (not only a medical document) closes the loop.</summary>
     public Guid? AppointmentId { get; set; }
@@ -115,6 +122,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly IMedicalDocumentRepository _documentRepository;
@@ -133,6 +142,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         IDentalRecordRepository dentalRecordRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IProcedureTypeRepository procedureTypeRepository,
+        IInvoiceRepository invoiceRepository,
         IDoctorRepository doctorRepository,
         IClinicRepository clinicRepository,
         IMedicalDocumentRepository documentRepository,
@@ -150,6 +161,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         _dentalRecordRepository = dentalRecordRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _procedureTypeRepository = procedureTypeRepository;
+        _invoiceRepository = invoiceRepository;
         _doctorRepository = doctorRepository;
         _clinicRepository = clinicRepository;
         _documentRepository = documentRepository;
@@ -207,7 +220,27 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             var extraActs = await FicheExtraPlanActs.ResolveAsync(
                 _treatmentPlanRepository, imposed.Acts, request.TreatmentPlanId, request.TreatmentPlanItemId,
                 request.AdditionalTreatmentPlanItems, null, clinicResult.Value, cancellationToken);
-            var acts = extraActs.Acts;
+
+            /*
+             * « Ajouter au devis » — an act of THIS séance joining the treatment it is being carried out for.
+             *
+             * ⚠️ AFTER `ResolveAsync`, and that order is what makes a re-save a no-op: an addition is applied
+             * only to an act index nothing has claimed, and the line a previous save created is linked to this
+             * fiche, so `ResolveAsync` claims it. See `FichePlanActAdditions`.
+             */
+            var additions = await FichePlanActAdditions.ApplyAsync(
+                _treatmentPlanRepository, _invoiceRepository, _procedureTypeRepository, extraActs.Acts,
+                request.TreatmentPlanId, request.TreatmentPlanItemId, request.PlanActAdditions,
+                extraActs.Extras, clinicResult.Value, _logger, cancellationToken);
+            if (additions.Refusal is not null)
+            {
+                return Result<DentalRecordDto>.Failure(
+                    additions.Refusal, FichePlanActAdditions.RefusalCode);
+            }
+            var acts = additions.Acts;
+            // The devis acts this fiche closes: the ones it was already carrying out, plus the ones it just put
+            // on the devis. One list from here on, so a later reader cannot consult only half of them.
+            var planExtras = extraActs.Extras.Concat(additions.Added).ToList();
 
             // Which visit does this fiche document? The client's id when it sent one — the post-visit deep link
             // knows more than we can infer — otherwise the patient's single visit that day, and nothing when
@@ -297,7 +330,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 
             // The séance's other devis acts, closed by this same fiche (C4).
             var extraLinks = new List<(int ActIndex, bool ItemIsComplete)>();
-            foreach (var extra in extraActs.Extras)
+            foreach (var extra in planExtras)
             {
                 var extraLink = await DentalRecordLinker.LinkPlanItemAsync(
                     _treatmentPlanRepository, _appointmentRepository,
