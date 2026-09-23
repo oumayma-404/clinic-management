@@ -4000,6 +4000,79 @@ check(
   },
 );
 
+check(
+  "carried-act-keeps-its-zero",
+  "N44",
+  "Picking an act on a devis-carried card decides the price from `billedOnPlan`, never from the catalogue alone",
+  "An act a devis carries is priced 0 by rule, and the fiche WITHHOLDS its price field for that reason " +
+    "(`act-card` prints « Aucun honoraire sur cette séance » in its place). So the only place a wrong figure " +
+    "can surface is the séance total and the save button — which is exactly what happened: `actFromDto` sets " +
+    "`unitCostLocked: false` on every reopened act, deliberately (« whether the stored amount was typed or " +
+    "taken from a tariff is not recorded »), so re-picking the SAME act on a carried card fell through to " +
+    "`pt.defaultCost` and the button read « Enregistrer — 30,000 DT » above a card saying the séance adds no " +
+    "honoraires. Measured in the browser 2026-09-22. `PlanCarriedActPricing` imposes the 0 server-side, so no " +
+    "stored money was wrong — the screen simply contradicted itself on the one control the dentist presses. " +
+    "Its mirror is the other direction: changing to a DIFFERENT act must RELEASE the card, clearing " +
+    "`billedOnPlan` and the locked 0, or the new act saves free. Both halves live in `applyProcedure`, so " +
+    "this asserts that function reads the flag at all.",
+  /*
+   * Derived from the function body by brace-matching rather than by grepping the file: `billedOnPlan` appears
+   * a dozen times in this module (the field's own docstring, `emptyAct`, `actFromDto`, `markBilledOnPlan`), so
+   * a file-level grep would pass with the pricing rule deleted.
+   */
+  () => {
+    const file = "components/record/use-session-acts.ts";
+    const src = read(file);
+    const at = src.indexOf("function applyProcedure(");
+    if (at < 0) {
+      return [{ file, line: 1, text: "`applyProcedure` not found — this check has stopped checking anything", full: "" }];
+    }
+    let i = src.indexOf("{", at);
+    let depth = 0;
+    let end = -1;
+    for (; i < src.length; i += 1) {
+      if (src[i] === "{") depth += 1;
+      else if (src[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) {
+      return [{ file, line: 1, text: "could not read `applyProcedure`'s body", full: "" }];
+    }
+    // Comments are masked: the prose explaining the rule must not satisfy a scan of raw source.
+    const body = src
+      .slice(at, end)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    /*
+     * ⚠️ Counted as READS (`.billedOnPlan`), not as mentions. The first version asked whether the body
+     * contained the identifier at all, and it passed a deliberate violation: the release's own
+     * `billedOnPlan: false` assignment satisfied it with BOTH tests deleted. There are exactly two reads and
+     * they are the two halves — the release test (different act ⇒ let go of the devis' 0) and the pricing
+     * test (same act ⇒ keep it) — while the assignment carries no dot.
+     */
+    const reads = (body.match(/\.billedOnPlan/g) ?? []).length;
+    return reads >= 2
+      ? []
+      : [
+          {
+            file,
+            line: src.slice(0, at).split(String.fromCharCode(10)).length,
+            text: `\`applyProcedure\` reads \`billedOnPlan\` ${reads} time(s), expected 2`,
+            full:
+              "the release test (different act ⇒ let go of the devis' 0) and the pricing test (same act ⇒ " +
+              "keep it). Without both, a carried act either keeps a price the devis already charges, or is " +
+              "released without being released.",
+          },
+        ];
+  }
+);
+
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

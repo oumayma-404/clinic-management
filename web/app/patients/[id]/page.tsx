@@ -788,9 +788,41 @@ export default function PatientDetailsPage() {
    * `setEditingRecord(null)` is required, not tidying: a non-null `editingRecord` forces `recordAppointment` to
    * null (an edit must never be re-proposed), so a stale value would open the modal with no prefill.
    */
+  /**
+   * The fiche that already documents a visit, when there is one.
+   *
+   * <p>⚠️ <b>One visit, one fiche — and nothing enforced it.</b> `canRecordVisit` only asks whether the slot is
+   * over and the status is not `Completed`/`Cancelled`/`NoShow`, and the thing that clears it is
+   * `Appointment.MarkVisitCompleted`, fired <i>post-commit and best-effort</i> by the fiche's own save. So the
+   * button survives every case where that side effect does not land, and pressing it composed a <b>second</b>
+   * fiche prefilled from the booking. Measured on the dev database: five appointments carry 2 to 4 fiches,
+   * one of them « Coiffage pulpaire » then « Gingivectomie » two minutes apart.</p>
+   *
+   * <p>⚠️ <b>This is also the whole of « I changed the act and it went back to the old one ».</b> The second
+   * composer prefills from `appointment.procedures`, which the fiche never rewrites — deliberately, since the
+   * booking is what was agreed and carries the devis link and the negotiated price — so reopening the visit
+   * showed the act that was <i>booked</i>, not the one that was <i>recorded</i>.</p>
+   */
+  const ficheForVisit = (appointmentId: string): DentalRecordDto | null =>
+    dentalRecords.find((r) => r.appointmentId === appointmentId) ?? null
+
+  /**
+   * Open the record modal already bound to a finished visit — exactly the state the
+   * `?addRecord=1&appointmentId=…` deep-link sets, so the modal prefills identically: `reviewAppointmentId`
+   * feeds `recordAppointment`, which proposes the visit's booked act and pre-selects its devis step. Setting it
+   * here rather than navigating avoids a round trip through the URL for something already on screen.
+   *
+   * `setEditingRecord(null)` is required, not tidying: a non-null `editingRecord` forces `recordAppointment` to
+   * null (an edit must never be re-proposed), so a stale value would open the modal with no prefill.
+   *
+   * ⚠️ …unless the visit already has a fiche, in which case that fiche is what opens. See {@link ficheForVisit}.
+   */
   const openVisitRecord = (appointmentId: string) => {
-    setEditingRecord(null)
-    setReviewAppointmentId(appointmentId)
+    const existing = ficheForVisit(appointmentId)
+    setEditingRecord(existing)
+    // Cleared on the edit branch: `recordAppointment` and the modal's `appointmentId` prop both key on it, and
+    // an edit must never be re-proposed from the booking.
+    setReviewAppointmentId(existing ? null : appointmentId)
     setRecordModalOpen(true)
   }
 
@@ -1352,6 +1384,22 @@ export default function PatientDetailsPage() {
       window.history.replaceState({}, "", `/patients/${patientId}`)
     }
   }, [patientId])
+
+  /*
+   * The deep link's half of {@link ficheForVisit}. The effect above runs on mount, before the phase-2 batch has
+   * delivered the fiches, so « does this visit already have one? » cannot be answered there — and the post-visit
+   * bell is exactly the door a dentist re-uses after recording the séance.
+   *
+   * ⚠️ Guarded on `editingRecord` being null, so it never overrides a choice already made: the button path
+   * resolves the same question synchronously, and this must not undo it or re-open a modal that has closed.
+   */
+  useEffect(() => {
+    if (!recordModalOpen || editingRecord || !reviewAppointmentId) return
+    const existing = dentalRecords.find((r) => r.appointmentId === reviewAppointmentId)
+    if (!existing) return
+    setEditingRecord(existing)
+    setReviewAppointmentId(null)
+  }, [recordModalOpen, editingRecord, reviewAppointmentId, dentalRecords])
 
   // Deep-link from « Corriger cette note » on /factures (?editRecord=<ficheId>): open that fiche's editor, which
   // is the only door where the correction is expressible — the price is changed on the acts, and the note follows.
@@ -3245,7 +3293,10 @@ procedureTypeId: it.procedureTypeId ?? null,
                             onClick={() => openVisitRecord(appointment.id)}
                           >
                             <FileText className="h-4 w-4" />
-                            Enregistrer la fiche
+                            {/* The verb says which of the two things the press does — see `ficheForVisit`. A
+                                button reading « Enregistrer » that opens a fiche full of work is how a second
+                                one got written. */}
+                            {ficheForVisit(appointment.id) ? "Ouvrir la fiche" : "Enregistrer la fiche"}
                           </Button>
                         ) : null
                       }
@@ -3352,10 +3403,15 @@ procedureTypeId: it.procedureTypeId ?? null,
                                       size="sm"
                                       className="gap-1.5 whitespace-nowrap"
                                       onClick={() => openVisitRecord(appointment.id)}
-                                      title="Enregistrer la fiche de soins de cette séance"
+                                      title={
+                                        ficheForVisit(appointment.id)
+                                          ? "Ouvrir la fiche de soins de cette séance"
+                                          : "Enregistrer la fiche de soins de cette séance"
+                                      }
                                     >
                                       <FileText className="h-3.5 w-3.5" />
-                                      Enregistrer la fiche
+                                      {/* Same rule as the card above. */}
+                                      {ficheForVisit(appointment.id) ? "Ouvrir la fiche" : "Enregistrer la fiche"}
                                     </Button>
                                   ) : (
                                     <span className="text-muted-foreground/60">—</span>

@@ -188,9 +188,17 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             // « Un acte porté par un devis est à 0 », imposed here rather than trusted from the client — the same
             // rule `PriceForPlanLinkedAct` already imposes when the séance is booked. Overtyping that 0 on the
             // fiche is what raised a note d'honoraires for work the treatment already prices.
-            var acts = await PlanCarriedActPricing.ImposeAsync(
+            var imposed = await PlanCarriedActPricing.ImposeAsync(
                 _treatmentPlanRepository, parsed.Value!, request.TreatmentPlanId, request.TreatmentPlanItemId,
                 clinicResult.Value, _logger, cancellationToken);
+            // ⚠️ The refusal is read, not just the acts: a fiche claiming a devis act it does not hold makes the
+            // devis mark the WRONG act done. See `PlanCarriedAct.NamesAnActTheFicheDoesNotHold`.
+            if (imposed.Refusal is not null)
+            {
+                return Result<DentalRecordDto>.Failure(
+                    imposed.Refusal, PlanCarriedActPricing.ActNotOnTheFicheCode);
+            }
+            var acts = imposed.Acts;
 
             // Which visit does this fiche document? The client's id when it sent one — the post-visit deep link
             // knows more than we can infer — otherwise the patient's single visit that day, and nothing when

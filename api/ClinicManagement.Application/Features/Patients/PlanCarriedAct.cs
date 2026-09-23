@@ -55,4 +55,35 @@ public static class PlanCarriedAct
 
         return acts.Count == 1 ? 0 : -1;
     }
+
+    /// <summary>
+    /// « Ce devis dit porter un acte que la fiche ne contient pas » — the state a fiche must never be saved in.
+    ///
+    /// <para>
+    /// ⚠️ <b>Changing the act on a devis-carried fiche used to reach exactly this state, in silence.</b>
+    /// « Changer d'acte » rewrites the card and leaves <c>TreatmentPlanItemId</c> pointing at the line it was
+    /// opened on, so the save arrived claiming to carry out a couronne while recording an extraction. Nothing
+    /// refused it: <see cref="IndexIn"/> simply answered <c>-1</c>, so <see cref="PlanCarriedActPricing"/>
+    /// imposed no 0 and <c>ToothChartingRules</c> withheld nothing, while <c>DentalRecordLinker</c> went on to
+    /// mark the <b>couronne's</b> step done against a fiche that does not record it. The devis then read
+    /// « fait » for work nobody had carried out, and the extraction — still wearing the browser's locked 0 —
+    /// was billed nothing at all.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ <b>It is narrower than « IndexIn returned -1 », and every clause of the narrowing is load-bearing.</b>
+    /// <c>-1</c> has two innocent causes that must stay innocent: a devis line naming no catalogue act (a
+    /// hand-typed row) on a fiche holding more than one act, and a fiche whose act is itself hand-typed. The
+    /// second is not hypothetical — every fiche opened on a devis step before <c>planItemPrefill</c> carried a
+    /// <c>ProcedureTypeId</c> recorded a free-text act, and those rows are on the live database. Refusing them
+    /// would make an old plan fiche impossible to re-save to fix a typo. So the refusal fires only when both
+    /// sides name catalogue acts and they disagree, which is precisely the « I changed the act » case.
+    /// </para>
+    /// </summary>
+    public static bool NamesAnActTheFicheDoesNotHold(
+        IReadOnlyList<DentalRecordActInput> acts, TreatmentPlanItem item) =>
+        item.ProcedureTypeId is not null
+        && acts.Count > 0
+        && acts.All(a => a.ProcedureTypeId is not null)
+        && IndexIn(acts, item) < 0;
 }

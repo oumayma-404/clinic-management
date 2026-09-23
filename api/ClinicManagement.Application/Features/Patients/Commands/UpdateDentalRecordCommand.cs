@@ -199,9 +199,17 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // « Un acte porté par un devis est à 0 », imposed here rather than trusted from the client — the same
             // rule `PriceForPlanLinkedAct` already imposes when the séance is booked. Overtyping that 0 on the
             // fiche is what raised a note d'honoraires for work the treatment already prices.
-            var acts = await PlanCarriedActPricing.ImposeAsync(
+            var imposed = await PlanCarriedActPricing.ImposeAsync(
                 _treatmentPlanRepository, parsed.Value!, request.TreatmentPlanId, request.TreatmentPlanItemId,
                 clinicResult.Value, _logger, cancellationToken);
+            // ⚠️ The refusal is read, not just the acts: a fiche claiming a devis act it does not hold makes the
+            // devis mark the WRONG act done. See `PlanCarriedAct.NamesAnActTheFicheDoesNotHold`.
+            if (imposed.Refusal is not null)
+            {
+                return Result<DentalRecordDto>.Failure(
+                    imposed.Refusal, PlanCarriedActPricing.ActNotOnTheFicheCode);
+            }
+            var acts = imposed.Acts;
 
             // AC-P4.10 on the EDIT path: consume only what this edit ADDS. A fiche is re-saved routinely (a
             // corrected note, one more tooth), and consuming the whole list again each time would draw stock for
@@ -209,6 +217,12 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // per procedure because SetActs regenerates act ids, so a before/after diff by id is impossible;
             // counting occurrences also keeps "two composites" meaning two capsules.
             var consumedBefore = CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId));
+
+            // What the fiche's acts bill AS STORED, read before the edit is applied. Compared with the same
+            // thing afterwards by `DentalRecordBillingGuard.Check`, which is how « les actes d'une fiche
+            // facturée ne changent pas » stops being a statement only about the total. Cheap and unconditional:
+            // the guard below runs only for a billed fiche, but this has to be taken before `SetActs`.
+            var actsBefore = DentalRecordInvoiceLines.For(dentalRecord);
 
             if (!Enum.TryParse<PaymentMethod>(request.PaymentMethod ?? nameof(PaymentMethod.Cash), ignoreCase: true, out var method))
             {
@@ -255,7 +269,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 
             if (billedBy is { } note)
             {
-                var allowed = DentalRecordBillingGuard.Check(note, dentalRecord.Cost, request.AmountPaid);
+                // ⚠️ Both sides of the edit, not merely its total — at equal money the acts could be swapped
+                // in silence and the numbered document went on billing work the séance no longer records.
+                // `DentalRecordInvoiceLines.For` is the one authority on how a fiche becomes lines, so what is
+                // compared is exactly what a re-billing would print, before and after.
+                var allowed = DentalRecordBillingGuard.Check(
+                    note, dentalRecord.Cost, request.AmountPaid,
+                    actsBefore, DentalRecordInvoiceLines.For(dentalRecord));
                 if (allowed.IsFailure)
                 {
                     if (string.IsNullOrWhiteSpace(request.CorrectionReason))

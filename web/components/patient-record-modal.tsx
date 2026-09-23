@@ -189,6 +189,9 @@ function planItemPrefill(item: PlanItemOption, appointment?: AppointmentDto | nu
     ? { toothNumbers: item.toothNumbers }
     : {
         designationFr: item.designationFr,
+        // ⚠️ The catalogue identity travels with the désignation. Without it this branch stored a free-text act,
+        // which is what `PlanCarriedAct.IndexIn` fails to match — see `PlanItemPrefill.procedureTypeId`.
+        procedureTypeId: item.procedureTypeId ?? null,
         // The fiche's own cost field takes the NET — what the patient owes for the act.
         plannedCost: item.netCost,
         toothNumbers: item.toothNumbers,
@@ -318,6 +321,8 @@ export function PatientRecordModal({
   const [catalogFailed, setCatalogFailed] = useState(false)
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
+  /** Which record's stored devis link has already been hydrated into the Select — see the effect below. */
+  const hydratedPlanLinkRef = useRef<string | null>(null)
   // Only « Notes de séance » folds now. The acts are the point of this dialog and are always open — the old
   // « Actes de la séance » fold, shut by default, is where an act appeared to vanish when a second one was added.
   const [notesOpen, setNotesOpen] = useState(false)
@@ -418,6 +423,8 @@ export function PatientRecordModal({
    */
   const [saveError, setSaveError] = useState<{ actKey: string | null; message: string } | null>(null)
   const actsAnchorRef = useRef<HTMLDivElement>(null)
+  /** The refusal banner that names no card — see `refuseSave` for why it needs a target of its own. */
+  const pileSaveErrorRef = useRef<HTMLParagraphElement>(null)
 
   const { acts, namedActs, grandTotal, focusedAct, focusKey, dispatch } = useSessionActs(record)
 
@@ -618,6 +625,8 @@ export function PatientRecordModal({
     if (!open) return
     setPatientName(initialPatientName)
     setLinkedPlanItemId(NO_PLAN_ITEM)
+    // A fresh open starts from the fiche's stored devis link again, whatever the last session chose.
+    hydratedPlanLinkRef.current = null
     // Back to the seed: an arch the user picked for the *previous* fiche must not decide this one's.
     setChosenView(null)
     dispatch({ type: "reset", record })
@@ -732,15 +741,34 @@ export function PatientRecordModal({
    * on a cancelled plan, or one already fully réalisé, falls through to exactly the behaviour it has today
    * rather than selecting an option the Select does not offer.
    */
+  /*
+   * ⚠️ **Once per open, tracked in a ref — never « whenever the value is NO_PLAN_ITEM ».**
+   *
+   * The guard here was `if (linkedPlanItemId !== NO_PLAN_ITEM) return`, with `linkedPlanItemId` in the deps,
+   * and its comment said « never overwrite a choice already made ». The intent was right and the test cannot
+   * express it: **« Aucun » IS a choice**, and it is indistinguishable from « not hydrated yet ». So choosing
+   * it re-fired this effect and put the devis act straight back — « Aucun » was unselectable on every
+   * reopened devis-carried fiche, measured in the browser 2026-09-22.
+   *
+   * That was a nuisance until the save began refusing a fiche whose acts no longer include the devis' act
+   * (`PlanCarriedAct.NamesAnActTheFicheDoesNotHold`), whose refusal names this very control as the remedy —
+   * at which point the fiche became **uneditable**, with the message telling the dentist to do something the
+   * form would not let them do. That is the shape `DentalRecordBillingGuard.Snapshot.StillBillsTheWork` was
+   * written to remove, one screen over.
+   *
+   * ⚠️ The ref holds the record's id rather than a bare boolean, so a modal reused for a different fiche
+   * hydrates again; and it is **not** set when `planItems` has not arrived yet, because that list loads after
+   * the modal opens and an early bail must not count as « hydrated ».
+   */
   useEffect(() => {
     if (!open || !record?.treatmentPlanItemId) return
-    // Never overwrite a choice already made — the user's own pick, or this effect's on an earlier pass.
-    if (linkedPlanItemId !== NO_PLAN_ITEM) return
+    if (hydratedPlanLinkRef.current === record.id) return
     const linked = planItems.find((p) => p.itemId === record.treatmentPlanItemId)
     if (!linked) return
 
+    hydratedPlanLinkRef.current = record.id
     setLinkedPlanItemId(linked.itemId)
-  }, [open, record, planItems, linkedPlanItemId])
+  }, [open, record, planItems])
 
   /**
    * Every act booked into this séance, in the dentist's order, resolved against the catalogue.
@@ -1377,16 +1405,35 @@ export function PatientRecordModal({
    */
   const refuseSave = (actKey: string | null, message: string, description?: string) => {
     setSaveError({ actKey, message })
-    // The offending card carries the message; the pile is what gets scrolled to, since a card may be one line.
-    actsAnchorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
+    /*
+     * The offending card carries the message; the pile is what gets scrolled to, since a card may be one line.
+     *
+     * ⚠️ **A refusal that names no card renders AFTER the pile, so centring the anchor is not enough.**
+     * Measured at 320 px on the devis-act mismatch: the anchor scrolled, and the banner landed at y 456 in a
+     * scrollport ending at 437 — 19 px below the fold — with the toast already dismissed. The press looked
+     * like it had done nothing, which is the failure this refusal exists to prevent. Deferred one frame
+     * because the banner does not exist until this state has rendered.
+     */
+    if (actKey === null) {
+      requestAnimationFrame(() =>
+        (pileSaveErrorRef.current ?? actsAnchorRef.current)?.scrollIntoView({
+          block: "center",
+          behavior: "smooth",
+        }),
+      )
+    } else {
+      actsAnchorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
+    }
     toast.error(message, description ? { description } : undefined)
   }
 
   // Any edit to the acts clears the refusal: an inline error that outlives the thing it described is worse than
   // none, because the next press is refused for a reason the message no longer names.
+  // ⚠️ `linkedPlanItemId` too, since one refusal names that control as the remedy — a banner still standing
+  // after « Aucun » has been chosen says the fix did not work.
   useEffect(() => {
     setSaveError(null)
-  }, [acts])
+  }, [acts, linkedPlanItemId])
 
   const handleSave = async (correctionReason?: string) => {
     if (!patientId) {
@@ -1420,6 +1467,35 @@ export function PatientRecordModal({
         badPrice.key,
         `Montant invalide pour ${quoteFr(badPrice.procedureName)}`,
         "Corrigez le tarif de l'acte, puis confirmez.",
+      )
+      return
+    }
+
+    /*
+     * « Acte planifié » names a devis act that none of the cards is.
+     *
+     * ⚠️ **Mirrors `PlanCarriedAct.NamesAnActTheFicheDoesNotHold` term for term, and the server is still the
+     * authority** — this runs first only so the refusal arrives before the round trip and can point at the
+     * control that fixes it. Changing the act on a devis-carried card used to leave this link standing, and
+     * the save then marked the devis' OLD act done against a fiche recording a different one.
+     *
+     * ⚠️ The narrowing matters as much as the rule: a devis line naming no catalogue act, or a fiche holding a
+     * hand-typed one, is unidentifiable rather than wrong — every fiche recorded before `planItemPrefill`
+     * carried a `procedureTypeId` is in that state, and refusing them would make an old plan fiche impossible
+     * to reopen and fix.
+     *
+     * ⚠️ `refuseSave(null, …)`: no card is at fault, so none wears the message.
+     */
+    const linkedPlanAct = planItems.find((p) => p.itemId === linkedPlanItemId)
+    if (
+      linkedPlanAct?.procedureTypeId &&
+      namedActs.every((a) => a.procedureTypeId) &&
+      !namedActs.some((a) => a.procedureTypeId === linkedPlanAct.procedureTypeId)
+    ) {
+      refuseSave(
+        null,
+        `Aucun acte de la séance n'est ${quoteFr(linkedPlanAct.designationFr ?? "l'acte du devis")}`,
+        "Remettez l'acte du devis, ou choisissez « Aucun » dans « Acte planifié » pour enregistrer cette séance hors du devis.",
       )
       return
     }
@@ -1954,9 +2030,17 @@ export function PatientRecordModal({
             />
           ))}
 
-          {/* A refusal that named no card (« ajoutez au moins un acte » on an empty pile). */}
+          {/*
+            A refusal that named no card — « ajoutez au moins un acte » on an empty pile, and the devis-act
+            mismatch, whose remedy is the « Acte planifié » control rather than any one act.
+
+            ⚠️ It carries a ref because `refuseSave` scrolls to the acts ANCHOR, and this renders *after* the
+            pile: measured at 320 px, centring the anchor left this banner at y 456 in a scrollport ending at
+            437 — 19 px below the fold, with the toast already dismissed, so the press looked like it did
+            nothing. A refusal nobody can see is the defect this whole feature exists to remove.
+          */}
           {saveError && !acts.some((a) => a.key === saveError.actKey) && (
-            <p role="alert" className="text-xs font-medium text-destructive">
+            <p ref={pileSaveErrorRef} role="alert" className="text-xs font-medium text-destructive">
               {saveError.message}
             </p>
           )}

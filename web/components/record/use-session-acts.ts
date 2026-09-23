@@ -211,6 +211,20 @@ export interface BookedActPrefill {
 /** A treatment-plan step's values carried into the first act when the step is linked. */
 export interface PlanItemPrefill {
   designationFr?: string
+  /**
+   * The catalogue act the devis line is priced on, so the fiche's act IS that act rather than a look-alike.
+   *
+   * <p>⚠️ <b>Without it the fiche recorded a HORS-CATALOGUE act, and every rule keyed on the act went quiet.</b>
+   * This prefill named the act from `designationFr` and set no id at all, so a fiche opened on a devis step
+   * stored `procedureTypeId = null` — which is what `PlanCarriedAct.IndexIn` matches on. The server then
+   * imposed no 0, `ToothChartingRules` withheld no end state, and the act's materials were never drawn from
+   * stock. Measured on the live database: « Bridge — scellement », `ProcedureTypeId` NULL, on a séance booked
+   * for « Couronne / bridge (par élément) ».</p>
+   *
+   * <p>⚠️ The devis' own <b>désignation</b> still wins for the displayed name — that is what the dentist
+   * agreed to and what the devis line says — so this carries the identity and never the label.</p>
+   */
+  procedureTypeId?: string | null
   plannedCost?: number
   toothNumbers?: number[]
   /**
@@ -534,9 +548,29 @@ const withTeeth = (act: SessionAct, toothNumbers: number[]): SessionAct => ({
  *   without silently billing 240 for the two extractions it was agreed for.</p>
  */
 function applyProcedure(act: SessionAct, pt: ProcedureTypeDto, agreedCost?: number | null): SessionAct {
+  /*
+   * ⚠️ **A devis carries ONE act, so changing the act releases the card from it.**
+   *
+   * `billedOnPlan` survived « Changer d'acte » — it is not in either branch's field list and both spread the
+   * previous act — so a couronne carried by a devis, corrected to an extraction, kept « Chiffré sur le
+   * traitement », kept the locked 0 the devis imposed, and saved the extraction at **0 DT** while the devis
+   * went on marking the couronne done. Three wrong things from one gesture, none of them an error.
+   *
+   * Gated on the act's identity changing, so a re-pick of the same act — which is what `applyAppointment` and
+   * the « aussi prévu » chips do on a card they just filled — is untouched. The caller that legitimately marks
+   * the flag sets it AFTER this returns (`applyAppointment`), which is why clearing it here cannot fight it.
+   *
+   * The price is released with the flag, never separately: a 0 whose reason has gone is a discount nobody
+   * granted, and it is `unitCostLocked` that would otherwise keep it through the catalogue lookup below.
+   */
+  const released: SessionAct =
+    act.billedOnPlan && act.procedureTypeId !== pt.id
+      ? { ...act, billedOnPlan: false, unitCost: "", unitCostLocked: false, perToothLocked: false }
+      : act
+
   if (agreedCost != null) {
     return {
-      ...act,
+      ...released,
       procedureTypeId: pt.id,
       procedureName: pt.name,
       unitCost: formatAmount(agreedCost),
@@ -549,14 +583,33 @@ function applyProcedure(act: SessionAct, pt: ProcedureTypeDto, agreedCost?: numb
   }
 
   const next: SessionAct = {
-    ...act,
+    ...released,
     procedureTypeId: pt.id,
     procedureName: pt.name,
     // The price follows the act unless the dentist typed one. Testing "is the field empty?" instead was the
     // « ce n'est pas cet acte » bug: the field still held the PREVIOUS act's tariff, so the new act was billed at
     // the old act's price. An act with no tariff clears the field rather than inheriting one that belongs to the
     // act just replaced.
-    unitCost: act.unitCostLocked ? act.unitCost : pt.defaultCost != null ? formatAmount(pt.defaultCost) : "",
+    /*
+     * ⚠️ `released`, never `act` — an act let go by the devis has just had its lock cleared, and reading the
+     * pre-release copy here would put the devis' 0 back on the act the devis no longer carries.
+     *
+     * ⚠️ And `billedOnPlan` comes FIRST, which is the mirror of the release above. `actFromDto` sets
+     * `unitCostLocked: false` on every reopened act, deliberately (« whether the stored amount was typed or
+     * taken from a tariff is not recorded »), so re-picking the SAME act on a devis-carried card fell through
+     * to the catalogue tarif — and because the price field is withheld on such a card, the only place the
+     * figure showed was the primary action: « Enregistrer — 30,000 DT » above a card reading « Aucun
+     * honoraire sur cette séance ». Measured in the browser 2026-09-22. `PlanCarriedActPricing` imposes the 0
+     * server-side, so no stored money was wrong — the screen simply contradicted itself on the one control
+     * the dentist presses.
+     */
+    unitCost: released.billedOnPlan
+      ? released.unitCost
+      : released.unitCostLocked
+        ? released.unitCost
+        : pt.defaultCost != null
+          ? formatAmount(pt.defaultCost)
+          : "",
     // A fresh pick re-opens the pricing question, so the switch un-locks.
     perToothLocked: false,
     resultingCondition: pt.resultingCondition ?? null,
@@ -656,6 +709,9 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
           procedureName: action.name.trim(),
           unitCost: "",
           unitCostLocked: false,
+          // The devis carried the act that was here, not the one being typed — `applyProcedure`'s rule, and
+          // the same reason: the 0 it imposed is « already priced elsewhere » about an act that has gone.
+          billedOnPlan: false,
           perTooth: false,
           perToothLocked: false,
           resultingCondition: null,
@@ -773,6 +829,8 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const next: SessionAct = {
         ...first,
         procedureName: named || first.procedureName,
+        // The act's identity, kept even when the devis' own désignation is what is displayed — see the field.
+        procedureTypeId: item.procedureTypeId ?? first.procedureTypeId,
         unitCost: carried
           ? "0"
           : item.plannedCost != null && item.plannedCost > 0
