@@ -735,6 +735,8 @@ jobs:
             e2e/.artifacts/**/*.png
             e2e/.artifacts/**/trace.zip
           if-no-files-found: warn
+          # `.artifacts` is a dot-folder: without this, upload-artifact@v4 skips it and uploads NOTHING.
+          include-hidden-files: true
 
       - name: Upload the server logs on failure
         if: failure()

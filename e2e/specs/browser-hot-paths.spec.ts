@@ -29,7 +29,7 @@ test.describe("HP-7 · le workspace du devis, dans un navigateur @mutating @t0",
   mutatingOnly()
 
   test("PLAN-01 · a COMPLETED plan's workspace renders, with no console crash", async ({
-    api,
+    arrange,
     page,
     patient,
     sharedContext,
@@ -37,17 +37,7 @@ test.describe("HP-7 · le workspace du devis, dans un navigateur @mutating @t0",
     const errors = watchConsole(page)
 
     const p = await patient("PlanRender")
-    const crown = await api.protocolAct(2)
-    const started = await api.startTreatment({
-      patientId: p.id,
-      procedureTypeId: crown.id,
-      agreedTotal: 500,
-      toothNumbers: [16],
-      steps: null,
-    })
-    const plan = started.body?.value ?? started.body
-    expect((await api.acceptPlan(plan.id, {})).status).toBe(200)
-    expect((await api.completePlan(plan.id, { leaveUnrealisedActs: true })).status).toBe(200)
+    const { act: crown, plan } = await arrange.completedPlan(p.id)
 
     await gotoApp(page, `/treatment-plans/${plan.id}`, sharedContext)
 
@@ -413,15 +403,6 @@ test.describe("HP-2 · le dialogue de réservation, dans un navigateur @mutating
 
     await gotoApp(page, `/appointments?appointmentId=${appt.id}`, sharedContext)
 
-    /*
-     * The reported field defect: a client booked « Couronne / bridge », read « Cet acte se fait normalement en
-     * 3 séances » and had **no control at all** underneath it. The edit dialog never passed `onStartProtocol`
-     * — for everyone, always — while the picker rendered the *sentence* unconditionally and the *button* inside
-     * `{onStartProtocol && …}`.
-     *
-     * So: if the sentence is on screen, the control must be too. Asserted as an implication, because a
-     * one-séance act legitimately shows neither.
-     */
     const dialog = page.locator("[data-slot='dialog-content']").first()
     await expect(dialog).toBeVisible()
 
@@ -432,25 +413,33 @@ test.describe("HP-2 · le dialogue de réservation, dans un navigateur @mutating
      * control as missing. That is a false defect report on the exact screen this scenario exists to defend, and
      * the first draft of this test produced it.
      */
-    const text = ((await dialog.textContent()) ?? "").replace(/\u00a0/g, " ")
+    const dialogText = async () => ((await dialog.textContent()) ?? "").replace(/\u00a0/g, " ")
 
+    /*
+     * ⚠️ **A stored act opens UNSPLIT — `ecd8f131`.** Split-by-default on reopen turned merely moving an implant
+     * visit into a new treatment and a zeroed price. So the card states the protocol and offers the split; the
+     * reported field defect (the sentence with **no control** under it) is what must never come back.
+     */
+    const opened = await dialogText()
     expect(
-      /Traitement en \d+\s*séances?/.test(text),
-      `the edit dialog must resolve the crown's catalogue protocol — split-by-default is now the rule. ` +
-        `Dialog text began: ${text.slice(0, 200)}`,
+      /Cet acte se fait normalement en \d+ séances/.test(opened),
+      `the edit dialog must state the crown's catalogue protocol. Dialog text began: ${opened.slice(0, 200)}`,
     ).toBeTruthy()
+    expect(/Traitement en \d+\s*séances?/.test(opened), "opening a booked visit must not split it").toBeFalsy()
 
+    const split = dialog.getByRole("button", { name: /Répartir en \d+ séances/ })
+    await expect(split, "the sentence without a control is the reported defect").toBeVisible()
+    await split.click()
+
+    const text = await dialogText()
+    expect(/Traitement en \d+\s*séances?/.test(text), "the split must render the séance editor").toBeTruthy()
     // It names what is being done TODAY, which is the one fact a dentist needs from the card…
     expect(/Ce rendez-vous est la 1re/.test(text), "the card must name this séance").toBeTruthy()
     // …and the séances that follow it.
     expect(/Ensuite/.test(text), "and the ones after it").toBeTruthy()
 
     /*
-     * The reported field defect: a client booked « Couronne / bridge », read the sentence and had **no control
-     * at all** underneath it, because the edit dialog never passed `onStartProtocol` — for everyone, always —
-     * while the picker rendered the sentence unconditionally and the button inside `{onStartProtocol && …}`.
-     *
-     * So the séance list must be an editable frise, and the way out of it must be reachable. Both live below
+     * The séance list must be an editable frise, and the way out of it must be reachable. Both live below
      * the fold in a 1440×900 dialog, so the dialog's own body is scrolled rather than the page.
      */
     await dialog.evaluate((el: HTMLElement) => {
@@ -463,7 +452,7 @@ test.describe("HP-2 · le dialogue de réservation, dans un navigateur @mutating
     const escape = dialog.getByRole("button", { name: /Tout faire en une\s+(seule\s+)?séance/ })
     await expect(
       escape,
-      "split-by-default needs a way out, or the dentist cannot say « une seule séance »",
+      "a split needs a way back, or the dentist cannot say « une seule séance »",
     ).toBeVisible()
 
     /*

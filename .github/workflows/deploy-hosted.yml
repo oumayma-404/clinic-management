@@ -418,6 +418,8 @@ jobs:
             e2e/.artifacts/report
             e2e/.artifacts/**/*.png
           if-no-files-found: ignore
+          # `.artifacts` is a dot-folder: without this, upload-artifact@v4 skips it and uploads NOTHING.
+          include-hidden-files: true
 
       - name: Record what is live
         if: always()

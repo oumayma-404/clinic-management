@@ -222,7 +222,7 @@ test.describe("HP-7 · le cycle de vie d'un devis @mutating @t0", () => {
 test.describe("HP-9 · clôturer un traitement @mutating @t0", () => {
   mutatingOnly()
 
-  test("DONE-01 · « Terminer » CLOSES a plan whose acts are not all réalisé, leaving them so", async ({
+  test("DONE-01 · « Terminer » is REFUSED while acts are unrealised — « Arrêter » owns that case", async ({
     api,
     patient,
   }) => {
@@ -237,42 +237,29 @@ test.describe("HP-9 · clôturer un traitement @mutating @t0", () => {
     })
     const plan = started.body?.value ?? started.body
 
-    // It must be Accepted/InProgress to be closable at all.
     const accepted = await api.acceptPlan(plan.id, {})
     expect(accepted.status, `accept: ${accepted.raw?.slice(0, 300)}`).toBe(200)
 
+    /*
+     * ⚠️ **Reversed on purpose in `135b5c73`.** Closing over unfinished work left the échéancier alone, so the
+     * patient owed for séances nobody would do, on a devis badged « Terminé » with every remedy withdrawn.
+     * `StopTreatment` parks the unrealised acts and re-spreads the balance — that is the door now.
+     */
     const r = await api.completePlan(plan.id, { leaveUnrealisedActs: true })
-    expect(
-      r.status,
-      "the aggregate used to refuse in exactly the case the dialog bothered to explain — no case could be " +
-        "built from the UI in which this succeeded",
-    ).toBe(200)
+    expect(r.status, "a client flag must not reopen the removed path").toBe(400)
 
     const reread = await api.plan(plan.id)
-    expect(reread.status).toBe("Completed")
-    expect(reread.items[0].status, "la clôture ne les valide pas").not.toBe("Done")
+    expect(reread.status, "refused means nothing moved").not.toBe("Completed")
+    expect(reread.items[0].status, "and nothing was validated").not.toBe("Done")
   })
 
   test("DONE-05 · clôture leaves the money alone — « Terminé » is about the work, not the payment", async ({
     api,
+    arrange,
     patient,
   }) => {
     const p = await patient("TermineDu")
-    const crown = await api.protocolAct(2)
-    const started = await api.startTreatment({
-      patientId: p.id,
-      procedureTypeId: crown.id,
-      agreedTotal: 500,
-      toothNumbers: [16],
-      steps: null,
-    })
-    const plan = started.body?.value ?? started.body
-    expect((await api.acceptPlan(plan.id, {})).status).toBe(200)
-
-    const before = await api.billingSummary(p.id)
-    expect(mil(before.totalOutstanding ?? before.outstanding ?? 0)).toBe(mil(500))
-
-    expect((await api.completePlan(plan.id, { leaveUnrealisedActs: true })).status).toBe(200)
+    await arrange.completedPlan(p.id, 500)
 
     const after = await api.billingSummary(p.id)
     expect(
@@ -283,47 +270,28 @@ test.describe("HP-9 · clôturer un traitement @mutating @t0", () => {
 
   test("DONE-06/09 · a Completed plan refuses a second clôture and a new séance", async ({
     api,
+    arrange,
     patient,
   }) => {
     const p = await patient("DejaClos")
-    const crown = await api.protocolAct(2)
-    const started = await api.startTreatment({
-      patientId: p.id,
-      procedureTypeId: crown.id,
-      agreedTotal: 500,
-      toothNumbers: [16],
-      steps: null,
-    })
-    const plan = started.body?.value ?? started.body
-    await api.acceptPlan(plan.id, {})
-    await api.completePlan(plan.id, { leaveUnrealisedActs: true })
+    const { plan } = await arrange.completedPlan(p.id)
 
-    const again = await api.completePlan(plan.id, { leaveUnrealisedActs: true })
+    const again = await api.completePlan(plan.id)
     expect(again.status).toBe(400)
     expect(again.raw).toContain("déjà clôturé")
   })
 
-  test("DONE-07 · « Reprendre » restores a Completed devis WITH its number", async ({ api, patient }) => {
+  test("DONE-07 · « Reprendre » restores a Completed devis WITH its number", async ({ api, arrange, patient }) => {
     const p = await patient("Reprendre")
-    const crown = await api.protocolAct(2)
-    const started = await api.startTreatment({
-      patientId: p.id,
-      procedureTypeId: crown.id,
-      agreedTotal: 500,
-      toothNumbers: [16],
-      steps: null,
-    })
-    const plan = started.body?.value ?? started.body
-    await api.acceptPlan(plan.id, {})
-    const numbered = (await api.plan(plan.id)).number
-    await api.completePlan(plan.id, { leaveUnrealisedActs: true })
+    const { plan } = await arrange.completedPlan(p.id)
+    expect(plan.number, "arrange: an accepted devis is numbered").toBeTruthy()
 
     const r = await api.reopenPlan(plan.id)
     expect(r.status, `reopen: ${r.raw?.slice(0, 300)}`).toBe(200)
 
     const reread = await api.plan(plan.id)
     expect(reread.status, "patients come back").not.toBe("Completed")
-    expect(reread.number, "a numbered devis keeps its number through a reopen").toBe(numbered)
+    expect(reread.number, "a numbered devis keeps its number through a reopen").toBe(plan.number)
   })
 
   test("DONE-10 · a Cancelled plan refuses payment, amendment and step edits", async ({ api, patient }) => {

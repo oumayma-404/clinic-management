@@ -213,7 +213,7 @@ Route `/appointments` → `button[data-size="sm"]:has-text('Nouveau')`.
 |---|---|---|---|---|---|
 | BOOK-31 | 0 | ∅ | Pick « Couronne / bridge » **before** picking the patient | « Traitement en 3 séances » **and** the séance editor both render | the reported field defect: the sentence rendered above **no control** |
 | BOOK-32 | 0 | ∅ | « Nouveau patient » (walk-in) + a protocol act | Same — the editor renders with no patient id yet | that mode has no id until save |
-| BOOK-33 | 0 | an existing appointment | Open **« Modifier »** with a protocol act | The editor renders — the edit dialog never passed the prop, for everyone, always | the third situation of the same defect |
+| BOOK-33 | 0 | an existing appointment | Open **« Modifier »** with a protocol act | Opens **unsplit** (« Cet acte se fait normalement en N séances ») **with** « Répartir en N séances » under it; pressing it renders the séance editor and its way back | the edit dialog never passed the prop, for everyone, always. ⚠️ Opens unsplit since `ecd8f131` — split-on-reopen turned moving an implant visit into a new treatment |
 | BOOK-34 | 1 | BOOK-31 | Save | A **`Draft`, un-numbered** treatment exists with 3 steps; the appointment holds **step 1** | `materialiseTreatments` at save |
 | BOOK-35 | 0 | BOOK-31 | Save, hit the slot-taken confirm, confirm | **One** treatment, not two | `createdPlansRef` — both dialogs re-run the save from the top |
 | BOOK-36 | 0 | BOOK-31 | Same with the **out-of-hours** confirm; then with **past-time** | One treatment each time | same ref, all three confirmations |
@@ -373,7 +373,7 @@ Route `/patients/<id>?addRecord=1&appointmentId=<id>`.
 | FEDIT-13 | 1 | a reopened fiche with several acts | Open it | **Nothing** armed | — |
 | FEDIT-14 | 0 | a reopened per-tooth act | Open it | Pricing intent is **read, never re-derived** from the teeth | a cost of 0 is also how a courtesy act is recorded |
 | FEDIT-15 | 1 | a reopened act at 90,500 | Open it | The field reads « 90,500 » (not « 90.5 ») and accepts that form back | `formatAmount` |
-| FEDIT-16 | 0 | a billed fiche | Delete it | Refused, or the note is dealt with first — never an orphaned note | `PatientDeletionBlockers` / `DeleteDentalRecordCommand` |
+| FEDIT-16 | 0 | a billed fiche | Delete it | The note is **cancelled, number kept**, payments voided, lines detached; the séance re-records on a new note and la caisse holds the act **once** | `DentalRecordDeletionReversal` — reversed in `c8fb6e2f` (production: delete → re-save collected 160 DT for an 80 DT act) |
 | FEDIT-17 | 0 | a fiche linked to a devis step | Delete it | The step is un-marked; the plan's status recomputes; the chart's assertion is withdrawn | — |
 | FEDIT-18 | 1 | ∅ | Trigger a 409 on a fiche save | « Recharger » offered; the second save succeeds | `useConflict`, every version-round-tripping form |
 | FEDIT-19 | 2 | after a successful « Corriger » | — | The « Corriger » link **clears once it has arrived**, not before | `9c9e2f6d` |
@@ -386,7 +386,7 @@ Route `/treatment-plans/[id]`.
 
 | Id | T | Pre | Do | Expect | Defends |
 |---|---|---|---|---|---|
-| PLAN-01 | 0 | a **`Completed`** plan | Open the workspace | It **renders** | `primaryAction` is a `useMemo` running during render and calling the `const` confirm openers — declared above them, every `Completed` plan threw and the workspace failed entirely, invisible to `tsc`, `check:responsive` and the build |
+| PLAN-01 | 0 | a **`Completed`** plan (every séance recorded) | Open the workspace | It **renders** | `primaryAction` is a `useMemo` running during render and calling the `const` confirm openers — declared above them, every `Completed` plan threw and the workspace failed entirely, invisible to `tsc`, `check:responsive` and the build |
 | PLAN-02 | 1 | each of Draft / Accepted / InProgress / Completed / Cancelled | Open each | **One** primary action + a « ⋯ » menu — never seven controls of equal weight | `primaryAction` derives the one act (mint → bill → resume) |
 | PLAN-03 | 0 | a **followed** (Draft, un-numbered) treatment | — | « Annuler » is **absent** — it was refused every time it was pressed | `Cancel` throws « Un brouillon se supprime… », and the remedy lived only on `/treatment-plans` |
 | PLAN-04 | 0 | a Draft with **recorded séances** | Press « Supprimer le brouillon » | **Refused** — the cascade takes the acts and their step rows while the fiches survive attached to nothing | `CanBeDeleted` asked only the status; `RemoveItem` had refused `HasDeliveredWork` per act all along |
@@ -458,11 +458,11 @@ next section to derive.
 
 | Id | T | Pre | Do | Expect | Defends |
 |---|---|---|---|---|---|
-| DONE-01 | 0 | a plan with **unrealised** acts | « Terminer » | **Succeeds**, leaving them unrealised — exactly what the confirmation has always said in words | the aggregate used to refuse in precisely the case the dialog bothered to explain; **no case could be built from the UI in which it succeeded** |
+| DONE-01 | 0 | a plan with **unrealised** acts | « Terminer » (`POST /complete`) | **Refused**, nothing moves — « Arrêter le traitement » owns that case | reversed in `135b5c73`: closing over unfinished work left the patient owing for séances nobody would do |
 | DONE-02 | 1 | DONE-01 | Read the confirmation | « Les N actes non réalisés resteront non réalisés — la clôture ne les valide pas » | — |
 | DONE-03 | 0 | a plan whose **last step** just landed | Save that fiche | Auto-`Completed`, and that path **does** assert everything is done | `Complete(leaveUnrealisedActs: false)` |
 | DONE-04 | 0 | DONE-03 | — | The « Terminer » button is **not rendered** (already completed) | why DONE-01 had no reachable success case |
-| DONE-05 | 0 | a plan with money outstanding | « Terminer » | Money **untouched**; the créance survives | « Terminé » means the work is over, not that the patient has paid |
+| DONE-05 | 0 | a plan with money outstanding, every séance recorded | Auto-clôture | Money **untouched**; the créance survives | « Terminé » means the work is over, not that the patient has paid |
 | DONE-06 | 1 | an already-`Completed` plan | « Terminer » again | « Ce traitement est déjà clôturé. » | — |
 | DONE-07 | 1 | a `Completed` plan | « Reprendre » | Back to `InProgress`/`Accepted` **with its number** | `Reopen` — only a terminated devis may be resumed |
 | DONE-08 | 0 | DONE-07 | — | A **followed** (un-numbered) treatment resumed does **not** become `Accepted` | PLAN-16's rule, on the other door |
@@ -513,7 +513,7 @@ next section to derive.
 | MONEY-22 | 0 | a devis 1 000, échéancier 4×250, 2 paid | Read the outstanding | 500 | `Outstanding` derived from the schedule |
 | MONEY-23 | 0 | MONEY-22, then the plan is bridged to a note | Read every money surface | The plan is dropped **whole**; the note carries all of it | the all-or-nothing bridge |
 | MONEY-24 | 0 | a **`Draft`** plan with a hand-built échéancier | Read « Créances » | **Zero** — a Draft carries no debt, including its échéancier | `CarriesDebt(Draft) == false` |
-| MONEY-25 | 0 | a **`Cancelled`** plan with payments | Read « Créances » | Zero; the payments are not editable | « Ce devis est annulé : ses paiements ne peuvent plus être modifiés. » |
+| MONEY-25 | 0 | a devis with a payment | Cancel it; void the payment; cancel again | First cancel **refused** (live money); after the void it cancels, owes **zero** in « Créances » and « Solde patient », and takes no new payment | `EnsureNoLiveMoney` (`135b5c73`) — a cancellation over collected cash rewrites closed caisse days |
 | MONEY-26 | 0 | a bridged plan whose collections were carried onto the invoice | Read la caisse | Counted **once**, on the invoice track | the deliberate reversal — counting the plan too would double them |
 | MONEY-27 | 1 | ∅ | Record an installment payment of 0 or negative | Refused: « Le montant encaissé doit être supérieur à 0. » | — |
 | MONEY-28 | 1 | ∅ | Record an installment payment on a **non-accepted** plan | Refused: « Le plan doit être accepté pour enregistrer un paiement. » | — |
@@ -593,8 +593,8 @@ secretary cannot reach any of these.
 | DEL-05 | 0 | a fiche carrying the **last** step, plan auto-`Completed` | Delete it | The plan **reopens** — a devis must never stay closed against evidence that is gone | the handler's own comment; `UnmarkItemStep` → `OpenStatusFromWork` |
 | DEL-06 | 0 | a **`Stopped`** plan, one of whose fiches is deleted | Delete it | It stays `Stopped`, and « Reprendre le traitement » stays on the header | `StatusFollowsTheWork` — re-deriving here strands the acts the stop parked, with no route back |
 | DEL-07 | 0 | a **`Draft`** (followed) treatment | Delete one of its fiches | It stays a `Draft` — never promoted to `Accepted` by a correction | the same predicate; an un-numbered plan must never wear a debt-bearing status |
-| DEL-08 | 0 | a **billed** fiche, note issued, 60 of 120 collected | Delete it | **It SUCCEEDS, and that is correct** — ~~refused, or the note dealt with first~~. The note keeps its number, its lines, its amount, its caisse movement and its créance, and loses only the `DentalRecordId` provenance. ⚠️ **This row originally said the opposite and the code won.** Refusing would force an **avoir** — a fiscal document — to correct a *clinical* mistake, which is the heavier outcome, not the lighter one; the money really was received; and the note keeps its own line text, so nothing claims money nobody owes. What must hold is the **coupling** — DEL-09 | `DeleteDentalRecordCommand.cs:163`, stated at the call site: « deleting a clinical record must never alter a fiscal document » |
-| DEL-09 | 0 | DEL-08 | Read la caisse, « Créances », « Solde patient », the dashboard | **All four still agree** after the delete: 60 owed on both balances, the 60 taken still in the till on its own day, the note untouched and its line still naming what it billed | the silent shape every money defect here has had — one surface moves and the other three do not |
+| DEL-08 | 0 | a **billed** fiche, note issued, 60 of 120 collected | Delete it | **It SUCCEEDS and undoes its money**: the payment is voided and the note **cancelled, number kept**, its line still naming what it billed | reversed in `c8fb6e2f` — `InstallmentPayment.DentalRecordId` is the collection's idempotence key, so the old « note survives » let delete → re-save collect the same act twice |
+| DEL-09 | 0 | DEL-08 | Read la caisse, « Créances », « Solde patient » | **All agree** after the delete: 0 owed on both balances, the patient out of « Créances », the 60 **out of la caisse** (a cancelled note leaves the extrait) | the silent shape every money defect here has had — one surface moves and the other three do not |
 | DEL-10 | 0 | a fiche whose note was paid by **cheque, already banked** | Delete it | ❓ Refused, or the cheque leaves « Chèques à encaisser » — never a banked cheque chasing a séance that is gone | `dental_record_payment_banked`'s premise |
 | DEL-11 | 0 | a fiche that collected on a **treatment** (`AmountCollectedOnPlan`) | Delete it | ❓ Does the échéancier's collected amount come back down? The money reached the plan through `CollectOnTreatmentCommand`, which the delete does not consult | a second money field, and a second ledger |
 | DEL-12 | 1 | a fiche linked to an **appointment** | Delete it | The visit is « à documenter » again, not « documentée » | `VisitClosure` |

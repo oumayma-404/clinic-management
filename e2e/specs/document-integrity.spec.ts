@@ -325,26 +325,19 @@ test.describe("HP-6 · ce qu'une note déjà émise interdit @mutating @t0", () 
     ).toBe(arrange.localDay(0).slice(0, 10))
   })
 
-  test("FEDIT-16 · deleting a fiche leaves its note d'honoraires FISCALLY intact and clinically detached", async ({
+  test("FEDIT-16 · deleting a fiche CANCELS its note d'honoraires — number kept — and detaches it", async ({
     api,
     arrange,
     patient,
   }) => {
     /*
-     * ⚠️ **The rule is stated in `DeleteDentalRecordCommand` itself, and the first version of this test asserted
-     * the opposite of it.** « Drop the provenance pointer on every invoice line raised from this fiche. The
-     * invoice keeps its number, its lines and its amounts — **deleting a clinical record must never alter a
-     * fiscal document.** » So the note survives, numbered and paid, and that is correct: the money really was
-     * received, and un-numbering a document to tidy a clinical record would be the worse outcome by far.
+     * ⚠️ **Reversed on purpose in `c8fb6e2f`.** This test used to assert the note survived « numbered and paid ».
+     * Production proved that wrong: delete → re-save billed and collected the same act twice. Now the payments
+     * are voided and the note is **cancelled keeping its number** — the fiscal sequence never gains a hole,
+     * which is the one thing that cannot be undone. See `features/fiche-delete-reverts-money/notes.md`.
      *
-     * What must happen instead is a **detachment**, and it has to be at the level the guard actually reads:
-     * `IInvoiceRepository.GetDentalRecordLinksAsync` projects over `invoice.Lines`, and
-     * `Invoice.ClearDentalRecordLinks` clears exactly those. So after the delete the guard answers « nothing
-     * bills this fiche », which is what lets the séance be re-recorded and re-billed.
-     *
-     * ⚠️ The invoice HEADER's own `dentalRecordId` survives, and that is not the same thing: nothing reads it
-     * for the billing guard, so it is inert provenance rather than a live dangling link. Asserting on it —
-     * which is what the first version did — reports a defect that is not there.
+     * The detachment still has to be at the level the guard reads: `Invoice.ClearDentalRecordLinks` clears the
+     * **lines**, so after the delete nothing bills this fiche and the séance can be re-recorded.
      */
     const p = await patient("SupprFact")
     const act = await api.singleSeanceAct()
@@ -361,12 +354,12 @@ test.describe("HP-6 · ce qu'une note déjà émise interdit @mutating @t0", () 
     const r = await api.call("DELETE", `/patients/${p.id}/dental-records/${fiche.id}`)
     expect(r.status, `delete: ${r.raw?.slice(0, 300)}`).toBeLessThan(300)
 
-    // ── 1 · the fiscal document is untouched ────────────────────────────────────────────────────────────
+    // ── 1 · the note is cancelled, never deleted ─────────────────────────────────────────────────────────
     const after = await api.invoice(note.id)
-    expect(after.number, "the number is not surrendered to tidy a clinical record").toBe(note.number)
+    expect(after.number, "the number is kept — no hole in the sequence").toBe(note.number)
     expect(mil(after.totalTtc)).toBe(mil(70))
-    expect(mil(after.amountCollected), "the money really was received").toBe(mil(70))
-    expect(after.status).toBe(note.status)
+    expect(mil(after.amountCollected), "its payment was voided before the cancellation").toBe(0)
+    expect(after.status).toBe("Cancelled")
     expect(after.lines, "its lines survive, with their amounts").toHaveLength(note.lines.length)
     expect(mil(after.lines[0].lineTotalHt)).toBe(mil(70))
 
@@ -388,7 +381,7 @@ test.describe("HP-6 · ce qu'une note déjà émise interdit @mutating @t0", () 
     ).toBe(200)
 
     const notesNow = (await api.invoices(`?patientId=${p.id}&pageSize=20`)).items
-    expect(notesNow, "…on its own new note, beside the one that survived").toHaveLength(2)
+    expect(notesNow, "…on its own new note, beside the cancelled one").toHaveLength(2)
     expect(
       new Set(notesNow.map((i: any) => i.number)).size,
       "two documents, two numbers — never one identity shared",
@@ -398,8 +391,15 @@ test.describe("HP-6 · ce qu'une note déjà émise interdit @mutating @t0", () 
     const summary = await api.billingSummary(p.id)
     expect(
       mil(summary.totalOutstanding ?? summary.outstanding ?? 0),
-      "both notes are fully paid, so nothing is owed",
+      "the cancelled note owes nothing and the new one is paid",
     ).toBe(0)
+
+    // The production defect itself: delete → re-save must collect the act ONCE, not twice.
+    const day = arrange.localDay(0).slice(0, 10)
+    const live = ((await api.caisseLedger(day, day)).movements ?? [])
+      .filter((m: any) => m.patientId === p.id && m.direction === "In" && !m.isVoided)
+      .reduce((sum: number, m: any) => sum + mil(m.amount ?? 0), 0)
+    expect(live, "la caisse holds 70, not 140").toBe(mil(70))
   })
 
   test("FEDIT-18 · a 409 on a fiche save offers « Recharger », and the next save succeeds", async ({

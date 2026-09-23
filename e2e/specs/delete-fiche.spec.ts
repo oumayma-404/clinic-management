@@ -255,21 +255,15 @@ test.describe("HP-14a · supprimer une fiche de soins @mutating @t0", () => {
   // ── DEL-08 / DEL-09 ────────────────────────────────────────────────────────────────
 
   /**
-   * Deleting a BILLED fiche **succeeds**, and every money surface stays consistent afterwards.
+   * Deleting a BILLED fiche **succeeds and undoes its money**, and every money surface agrees afterwards.
    *
-   * ⚠️ **This row's expectation was rewritten to match the code, and the code was right.** `scenarios.md`'s
-   * `FEDIT-16` said « refused, or the note is dealt with first — never an orphaned note », and a first pass at
-   * this feature took that literally and made the delete refuse while a live note bills the fiche. That is the
-   * wrong way round, and `DeleteDentalRecordCommand` says so at the call site: « deleting a clinical record must
-   * never alter a fiscal document ». Forcing an **avoir** — a fiscal document — in order to correct a
-   * *clinical* mistake is the heavier, not the lighter, outcome; the money really was received; and the note
-   * keeps its own line text, so nothing is left claiming money nobody owes.
-   *
-   * So what this asserts is the thing that actually matters on a hot path: after the delete, the four money
-   * reads still agree with each other. `document-integrity.spec.ts`'s own `FEDIT-16` holds the fiscal half
-   * (number, total, collected, lines, and the cleared provenance); this holds the **coupled** half.
+   * ⚠️ **Reversed on purpose in `c8fb6e2f`** — this row used to assert the note survived untouched. Production
+   * showed why that was wrong: `InstallmentPayment.DentalRecordId` is the idempotence key of a fiche's
+   * collection, so delete → re-save collected the same act twice (160 DT for an 80 DT extraction). Now the
+   * payments are voided, a numbered note is **cancelled keeping its number**, and the warning says so first.
+   * See `features/fiche-delete-reverts-money/notes.md`.
    */
-  test("DEL-08/09 · deleting a BILLED fiche leaves the money readable and CONSISTENT on every surface", async ({
+  test("DEL-08/09 · deleting a BILLED fiche undoes its money, and every surface agrees", async ({
     api,
     arrange,
     patient,
@@ -297,36 +291,29 @@ test.describe("HP-14a · supprimer une fiche de soins @mutating @t0", () => {
     expect(del.status, `delete: ${del.raw?.slice(0, 400)}`).toBeLessThan(300)
 
     /*
-     * ⚠️ **The coupling, which is what a hot-path suite is for.** The note is a fiscal document and survives;
-     * the question is whether the reads over it still agree once the clinical row behind it is gone. A
-     * disagreement here is the silent shape every money defect in this repo has had: one surface moves and the
-     * other three do not, with no error anywhere.
+     * ⚠️ **The coupling, which is what a hot-path suite is for.** A disagreement here is the silent shape every
+     * money defect in this repo has had: one surface moves and the other three do not, with no error anywhere.
      */
     const after = await api.billingSummary(p.id)
-    expect(mil(after.totalOutstanding ?? 0), "the note still says 60 is owed").toBe(mil(60))
+    expect(mil(after.totalOutstanding ?? 0), "a cancelled note owes nothing").toBe(0)
+    expect(await api.receivableFor(p.id, p.name), "so the patient leaves « Créances »").toBeNull()
 
-    const row = await api.receivableFor(p.id, p.name)
-    expect(row, "and the patient is still in « Créances »").toBeTruthy()
-    expect(mil(row.totalOutstanding ?? 0), "« Créances » must agree with « Solde patient »").toBe(
-      mil(after.totalOutstanding ?? 0),
-    )
+    // La caisse no longer counts the 60. ⚠️ A cancelled note's payments leave the extrait entirely
+    // (`InvoiceRepository.GetPaymentsBetweenAsync`: `Status != Cancelled`), so assert on live money, not on a row.
+    const today = arrange.localDay(0).slice(0, 10)
+    const live = ((await api.caisseLedger(today, today)).movements ?? [])
+      .filter((m: any) => m.patientId === p.id && m.direction === "In" && !m.isVoided)
+      .reduce((sum: number, m: any) => sum + mil(m.amount ?? 0), 0)
+    expect(live, "the voided 60 is out of la caisse").toBe(0)
 
-    // The 60 that reached the till is still in it, on the day it was taken.
-    const today = (() => {
-      const d = new Date()
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    })()
-    const ledger = await api.caisseLedger(today, today)
-    const mine = (ledger.movements ?? []).filter((m: any) => m.patientId === p.id)
-    expect(mine.length, "the payment stays in la caisse — the money really was received").toBe(1)
-
-    // And the note itself is untouched, still naming what it billed.
+    // The note is cancelled, not deleted: the fiscal sequence never gains a hole.
     const reread = await api.invoice(note.id)
-    expect(reread.number, "the number is not surrendered to tidy a clinical record").toBe(note.number)
-    expect(mil(reread.amountCollected ?? 0)).toBe(mil(60))
+    expect(reread.number, "the number is kept").toBe(note.number)
+    expect(reread.status).toBe("Cancelled")
+    expect(mil(reread.amountCollected ?? 0), "its payment was voided first").toBe(0)
     expect(
       String(reread.lines?.[0]?.designation ?? ""),
-      "its line still says what was done, so the document is not left blank",
+      "its line still says what was billed, so the document is not left blank",
     ).not.toBe("")
   })
 
