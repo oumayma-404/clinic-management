@@ -66,6 +66,7 @@ import {
   usePatientPlanActs,
   resolveAttachedPlanId,
   materialiseTreatments,
+  discardUnbookedTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import {
@@ -202,7 +203,7 @@ function withMintedDevis(message: string, numbers: string[]): string {
   const which = numbers.length === 1 ? `le devis ${numbers[0]} a` : `les devis ${numbers.join(", ")} ont`
   return (
     `${message} — ${which} déjà été créé pour ce traitement. Le rendez-vous n'a pas été enregistré : ` +
-    "réessayez, ou ouvrez le devis pour y planifier la séance."
+    "réessayez ; si vous fermez sans enregistrer, il sera annulé."
   )
 }
 
@@ -339,6 +340,8 @@ export function CreateAppointmentDialog({
    * `createdPatientIdRef`'s reason, one object over. See {@link materialiseTreatments}.
    */
   const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
+  /** True once the visit is saved — a close before that undoes every plan in `createdPlansRef` (E4). */
+  const visitSavedRef = useRef(false)
 
   /**
    * A pending continuation belongs to the patient whose fiche it continues, so changing patient drops it.
@@ -355,6 +358,7 @@ export function CreateAppointmentDialog({
     continuationPatientRef.current = selectedPatientId
     // A fixed patient is being SEEDED, not changed — its preset devis acts are the booking.
     if (patientIsFixed) return
+    if (createdPlansRef.current.size > 0) void discardUnbookedTreatments(createdPlansRef.current)
     createdPlansRef.current = new Map()
     setSelectedActs((prev) =>
       prev.some((a) => a.pendingContinuation || a.treatmentPlanItemId)
@@ -679,7 +683,11 @@ export function CreateAppointmentDialog({
       // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
       createdPatientIdRef.current = null
       // Same reason, and the consequence is worse: a treatment reused across two openings would attach a
-      // second patient's séance to the first patient's plan.
+      // second patient's séance to the first patient's plan. One that no visit was saved for is undone.
+      if (!visitSavedRef.current && createdPlansRef.current.size > 0) {
+        void discardUnbookedTreatments(createdPlansRef.current)
+      }
+      visitSavedRef.current = false
       createdPlansRef.current = new Map()
       setCreatedPatientName(null)
       grantedOverridesRef.current = { ...NO_OVERRIDES }
@@ -1045,6 +1053,7 @@ export function CreateAppointmentDialog({
         allowOverlap: allowOverlap || undefined,
       })
 
+      visitSavedRef.current = true
       onCreated?.(created.id)
       onSuccess?.(appointmentDateTime)
       onOpenChange(false)

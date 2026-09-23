@@ -62,13 +62,7 @@ public class TreatmentPlansControllerAuthorizationTests
         // reopening puts every parked act back — so they belong with amend rather than with the till.
         nameof(TreatmentPlansController.StopTreatment),
         nameof(TreatmentPlansController.ReopenTreatment),
-        // « Suivre ce traitement » authors a treatment and sets its total, and « Éditer le devis » consumes a
-        // devis number — both are the plan's own authorship, so they sit with create and amend.
-        //
-        // ⚠️ The consequence is that a secretary pressing « Suivre ce traitement » in the booking dialog would
-        // meet a 403, so the control is hidden for them the way « Exporter » is — the endpoint stays the
-        // authority and the UI does not offer what it will refuse.
-        nameof(TreatmentPlansController.StartTreatment),
+        // « Éditer le devis » consumes a devis number — the plan's own authorship, so it sits with create and amend.
         nameof(TreatmentPlansController.IssueDevis),
         // L5 — the CSV export. A file listing every devis with what each patient owes is the clinic-wide money
         // read in a more portable form than the screen, so it cannot be laxer than the screen: leaving it on the
@@ -174,6 +168,13 @@ public class TreatmentPlansControllerAuthorizationTests
         // `RecordInstallmentPayment` and for exactly its reason: reception takes the money, and the only
         // difference is that this one does not make the person at the desk pick which line it lands on.
         nameof(TreatmentPlansController.SettlePlan),
+        // « Suivre ce traitement » — the booking dialog's default split of a multi-séance act. It creates an
+        // un-numbered Draft: no devis number, no échéancier, no créance. Reception books those acts, and gating it
+        // made every such booking a 403 at the desk (devis-fiche-rdv-flexibility E3).
+        nameof(TreatmentPlansController.StartTreatment),
+        // Its undo, when the booking that minted the plan was never created. The command itself accepts only a
+        // plan minutes old with no visit and no money, so it cannot reach a colleague's devis.
+        nameof(TreatmentPlansController.DiscardBookingPlan),
     };
 
     [Theory]

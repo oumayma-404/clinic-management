@@ -94,6 +94,12 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid? TreatmentPlanItemStepId { get; set; }
 
     /// <summary>
+    /// The séance's OTHER acts of the same devis, each closed by this fiche too (C4). A visit booked with two
+    /// devis acts used to close act 1 only — see <see cref="FicheExtraPlanActs"/>.
+    /// </summary>
+    public List<FichePlanItemLink> AdditionalTreatmentPlanItems { get; set; } = new();
+
+    /// <summary>
     /// What was prescribed at this séance. Creates the ordonnance, or updates the one this fiche already
     /// issued — <b>inside this save's transaction</b>, and never deleting it. See
     /// <see cref="Documents.FicheOrdonnanceEmitter"/>.
@@ -210,7 +216,10 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 return Result<DentalRecordDto>.Failure(
                     imposed.Refusal, PlanCarriedActPricing.ActNotOnTheFicheCode);
             }
-            var acts = imposed.Acts;
+            var extraActs = await FicheExtraPlanActs.ResolveAsync(
+                _treatmentPlanRepository, imposed.Acts, request.TreatmentPlanId, request.TreatmentPlanItemId,
+                request.AdditionalTreatmentPlanItems, dentalRecord.Id, clinicResult.Value, cancellationToken);
+            var acts = extraActs.Acts;
 
             // AC-P4.10 on the EDIT path: consume only what this edit ADDS. A fiche is re-saved routinely (a
             // corrected note, one more tooth), and consuming the whole list again each time would draw stock for
@@ -364,6 +373,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 var releasedAny = false;
                 foreach (var heldItem in heldPlan.Items
                              .Where(i => i.Id != request.TreatmentPlanItemId
+                                         && extraActs.Extras.All(e => e.Item.Id != i.Id)
                                          && (i.LinkedDentalRecordId == dentalRecord.Id
                                              || i.Steps.Any(st => st.LinkedDentalRecordId == dentalRecord.Id)))
                              .ToList())
@@ -406,14 +416,31 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 planLink = link.Value;
             }
 
+            // The séance's other devis acts, closed by this same fiche (C4).
+            var extraLinks = new List<(int ActIndex, bool ItemIsComplete)>();
+            foreach (var extra in extraActs.Extras)
+            {
+                var extraLink = await DentalRecordLinker.LinkPlanItemAsync(
+                    _treatmentPlanRepository, _appointmentRepository,
+                    request.TreatmentPlanId, extra.Item.Id,
+                    dentalRecord.PatientId, clinicResult.Value, dentalRecord.Id, request.InterventionDate, cancellationToken,
+                    extra.StepId, dentalRecord.AppointmentId);
+                if (extraLink.IsFailure)
+                {
+                    return Result<DentalRecordDto>.Failure(extraLink.Error!);
+                }
+                extraLinks.Add((extra.ActIndex, extraLink.Value!.ItemIsComplete));
+            }
+
             /*
              * ⚠️ `ChartableActs`, never `acts` — see `ToothChartingRules`. It matters twice as much on this path:
              * the block above has just DELETED this fiche's existing tooth states, so re-saving an unfinished
              * treatment's fiche is also the moment an early-charted row would be rewritten rather than corrected.
              * Withholding here is what lets a re-save clean up rows the old behaviour left behind.
              */
-            var chartable = ToothChartingRules.ChartableActs(
-                acts, planLink?.Item, planLink?.ItemIsComplete ?? true);
+            var chartable = FicheExtraPlanActs.Chartable(
+                ToothChartingRules.ChartableActs(acts, planLink?.Item, planLink?.ItemIsComplete ?? true),
+                extraLinks);
 
             var toothStates = DentalRecordActParser
                 .BuildToothStates(

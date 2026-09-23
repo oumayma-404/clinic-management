@@ -166,12 +166,26 @@ public class TreatmentPlansController : ApiControllerBase
     /// from the treatments screen. Creates the treatment as an <b>un-numbered draft</b>: no devis number, no
     /// échéancier, no créance. See <c>StartTreatmentCommand</c> for why the two were split.
     /// </summary>
+    /// <para>
+    /// `AnyClinicRole`: the draft carries no number, no échéancier and no créance, and reception books multi-séance
+    /// acts — the booking dialog splits them by default (owner decision, wave 2).
+    /// </para>
     [HttpPost("start")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<TreatmentPlanDto>> StartTreatment([FromBody] StartTreatmentCommand command)
     {
         var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Undo the treatment a booking dialog created on save when the visit was never created. `AnyClinicRole`: the
+    /// command accepts only a plan minutes old with no visit and no money — see <c>DiscardBookingPlanCommand</c>.
+    /// </summary>
+    [HttpPost("{id:guid}/discard-booking")]
+    public async Task<IActionResult> DiscardBookingPlan(Guid id)
+    {
+        var result = await _mediator.Send(new DiscardBookingPlanCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result) : NoContent();
     }
 
     /// <summary>

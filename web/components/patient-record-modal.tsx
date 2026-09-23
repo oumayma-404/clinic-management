@@ -1604,6 +1604,21 @@ export function PatientRecordModal({
           appointment?.procedures?.find((p) => p.treatmentPlanItemId === linkedItem?.itemId)
             ?.treatmentPlanItemStepId
           ?? (chosenStepId && pickableSteps.some((st) => st.id === chosenStepId) ? chosenStepId : null),
+        // The visit's other acts of the SAME devis, closed by this fiche too (C4). The server also keeps the ones
+        // already linked to this fiche on a re-save, so a reopened fiche need not know them.
+        additionalTreatmentPlanItems: linkedItem
+          ? [...new Map(
+              (appointment?.procedures ?? [])
+                .filter((row) =>
+                  row.treatmentPlanItemId
+                  && row.treatmentPlanItemId !== linkedItem.itemId
+                  && planItems.some((p) => p.itemId === row.treatmentPlanItemId && p.planId === linkedItem.planId))
+                .map((row) => [row.treatmentPlanItemId as string, {
+                  treatmentPlanItemId: row.treatmentPlanItemId as string,
+                  treatmentPlanItemStepId: row.treatmentPlanItemStepId ?? null,
+                }]),
+            ).values()]
+          : [],
         // Only carried on create — links the new record to the appointment it documents (closes the prompt).
         appointmentId: appointmentId ?? null,
         /*

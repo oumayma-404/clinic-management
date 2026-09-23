@@ -38,6 +38,11 @@ export interface CreateDentalRecordRequest {
    */
   treatmentPlanItemStepId?: string | null;
   /**
+   * The séance's OTHER acts of the same devis — this fiche closes them too (C4). A visit booked with two devis
+   * acts used to close act 1 only, and act 2's « Enregistrer la fiche » reopened the same fiche on act 1.
+   */
+  additionalTreatmentPlanItems?: { treatmentPlanItemId: string; treatmentPlanItemStepId: string | null }[];
+  /**
    * What the patient handed over towards the **treatment** this séance carries out — the cumulative figure for
    * this séance, not an increment. Requires `treatmentPlanId`.
    *

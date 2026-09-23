@@ -64,6 +64,7 @@ import {
   usePatientPlanActs,
   resolveAttachedPlanId,
   materialiseTreatments,
+  discardUnbookedTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
@@ -115,6 +116,13 @@ interface EditAppointmentDialogProps {
   onOpenChange: (open: boolean) => void
   appointment: AppointmentDto | null
   onSuccess?: () => void
+}
+
+/** Which acts a séance holds, ignoring prices and ticked séances — see the picker's `onChange` below. */
+function actSetKey(acts: readonly SelectedAct[]): string {
+  return [...new Set(acts.map((a) => `${a.procedureTypeId ?? ""}:${a.treatmentPlanItemId ?? ""}:${a.fallbackName ?? ""}`))]
+    .sort()
+    .join("|")
 }
 
 export function EditAppointmentDialog({ open, onOpenChange, appointment, onSuccess }: EditAppointmentDialogProps) {
@@ -246,6 +254,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * (slot taken, out of hours), so without this one « enregistrer quand même » leaves two identical treatments.
    */
   const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
+  /** True once the update carrying those plans is saved — a close before that undoes them (E4). */
+  const visitSavedRef = useRef(false)
 
   /**
    * « Ce patient a un traitement en cours » — the same reminder the create dialog gives, for the case the client
@@ -649,6 +659,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       // Both belong to the visit that was open. The page keeps ONE instance of this dialog, so a kept plan memo
       // re-used visit A's treatment on visit B (another patient's → « Plan de traitement introuvable »), and a
       // kept dismissal hid the suggestion on every later visit until reload.
+      if (!visitSavedRef.current && createdPlansRef.current.size > 0) {
+        void discardUnbookedTreatments(createdPlansRef.current)
+      }
+      visitSavedRef.current = false
       createdPlansRef.current = new Map()
       setSuggestionDismissed(false)
     }
@@ -801,6 +815,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         version: appointment.version,
       })
 
+      visitSavedRef.current = true
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
@@ -1205,7 +1220,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 error={procedureTypesError}
                 onRetry={() => void loadProcedureTypes()}
                 value={selectedActs}
-                onChange={(acts) => { setDurationTouched(false); setSelectedActs(acts) }}
+                onChange={(acts) => {
+                  // Only a change of ACTS re-proposes the summed length — a typed price or a ticked séance is
+                  // not a reason to relengthen a booked visit (E8).
+                  if (actSetKey(acts) !== actSetKey(selectedActs)) setDurationTouched(false)
+                  setSelectedActs(acts)
+                }}
                 disabled={loading}
                 onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
                 fallbackDurationMinutes={calculatedDuration}

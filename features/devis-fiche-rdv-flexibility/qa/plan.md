@@ -27,3 +27,18 @@ Money/clinical writes are the change under test here, and only on that patient.
 | R2 | D | Create dialog from the devis workspace « Planifier » on a live act | booking saves, linked (SQL) | browser + sql |
 | R3 | D | Amend (API) removing a booked, not-done act | visit Cancelled (existing behaviour) | api + sql |
 | R4 | D | Fiche from a booked live devis step (deep link) | price locked, save marks that step done | browser + sql |
+
+# QA plan — wave 2 (edits lost, treatments created by accident)
+
+Arranged by `qa/arrange-2.mjs` (fresh « QAW Flex » patient), driven by `qa/walk-2.mjs`.
+
+| ID | Tier | Scenario | Expected | Layer |
+|----|------|----------|----------|-------|
+| F2 | A | Amend a devis with a 50 DT remise | line shows « remise −50 », total 340 | browser |
+| F9 | A | Save it with no change | « Aucune modification demandée », revision unchanged | browser + api |
+| F1 | A | Type a title, a colleague writes the devis | typed title stays | browser |
+| F3 | A | Save the stale form, then « Recharger » | 409, then the colleague's remise shown | browser |
+| F10 | A | « Répartir le solde sur 3 mois », save | 200, 3 rows summing to the total | browser |
+| C4 | A | Fiche from a visit booked with two devis acts | payload carries the 2nd act; both acts réalisés | browser + api |
+| E4 | A | Discard an un-booked draft / a booked devis | 204 then 404 / 400 | api |
+| E3 | B | Reception books a multi-séance act | no 403 | not exercised — no reception login |

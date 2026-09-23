@@ -67,6 +67,17 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
+            /*
+             * ⚠️ This editor rebuilds every act, so a séance typed here or a remise already granted was dropped
+             * under a 200 (F5). Refused instead, naming the door that keeps both.
+             */
+            if (request.Items.Any(i => i.Steps is { Count: > 0 }) || plan.Items.Any(i => i.DiscountAmount > 0m))
+            {
+                return Result<TreatmentPlanDto>.Failure(
+                    "Ce brouillon porte des séances ou une remise : corrigez-le avec « Modifier les actes et les prix », "
+                    + "qui les conserve.");
+            }
+
             plan.UpdateDetails(request.Title, request.Notes);
 
             // Echo the ids through so an unchanged line keeps its identity (AC-19). Without this, editing a

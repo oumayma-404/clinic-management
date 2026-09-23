@@ -16,7 +16,7 @@ import { AppointmentProtocolEditor } from "@/components/appointment-protocol-edi
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
-import { formatAmount, formatDT, parseAmountInput, quoteFr } from "@/lib/format"
+import { formatAmount, formatDateFr, formatDT, parseAmountInput, quoteFr } from "@/lib/format"
 import type { AppointmentProcedurePayload } from "@/lib/api/appointments"
 import type { ContinuableActDto, ProcedureStepTemplateDto, ProcedureTypeDto } from "@/lib/api/types"
 
@@ -297,6 +297,8 @@ export interface PlanStepOption {
    * every label, ordering and duration lookup finally answers for the step actually booked.</p>
    */
   done: boolean
+  /** When another visit already books this step — the chip says so, so it is not booked twice (E6). */
+  bookedAt?: string | null
 }
 
 /**
@@ -1288,6 +1290,9 @@ export function AppointmentActsPicker({
                             {ticked && <Check className="size-2.5 text-primary-foreground" strokeWidth={4} />}
                           </span>
                           {step.label}
+                          {!ticked && !step.done && step.bookedAt && (
+                            <span className="text-2xs font-normal">déjà planifiée le {formatDateFr(step.bookedAt)}</span>
+                          )}
                           {step.estimatedDurationMinutes != null && (
                             <span className="font-mono text-2xs opacity-75">
                               {step.estimatedDurationMinutes} min

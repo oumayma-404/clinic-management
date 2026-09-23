@@ -345,7 +345,9 @@ export function TreatmentPlansTable({
    */
   const openEdit = (plan: TreatmentPlanDto) => {
     setEditing(plan)
-    setEditingAmend(!canUseDraftEditor(plan))
+    // One door: the amend path keeps each act's id, séances and remise — the draft editor rebuilt the acts and
+    // lost all three, and was refused outright on any crown/bridge/implant draft (F5, F6).
+    setEditingAmend(true)
     setFormOpen(true)
   }
 

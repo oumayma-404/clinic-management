@@ -80,6 +80,12 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// </para>
     /// </summary>
     public Guid? TreatmentPlanItemStepId { get; set; }
+
+    /// <summary>
+    /// The séance's OTHER acts of the same devis, each closed by this fiche too (C4). A visit booked with two
+    /// devis acts used to close act 1 only — see <see cref="FicheExtraPlanActs"/>.
+    /// </summary>
+    public List<FichePlanItemLink> AdditionalTreatmentPlanItems { get; set; } = new();
     /// <summary>Optional appointment this record documents — completing it and dismissing its post-visit review
     /// prompt (finding #10), so recording the dental work (not only a medical document) closes the loop.</summary>
     public Guid? AppointmentId { get; set; }
@@ -198,7 +204,10 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure(
                     imposed.Refusal, PlanCarriedActPricing.ActNotOnTheFicheCode);
             }
-            var acts = imposed.Acts;
+            var extraActs = await FicheExtraPlanActs.ResolveAsync(
+                _treatmentPlanRepository, imposed.Acts, request.TreatmentPlanId, request.TreatmentPlanItemId,
+                request.AdditionalTreatmentPlanItems, null, clinicResult.Value, cancellationToken);
+            var acts = extraActs.Acts;
 
             // Which visit does this fiche document? The client's id when it sent one — the post-visit deep link
             // knows more than we can infer — otherwise the patient's single visit that day, and nothing when
@@ -286,6 +295,22 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 planLink = link.Value;
             }
 
+            // The séance's other devis acts, closed by this same fiche (C4).
+            var extraLinks = new List<(int ActIndex, bool ItemIsComplete)>();
+            foreach (var extra in extraActs.Extras)
+            {
+                var extraLink = await DentalRecordLinker.LinkPlanItemAsync(
+                    _treatmentPlanRepository, _appointmentRepository,
+                    request.TreatmentPlanId, extra.Item.Id,
+                    request.PatientId, clinicResult.Value, record.Id, request.InterventionDate, cancellationToken,
+                    extra.StepId, appointmentId);
+                if (extraLink.IsFailure)
+                {
+                    return Result<DentalRecordDto>.Failure(extraLink.Error!);
+                }
+                extraLinks.Add((extra.ActIndex, extraLink.Value!.ItemIsComplete));
+            }
+
             /*
              * ⚠️ `ChartableActs`, never `acts` — an implant's step-1 fiche used to chart « Implant » on the tooth
              * weeks before the implant existed, and `ClearDiagnosesForTreatedTeethAsync` below deleted the
@@ -295,8 +320,9 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
              * The list is for the odontogram ONLY. `record.SetActs` above keeps the condition the dentist chose —
              * it is what the act will chart when the treatment ends, and what re-opening the fiche must show.
              */
-            var chartable = ToothChartingRules.ChartableActs(
-                acts, planLink?.Item, planLink?.ItemIsComplete ?? true);
+            var chartable = FicheExtraPlanActs.Chartable(
+                ToothChartingRules.ChartableActs(acts, planLink?.Item, planLink?.ItemIsComplete ?? true),
+                extraLinks);
 
             var toothStates = DentalRecordActParser
                 .BuildToothStates(chartable, request.PatientId, patient.ClinicId, request.InterventionDate, record.Id)

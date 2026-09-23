@@ -50,3 +50,22 @@ four root causes where the doctor gets stuck.
   construction sites compile; the container always supplies them.
 
 Tests: `DevisFicheRdvFlexibilityTests` (14). QA: `qa/run-1.md` GREEN, 22 rows.
+
+# Wave 2 — edits lost, treatments created by accident (E, F + C4)
+
+- **E3** `POST /treatment-plans/start` is `AnyClinicRole`: the draft has no number, no échéancier, no créance.
+- **E4** `DiscardBookingPlanCommand` (`POST /{id}/discard-booking`, AnyClinicRole): a plan < 2 h old, no visit on any act, no money → Draft deleted / numbered devis cancelled (« Rendez-vous non créé »). Both booking dialogs call it when they close without the visit saved, and the create dialog on patient change.
+- **E6** `planItemToPreset` preselects the first séance with no visit; a booked chip reads « déjà planifiée le … ».
+- **E8** the edit dialog re-sums the length only when the ACT SET changes, not on a price or a ticked séance.
+- **F1/F3** the devis form hydrates once per open (keyed on the plan id) and saves with the version it was filled from (`hydratedVersionRef`) — the page's live version let a stale form overwrite a colleague with a 200. « Recharger » re-hydrates from the server.
+- **F2** parked acts are not in the form (nor in `removeItemIds`); the total is fee − remise; the remise is shown.
+- **F4** the séances dialog seeds once and saves with the version captured at seed time.
+- **F5/F6** editing an existing plan always goes through amend; `UpdateTreatmentPlanCommand` refuses steps/remise; Accept passes `AsConfirmed(plan)` so the catalogue is never laid back over an act set to one séance.
+- **F7** `ApplyAsync(onlyItemIds)` — an amendment protocols only the acts it adds.
+- **F8** a blank name on an existing act is refused (the bin removes).
+- **F9** the schedule is sent only when edited (`installmentsTouched`); `stepSignature([])` is null.
+- **F10** trailing unpaid rows give way when the total drops; 0 rows dropped; « Répartir le solde sur N mois ».
+- **F11** séance arrows disabled whenever the move would be refused, with the reason.
+- **C4** `FicheExtraPlanActs`: `additionalTreatmentPlanItems` (the visit's other acts of the same devis) are priced 0, linked and charted per act; a re-save reads them back from the devis. ⚠️ Matching is by procedure; an act ADDED to the devis in the same save (peer a6's complaint: « mettre l'acte sur le devis depuis la fiche ») would need an explicit item id — not built.
+
+Tests: `DevisFicheRdvFlexibilityWave2Tests` (11). QA: `qa/run-2.md` GREEN.

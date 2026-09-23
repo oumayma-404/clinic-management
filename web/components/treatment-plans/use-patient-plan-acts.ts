@@ -224,6 +224,29 @@ export function resolveAttachedPlanId(
 }
 
 /**
+ * Undo every treatment {@link materialiseTreatments} created for a booking that was then abandoned — the dialog
+ * closed without the visit being saved. Best effort: a refusal leaves the plan and says which one.
+ *
+ * ⚠️ Without it a slot refused as taken, then « Retour » and « Annuler », left a numbered devis carrying a live
+ * créance for a séance nobody booked (continuation door), or a followed treatment with no séance (split door).
+ */
+export async function discardUnbookedTreatments(created: Map<string, TreatmentPlanDto>): Promise<void> {
+  const plans = [...new Map([...created.values()].map((p) => [p.id, p])).values()]
+  for (const plan of plans) {
+    try {
+      await treatmentPlansApi.discardBookingPlan(plan.id)
+      if (plan.number) toast.info(`Le devis ${plan.number} créé pour ce rendez-vous a été annulé.`)
+    } catch {
+      toast.warning(
+        plan.number
+          ? `Le devis ${plan.number} a été créé mais le rendez-vous non : ouvrez-le pour l'annuler.`
+          : "Un traitement a été créé mais le rendez-vous non : retirez-le depuis la fiche du patient.",
+      )
+    }
+  }
+}
+
+/**
  * What {@link materialiseTreatments} produced: the acts to send, and the plans they were just given.
  */
 export interface MaterialisedProtocols {

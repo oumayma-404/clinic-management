@@ -350,6 +350,13 @@ export const treatmentPlansApi = {
     }),
 
   /**
+   * Undo a treatment a booking dialog created on save, when the visit itself was never created. The server
+   * accepts only a plan minutes old with no visit and no money: a Draft is deleted, a numbered devis cancelled.
+   */
+  discardBookingPlan: async (id: string): Promise<void> =>
+    apiPost<void>(`/treatment-plans/${id}/discard-booking`, {}),
+
+  /**
    * « Éditer le devis » — take the number, because the patient is being handed a document. The only call that
    * consumes a devis number, and idempotent on a treatment that already has one.
    */

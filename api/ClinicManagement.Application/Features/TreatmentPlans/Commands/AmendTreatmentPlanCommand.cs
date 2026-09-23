@@ -255,6 +255,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                 // Captured BEFORE the add, because `ApplyAsync` matches a confirmed list to an act by the act's
                 // `SequenceNumber` — which on this path is its position in the whole plan, not in `AddItems`.
                 var firstAddedPosition = plan.Items.Count == 0 ? 0 : plan.Items.Max(i => i.SequenceNumber) + 1;
+                var idsBeforeAdd = plan.Items.Select(i => i.Id).ToHashSet();
 
                 var items = await TreatmentPlanItemPricing.ResolveAsync(
                     request.AddItems, clinicId, _procedureTypeRepository, cancellationToken);
@@ -278,7 +279,8 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                 confirmed.AddRange(TreatmentPlanStepProtocol.ConfirmedByPosition(request.AddItems));
 
                 await TreatmentPlanStepProtocol.ApplyAsync(
-                    plan, clinicId, _procedureTypeRepository, cancellationToken, confirmed);
+                    plan, clinicId, _procedureTypeRepository, cancellationToken, confirmed,
+                    onlyItemIds: plan.Items.Where(i => !idsBeforeAdd.Contains(i.Id)).Select(i => i.Id).ToList());
             }
 
             /*

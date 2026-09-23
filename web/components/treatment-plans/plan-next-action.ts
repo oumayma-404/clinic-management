@@ -296,12 +296,18 @@ export function canAmendPlan(plan: TreatmentPlanDto): boolean {
  * dentist meets a refusal from a button the product offered them.</p>
  */
 export function canUseDraftEditor(plan: TreatmentPlanDto): boolean {
-  return plan.status === "Draft" && !planHasRecordedWork(plan)
+  // `SetItems` also refuses any act already cut into séances — the same test here, or the button leads to a
+  // refusal (F6).
+  return (
+    plan.status === "Draft" &&
+    !planHasRecordedWork(plan) &&
+    !plan.items.some((i) => (i.steps?.length ?? 0) > 0)
+  )
 }
 
 /** Can the plan be destroyed outright? Mirrors `TreatmentPlan.CanBeDeleted`. */
 export function canDeletePlan(plan: TreatmentPlanDto): boolean {
-  return canUseDraftEditor(plan)
+  return plan.status === "Draft" && !planHasRecordedWork(plan)
 }
 
 /**
@@ -692,8 +698,11 @@ export function planItemToPreset(
       label: step.label,
       estimatedDurationMinutes: step.estimatedDurationMinutes,
       done: step.doneDate != null,
+      bookedAt: step.scheduledAppointmentId ? step.scheduledAt ?? null : null,
     })),
-    preselectedStepId: item.nextStepId ?? null,
+    // ⚠️ The first séance nobody has booked yet: `nextStepId` ignores bookings, so « Planifier la suite » put a
+    // second visit on a step already in the agenda and its fiche was then skipped at 0 DT (E6).
+    preselectedStepId: firstUnbookedStepId(item),
     billedOnPlan: {
       planNumber: plan.number,
       actCost: item.plannedCost,
@@ -704,6 +713,14 @@ export function planItemToPreset(
       continuation: continuationContext(plan, item),
     },
   }
+}
+
+/** The first un-done step with no visit on it, by rank — else the server's `nextStepId`. */
+function firstUnbookedStepId(item: TreatmentPlanItemDto): string | null {
+  const open = [...(item.steps ?? [])]
+    .filter((s) => !s.doneDate)
+    .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+  return open.find((s) => !s.scheduledAppointmentId)?.id ?? item.nextStepId ?? null
 }
 
 /**
