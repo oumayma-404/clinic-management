@@ -77,7 +77,7 @@ public class DiscardBookingPlanCommandHandler : IRequestHandler<DiscardBookingPl
             }
 
             if (DateTime.UtcNow - plan.CreatedAt > Window
-                || plan.AmountPaid > 0m
+                || plan.HasReceipts
                 || plan.Status is not (TreatmentPlanStatus.Draft or TreatmentPlanStatus.Accepted
                     or TreatmentPlanStatus.InProgress))
             {

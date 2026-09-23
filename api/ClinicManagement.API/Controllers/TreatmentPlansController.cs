@@ -567,6 +567,7 @@ public class TreatmentPlansController : ApiControllerBase
             PlanId = id,
             ItemId = itemId,
             Version = command?.Version ?? 0,
+            RefundMethod = command?.RefundMethod,
         });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }

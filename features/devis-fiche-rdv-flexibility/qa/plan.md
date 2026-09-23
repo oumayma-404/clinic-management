@@ -42,3 +42,21 @@ Arranged by `qa/arrange-2.mjs` (fresh « QAW Flex » patient), driven by `qa/wal
 | C4 | A | Fiche from a visit booked with two devis acts | payload carries the 2nd act; both acts réalisés | browser + api |
 | E4 | A | Discard an un-booked draft / a booked devis | 204 then 404 / 400 | api |
 | E3 | B | Reception books a multi-séance act | no 403 | not exercised — no reception login |
+
+# QA plan — wave 3 (money)
+
+Arranged by `qa/arrange-3.mjs` (fresh « QAG Flex » patient), driven by `qa/walk-3.mjs`.
+
+| ID | Tier | Scenario | Expected | Layer |
+|----|------|----------|----------|-------|
+| G3a | A | Remise 100 on a fully paid 300 devis | « Rendre au patient ? » names 100,000 DT (French format) · rendu −100 today · receipt keeps its day · « rendu au patient » on the échéancier | browser + api |
+| G3b | B | Same, press « Retour » | nothing saved · remise dialog stays open | browser + api |
+| G3c | A | « Arrêter » on a deposit-only devis | « Rendre 100,000 DT et arrêter ? » · Stopped, 0 collected | browser + api |
+| G3d | A | La caisse, today | « Rendu au patient » movement listed | browser |
+| G2 | A | Remise 50 on a 100·100·100 schedule | three dates kept, last row 50 | browser + api |
+| G8 | A | Written-off devis workspace | no « Reste » figure, no « Encaisser » | browser |
+| G1 | A | Retype a 250 line to 0 in the devis form | saved as 0 | browser + api |
+| G6 | A | « Planifier » a 300 act with a 50 remise | booking shows 250 | browser |
+| G5 | C | Redate a fiche with a devis payment | not in browser — aggregate unit test | unit |
+| G4 | C | Per-tooth act over 3 teeth in the devis form | not scripted — eye pass | eye |
+| R1 | D | Ordinary workspace figures | render | browser |

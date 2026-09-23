@@ -1,0 +1,39 @@
+{
+  "ts": "575265",
+  "patient": "15ebebdb-67f9-445c-8618-9def083cc425",
+  "patientName": "QAG Flex 575265",
+  "G3a": {
+    "plan": "771c6928-e679-49dc-aadb-2c397b7722cb",
+    "title": "QA G3a 575265"
+  },
+  "G3b": {
+    "plan": "9f9b606a-8971-42dd-9dc6-b2742fb4be42",
+    "title": "QA G3b 575265"
+  },
+  "G3c": {
+    "plan": "3da78714-058f-4c1b-854b-186608f4e3f8",
+    "title": "QA G3c 575265"
+  },
+  "G2": {
+    "plan": "bd6740a8-9e5f-4f97-809d-f010a40b6f3f",
+    "title": "QA G2 575265",
+    "dates": [
+      "2026-10-23T00:00:00",
+      "2026-11-22T00:00:00",
+      "2026-12-22T00:00:00"
+    ]
+  },
+  "G8": {
+    "plan": "f01dcd80-7e7c-43dc-bd35-383b582ab266",
+    "title": "QA G8 575265"
+  },
+  "G1": {
+    "plan": "6ed02731-b960-4ee9-9220-50a978e6b1f6",
+    "title": "QA G1 575265",
+    "item": "4a57ef6b-f45b-4cc9-9ae9-c542c67b422f"
+  },
+  "G6": {
+    "plan": "9129e558-38f1-4c1f-9b9f-9b046ca4a3de",
+    "title": "QA G6 575265"
+  }
+}

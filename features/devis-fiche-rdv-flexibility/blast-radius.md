@@ -35,3 +35,20 @@
 | 10 | `TreatmentPlanStepProtocol.ApplyAsync(onlyItemIds)` + `AsConfirmed` | shared | amend (added acts only), Accept (AsConfirmed) | covered by unit tests; IssueDevis/Collect already echoed |
 | 11 | `plan-item-steps-dialog` seed once + captured version, arrows disabled | tsx | workspace séances dialog | must re-test — detach still re-seeds |
 | 12 | `FicheExtraPlanActs` in Create + Update fiche; `additionalTreatmentPlanItems` | fiche save | patient-record-modal (only writer) | must re-test — C4 row; single-devis-act fiche unchanged (extras empty) |
+
+# Blast radius — wave 3 (G — money)
+
+| # | Touching | What it is | Other consumers | Verdict |
+|---|----------|------------|-----------------|---------|
+| 1 | `TreatmentPlan.RespreadSchedule` (keeps dates; no-op without number/rows or when WrittenOff/Cancelled) | shared rule | discount, withdraw, restore, stop, reopen, uncancel, amend, duplicate, peer's `FichePlanActAdditions` | must re-test — remise on a typed schedule; stop → reopen balances; a6's suite green |
+| 2 | `RespreadScheduleToTotal` recomputes the total first + optional `refundMethod` | public entry | amend, duplicate, peer's fiche addition | unaffected — idempotent recompute, optional param |
+| 3 | `StatusFollowsTheWork` excludes WrittenOff/Cancelled | status predicate | unmark ×2, `SetItemSteps` | must re-test — detach on a live devis still re-derives |
+| 4 | negative `InstallmentPayment` (rendu) + `Installment.RecordRefund/Resize(0)/VoidPayment` guards | money ledger | caisse sum/rows/by-method, dashboard, revenue, reconcile, receipt PDF, bridge, cheques, DTO | must re-test — caisse extrait shows a Sortie; sums stay net; receipt + bridge refuse by name; never a cheque |
+| 5 | `EnsureNoLiveMoney` / `StopWouldCancel` / discard read receipts, not the net | shared guards | cancel, stop, discard-booking | unaffected when no rendu exists (same answer) |
+| 6 | `PlanBillingRules.CashBearingPlanStatuses` in 4 cash reads + `MoneyReconciliationReader` | SQL filters | caisse, extrait, « dont espèces », cheques, reconcile | must re-test — reconcile before/after: +8 WrittenOff plans, 0 DT moved |
+| 7 | both « en retard depuis » reads through `InstallmentLateness` | reads | Créances, Solde patient header | unaffected for typed schedules; auto rows stop reading late |
+| 8 | `TreatmentPlanItemRequest.PlannedCost` nullable | tri-state request field | create, update, amend, start, fiche additions | must re-test — form always sends a number; blank never reaches the wire |
+| 9 | `CollectOnTreatment` checks before minting | handler | fiche save chairside collection | covered by unit test |
+| 10 | `FollowDentalRecordDate` from `UpdateDentalRecordCommand` | fiche save | the fiche modal (only updater) | must re-test — redate a fiche with a devis payment |
+| 11 | web `planItemToPreset` net cost; `saveActTotal` sends net + remise | booking prefill | both booking dialogs | must re-test — a remise shows on the booking card and survives a re-price |
+| 12 | web `displayedOutstanding`/`planNextAction` WrittenOff; `catalogueLineCost`; `usePlanRefundConfirm` (4 call sites) | tsx | workspace, form, odontogram seed | must re-test — rendu dialog on remise / amend / withdraw / stop |

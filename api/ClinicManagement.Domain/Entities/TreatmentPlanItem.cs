@@ -635,6 +635,25 @@ public class TreatmentPlanItem : Entity<Guid>
     }
 
     /// <summary>
+    /// A fiche was redated: every step it evidences — or the act itself, when step-less — takes the new date.
+    /// Returns whether anything moved.
+    /// </summary>
+    internal bool RedateRecord(Guid dentalRecordId, DateTime doneOn)
+    {
+        if (HasSteps)
+        {
+            var steps = _steps.Where(s => s.LinkedDentalRecordId == dentalRecordId && s.IsDone).ToList();
+            foreach (var step in steps) step.Redate(doneOn);
+            if (steps.Count == 0) return false;
+            RecomputeStatusFromSteps();
+            return true;
+        }
+        if (LinkedDentalRecordId != dentalRecordId || DoneDate is null) return false;
+        DoneDate = doneOn;
+        return true;
+    }
+
+    /// <summary>
     /// Undo one named step. Returns <c>false</c> when it was already « à venir ».
     /// <para>
     /// ⚠️ <b>Deliberately without <c>EnsureNotWithdrawn</c>, unlike <see cref="MarkStepDone"/>.</b> That guard

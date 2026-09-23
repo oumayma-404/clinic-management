@@ -69,3 +69,18 @@ Tests: `DevisFicheRdvFlexibilityTests` (14). QA: `qa/run-1.md` GREEN, 22 rows.
 - **C4** `FicheExtraPlanActs`: `additionalTreatmentPlanItems` (the visit's other acts of the same devis) are priced 0, linked and charted per act; a re-save reads them back from the devis. ⚠️ Matching is by procedure; an act ADDED to the devis in the same save (peer a6's complaint: « mettre l'acte sur le devis depuis la fiche ») would need an explicit item id — not built.
 
 Tests: `DevisFicheRdvFlexibilityWave2Tests` (11). QA: `qa/run-2.md` GREEN.
+
+# Wave 3 — money (G1–G12)
+
+- **G2** `RespreadSchedule` keeps the agreed dates: a lower total comes off the LAST unpaid rows (a row emptied with no receipts goes), a higher one lands on the last unpaid row, a new auto row only when nothing is left unpaid. `Installment.Resize` changes the amount only (date and `IsAutoRaised` stay).
+- **G10** no-op on an un-numbered plan with no rows. **G11** no-op on WrittenOff/Cancelled, and `StatusFollowsTheWork` excludes both — only `Reopen`/`Uncancel` reopen them.
+- **G3** « Rendre au patient »: a total below what was collected is refused with code `plan-total-below-collected` (`PlanRefund`); the screen asks once (`usePlanRefundConfirm`) and resends with `refundMethod` (never Cheque). The rendu is a NEGATIVE `InstallmentPayment` dated today on the latest paid rows — every sum nets it on its own day, no past day moves. ⚠️ Not voidable, no receipt, not carried onto a note (the bridge refuses by name), `Cancel` still refused (`HasReceipts`: receipts, not the net). A row paid then fully rendu stays at 0 (deleting it would cascade its receipts away). Wired on amend, remise, « Mettre de côté », « Arrêter » (the zero-work refund branch now has « Rendre et arrêter »).
+- **G1** `TreatmentPlanItemRequest.PlannedCost` is `decimal?` — only `null` takes the catalogue tarif; a typed 0 is a price.
+- **G4** `catalogueLineCost` / `isPerToothAct` (odontogram-plan-seed.ts): the devis picker prices per tooth like the seed, and follows a tooth-count change on an untouched fee.
+- **G5** `TreatmentPlan.FollowDentalRecordDate`: redating a fiche moves the devis money collected at it and the séances it evidences (banked cheque refused, like the note).
+- **G6** booking presets read `itemNetCost`; `saveActTotal` sends net + remise, so the remise survives a re-price.
+- **G7** `PlanBillingRules.CashBearingPlanStatuses` (debt + WrittenOff) for « money moved » reads; « owes money » stays `DebtBearingPlanStatuses`.
+- **G8** WrittenOff: no « Reste dû », no « Encaisser »; both « en retard depuis » reads use `InstallmentLateness`.
+- **G9** collection amount checked before the devis number is minted. **G12** a written-off devis cannot be invoiced (create + issue bridge).
+
+Tests: `DevisFicheRdvFlexibilityWave3Tests` (18). reconcile-money before/after: only the 8 written-off plans join the checks (0 DT on them).

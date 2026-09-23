@@ -8,10 +8,10 @@ import {
   resolvePlannedProtocols,
 } from "@/components/appointment-acts-picker"
 import { showErrorToast } from "@/lib/errors"
-import { formatDT } from "@/lib/format"
+import { formatDT, roundMillimes } from "@/lib/format"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
-import { planItemToPreset, schedulablePlanItems } from "./plan-next-action"
+import { itemDiscount, planItemToPreset, schedulablePlanItems } from "./plan-next-action"
 
 export interface PatientPlanActs {
   /** Every live devis of this patient, as read. Empty while loading, on a failure, and for a patient with none. */
@@ -128,7 +128,8 @@ export function usePatientPlanActs(
           {
             id: item.id,
             designationFr: item.designationFr,
-            plannedCost: total,
+            // The booking screen shows the price AFTER remise (G6), so the typed total is the net: keep the remise.
+            plannedCost: roundMillimes(total + itemDiscount(item)),
             procedureTypeId: item.procedureTypeId ?? undefined,
             toothNumbers: item.toothNumbers,
           },

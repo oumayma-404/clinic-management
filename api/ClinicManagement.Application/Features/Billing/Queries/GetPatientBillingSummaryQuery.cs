@@ -95,12 +95,13 @@ public class GetPatientBillingSummaryQueryHandler
             // it is a row per document and not per échéance.
             var debtLines = PatientDebtLines.Project(invoices, plans, clinicToday);
 
+            // G8: `InstallmentLateness` is the one rule (calendar day, auto-raised rows, unfinished work) —
+            // the raw `DueDate < today` made every devis « en retard » the day after it was signed.
             var overdueInstallmentDates = plans
-                .SelectMany(p => p.Installments)
-                // Compared by CALENDAR DAY, not instant. Due dates are stored at midnight, so `DueDate < now`
-                // made an échéance overdue from 00:00 on its own due date — a full day early. It is late only
-                // once its day has passed. Matches GetPatientsToRecallQuery, which already truncates.
-                .Where(i => !i.IsPaid && i.DueDate.Date < clinicToday)
+                .SelectMany(p => p.Installments.Where(i => InstallmentLateness.IsLate(
+                    i.IsPaid, i.IsAutoRaised, i.DueDate, p.Status, planIsBilled: false,
+                    planHasUnrealisedWork: p.ActiveItems.Any(x => x.Status != TreatmentPlanItemStatus.Done),
+                    clinicToday)))
                 .Select(i => i.DueDate);
 
             // The invoice track dates the debt too (J7). « Solde patient » carried the same plan-only blind spot

@@ -330,6 +330,30 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 }
             }
 
+            // G5 — the devis side of L4: money collected on the treatment at this fiche, and the séances it
+            // evidences, take the fiche's new date too. Refused (not skipped) on a banked cheque, like the note.
+            if (previousDate.Date != request.InterventionDate.Date)
+            {
+                var collectedOn = await _treatmentPlanRepository.GetByCollectedDentalRecordAsync(
+                    clinicResult.Value, dentalRecord.Id, cancellationToken) ?? Array.Empty<TreatmentPlan>();
+                var evidencedBy = await _treatmentPlanRepository.GetByLinkedDentalRecordAsync(
+                    clinicResult.Value, dentalRecord.Id, cancellationToken) ?? Array.Empty<TreatmentPlan>();
+                foreach (var datedPlan in collectedOn.Concat(evidencedBy).DistinctBy(p => p.Id))
+                {
+                    try
+                    {
+                        if (datedPlan.FollowDentalRecordDate(dentalRecord.Id, request.InterventionDate))
+                        {
+                            await _treatmentPlanRepository.UpdateAsync(datedPlan, cancellationToken);
+                        }
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return Result<DentalRecordDto>.Failure(ex.Message, DentalRecordBillingRefusals.PaymentBankedCode);
+                    }
+                }
+            }
+
             var addedProcedureIds = PositiveDelta(
                 consumedBefore, CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId)));
 

@@ -82,6 +82,30 @@ public class InstallmentPayment : Entity<Guid>
 
     private InstallmentPayment() { } // For EF Core
 
+    /// <summary>
+    /// A « rendu » — money given back to the patient on this devis, dated the day it left the caisse (G3). Stored
+    /// as a NEGATIVE row so every total nets it on its own day and no past day moves. Never a cheque, never tied
+    /// to a fiche (<c>CollectedOnRecord</c> must not see it).
+    /// </summary>
+    public bool IsRefund => Amount < 0m;
+
+    internal static InstallmentPayment Refund(Guid installmentId, decimal amount, PaymentMethod method, DateTime refundedOn)
+    {
+        if (amount <= 0m)
+            throw new ArgumentException("Le montant rendu doit être supérieur à 0.", nameof(amount));
+        if (method == PaymentMethod.Cheque)
+            throw new ArgumentException("Un rendu ne se fait pas par chèque.", nameof(method));
+        return new InstallmentPayment
+        {
+            Id = Guid.NewGuid(),
+            InstallmentId = installmentId,
+            Amount = -amount,
+            Method = method,
+            PaidOn = refundedOn,
+            CreatedAt = DateTime.UtcNow,
+        };
+    }
+
     public InstallmentPayment(
         Guid id,
         Guid installmentId,
@@ -131,6 +155,9 @@ public class InstallmentPayment : Entity<Guid>
         ChequeBankedStamp.For(Method, ChequeBankedOn, ChequeBankedByUserId, ChequeBankedByName);
 
     /// <summary>Mark this payment as never received. The caller refuses a second void, so it cannot be rewritten.</summary>
+    /// <summary>Correct when the money changed hands — the fiche it was collected at was redated (G5).</summary>
+    internal void AmendPaidOn(DateTime paidOn) => PaidOn = paidOn;
+
     internal void Void(string reason, string? actorUserId, string? actorName)
     {
         if (string.IsNullOrWhiteSpace(reason))

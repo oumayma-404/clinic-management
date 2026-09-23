@@ -538,11 +538,14 @@ touching the area.
   **not** on the branch the amend handler takes when it changes a total without being sent a schedule, so
   removing a 200 DT act from a 500 DT devis with 500 DT collected left `Σ Amount` at 500 against a
   `TotalPlanned` of 300: `Outstanding` clamped at 0, both balances read 0, and **200 DT of the patient's money
-  became unreachable** with no error and no avoir prompt. ⚠️ A collected row is **kept and trimmed, never
-  dropped**, and `MarkAutoRaised` is re-applied — `Revise` clears `IsAutoRaised`, so without the re-mark a
-  respread silently promotes the auto lump-sum into an « agreed » date and puts « En retard » back on it. Its
-  visible consequence is two undated « Solde à régler » rows after a stop→reopen, one of them a settled
-  receipt; that is correct and `installmentDueLabel` keys purely on `isAutoRaised`. ⚠️ **`Reopen` re-spreads
+  became unreachable** with no error and no avoir prompt. ⚠️ **It keeps the agreed dates** (owner's call,
+  2026-09-23): a lower total comes off the LAST unpaid rows, a higher one lands on the last unpaid row, and a
+  new auto row appears only when nothing is left unpaid — it used to collapse the schedule into one lump sum
+  due today, erasing dates the patient agreed to. `Installment.Resize` moves the amount only, so `IsAutoRaised`
+  survives. ⚠️ **Below what was collected is a « rendu », not a refusal, once confirmed**: a NEGATIVE
+  `InstallmentPayment` dated today (`RefundExcess`), refused with `plan-total-below-collected` until the screen
+  sends a `refundMethod` — see `features/devis-fiche-rdv-flexibility/notes.md` § wave 3 for the guards it needs
+  (not voidable, no receipt, never carried onto a note, a fully-rendu row kept at 0). ⚠️ **`Reopen` re-spreads
   too**, and leaving it out put two different balances on two screens — « Solde patient » is
   `TotalPlanned − AmountPaid` while « Créances », the dashboard and `PatientDebtLines` sum
   `Amount − AmountPaid` over the installment **rows**, so a 1 200 DT devis stopped at 400 kept and 400

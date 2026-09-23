@@ -353,8 +353,8 @@ export function stopWouldCancelPlan(plan: TreatmentPlanDto): boolean {
  * and stated « le traitement passe à « Arrêté » », and the press was refused with the devis left « En cours ».</p>
  *
  * <p>It is a <b>named refusal, never a withheld control</b> — the same rule as « pourquoi Encaisser a
- * disparu » (M26). A dentist who cannot find the button learns nothing; one who reads « remboursez d'abord les
- * 200,000 DT par un avoir » knows what to do next.</p>
+ * disparu » (M26). Since wave 3 the dialog offers « Rendre et arrêter »: the deposit is given back today on the
+ * devis and the acts are parked — no avoir.</p>
  *
  * <p>⚠️ Mirrors the server condition exactly, including `Number != null`: an un-numbered treatment carrying
  * money is not this case — it stops normally, because there is no document and `kept.Count == 0` is only
@@ -519,7 +519,8 @@ export interface DisplayedOutstanding {
 }
 
 export function displayedOutstanding(plan: TreatmentPlanDto): DisplayedOutstanding | null {
-  if (plan.status === "Draft" || plan.status === "Cancelled") return null
+  // WrittenOff: the balance was abandoned, so « Reste dû » and « Encaisser » would chase a loss (G8).
+  if (plan.status === "Draft" || plan.status === "Cancelled" || plan.status === "WrittenOff") return null
 
   if (isPlanBilled(plan)) {
     // The note's balance where the server sent it; otherwise nothing at all, never the plan's own figure —
@@ -550,7 +551,7 @@ export type PlanNextAction =
  */
 export function planNextAction(plan: TreatmentPlanDto, now: Date = new Date()): PlanNextAction {
   if (plan.status === "Draft") return { kind: "accept" }
-  if (plan.status === "Cancelled") return { kind: "open" }
+  if (plan.status === "Cancelled" || plan.status === "WrittenOff") return { kind: "open" }
 
   const live = activeItems(plan)
 
@@ -688,7 +689,8 @@ export function planItemToPreset(
      * from use, on the screen where the séance is booked.
      */
     label: planActLabel(item, continuationContext(plan, item)),
-    plannedCost: item.plannedCost,
+    // G6: the price after remise — the booking screens showed the tarif and hid the discount.
+    plannedCost: itemNetCost(item),
     // ⚠️ **The whole protocol, réalisé steps included — `PlanStepOption.done` is what withholds them.** This
     // filtered them out, which is right for a chip somebody can tick and wrong for every label lookup that
     // resolves an appointment's OWN booked step against this list: once the fiche was recorded the step
@@ -705,7 +707,7 @@ export function planItemToPreset(
     preselectedStepId: firstUnbookedStepId(item),
     billedOnPlan: {
       planNumber: plan.number,
-      actCost: item.plannedCost,
+      actCost: itemNetCost(item),
       outstanding: plan.outstanding,
       // Which note holds this devis' money, if one does. `outstanding` above is unusable when it is set —
       // see `BilledOnPlan.billedOnInvoiceNumber` for the measured case.

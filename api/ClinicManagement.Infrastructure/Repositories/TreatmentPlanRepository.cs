@@ -606,7 +606,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // undone by cancelling the bridge, which this comment used to claim: an invoice holding a non-voided
         // payment cannot be cancelled at all, and a bridge that carried collections is in exactly that state.
         // The avoir is the only correction. See PlanBillingRules for the full note.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         // Summed from the payment LEDGER, each row on its own date. This used to key the whole cumulative
@@ -692,7 +692,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         //
         // Rooted at the clinic-filtered TreatmentPlans set and reached by SelectMany — that traversal IS the
         // tenant scoping for a great-grandchild with no ClinicId and no DbSet of its own.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         var rows = await _context.TreatmentPlans
@@ -739,7 +739,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // GetInstallmentCollectedBetweenAsync with a GROUP BY — identical committed-plan filter, identical
         // bridged-plan exclusion, identical `!IsVoided` and bounds. The breakdown is shown under the total, so
         // the two must be the same question asked at two granularities and not two questions that happen to agree.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         var totals = await _context.TreatmentPlans
@@ -772,7 +772,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // makes a cheque un-markable twice (B-1): once the plan is bridged only the invoice-side row is reachable.
         //
         // ⚠️ Banked cheques are returned and the caller filters — see the invoice-side twin for why.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         var rows = await _context.TreatmentPlans
@@ -835,7 +835,12 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         var rows = await plans
             .SelectMany(p => p.Installments
                 .Where(i => i.Amount > i.AmountPaid)
-                .Select(i => new { p.PatientId, i.Amount, i.AmountPaid, i.DueDate }))
+                .Select(i => new
+                {
+                    p.PatientId, i.Amount, i.AmountPaid, i.DueDate, i.IsAutoRaised, p.Status,
+                    HasUnrealisedWork = p.Items.Any(it => it.Status != TreatmentPlanItemStatus.Done
+                                                          && it.Status != TreatmentPlanItemStatus.Withdrawn),
+                }))
             .ToListAsync(cancellationToken);
 
         return rows
@@ -845,7 +850,11 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                 var outstanding = g.Sum(r => r.Amount - r.AmountPaid);
                 // Calendar-day comparison (in memory, so .Date is safe): an échéance due TODAY is not late.
                 // Comparing instants against a midnight due date flagged it a full day early.
-                var overdueDates = g.Where(r => r.DueDate.Date < asOfUtc.Date).Select(r => r.DueDate).ToList();
+                // G8: through `InstallmentLateness`, the one rule — an auto-raised « solde à régler » is not late
+                // the day after signing.
+                var overdueDates = g.Where(r => InstallmentLateness.IsLate(
+                        false, r.IsAutoRaised, r.DueDate, r.Status, false, r.HasUnrealisedWork, asOfUtc))
+                    .Select(r => r.DueDate).ToList();
                 DateTime? oldestOverdue = overdueDates.Count > 0 ? overdueDates.Min() : null;
                 return (PatientId: g.Key, Outstanding: outstanding, OldestOverdueDueDate: oldestOverdue);
             })

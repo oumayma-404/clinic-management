@@ -43,6 +43,12 @@ public class AmendTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
     /// </summary>
     public uint Version { get; set; }
 
+    /// <summary>
+    /// Set only after the screen asked « rendre X DT au patient ? »: how the difference is given back today
+    /// (<see cref="PlanRefund"/>). Absent, a total below what was collected is refused with <see cref="PlanRefund.Code"/>.
+    /// </summary>
+    public string? RefundMethod { get; set; }
+
     public Guid Id { get; set; }
     public List<TreatmentPlanItemRequest> AddItems { get; set; } = new();
 
@@ -290,10 +296,25 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
              * ⚠️ It used to REFUSE when no schedule came with the change, and that was the app fighting the
              * dentist: correcting a price from the booking dialog or the acts table has no échéancier on
              * screen to re-send, so the only honest answer there was « renvoyez l'échéancier », which names
-             * something the caller cannot see. It re-spreads instead — every collected row stays at exactly
-             * what it has taken and the balance lands on one row — so a price is editable from anywhere and
-             * the invariant still holds. A plan with no schedule (an un-numbered treatment) is a no-op.
+             * something the caller cannot see. It re-spreads instead — the agreed dates stay and the
+             * difference lands on the last unpaid rows — so a price is editable from anywhere and the
+             * invariant still holds. A plan with no schedule (an un-numbered treatment) is a no-op.
              */
+            // G3: a total now below what was collected is given back today once the screen confirmed it —
+            // never silently, never as an avoir.
+            if (plan.ExcessCollected > 0m)
+            {
+                if (!PlanRefund.TryParse(request.RefundMethod, out var refundMethod, out var methodError))
+                {
+                    return Result<TreatmentPlanDto>.Failure(methodError!);
+                }
+                if (refundMethod is not { } method)
+                {
+                    return Result<TreatmentPlanDto>.Failure(PlanRefund.Sentence(plan), PlanRefund.Code);
+                }
+                plan.RefundExcess(method, ClinicClock.ClinicToday());
+            }
+
             if (plan.TotalPlanned != totalBefore && request.Installments.Count == 0)
             {
                 plan.RespreadScheduleToTotal(ClinicClock.ClinicToday());

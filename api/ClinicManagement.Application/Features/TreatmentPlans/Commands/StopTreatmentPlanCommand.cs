@@ -43,6 +43,12 @@ public class StopTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
     public uint Version { get; set; }
 
     /// <summary>
+    /// Set only after the screen asked « rendre X DT au patient ? »: how the difference is given back today
+    /// (<see cref="PlanRefund"/>). Absent, a total below what was collected is refused with <see cref="PlanRefund.Code"/>.
+    /// </summary>
+    public string? RefundMethod { get; set; }
+
+    /// <summary>
     /// The motif, required <b>only</b> when this stop is really a cancellation — see
     /// <see cref="Domain.Entities.TreatmentPlan.StopWouldCancel"/>. Optional otherwise and ignored.
     /// <para>
@@ -157,7 +163,20 @@ public class StopTreatmentPlanCommandHandler
             // `ClinicClock`, never `DateTime.Today` — the re-spread échéance is a calendar day in Tunisia, and
             // the client used to build it from the browser's own clock, which dates it to yesterday for the
             // first hour of every Tunisian day and makes it « En retard » the moment it is written.
-            var parked = plan.StopTreatment(ClinicClock.ClinicToday());
+            if (!PlanRefund.TryParse(request.RefundMethod, out var refundMethod, out var methodError))
+            {
+                return Result<TreatmentPlanDto>.Failure(methodError!);
+            }
+            var refundOnStop = plan.RefundOnStop;
+            IReadOnlyList<Domain.Entities.TreatmentPlanItem> parked;
+            try
+            {
+                parked = plan.StopTreatment(ClinicClock.ClinicToday(), refundMethod);
+            }
+            catch (InvalidOperationException) when (refundMethod is null && refundOnStop > 0m)
+            {
+                return Result<TreatmentPlanDto>.Failure(PlanRefund.StopSentence(refundOnStop), PlanRefund.Code);
+            }
 
             /*
              * Parking un-finishes an act, so its end state must stop being charted — the fourth caller of

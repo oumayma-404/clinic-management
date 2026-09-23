@@ -48,7 +48,7 @@ import {
 import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
-import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
+import { isPerToothAct, seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
 import {
   CONDITION_ORDER,
   isBridgeUnit,
@@ -491,7 +491,7 @@ export function Odontogram({
           procedureTypeId: pt.id,
           name: pt.name,
           defaultCost: pt.defaultCost,
-          perTooth: pt.resultingCondition != null,
+          perTooth: isPerToothAct(pt),
           rank: t.rank,
         })
         map.set(t.condition, list)

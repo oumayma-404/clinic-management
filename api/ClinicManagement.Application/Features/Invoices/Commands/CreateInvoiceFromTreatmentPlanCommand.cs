@@ -73,6 +73,11 @@ public class CreateInvoiceFromTreatmentPlanCommandHandler
             {
                 return Result<InvoiceDto>.Failure("Un devis annulé ne peut pas être facturé.");
             }
+            // One rule with the money reads: a plan that carries no debt (a write-off) is not billable either.
+            if (!PlanBillingRules.CarriesDebt(plan.Status))
+            {
+                return Result<InvoiceDto>.Failure("Un devis passé en perte ne peut pas être facturé.");
+            }
             if (!plan.ActiveItems.Any())
             {
                 return Result<InvoiceDto>.Failure("Le devis ne comporte aucun acte à facturer.");

@@ -68,6 +68,12 @@ public class GetInstallmentReceiptPdfQueryHandler : IRequestHandler<GetInstallme
         var payment = installment.Payments.FirstOrDefault(p => p.Id == request.PaymentId)
             ?? throw new NotFoundException("Paiement introuvable pour cette échéance.");
 
+        // A rendu is money given back, not received: there is no « reçu de paiement » for it (G3).
+        if (payment.IsRefund)
+        {
+            return Result<ReceiptPdfResult>.Failure("Un rendu au patient n'a pas de reçu de paiement.");
+        }
+
         try
         {
             var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);

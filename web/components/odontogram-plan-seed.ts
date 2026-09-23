@@ -56,7 +56,23 @@ export interface OdontogramPlanSeed {
  * soins applies through `derivePerTooth`. Without it a « Traitement parodontal » grouped over six teeth would be
  * quoted at 720 DT for a 120 DT act, and the devis would go to the patient that way.</p>
  */
-export function seedCost(candidate: SeedCandidate, toothCount: number): number | undefined {
+export function seedCost(
+  candidate: Pick<SeedCandidate, "defaultCost" | "perTooth">,
+  toothCount: number,
+): number | undefined {
   if (candidate.defaultCost == null || candidate.defaultCost <= 0) return undefined
   return candidate.perTooth && toothCount > 0 ? candidate.defaultCost * toothCount : candidate.defaultCost
+}
+
+/** Is a catalogue act priced per tooth? The one rule every devis door reads (G4). */
+export function isPerToothAct(pt: { resultingCondition?: string | null }): boolean {
+  return pt.resultingCondition != null
+}
+
+/** What a devis line costs for a catalogue act over `toothCount` teeth — the picker's price, the seed's price. */
+export function catalogueLineCost(
+  pt: { defaultCost?: number | null; resultingCondition?: string | null },
+  toothCount: number,
+): number | undefined {
+  return seedCost({ defaultCost: pt.defaultCost ?? undefined, perTooth: isPerToothAct(pt) }, toothCount)
 }

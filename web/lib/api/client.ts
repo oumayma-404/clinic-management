@@ -117,6 +117,11 @@ export const ApiErrorCode = {
    * in its body so that one billed row cannot fail a selection of a hundred.
    */
   VisitHasWork: 'visit_has_work',
+  /**
+   * The devis total would fall below what it already collected. Advisory: resend with `refundMethod` once the
+   * dentist confirmed giving the difference back today. Emitted by `PlanRefund.Code`.
+   */
+  PlanTotalBelowCollected: 'plan-total-below-collected',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */

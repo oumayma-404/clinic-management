@@ -202,6 +202,7 @@ public static class TreatmentPlanMappingExtensions
                         {
                             Id = p.Id,
                             Amount = p.Amount,
+                            IsRefund = p.IsRefund,
                             Method = p.Method.ToString(),
                             PaidOn = p.PaidOn,
                             CreatedAt = p.CreatedAt,

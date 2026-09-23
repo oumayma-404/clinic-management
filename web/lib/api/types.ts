@@ -1761,7 +1761,9 @@ export interface InstallmentDto {
 
 export interface InstallmentPaymentDto {
   id: string;
+  /** Negative for a « rendu » — money given back to the patient that day. */
   amount: number;
+  isRefund?: boolean;
   /** Cash | Cheque | Card | Transfer */
   method: string;
   paidOn: string;

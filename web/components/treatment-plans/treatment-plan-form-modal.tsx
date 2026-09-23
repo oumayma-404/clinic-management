@@ -30,7 +30,9 @@ import {
   type CreateTreatmentPlanRequest,
   type UpdateTreatmentPlanRequest,
 } from "@/lib/api/treatment-plans"
-import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
+import {
+  catalogueLineCost, seedCost, type OdontogramPlanSeed, type SeedCandidate,
+} from "@/components/odontogram-plan-seed"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { patientsApi } from "@/lib/api/patients"
@@ -47,6 +49,7 @@ import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
 import { actRemovalPlan, type ActRemovalPlan } from "@/components/treatment-plans/plan-next-action"
+import { REFUND_DECLINED, usePlanRefundConfirm } from "@/components/treatment-plans/plan-refund-confirm"
 
 interface LineRow {
   /**
@@ -309,6 +312,8 @@ export function TreatmentPlanFormModal({
    * own sentence tells them to do.</p>
    */
   const conflict = useConflict()
+  // G3 — a total lowered below what was collected asks « Rendre au patient ? » once, then re-sends.
+  const { withRefund, refundDialog } = usePlanRefundConfirm()
   const error = conflict.error
   const setError = conflict.setError
   const guard = useDirtyGuard(open, onOpenChange)
@@ -494,6 +499,18 @@ export function TreatmentPlanFormModal({
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))
   }
 
+  // Teeth changed on a line whose fee nobody typed: the fee follows the tooth count (G4).
+  const updateLineTeeth = (index: number, teeth: number[]) => {
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== index) return l
+        const next = { ...l, toothNumbers: teeth }
+        if (l.costTouched || !l.procedureTypeId) return next
+        return { ...next, plannedCost: repricedFor(next, procedureTypes.find((pt) => pt.id === l.procedureTypeId)) }
+      }),
+    )
+  }
+
   const addLine = () => setLines((prev) => [...prev, emptyLine()])
   const removeLine = (index: number) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
@@ -549,9 +566,11 @@ export function TreatmentPlanFormModal({
    * price, whereas a stale one silently asserts a wrong one. (Harmless server-side — for a CNAM-linked line
    * `TreatmentPlanItemPricing` fills a blank cost from the act's own default.)
    */
-  const repricedFor = (line: LineRow, defaultFee: number | null | undefined): string => {
+  const repricedFor = (line: LineRow, pt: ProcedureTypeDto | undefined): string => {
     if (line.costTouched) return line.plannedCost
-    return defaultFee != null && defaultFee > 0 ? formatAmount(defaultFee) : ""
+    // G4: the same per-tooth rule as the odontogram seed — a 3-tooth act was quoted once.
+    const cost = pt ? catalogueLineCost(pt, line.toothNumbers.length) : undefined
+    return cost != null && cost > 0 ? formatAmount(cost) : ""
   }
 
   /**
@@ -598,7 +617,7 @@ export function TreatmentPlanFormModal({
           ...base,
           procedureTypeId: pt.id,
           designationFr: pt.name,
-          plannedCost: repricedFor(base, pt.defaultCost),
+          plannedCost: repricedFor(base, pt),
           // The act's protocol, proposed — unless the dentist has already edited this row's séances.
           ...(base.stepsTouched ? {} : { steps: proposedStepsFor(pt) }),
         }
@@ -1030,7 +1049,7 @@ export function TreatmentPlanFormModal({
 
       setLoading(true)
       try {
-        await treatmentPlansApi.amend(editingPlan.id, {
+        const amended = await withRefund((refundMethod) => treatmentPlansApi.amend(editingPlan.id, {
           addItems,
           updateItems,
           removeItemIds,
@@ -1042,7 +1061,10 @@ export function TreatmentPlanFormModal({
           // The row's version as last read, so a peer's edit 409s instead of overwriting their fees — and
           // our own earlier write is not mistaken for one.
           version: hydratedVersionRef.current || editingPlan.version,
-        })
+          refundMethod,
+        }))
+        // « Retour » on the rendu question: nothing was saved and the form stays as typed.
+        if (amended === REFUND_DECLINED) return
         toast.success("Devis modifié")
         onSuccess?.()
         onOpenChange(false)
@@ -1493,7 +1515,7 @@ export function TreatmentPlanFormModal({
                   <div className="flex flex-wrap items-center gap-2">
                     <ToothMultiSelect
                       value={line.toothNumbers}
-                      onChange={(teeth) => updateLine(index, { toothNumbers: teeth })}
+                      onChange={(teeth) => updateLineTeeth(index, teeth)}
                       disabled={loading}
                     />
                     <div className="flex items-center gap-1.5">
@@ -1926,6 +1948,7 @@ export function TreatmentPlanFormModal({
       </DialogContent>
     </Dialog>
     <DiscardChangesDialog guard={guard} />
+    {refundDialog}
     <AlertDialog
       open={pendingRemoval !== null}
       onOpenChange={(o) => !o && setPendingRemoval(null)}

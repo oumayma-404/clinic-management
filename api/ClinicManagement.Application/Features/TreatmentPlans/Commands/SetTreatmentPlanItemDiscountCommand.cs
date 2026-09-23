@@ -36,6 +36,12 @@ public class SetTreatmentPlanItemDiscountCommand : IRequest<Result<TreatmentPlan
 
     /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
     public uint Version { get; set; }
+
+    /// <summary>
+    /// Set only after the screen asked « rendre X DT au patient ? »: how the difference is given back today
+    /// (<see cref="PlanRefund"/>). Absent, a total below what was collected is refused with <see cref="PlanRefund.Code"/>.
+    /// </summary>
+    public string? RefundMethod { get; set; }
 }
 
 public class SetTreatmentPlanItemDiscountCommandHandler
@@ -79,7 +85,18 @@ public class SetTreatmentPlanItemDiscountCommandHandler
             }
 
             // ⚠️ The clinic clock, never `DateTime.Today` — the re-spread échéance is a calendar day in Tunisia.
-            plan.SetItemDiscount(request.ItemId, request.DiscountAmount, ClinicClock.ClinicToday());
+            if (!PlanRefund.TryParse(request.RefundMethod, out var refundMethod, out var methodError))
+            {
+                return Result<TreatmentPlanDto>.Failure(methodError!);
+            }
+            try
+            {
+                plan.SetItemDiscount(request.ItemId, request.DiscountAmount, ClinicClock.ClinicToday(), refundMethod);
+            }
+            catch (InvalidOperationException) when (PlanRefund.IsNeeded(plan, refundMethod))
+            {
+                return Result<TreatmentPlanDto>.Failure(PlanRefund.Sentence(plan), PlanRefund.Code);
+            }
 
             _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);

@@ -30,7 +30,8 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
         CancellationToken cancellationToken = default)
     {
         var since = MonthStartUtc(DateTime.UtcNow).AddMonths(-Math.Max(0, monthsOfHistory - 1));
-        var debtBearing = PlanBillingRules.DebtBearingPlanStatuses.ToArray();
+        // Cash statuses (G7): a written-off devis still holds real receipts and a schedule.
+        var debtBearing = PlanBillingRules.CashBearingPlanStatuses.ToArray();
 
         var clinics = await _context.Clinics
             .AsNoTracking()

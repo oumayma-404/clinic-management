@@ -146,6 +146,12 @@ public class TreatmentPlanItemStep : Entity<Guid>
     /// rewrite clinical history, claiming the step happened at a visit it did not.
     /// </para>
     /// </summary>
+    /// <summary>The fiche that evidences this step was redated: the step moves with it (G5).</summary>
+    internal void Redate(DateTime doneOn)
+    {
+        if (IsDone) DoneDate = doneOn;
+    }
+
     internal void MarkDone(DateTime doneOn, Guid? linkedDentalRecordId)
     {
         if (IsDone)
