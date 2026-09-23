@@ -80,7 +80,12 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             var nameExists = await _procedureTypeRepository.ExistsByNameAsync(request.Name, null, cancellationToken);
             if (nameExists)
             {
-                return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.DuplicateName(request.Name));
+                // An archived holder is named, with its way back (I1) — it used to block the name invisibly.
+                var holder = await _procedureTypeRepository.GetByNameAsync(request.Name, cancellationToken);
+                return holder is { IsActive: false }
+                    ? Result<ProcedureTypeDto>.Failure(
+                        ProcedureTypeRefusals.ArchivedName(holder.Name), ProcedureTypeRefusals.ArchivedNameCode)
+                    : Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.DuplicateName(request.Name));
             }
 
             // Validate duration

@@ -1,0 +1,83 @@
+{
+  "ts": "515962",
+  "patient": "d50f0c18-ddff-4516-954c-02859eaf1429",
+  "patientName": "QAH Flex 515962",
+  "names": {
+    "couronne": "Couronne / bridge (par élément)",
+    "detartrage": "Détartrage",
+    "canal": "Traitement de canal (dévitalisation)"
+  },
+  "H1": {
+    "visit": "0e0bc93b-599c-41dd-87c0-217eebe2ffde"
+  },
+  "H1b": {
+    "visit": "a81fc0c6-62bf-4bfa-af35-0905a9e0067e",
+    "at": "2026-09-28T09:00:00.000Z"
+  },
+  "H10": {
+    "visit": "a3caddbb-cf65-4395-90b6-9e622e34f7ed"
+  },
+  "H11": {
+    "visit": "50e3eb88-18a4-4ef8-b987-c2a3c47b28d1"
+  },
+  "H6": {
+    "visit": "82b2dacd-5ccd-4bad-a5ff-5361575db787",
+    "record": "5ac7d351-7c69-4aeb-a474-b98acf72254c",
+    "invoice": "19c0ae90-5b80-4d3b-be71-606e0262c465",
+    "invoiceNumber": "2026-0605",
+    "day": "2026-09-21"
+  },
+  "H7": {
+    "visit": "f62dd14e-9f3d-452d-85ea-c0c6b2d7b7cd"
+  },
+  "J3": {
+    "visit": "87db3d04-4b13-4989-94bb-9ad34dfba685",
+    "record": "e56a9f01-f6ec-451c-b423-4163eee19616"
+  },
+  "H8": {
+    "plan": "5519a233-6cfe-4462-b8c8-d49dd1f1800b",
+    "number": "2026-0646",
+    "record": "1234fdd9-55a5-4a11-af24-2cae9bf2e3b6",
+    "status": "InProgress",
+    "amountPaid": 100,
+    "title": "QA H8 515962"
+  },
+  "H9": {
+    "plan": "3eb64f00-1df8-469c-850f-b23eff389d38",
+    "item": "da7f9d90-0df8-45d9-b2af-37848057054c",
+    "title": "QA H9 515962"
+  },
+  "C4": {
+    "plan": "b31f413d-fd53-494d-aca0-8e63fb44d545",
+    "visit": "99a879de-2b93-4713-a0d3-a0c4115f178e",
+    "record": "f4b701ed-850c-4c32-bfa0-67683097f817"
+  },
+  "H2": {
+    "plan": "f7e08020-5efe-40ca-8cde-f3dc7abb9ac6",
+    "record": "fa90065d-bd5e-4490-b986-d9b119ceb3de",
+    "status": "Cancelled"
+  },
+  "J5": {
+    "plan": "0b0f78ad-63fd-4086-a010-f29dc2ddd1ec",
+    "number": "2026-0650",
+    "title": "QA J5 515962"
+  },
+  "I1": {
+    "id": "b98945d0-ac8e-4db9-88cd-04f3ee962f51",
+    "name": "QA Acte 515962",
+    "deletion": {
+      "archived": true,
+      "futureAppointments": 1,
+      "planLines": 0
+    }
+  },
+  "I4": {
+    "id": "e9ff37a8-4ba6-4627-9919-21f046808d13",
+    "name": "QA Devis 515962"
+  },
+  "I3": {
+    "id": "9892b39f-7afa-4da5-9cc1-a59db2335629",
+    "name": "QA Retrait 515962",
+    "rosterSize": 2
+  }
+}

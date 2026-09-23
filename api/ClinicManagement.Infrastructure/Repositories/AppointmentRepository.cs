@@ -412,7 +412,10 @@ public class AppointmentRepository : IAppointmentRepository
         // needs only the link, the date and the status, and this runs for every plan on a list page.
         return await _context.Appointments
             .Include(a => a.Procedures)
+            // ⚠️ A visit removed with « Supprimer (créé par erreur) » books nothing: kept here, the devis went on
+            // reading « séance planifiée » for a visit gone from the agenda, with « Voir le RDV » leading nowhere.
             .Where(a => a.ClinicId == clinicId
+                        && a.DisregardedAtUtc == null
                         && ((a.TreatmentPlanItemId != null
                              && treatmentPlanItemIds.Contains(a.TreatmentPlanItemId.Value))
                             || a.Procedures.Any(p => p.TreatmentPlanItemId != null

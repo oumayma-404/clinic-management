@@ -85,7 +85,7 @@ public class AppointmentStatusTransitionTests
                 }
                 else
                 {
-                    appointment.Reschedule(appointment.AppointmentDateTime);
+                    appointment.Reschedule(appointment.AppointmentDateTime, sameClinicDay: true);
                 }
                 break;
             case AppointmentStatus.InProgress: appointment.Start(); break;
@@ -125,8 +125,9 @@ public class AppointmentStatusTransitionTests
     // One documented exclusion, now covering two source statuses. `Reschedule` is a **movement** operation, not a
     // status transition: since the A-2 fix it deliberately *preserves* `Confirmed`/`InProgress`, and it *resets*
     // `AwaitingClosure` to `Scheduled` for `NoShow`'s reason — moving a past visit to a new date means it has not
-    // happened yet. Either way it never attempts a table transition and correctly does not throw.
-    // `Confirmed/InProgress/AwaitingClosure → Scheduled` is still refused — by the table, enforced at the command
+    // happened yet. Since wave 4 (H1) it also moves a `Completed` visit, keeping it `Completed`. Either way it never
+    // attempts a table transition and correctly does not throw.
+    // `Confirmed/InProgress/AwaitingClosure/Completed → Scheduled` is still refused — by the table, enforced at the command
     // layer via `CanTransition` before any mutator runs, which
     // `Undeclared_Transitions_To_Scheduled_Are_Refused_By_The_Table` below asserts directly.
     [Fact]
@@ -143,7 +144,8 @@ public class AppointmentStatusTransitionTests
                 }
 
                 if (to == AppointmentStatus.Scheduled
-                    && from is AppointmentStatus.InProgress or AppointmentStatus.AwaitingClosure)
+                    && from is AppointmentStatus.InProgress or AppointmentStatus.AwaitingClosure
+                        or AppointmentStatus.Completed)
                 {
                     continue; // see the note above — asserted by the next test instead
                 }
@@ -159,6 +161,7 @@ public class AppointmentStatusTransitionTests
     [Theory]
     [InlineData(AppointmentStatus.Confirmed)]
     [InlineData(AppointmentStatus.InProgress)]
+    [InlineData(AppointmentStatus.Completed)]
     public void Undeclared_Transitions_To_Scheduled_Are_Refused_By_The_Table(AppointmentStatus from)
     {
         Assert.False(Appointment.CanTransition(from, AppointmentStatus.Scheduled));
@@ -185,7 +188,7 @@ public class AppointmentStatusTransitionTests
     {
         var appointment = AppointmentAt(AppointmentStatus.InProgress);
 
-        appointment.Reschedule(SlotStart.AddDays(2));
+        appointment.Reschedule(SlotStart.AddMinutes(30), sameClinicDay: true);
 
         Assert.Equal(AppointmentStatus.InProgress, appointment.Status);
     }
@@ -248,14 +251,40 @@ public class AppointmentStatusTransitionTests
     // [AC-P1.9 / A-2] Reschedule() force-set Scheduled, so moving a visit that had already started silently
     // discarded that fact. (It preserved « Confirmé » for the same reason, before that status was retired.)
     [Fact]
-    public void Rescheduling_Preserves_InProgress()
+    public void Rescheduling_Preserves_InProgress_On_The_Same_Day()
+    {
+        var appointment = AppointmentAt(AppointmentStatus.InProgress);
+        var moved = SlotStart.AddHours(2);
+
+        appointment.Reschedule(moved, sameClinicDay: true);
+
+        Assert.Equal(AppointmentStatus.InProgress, appointment.Status);
+        Assert.Equal(moved, appointment.AppointmentDateTime);
+    }
+
+    // [H10] « En cours » moved to another day has not started on that day.
+    [Fact]
+    public void Rescheduling_InProgress_To_Another_Day_Returns_It_To_Scheduled()
     {
         var appointment = AppointmentAt(AppointmentStatus.InProgress);
         var moved = SlotStart.AddDays(3);
 
-        appointment.Reschedule(moved);
+        appointment.Reschedule(moved, sameClinicDay: false);
 
-        Assert.Equal(AppointmentStatus.InProgress, appointment.Status);
+        Assert.Equal(AppointmentStatus.Scheduled, appointment.Status);
+        Assert.Equal(moved, appointment.AppointmentDateTime);
+    }
+
+    // [H1] A finished visit's mistyped date can be corrected, and it stays finished.
+    [Fact]
+    public void Rescheduling_A_Completed_Visit_Moves_It_And_Keeps_It_Completed()
+    {
+        var appointment = AppointmentAt(AppointmentStatus.Completed);
+        var moved = SlotStart.AddDays(-1);
+
+        appointment.Reschedule(moved, sameClinicDay: false);
+
+        Assert.Equal(AppointmentStatus.Completed, appointment.Status);
         Assert.Equal(moved, appointment.AppointmentDateTime);
     }
 
@@ -267,21 +296,21 @@ public class AppointmentStatusTransitionTests
         var appointment = AppointmentAt(AppointmentStatus.NoShow);
         var moved = SlotStart.AddDays(7);
 
-        appointment.Reschedule(moved);
+        appointment.Reschedule(moved, sameClinicDay: false);
 
         Assert.Equal(AppointmentStatus.Scheduled, appointment.Status);
         Assert.Equal(moved, appointment.AppointmentDateTime);
     }
 
     [Theory]
-    [InlineData(AppointmentStatus.Completed)]
     [InlineData(AppointmentStatus.Cancelled)]
-    public void Rescheduling_Is_Refused_For_A_Finished_Or_Void_Appointment(AppointmentStatus from)
+    public void Rescheduling_Is_Refused_For_A_Void_Appointment(AppointmentStatus from)
     {
         var appointment = AppointmentAt(from);
         var original = appointment.AppointmentDateTime;
 
-        var ex = Assert.Throws<InvalidOperationException>(() => appointment.Reschedule(original.AddDays(1)));
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => appointment.Reschedule(original.AddDays(1), sameClinicDay: false));
 
         Assert.Equal(original, appointment.AppointmentDateTime);
         // French, per the § 2 sweep's standing rule.

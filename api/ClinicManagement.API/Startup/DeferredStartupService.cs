@@ -85,6 +85,23 @@ public sealed class DeferredStartupService : IHostedService
             // where a clinic has no active admin, so on every later boot it is a no-op.
             var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
             await adminBackfill.BackfillAsync(cancellationToken);
+
+            // Encrypt every Google Calendar refresh token still held in the clear (FR-3.4) — the same omission as
+            // the admin backfill above, one release later, and the quietest one yet. Its only caller sat inside
+            // `RunsStartupBackfills`, which is false here, while `GoogleCalendarSyncService` reads the PROTECTED
+            // column with no fallback to the plaintext one: a LAN clinic that connected Google before the column
+            // existed simply stopped pushing appointments, with no log, no badge and no error. Nothing on this
+            // deployment could ever have converted it. Idempotent — it selects only rows still holding plaintext.
+            var converted = await GoogleTokenProtectionBackfill.RunAsync(
+                context,
+                scope.ServiceProvider.GetRequiredService<IGoogleTokenProtector>(),
+                scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                cancellationToken);
+            if (converted > 0)
+            {
+                _logger.LogInformation(
+                    "Chiffrement au repos : {Count} jeton(s) Google Agenda convertis (FR-3.4).", converted);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

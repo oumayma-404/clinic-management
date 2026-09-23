@@ -52,7 +52,8 @@ public class RecallWorklistRulesTests
 
         Assert.Single(reasons);
         Assert.Equal(RecallReasonKind.StalledPlan, reasons[0].Kind);
-        Assert.Equal(accepted, reasons[0].DueSince);
+        // H9: the date it STALLED — a fortnight after the signature when nothing else is known.
+        Assert.Equal(accepted.AddDays(RecallWorklistRules.StalledPlanGraceDays), reasons[0].DueSince);
         // And the old rule alone would have produced nothing at all.
         Assert.Empty(Reasons(seenYesterday));
     }
@@ -119,7 +120,7 @@ public class RecallWorklistRulesTests
 
         var reason = Assert.Single(reasons);
         Assert.Equal(RecallReasonKind.StalledPlan, reason.Kind);
-        Assert.Equal(created, reason.DueSince);
+        Assert.Equal(created.AddDays(RecallWorklistRules.StalledPlanGraceDays), reason.DueSince);
         // With no devis number the row still has to say something useful — the progress stands in for it.
         Assert.Equal("2/6", reason.Detail);
     }

@@ -12,7 +12,7 @@
 # ⚠️ VELOPACK, NOT INNO. The shell installs per-user (`%LocalAppData%`) and updates through delta packages —
 # measured at **160 KB** against a 49 MB full installer, because a shell release changes one file out of 474.
 # Per-user is what removes the UAC prompt: elevation was never the updater's choice, it was `%ProgramFiles%`'s.
-# `packaging/client/clinic-client.iss` is kept for one job only — a FIRST install on an offline LAN, where the
+# `packaging/setup/clinic-setup.iss` handles a FIRST install on an offline LAN, where the
 # certificate authority must be imported into the machine store and the WebView2 runtime bootstrapped, neither
 # of which a per-user setup can do.
 # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────

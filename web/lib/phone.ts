@@ -76,6 +76,32 @@ export function regionOf(
 }
 
 /**
+ * The country a STORED number re-opens in the selector.
+ *
+ * ⚠️ **Read the E.164 first, and never `regionOf(raw)` alone** — that is the whole defect this exists to end.
+ * The region is a write-time input: what is stored is the answer it produced (`PhoneNumber.PersistedE164`,
+ * served as `phoneE164`), because a national number cannot be resolved without knowing its country. Seeding the
+ * control from `value` instead re-derives against Tunisia, so `06 12 34 56 78` saved as France came back
+ * **+216** on every reopen — and the next ordinary save was then refused as « Numéro de téléphone invalide »,
+ * blaming the number, since the pre-check now read it against the wrong country. Reported from use
+ * 2026-09-21: « l'indicatif revient toujours au tunisien ».
+ *
+ * `raw` is the legacy fallback and must stay: rows written before the column exist, and `phoneE164` is also
+ * null for a value no country can parse (« 71 555 (bureau) »). Both null ⇒ {@link DEFAULT_REGION}, which is
+ * exactly what those rows already showed.
+ *
+ * ⚠️ Not for a number being TYPED — that is `phone-field.tsx`'s own AC-11 effect, which must keep reading the
+ * live value so a pasted `+33…` moves the selector. This one answers « what did the writer choose? », which
+ * only the stored E.164 knows.
+ */
+export function storedPhoneCountry(
+  e164: string | null | undefined,
+  raw: string | null | undefined,
+): CountryCode {
+  return regionOf(e164) ?? regionOf(raw) ?? DEFAULT_REGION
+}
+
+/**
  * French inline error shown when a phone fails {@link isDeliverablePhone}.
  *
  * ⚠️ **This is the SAME SENTENCE as the server's `PhoneRefusals.Invalid`, word for word** — and this docstring

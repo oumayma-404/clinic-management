@@ -71,6 +71,15 @@ public interface IDentalRecordRepository
     /// act's teeth, its fee and its name, which is most of the act row anyway, and the flag has already made the
     /// set small.</para>
     /// </summary>
+    /// <summary>
+    /// The act names each of these fiches recorded — one row per (fiche, act) — so a worklist row can say what was
+    /// DONE beside what was booked (J3). Bounded by the id set and projected, like <see cref="GetTreatedTeethAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<(Guid DentalRecordId, string ProcedureName)>> GetActNamesAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> dentalRecordIds,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<DentalRecord>> GetWithUnfinishedActsAsync(
         Guid clinicId,
         DateTime sinceUtc,

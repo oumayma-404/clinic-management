@@ -44,13 +44,17 @@ import {
   planDisplayName,
 } from "./treatment-plan-labels"
 import {
+  amendPlanRefusal,
+  billPlanRefusal,
   canAmendPlan,
   canBillPlan,
   canCancelPlan,
+  cancelPlanRefusal,
   canDeletePlan,
   canUseDraftEditor,
   displayedOutstanding,
   isPlanBilled,
+  isPlanLive,
   planItemState,
   planItemToPreset,
   planSeanceProgress,
@@ -345,7 +349,9 @@ export function TreatmentPlansTable({
    */
   const openEdit = (plan: TreatmentPlanDto) => {
     setEditing(plan)
-    setEditingAmend(!canUseDraftEditor(plan))
+    // One door: the amend path keeps each act's id, séances and remise — the draft editor rebuilt the acts and
+    // lost all three, and was refused outright on any crown/bridge/implant draft (F5, F6).
+    setEditingAmend(true)
     setFormOpen(true)
   }
 
@@ -411,33 +417,40 @@ export function TreatmentPlansTable({
           *begun and unfinished* — and appeared here as « 0/1 actes » with no next-séance link and no scheduling
           action at all, so booking visit 1 meant going back through the agenda.
         */}
-        {bookableItemOf(p) && (
+        {bookableItemOf(p) ? (
           <DropdownMenuItem onSelect={() => startBooking(p)}>
             Planifier la prochaine séance
           </DropdownMenuItem>
-        )}
+        ) : isPlanLive(p.status) ? (
+          // J5: kept and explained on a running treatment — it used to vanish with no reason.
+          <RefusedMenuItem label="Planifier la prochaine séance" reason="Toutes les séances sont planifiées ou faites." />
+        ) : null}
         <DropdownMenuItem onSelect={() => handleDownloadPdf(p)}>
           Télécharger le devis (PDF)
         </DropdownMenuItem>
 
-        {canAmendPlan(p) && <DropdownMenuSeparator />}
-        {canAmendPlan(p) && (
+        <DropdownMenuSeparator />
+        {canAmendPlan(p) ? (
           <DropdownMenuItem onSelect={() => openEdit(p)}>
             {/* One label source — the workspace's own wording. « Modifier le brouillon » is kept for the one
                 case where the draft editor really is what opens: a devis nobody has worked on yet. */}
             {draftEditor ? "Modifier le brouillon" : "Modifier les actes et les prix"}
           </DropdownMenuItem>
+        ) : (
+          <RefusedMenuItem label="Modifier les actes et les prix" reason={amendPlanRefusal(p)} />
         )}
         {/*
           ⚠️ « Facturer le devis » existed on no list surface at all: a devis whose work is finished could only
           be billed from inside the workspace, and the plans screen is where a practice does its billing round.
           `canBillPlan` is the same rule the workspace's primary action reads.
         */}
-        {canBillPlan(p) && (
+        {canBillPlan(p) ? (
           <DropdownMenuItem onSelect={() => setBillTarget(p)}>Facturer le devis</DropdownMenuItem>
+        ) : (
+          <RefusedMenuItem label="Facturer le devis" reason={billPlanRefusal(p)} />
         )}
 
-        {(canCancelPlan(p) || canDeletePlan(p)) && <DropdownMenuSeparator />}
+        {(canCancelPlan(p) || canDeletePlan(p) || cancelPlanRefusal(p)) && <DropdownMenuSeparator />}
         {/*
           ⚠️ « Annuler le devis » is offered only where « Arrêter le traitement » cannot reach the annulation
           itself — see `canCancelPlan`. The fold of the two verbs left a numbered devis with delivered work
@@ -459,6 +472,7 @@ export function TreatmentPlansTable({
             Supprimer le brouillon
           </DropdownMenuItem>
         )}
+        {cancelPlanRefusal(p) && <RefusedMenuItem label="Annuler le devis" reason={cancelPlanRefusal(p)} />}
       </DropdownMenuContent>
     )
   }
@@ -986,5 +1000,19 @@ export function TreatmentPlansTable({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+/**
+ * A menu entry the rule refuses on this devis: kept, disabled, and saying why (J5 · M26) — a control that
+ * vanishes teaches nothing, and the dentist goes looking for it elsewhere.
+ */
+function RefusedMenuItem({ label, reason }: { label: string; reason: string | null }) {
+  if (!reason) return null
+  return (
+    <DropdownMenuItem disabled className="flex-col items-start gap-0.5">
+      <span>{label}</span>
+      <span className="text-2xs text-muted-foreground">{reason}</span>
+    </DropdownMenuItem>
   )
 }

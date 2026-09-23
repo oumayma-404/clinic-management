@@ -101,11 +101,12 @@ jobs:
   # copy is deliberate: two applications in one repository held to one device contract is the point, and a
   # symlink or a shared script would have to grow a per-app branch at the first divergence.
   packaging:
-    # ⚠️ This does NOT compile the installers — ISCC needs Windows + Inno Setup 6, so the real compile stays
-    # an operator step (README.md § « Shipping an update to installed clients »). What it catches is the one
-    # failure mode that is invisible without running ISCC: a `{ }` comment whose own `}` closes it early. Both
-    # .iss files went months uncompiled and the SERVER installer had stopped building outright — so a clinic
-    # could not have been sent an update, and nothing anywhere said so.
+    # The cheap half — pure text, no Windows, seconds. It catches the one failure mode that survives a careful
+    # reading: a `{ }` comment whose own `}` closes it early.
+    # ⚠️ The `installers` job below is what actually compiles the script now. This one is kept rather than
+    # folded into it because it runs on every push in seconds while that one provisions a Windows runner and
+    # installs Inno Setup — and because a brace-comment trap is worth naming as itself rather than as one line
+    # of an ISCC error.
     name: Packaging — Inno Setup comment traps
     runs-on: ubuntu-latest
     steps:
@@ -117,6 +118,193 @@ jobs:
 
       - name: Lint .iss comments
         run: node packaging/lint-iss.mjs
+
+  # ⚠️ **This is the job whose absence let the server installer stop building for months.** `packaging` above
+  # catches exactly one failure mode with pure text; everything else — a bad `[Section]` tag, an unbalanced
+  # `begin`/`end`, a misspelt flag, an undeclared Pascal identifier — needs ISCC, which needs Windows.
+  #
+  # ⚠️ It compiles against STUB payloads (`ci-stub-payloads.mjs`), because ISCC refuses a `Source:` matching no
+  # file and the real ones are ~450 MB of PostgreSQL, Node and two published .NET apps. So this proves the script
+  # COMPILES and nothing about whether the installer installs — that stays the operator checklist in
+  # `packaging/README.md`, which needs a real machine, a real cluster and a real clinic LAN.
+  installers:
+    name: Installers — ISCC compiles
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Chocolatey is preinstalled on windows-latest. Pinned to 6.x: a major bump changes the Pascal dialect,
+      # and finding that out from a red build on an unrelated PR is the wrong moment.
+      - name: Install Inno Setup 6
+        run: choco install innosetup --version=6.2.2 --no-progress -y
+
+      - name: Stub the payloads
+        run: node packaging/ci-stub-payloads.mjs
+
+      - name: Compile the installer
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Qp "packaging\setup\clinic-setup.iss"
+
+      # The compiled setup is a real artifact built from stub payloads — useless to install, useful to inspect
+      # when a compile-time question comes up (which files were included, what the wizard pages resolved to).
+      - name: Upload the compiled setup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-compile-output
+          path: packaging/build-output/*.exe
+          if-no-files-found: warn
+
+  # The ONE profile nothing else in this repository exercises.
+  #
+  # ⚠️ `api/ClinicManagement.API/appsettings.Development.json` sets `Deployment:Profile: HostedMultiTenant`, so
+  # every `dotnet run`, every `dotnet ef` and the `e2e` job below all resolve the HOSTED profile. `SelfHostedLan`
+  # — a clinic's own PC, the offline-LAN product — was covered by unit tests and by a hand-run Windows installer,
+  # and by nothing else. Two backfills went missing on it for exactly that reason, the second one stopping Google
+  # Calendar push for any clinic connected before the protected column existed, silently, with no log and no
+  # badge. `StartupBackfillCoverageTests` catches the *wiring* now; this job catches the *outcome*, which no unit
+  # test can see because it needs a database.
+  #
+  # ⚠️ What makes it a real gate rather than a smoke test: it plants a plaintext Google token, asserts
+  # `verify-schema` REPORTS it (exit 2 — otherwise the check is blind and the green below means nothing), then
+  # restarts the API and asserts the deferred startup pass converted it (exit 0). Both halves are required; the
+  # first is what stops this job passing against a check that can no longer see anything.
+  local-mode:
+    name: Local mode — SelfHostedLan boots, migrates and converges
+    runs-on: ubuntu-latest
+    needs: [api]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinic_user
+          POSTGRES_PASSWORD: clinic_password
+          POSTGRES_DB: clinic_management
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Development for the same reason the e2e job gives: a non-Development environment rightly refuses to start
+      # without real MinIO credentials and an encrypted key ring, and this job must not weaken those refusals.
+      ASPNETCORE_ENVIRONMENT: Development
+      # ⚠️ The whole point of the job. It OVERRIDES appsettings.Development.json's HostedMultiTenant — environment
+      # is the last configuration layer — so everything below runs the profile a clinic actually installs.
+      Deployment__Profile: SelfHostedLan
+      ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=clinic_management;Username=clinic_user;Password=clinic_password"
+      PGPASSWORD: clinic_password
+      TZ: Africa/Tunis
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build the API
+        run: dotnet build api/ClinicManagement.API/ClinicManagement.API.csproj -c Release
+
+      # ── Boot #1. Migrations are DEFERRED on this profile (the SCM start timeout), so /health answering 200 is
+      #    NOT « the schema is there » — the readiness signal is DeferredStartupService's own line. Polling
+      #    /health instead is how a later step would fail with « relation "Clinics" does not exist » and read as
+      #    a product defect.
+      - name: Start the API — deferred migrations must complete
+        run: |
+          dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile \
+            > /tmp/api-local-1.log 2>&1 &
+          for i in $(seq 1 90); do
+            grep -q "API fully ready" /tmp/api-local-1.log && { echo "migrations applied"; exit 0; }
+            sleep 2
+          done
+          echo "::error title=Deferred startup never finished::last 80 lines follow"
+          tail -80 /tmp/api-local-1.log; exit 1
+
+      # Proves the profile really resolved, rather than the job silently testing HostedMultiTenant twice.
+      - name: Assert the deferred path ran (i.e. this really is SelfHostedLan)
+        run: |
+          grep -q "deferred, post-startup" /tmp/api-local-1.log || {
+            echo "::error title=Not the Local profile::the synchronous migrate ran, so Deployment__Profile did not take"
+            tail -40 /tmp/api-local-1.log; exit 1; }
+
+      - name: Provision a clinic
+        run: |
+          dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile -- \
+            provision-clinic --name "Cabinet LAN" --admin-email lan.runner@cabinet-lan.tn \
+            --admin-name "Dr LAN Runner" --city Tunis | sed 's/Temporary password:.*/Temporary password: ***/'
+
+      # ── The baseline. Without it, a step below asserting « exit 2 » would be satisfied by ANY unrelated drift
+      #    and the final « exit 0 » would then fail for a reason this job never introduced — a false red that
+      #    reads exactly like the defect it is watching for.
+      - name: verify-schema is clean on a fresh SelfHostedLan install (exit 0)
+        run: dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile -- verify-schema
+
+      # ── Plant the legacy state. A clinic that connected Google Calendar BEFORE the protected column existed
+      #    holds its token here and nowhere else. There is no product path that writes it any more, which is
+      #    precisely why the defect was invisible: the only way to reach the state is the way a real install
+      #    reached it — by predating the migration.
+      - name: Plant a plaintext Google token
+        run: |
+          psql -h localhost -U clinic_user -d clinic_management -v ON_ERROR_STOP=1 -c \
+            "UPDATE \"Clinics\" SET \"GoogleRefreshToken\" = 'legacy-plaintext-refresh-token' \
+             WHERE \"GoogleRefreshTokenProtected\" IS NULL;"
+
+      # ── Half one: the check can SEE it. Without this assertion a green final step would also be produced by a
+      #    check that silently stopped counting, which is the failure this whole job exists to catch.
+      - name: verify-schema must REPORT the plaintext token (exit 2, naming that check)
+        run: |
+          set +e
+          dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile -- verify-schema \
+            > /tmp/verify-planted.txt 2>&1
+          code=$?
+          set -e
+          cat /tmp/verify-planted.txt
+          [ "$code" = "2" ] || { echo "::error title=verify-schema is blind::expected exit 2 (drift found), got $code"; exit 1; }
+          # ⚠️ The check's NAME prints on every run, passing or not — the report lists every check with an
+          #    `[  ok ]` or `[DRIFT]` marker. So the name alone proves nothing; the marker is the assertion.
+          grep -q "\[DRIFT\] google-token-protected" /tmp/verify-planted.txt || {
+            echo "::error title=Wrong finding::exit 2 came from some other check, not google-token-protected"; exit 1; }
+
+      # ── Half two: the deferred startup pass CONVERTS it. This is the line that was missing.
+      - name: Restart the API so the startup backfills run
+        run: |
+          pkill -f "ClinicManagement.API" || true
+          for i in $(seq 1 30); do pgrep -f "ClinicManagement.API" >/dev/null || break; sleep 1; done
+          dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile \
+            > /tmp/api-local-2.log 2>&1 &
+          for i in $(seq 1 90); do
+            grep -q "API fully ready" /tmp/api-local-2.log && { echo "second boot ready"; exit 0; }
+            sleep 2
+          done
+          echo "::error title=Second boot never finished::last 80 lines follow"
+          tail -80 /tmp/api-local-2.log; exit 1
+
+      - name: verify-schema must now be clean (exit 0)
+        run: |
+          set +e
+          dotnet run --project api/ClinicManagement.API -c Release --no-build --no-launch-profile -- verify-schema
+          code=$?
+          set -e
+          [ "$code" = "0" ] || {
+            echo "::error title=SelfHostedLan never converged::verify-schema exit $code — a startup backfill did not run on the deferred path"
+            exit 1; }
+
+      - name: Upload API logs
+        if: always() # They matter most when a step above failed.
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-mode-api-logs
+          path: /tmp/api-local-*.log
+          if-no-files-found: warn
 
   console:
     name: Console — typecheck + responsive + build
@@ -547,6 +735,8 @@ jobs:
             e2e/.artifacts/**/*.png
             e2e/.artifacts/**/trace.zip
           if-no-files-found: warn
+          # `.artifacts` is a dot-folder: without this, upload-artifact@v4 skips it and uploads NOTHING.
+          include-hidden-files: true
 
       - name: Upload the server logs on failure
         if: failure()

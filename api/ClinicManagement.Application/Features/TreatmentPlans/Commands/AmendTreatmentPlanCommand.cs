@@ -43,6 +43,12 @@ public class AmendTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
     /// </summary>
     public uint Version { get; set; }
 
+    /// <summary>
+    /// Set only after the screen asked « rendre X DT au patient ? »: how the difference is given back today
+    /// (<see cref="PlanRefund"/>). Absent, a total below what was collected is refused with <see cref="PlanRefund.Code"/>.
+    /// </summary>
+    public string? RefundMethod { get; set; }
+
     public Guid Id { get; set; }
     public List<TreatmentPlanItemRequest> AddItems { get; set; } = new();
 
@@ -177,6 +183,11 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
             // line being removed in the same amendment cannot fight over the same id.
             if (request.UpdateItems.Count > 0)
             {
+                // Read before the edit: which act each line was, and which séances it had — so a visit booked on
+                // a line whose act changed follows it, and one booked on a séance this edit removes lets it go.
+                var actBefore = plan.Items.ToDictionary(i => i.Id, i => i.ProcedureTypeId);
+                var stepsBefore = plan.Items.ToDictionary(i => i.Id, i => i.Steps.Select(st => st.Id).ToList());
+
                 var edits = await TreatmentPlanItemPricing.ResolveWithIdsAsync(
                     request.UpdateItems, clinicId, _procedureTypeRepository, cancellationToken);
                 plan.UpdateItems(edits);
@@ -198,6 +209,28 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                         line.Id!.Value,
                         line.Steps!.Select(s => new TreatmentPlanItemStepInput(
                             s.Id, s.Label, s.EstimatedDurationMinutes, s.MinDaysAfterPrevious)));
+                }
+
+                foreach (var item in plan.Items.Where(i => stepsBefore.ContainsKey(i.Id)))
+                {
+                    var after = item.Steps.Select(st => st.Id).ToHashSet();
+                    await PlanBookingRelease.ReleaseStepsAsync(
+                        item.Id, stepsBefore[item.Id].Where(id => !after.Contains(id)).ToList(),
+                        clinicId, _appointmentRepository, cancellationToken);
+
+                    // ⚠️ The devis line now names another act: its booked visit follows, or it kept the old
+                    // act's name, colour and length — and the fiche prefilled from it was refused as « not the
+                    // devis act ».
+                    if (item.ProcedureTypeId != actBefore[item.Id] && item.ProcedureTypeId.HasValue)
+                    {
+                        var procedureType = await _procedureTypeRepository.GetByIdAsync(
+                            item.ProcedureTypeId.Value, cancellationToken);
+                        if (procedureType != null && procedureType.ClinicId == clinicId)
+                        {
+                            await PlanBookingRelease.FollowActChangeAsync(
+                                item.Id, procedureType, clinicId, _appointmentRepository, cancellationToken);
+                        }
+                    }
                 }
             }
 
@@ -228,6 +261,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                 // Captured BEFORE the add, because `ApplyAsync` matches a confirmed list to an act by the act's
                 // `SequenceNumber` — which on this path is its position in the whole plan, not in `AddItems`.
                 var firstAddedPosition = plan.Items.Count == 0 ? 0 : plan.Items.Max(i => i.SequenceNumber) + 1;
+                var idsBeforeAdd = plan.Items.Select(i => i.Id).ToHashSet();
 
                 var items = await TreatmentPlanItemPricing.ResolveAsync(
                     request.AddItems, clinicId, _procedureTypeRepository, cancellationToken);
@@ -251,7 +285,8 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                 confirmed.AddRange(TreatmentPlanStepProtocol.ConfirmedByPosition(request.AddItems));
 
                 await TreatmentPlanStepProtocol.ApplyAsync(
-                    plan, clinicId, _procedureTypeRepository, cancellationToken, confirmed);
+                    plan, clinicId, _procedureTypeRepository, cancellationToken, confirmed,
+                    onlyItemIds: plan.Items.Where(i => !idsBeforeAdd.Contains(i.Id)).Select(i => i.Id).ToList());
             }
 
             /*
@@ -261,10 +296,25 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
              * ⚠️ It used to REFUSE when no schedule came with the change, and that was the app fighting the
              * dentist: correcting a price from the booking dialog or the acts table has no échéancier on
              * screen to re-send, so the only honest answer there was « renvoyez l'échéancier », which names
-             * something the caller cannot see. It re-spreads instead — every collected row stays at exactly
-             * what it has taken and the balance lands on one row — so a price is editable from anywhere and
-             * the invariant still holds. A plan with no schedule (an un-numbered treatment) is a no-op.
+             * something the caller cannot see. It re-spreads instead — the agreed dates stay and the
+             * difference lands on the last unpaid rows — so a price is editable from anywhere and the
+             * invariant still holds. A plan with no schedule (an un-numbered treatment) is a no-op.
              */
+            // G3: a total now below what was collected is given back today once the screen confirmed it —
+            // never silently, never as an avoir.
+            if (plan.ExcessCollected > 0m)
+            {
+                if (!PlanRefund.TryParse(request.RefundMethod, out var refundMethod, out var methodError))
+                {
+                    return Result<TreatmentPlanDto>.Failure(methodError!);
+                }
+                if (refundMethod is not { } method)
+                {
+                    return Result<TreatmentPlanDto>.Failure(PlanRefund.Sentence(plan), PlanRefund.Code);
+                }
+                plan.RefundExcess(method, ClinicClock.ClinicToday());
+            }
+
             if (plan.TotalPlanned != totalBefore && request.Installments.Count == 0)
             {
                 plan.RespreadScheduleToTotal(ClinicClock.ClinicToday());

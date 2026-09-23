@@ -69,7 +69,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
-import { dentalRecordsApi } from "@/lib/api/dental-records"
+import { dentalRecordsApi, type DentalRecordDeletionPreview } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto, InvoiceDto, InstallmentDto } from "@/lib/api/types"
@@ -118,6 +118,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import {
   appointmentActsSummary, appointmentStatusBadgeClass, appointmentStatusLabel, genderLabel, normalizeStatus,
+  visitActsLine,
 } from "@/components/appointment-labels"
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
@@ -504,8 +505,12 @@ function SectionLoadFailure({ onRetry }: { onRetry: () => void }) {
  * `Appointment.MarkVisitCompleted`, which returns `Contradicted` for exactly those two and is swallowed by its
  * best-effort caller — so the fiche would persist while the appointment silently stayed cancelled. A visit
  * recorded as not having happened should not offer to record what happened during it.
+ *
+ * ⚠️ A « Terminé » visit with NO fiche offers it too (H7) — its fiche was deleted, or it was closed by hand. It used
+ * to be excluded outright, so deleting a fiche left the visit with no way to record it again from its own row, and
+ * the only other door lost the booked act and its price.
  */
-function appointmentVisitState(appointment: AppointmentDto) {
+function appointmentVisitState(appointment: AppointmentDto, hasFiche = false) {
   const durationMinutes = appointment.duration
     ? parseInt(appointment.duration.split(":")[0]) * 60 + parseInt(appointment.duration.split(":")[1] || "0")
     : 0
@@ -516,7 +521,9 @@ function appointmentVisitState(appointment: AppointmentDto) {
     durationMinutes,
     isCanceled: appointment.status === "Cancelled",
     canRecordVisit:
-      endedAt < Date.now() && status !== "Completed" && status !== "Cancelled" && status !== "NoShow",
+      status !== "Cancelled"
+      && status !== "NoShow"
+      && (status === "Completed" ? !hasFiche : endedAt < Date.now()),
   }
 }
 
@@ -788,9 +795,54 @@ export default function PatientDetailsPage() {
    * `setEditingRecord(null)` is required, not tidying: a non-null `editingRecord` forces `recordAppointment` to
    * null (an edit must never be re-proposed), so a stale value would open the modal with no prefill.
    */
+  /**
+   * The fiche that already documents a visit, when there is one.
+   *
+   * <p>⚠️ <b>One visit, one fiche — and nothing enforced it.</b> `canRecordVisit` only asks whether the slot is
+   * over and the status is not `Completed`/`Cancelled`/`NoShow`, and the thing that clears it is
+   * `Appointment.MarkVisitCompleted`, fired <i>post-commit and best-effort</i> by the fiche's own save. So the
+   * button survives every case where that side effect does not land, and pressing it composed a <b>second</b>
+   * fiche prefilled from the booking. Measured on the dev database: five appointments carry 2 to 4 fiches,
+   * one of them « Coiffage pulpaire » then « Gingivectomie » two minutes apart.</p>
+   *
+   * <p>⚠️ <b>This is also the whole of « I changed the act and it went back to the old one ».</b> The second
+   * composer prefills from `appointment.procedures`, which the fiche never rewrites — deliberately, since the
+   * booking is what was agreed and carries the devis link and the negotiated price — so reopening the visit
+   * showed the act that was <i>booked</i>, not the one that was <i>recorded</i>.</p>
+   */
+  const ficheForVisit = (appointmentId: string): DentalRecordDto | null =>
+    dentalRecords.find((r) => r.appointmentId === appointmentId) ?? null
+
+  /**
+   * A history row's act line (J3): the fiche's acts « Réalisé » when it has one, the booked ones « Prévu » on a
+   * finished visit without one, and the plain booking on a visit still to come — where it cannot be confused with
+   * what was done. The column used to print the booking on every row, done or not, with no word to say which.
+   */
+  const historyActs = (appointment: AppointmentDto): string | null => {
+    const booked = appointmentActsSummary(appointment)
+    const fiche = ficheForVisit(appointment.id)
+    if (!fiche && normalizeStatus(appointment.status) !== "Completed") return booked
+    const line = visitActsLine(booked ? booked.split(" + ") : [], fiche?.acts.map((a) => a.procedureName))
+    return line ? `${line.label} : ${line.text}` : null
+  }
+
+  /**
+   * Open the record modal already bound to a finished visit — exactly the state the
+   * `?addRecord=1&appointmentId=…` deep-link sets, so the modal prefills identically: `reviewAppointmentId`
+   * feeds `recordAppointment`, which proposes the visit's booked act and pre-selects its devis step. Setting it
+   * here rather than navigating avoids a round trip through the URL for something already on screen.
+   *
+   * `setEditingRecord(null)` is required, not tidying: a non-null `editingRecord` forces `recordAppointment` to
+   * null (an edit must never be re-proposed), so a stale value would open the modal with no prefill.
+   *
+   * ⚠️ …unless the visit already has a fiche, in which case that fiche is what opens. See {@link ficheForVisit}.
+   */
   const openVisitRecord = (appointmentId: string) => {
-    setEditingRecord(null)
-    setReviewAppointmentId(appointmentId)
+    const existing = ficheForVisit(appointmentId)
+    setEditingRecord(existing)
+    // Cleared on the edit branch: `recordAppointment` and the modal's `appointmentId` prop both key on it, and
+    // an edit must never be re-proposed from the booking.
+    setReviewAppointmentId(existing ? null : appointmentId)
     setRecordModalOpen(true)
   }
 
@@ -956,6 +1008,18 @@ export default function PatientDetailsPage() {
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   // Pending destructive confirmations (AC-P2.16 / AC-P2.20). null = dialog closed.
   const [recordToDelete, setRecordToDelete] = useState<DentalRecordDto | null>(null)
+  /*
+   * What deleting that fiche would undo, straight from the server — money included.
+   *
+   * ⚠️ **Asked for, never re-derived here.** The page already holds the plans and the invoices, so totting the
+   * figure up locally is one line and it answers the wrong question: those reads say what the patient OWES,
+   * while this says what the deletion REVERSES, and the two differ the moment a payment is voided or a note
+   * cancelled. The server computes it with the very call the delete then makes, so the number on screen and
+   * the number that moves cannot drift.
+   *
+   * `undefined` = not asked yet / in flight; a value = the answer, `refusal` included.
+   */
+  const [deletionPreview, setDeletionPreview] = useState<DentalRecordDeletionPreview | undefined>(undefined)
 
   /*
    * ⚠️ **All six templates, not one.** This panel offered « Nouvelle ordonnance » alone, so « Arrêt de
@@ -1341,6 +1405,22 @@ export default function PatientDetailsPage() {
     }
   }, [patientId])
 
+  /*
+   * The deep link's half of {@link ficheForVisit}. The effect above runs on mount, before the phase-2 batch has
+   * delivered the fiches, so « does this visit already have one? » cannot be answered there — and the post-visit
+   * bell is exactly the door a dentist re-uses after recording the séance.
+   *
+   * ⚠️ Guarded on `editingRecord` being null, so it never overrides a choice already made: the button path
+   * resolves the same question synchronously, and this must not undo it or re-open a modal that has closed.
+   */
+  useEffect(() => {
+    if (!recordModalOpen || editingRecord || !reviewAppointmentId) return
+    const existing = dentalRecords.find((r) => r.appointmentId === reviewAppointmentId)
+    if (!existing) return
+    setEditingRecord(existing)
+    setReviewAppointmentId(null)
+  }, [recordModalOpen, editingRecord, reviewAppointmentId, dentalRecords])
+
   // Deep-link from « Corriger cette note » on /factures (?editRecord=<ficheId>): open that fiche's editor, which
   // is the only door where the correction is expressible — the price is changed on the acts, and the note follows.
   // Two steps because the modal edits the record itself, and the fiches arrive with the page's phase-2 batch.
@@ -1495,6 +1575,40 @@ export default function PatientDetailsPage() {
         .filter((item) => item.linkedDentalRecordId === recordId)
         .map((item) => ({ planTitle: plan.title, designation: item.designationFr })),
     )
+
+  /*
+   * Ask what the deletion would undo, each time the dialog opens on a fiche.
+   *
+   * ⚠️ A failed read leaves `undefined`, and the dialog then keeps its « Supprimer » DISABLED rather than
+   * falling through to the old wording. The alternative — show the confirmation without the money paragraph —
+   * is the exact shape of the defect this whole change exists to remove: a destructive press whose monetary
+   * consequence nobody was told about.
+   */
+  useEffect(() => {
+    if (!recordToDelete) {
+      setDeletionPreview(undefined)
+      return
+    }
+    let cancelled = false
+    setDeletionPreview(undefined)
+    void (async () => {
+      try {
+        const preview = await dentalRecordsApi.deletionPreview(patientId, recordToDelete.id)
+        if (!cancelled) setDeletionPreview(preview)
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(
+            err instanceof ApiError
+              ? err.message
+              : "Impossible de vérifier ce que cette suppression annulerait.",
+          )
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [recordToDelete, patientId])
 
   const confirmDeleteRecord = async () => {
     if (!recordToDelete) return
@@ -1685,8 +1799,15 @@ procedureTypeId: it.procedureTypeId ?? null,
      * active, yet the fiche that evidenced either still happened and must still read correctly. Appended only
      * when a record is being edited, so nothing new is ever *offered* — a Select must contain its own value.
      */
-    const linkedId = editingRecord?.treatmentPlanItemId
-    if (linkedId && !options.some((o) => o.itemId === linkedId)) {
+    // Every devis act the fiche carries, not only the lead (C4b): a séance can carry several (C4), and the modal
+    // resolves each one's procedure here to mark its card « sur le devis ».
+    const linkedIds = new Set(
+      [editingRecord?.treatmentPlanItemId, ...(editingRecord?.treatmentPlanItemIds ?? [])].filter(
+        (id): id is string => !!id,
+      ),
+    )
+    for (const linkedId of linkedIds) {
+      if (options.some((o) => o.itemId === linkedId)) continue
       for (const p of treatmentPlans) {
         const it = p.items.find((i) => i.id === linkedId)
         if (it) {
@@ -1992,6 +2113,27 @@ procedureTypeId: it.procedureTypeId ?? null,
               ) : (
                 <span className="text-amber-700 dark:text-amber-400">Aucun téléphone</span>
               )}
+              {/*
+                The patient's other numbers, right behind the first — this strip is what somebody reads when
+                they are about to telephone, so a second number filed three cards further down is a number
+                nobody finds at the moment it is needed.
+
+                ⚠️ `extra.e164` and not `extra.value`: the stored value keeps its spaces and carries no country
+                code for a foreign number, and `tel:` with spaces in it is the shape that took the Windows
+                shell's whole window down. Here there is no fallback to write — the column is NOT NULL.
+
+                The label is printed beside the number rather than replacing it: « Époux » alone tells a
+                receptionist nothing they can dial.
+              */}
+              {(patient.additionalPhones ?? []).map((extra) => (
+                <a
+                  key={extra.e164 + extra.value}
+                  href={`tel:${extra.e164}`}
+                  className="touch-target inline-flex items-center gap-1.5 text-muted-foreground underline-offset-2 hover-hover:hover:underline"
+                >
+                  <span className="font-medium text-foreground">{extra.value}</span>
+                </a>
+              ))}
               {/*
                 « Tabac » takes the slot the assureur vacated, and it earns it on this strip's own terms: it is a
                 fact that changes what the practitioner does (healing, implant survival, periodontal work) and it
@@ -3135,9 +3277,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                       items={appointmentsPage.items}
                       getKey={(appointment) => appointment.id}
                       title={(appointment) => formatDateTime(appointment.appointmentDateTime)}
-                      subtitle={(appointment) =>
-                        appointmentActsSummary(appointment) || "Rendez-vous général"
-                      }
+                      subtitle={(appointment) => historyActs(appointment) || "Rendez-vous général"}
                       accent={(appointment) =>
                         appointmentVisitState(appointment).isCanceled
                           ? undefined
@@ -3171,14 +3311,17 @@ procedureTypeId: it.procedureTypeId ?? null,
                         and the identity gets the header back. (`app/waiting-list/page.tsx` is the template.)
                       */
                       primaryAction={(appointment) =>
-                        appointmentVisitState(appointment).canRecordVisit ? (
+                        appointmentVisitState(appointment, ficheForVisit(appointment.id) != null).canRecordVisit ? (
                           <Button
                             variant="outline"
                             className="w-full gap-1.5"
                             onClick={() => openVisitRecord(appointment.id)}
                           >
                             <FileText className="h-4 w-4" />
-                            Enregistrer la fiche
+                            {/* The verb says which of the two things the press does — see `ficheForVisit`. A
+                                button reading « Enregistrer » that opens a fiche full of work is how a second
+                                one got written. */}
+                            {ficheForVisit(appointment.id) ? "Ouvrir la fiche" : "Enregistrer la fiche"}
                           </Button>
                         ) : null
                       }
@@ -3205,7 +3348,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                              * `appointmentVisitState`, shared with the card list above.
                              */
                             const { durationMinutes, canRecordVisit, isCanceled } =
-                              appointmentVisitState(appointment)
+                              appointmentVisitState(appointment, ficheForVisit(appointment.id) != null)
 
                             // Determine row color based on status and procedure type
                             const rowColor = isCanceled
@@ -3233,13 +3376,13 @@ procedureTypeId: it.procedureTypeId ?? null,
                                   {/* A visit can be several acts; the shared summary joins them
                                       (« Détartrage + Obturation ») and the dot keeps the lead act's colour,
                                       which is what the row's own left border already uses. */}
-                                  {appointmentActsSummary(appointment) ? (
+                                  {historyActs(appointment) ? (
                                     <div className="flex items-center gap-2">
                                       <div
                                         className="h-3 w-3 rounded-full shrink-0"
                                         style={{ backgroundColor: appointment.procedureColorHex || "#6C757D" }}
                                       />
-                                      <span>{appointmentActsSummary(appointment)}</span>
+                                      <span>{historyActs(appointment)}</span>
                                     </div>
                                   ) : (
                                     <span className="text-muted-foreground">Rendez-vous général</span>
@@ -3285,10 +3428,15 @@ procedureTypeId: it.procedureTypeId ?? null,
                                       size="sm"
                                       className="gap-1.5 whitespace-nowrap"
                                       onClick={() => openVisitRecord(appointment.id)}
-                                      title="Enregistrer la fiche de soins de cette séance"
+                                      title={
+                                        ficheForVisit(appointment.id)
+                                          ? "Ouvrir la fiche de soins de cette séance"
+                                          : "Enregistrer la fiche de soins de cette séance"
+                                      }
                                     >
                                       <FileText className="h-3.5 w-3.5" />
-                                      Enregistrer la fiche
+                                      {/* Same rule as the card above. */}
+                                      {ficheForVisit(appointment.id) ? "Ouvrir la fiche" : "Enregistrer la fiche"}
                                     </Button>
                                   ) : (
                                     <span className="text-muted-foreground/60">—</span>
@@ -3721,6 +3869,20 @@ procedureTypeId: it.procedureTypeId ?? null,
                     )
                   }
                 />
+                {/*
+                  The other numbers in the record card too — the strip above is read at a glance and clamps, and
+                  this card is where a stored fact is read in full. `omitWhenEmpty`, like « E-mail » and
+                  « Adresse » beside it: almost every patient has none and a « — » row on every fiche is noise.
+
+                  A plain string, not links: the card is the record, and the header strip one screen up is the
+                  surface that dials.
+                */}
+                <RecordField
+                  label="Autres numéros"
+                  value={(patient.additionalPhones ?? []).map((extra) => extra.value).join(" · ")}
+                  wide
+                  omitWhenEmpty
+                />
                 {/* The denture was stored, drove every chart, and appeared NOWHERE on the patient's own file.
                     The record card is where a stored fact nothing else prints belongs. Full label
                     (« Denture mixte »), not the form control's short caption: here there is no group heading to
@@ -3960,14 +4122,88 @@ procedureTypeId: it.procedureTypeId ?? null,
                     ? `Fiche du ${formatDate(recordToDelete.interventionDate)} — ${recordToDelete.procedureType}. Cette action est irréversible.`
                     : "Cette action est irréversible."}
                 </p>
-                {recordToDelete && invoicedDentalRecordIds.has(recordToDelete.id) && (
+                {/*
+                  ⚠️ This paragraph used to promise « la note d'honoraires, son numéro et son montant ne
+                  changent pas : seul le lien vers la fiche est retiré ». That is no longer true and keeping it
+                  would be worse than saying nothing: the note is now annulée with the fiche, which is the whole
+                  point — a note left standing for a séance that no longer exists is how one patient came to pay
+                  80,000 DT twice for one extraction.
+                */}
+                {deletionPreview?.note && (
                   <p>
-                    Cette fiche est facturée sur la note d&apos;honoraires{" "}
-                    <span className="font-semibold">
-                      {invoicingNumberByRecordId.get(recordToDelete.id) ?? "en cours"}
-                    </span>
-                    . La note d&apos;honoraires, son numéro et son montant ne changent pas : seul le lien vers
-                    la fiche est retiré.
+                    {deletionPreview.note.isDraft ? (
+                      <>
+                        Le brouillon de note d&apos;honoraires de cette séance sera{" "}
+                        <span className="font-semibold">supprimé</span> (aucun numéro n&apos;a été utilisé).
+                      </>
+                    ) : (
+                      <>
+                        La note d&apos;honoraires{" "}
+                        <span className="font-semibold">n° {deletionPreview.note.number}</span> sera{" "}
+                        <span className="font-semibold">annulée</span>. Elle garde son numéro et reste
+                        consultable — la numérotation ne perd aucun rang.
+                      </>
+                    )}
+                  </p>
+                )}
+
+                {/*
+                  The warning the owner asked for, in as many words: « dis que l'argent est déjà entré dans la
+                  caisse ». It names the amount, where it sits, and — the part a dentist cannot guess — that the
+                  caisse day that moves is the day the money was RECEIVED, not today.
+                */}
+                {deletionPreview?.touchesMoney && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1.5">
+                    <p className="font-semibold">
+                      Cet argent est déjà entré dans la caisse — {formatDT(deletionPreview.totalReversed)}{" "}
+                      seront annulés.
+                    </p>
+                    <ul className="list-disc ps-5 space-y-0.5">
+                      {deletionPreview.plans.map((plan) => (
+                        <li key={plan.id}>
+                          {formatDT(plan.amount)} encaissés sur{" "}
+                          {plan.number ? `le devis ${plan.number}` : `le traitement ${quoteFr(plan.title)}`}
+                        </li>
+                      ))}
+                      {deletionPreview.note && deletionPreview.note.amount > 0 && (
+                        <li>
+                          {formatDT(deletionPreview.note.amount)} encaissés sur la note{" "}
+                          {deletionPreview.note.number ? `n° ${deletionPreview.note.number}` : "en brouillon"}
+                        </li>
+                      )}
+                    </ul>
+                    {deletionPreview.affectedCaisseDays.length > 0 && (
+                      <p>
+                        La caisse {deletionPreview.affectedCaisseDays.length === 1 ? "du" : "des"}{" "}
+                        <span className="font-semibold">
+                          {deletionPreview.affectedCaisseDays.map((day) => formatDate(day)).join(", ")}
+                        </span>{" "}
+                        {deletionPreview.affectedCaisseDays.length === 1 ? "sera modifiée" : "seront modifiées"}{" "}
+                        — pas celle d&apos;aujourd&apos;hui.
+                      </p>
+                    )}
+                    <p>
+                      Chaque encaissement est conservé et marqué annulé, avec votre nom et le motif. Rien
+                      n&apos;est effacé de l&apos;historique.
+                    </p>
+                  </div>
+                )}
+
+                {/* A named refusal, never a withheld control: the entry stays, the dialog states the rule. */}
+                {deletionPreview?.refusal && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                    <p className="font-semibold">Cette fiche ne peut pas être supprimée pour l&apos;instant.</p>
+                    <p>{deletionPreview.refusal}</p>
+                  </div>
+                )}
+
+                {!!deletionPreview?.documentsKept && (
+                  <p>
+                    {deletionPreview.documentsKept === 1
+                      ? "L'ordonnance de cette séance est conservée"
+                      : `Les ${deletionPreview.documentsKept} ordonnances de cette séance sont conservées`}{" "}
+                    — le papier est peut-être déjà chez le patient. Elle reste dans ses documents et se modifie
+                    normalement.
                   </p>
                 )}
                 {recordToDelete && planActsEvidencedBy(recordToDelete.id).length > 0 && (
@@ -3987,13 +4223,23 @@ procedureTypeId: it.procedureTypeId ?? null,
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>
+              {/* On a refusal there is nothing to confirm, so « Annuler » is the only way out and says so. */}
+              {deletionPreview?.refusal ? "Retour" : "Annuler"}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault()
                 void confirmDeleteRecord()
               }}
-              disabled={deleting}
+              /*
+               * ⚠️ Disabled until the preview lands, and hidden entirely on a refusal.
+               *
+               * A confirm whose one outcome is a red toast is the « discover the rule by breaking it » shape
+               * this codebase already refuses elsewhere; and pressing before the preview arrives is pressing
+               * without having been told what it costs, which is the defect being fixed.
+               */
+              disabled={deleting || deletionPreview === undefined || !!deletionPreview.refusal}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? "Suppression…" : "Supprimer"}

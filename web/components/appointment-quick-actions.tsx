@@ -70,11 +70,23 @@ export function AppointmentQuickActions({
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /**
+   * H6: « Annulé » on a visit that already happened or is billed is one tap from counting a treated, billed
+   * patient as an absence — so it is confirmed, and the confirmation says what stays.
+   */
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const cancelNeedsConfirm = appointment.status === "Completed" || Boolean(appointment.invoiceId)
 
   const options = appointment.allowedNextStatuses ?? []
 
-  const apply = async (status: string) => {
+  const apply = async (status: string, confirmed = false) => {
     if (saving) return
+    if (status === "Cancelled" && cancelNeedsConfirm && !confirmed) {
+      // Close the popover first, for the same two-focus-traps reason as « Supprimer ».
+      setOpen(false)
+      setConfirmCancel(true)
+      return
+    }
     setSaving(true)
     try {
       // Only `status` travels. Every other field is tri-state server-side, so omitting them leaves the acts, the
@@ -83,6 +95,7 @@ export function AppointmentQuickActions({
       await appointmentsApi.update(appointment.id, { status })
       toast.success(`Rendez-vous marqué ${quoteFr(appointmentStatusLabel(status))}`)
       setOpen(false)
+      setConfirmCancel(false)
       onChanged?.()
     } catch (err) {
       // The popover stays open on failure, so the user can retry without finding the appointment again.
@@ -189,6 +202,35 @@ export function AppointmentQuickActions({
           </Button>
         </PopoverContent>
       </Popover>
+
+      <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Annuler ce rendez-vous ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {target} est {appointment.status === "Completed" ? "terminé" : "enregistré"}
+              {appointment.invoiceId
+                ? ` et facturé${appointment.invoiceNumber ? ` sur la note ${appointment.invoiceNumber}` : ""}`
+                : ""}
+              . L&apos;annuler le compte comme une annulation dans le taux d&apos;absence ; la fiche de soins et la
+              note d&apos;honoraires restent enregistrées.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Non, conserver</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void apply("Cancelled", true)
+              }}
+              disabled={saving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {saving ? "Annulation…" : "Oui, annuler"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         {/*

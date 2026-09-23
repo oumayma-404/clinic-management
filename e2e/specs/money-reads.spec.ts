@@ -250,6 +250,23 @@ test.describe("HP-10c · les lectures d'argent s'accordent @mutating @t0", () =>
     const owing = await owed(api, p.id, p.name)
     expect(owing.summaryTotal, "before the cancellation, 250 of 400 is owed").toBe(mil(250))
 
+    /*
+     * ⚠️ **Live money blocks the cancellation (`EnsureNoLiveMoney`, `135b5c73`).** Cancelling drops the devis
+     * out of every caisse read, so it would rewrite a day already closed. The payment is voided first — the
+     * « Annuler l'encaissement » gesture — and only then may the devis be cancelled.
+     */
+    const blocked = await api.cancelPlan(planId, "Le patient ne poursuit pas.")
+    expect(blocked.status, "a devis holding money is not cancelled").toBe(400)
+    expect((await owed(api, p.id, p.name)).summaryTotal, "and nothing moved").toBe(mil(250))
+
+    const payment = (await api.plan(planId)).installments[0].payments[0]
+    const voided = await api.call(
+      "POST",
+      `/treatment-plans/${planId}/installments/${inst.id}/payments/${payment.id}/void`,
+      { reason: "E2E — saisie erronée" },
+    )
+    expect(voided.status, `void: ${voided.raw?.slice(0, 300)}`).toBe(200)
+
     const cancelled = await api.cancelPlan(planId, "Le patient ne poursuit pas.")
     expect(cancelled.status, `cancel: ${cancelled.raw?.slice(0, 400)}`).toBe(200)
 

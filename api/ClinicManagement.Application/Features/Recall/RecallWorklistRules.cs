@@ -31,8 +31,9 @@ public sealed record RecallReason(RecallReasonKind Kind, DateTime DueSince, stri
 public static class RecallWorklistRules
 {
     /// <summary>
-    /// How long after acceptance a devis with unfinished acts and nothing booked counts as stalled. A grace period
-    /// exists so a plan accepted this morning, whose next séance has simply not been booked yet, is not chased.
+    /// How long after the last work (else the acceptance) a devis with unfinished acts and nothing booked counts as
+    /// stalled, when its protocol states no interval. A grace period exists so a plan accepted this morning, whose
+    /// next séance has simply not been booked yet, is not chased.
     /// </summary>
     public const int StalledPlanGraceDays = 14;
 
@@ -76,7 +77,7 @@ public static class RecallWorklistRules
             {
                 reasons.Add(new RecallReason(
                     RecallReasonKind.StalledPlan,
-                    plan.AcceptedDate ?? plan.CreatedAt,
+                    StalledSince(plan),
                     plan.Number ?? $"{plan.DoneItems}/{plan.TotalItems}"));
             }
 
@@ -125,8 +126,18 @@ public static class RecallWorklistRules
     public static bool IsStalled(RecallPlanFact plan, DateTime nowUtc) =>
         TreatmentPlanLifecycle.IsLive(plan.Status)
         && plan.DoneItems < plan.TotalItems
-        && (plan.AcceptedDate ?? plan.CreatedAt).AddDays(StalledPlanGraceDays) <= nowUtc
+        && StalledSince(plan) <= nowUtc
         && !NeverAnswered(plan.Status, plan.DoneItems > 0, plan.CreatedAt, nowUtc);
+
+    /// <summary>
+    /// When a running treatment becomes « au point mort » (H9): the protocol's own due date for its next séance
+    /// when it states one — an implant waiting eight weeks is not late at day 15 — else a fortnight after the last
+    /// work delivered, else after the acceptance. It used to count a flat fortnight from the signature, so a
+    /// treatment seen yesterday on a devis signed in May was chased.
+    /// </summary>
+    public static DateTime StalledSince(RecallPlanFact plan) =>
+        plan.NextStepDueFrom
+        ?? (plan.LastWorkOn ?? plan.AcceptedDate ?? plan.CreatedAt).AddDays(StalledPlanGraceDays);
 
     /// <summary>
     /// A devis presented to a patient and never answered, past its grace period.

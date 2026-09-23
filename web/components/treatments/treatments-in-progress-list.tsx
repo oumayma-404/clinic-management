@@ -13,7 +13,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { TreatmentInProgressDto, TreatmentPlanDto } from "@/lib/api/types"
 import type { PagedResponse } from "@/lib/api/paging"
-import { formatDateFr, quoteFr } from "@/lib/format"
+import { formatDateFr, ordinalFr, quoteFr } from "@/lib/format"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { cn } from "@/lib/utils"
@@ -340,8 +340,9 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
                         <p className="font-mono text-2xs text-muted-foreground">{row.planNumber}</p>
                       )}
                     </TableCell>
-                    <TableCell clamp title={row.designationFr}>
-                      {row.designationFr}
+                    <TableCell className="align-top" title={row.designationFr}>
+                      <span className="line-clamp-2">{row.designationFr}</span>
+                      <PlanActPlace row={row} />
                     </TableCell>
                     <TableCell>
                       <NextStepCell row={row} />
@@ -386,6 +387,10 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
                     // The card's title IS the link, stretched over the whole card by CardList's pseudo-element.
                     href={(row) => `/treatment-plans/${row.planId}`}
                     subtitle={(row) => row.designationFr}
+                    // ⚠️ `underTitle`, never folded into `subtitle`: that slot renders a `<p>`, and this line
+                    // is a block — `card-list`'s own note records the hydration failure and the silent
+                    // `line-clamp-2` cut that follow.
+                    underTitle={(row) => <PlanActPlace row={row} />}
                     fields={(row) => [
                       // Card order per § 6: identity → status → date. There is no money field on this surface.
                       { label: "Prochaine étape", value: <NextStepCell row={row} /> },
@@ -436,6 +441,39 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
   )
 }
 
+/**
+ * « 3e acte du devis » — where this act sits among the devis' acts.
+ *
+ * <p>⚠️ <b>The list is one row per ACT, and the row's loudest identifier is the devis number.</b> Only the acts
+ * carrying a protocol are listed at all (`Steps.Any()` in the SQL, and that is deliberate — without it every
+ * ordinary devis line joins the screen), so a devis of three acts whose stepped one is the third shows a single
+ * line reading « 2026-0015 · Retraitement endodontique ». Read cold, that is the devis being <i>called</i>
+ * Retraitement endodontique — reported in as many words, along with « why is it the last one in the plan? ».
+ * This line is the answer: there are others, and this is the 3rd.</p>
+ *
+ * <p>⚠️ <b>A position, never a ratio.</b> « acte 3 sur 3 » is the shape N31 exists to ban — a bare counter is
+ * read as progress, three times measured in this product — and here it would announce that all three acts are
+ * done on a devis with nothing done at all.</p>
+ *
+ * <p>⚠️ Withheld on a single-act devis: « 1er acte du devis » on every row of a list whose devis mostly hold one
+ * act is a column of noise, which is why the server serves the count beside the rank.</p>
+ */
+function PlanActPlace({ row }: { row: TreatmentInProgressDto }) {
+  /*
+   * ⚠️ Phrased as « is it greater than 1 », never `<= 1`. An API older than this field serves neither key, so
+   * `planActCount` is `undefined` — and `undefined <= 1` is **false**, which renders the line anyway and prints
+   * « undefinede acte du devis ». A stale server under a fresh bundle is an ordinary state here (the Windows
+   * shell self-updates, and a hosted deploy ships web and api as separate images), so the absent case has to
+   * fall on the withholding side.
+   */
+  if (!(row.planActCount > 1)) return null
+  return (
+    <span className="mt-0.5 block text-2xs text-muted-foreground">
+      {ordinalFr(row.planActRank)} acte du devis
+    </span>
+  )
+}
+
 /** The pips + « 3 / 3 » + the step's own name. The same three readings the devis row's strip uses. */
 function NextStepCell({ row }: { row: TreatmentInProgressDto }) {
   return (
@@ -447,19 +485,21 @@ function NextStepCell({ row }: { row: TreatmentInProgressDto }) {
       */}
       {row.nextStepLabel && <span className="text-sm">{row.nextStepLabel}</span>}
       <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
-        {Array.from({ length: row.stepsTotal }).map((_, i) => (
-          <span
-            key={i}
-            className={cn(
-              "size-2.5 flex-none rounded-full border-[1.5px]",
-              i < row.stepsDone
-                ? "border-success bg-success"
-                : i === row.stepsDone
-                  ? "border-dashed border-primary"
-                  : "border-border",
-            )}
-          />
-        ))}
+        {/* Each dot reads its OWN séance (H9): filling the first `stepsDone` claimed a préparation that never
+            happened when séance 2 was recorded first. The dashed one is the next séance, whichever it is. */}
+        {Array.from({ length: row.stepsTotal }).map((_, i) => {
+          const done = row.doneStepNumbers ? row.doneStepNumbers.includes(i + 1) : i < row.stepsDone
+          const next = (row.nextStepNumber ?? row.stepsDone + 1) === i + 1
+          return (
+            <span
+              key={i}
+              className={cn(
+                "size-2.5 flex-none rounded-full border-[1.5px]",
+                done ? "border-success bg-success" : next ? "border-dashed border-primary" : "border-border",
+              )}
+            />
+          )
+        })}
       </span>
       {/*
         ⚠️ « étape » is VISIBLE, not `sr-only`, and that word is the whole difference between two readings of

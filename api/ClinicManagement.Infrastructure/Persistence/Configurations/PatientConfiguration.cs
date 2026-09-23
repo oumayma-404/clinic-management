@@ -72,6 +72,41 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             phone.Ignore(p => p.E164);
         });
 
+        // The patient's OTHER numbers — see `PatientPhone`. An owned collection, so it is a separate table
+        // that EF loads with the patient on every read, with no `Include` anywhere: an entity collection would
+        // have needed one on each of this repository's reads, and the forgotten one would have saved the
+        // patient with an empty list (an unloaded navigation is empty, not stale).
+        builder.OwnsMany(p => p.AdditionalPhoneNumbers, phones =>
+        {
+            phones.ToTable("PatientPhoneNumbers");
+            phones.WithOwner().HasForeignKey("PatientId");
+            // A surrogate shadow key: the row's identity is its position in the owner's list, and nothing
+            // outside the aggregate points at it. `SetAdditionalPhoneNumbers` replaces the list wholesale, so
+            // EF deletes and re-inserts rather than diffing — which is why the key need not be stable.
+            phones.Property<int>("Id").ValueGeneratedOnAdd();
+            phones.HasKey("Id");
+
+            phones.Property(x => x.Value)
+                .HasColumnName("PhoneNumber")
+                .HasMaxLength(20)
+                .IsRequired();
+
+            // ⚠️ NOT NULL, unlike `Patients.PhoneNumberE164`. That column is nullable because it was added to
+            // rows written before it existed; this table has no such rows and its constructor refuses a number
+            // with no E.164, so a null here would be a value the domain cannot produce.
+            phones.Property(x => x.E164)
+                .HasColumnName("PhoneNumberE164")
+                .HasMaxLength(20)
+                .IsRequired();
+
+            phones.Property(x => x.SortOrder)
+                .HasColumnName("SortOrder");
+
+            // The number is searched (`PatientRepository`'s predicate reads it) and dialled, so both forms are
+            // indexed together with the owner.
+            phones.HasIndex("PatientId", "SortOrder");
+        });
+
         // ⚠️ EF warns that `Address` is now an "optional dependent … without any required non shared property",
         // i.e. a row whose five columns are all null materialises no instance. That is correct and harmless
         // *because* `Address.OfAny` refuses to build one with every part blank — the « at least one side » rule is

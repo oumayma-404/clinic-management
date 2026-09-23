@@ -617,40 +617,45 @@ public class Appointment : AggregateRoot<Guid>
     /// <summary>
     /// Move the appointment to a new time.
     /// <para>
-    /// <b>Preserves <c>Confirmed</c> and <c>InProgress</c></b> — adjacent defect <b>A-2</b>: it force-set
-    /// <c>Scheduled</c>, so moving a visit the patient had already confirmed silently discarded that
-    /// confirmation and the desk would chase them for it again.
+    /// <b>Preserves <c>Confirmed</c>, and <c>InProgress</c> on the same clinic day</b> — adjacent defect
+    /// <b>A-2</b>: it force-set <c>Scheduled</c>, so moving a visit the patient had already confirmed silently
+    /// discarded that confirmation. A visit « En cours » moved to <b>another day</b> has not started on that day,
+    /// so it goes back to <c>Scheduled</c> (wave 4, H10). The caller says which, because only
+    /// <c>ClinicClock</c> knows where a Tunisian day starts.
     /// </para>
     /// <para>
     /// <c>NoShow</c> is deliberately **not** preserved (AC-P1.9): rebooking a patient who missed their slot is
     /// exactly how a no-show is resolved, and carrying the absence onto the new date would mark them absent
     /// from a visit that has not happened yet.
     /// </para>
+    /// <para>
+    /// <c>Completed</c> moves and stays <c>Completed</c> (H1): the visit happened and its date was mistyped. It used
+    /// to throw here, and the handler skipped the call to avoid the throw — so the edit returned 200 with the date
+    /// unchanged. <c>Cancelled</c> still refuses: <see cref="Reactivate"/> is the only way to move one.
+    /// </para>
     /// </summary>
-    public void Reschedule(DateTime newDateTime)
+    public void Reschedule(DateTime newDateTime, bool sameClinicDay)
     {
-        if (Status == AppointmentStatus.Completed)
-        {
-            throw new InvalidOperationException(
-                "Un rendez-vous terminé ne peut pas être déplacé. Annulez-le puis créez-en un nouveau.");
-        }
-
         if (Status == AppointmentStatus.Cancelled)
         {
-            throw new InvalidOperationException(
-                "Un rendez-vous annulé ne peut pas être déplacé. Réactivez-le d'abord.");
+            throw new InvalidOperationException(CancelledCannotMoveMessage);
         }
 
         AppointmentDateTime = newDateTime;
         // `AwaitingClosure` joins NoShow for the same reason: both are statements about a slot that has passed,
         // and carrying either onto a new date would badge a visit that has not happened yet as one that has.
-        if (Status is AppointmentStatus.NoShow or AppointmentStatus.AwaitingClosure)
+        if (Status is AppointmentStatus.NoShow or AppointmentStatus.AwaitingClosure
+            || (Status == AppointmentStatus.InProgress && !sameClinicDay))
         {
             Status = AppointmentStatus.Scheduled;
         }
 
         UpdatedAt = DateTime.UtcNow;
     }
+
+    /// <summary>The refusal for moving a cancelled visit — shared by the domain and the edit handler.</summary>
+    public const string CancelledCannotMoveMessage =
+        "Un rendez-vous annulé ne peut pas être déplacé : repassez-le en « Planifié » pour changer sa date.";
 
     /// <summary>
     /// Un-cancel a cancelled appointment back to Scheduled at the given time. This is the explicit

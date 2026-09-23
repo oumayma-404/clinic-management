@@ -21,7 +21,8 @@ public interface IMoneyReconciliationReader
 /// <summary>Everything the reconciliation report needs, read in one pass.</summary>
 public sealed record MoneyReconciliationFacts(
     IReadOnlyList<ClinicMoneyFacts> Clinics,
-    OrphanFacts Orphans);
+    OrphanFacts Orphans,
+    FicheOrphanFacts FicheOrphans);
 
 /// <summary>Per-clinic money facts.</summary>
 public sealed record ClinicMoneyFacts(
@@ -85,3 +86,28 @@ public sealed record DuplicateBridgeFact(Guid TreatmentPlanId, string? PlanNumbe
 /// key to <c>Patients</c>, so nothing at the database level has ever prevented these.
 /// </summary>
 public sealed record OrphanFacts(int Invoices, int TreatmentPlans, int ToothStates, int Notifications);
+
+/// <summary>
+/// Money still claimed for a <b>fiche de soins that no longer exists</b> — the second orphan family, and the
+/// one that cost a patient real money before anything reported it.
+///
+/// <para>
+/// ⚠️ <b>Why counts alone would not have found it.</b> Deleting a fiche used to leave its chairside collection
+/// on the devis and its note d'honoraires standing, so the séance could be re-recorded and collected a second
+/// time — measured on the live database 2026-09-21 as 160,000 DT taken for one 80,000 DT extraction. Every
+/// balance still added up, every ledger still reconciled, and <c>reconcile-money</c> was green throughout:
+/// nothing here asked whether the money pointed at a record that exists.
+/// </para>
+/// <para>
+/// Reported, never repaired. A live payment is cash somebody handed over and a numbered note is a fiscal
+/// document; both corrections belong to a human with the clinic's context (an avoir, or a void with a motif).
+/// The deletion path no longer creates these — see <c>DentalRecordDeletionReversal</c> — so a non-zero count
+/// is either history or a route nobody has noticed.
+/// </para>
+/// </summary>
+public sealed record FicheOrphanFacts(
+    int InstallmentPayments,
+    decimal InstallmentPaymentAmount,
+    int Invoices,
+    decimal InvoiceAmountCollected,
+    int MedicalDocuments);

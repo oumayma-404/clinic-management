@@ -180,4 +180,31 @@ public static class ServerConfigStore
 
         return new ServerConfig { Host = host.Trim(), Port = port, PortIsExplicit = explicitPort };
     }
+
+    /// <summary>
+    /// Whether <paramref name="host"/> is a bare IPv4 literal — i.e. an address that the clinic's box hands
+    /// out and can hand out differently tomorrow.
+    ///
+    /// <para><b>This is the field's single most consequential failure, and it is silent on the day it happens.</b>
+    /// A staff PC configured with <c>192.168.1.10</c> works until the server's DHCP lease is renewed onto a
+    /// different address; every desk then shows « Impossible de joindre le serveur » at once, and the cause is
+    /// somewhere nobody looks. It is worse than an outage, because the server's self-signed certificate captures
+    /// its SANs when it is generated and is then reused unchanged — so even after the operator finds the new
+    /// address, HTTPS fails against an address the certificate does not cover, and the remedy documented in
+    /// <c>packaging/README.md</c> is to delete <c>.local/</c> and re-trust the CA on every device.</para>
+    ///
+    /// <para><b>The machine NAME has none of those properties and already works.</b>
+    /// <c>CertificateProvisioner</c> puts <c>Dns.GetHostName()</c> in the certificate's SANs, and a Windows LAN
+    /// resolves a machine name without any configuration — so the name survives every lease renewal the address
+    /// does not.</para>
+    ///
+    /// <para>⚠️ <b>A warning, never a refusal.</b> An IP address is a legitimate answer: a network with no name
+    /// resolution has nothing else, and <c>localhost</c> on the server PC is neither. Refusing one would lock a
+    /// clinic out of its own records to avoid a problem it may not have.</para>
+    /// </summary>
+    public static bool IsIpLiteral(string? host) =>
+        !string.IsNullOrWhiteSpace(host)
+        && System.Net.IPAddress.TryParse(host.Trim(), out var address)
+        && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+        && !System.Net.IPAddress.IsLoopback(address);
 }

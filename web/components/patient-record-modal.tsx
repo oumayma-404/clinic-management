@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
@@ -189,6 +190,9 @@ function planItemPrefill(item: PlanItemOption, appointment?: AppointmentDto | nu
     ? { toothNumbers: item.toothNumbers }
     : {
         designationFr: item.designationFr,
+        // ⚠️ The catalogue identity travels with the désignation. Without it this branch stored a free-text act,
+        // which is what `PlanCarriedAct.IndexIn` fails to match — see `PlanItemPrefill.procedureTypeId`.
+        procedureTypeId: item.procedureTypeId ?? null,
         // The fiche's own cost field takes the NET — what the patient owes for the act.
         plannedCost: item.netCost,
         toothNumbers: item.toothNumbers,
@@ -318,6 +322,14 @@ export function PatientRecordModal({
   const [catalogFailed, setCatalogFailed] = useState(false)
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
+  /**
+   * Which séance of the linked act this NEW fiche records, when no booked visit says so. Without it a walk-in
+   * fiche could only ever close the next pending séance, so a dentist doing séance 2 before séance 1 could not
+   * record it. Null = the server's own default (the next pending one).
+   */
+  const [chosenStepId, setChosenStepId] = useState<string | null>(null)
+  /** Which record's stored devis link has already been hydrated into the Select — see the effect below. */
+  const hydratedPlanLinkRef = useRef<string | null>(null)
   // Only « Notes de séance » folds now. The acts are the point of this dialog and are always open — the old
   // « Actes de la séance » fold, shut by default, is where an act appeared to vanish when a second one was added.
   const [notesOpen, setNotesOpen] = useState(false)
@@ -418,8 +430,13 @@ export function PatientRecordModal({
    */
   const [saveError, setSaveError] = useState<{ actKey: string | null; message: string } | null>(null)
   const actsAnchorRef = useRef<HTMLDivElement>(null)
+  /** The refusal banner that names no card — see `refuseSave` for why it needs a target of its own. */
+  const pileSaveErrorRef = useRef<HTMLParagraphElement>(null)
 
-  const { acts, namedActs, grandTotal, focusedAct, focusKey, dispatch } = useSessionActs(record)
+
+  const {
+    acts, namedActs, grandTotal, planAdditionActs, planAdditionTotal, focusedAct, focusKey, dispatch,
+  } = useSessionActs(record)
 
   /**
    * What is being typed into « Total », or `null` when the field simply shows the derived figure.
@@ -618,6 +635,9 @@ export function PatientRecordModal({
     if (!open) return
     setPatientName(initialPatientName)
     setLinkedPlanItemId(NO_PLAN_ITEM)
+    setChosenStepId(null)
+    // A fresh open starts from the fiche's stored devis link again, whatever the last session chose.
+    hydratedPlanLinkRef.current = null
     // Back to the seed: an arch the user picked for the *previous* fiche must not decide this one's.
     setChosenView(null)
     dispatch({ type: "reset", record })
@@ -732,15 +752,34 @@ export function PatientRecordModal({
    * on a cancelled plan, or one already fully réalisé, falls through to exactly the behaviour it has today
    * rather than selecting an option the Select does not offer.
    */
+  /*
+   * ⚠️ **Once per open, tracked in a ref — never « whenever the value is NO_PLAN_ITEM ».**
+   *
+   * The guard here was `if (linkedPlanItemId !== NO_PLAN_ITEM) return`, with `linkedPlanItemId` in the deps,
+   * and its comment said « never overwrite a choice already made ». The intent was right and the test cannot
+   * express it: **« Aucun » IS a choice**, and it is indistinguishable from « not hydrated yet ». So choosing
+   * it re-fired this effect and put the devis act straight back — « Aucun » was unselectable on every
+   * reopened devis-carried fiche, measured in the browser 2026-09-22.
+   *
+   * That was a nuisance until the save began refusing a fiche whose acts no longer include the devis' act
+   * (`PlanCarriedAct.NamesAnActTheFicheDoesNotHold`), whose refusal names this very control as the remedy —
+   * at which point the fiche became **uneditable**, with the message telling the dentist to do something the
+   * form would not let them do. That is the shape `DentalRecordBillingGuard.Snapshot.StillBillsTheWork` was
+   * written to remove, one screen over.
+   *
+   * ⚠️ The ref holds the record's id rather than a bare boolean, so a modal reused for a different fiche
+   * hydrates again; and it is **not** set when `planItems` has not arrived yet, because that list loads after
+   * the modal opens and an early bail must not count as « hydrated ».
+   */
   useEffect(() => {
     if (!open || !record?.treatmentPlanItemId) return
-    // Never overwrite a choice already made — the user's own pick, or this effect's on an earlier pass.
-    if (linkedPlanItemId !== NO_PLAN_ITEM) return
+    if (hydratedPlanLinkRef.current === record.id) return
     const linked = planItems.find((p) => p.itemId === record.treatmentPlanItemId)
     if (!linked) return
 
+    hydratedPlanLinkRef.current = record.id
     setLinkedPlanItemId(linked.itemId)
-  }, [open, record, planItems, linkedPlanItemId])
+  }, [open, record, planItems])
 
   /**
    * Every act booked into this séance, in the dentist's order, resolved against the catalogue.
@@ -1000,7 +1039,10 @@ export function PatientRecordModal({
   // Linking a plan step carries its designation / cost / teeth into the first act, so the dentist does not
   // retype what the plan already knows. Only an untouched séance is prefilled.
   const handlePlanItemLink = (value: string) => {
+    // Any change of devis act first lets the previous one go — its card had the devis' locked 0.
+    if (value !== linkedPlanItemId) dispatch({ type: "releaseBilledOnPlan", procedureTypes })
     setLinkedPlanItemId(value)
+    setChosenStepId(null)
     if (value === NO_PLAN_ITEM) return
     const item = planItems.find((p) => p.itemId === value)
     if (!item) return
@@ -1037,6 +1079,7 @@ export function PatientRecordModal({
    */
   const carriedByDevis =
     billedPlanItem != null && (acts.some((a) => a.billedOnPlan) || carriedByAppointment)
+
 
   /**
    * WHICH séance of the treatment this fiche is — « Cette séance : étape 1 sur 3 · Préparation ».
@@ -1079,15 +1122,32 @@ export function PatientRecordModal({
         .map((row) => row.treatmentPlanItemStepId as string),
     )
     const named = steps.filter((s) => booked.has(s.id))
+    const chosen = chosenStepId ? steps.filter((s) => s.id === chosenStepId) : []
     // The server's own fallback, not a guess: with no step on the booked row it advances `NextStep`.
     const target =
-      named.length > 0 ? named : steps.filter((s) => !s.doneDate).slice(0, 1)
+      named.length > 0 ? named : chosen.length > 0 ? chosen : steps.filter((s) => !s.doneDate).slice(0, 1)
     if (target.length === 0) return null
 
     const ordered = [...target].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
     const ranks = joinFr(ordered.map((s) => String(s.sequenceNumber + 1)))
     const rank = `étape${ordered.length > 1 ? "s" : ""} ${ranks} sur ${steps.length}`
     return `Cette séance : ${rank} · ${joinFr(ordered.map((s) => s.label))}`
+  }, [record, billedPlanItem, appointment?.procedures, chosenStepId])
+
+  /**
+   * The séances a new fiche may be recorded against when no booked visit names one — every séance not yet
+   * carried out, in protocol order. Empty (so no picker) on a reopened fiche, on an act with one séance, and
+   * whenever the booked visit already says which séance this is.
+   */
+  const pickableSteps = useMemo(() => {
+    if (record || !billedPlanItem) return []
+    const steps = billedPlanItem.steps ?? []
+    if (steps.length <= 1) return []
+    const bookedHere = (appointment?.procedures ?? []).some(
+      (row) => row.treatmentPlanItemId === billedPlanItem.itemId && row.treatmentPlanItemStepId,
+    )
+    if (bookedHere) return []
+    return steps.filter((st) => !st.doneDate).sort((a, b) => a.sequenceNumber - b.sequenceNumber)
   }, [record, billedPlanItem, appointment?.procedures])
 
   /**
@@ -1097,7 +1157,15 @@ export function PatientRecordModal({
    * `billedOnPlan` and the sentence stays above the pile rather than disappearing.</p>
    */
   /** The act the treatment carries, when the séance has marked one — the card both notices belong to. */
-  const planActKey = useMemo(() => acts.find((a) => a.billedOnPlan)?.key ?? null, [acts])
+  // ⚠️ The LEAD act's card when several are carried (C4b) — the first carried card put the couronne's « étape 2
+  // sur 2 » and its 300 DT on a détartrage.
+  const planActKey = useMemo(() => {
+    const carried = acts.filter((a) => a.billedOnPlan)
+    const lead = billedPlanItem?.procedureTypeId
+      ? carried.find((a) => a.procedureTypeId === billedPlanItem.procedureTypeId)
+      : undefined
+    return (lead ?? carried[0])?.key ?? null
+  }, [acts, billedPlanItem])
 
   /**
    * The act `seanceStepLine` is about.
@@ -1212,11 +1280,38 @@ export function PatientRecordModal({
   const recordCarriesPlanItem =
     billedPlanItem != null && record?.treatmentPlanItemId === billedPlanItem.itemId
 
+  /*
+   * ⚠️ The dentist's own pick is a third source, and it was missing: linking an act by hand to a card that
+   * already held that act skips the prefill, so the card kept its tarif, the button read « Enregistrer — X DT »
+   * and the server then saved 0. Whoever says so — the booking, the record, or the dentist — the séance
+   * carries this devis act, so its card is marked.
+   */
   useEffect(() => {
     if (!open || !billedPlanItem) return
-    if (!carriedByAppointment && !recordCarriesPlanItem) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
   }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, dispatch])
+
+  /*
+   * C4b — the séance's OTHER acts of the same devis. Read from the saved fiche on a reopen (the DTO names every
+   * carried line) and from the booking on a new one. Without it they were marked as acts being ADDED: their price
+   * stayed editable and a price typed there was dropped by the server, which prices a carried act 0.
+   * Every carried line is passed, the lead included, so two crowns of which both are on the devis mark two cards.
+   */
+  const carriedProcedureIds = useMemo(() => {
+    if (!billedPlanItem) return [] as string[]
+    const itemIds = record
+      ? (record.treatmentPlanItemIds ?? [])
+      : (appointment?.procedures ?? []).map((row) => row.treatmentPlanItemId).filter((id): id is string => !!id)
+    return [...new Set(itemIds)]
+      .map((id) => planItems.find((p) => p.itemId === id && p.planId === billedPlanItem.planId)?.procedureTypeId)
+      .filter((id): id is string => !!id)
+  }, [billedPlanItem, record, appointment?.procedures, planItems])
+
+  useEffect(() => {
+    if (!open || carriedProcedureIds.length < 2) return
+    dispatch({ type: "markCarriedOnPlan", procedureTypeIds: carriedProcedureIds })
+  }, [open, carriedProcedureIds, acts, dispatch])
+
 
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
@@ -1242,6 +1337,45 @@ export function PatientRecordModal({
    * is withdrawn and the banner's « Encaissement sur la note … » stands alone.</p>
    */
   const collectsOnTreatment = carriedByDevis && !billedPlanItem?.billedOnInvoiceNumber
+
+  /**
+   * How « Ajouter au devis » names the treatment it will amend, or null when the choice is not offered.
+   *
+   * <p>Offered exactly when this séance is carrying out a devis that still collects its own money: that is
+   * the one treatment the fiche can amend without asking which, and it is the reported case — a second act
+   * done during a séance of a multi-séance treatment, whose fee had nowhere to go but a note d'honoraires
+   * the devis' balance never mentions.</p>
+   *
+   * <p>⚠️ <b>`collectsOnTreatment`, never `carriedByDevis`</b>, and that is the note-bridge trap rather than
+   * a tidier gate. Once a note d'honoraires represents the plan, `PlanBillingRules.BilledPlanIds` drops the
+   * plan <i>whole</i> from « Solde patient », « Créances », la caisse and the dashboard — so an act added to
+   * it would be a live debt in the one place nothing looks. `AmendTreatmentPlanCommand` refuses that state in
+   * as many words; withholding the control is how this screen keeps clear of it.</p>
+   *
+   * <p>⚠️ <b>A NUMBERED devis only, for now.</b> An un-numbered followed treatment has no échéancier, so the
+   * respread an amendment triggers would build it one — giving a « Solde à régler » to a treatment nobody has
+   * been quoted for. That is board row G10, an open defect of `RespreadSchedule` rather than of this control,
+   * and routing new traffic into it would make it somebody's money. Revisit when G10 lands: the act can then
+   * be added to a followed treatment too.</p>
+   */
+  const addToPlanTarget =
+    collectsOnTreatment && billedPlanItem?.planNumber ? billedPlanItem.planNumber : null
+
+  /*
+   * Every act this séance ADDS goes on the devis it is carrying out — no tick, no way out (owner's decision,
+   * 2026-09-23: « if doctor chose to add another act, he's implicitly choosing to add it to treatment »).
+   *
+   * ⚠️ It has to run on `acts` as well as on the target, because an act added a minute later must be marked
+   * too. That is safe here and would not be with an ordinary reducer: `markAddToPlan` returns the **identical
+   * state object** when nothing moves, so `acts` keeps its reference and this effect does not re-fire itself.
+   *
+   * ⚠️ It must also run when the target goes away — picking « Aucun » in « Acte planifié » un-marks every act,
+   * which is the same arm `releaseBilledOnPlan` covers for the devis' own act.
+   */
+  useEffect(() => {
+    if (!open) return
+    dispatch({ type: "markAddToPlan", enabled: addToPlanTarget !== null })
+  }, [open, addToPlanTarget, acts, dispatch])
 
   /**
    * « sur cette séance », for the figures that describe the séance's own note while the treatment's money is on
@@ -1270,10 +1404,24 @@ export function PatientRecordModal({
   const alreadyCollectedOnPlan = roundMillimes(record?.collectedOnTreatment ?? 0)
   /** What this save will actually add to the treatment. Negative means somebody is lowering it — see below. */
   const collectionDelta = roundMillimes(collectedOnPlanAmount - alreadyCollectedOnPlan)
+  /**
+   * What the devis will be worth to collect against once THIS save's additions have landed.
+   *
+   * <p>⚠️ <b>This is the whole complaint.</b> A séance carrying a 300 DT treatment with 100 collected offers
+   * 200 to collect; the dentist does a second act for 150 the same day, and every figure below — and the
+   * server's own cap — still said 200, so the 150 could not be taken and the save was disabled. The
+   * amendment raises the treatment's total before the collection is recorded
+   * (`CollectOnTreatmentCommand` runs post-commit, against the amended plan), so the room really is
+   * 200 + 150 by the time the money moves, and quoting anything less here would refuse a collection the
+   * server accepts.</p>
+   */
+  const treatmentOutstandingAfterAdditions = roundMillimes(
+    treatmentOutstandingBefore + planAdditionTotal,
+  )
   /** What will remain on the treatment once this séance's collection is recorded. */
   const treatmentRemaining = Math.max(
     0,
-    roundMillimes(treatmentOutstandingBefore - Math.max(0, collectionDelta)),
+    roundMillimes(treatmentOutstandingAfterAdditions - Math.max(0, collectionDelta)),
   )
   /**
    * More than the treatment is worth. Refused server-side (`treatment_collection_exceeds_outstanding`), so the
@@ -1284,7 +1432,7 @@ export function PatientRecordModal({
    * 100 left would refuse « 250 », which is a 50 DT collection the server accepts.
    */
   const overCollectedOnPlan =
-    collectsOnTreatment && collectionDelta > treatmentOutstandingBefore
+    collectsOnTreatment && collectionDelta > treatmentOutstandingAfterAdditions
   /**
    * Somebody is lowering a collection, which is refused server-side
    * (`treatment_collection_lowered`) — money on a numbered devis is un-received by voiding the payment on the
@@ -1310,8 +1458,15 @@ export function PatientRecordModal({
    * `namedActs.length > 0` because a fiche with no act yet is not « wholly on the treatment » — it is empty,
    * and `every` over nothing answers true.
    */
+  /*
+   * ⚠️ `addToPlan` counts as « on the treatment » here, and it has to: the séance's own honoraires are what
+   * this withholds, and an act on its way onto the devis contributes none of them (`grandTotal` already
+   * excludes it). Without this clause, adding the ONLY other act of a séance to the devis would put « Payé »,
+   * « Mode » and « Total » back on screen over a séance that comes to 0 — the exact state whose zeros sent a
+   * dentist to overtype an act's price, which is what `seanceIsWhollyOnTreatment` was written to stop.
+   */
   const seanceIsWhollyOnTreatment =
-    collectsOnTreatment && namedActs.length > 0 && namedActs.every((a) => a.billedOnPlan)
+    collectsOnTreatment && namedActs.length > 0 && namedActs.every((a) => a.billedOnPlan || a.addToPlan)
 
   /**
    * A stored « Payé » on a séance that is wholly carried by the treatment — so the field is **shown anyway**.
@@ -1330,8 +1485,25 @@ export function PatientRecordModal({
    * it gone. Typing 0 over it and saving therefore removes it from the next reopen, which is the correction.</p>
    */
   const hasStoredSeancePayment = (record?.amountPaid ?? 0) > 0
-  /** The withhold, with its one exception applied. Every « Payé » / « Mode » / « Total » gate reads this. */
-  const withholdSeanceMoneyFields = seanceIsWhollyOnTreatment && !hasStoredSeancePayment
+  /**
+   * A figure sitting in « Payé » right now, on a séance that has just become wholly the treatment's — so the
+   * field is **shown anyway**, exactly as a stored one is.
+   *
+   * <p>⚠️ <b>Without this, « Ajouter au devis » is a dead end.</b> Type 150 into « Payé » for a détartrage,
+   * then decide it goes on the devis instead: `grandTotal` drops to 0, so `overpaid` turns true and disables
+   * the save — while `seanceIsWhollyOnTreatment` withdraws the very field holding the 150. Refused, with the
+   * only control that could clear the refusal off screen. Measured as reachable on both the create and the
+   * edit path.</p>
+   *
+   * <p>⚠️ <b>It cannot make the field un-hide itself, which is the objection the stored rule documents.</b>
+   * The prefill effect writes `""` whenever `grandTotal` is 0, so an untouched séance never arrives here with
+   * a figure; the only way one exists is that somebody typed it, and they could only type it while the field
+   * was on screen.</p>
+   */
+  const hasTypedSeancePayment = roundMillimes(paidAmount) > 0
+  /** The withhold, with its two exceptions applied. Every « Payé » / « Mode » / « Total » gate reads this. */
+  const withholdSeanceMoneyFields =
+    seanceIsWhollyOnTreatment && !hasStoredSeancePayment && !hasTypedSeancePayment
   /**
    * Collecting will mint the devis number — <c>CollectOnTreatmentCommand</c> issues one when the treatment has
    * none. A gapless number can only be released by a cancellation carrying a motif, so this is said on the
@@ -1377,16 +1549,35 @@ export function PatientRecordModal({
    */
   const refuseSave = (actKey: string | null, message: string, description?: string) => {
     setSaveError({ actKey, message })
-    // The offending card carries the message; the pile is what gets scrolled to, since a card may be one line.
-    actsAnchorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
+    /*
+     * The offending card carries the message; the pile is what gets scrolled to, since a card may be one line.
+     *
+     * ⚠️ **A refusal that names no card renders AFTER the pile, so centring the anchor is not enough.**
+     * Measured at 320 px on the devis-act mismatch: the anchor scrolled, and the banner landed at y 456 in a
+     * scrollport ending at 437 — 19 px below the fold — with the toast already dismissed. The press looked
+     * like it had done nothing, which is the failure this refusal exists to prevent. Deferred one frame
+     * because the banner does not exist until this state has rendered.
+     */
+    if (actKey === null) {
+      requestAnimationFrame(() =>
+        (pileSaveErrorRef.current ?? actsAnchorRef.current)?.scrollIntoView({
+          block: "center",
+          behavior: "smooth",
+        }),
+      )
+    } else {
+      actsAnchorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
+    }
     toast.error(message, description ? { description } : undefined)
   }
 
   // Any edit to the acts clears the refusal: an inline error that outlives the thing it described is worse than
   // none, because the next press is refused for a reason the message no longer names.
+  // ⚠️ `linkedPlanItemId` too, since one refusal names that control as the remedy — a banner still standing
+  // after « Aucun » has been chosen says the fix did not work.
   useEffect(() => {
     setSaveError(null)
-  }, [acts])
+  }, [acts, linkedPlanItemId])
 
   const handleSave = async (correctionReason?: string) => {
     if (!patientId) {
@@ -1424,6 +1615,35 @@ export function PatientRecordModal({
       return
     }
 
+    /*
+     * « Acte planifié » names a devis act that none of the cards is.
+     *
+     * ⚠️ **Mirrors `PlanCarriedAct.NamesAnActTheFicheDoesNotHold` term for term, and the server is still the
+     * authority** — this runs first only so the refusal arrives before the round trip and can point at the
+     * control that fixes it. Changing the act on a devis-carried card used to leave this link standing, and
+     * the save then marked the devis' OLD act done against a fiche recording a different one.
+     *
+     * ⚠️ The narrowing matters as much as the rule: a devis line naming no catalogue act, or a fiche holding a
+     * hand-typed one, is unidentifiable rather than wrong — every fiche recorded before `planItemPrefill`
+     * carried a `procedureTypeId` is in that state, and refusing them would make an old plan fiche impossible
+     * to reopen and fix.
+     *
+     * ⚠️ `refuseSave(null, …)`: no card is at fault, so none wears the message.
+     */
+    const linkedPlanAct = planItems.find((p) => p.itemId === linkedPlanItemId)
+    if (
+      linkedPlanAct?.procedureTypeId &&
+      namedActs.every((a) => a.procedureTypeId) &&
+      !namedActs.some((a) => a.procedureTypeId === linkedPlanAct.procedureTypeId)
+    ) {
+      refuseSave(
+        null,
+        `Aucun acte de la séance n'est ${quoteFr(linkedPlanAct.designationFr ?? "l'acte du devis")}`,
+        "Remettez l'acte du devis, ou choisissez « Aucun » dans « Acte planifié » pour enregistrer cette séance hors du devis.",
+      )
+      return
+    }
+
     const parsedActs: DentalActInput[] = namedActs
       .map((a) => {
         // ⚠️ `parseAmountInput`, never `Number.parseFloat` (J8). The field prints « 90,500 » and `parseFloat`
@@ -1431,9 +1651,27 @@ export function PatientRecordModal({
         // `parseAmountInput` — was the correct 181,000 for two teeth. Reopening the fiche then showed 90,000
         // per tooth, and re-saving it wrote that half-dinar loss into the note.
         const unit = parseAmountInput(a.unitCost)
+        /*
+         * ⚠️ **An act going ONTO the devis is recorded on the fiche at 0, and this is not a duplicate of the
+         * server's own imposition.** `FicheExtraPlanActs` zeroes it too, once it is told the act is one of the
+         * devis lines this fiche closes — but the fee has already been agreed on the devis by the time this
+         * payload is built, and anything non-zero here is a second document claiming the same money. Left at
+         * its typed cost it would land in `record.Cost` and, the moment « Payé » is anything at all, in a note
+         * d'honoraires — the exact double charge the whole change removes, produced by the change itself.
+         *
+         * `unitCost` goes to 0 beside `cost`, never left behind: the fiche reopens a per-tooth act from its
+         * unit price, so a stale one restores the fee on the next « Enregistrer » — `PlanCarriedActPricing`
+         * records that same pairing for the same reason.
+         */
         return {
           procedureTypeId: a.procedureTypeId,
           procedureName: a.procedureName.trim(),
+          /*
+           * ⚠️ The REAL fee, including for an act going onto the devis — the server copies it onto the new
+           * devis line and zeroes the act itself (`FichePlanActAdditions`). Sending 0 here, as an earlier
+           * client-side version of this feature did, would put the act on the devis at nothing: two numbers
+           * that must agree, where one of them is the only one anybody typed.
+           */
           cost: actTotal(a),
           unitCost: Number.isFinite(unit) ? roundMillimes(unit) : null,
           isPerTooth: a.perTooth && a.toothNumbers.length > 0,
@@ -1466,6 +1704,7 @@ export function PatientRecordModal({
     setLoading(true)
     try {
       const linkedItem = planItems.find((p) => p.itemId === linkedPlanItemId)
+
       const recordData = {
         interventionDate,
         amountPaid: parseAmountInput(amountPaid) || 0,
@@ -1494,7 +1733,34 @@ export function PatientRecordModal({
          */
         treatmentPlanItemStepId:
           appointment?.procedures?.find((p) => p.treatmentPlanItemId === linkedItem?.itemId)
-            ?.treatmentPlanItemStepId ?? null,
+            ?.treatmentPlanItemStepId
+          ?? (chosenStepId && pickableSteps.some((st) => st.id === chosenStepId) ? chosenStepId : null),
+        // The visit's other acts of the SAME devis, closed by this fiche too (C4). The server also keeps the ones
+        // already linked to this fiche on a re-save, so a reopened fiche need not know them.
+        additionalTreatmentPlanItems: linkedItem
+          ? [...new Map<string, { treatmentPlanItemId: string; treatmentPlanItemStepId: string | null }>([
+              ...(appointment?.procedures ?? [])
+                .filter((row) =>
+                  row.treatmentPlanItemId
+                  && row.treatmentPlanItemId !== linkedItem.itemId
+                  && planItems.some((p) => p.itemId === row.treatmentPlanItemId && p.planId === linkedItem.planId))
+                .map((row) => [row.treatmentPlanItemId as string, {
+                  treatmentPlanItemId: row.treatmentPlanItemId as string,
+                  treatmentPlanItemStepId: row.treatmentPlanItemStepId ?? null,
+                }] as const),
+            ]).values()]
+          : [],
+        /*
+         * The acts this séance is putting ON the devis, named by their position in `acts` — the only identity
+         * an act has inside one save, since `SetActs` regenerates every id. The server amends the devis and
+         * links the new lines in the fiche's own transaction, so a failed save leaves no orphan line behind.
+         */
+        planActAdditions: linkedItem
+          ? parsedActs
+              .map((_, i) => i)
+              .filter((i) => namedActs[i]?.addToPlan === true)
+              .map((actIndex) => ({ actIndex }))
+          : [],
         // Only carried on create — links the new record to the appointment it documents (closes the prompt).
         appointmentId: appointmentId ?? null,
         /*
@@ -1867,6 +2133,27 @@ export function PatientRecordModal({
               </Select>
             </div>
           )}
+          {pickableSteps.length > 1 && (
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="plan-item-step">Séance</Label>
+              <Select
+                value={chosenStepId ?? pickableSteps[0].id}
+                onValueChange={setChosenStepId}
+                disabled={loading}
+              >
+                <SelectTrigger id="plan-item-step" className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {pickableSteps.map((st) => (
+                    <SelectItem key={st.id} value={st.id}>
+                      {`${st.sequenceNumber + 1}. ${st.label}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         {/*
@@ -1947,6 +2234,9 @@ export function PatientRecordModal({
               proposedFromAppointment={proposedFromAppointment.has(act.key)}
               seanceStepLine={act.key === stepLineActKey ? seanceStepLine : null}
               planNotice={act.key === planActKey ? planNotice : null}
+              // Withheld on the act the devis ALREADY carries — it is on the treatment, adding it again would
+              // quote the same work twice. Every other act of a devis-carried séance may join it.
+              addToPlanTarget={act.billedOnPlan ? null : addToPlanTarget}
               duplicate={duplicateKeys.has(act.key)}
               error={saveError?.actKey === act.key ? saveError.message : null}
               dispatch={dispatch}
@@ -1954,9 +2244,17 @@ export function PatientRecordModal({
             />
           ))}
 
-          {/* A refusal that named no card (« ajoutez au moins un acte » on an empty pile). */}
+          {/*
+            A refusal that named no card — « ajoutez au moins un acte » on an empty pile, and the devis-act
+            mismatch, whose remedy is the « Acte planifié » control rather than any one act.
+
+            ⚠️ It carries a ref because `refuseSave` scrolls to the acts ANCHOR, and this renders *after* the
+            pile: measured at 320 px, centring the anchor left this banner at y 456 in a scrollport ending at
+            437 — 19 px below the fold, with the toast already dismissed, so the press looked like it did
+            nothing. A refusal nobody can see is the defect this whole feature exists to remove.
+          */}
           {saveError && !acts.some((a) => a.key === saveError.actKey) && (
-            <p role="alert" className="text-xs font-medium text-destructive">
+            <p ref={pileSaveErrorRef} role="alert" className="text-xs font-medium text-destructive">
               {saveError.message}
             </p>
           )}
@@ -2602,7 +2900,7 @@ export function PatientRecordModal({
                     <span className="font-medium text-destructive">
                       il ne reste que{" "}
                       <span className="font-mono tabular-nums">
-                        {formatDT(treatmentOutstandingBefore)}
+                        {formatDT(treatmentOutstandingAfterAdditions)}
                       </span>{" "}
                       à encaisser sur ce traitement
                     </span>
@@ -2618,7 +2916,20 @@ export function PatientRecordModal({
                         {formatDT(alreadyCollectedOnPlan)}
                       </span>{" "}
                       déjà encaissés sur cette séance · un encaissement ne se diminue pas ici : annulez le
-                      paiement sur l&apos;échéancier du devis
+                      paiement sur{" "}
+                      {/* H8: the remedy is one click away — in a new tab, so this fiche and its edits stay open. */}
+                      {billedPlanItem?.planId ? (
+                        <Link
+                          href={`/treatment-plans/${billedPlanItem.planId}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="underline underline-offset-2 hover:text-destructive/80"
+                        >
+                          l&apos;échéancier du devis{billedPlanItem.planNumber ? ` ${billedPlanItem.planNumber}` : ""}
+                        </Link>
+                      ) : (
+                        "l'échéancier du devis"
+                      )}
                     </span>
                   ) : (
                     /*
@@ -2656,6 +2967,18 @@ export function PatientRecordModal({
                   devis gives it one, and a gapless number can only be released by a cancellation carrying a
                   motif — so the one thing this must not do is happen quietly.
                 */}
+                {/*
+                  What « Ajouter au devis » will do, as a FIGURE — the one thing the act cards cannot say,
+                  because each of them knows only its own fee. Stated once, beside the treatment's own money,
+                  which is where a dentist reads « combien reste-t-il ? ».
+                */}
+                {planAdditionTotal > 0 && (
+                  <p role="status" className="w-full text-2xs font-medium text-primary">
+                    <span className="font-mono tabular-nums">+{formatDT(planAdditionTotal)}</span> sur le devis
+                    avec cet enregistrement
+                    {planAdditionActs.length > 1 ? ` (${planAdditionActs.length} actes)` : ""}
+                  </p>
+                )}
                 {collectionWillIssueDevis && (
                   <p role="status" className="w-full text-2xs text-warning-ink">
                     Ce traitement n&apos;a pas encore de devis : l&apos;encaisser lui en attribuera un.

@@ -237,6 +237,18 @@ public class InvoiceRepository : IInvoiceRepository
             .ToDictionaryAsync(r => r.Id, r => r.PatientId, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Invoice>> GetByDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
+    {
+        // Lines AND payments: the caller voids the payments and inspects the lines for a second fiche, and an
+        // unloaded collection here would report « no payments » on a note that is fully collected.
+        return await _context.Invoices
+            .Include(i => i.Lines)
+            .Include(i => i.Payments)
+            .Where(i => i.ClinicId == clinicId && i.DentalRecordId == dentalRecordId)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<(Guid DentalRecordId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
         GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {

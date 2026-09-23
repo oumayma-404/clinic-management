@@ -204,7 +204,7 @@ public static class PatientDossierPackager
 
     private static CsvTable Appointments(IReadOnlyList<Appointment> appointments)
     {
-        var table = CsvTable.Create("Date et heure", "Praticien", "Actes", "Statut", "Notes");
+        var table = CsvTable.Create("Date et heure", "Praticien", "Actes prévus", "Statut", "Notes");
 
         foreach (var a in appointments.OrderBy(a => a.AppointmentDateTime))
         {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Check, ChevronDown, ChevronUp, GripVertical, Plus, Trash2, Unlink } from "lucide-react"
@@ -124,7 +124,8 @@ export function PlanItemStepsDialog({
     setDetachBusy(true)
     conflict.clearMessage()
     try {
-      await treatmentPlansApi.markStepUndone(plan.id, item.id, detaching.id, plan.version)
+      await treatmentPlansApi.markStepUndone(plan.id, item.id, detaching.id, seededVersionRef.current)
+      reseedRef.current = true
       toast.success(`${detaching.label} : la fiche a été détachée.`, {
         action: recordId
           ? {
@@ -150,10 +151,27 @@ export function PlanItemStepsDialog({
     }
   }
 
-  // Re-seed from the act each time the dialog opens, never on every render: the rows are edited in place and a
-  // dependency on `item` alone would discard typing whenever the parent refetched.
+  /*
+   * The version the rows were read at. ⚠️ Captured when they are seeded, never read live: the workspace re-reads
+   * the plan on every realtime event, so saving with `plan.version` silently erased a séance a colleague had just
+   * added — no 409, because the token was always the newest (F4).
+   */
+  const seededVersionRef = useRef(0)
+  const seededForRef = useRef<string | null>(null)
+  /** Set after a detach or « Recharger »: the next copy of the act from the server is taken in full. */
+  const reseedRef = useRef(false)
+
+  // Seed once per open (and after a detach or a reload), never on every new `item`: that discarded typing and
+  // took the colleague's version with it.
   useEffect(() => {
-    if (!open || !item) return
+    if (!open || !item) {
+      if (!open) seededForRef.current = null
+      return
+    }
+    if (seededForRef.current === item.id && !reseedRef.current) return
+    seededForRef.current = item.id
+    reseedRef.current = false
+    seededVersionRef.current = plan.version
     conflict.reset()
     setRows(
       (item.steps ?? []).map((step) => ({
@@ -239,7 +257,7 @@ export function PlanItemStepsDialog({
     // makes the escalated wording reachable on a second 409 in a row.
     conflict.clearMessage()
     try {
-      await treatmentPlansApi.setItemSteps(plan.id, item.id, payload, plan.version)
+      await treatmentPlansApi.setItemSteps(plan.id, item.id, payload, seededVersionRef.current)
       toast.success(
         payload.length === 0
           ? "Étapes retirées — cet acte se fait en une séance."
@@ -283,7 +301,7 @@ export function PlanItemStepsDialog({
             className="mb-2"
             action={
               conflict.isConflict
-                ? { label: "Recharger", onClick: () => onSaved(), disabled: saving || detachBusy }
+                ? { label: "Recharger", onClick: () => { reseedRef.current = true; onSaved() }, disabled: saving || detachBusy }
                 : undefined
             }
           />
@@ -339,13 +357,15 @@ export function PlanItemStepsDialog({
                         size="icon"
                         className="size-6 coarse:size-8"
                         aria-label={`Monter ${quoteFr(row.label || "cette séance")}`}
-                        disabled={saving || index === 0 || rows[index - 1]?.doneDate != null}
+                        disabled={saving || index === 0 || row.doneDate != null || rows[index - 1]?.doneDate != null}
                         title={
-                          rows[index - 1]?.doneDate != null
-                            ? "La séance précédente est déjà réalisée : elle ne peut pas être déplacée."
-                            : index === 0
-                              ? "C'est déjà la première séance."
-                              : undefined
+                          row.doneDate != null
+                            ? "Cette séance est déjà réalisée : elle ne peut pas être déplacée."
+                            : rows[index - 1]?.doneDate != null
+                              ? "La séance précédente est déjà réalisée : elle ne peut pas être déplacée."
+                              : index === 0
+                                ? "C'est déjà la première séance."
+                                : undefined
                         }
                         onClick={() => move(index, -1)}
                       >
@@ -356,8 +376,18 @@ export function PlanItemStepsDialog({
                         size="icon"
                         className="size-6 coarse:size-8"
                         aria-label={`Descendre ${quoteFr(row.label || "cette séance")}`}
-                        disabled={saving || index === rows.length - 1}
-                        title={index === rows.length - 1 ? "C'est déjà la dernière séance." : undefined}
+                        // ⚠️ Disabled whenever `move` would refuse — it was clickable and did nothing when this or
+                        // the next séance was already réalisée (F11).
+                        disabled={saving || index === rows.length - 1 || row.doneDate != null || rows[index + 1]?.doneDate != null}
+                        title={
+                          row.doneDate != null
+                            ? "Cette séance est déjà réalisée : elle ne peut pas être déplacée."
+                            : rows[index + 1]?.doneDate != null
+                              ? "La séance suivante est déjà réalisée : elle ne peut pas être déplacée."
+                              : index === rows.length - 1
+                                ? "C'est déjà la dernière séance."
+                                : undefined
+                        }
                         onClick={() => move(index, 1)}
                       >
                         <ChevronDown className="h-4 w-4" />

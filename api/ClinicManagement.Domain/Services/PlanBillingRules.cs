@@ -59,6 +59,15 @@ public static class PlanBillingRules
     };
 
     /// <summary>
+    /// The plan statuses whose collected money <b>moved through the caisse</b> — a different question from
+    /// « owes money ». ⚠️ G7: a write-off abandons the unpaid balance only; the cash it took is still cash, on
+    /// the day it was taken. Reading the cash reads through <see cref="DebtBearingPlanStatuses"/> erased it
+    /// from closed days the moment the plan was written off, and <c>reconcile-money</c> could not see it.
+    /// </summary>
+    public static readonly IReadOnlyCollection<TreatmentPlanStatus> CashBearingPlanStatuses =
+        DebtBearingPlanStatuses.Append(TreatmentPlanStatus.WrittenOff).ToArray();
+
+    /// <summary>
     /// True when a plan in this status contributes to what the patient owes.
     /// <para>
     /// ⚠️ <b>Every member is listed and there is no <c>_</c> arm</b>, deliberately: a discard would classify

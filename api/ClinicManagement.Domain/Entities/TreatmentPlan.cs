@@ -149,8 +149,9 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Since « Suivre ce traitement » a <c>Draft</c> is a treatment under way — un-numbered, but carrying
     /// séances, recorded steps and links to the fiches that evidence them — and deleting one cascades:
     /// <c>TreatmentPlanConfiguration</c> and <c>TreatmentPlanItemConfiguration</c> both declare
-    /// <c>DeleteBehavior.Cascade</c>, so the acts and their step rows go, while the appointments' links are
-    /// <c>SetNull</c>. The fiches survive attached to nothing — which is precisely the wreckage
+    /// <c>DeleteBehavior.Cascade</c>, so the acts and their step rows go. The appointments' links are bare
+    /// columns with NO foreign key — <c>DeleteTreatmentPlanCommand</c> releases them through
+    /// <c>PlanBookingRelease</c> before the delete, or nothing would. The fiches survive attached to nothing — which is precisely the wreckage
     /// <see cref="StopTreatment"/> was written to avoid, and it names it as one of the three defects it fixed.
     /// </para>
     /// <para>
@@ -580,6 +581,31 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// must not un-start or un-complete the treatment.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// A fiche's date was corrected: the money collected at it and the séances it evidences move with it (G5),
+    /// as the note d'honoraires' payments already did. Nothing else changes — no status, no total.
+    /// </summary>
+    public bool FollowDentalRecordDate(Guid dentalRecordId, DateTime newDate)
+    {
+        var moved = false;
+        foreach (var installment in _installments)
+        {
+            foreach (var payment in installment.Payments
+                         .Where(p => !p.IsVoided && p.DentalRecordId == dentalRecordId && p.PaidOn != newDate)
+                         .ToList())
+            {
+                installment.AmendPaymentDate(payment.Id, newDate);
+                moved = true;
+            }
+        }
+        foreach (var item in _items)
+        {
+            moved |= item.RedateRecord(dentalRecordId, newDate);
+        }
+        if (moved) Touch();
+        return moved;
+    }
+
     public void VoidInstallmentPayment(
         Guid installmentId,
         Guid paymentId,
@@ -677,6 +703,60 @@ public class TreatmentPlan : AggregateRoot<Guid>
         }
 
         Touch();
+    }
+
+    /// <summary>
+    /// Take back what this plan holds as evidence from one fiche de soins — every act and step it links to
+    /// <paramref name="dentalRecordId"/>, except <paramref name="keepItemId"/>'s. For a fiche that was deleted,
+    /// or re-saved no longer carrying the act.
+    /// <para>
+    /// On a live, stopped or completed plan this is the ordinary correction, with the status re-derived the way
+    /// <see cref="UnmarkItemDone"/> does it. ⚠️ On a <b>cancelled or written-off</b> plan — void records kept for
+    /// their number — only the pointers go and the status is left alone: the fiche they point at is gone or no
+    /// longer says so, and refusing (as <see cref="EnsureCorrectable"/> does) made deleting such a fiche fail
+    /// with a generic error, and « Aucun » on it impossible.
+    /// </para>
+    /// </summary>
+    /// <returns>How many acts and steps were released.</returns>
+    public int ReleaseDentalRecord(Guid dentalRecordId, Guid? keepItemId = null) =>
+        Release(dentalRecordId, i => i.Id != keepItemId);
+
+    /// <summary><see cref="ReleaseDentalRecord"/> for one act only.</summary>
+    public int ReleaseDentalRecordFor(Guid itemId, Guid dentalRecordId) =>
+        Release(dentalRecordId, i => i.Id == itemId);
+
+    private int Release(Guid dentalRecordId, Func<TreatmentPlanItem, bool> which)
+    {
+        var released = 0;
+        foreach (var item in _items.Where(which))
+        {
+            foreach (var step in item.Steps.Where(s => s.LinkedDentalRecordId == dentalRecordId).ToList())
+            {
+                if (item.UnmarkStep(step.Id))
+                {
+                    released++;
+                }
+            }
+            // Read after the steps: a stepped act carries the record link only while its last step does.
+            if (item.LinkedDentalRecordId == dentalRecordId && item.Unmark())
+            {
+                released++;
+            }
+        }
+
+        if (released == 0)
+        {
+            return 0;
+        }
+
+        var isVoid = Status is TreatmentPlanStatus.Cancelled or TreatmentPlanStatus.WrittenOff;
+        if (!isVoid && StatusFollowsTheWork)
+        {
+            Status = OpenStatusFromWork;
+        }
+
+        Touch();
+        return released;
     }
 
     /// <summary>
@@ -865,9 +945,30 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// ⚠️ <see cref="Reopen"/> deliberately does <b>not</b> consult this — reopening is exactly the deliberate
     /// decision that lets the work speak again, and it restores the parked acts before it asks.
     /// </para>
+    /// <para>
+    /// ⚠️ <c>WrittenOff</c> and <c>Cancelled</c> are closed decisions too: editing a written-off act's séances
+    /// used to write <c>InProgress</c>, bringing the debt back while <see cref="WriteOffAmount"/> still reported
+    /// it as a loss. Only <see cref="Reopen"/> / <c>Uncancel</c> reopen them.
+    /// </para>
     /// </summary>
     private bool StatusFollowsTheWork =>
-        Status != TreatmentPlanStatus.Draft && Status != TreatmentPlanStatus.Stopped;
+        Status is not (TreatmentPlanStatus.Draft
+            or TreatmentPlanStatus.Stopped
+            or TreatmentPlanStatus.WrittenOff
+            or TreatmentPlanStatus.Cancelled);
+
+    /// <summary>
+    /// Re-derive the status after the act set changed (H3): an act added to — or brought back onto — a
+    /// « Terminé » devis is work still to do, so the devis is open again and the act bookable; the last act still
+    /// to do removed or parked closes it. A status a human chose is left alone (<see cref="StatusFollowsTheWork"/>).
+    /// </summary>
+    private void FollowTheActSet()
+    {
+        if (StatusFollowsTheWork)
+        {
+            Status = StatusAfterWork;
+        }
+    }
 
     /// <summary>
     /// The acts that still count as this plan's treatment — everything except the ones parked by
@@ -904,7 +1005,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// </remarks>
     public bool StopWouldCancel =>
         Number != null
-        && AmountPaid <= 0m
+        && !HasReceipts
         && !_items.Any(i => !i.IsWithdrawn && i.HasDeliveredWork);
 
     /// <summary>
@@ -958,7 +1059,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// </summary>
     /// <param name="dueDate">When the re-spread balance is due. The caller supplies it from the clinic clock.</param>
     /// <returns>The acts parked, in clinical order — what the caller reports back.</returns>
-    public IReadOnlyList<TreatmentPlanItem> StopTreatment(DateTime dueDate)
+    public IReadOnlyList<TreatmentPlanItem> StopTreatment(DateTime dueDate, PaymentMethod? refundMethod = null)
     {
         // A Draft is stoppable too — « le patient ne revient plus » happens just as often before anyone
         // asked for a quote, and it must not be the one state with no way out.
@@ -989,15 +1090,20 @@ public class TreatmentPlan : AggregateRoot<Guid>
              * remedy the product would then refuse, which is the defect shape this audit found four times.
              * With money on the devis the only honest remedy is the avoir, and it is named.
              */
-            if (AmountPaid > 0m)
+            // G3: with a confirmed rendu the stop goes through — everything collected is given back today and
+            // every act is parked (total 0), reversible by « Reprendre ».
+            if (AmountPaid > 0m && refundMethod is null)
             {
                 throw new InvalidOperationException(
                     $"Aucun acte de ce devis n'a été réalisé, mais {AmountPaid:0.000} DT y ont déjà été encaissés. "
-                    + "Remboursez-les par un avoir avant de clôturer ce devis.");
+                    + "Rendez-les au patient pour arrêter le traitement.");
             }
 
-            throw new InvalidOperationException(
-                "Aucun acte de ce devis n'a été réalisé : annulez-le (un motif est requis) plutôt que d'arrêter le traitement.");
+            if (AmountPaid <= 0m && !HasReceipts)
+            {
+                throw new InvalidOperationException(
+                    "Aucun acte de ce devis n'a été réalisé : annulez-le (un motif est requis) plutôt que d'arrêter le traitement.");
+            }
         }
 
         foreach (var item in parked)
@@ -1009,7 +1115,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         // ⚠️ The « déjà encaissé » refusal moved INTO `RespreadSchedule`, which is the only writer that can
         // break the invariant and was the only one of four not asking. The remedy wording is this verb's.
-        RespreadSchedule(dueDate, "avant d'arrêter le traitement");
+        RespreadSchedule(dueDate, "avant d'arrêter le traitement", refundMethod);
         RevisionNumber++;
 
         /*
@@ -1101,69 +1207,129 @@ public class TreatmentPlan : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Re-spread the balance onto one échéance after the total changed, keeping the rows that collected money.
-    /// <para>
-    /// Each collected row is trimmed to exactly what it took, so <c>Σ Amount == TotalPlanned</c> still holds —
-    /// the invariant « Solde patient » and « Créances » agree only while it does (see
-    /// <see cref="ReviseInstallments"/>). Nothing outstanding means <b>no row at all</b>: <c>Installment</c>
-    /// refuses a zero amount, and writing one is what left « Arrêter le traitement » on an unpaid devis as a
-    /// dialog answering « Le montant de l'échéance doit être supérieur à 0 » with no way forward.
-    /// </para>
-    /// </summary>
-    /// <summary>
-    /// Bring the échéancier back into step with <see cref="TotalPlanned"/>, keeping every collected row at
-    /// what it has actually taken and putting the balance on one row due <paramref name="dueDate"/>.
+    /// Bring the échéancier back into step with <see cref="TotalPlanned"/> after the total changed —
+    /// <b>keeping the agreed dates</b>.
     /// <para>
     /// ⚠️ Public so a caller that changed the total <b>without</b> sending a schedule can be re-spread instead
-    /// of refused. « Le total du devis a changé : renvoyez l'échéancier correspondant » is a correct statement
-    /// about the invariant and a useless one to a dentist correcting a price from the booking dialog, which
-    /// has no échéancier on screen to re-send. A plan with no schedule at all (an un-numbered treatment) needs
-    /// nothing done, and this is a no-op there.
+    /// of refused (the booking dialog has no échéancier on screen to re-send).
     /// </para>
     /// </summary>
-    public void RespreadScheduleToTotal(DateTime dueDate) => RespreadSchedule(dueDate);
-
-    /// <param name="remedy">
-    /// How the caller's own verb is named in the refusal below, so « arrêter le traitement » and « réduire le
-    /// total » each say what the dentist was actually doing. The rule is identical; only the sentence differs.
+    /// <param name="refundMethod">
+    /// When the new total is below what was collected: give the difference back today by this method (G3).
+    /// Null keeps the refusal, which is what lets the screen ask first.
     /// </param>
-    private void RespreadSchedule(DateTime dueDate, string remedy = "avant de réduire le total du devis")
+    public void RespreadScheduleToTotal(DateTime dueDate, PaymentMethod? refundMethod = null)
     {
-        /*
-         * ⚠️ **`TotalPlanned` may never fall below what was collected, and this is now the ONE place that is
-         * enforced.** It lived on `StopTreatment` and `ReviseInstallments` and NOT on the respread branch the
-         * amend handler takes when it changes a total without being sent a schedule — so removing a 200 DT act
-         * from a 500 DT devis with 500 DT collected left `Σ Amount` at 500 against a `TotalPlanned` of 300.
-         * `Outstanding` clamps at 0, both balances read 0, and 200 DT of the patient's money became unreachable
-         * with no error and no avoir prompt. The invariant `ReviseInstallments` calls load-bearing
-         * (« Solde patient » and « Créances » agree only while `Σ Amount == TotalPlanned`) was broken by the one
-         * writer that did not ask.
-         *
-         * It sits at the TOP: the rebuild below trims collected rows to what they took, which would otherwise
-         * destroy the evidence the refusal is made of.
-         */
+        // Re-read the total first: a caller that moved an act's remise directly (the duplicate) left it gross.
+        RecomputeTotal();
+        RespreadSchedule(dueDate, refundMethod: refundMethod);
+    }
+
+    /// <summary>Any live receipt on the devis, even one since given back — what `Cancel` refuses on.</summary>
+    public bool HasReceipts => _installments.SelectMany(i => i.Payments).Any(p => !p.IsVoided && !p.IsRefund);
+
+    /// <summary>What « Arrêter le traitement » would have to give back: collected beyond the work it keeps.</summary>
+    public decimal RefundOnStop => TreatmentPlanLifecycle.IsLive(Status)
+        ? Math.Max(0m, InvoiceCalculator.RoundMoney(
+            AmountPaid - ActiveItems.Where(i => i.HasDeliveredWork).Sum(i => i.NetCost)))
+        : 0m;
+
+    /// <summary>What was collected beyond the current total — what a « rendu » would give back.</summary>
+    public decimal ExcessCollected => Math.Max(0m, InvoiceCalculator.RoundMoney(AmountPaid - TotalPlanned));
+
+    /// <summary>
+    /// « Rendre au patient » (G3): the devis total fell below what was collected, and the dentist confirmed
+    /// giving the difference back. Recorded as a negative ledger row dated <paramref name="refundedOn"/> (today),
+    /// on the latest paid échéances first — so today's caisse shows the money leaving and no past day moves.
+    /// No avoir: a devis is not a fiscal document.
+    /// </summary>
+    public decimal RefundExcess(PaymentMethod method, DateTime refundedOn)
+    {
+        var excess = ExcessCollected;
+        if (excess <= 0m) return 0m;
+        EnsurePayable();
+
+        var remaining = excess;
+        foreach (var row in _installments.Select((row, index) => (row, index))
+                     .OrderByDescending(x => x.row.DueDate).ThenByDescending(x => x.index).Select(x => x.row)
+                     .ToList())
+        {
+            if (remaining <= 0m) break;
+            var take = Math.Min(row.AmountPaid, remaining);
+            if (take <= 0m) continue;
+            row.RecordRefund(take, method, refundedOn);
+            remaining = InvoiceCalculator.RoundMoney(remaining - take);
+        }
+        Touch();
+        return excess;
+    }
+
+    /// <summary>
+    /// Keep <c>Σ Amount == TotalPlanned</c> — the invariant « Solde patient » and « Créances » agree on.
+    /// <para>
+    /// ⚠️ <b>It used to collapse the whole schedule into one lump sum due today</b>, so a remise, a parked act or
+    /// « Total convenu » erased dates the patient had agreed to. Now (owner's decision, 2026-09-23): a lower
+    /// total is taken off the <b>last</b> unpaid rows, a higher one is added to the last unpaid row; only when
+    /// nothing is left unpaid does a new row appear, due <paramref name="dueDate"/>.
+    /// </para>
+    /// </summary>
+    /// <param name="remedy">How the caller's verb is named in the refusal, so the sentence says what was done.</param>
+    private void RespreadSchedule(
+        DateTime dueDate, string remedy = "avant de réduire le total du devis", PaymentMethod? refundMethod = null)
+    {
+        // ⚠️ An un-numbered treatment has no échéancier: writing one here put « Solde à régler » on a plan
+        // nobody quoted (G10). A void plan's rows are evidence and are not re-derived either (G11).
+        if (Number is null && _installments.Count == 0) return;
+        if (Status is TreatmentPlanStatus.WrittenOff or TreatmentPlanStatus.Cancelled) return;
+
+        // ⚠️ `TotalPlanned` may never fall below what was collected — the ONE place that is enforced. At the
+        // TOP, before any row moves. A confirmed rendu (G3) is the one way through.
+        if (refundMethod is { } method && TotalPlanned < AmountPaid)
+        {
+            RefundExcess(method, dueDate);
+        }
         EnsureTotalCoversCollected(remedy);
 
-        var outstanding = Outstanding;
-        var collected = _installments.Where(i => i.AmountPaid > 0m).ToList();
-        // Remember what each kept row WAS before trimming it: `Revise` clears `IsAutoRaised` (revising is
-        // normally a dentist agreeing a date), and this is bookkeeping — trimming a row to what it actually
-        // took agrees to nothing. Without this, re-spreading would silently promote the auto lump-sum into an
-        // « agreed » date and put « En retard » back on it.
-        var wasAuto = collected.Where(i => i.IsAutoRaised).Select(i => i.Id).ToHashSet();
-        foreach (var row in collected)
+        var delta = InvoiceCalculator.RoundMoney(TotalPlanned - _installments.Sum(i => i.Amount));
+        if (delta == 0m) return;
+
+        // Latest agreed date last: that is where a change of total lands.
+        var byDate = _installments.Select((row, index) => (row, index))
+            .OrderBy(x => x.row.DueDate).ThenBy(x => x.index).Select(x => x.row).ToList();
+
+        if (delta > 0m)
         {
-            row.Revise(row.DueDate, row.AmountPaid);
-            if (wasAuto.Contains(row.Id)) row.MarkAutoRaised();
+            var lastUnpaid = byDate.LastOrDefault(i => i.Outstanding > 0m);
+            if (lastUnpaid is not null)
+            {
+                lastUnpaid.Resize(lastUnpaid.Amount + delta);
+            }
+            else
+            {
+                // Same reason as `Accept`'s row: the date is required, not chosen.
+                _installments.Add(new Installment(Guid.NewGuid(), Id, dueDate, delta, isAutoRaised: true));
+            }
+            return;
         }
 
-        _installments.Clear();
-        _installments.AddRange(collected);
-        if (outstanding > 0m)
+        var toRemove = -delta;
+        for (var k = byDate.Count - 1; k >= 0 && toRemove > 0m; k--)
         {
-            // Same reason as `Accept`'s row: the caller supplies this date from the clinic clock because a
-            // date is required, not because anybody chose it.
-            _installments.Add(new Installment(Guid.NewGuid(), Id, dueDate, outstanding, isAutoRaised: true));
+            var row = byDate[k];
+            var room = InvoiceCalculator.RoundMoney(row.Amount - row.AmountPaid);
+            if (room <= 0m) continue;
+
+            var take = Math.Min(room, toRemove);
+            toRemove = InvoiceCalculator.RoundMoney(toRemove - take);
+            var left = InvoiceCalculator.RoundMoney(row.Amount - take);
+            if (left == 0m && row.Payments.Count == 0)
+            {
+                _installments.Remove(row);
+            }
+            else
+            {
+                row.Resize(left);
+            }
         }
     }
 
@@ -1220,6 +1386,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
         }
 
         RecomputeTotal();
+        FollowTheActSet();
         Touch();
     }
 
@@ -1303,6 +1470,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         _items.Remove(item);
         RecomputeTotal();
+        FollowTheActSet();
         Touch();
     }
 
@@ -1333,7 +1501,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// what the patient has already handed over.
     /// </para>
     /// </summary>
-    public void WithdrawItem(Guid itemId, DateTime dueDate)
+    public void WithdrawItem(Guid itemId, DateTime dueDate, PaymentMethod? refundMethod = null)
     {
         EnsureAmendable();
 
@@ -1353,7 +1521,8 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         item.Withdraw();
         RecomputeTotal();
-        RespreadSchedule(dueDate, "avant de mettre cet acte de côté");
+        RespreadSchedule(dueDate, "avant de mettre cet acte de côté", refundMethod);
+        FollowTheActSet();
         RevisionNumber++;
         Touch();
     }
@@ -1362,10 +1531,9 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Bring one parked act back, at whatever état its own steps derive — the mirror of
     /// <see cref="WithdrawItem"/>, and the per-act half of <see cref="Reopen"/>.
     /// <para>
-    /// ⚠️ The plan's own status is <b>not</b> re-derived here, and that is deliberate: restoring one act of a
+    /// ⚠️ The status is re-derived only through <see cref="StatusFollowsTheWork"/>: restoring one act of a
     /// <c>Stopped</c> treatment does not decide that the treatment is running again — <see cref="Reopen"/> is
-    /// the verb for that, and <see cref="StatusFollowsTheWork"/> states in as many words that a status a human
-    /// chose may not be overwritten by what the acts happen to say.
+    /// the verb for that. A <c>Completed</c> devis given an act back is open again (H3).
     /// </para>
     /// </summary>
     public void RestoreItem(Guid itemId, DateTime dueDate)
@@ -1382,6 +1550,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         RecomputeTotal();
         RespreadSchedule(dueDate, "avant de remettre cet acte au devis");
+        FollowTheActSet();
         RevisionNumber++;
         Touch();
     }
@@ -1499,6 +1668,11 @@ public class TreatmentPlan : AggregateRoot<Guid>
         // cash from the plan's balance with no trace.
         var keptIds = list.Where(i => i.id.HasValue).Select(i => i.id!.Value).ToHashSet();
         var droppedWithMoney = _installments.Where(i => i.AmountPaid > 0m && !keptIds.Contains(i.Id)).ToList();
+        // A row paid and then fully rendu (net 0, G3) is kept even when not echoed: it holds receipts dated on
+        // past days, and dropping it would cascade them away.
+        var historyOnly = _installments
+            .Where(i => i.AmountPaid == 0m && i.Payments.Any(p => !p.IsVoided) && !keptIds.Contains(i.Id))
+            .ToList();
         if (droppedWithMoney.Count > 0)
         {
             throw new InvalidOperationException(
@@ -1537,6 +1711,11 @@ public class TreatmentPlan : AggregateRoot<Guid>
             }
         }
 
+        foreach (var row in historyOnly)
+        {
+            row.Resize(0m);
+            rebuilt.Add(row);
+        }
         _installments.Clear();
         _installments.AddRange(rebuilt);
         Touch();
@@ -1680,7 +1859,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// total.
     /// </para>
     /// </summary>
-    public void SetItemDiscount(Guid itemId, decimal discountAmount, DateTime dueDate)
+    public void SetItemDiscount(Guid itemId, decimal discountAmount, DateTime dueDate, PaymentMethod? refundMethod = null)
     {
         EnsureAmendable();
 
@@ -1692,7 +1871,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
         RecomputeTotal();
         // The remise lowers the total, so this is the writer that can break `TotalPlanned >= AmountPaid` —
         // `RespreadSchedule` is the one place that invariant is enforced, and it names this verb's remedy.
-        RespreadSchedule(dueDate, "avant d'accorder cette remise");
+        RespreadSchedule(dueDate, "avant d'accorder cette remise", refundMethod);
         RevisionNumber++;
         Touch();
     }
@@ -1837,7 +2016,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         throw new InvalidOperationException(
             $"{AmountPaid:0.000} DT ont déjà été encaissés sur ce devis, pour un total de {TotalPlanned:0.000} DT. "
-            + $"Remboursez la différence par un avoir {remedy}.");
+            + $"Rendez la différence ({ExcessCollected:0.000} DT) au patient {remedy}.");
     }
 
     /// <summary>
@@ -1857,8 +2036,10 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// </summary>
     private void EnsureNoLiveMoney(string verb)
     {
+        // Receipts, not the net: a payment later given back (G3) still sits on its own caisse day, and a
+        // cancellation would drop it from there.
         var live = InvoiceCalculator.RoundMoney(
-            _installments.SelectMany(i => i.Payments).Where(p => !p.IsVoided).Sum(p => p.Amount));
+            _installments.SelectMany(i => i.Payments).Where(p => !p.IsVoided && !p.IsRefund).Sum(p => p.Amount));
 
         if (live <= 0m)
         {
@@ -1867,7 +2048,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         throw new InvalidOperationException(
             $"{live:0.000} DT ont déjà été encaissés sur ce devis : il ne peut plus être {verb}. "
-            + "Remboursez-les par un avoir, ou arrêtez le traitement pour conserver ce qui a été fait.");
+            + "Arrêtez le traitement plutôt : ce qui a été encaissé reste sur le jour où il l'a été.");
     }
 
     /// <summary>

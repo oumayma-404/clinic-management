@@ -1409,6 +1409,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -4823,6 +4828,43 @@ namespace ClinicManagement.Infrastructure.Migrations
                                 .HasForeignKey("PatientId");
                         });
 
+                    b.OwnsMany("ClinicManagement.Domain.ValueObjects.PatientPhone", "AdditionalPhoneNumbers", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<string>("E164")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("PhoneNumberE164");
+
+                            b1.Property<Guid>("PatientId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("SortOrder")
+                                .HasColumnType("integer")
+                                .HasColumnName("SortOrder");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("PhoneNumber");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("PatientId", "SortOrder");
+
+                            b1.ToTable("PatientPhoneNumbers", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("PatientId");
+                        });
+
                     b.OwnsOne("ClinicManagement.Domain.ValueObjects.TobaccoUse", "TobaccoUse", b1 =>
                         {
                             b1.Property<Guid>("PatientId")
@@ -4847,6 +4889,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                             b1.WithOwner()
                                 .HasForeignKey("PatientId");
                         });
+
+                    b.Navigation("AdditionalPhoneNumbers");
 
                     b.Navigation("Address");
 

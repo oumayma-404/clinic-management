@@ -70,6 +70,15 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     /// persisted region beside it; both change stored data and are the owner's call, not this fix's.</para>
     /// </summary>
     public string? PhoneRegion { get; set; }
+
+    /// <summary>
+    /// The patient's other numbers — see <see cref="Domain.ValueObjects.PatientPhone"/>. Omitted or empty
+    /// means the patient has only the one number, which is nearly every patient.
+    /// <para>⚠️ Each row carries its OWN <c>Region</c>: a patient's mobile may be Tunisian and their son's
+    /// French, so one <see cref="PhoneRegion"/> for the whole record would be wrong exactly where this
+    /// feature is useful.</para>
+    /// </summary>
+    public List<PatientPhoneInputDto>? AdditionalPhones { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     public string? Medications { get; set; }

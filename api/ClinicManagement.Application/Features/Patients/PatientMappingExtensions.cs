@@ -33,6 +33,9 @@ public static class PatientMappingExtensions
             // patient's number resolved to null here and every surface keyed on `phoneE164` — the WhatsApp
             // action, the reminder, the `tel:` link — silently treated them as having no number at all.
             PhoneE164 = patient.PhoneNumber?.E164,
+            // Owned, so EF has already loaded it — there is no `Include` to forget and no empty-vs-stale
+            // question. See `Patient.AdditionalPhoneNumbers`.
+            AdditionalPhones = PatientPhoneMapping.ToDtos(patient.AdditionalPhoneNumbers),
             MedicalHistory = patient.MedicalHistory,
             Allergies = patient.Allergies,
             Medications = patient.Medications,

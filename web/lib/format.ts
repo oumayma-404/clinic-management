@@ -85,6 +85,21 @@ export function quoteFr(value: string): string {
 }
 
 /**
+ * A French ordinal — « 1er », « 2e », « 3e ».
+ *
+ * <p>⚠️ An ordinal and **not** a ratio, which is the whole reason it exists rather than a `${n} / ${total}` at
+ * the call site. A bare counter is read as progress every time — measured three separate times in this
+ * product, and what `check:responsive`'s N31 was built to stop — so « le 3e acte du devis » is sayable where
+ * « acte 3 sur 3 » would announce that all three are done.</p>
+ *
+ * <p>« 2e », never « 2ème »: the first is the correct French abbreviation. Plain letters rather than the
+ * superscript `U+1D49`, which is missing from enough UI fonts to render as a box on somebody's machine.</p>
+ */
+export function ordinalFr(n: number): string {
+  return n === 1 ? "1er" : `${n}e`;
+}
+
+/**
  * Format a byte count with French units — « o / Ko / Mo », not « B / KB / MB » (AC-P3.51). Decimal separator
  * is a comma, matching every other number the app prints.
  *

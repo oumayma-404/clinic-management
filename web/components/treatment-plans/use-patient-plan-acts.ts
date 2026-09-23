@@ -8,10 +8,10 @@ import {
   resolvePlannedProtocols,
 } from "@/components/appointment-acts-picker"
 import { showErrorToast } from "@/lib/errors"
-import { formatDT } from "@/lib/format"
+import { formatDT, roundMillimes } from "@/lib/format"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
-import { planItemToPreset, schedulablePlanItems } from "./plan-next-action"
+import { itemDiscount, planItemToPreset, schedulablePlanItems } from "./plan-next-action"
 
 export interface PatientPlanActs {
   /** Every live devis of this patient, as read. Empty while loading, on a failure, and for a patient with none. */
@@ -20,6 +20,17 @@ export interface PatientPlanActs {
   planActs: PresetPlanAct[]
   /** Which devis each of those acts belongs to — see {@link resolveAttachedPlanId}. */
   planIdByItem: Record<string, string>
+  /**
+   * EVERY act of every devis read — done, parked, on a closed devis — as a preset, keyed the same way.
+   *
+   * <p>⚠️ For reading back what a visit ALREADY holds, never for offering. A visit booked on an act that has
+   * since been recorded, or on a devis since cancelled or completed, still carries that link; resolving it only
+   * against `planActs` (the bookable ones) lost its plan id and its locked price, so the next save of the visit —
+   * its time, its notes — was refused with « Le plan de traitement est requis pour lier l'acte. »</p>
+   */
+  heldPlanActs: PresetPlanAct[]
+  /** The devis of every act in {@link heldPlanActs}. */
+  planIdByAnyItem: Record<string, string>
   loading: boolean
   /**
    * Fold a devis **this dialog just created** into the derived sets, without a re-read.
@@ -48,7 +59,7 @@ export interface PatientPlanActs {
 }
 
 const EMPTY: Omit<PatientPlanActs, "register" | "saveActTotal"> = {
-  plans: [], planActs: [], planIdByItem: {}, loading: false,
+  plans: [], planActs: [], planIdByItem: {}, heldPlanActs: [], planIdByAnyItem: {}, loading: false,
 }
 
 /**
@@ -117,7 +128,8 @@ export function usePatientPlanActs(
           {
             id: item.id,
             designationFr: item.designationFr,
-            plannedCost: total,
+            // The booking screen shows the price AFTER remise (G6), so the typed total is the net: keep the remise.
+            plannedCost: roundMillimes(total + itemDiscount(item)),
             procedureTypeId: item.procedureTypeId ?? undefined,
             toothNumbers: item.toothNumbers,
           },
@@ -160,13 +172,19 @@ export function usePatientPlanActs(
     if (plans.length === 0) return { ...EMPTY, loading, register, saveActTotal }
     const planActs: PresetPlanAct[] = []
     const planIdByItem: Record<string, string> = {}
+    const heldPlanActs: PresetPlanAct[] = []
+    const planIdByAnyItem: Record<string, string> = {}
     for (const plan of plans) {
       for (const item of schedulablePlanItems(plan)) {
         planActs.push(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined))
         planIdByItem[item.id] = plan.id
       }
+      for (const item of plan.items) {
+        heldPlanActs.push(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined))
+        planIdByAnyItem[item.id] = plan.id
+      }
     }
-    return { plans, planActs, planIdByItem, loading, register, saveActTotal }
+    return { plans, planActs, planIdByItem, heldPlanActs, planIdByAnyItem, loading, register, saveActTotal }
   }, [plans, loading, register, saveActTotal])
 }
 
@@ -204,6 +222,29 @@ export function resolveAttachedPlanId(
     }
   }
   return { planId: attached[0] }
+}
+
+/**
+ * Undo every treatment {@link materialiseTreatments} created for a booking that was then abandoned — the dialog
+ * closed without the visit being saved. Best effort: a refusal leaves the plan and says which one.
+ *
+ * ⚠️ Without it a slot refused as taken, then « Retour » and « Annuler », left a numbered devis carrying a live
+ * créance for a séance nobody booked (continuation door), or a followed treatment with no séance (split door).
+ */
+export async function discardUnbookedTreatments(created: Map<string, TreatmentPlanDto>): Promise<void> {
+  const plans = [...new Map([...created.values()].map((p) => [p.id, p])).values()]
+  for (const plan of plans) {
+    try {
+      await treatmentPlansApi.discardBookingPlan(plan.id)
+      if (plan.number) toast.info(`Le devis ${plan.number} créé pour ce rendez-vous a été annulé.`)
+    } catch {
+      toast.warning(
+        plan.number
+          ? `Le devis ${plan.number} a été créé mais le rendez-vous non : ouvrez-le pour l'annuler.`
+          : "Un traitement a été créé mais le rendez-vous non : retirez-le depuis la fiche du patient.",
+      )
+    }
+  }
 }
 
 /**

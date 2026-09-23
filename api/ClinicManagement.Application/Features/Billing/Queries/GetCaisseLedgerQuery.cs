@@ -283,13 +283,18 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
     {
         Id = row.PaymentId,
         Kind = nameof(CaisseMovementKind.InstallmentPayment),
-        Direction = nameof(CaisseMovementDirection.In),
+        // A negative row is a « rendu » (G3): money leaving the caisse, shown as a Sortie at its absolute value.
+        Direction = row.Amount < 0m
+            ? nameof(CaisseMovementDirection.Out)
+            : nameof(CaisseMovementDirection.In),
         OccurredOn = row.PaidOn,
-        Amount = InvoiceCalculator.RoundMoney(row.Amount),
+        Amount = InvoiceCalculator.RoundMoney(Math.Abs(row.Amount)),
         Method = row.Method.ToString(),
-        Label = row.PlanNumber is null
-            ? "Échéance — devis sans numéro"
-            : $"Échéance devis {row.PlanNumber}",
+        Label = row.Amount < 0m
+            ? (row.PlanNumber is null ? "Rendu au patient — devis sans numéro" : $"Rendu au patient — devis {row.PlanNumber}")
+            : row.PlanNumber is null
+                ? "Échéance — devis sans numéro"
+                : $"Échéance devis {row.PlanNumber}",
         Reference = row.PlanNumber,
         PatientId = row.PatientId,
         PatientName = patientName,

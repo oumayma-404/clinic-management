@@ -157,7 +157,7 @@ export default function AppointmentsPage() {
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
   // Per-practitioner filter (AC-3.2): "all" = no filter. Passed down to the calendar's fetch.
-  const { doctors } = useDoctors()
+  const { doctors, allDoctors } = useDoctors()
   // Seeded from the URL for the same reason as the day and the statuses above it — see `useUrlFilters` below.
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(
     () => (typeof window === "undefined" ? "all" : new URLSearchParams(window.location.search).get("doctorId") ?? "all"),
@@ -528,7 +528,7 @@ export default function AppointmentsPage() {
             <div className="mb-3 flex flex-shrink-0 flex-wrap items-center gap-2">
               {doctorFilterId && (
                 <ActiveFilterChip
-                  label={`Praticien : ${doctors.find((doc) => doc.id === doctorFilterId)?.name ?? "sélectionné"}`}
+                  label={`Praticien : ${allDoctors.find((doc) => doc.id === doctorFilterId)?.name ?? "sélectionné"}`}
                   onRemove={() => setSelectedDoctorId("all")}
                 />
               )}

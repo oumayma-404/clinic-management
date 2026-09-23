@@ -84,6 +84,18 @@ interface ActCardProps {
    * amount, and the pair used to be the same fact twice on one card.</p>
    */
   planNotice?: ReactNode
+  /**
+   * The devis this séance is carrying out, named — « 2026-0027 ». Absent when this séance names no devis, or
+   * when this act is the one the devis already carries (that one has its own notice).
+   *
+   * <p>⚠️ A <b>label, not a boolean</b>, because the statement has to name what grew. « Chiffré sur le
+   * devis » on a patient with three treatments says nothing a dentist can check.</p>
+   *
+   * <p>⚠️ There is <b>no control</b> here any more. An act added to a séance a devis is carrying out goes
+   * onto that devis, full stop (owner's decision, 2026-09-23) — this prop only decides whether the card can
+   * say so.</p>
+   */
+  addToPlanTarget?: string | null
   /** A save refusal this act caused, rendered where the offending field is. */
   error?: string | null
   /** Marked when another act in the séance names the same procedure on the same teeth. */
@@ -115,6 +127,7 @@ export function ActCard({
   proposedFromAppointment,
   seanceStepLine,
   planNotice,
+  addToPlanTarget,
   error,
   duplicate,
   dispatch,
@@ -404,6 +417,27 @@ export function ActCard({
                   <span className="text-xs text-warning-ink">Sans tarif — à compléter plus tard</span>
                 )}
               </div>
+
+              {/*
+                ⚠️ A STATEMENT of where this fee lands, and the ONLY thing left of what used to be a choice.
+                An act added to a séance a devis is carrying out goes onto that devis — the owner's decision,
+                2026-09-23 — so there is no tick here and no way out; the way back is amending the devis.
+                The line stays because without it the card shows a real amount that « Total » and « Payé »
+                both ignore, which is unreadable. Same job as `billedOnPlan`'s « Aucun honoraire sur cette
+                séance », one step earlier in the act's life.
+
+                ⚠️ The price row above is deliberately still editable: that figure is what the devis will be
+                amended by, so somebody has to be able to type it.
+              */}
+              {act.addToPlan && addToPlanTarget && (
+                <p className="text-xs">
+                  <span className="font-medium text-foreground">
+                    Chiffré sur le devis {addToPlanTarget}.
+                  </span>{" "}
+                  <span className="text-muted-foreground">Aucun honoraire sur cette séance.</span>
+                </p>
+              )}
+
               </>
               )}
 
@@ -551,7 +585,11 @@ export function ActCard({
                 leaves the worklist anyway, and there is no nag left behind for a control that is no longer on
                 screen to answer.
               */}
-              {!act.billedOnPlan && (
+              {/* ⚠️ `addToPlan` hides it for the reason the paragraph above already gives for a devis act: the
+                  tick would be INERT. « Suites à planifier » excludes an act on a live devis through
+                  `ContinuationTracking`, and this act is about to be on one — so the box would record a
+                  statement nothing reads, on a card that also says the devis now owns the work. */}
+              {!act.billedOnPlan && !act.addToPlan && (
               <label
                 htmlFor={`${act.key}-unfinished`}
                 className={cn(

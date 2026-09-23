@@ -34,13 +34,27 @@ namespace ClinicManagement.Application.Features.Patients;
 /// </summary>
 public static class PlanCarriedActPricing
 {
+    /// <summary>The refusal's own code, so a client branches on it and never on the French sentence.</summary>
+    public const string ActNotOnTheFicheCode = "dental_record_plan_act_not_on_the_fiche";
+
+    /// <summary>
+    /// What the imposition produced: the acts to store, or the reason the save must not happen at all.
+    ///
+    /// <para>A record rather than two out-parameters because <b>both</b> fiche commands consume it and a caller
+    /// that took only the list would silently keep the behaviour this exists to remove —
+    /// <c>PlanCarriedActMismatchCoverageTests</c> is what stops a third one doing so.</para>
+    /// </summary>
+    public sealed record Imposed(List<DentalRecordActInput> Acts, string? Refusal = null);
+
     /// <summary>
     /// Returns <paramref name="acts"/> with the act this séance carries for <paramref name="treatmentPlanItemId"/>
-    /// priced at 0, or the list untouched when the fiche carries no treatment act.
+    /// priced at 0, or the list untouched when the fiche carries no treatment act — and a <b>refusal</b> when the
+    /// devis line names a catalogue act that none of the fiche's acts is
+    /// (<see cref="PlanCarriedAct.NamesAnActTheFicheDoesNotHold"/>).
     /// </summary>
     /// <param name="treatmentPlanId">The devis named by the request; null leaves everything alone.</param>
     /// <param name="treatmentPlanItemId">The devis act named by the request; null leaves everything alone.</param>
-    public static async Task<List<DentalRecordActInput>> ImposeAsync(
+    public static async Task<Imposed> ImposeAsync(
         ITreatmentPlanRepository planRepository,
         List<DentalRecordActInput> acts,
         Guid? treatmentPlanId,
@@ -51,7 +65,7 @@ public static class PlanCarriedActPricing
     {
         if (treatmentPlanId is not { } planId || treatmentPlanItemId is not { } itemId || acts.Count == 0)
         {
-            return acts;
+            return new Imposed(acts);
         }
 
         var plan = await planRepository.GetByIdAsync(planId, cancellationToken);
@@ -59,13 +73,38 @@ public static class PlanCarriedActPricing
         // in French, on the same request. Imposing nothing here leaves that the single authority on the failure.
         if (plan == null || plan.ClinicId != clinicId)
         {
-            return acts;
+            return new Imposed(acts);
         }
 
         var item = plan.Items.FirstOrDefault(i => i.Id == itemId);
         if (item == null)
         {
-            return acts;
+            return new Imposed(acts);
+        }
+
+        /*
+         * ⚠️ **Before anything is priced: does the fiche even hold the act this devis line names?**
+         *
+         * « Changer d'acte » on a devis-carried card rewrites the act and leaves `TreatmentPlanItemId` pointing
+         * at the line the fiche was opened on, so the request arrives claiming to carry out a couronne while
+         * recording an extraction. Nothing used to refuse it — `IndexIn` answered -1, this method imposed no 0,
+         * `ToothChartingRules` withheld nothing, and `DentalRecordLinker` then marked the COURONNE's step done
+         * against a fiche that does not record it. The devis read « fait » for work nobody had carried out and
+         * the extraction, still wearing the browser's locked 0, was billed nothing at all.
+         *
+         * ⚠️ Refused rather than repaired. The two honest repairs contradict each other — drop the devis link,
+         * or put the devis' act back — and both are the dentist's call about what actually happened at the
+         * chair; guessing either writes a clinical claim nobody made. The sentence names both remedies and the
+         * « Acte planifié » control that performs the first.
+         */
+        if (PlanCarriedAct.NamesAnActTheFicheDoesNotHold(acts, item))
+        {
+            return new Imposed(
+                acts,
+                $"Cette fiche est liée à l'acte « {item.DesignationFr} » du devis, "
+                + "mais aucun acte de la séance n'est celui-là. "
+                + "Remettez l'acte du devis, ou choisissez « Aucun » dans « Acte planifié » "
+                + "pour enregistrer cette séance hors du devis.");
         }
 
         /*
@@ -82,7 +121,7 @@ public static class PlanCarriedActPricing
 
         if (index < 0 || (acts[index].Cost == 0m && acts[index].UnitCost is null or 0m))
         {
-            return acts;
+            return new Imposed(acts);
         }
 
         var carried = acts[index];
@@ -96,6 +135,6 @@ public static class PlanCarriedActPricing
             // unit price, so a stale one would restore the fee the next time anybody pressed « Enregistrer ».
             [index] = carried with { Cost = 0m, UnitCost = carried.UnitCost is null ? null : 0m },
         };
-        return imposed;
+        return new Imposed(imposed);
     }
 }

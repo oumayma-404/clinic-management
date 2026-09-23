@@ -3946,6 +3946,133 @@ check(
   },
 );
 
+check(
+  "stored-phone-country-has-one-owner",
+  "N43",
+  "A form seeds its country selector from the STORED E.164, through `storedPhoneCountry`",
+  "The country a number was written with is not a property of the number: what is stored is the answer it " +
+    "produced, `PhoneNumber.PersistedE164`, served as `phoneE164`. So `regionOf(record.phoneNumber)` " +
+    "re-derives against Tunisia and answers TN for every foreign number typed in national form — the patient " +
+    "edit dialog and the fournisseur dialog both did exactly that, and a French patient saved as " +
+    "`06 12 34 56 78` re-opened on +216 with no error anywhere. The second half is worse: the pre-check " +
+    "beside it then reads the number against Tunisia too, so the next ORDINARY save of that patient is " +
+    "refused with « Numéro de téléphone invalide », blaming the one field nobody touched. `storedPhoneCountry` " +
+    "is the one place the E.164-first order lives. ⚠️ `ui/phone-field.tsx` is the deliberate exception: its " +
+    "AC-11 effect reads the LIVE value so a pasted `+33…` moves the selector, which is a different question.",
+  () => {
+    const owner = join(WEB_ROOT, "lib", "phone.ts");
+    const offenders = [];
+
+    // Non-vacuity: this check is worthless if the owner is gone, or if nothing calls it any more.
+    if (!/export function storedPhoneCountry\b/.test(read(owner))) {
+      return [{ file: "lib/phone.ts", text: "`storedPhoneCountry` is gone — retarget this check rather than letting it pass vacuously" }];
+    }
+    let users = 0;
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      if (/\bstoredPhoneCountry\s*\(/.test(code)) users++;
+      // `lib/phone.ts` declares `regionOf` and is where `storedPhoneCountry` composes it;
+      // `ui/phone-field.tsx` is the live-value reader, and the only one. Everything else answers
+      // « what did the writer choose? », which only the stored E.164 knows.
+      if (name === "lib/phone.ts" || name === "components/ui/phone-field.tsx") continue;
+
+      const at = code.search(/\bregionOf\s*\(/);
+      if (at < 0) continue;
+      offenders.push({
+        file: name,
+        line: lineAt(code, at),
+        text:
+          "seeds a country from `regionOf(...)` — a stored national number resolves against Tunisia there, so " +
+          "the selector comes back +216 and the next save is refused. Use `storedPhoneCountry(e164, raw)`",
+      });
+    }
+
+    if (users === 0) {
+      offenders.push({ file: "lib/phone.ts", text: "no .tsx calls `storedPhoneCountry` — every seeding site was rewritten away, so this check proves nothing" });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "carried-act-keeps-its-zero",
+  "N44",
+  "Picking an act on a devis-carried card decides the price from `billedOnPlan`, never from the catalogue alone",
+  "An act a devis carries is priced 0 by rule, and the fiche WITHHOLDS its price field for that reason " +
+    "(`act-card` prints « Aucun honoraire sur cette séance » in its place). So the only place a wrong figure " +
+    "can surface is the séance total and the save button — which is exactly what happened: `actFromDto` sets " +
+    "`unitCostLocked: false` on every reopened act, deliberately (« whether the stored amount was typed or " +
+    "taken from a tariff is not recorded »), so re-picking the SAME act on a carried card fell through to " +
+    "`pt.defaultCost` and the button read « Enregistrer — 30,000 DT » above a card saying the séance adds no " +
+    "honoraires. Measured in the browser 2026-09-22. `PlanCarriedActPricing` imposes the 0 server-side, so no " +
+    "stored money was wrong — the screen simply contradicted itself on the one control the dentist presses. " +
+    "Its mirror is the other direction: changing to a DIFFERENT act must RELEASE the card, clearing " +
+    "`billedOnPlan` and the locked 0, or the new act saves free. Both halves live in `applyProcedure`, so " +
+    "this asserts that function reads the flag at all.",
+  /*
+   * Derived from the function body by brace-matching rather than by grepping the file: `billedOnPlan` appears
+   * a dozen times in this module (the field's own docstring, `emptyAct`, `actFromDto`, `markBilledOnPlan`), so
+   * a file-level grep would pass with the pricing rule deleted.
+   */
+  () => {
+    const file = "components/record/use-session-acts.ts";
+    const src = read(file);
+    const at = src.indexOf("function applyProcedure(");
+    if (at < 0) {
+      return [{ file, line: 1, text: "`applyProcedure` not found — this check has stopped checking anything", full: "" }];
+    }
+    let i = src.indexOf("{", at);
+    let depth = 0;
+    let end = -1;
+    for (; i < src.length; i += 1) {
+      if (src[i] === "{") depth += 1;
+      else if (src[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) {
+      return [{ file, line: 1, text: "could not read `applyProcedure`'s body", full: "" }];
+    }
+    // Comments are masked: the prose explaining the rule must not satisfy a scan of raw source.
+    const body = src
+      .slice(at, end)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    /*
+     * ⚠️ Counted as READS (`.billedOnPlan`), not as mentions. The first version asked whether the body
+     * contained the identifier at all, and it passed a deliberate violation: the release's own
+     * `billedOnPlan: false` assignment satisfied it with BOTH tests deleted. There are exactly two reads and
+     * they are the two halves — the release test (different act ⇒ let go of the devis' 0) and the pricing
+     * test (same act ⇒ keep it) — while the assignment carries no dot.
+     */
+    const reads = (body.match(/\.billedOnPlan/g) ?? []).length;
+    return reads >= 2
+      ? []
+      : [
+          {
+            file,
+            line: src.slice(0, at).split(String.fromCharCode(10)).length,
+            text: `\`applyProcedure\` reads \`billedOnPlan\` ${reads} time(s), expected 2`,
+            full:
+              "the release test (different act ⇒ let go of the devis' 0) and the pricing test (same act ⇒ " +
+              "keep it). Without both, a carried act either keeps a price the devis already charges, or is " +
+              "released without being released.",
+          },
+        ];
+  }
+);
+
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

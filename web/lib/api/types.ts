@@ -250,6 +250,8 @@ export interface VisitToCloseDto {
   doctorName?: string | null;
   /** The acts the séance was booked for. Empty for a booking with none — a real state, not a missing one. */
   procedures: string[];
+  /** The acts its fiche RECORDED once there is one (J3) — shown « Réalisé », the booked ones « Prévu ». */
+  recordedProcedures?: string[];
   /** The visit's own status, so a row can say « En cours » rather than only « à confirmer ». */
   status: string;
   presenceAnswered: boolean;
@@ -737,6 +739,25 @@ export interface TobaccoUse {
   unit?: TobaccoUnit | null;
 }
 
+/** One of a patient's additional numbers, as a screen reads it. Mirror of `PatientPhoneDto`. */
+export interface PatientPhoneDto {
+  /** The number as reception typed it. This is what is DISPLAYED. */
+  value: string;
+  /** The dialable form — what a `tel:` link and a WhatsApp action use. Never null, unlike `phoneE164`. */
+  e164: string;
+}
+
+/**
+ * One additional number as a WRITE carries it. Mirror of `PatientPhoneInputDto`.
+ *
+ * ⚠️ Carries its own `region` — the row's own country selector. A patient's mobile may be Tunisian and their
+ * son's French, so one region for the whole record would be wrong exactly where this feature earns its place.
+ */
+export interface PatientPhoneInput {
+  value: string;
+  region?: string | null;
+}
+
 export interface PatientDto {
   /**
    * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
@@ -780,6 +801,13 @@ export interface PatientDto {
    * mirror of the rule, and a second copy is how a patient becomes contactable on one screen and not another.
    */
   phoneE164?: string | null;
+  /**
+   * The patient's OTHER numbers, in the order the practice entered them — empty for almost every patient.
+   *
+   * ⚠️ `phoneNumber` above stays the primary and is unaffected: it is what the rappels dispatch to and what the
+   * duplicate check folds. These are the numbers a human dials when the first one does not answer.
+   */
+  additionalPhones?: PatientPhoneDto[];
   /**
    * Chronic conditions and known allergies — free text, and the two most safety-critical strings on the record.
    *
@@ -1070,8 +1098,23 @@ export interface TreatmentInProgressDto {
   patientName: string | null;
   itemId: string;
   designationFr: string;
+  /**
+   * The act's 1-based place in its devis, over the acts that still count (a parked one is excluded).
+   *
+   * ⚠️ The row is about one **act** while its loudest identifier is the devis number, and only the acts
+   * carrying a protocol are listed — so a devis of three acts whose stepped one is the third shows a single
+   * line reading « 2026-0015 · Retraitement endodontique », and that is read as the devis being *called* that.
+   *
+   * ⚠️ A position, never a ratio: « acte 3 sur 3 » is the shape N31 bans, and it would announce « les 3 actes
+   * sont faits » about a devis with nothing done.
+   */
+  planActRank: number;
+  /** How many acts the devis still counts — the rank is printed only past one. */
+  planActCount: number;
   stepsTotal: number;
   stepsDone: number;
+  /** Which séances are done, 1-based (H9) — the dots read each séance, not the first `stepsDone` of them. */
+  doneStepNumbers?: number[];
   nextStepId: string | null;
   nextStepLabel: string | null;
   /** 1-based for display — « étape 3 sur 3 ». The stored rank is 0-based. */
@@ -1243,6 +1286,8 @@ export interface DentalRecordDto {
    * plan from the clinical link, so it never points at an act of another treatment.
    */
   treatmentPlanItemId?: string | null;
+  /** Every act of that devis this fiche carries, the lead included (C4b) — so a reopened fiche marks them all. */
+  treatmentPlanItemIds?: string[];
   /** The devis act this séance carries out — see `DentalRecordDto.TreatmentActDesignation`. */
   treatmentActDesignation?: string | null;
   /** The step it carried out, with its rank («  Pose de l'implant », 3 of 6). Null for an act booked whole. */
@@ -1722,7 +1767,9 @@ export interface InstallmentDto {
 
 export interface InstallmentPaymentDto {
   id: string;
+  /** Negative for a « rendu » — money given back to the patient that day. */
   amount: number;
+  isRefund?: boolean;
   /** Cash | Cheque | Card | Transfer */
   method: string;
   paidOn: string;

@@ -188,7 +188,9 @@ public class GetUnfinishedActsQueryHandler
                     clinicId, startDate: nowUtc, endDate: null, cancellationToken: cancellationToken))
                 .Where(a => a.PatientId.HasValue
                             && patientIds.Contains(a.PatientId.Value)
-                            && TreatmentPlanWorkflowProjection.IsLive(a.Status))
+                            && TreatmentPlanWorkflowProjection.IsLive(a.Status)
+                            // « Supprimer (créé par erreur) » books nothing.
+                            && !a.IsDisregarded)
                 .GroupBy(a => a.PatientId!.Value)
                 .ToDictionary(g => g.Key, g => g.Min(a => a.AppointmentDateTime));
 

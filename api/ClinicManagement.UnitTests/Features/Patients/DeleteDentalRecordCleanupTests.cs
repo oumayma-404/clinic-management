@@ -32,6 +32,10 @@ public class DeleteDentalRecordCleanupTests
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<ITreatmentPlanRepository> _plans = new();
     private readonly Mock<IInvoiceRepository> _invoices = new();
+    private readonly Mock<ICreditNoteRepository> _creditNotes = new();
+    private readonly Mock<IMedicalDocumentRepository> _documents = new();
+    private readonly Mock<IUserRepository> _users = new();
+    private readonly Mock<IClinicContext> _clinicContext = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -51,10 +55,21 @@ public class DeleteDentalRecordCleanupTests
             .ReturnsAsync(Array.Empty<TreatmentPlan>());
         _invoices.Setup(r => r.GetDentalRecordLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+
+        // The reversal's own reads — no money and no ordonnance on this fiche unless a test says otherwise.
+        _plans.Setup(r => r.GetByCollectedDentalRecordAsync(ClinicId, RecordId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<TreatmentPlan>());
+        _invoices.Setup(r => r.GetByDentalRecordAsync(ClinicId, RecordId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Invoice>());
+        _documents.Setup(r => r.GetFicheOrdonnancesForDentalRecordsAsync(
+                ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<MedicalDocument>());
     }
 
     private DeleteDentalRecordCommandHandler Handler() => new(
-        _records.Object, _patients.Object, _plans.Object, _invoices.Object,
+        _records.Object, _patients.Object, _plans.Object, _invoices.Object, _creditNotes.Object,
+        _documents.Object, _users.Object, _clinicContext.Object,
         _clinicResolver.Object, _uow.Object, NullLogger<DeleteDentalRecordCommandHandler>.Instance);
 
     private static TreatmentPlan PlanWithActDoneOnRecord()

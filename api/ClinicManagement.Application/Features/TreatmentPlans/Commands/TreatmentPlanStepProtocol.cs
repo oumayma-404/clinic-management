@@ -66,6 +66,26 @@ public static class TreatmentPlanStepProtocol
             .ToList();
 
     /// <summary>
+    /// The séances a plan already carries, as a confirmed list by position — what an acceptance of an EXISTING
+    /// plan passes, so the catalogue protocol is never laid back over an act the dentist set to one séance
+    /// (« Accepter le devis » put removed séances back — F6). Each step's id is echoed, keeping its fiche link.
+    /// </summary>
+    public static List<IReadOnlyList<TreatmentPlanItemStepInput>?> AsConfirmed(TreatmentPlan plan)
+    {
+        var size = plan.Items.Count == 0 ? 0 : plan.Items.Max(i => i.SequenceNumber) + 1;
+        var byPosition = Enumerable.Repeat<IReadOnlyList<TreatmentPlanItemStepInput>?>(null, size).ToList();
+        foreach (var item in plan.Items)
+        {
+            byPosition[item.SequenceNumber] = item.Steps
+                .OrderBy(s => s.SequenceNumber)
+                .Select(s => new TreatmentPlanItemStepInput(
+                    s.Id, s.Label, s.EstimatedDurationMinutes, s.MinDaysAfterPrevious))
+                .ToList();
+        }
+        return byPosition;
+    }
+
+    /// <summary>
     /// Applies each candidate act's protocol in place. No-op when nothing is a candidate, when the acts name
     /// no procedure, or when the procedures carry no protocol — which is the common case, since only prosthetic
     /// work is seeded with one.
@@ -75,14 +95,18 @@ public static class TreatmentPlanStepProtocol
         Guid clinicId,
         IProcedureTypeRepository procedureTypeRepository,
         CancellationToken cancellationToken,
-        IReadOnlyList<IReadOnlyList<TreatmentPlanItemStepInput>?>? confirmedByPosition = null)
+        IReadOnlyList<IReadOnlyList<TreatmentPlanItemStepInput>?>? confirmedByPosition = null,
+        IReadOnlyCollection<Guid>? onlyItemIds = null)
     {
         /*
          * ⚠️ A confirmed act is a candidate even with NO procedure, because the dentist may have cut a
          * hand-typed devis line into séances — the catalogue path needs a `ProcedureTypeId` to look a protocol
          * up, the confirmed path does not.
          */
+        // ⚠️ `onlyItemIds` — an amendment protocols the acts it ADDS, never an existing act left in one séance on
+        // purpose, which « ajouter un acte » used to re-cut into the catalogue's séances (F7).
         var candidates = plan.Items
+            .Where(i => onlyItemIds == null || onlyItemIds.Contains(i.Id))
             .Where(i => !i.HasSteps && i.Status == TreatmentPlanItemStatus.Planned)
             .Where(i => i.ProcedureTypeId.HasValue || ConfirmedFor(confirmedByPosition, i) != null)
             .ToList();

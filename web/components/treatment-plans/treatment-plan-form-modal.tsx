@@ -30,11 +30,12 @@ import {
   type CreateTreatmentPlanRequest,
   type UpdateTreatmentPlanRequest,
 } from "@/lib/api/treatment-plans"
-import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
+import {
+  catalogueLineCost, seedCost, type OdontogramPlanSeed, type SeedCandidate,
+} from "@/components/odontogram-plan-seed"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { patientsApi } from "@/lib/api/patients"
-import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import type {
   TreatmentPlanDto,
   TreatmentPlanItemDto,
@@ -42,11 +43,13 @@ import type {
   ProcedureTypeDto,
 } from "@/lib/api/types"
 import { formatAmount, formatDT, formatDateTime, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
+import { addMonths, format, parseISO } from "date-fns"
 import { installmentDueLabel } from "./treatment-plan-labels"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
 import { actRemovalPlan, type ActRemovalPlan } from "@/components/treatment-plans/plan-next-action"
+import { REFUND_DECLINED, usePlanRefundConfirm } from "@/components/treatment-plans/plan-refund-confirm"
 
 interface LineRow {
   /**
@@ -82,6 +85,8 @@ interface LineRow {
    * « Détartrage » priced at the couronne's fee.
    */
   costTouched: boolean
+  /** The remise already granted on this act (read-only here) — the total is the fee minus it (F2). */
+  discount?: number
   toothNumbers: number[]
   /**
    * The séances this act will be carried out over — the procedure's protocol, ticked and editable before the
@@ -108,7 +113,9 @@ interface LineRow {
  * which is not the same as one whose protocol is empty.
  */
 function stepSignature(steps: TreatmentPlanItemStepInput[] | undefined): string | null {
-  if (!steps) return null
+  // ⚠️ `[]` and « no steps » are the same stored fact — returning "" here made every step-less act look edited,
+  // so a save with no change bumped the révision (F9).
+  if (!steps || steps.length === 0) return null
   return steps
     .map(
       (st) =>
@@ -305,17 +312,26 @@ export function TreatmentPlanFormModal({
    * own sentence tells them to do.</p>
    */
   const conflict = useConflict()
+  // G3 — a total lowered below what was collected asks « Rendre au patient ? » once, then re-sends.
+  const { withRefund, refundDialog } = usePlanRefundConfirm()
   const error = conflict.error
   const setError = conflict.setError
   const guard = useDirtyGuard(open, onOpenChange)
-  // The version this devis saves with, kept equal to the row's current one. ⚠️ The VERSION only — the read
-  // lands after hydration, so its items and échéances would replace what the user has edited.
-  const { source: freshPlan, resync } = useFreshVersion(
-    open,
-    editingPlan?.id,
-    editingPlan,
-    () => treatmentPlansApi.get(editingPlan!.id),
-  )
+  /*
+   * ⚠️ The version this form's COPY was read at — set by `hydrateFrom`, never by the page's live `editingPlan`:
+   * the workspace re-reads the plan on every realtime event, so saving with the page's version let a stale
+   * form overwrite a colleague with a 200 (F3). Moved only by our own writes and by « Recharger ».
+   */
+  const hydratedVersionRef = useRef(0)
+  /** After a failure that is not a 409, our own partial write may have moved the row: take its version. */
+  const resync = async () => {
+    if (!editingPlan) return
+    try {
+      hydratedVersionRef.current = (await treatmentPlansApi.get(editingPlan.id)).version
+    } catch {
+      // The save's own 409 remains the backstop.
+    }
+  }
 
   const isEditing = !!editingPlan
   const isAmending = amendMode && !!editingPlan
@@ -366,18 +382,24 @@ export function TreatmentPlanFormModal({
     setPickersFailed(proceduresResult.status === "rejected" || patientsResult.status === "rejected")
   }, [presetPatientId])
 
-  useEffect(() => {
-    if (!open) return
+  /** Whether the échéancier was edited by hand — only then is it sent (F9). */
+  const [installmentsTouched, setInstallmentsTouched] = useState(false)
 
-    void loadPickers()
-
-    if (editingPlan) {
-      setPatientId(editingPlan.patientId)
-      setTitle(editingPlan.title)
-      setNotes(editingPlan.notes ?? "")
+  /*
+   * The form's copy of a plan. ⚠️ Called ONCE per open (and again on « Recharger »), never on every new
+   * `editingPlan` object: the workspace re-reads the plan on every realtime event, so hydrating on identity wiped
+   * whatever the dentist had typed the moment anyone saved anything (F1).
+   */
+  const hydrateFrom = (plan: TreatmentPlanDto) => {
+      // A parked act is not part of the devis' total and cannot be amended — it comes back via « Rétablir » (F2).
+      hydratedVersionRef.current = plan.version
+      const liveItems = plan.items.filter((it) => !it.isWithdrawn)
+      setPatientId(plan.patientId)
+      setTitle(plan.title)
+      setNotes(plan.notes ?? "")
       setLines(
-        editingPlan.items.length > 0
-          ? editingPlan.items.map((it) => ({
+        liveItems.length > 0
+          ? liveItems.map((it) => ({
               id: it.id,
               procedureTypeId: it.procedureTypeId,
               designationFr: it.designationFr,
@@ -386,6 +408,7 @@ export function TreatmentPlanFormModal({
               // It is never re-derived from a default, so re-picking an act to fix its designation cannot
               // reprice work already quoted.
               costTouched: true,
+              discount: it.discountAmount ?? 0,
               toothNumbers: it.toothNumbers,
               /*
                * ⚠️ **The act's own séances, and they were not hydrated at all** — so « Étapes proposées » was
@@ -413,13 +436,30 @@ export function TreatmentPlanFormModal({
           : [emptyLine()],
       )
       setInstallments(
-        editingPlan.installments.map((inst) => ({
+        plan.installments.map((inst) => ({
           id: inst.id,
           dueDate: inst.dueDate.slice(0, 10),
           amount: formatAmount(inst.amount),
           amountPaid: inst.amountPaid,
         })),
       )
+      setInstallmentsTouched(false)
+  }
+
+  const hydratedForRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!open) {
+      hydratedForRef.current = null
+      return
+    }
+    const key = editingPlan?.id ?? "new"
+    if (hydratedForRef.current === key) return
+    hydratedForRef.current = key
+
+    void loadPickers()
+
+    if (editingPlan) {
+      hydrateFrom(editingPlan)
     } else {
       setPatientId(presetPatientId ?? "")
       const seeded = seedLines && seedLines.length > 0
@@ -447,6 +487,7 @@ export function TreatmentPlanFormModal({
           : [emptyLine()],
       )
       setInstallments([])
+      setInstallmentsTouched(false)
     }
     // `reset`, not `setError(null)`: a fresh open starts a fresh conflict streak.
     conflict.reset()
@@ -456,6 +497,18 @@ export function TreatmentPlanFormModal({
 
   const updateLine = (index: number, patch: Partial<LineRow>) => {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))
+  }
+
+  // Teeth changed on a line whose fee nobody typed: the fee follows the tooth count (G4).
+  const updateLineTeeth = (index: number, teeth: number[]) => {
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== index) return l
+        const next = { ...l, toothNumbers: teeth }
+        if (l.costTouched || !l.procedureTypeId) return next
+        return { ...next, plannedCost: repricedFor(next, procedureTypes.find((pt) => pt.id === l.procedureTypeId)) }
+      }),
+    )
   }
 
   const addLine = () => setLines((prev) => [...prev, emptyLine()])
@@ -513,9 +566,11 @@ export function TreatmentPlanFormModal({
    * price, whereas a stale one silently asserts a wrong one. (Harmless server-side — for a CNAM-linked line
    * `TreatmentPlanItemPricing` fills a blank cost from the act's own default.)
    */
-  const repricedFor = (line: LineRow, defaultFee: number | null | undefined): string => {
+  const repricedFor = (line: LineRow, pt: ProcedureTypeDto | undefined): string => {
     if (line.costTouched) return line.plannedCost
-    return defaultFee != null && defaultFee > 0 ? formatAmount(defaultFee) : ""
+    // G4: the same per-tooth rule as the odontogram seed — a 3-tooth act was quoted once.
+    const cost = pt ? catalogueLineCost(pt, line.toothNumbers.length) : undefined
+    return cost != null && cost > 0 ? formatAmount(cost) : ""
   }
 
   /**
@@ -562,7 +617,7 @@ export function TreatmentPlanFormModal({
           ...base,
           procedureTypeId: pt.id,
           designationFr: pt.name,
-          plannedCost: repricedFor(base, pt.defaultCost),
+          plannedCost: repricedFor(base, pt),
           // The act's protocol, proposed — unless the dentist has already edited this row's séances.
           ...(base.stepsTouched ? {} : { steps: proposedStepsFor(pt) }),
         }
@@ -718,19 +773,52 @@ export function TreatmentPlanFormModal({
   }
 
   const updateInstallment = (index: number, patch: Partial<InstallmentRow>) => {
+    setInstallmentsTouched(true)
     setInstallments((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
-  const addInstallment = () =>
+  const addInstallment = () => {
+    setInstallmentsTouched(true)
     setInstallments((prev) => [
       ...prev,
       { id: null, dueDate: todayLocalIso(), amount: "", amountPaid: 0 },
     ])
-  const removeInstallment = (index: number) => setInstallments((prev) => prev.filter((_, i) => i !== index))
+  }
+  const removeInstallment = (index: number) => {
+    setInstallmentsTouched(true)
+    setInstallments((prev) => prev.filter((_, i) => i !== index))
+  }
 
-  const total = lines.reduce((sum, l) => {
+  // What the patient owes: each fee minus the remise already granted on it (F2).
+  const total = Math.round(lines.reduce((sum, l) => {
     const cost = parseAmountInput(l.plannedCost)
-    return Number.isFinite(cost) ? sum + cost : sum
-  }, 0)
+    return Number.isFinite(cost) ? sum + Math.max(0, cost - (l.discount ?? 0)) : sum
+  }, 0) * 1000) / 1000
+
+  /** « Répartir le solde sur N mois » — paid rows keep what they took, the rest is spread monthly (F10). */
+  const [spreadMonths, setSpreadMonths] = useState("3")
+  const spreadBalance = () => {
+    const months = Number.parseInt(spreadMonths, 10)
+    if (!Number.isFinite(months) || months < 1 || months > 60) {
+      setError("Indiquez un nombre de mois entre 1 et 60.")
+      return
+    }
+    const paid = installments
+      .filter((r) => r.amountPaid > 0)
+      .map((r) => ({ ...r, amount: formatAmount(r.amountPaid) }))
+    const collected = paid.reduce((sum, r) => sum + r.amountPaid, 0)
+    const remaining = Math.round((total - collected) * 1000) / 1000
+    const rows: InstallmentRow[] = [...paid]
+    if (remaining > 0) {
+      const share = Math.floor((remaining * 1000) / months) / 1000
+      const start = parseISO(todayLocalIso())
+      for (let i = 0; i < months; i++) {
+        const amount = i === months - 1 ? Math.round((remaining - share * (months - 1)) * 1000) / 1000 : share
+        rows.push({ id: null, dueDate: format(addMonths(start, i), "yyyy-MM-dd"), amount: formatAmount(amount), amountPaid: 0 })
+      }
+    }
+    setInstallmentsTouched(true)
+    setInstallments(rows)
+  }
 
   const installmentsSum = installments.reduce((sum, r) => {
     const amt = parseAmountInput(r.amount)
@@ -770,6 +858,14 @@ export function TreatmentPlanFormModal({
     const effectiveTitle = title.trim() || derivedTitle
     if (!effectiveTitle) {
       setError("Ajoutez au moins un acte, ou saisissez un titre.")
+      return
+    }
+
+    // ⚠️ A blank name on an EXISTING act used to drop the line, i.e. delete the act and cancel its visit with no
+    // confirmation (F8). Removing an act is the bin's job.
+    const blankExisting = lines.find((l) => l.id && l.designationFr.trim() === "")
+    if (blankExisting) {
+      setError("Donnez un nom à chaque acte — pour en retirer un, utilisez la corbeille.")
       return
     }
 
@@ -820,7 +916,26 @@ export function TreatmentPlanFormModal({
 
     // Build the installments; the last row absorbs the remainder so the schedule sums exactly to the total.
     let parsedInstallments: TreatmentPlanInstallmentInput[] = []
-    if (installments.length > 0) {
+    // ⚠️ On an amendment the schedule goes only when it was edited: re-sending it unchanged bumped the révision
+    // on a no-op save (F9), and a changed total is re-spread server-side while agreed dates are kept.
+    const sendSchedule = !isAmending || installmentsTouched
+    // Lowering the total can leave nothing for the later rows: unpaid rows at the end give way (F10).
+    const workingRows = [...installments]
+    const typedSum = (rows: InstallmentRow[]) =>
+      rows.slice(0, -1).reduce((sum, r) => {
+        const a = parseAmountInput(r.amount)
+        return sum + (Number.isFinite(a) ? a : 0)
+      }, 0)
+    while (
+      sendSchedule
+      && workingRows.length > 1
+      && workingRows[workingRows.length - 1].amountPaid <= 0
+      && total - typedSum(workingRows) < -0.0005
+    ) {
+      workingRows.pop()
+    }
+    if (sendSchedule && workingRows.length > 0) {
+      const installments = workingRows
       for (const r of installments) {
         if (!r.dueDate) {
           setError("Chaque échéance doit avoir une date.")
@@ -861,10 +976,13 @@ export function TreatmentPlanFormModal({
           return
         }
       }
+      // An unpaid row left at 0 is not an échéance — the aggregate refuses one, so it is dropped (F10).
+      const kept = parsedInstallments.filter((r, i) => r.amount > 0.0005 || installments[i].amountPaid > 0)
+      if (kept.length > 0) parsedInstallments = kept
     }
 
     if (isAmending && editingPlan) {
-      const originalIds = new Set(editingPlan.items.map((i) => i.id))
+      const originalIds = new Set(editingPlan.items.filter((i) => !i.isWithdrawn).map((i) => i.id))
       const keptIds = new Set(parsedLines.map((l) => l.id).filter((id): id is string => !!id))
       const removeItemIds = [...originalIds].filter((id) => !keptIds.has(id))
 
@@ -909,7 +1027,7 @@ export function TreatmentPlanFormModal({
         addItems.length === 0 &&
         updateItems.length === 0 &&
         removeItemIds.length === 0 &&
-        parsedInstallments.length === 0 &&
+        !(sendSchedule && installments.length > 0) &&
         !retitling &&
         !renoting
       ) {
@@ -919,7 +1037,7 @@ export function TreatmentPlanFormModal({
 
       // An échéancier that was dropped entirely is sent as an empty list; the server answers
       // "L'échéancier ne peut pas être vide sur un devis accepté." rather than us guessing a spread.
-      const droppedPaidRow = editingPlan.installments.some(
+      const droppedPaidRow = sendSchedule && editingPlan.installments.some(
         (inst) => inst.amountPaid > 0 && !installments.some((r) => r.id === inst.id),
       )
       if (droppedPaidRow) {
@@ -931,7 +1049,7 @@ export function TreatmentPlanFormModal({
 
       setLoading(true)
       try {
-        await treatmentPlansApi.amend(editingPlan.id, {
+        const amended = await withRefund((refundMethod) => treatmentPlansApi.amend(editingPlan.id, {
           addItems,
           updateItems,
           removeItemIds,
@@ -942,8 +1060,11 @@ export function TreatmentPlanFormModal({
           notes: notes.trim() || null,
           // The row's version as last read, so a peer's edit 409s instead of overwriting their fees — and
           // our own earlier write is not mistaken for one.
-          version: freshPlan?.version ?? editingPlan.version,
-        })
+          version: hydratedVersionRef.current || editingPlan.version,
+          refundMethod,
+        }))
+        // « Retour » on the rendu question: nothing was saved and the form stays as typed.
+        if (amended === REFUND_DECLINED) return
         toast.success("Devis modifié")
         onSuccess?.()
         onOpenChange(false)
@@ -968,7 +1089,7 @@ export function TreatmentPlanFormModal({
         }
         await treatmentPlansApi.update(editingPlan.id, {
           ...payload,
-          version: freshPlan?.version ?? editingPlan.version,
+          version: hydratedVersionRef.current || editingPlan.version,
         })
         toast.success("Plan de traitement mis à jour")
       } else {
@@ -1066,7 +1187,12 @@ export function TreatmentPlanFormModal({
                 ? {
                     label: "Recharger",
                     onClick: () => {
-                      void resync().then(() => conflict.clearMessage())
+                      // Re-hydrated from the server's copy: resyncing the version alone let the stale form
+                      // overwrite the colleague on the next press (F3).
+                      if (!editingPlan) return
+                      void treatmentPlansApi.get(editingPlan.id)
+                        .then((row) => { hydrateFrom(row); conflict.clearMessage() })
+                        .catch(() => undefined)
                     },
                     disabled: loading,
                   }
@@ -1389,7 +1515,7 @@ export function TreatmentPlanFormModal({
                   <div className="flex flex-wrap items-center gap-2">
                     <ToothMultiSelect
                       value={line.toothNumbers}
-                      onChange={(teeth) => updateLine(index, { toothNumbers: teeth })}
+                      onChange={(teeth) => updateLineTeeth(index, teeth)}
                       disabled={loading}
                     />
                     <div className="flex items-center gap-1.5">
@@ -1407,6 +1533,9 @@ export function TreatmentPlanFormModal({
                         className="w-32"
                         disabled={loading}
                       />
+                      {(line.discount ?? 0) > 0 && (
+                        <span className="text-xs text-muted-foreground">remise −{formatDT(line.discount)}</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1761,16 +1890,40 @@ export function TreatmentPlanFormModal({
                 )
               })}
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={addInstallment} disabled={loading} className="gap-2">
-              <Plus className="h-4 w-4" /> Ajouter une échéance
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={addInstallment} disabled={loading} className="gap-2">
+                <Plus className="h-4 w-4" /> Ajouter une échéance
+              </Button>
+              {total > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="spread-months" className="text-xs font-normal text-muted-foreground">
+                    Répartir le solde sur
+                  </Label>
+                  <Input
+                    id="spread-months"
+                    type="text"
+                    inputMode="numeric"
+                    value={spreadMonths}
+                    onChange={(e) => setSpreadMonths(e.target.value)}
+                    className="w-16"
+                    disabled={loading}
+                  />
+                  <span className="text-xs text-muted-foreground">mois</span>
+                  <Button type="button" variant="outline" size="sm" onClick={spreadBalance} disabled={loading}>
+                    Répartir
+                  </Button>
+                </div>
+              )}
+            </div>
             {installments.length > 0 && (
               <div className="flex justify-end text-xs">
                 {/* Token, not `amber-600` + a `dark:` twin — same reasoning as `revise-installments-modal`:
                     `--warning-ink` is the amber step that stays legible at this size and follows the palette. */}
                 <span className={installmentsMatch ? "text-muted-foreground" : "text-warning-ink"}>
                   Total des échéances : {formatDT(installmentsSum)} / {formatDT(total)}
-                  {!installmentsMatch && " — la dernière échéance sera ajustée à l'enregistrement."}
+                  {!installmentsMatch && (isAmending && !installmentsTouched
+                    ? " — les échéances non encaissées suivront le nouveau total."
+                    : " — la dernière échéance sera ajustée à l'enregistrement.")}
                 </span>
               </div>
             )}
@@ -1795,6 +1948,7 @@ export function TreatmentPlanFormModal({
       </DialogContent>
     </Dialog>
     <DiscardChangesDialog guard={guard} />
+    {refundDialog}
     <AlertDialog
       open={pendingRemoval !== null}
       onOpenChange={(o) => !o && setPendingRemoval(null)}

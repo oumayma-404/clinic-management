@@ -65,8 +65,11 @@ import {
   installmentDueLabel,
   installmentDueSentence,
 } from "./treatment-plan-labels"
-import { useDoctors } from "@/lib/hooks/use-doctors"
+import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  REFUND_DECLINED, RefundMethodField, usePlanRefundConfirm, type RefundMethod,
+} from "./plan-refund-confirm"
 import {
   activeItems,
   canAmendPlan,
@@ -214,7 +217,9 @@ function InstallmentPaymentLines({
       {payments.map((payment) => (
         <li key={payment.id}>
           <span className={payment.isVoided ? "line-through" : ""}>
-            {formatDT(payment.amount)} · {formatDateFr(payment.paidOn)}
+            {payment.amount < 0
+              ? `Rendu au patient ${formatDT(-payment.amount)} · ${formatDateFr(payment.paidOn)}`
+              : `${formatDT(payment.amount)} · ${formatDateFr(payment.paidOn)}`}
           </span>
           {payment.isVoided && (
             <span className="block">
@@ -296,6 +301,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [patientQuery, setPatientQuery] = useState("")
   const [patientResults, setPatientResults] = useState<PatientDto[] | null>(null)
   const [patientDraft, setPatientDraft] = useState<PatientDto | null>(null)
+  /** What cancelling or deleting does to the séances already booked on this plan — null when none is. */
+  const bookedVisitCount = new Set(plan.items.map((i) => i.scheduledAppointmentId).filter(Boolean)).size
+  const bookedVisitsNotice =
+    bookedVisitCount === 0
+      ? null
+      : bookedVisitCount === 1
+        ? "Le rendez-vous prévu sera libéré."
+        : `Les ${bookedVisitCount} rendez-vous prévus seront libérés.`
   /** « Supprimer le traitement » — a followed treatment nothing has been recorded on. See `canDelete`. */
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
@@ -324,6 +337,9 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   /** « Arrêter le traitement » — see the button's note. */
   const [stopOpen, setStopOpen] = useState(false)
   const [stopping, setStopping] = useState(false)
+  // G3 — how the money is given back when « Arrêter » has nothing to keep but collected cash.
+  const [stopRefundMethod, setStopRefundMethod] = useState<RefundMethod>("Cash")
+  const { withRefund, refundDialog } = usePlanRefundConfirm()
   /** The act whose « réalisé » state is being corrected (AC-P2.11); null = dialog closed. */
   const [undoTarget, setUndoTarget] = useState<TreatmentPlanItemDto | null>(null)
   /**
@@ -358,7 +374,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * prints `plan.doctorName`, which the server resolves, so the list is only needed to CHANGE it — but a
    * Select that populates after it opens shows « Aucun médecin » for a beat and reads as an empty cabinet.
    */
-  const { doctors, isLoading: loadingDoctors } = useDoctors()
+  const { allDoctors, isLoading: loadingDoctors } = useDoctors()
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -843,11 +859,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   ) => {
     setBusy(true)
     try {
-      await action()
+      // « Retour » on « Rendre au patient ? » saved nothing: no toast, no reload, the dialog stays open.
+      if ((await action()) === REFUND_DECLINED) return "declined" as const
       toast.success(success, { action: successAction })
       onChanged()
+      return "ok" as const
     } catch (err) {
       showErrorToast(err, failure)
+      return "failed" as const
     } finally {
       setBusy(false)
     }
@@ -902,12 +921,13 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         </>
       ),
       confirmLabel: "Éditer le devis",
-      onConfirm: () =>
-        run(
+      onConfirm: async () => {
+        await run(
           () => treatmentPlansApi.issueDevis(plan.id, plan.version),
           "Devis édité",
           "Échec de l'édition du devis.",
-        ),
+        )
+      },
     })
 
   const confirmBill = () =>
@@ -929,8 +949,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         </>
       ),
       confirmLabel: "Créer la facture",
-      onConfirm: () =>
-        run(
+      onConfirm: async () => {
+        await run(
           async () => {
             await invoicesApi.createFromPlan(plan.id)
             router.push("/factures")
@@ -939,7 +959,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             ? `Facture brouillon créée — ${formatDT(plan.amountPaid)} déjà encaissé sera reporté à l'émission`
             : "Facture brouillon créée depuis le devis",
           "Échec de la facturation du devis.",
-        ),
+        )
+      },
     })
 
   /**
@@ -963,11 +984,16 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       const parked = stoppableItems.length
       // The motif travels only on the branch that needs one; the server ignores it otherwise and re-derives
       // the branch itself, so a client that disagreed would be refused rather than write the wrong outcome.
-      await treatmentPlansApi.stopTreatment(
-        plan.id,
-        plan.version,
-        stopWouldCancel ? cancelReason.trim() : undefined,
+      // G3: on the refund branch the method was chosen in this dialog; elsewhere the server may still ask.
+      const result = await withRefund((refundMethod) =>
+        treatmentPlansApi.stopTreatment(
+          plan.id,
+          plan.version,
+          stopWouldCancel ? cancelReason.trim() : undefined,
+          stopNeedsRefund ? stopRefundMethod : refundMethod,
+        ),
       )
+      if (result === REFUND_DECLINED) return
       toast.success(
         stopWouldCancel
           ? "Devis annulé — le numéro est conservé avec son motif."
@@ -1043,12 +1069,13 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
 
   /** « Mettre cet acte de côté » (M1) — per-act, keeping its fiche links. */
   const withdrawItem = async (item: TreatmentPlanItemDto) => {
-    await run(
-      () => treatmentPlansApi.withdrawItem(plan.id, item.id, plan.version),
+    const outcome = await run(
+      () => withRefund((refundMethod) =>
+        treatmentPlansApi.withdrawItem(plan.id, item.id, plan.version, refundMethod)),
       `${item.designationFr} mis de côté — le total et l'échéancier sont ajustés.`,
       "Échec de la mise de côté de l'acte.",
     )
-    setWithdrawTarget(null)
+    if (outcome !== "declined") setWithdrawTarget(null)
   }
 
   /** « Remettre au devis » (M2) — the mirror, per act rather than all-or-nothing. */
@@ -1101,14 +1128,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
       showErrorToast(new Error("La remise doit être un montant positif, ou 0 pour l'annuler."))
       return
     }
-    await run(
-      () => treatmentPlansApi.setItemDiscount(plan.id, discountTarget.id, parsed, plan.version),
+    const outcome = await run(
+      () => withRefund((refundMethod) =>
+        treatmentPlansApi.setItemDiscount(plan.id, discountTarget.id, parsed, plan.version, refundMethod)),
       parsed > 0
         ? `Remise de ${formatDT(parsed)} accordée sur ${discountTarget.designationFr}.`
         : "Remise retirée.",
       "Échec de l'enregistrement de la remise.",
     )
-    setDiscountTarget(null)
+    if (outcome !== "declined") setDiscountTarget(null)
   }
 
   /** « Dupliquer ce devis » (S1) — a new un-numbered Draft, and the page follows it. */
@@ -1168,12 +1196,13 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
         </>
       ),
       confirmLabel: "Reprendre le traitement",
-      onConfirm: () =>
-        run(
+      onConfirm: async () => {
+        await run(
           () => treatmentPlansApi.reopenTreatment(plan.id, plan.version),
           "Traitement repris",
           "Échec de la reprise du traitement.",
-        ),
+        )
+      },
     })
 
   /**
@@ -1368,6 +1397,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                     <DropdownMenuItem disabled={busy} onSelect={() => openAmend()}>
                       <FilePen className="h-4 w-4" />
                       Modifier les actes et les prix
+                    </DropdownMenuItem>
+                  )}
+                  {/* J5 — « Facturer » is the header's button only once the work is done; at every other moment it
+                      lives here, as the primary action's own note has always said. It was simply missing. */}
+                  {canBill && primaryAction?.label !== "Facturer le devis" && (
+                    <DropdownMenuItem disabled={busy} onSelect={confirmBill}>
+                      <ReceiptText className="h-4 w-4" />
+                      Facturer le devis
                     </DropdownMenuItem>
                   )}
                   {/* AC-P2.1 — the amendable window, matching the server's widened `EnsureAmendable`. */}
@@ -1895,11 +1932,22 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       </TableHead>
                     )}
                     {canReorder && <TableHead className="w-16">Ordre</TableHead>}
+                    {/*
+                      ⚠️ **Three columns, and « Dents » and « Action » are deliberately not among them.**
+                      The action cell carried up to five word-buttons — « Planifier la séance · Séances ·
+                      Modifier · Remise · De côté », ~450 px that `Button` makes `whitespace-nowrap shrink-0`
+                      and therefore un-shrinkable. A `<table>` in a `w-full` container squeezes the cells that
+                      CAN wrap down to their min-content to pay for that, so at the 1 217 px of page an
+                      ordinary laptop has, « 300,000 DT » broke across two lines and the remise line across
+                      four, beside a désignation column three words wide. Reported as « very bad ui ux ».
+                      The controls now sit on the act's own full-width sub-row (`PlanActRow`) — nothing folded
+                      into a « ⋯ », because `PlanActEditAction` exists precisely because a dentist could not
+                      find « Modifier » inside the header's menu. « Dents » moved under the désignation it
+                      qualifies; it was « — » on most rows and cost a column either way.
+                    */}
                     <TableHead>Désignation</TableHead>
-                    <TableHead>Dents</TableHead>
-                    <TableHead className="text-right">Coût</TableHead>
+                    <TableHead className="whitespace-nowrap text-right">Coût</TableHead>
                     <TableHead>État</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -2235,7 +2283,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 ]}
                 actions={(inst) => {
                   const canCollect = !inst.isPaid && canCollectInstallments
-                  const receipts = inst.payments.filter((p) => !p.isVoided)
+                  // A rendu (negative) has no receipt and is not voidable — G3.
+                  const receipts = inst.payments.filter((p) => !p.isVoided && p.amount > 0)
                   if (!canCollect && receipts.length === 0) return null
                   return (
                     <DropdownMenu>
@@ -2344,7 +2393,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                 payment.isVoided && "text-muted-foreground line-through",
                               )}
                             >
-                              {formatDT(payment.amount)}
+                              {payment.amount < 0 ? `− ${formatDT(-payment.amount)}` : formatDT(payment.amount)}
                             </TableCell>
                             {/* The séance it came from, when it was collected at the chair — the fact that makes
                                 the échéancier and the patient's fiche history reconcile without arithmetic. */}
@@ -2354,12 +2403,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                   annulé{payment.voidReason ? ` — ${payment.voidReason}` : ""}
                                   {payment.voidedByName ? ` (${payment.voidedByName})` : ""}
                                 </span>
+                              ) : payment.amount < 0 ? (
+                                <span>rendu au patient</span>
                               ) : payment.dentalRecordId ? (
                                 <span>encaissé en séance</span>
                               ) : null}
                             </TableCell>
                             <TableCell className="py-1.5 text-right">
-                              {!payment.isVoided && (
+                              {/* A rendu has no receipt and is not voidable (G3) — the server refuses both. */}
+                              {!payment.isVoided && payment.amount > 0 && (
                                 <div className="flex justify-end gap-1">
                                   <Button
                                     variant="ghost"
@@ -2495,6 +2547,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               {planLabel} sera supprimé, avec ses actes et ses séances à planifier. Aucun numéro de devis
               n&apos;a été consommé, donc rien ne manquera dans la numérotation — et aucune séance n&apos;a été
               réalisée, donc aucune fiche de soins n&apos;est touchée. Cette action est irréversible.
+              {bookedVisitsNotice && <span className="text-warning-ink"> {bookedVisitsNotice}</span>}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2848,7 +2901,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 <>
                   {" "}
                   <span className="text-warning-ink">
-                    Un rendez-vous est réservé pour cet acte&nbsp;: il reste à annuler dans l&apos;agenda.
+                    Le rendez-vous prévu pour cet acte sera libéré.
                   </span>
                 </>
               )}
@@ -2954,10 +3007,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 />
               </SelectTrigger>
               <SelectContent>
-                {doctors.length === 0 && !loadingDoctors ? (
+                {/* The active roster plus this devis' own practitioner, even retired (I3). */}
+                {doctorsForPicker(allDoctors, plan.doctorId).length === 0 && !loadingDoctors ? (
                   <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun praticien enregistré</div>
                 ) : (
-                  doctors.map((doctor) => (
+                  doctorsForPicker(allDoctors, plan.doctorId).map((doctor) => (
                     <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
                       {doctor.name}
                     </SelectItem>
@@ -3050,8 +3104,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               aria-describedby="plan-item-discount-hint"
             />
             <p id="plan-item-discount-hint" className="text-2xs text-muted-foreground">
-              Au maximum le tarif de l&apos;acte ({formatDT(discountTarget?.plannedCost ?? 0)}). Une remise qui
-              ferait passer le total du devis sous ce qui a déjà été encaissé est refusée.
+              Au maximum le tarif de l&apos;acte ({formatDT(discountTarget?.plannedCost ?? 0)}).
             </p>
           </div>
           <DialogFooter className="gap-2">
@@ -3205,7 +3258,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {stopNeedsRefund
-                ? `Remboursez d'abord ${formatDT(plan.amountPaid)}`
+                ? `Rendre ${formatDT(plan.amountPaid)} et arrêter ?`
                 : stopWouldCancel
                   ? `Annuler le devis ${plan.number} ?`
                   : `Arrêter le traitement de ${plan.patientName ?? "ce patient"} ?`}
@@ -3220,9 +3273,9 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                     promise, pressed, and got a refusal with the devis still « En cours ».
                   */}
                   Aucun acte de ce devis n&apos;a été réalisé, mais{" "}
-                  <b>{formatDT(plan.amountPaid)} y ont déjà été encaissés</b>. Il n&apos;y a donc rien à mettre
-                  de côté et rien à conserver — et cet argent ne peut pas être effacé d&apos;une journée de
-                  caisse déjà close. Remboursez-le par un <b>avoir</b>, puis revenez arrêter le traitement.
+                  <b>{formatDT(plan.amountPaid)} y ont déjà été encaissés</b>. Ils sont <b>rendus au patient
+                  aujourd&apos;hui</b> et les actes sont mis de côté ; « Reprendre le traitement » les remet au
+                  devis.
                 </>
               ) : stopWouldCancel ? (
                 <>
@@ -3238,6 +3291,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   */}
                   Le numéro, lui, est définitif ; le devis peut être remis en service par « Rétablir ce devis
                   annulé », avec un motif.
+                  {bookedVisitsNotice && <span className="text-warning-ink"> {bookedVisitsNotice}</span>}
                 </>
               ) : (
                 <>
@@ -3253,12 +3307,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <div className="space-y-3 text-sm">
             {stopNeedsRefund ? (
               /* Nothing to list: no act is kept and none is put aside. What the reader needs is the money. */
-              <p className="rounded-md bg-muted/50 p-2.5 text-2xs leading-relaxed text-muted-foreground">
-                Encaissé sur ce devis&nbsp;:{" "}
-                <span className="font-mono tabular-nums">{formatDT(plan.amountPaid)}</span>. Une fois l&apos;avoir
-                passé, ce devis n&apos;aura plus d&apos;encaissement et « Arrêter le traitement » deviendra une
-                annulation — son numéro restera consommé et un motif sera demandé.
-              </p>
+              <RefundMethodField id="plan-stop-refund-method" value={stopRefundMethod} onChange={setStopRefundMethod} />
             ) : stopWouldCancel ? (
               /*
                 ⚠️ **This was a dead end and is now the branch itself.** Nothing delivered on a numbered devis
@@ -3302,10 +3351,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                         <li key={i.id} className="flex items-baseline justify-between gap-3">
                           <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                             {i.designationFr}
-                            {/* A booked séance is the commonest abandon shape, and the dialog is where it has
-                                to be said: the appointment is not cancelled by stopping the treatment. */}
+                            {/* Stopping now lets a parked act's booked séance go (`PlanBookingRelease`), the way
+                                parking one act always did — so the dialog says what happens, not a chore. */}
                             {i.scheduledAppointmentId && (
-                              <span className="text-warning-ink"> · un rendez-vous reste à annuler</span>
+                              <span className="text-warning-ink"> · son rendez-vous sera libéré</span>
                             )}
                           </span>
                           <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
@@ -3368,13 +3417,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               The confirm stays `disabled` until the motif is typed rather than refusing afterwards: the rule the
               form can enforce should never be discovered by breaking it (`payment-modal.tsx`'s reason).
             */}
-            {/*
-              ⚠️ On the refund branch there is no action to offer — the aggregate refuses it — so the footer
-              carries « Retour » alone rather than a button whose only outcome is a red toast. That is the same
-              call as the motif rule one line down: a rule the form can state should never be discovered by
-              breaking it.
-            */}
-            {!stopNeedsRefund && (
+            {/* G3: the refund branch has its action now — the money is given back today, then the stop lands. */}
+            {(
               <AlertDialogAction
                 variant="destructive"
                 disabled={stopping || (stopWouldCancel && !cancelReason.trim())}
@@ -3385,12 +3429,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               >
                 {stopping
                   ? (stopWouldCancel ? "Annulation…" : "Arrêt…")
-                  : (stopWouldCancel ? "Annuler le devis" : "Arrêter le traitement")}
+                  : stopNeedsRefund
+                    ? "Rendre et arrêter"
+                    : (stopWouldCancel ? "Annuler le devis" : "Arrêter le traitement")}
               </AlertDialogAction>
             )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {refundDialog}
     </div>
   )
 }

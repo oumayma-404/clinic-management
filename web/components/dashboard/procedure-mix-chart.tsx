@@ -72,7 +72,7 @@ export function ProcedureMixChart({
           >
             <Activity className="size-4" strokeWidth={1.75} />
           </span>
-          Répartition des actes
+          Répartition des actes prévus
         </CardTitle>
 
         <div
@@ -118,7 +118,7 @@ export function ProcedureMixChart({
             icon={Activity}
             size="compact"
             title="Aucun acte sur cette période"
-            description="Les actes des rendez-vous honorés apparaîtront ici."
+            description="Les actes prévus aux rendez-vous apparaîtront ici."
           />
         ) : (
           <>

@@ -186,7 +186,7 @@ public class InstallmentLedgerTests
 
         var ex = Assert.Throws<InvalidOperationException>(() => plan.Cancel("Devis à revoir"));
 
-        Assert.Contains("avoir", ex.Message);
+        Assert.Contains("Arrêtez le traitement", ex.Message);
         Assert.Equal(TreatmentPlanStatus.InProgress, plan.Status);
     }
 

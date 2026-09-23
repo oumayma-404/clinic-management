@@ -45,12 +45,16 @@ public class MoneyReconciliationServiceTests
             duplicateBridges ?? Array.Empty<DuplicateBridgeFact>(),
             untransferredBridges ?? Array.Empty<UntransferredBridgeFact>());
 
-    private void Arrange(ClinicMoneyFacts clinic, OrphanFacts? orphans = null) =>
+    private void Arrange(
+        ClinicMoneyFacts clinic,
+        OrphanFacts? orphans = null,
+        FicheOrphanFacts? ficheOrphans = null) =>
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MoneyReconciliationFacts(
                 new[] { clinic },
-                orphans ?? new OrphanFacts(0, 0, 0, 0)));
+                orphans ?? new OrphanFacts(0, 0, 0, 0),
+                ficheOrphans ?? new FicheOrphanFacts(0, 0m, 0, 0m, 0)));
 
     private static MoneyReconciliationFinding Finding(MoneyReconciliationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -322,4 +326,40 @@ public class MoneyReconciliationServiceTests
         _reader.Verify(r => r.ReadAsync(12, It.IsAny<CancellationToken>()), Times.Once);
         _reader.VerifyNoOtherCalls();
     }
+    /// <summary>
+    /// [reconcile-money] Money claimed for a fiche that no longer exists is DRIFT, not a clean run.
+    ///
+    /// <para>
+    /// ⚠️ The report was green throughout the period one patient was charged 160,000 DT for an 80,000 DT
+    /// extraction: every ledger agreed with itself, and nothing asked whether the money pointed at a record
+    /// that exists.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Money_Pointing_At_A_Deleted_Fiche_Is_Reported_As_Drift()
+    {
+        Arrange(CleanClinic(), ficheOrphans: new FicheOrphanFacts(1, 80m, 1, 80m, 0));
+
+        var report = await CreateService().RunAsync();
+        var finding = Finding(report, "no-money-without-a-fiche");
+
+        Assert.Equal(MoneyReconciliationSeverity.Drift, finding.Severity);
+        Assert.True(report.HasDrift);
+        // The amount is named, not just the count — « 1 encaissement » tells an operator nothing about
+        // whether to chase it. Culture-neutral on the separator: the report runs under the invariant culture.
+        Assert.Contains("80", finding.Detail);
+        Assert.Contains("DT", finding.Detail);
+        Assert.Contains("1 encaissement(s) de devis", finding.Detail);
+    }
+
+    [Fact]
+    public async Task A_Clinic_With_No_Orphaned_Money_Reports_It_As_Info()
+    {
+        Arrange(CleanClinic());
+
+        var report = await CreateService().RunAsync();
+
+        Assert.Equal(MoneyReconciliationSeverity.Info, Finding(report, "no-money-without-a-fiche").Severity);
+    }
+
 }

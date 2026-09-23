@@ -1,5 +1,6 @@
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans;
@@ -59,11 +60,26 @@ public static class TreatmentsInProgressReader
         var patients = await patientRepository.GetByIdsAsync(
             clinicId, page.Items.Select(f => f.PatientId).Distinct().ToList(), cancellationToken);
 
+        // Each séance's own date and interval (H9): the dots and the due date come from the devis' own rule, not
+        // from a count and the latest date.
+        var stepsByItem = ((await planRepository.GetStepTimingsAsync(
+                    clinicId, page.Items.Select(f => f.PlanId).Distinct().ToList(), cancellationToken))
+                ?? Array.Empty<PlanStepTimingRow>())
+            .GroupBy(s => s.ItemId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(s => new TreatmentPlanItem.StepTiming(s.SequenceNumber, s.DoneOn, s.MinDaysAfterPrevious))
+                    .OrderBy(s => s.SequenceNumber)
+                    .ToList());
+
         return page.Map(fact =>
         {
             var hasBooking = fact.NextStepId.HasValue
                              && bookedStep.TryGetValue(fact.NextStepId.Value, out var appointment);
             var booking = hasBooking ? bookedStep[fact.NextStepId!.Value] : null;
+            var steps = stepsByItem.TryGetValue(fact.ItemId, out var timings)
+                ? timings
+                : new List<TreatmentPlanItem.StepTiming>();
 
             return new TreatmentInProgressDto
             {
@@ -75,8 +91,14 @@ public static class TreatmentsInProgressReader
                     : null,
                 ItemId = fact.ItemId,
                 DesignationFr = fact.DesignationFr,
+                PlanActRank = fact.PlanActRank,
+                PlanActCount = fact.PlanActCount,
                 StepsTotal = fact.StepsTotal,
                 StepsDone = fact.StepsDone,
+                DoneStepNumbers = steps.Select((s, index) => (s, index))
+                    .Where(x => x.s.DoneOn is not null)
+                    .Select(x => x.index + 1)
+                    .ToList(),
                 NextStepId = fact.NextStepId,
                 NextStepLabel = fact.NextStepLabel,
                 // 1-based for the screen — « étape 3 sur 3 ». The stored rank is 0-based and stays that way.
@@ -86,11 +108,9 @@ public static class TreatmentsInProgressReader
                 NextStepNumber = fact.NextStepSequenceNumber + 1,
                 NextStepEstimatedDurationMinutes = fact.NextStepEstimatedDurationMinutes,
                 LastStepDoneOn = fact.LastStepDoneOn,
-                // The protocol's interval applied to the previous séance's date — what lets the screen say
+                // The protocol's interval applied to the séance before the next one — what lets the screen say
                 // « pas encore due » instead of alarming at a flat fortnight on a treatment that is on time.
-                NextStepDueFrom = fact.NextStepMinDaysAfterPrevious is int days && fact.LastStepDoneOn is DateTime last
-                    ? last.Date.AddDays(days)
-                    : null,
+                NextStepDueFrom = TreatmentPlanItem.NextStepDueFromSteps(steps),
                 NextStepAppointmentId = booking?.Id,
                 NextStepAppointmentAt = booking?.AppointmentDateTime,
             };

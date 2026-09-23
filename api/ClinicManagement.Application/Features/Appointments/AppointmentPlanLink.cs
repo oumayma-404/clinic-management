@@ -1,5 +1,7 @@
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Appointments;
 
@@ -29,9 +31,19 @@ public static class AppointmentPlanLink
         {
             return Result.Failure("Plan de traitement introuvable.");
         }
-        if (plan.Items.All(i => i.Id != treatmentPlanItemId))
+        var item = plan.Items.FirstOrDefault(i => i.Id == treatmentPlanItemId);
+        if (item == null)
         {
             return Result.Failure("Acte du plan introuvable.");
+        }
+        // Only ever asked for a NEW link (the caller skips an unchanged one), so it must be bookable.
+        if (!TreatmentPlanLifecycle.IsLive(plan.Status))
+        {
+            return Result.Failure(ClosedPlanRefusal);
+        }
+        if (item.IsWithdrawn)
+        {
+            return Result.Failure(WithdrawnItemRefusal);
         }
 
         return Result.Success();
@@ -59,7 +71,8 @@ public static class AppointmentPlanLink
         IReadOnlyCollection<(Guid ItemId, Guid? StepId)> treatmentPlanLinks,
         Guid clinicId,
         Guid? patientId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyCollection<Guid>? alreadyHeldItemIds = null)
     {
         if (treatmentPlanLinks.Count == 0)
         {
@@ -100,10 +113,123 @@ public static class AppointmentPlanLink
             }
         }
 
+        // A link the visit ALREADY carries is accepted whatever became of its devis since: the séance was booked
+        // on it, and refusing it made every later edit of the visit (its time, its notes) impossible once the act
+        // was recorded or the devis closed. Only a NEW link has to point at work that can still be booked.
+        var held = alreadyHeldItemIds ?? Array.Empty<Guid>();
+        foreach (var link in treatmentPlanLinks.Where(l => !held.Contains(l.ItemId)))
+        {
+            if (!TreatmentPlanLifecycle.IsLive(plan.Status))
+            {
+                return Result<Dictionary<Guid, string>>.Failure(ClosedPlanRefusal);
+            }
+            if (byId[link.ItemId].IsWithdrawn)
+            {
+                return Result<Dictionary<Guid, string>>.Failure(WithdrawnItemRefusal);
+            }
+        }
+
         return Result<Dictionary<Guid, string>>.Success(
             treatmentPlanLinks
                 .Select(l => l.ItemId)
                 .Distinct()
                 .ToDictionary(id => id, id => byId[id].DesignationFr));
+    }
+
+    public const string ClosedPlanRefusal =
+        "Ce devis est clôturé : ses actes ne peuvent plus être planifiés. Reprenez le traitement ou choisissez un autre acte.";
+
+    public const string WithdrawnItemRefusal =
+        "Cet acte a été mis de côté sur le devis : remettez-le dans le traitement pour le planifier.";
+
+    /// <summary>
+    /// The requested acts of an EDIT, with every link the visit already held repaired against what its devis
+    /// became — plus the plan id those links resolve to when the client sent none.
+    /// <para>
+    /// ⚠️ The visit is the agreement, and a devis changing under it must never make the visit unsaveable. So a
+    /// held link whose act or step was since deleted is <b>dropped</b> (the act stays on the visit, the link goes),
+    /// and the plan id is <b>derived</b> from the held act rather than required from a browser that only knows the
+    /// bookable acts. A new link gets none of this — it is validated in full by <see cref="ValidateManyAsync"/>.
+    /// </para>
+    /// </summary>
+    public static async Task<(List<AppointmentProcedureRequest> Requests, Guid? PlanId)> RepairHeldLinksAsync(
+        ITreatmentPlanRepository treatmentPlanRepository,
+        IReadOnlyCollection<AppointmentProcedureRequest> requested,
+        Guid? treatmentPlanId,
+        IReadOnlyCollection<Guid> heldItemIds,
+        Guid clinicId,
+        Guid? patientId,
+        CancellationToken cancellationToken)
+    {
+        var plans = new Dictionary<Guid, TreatmentPlan?>();
+        async Task<TreatmentPlan?> PlanHolding(Guid itemId)
+        {
+            if (treatmentPlanId.HasValue)
+            {
+                if (!plans.TryGetValue(treatmentPlanId.Value, out var byId))
+                {
+                    byId = await treatmentPlanRepository.GetByIdAsync(treatmentPlanId.Value, cancellationToken);
+                    plans[treatmentPlanId.Value] = byId;
+                }
+                if (byId?.Items.Any(i => i.Id == itemId) == true)
+                {
+                    return byId;
+                }
+            }
+            var cached = plans.Values.FirstOrDefault(p => p?.Items.Any(i => i.Id == itemId) == true);
+            if (cached != null)
+            {
+                return cached;
+            }
+            var found = await treatmentPlanRepository.GetByItemIdAsync(itemId, cancellationToken);
+            if (found != null)
+            {
+                plans[found.Id] = found;
+            }
+            return found;
+        }
+
+        Guid? resolvedPlanId = treatmentPlanId;
+        var repaired = new List<AppointmentProcedureRequest>();
+        foreach (var request in requested)
+        {
+            if (request.TreatmentPlanItemId is not { } itemId || !heldItemIds.Contains(itemId))
+            {
+                repaired.Add(request);
+                continue;
+            }
+
+            var plan = await PlanHolding(itemId);
+            var item = plan != null && plan.ClinicId == clinicId && plan.PatientId == patientId
+                ? plan.Items.FirstOrDefault(i => i.Id == itemId)
+                : null;
+            if (item == null)
+            {
+                // The devis line is gone: keep the act, drop the link. A link-only row has nothing left to carry.
+                if (request.ProcedureTypeId.HasValue)
+                {
+                    repaired.Add(new AppointmentProcedureRequest
+                    {
+                        ProcedureTypeId = request.ProcedureTypeId,
+                        AgreedCost = request.AgreedCost,
+                    });
+                }
+                continue;
+            }
+
+            resolvedPlanId ??= plan!.Id;
+            repaired.Add(new AppointmentProcedureRequest
+            {
+                ProcedureTypeId = request.ProcedureTypeId,
+                TreatmentPlanItemId = itemId,
+                TreatmentPlanItemStepId = request.TreatmentPlanItemStepId is { } stepId
+                                          && item.Steps.Any(s => s.Id == stepId)
+                    ? stepId
+                    : null,
+                AgreedCost = request.AgreedCost,
+            });
+        }
+
+        return (repaired, resolvedPlanId);
     }
 }

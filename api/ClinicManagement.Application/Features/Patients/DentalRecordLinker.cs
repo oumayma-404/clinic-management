@@ -176,16 +176,36 @@ public static class DentalRecordLinker
          */
         var item = plan.Items.First(i => i.Id == treatmentPlanItemId);
 
+        /*
+         * ⚠️ **A re-save of the same fiche is not new work, and must change nothing.** Every save of a fiche calls
+         * this again, so two things went wrong on the ordinary « reopen, fix a typo, Enregistrer »:
+         *  - with no step named (a walk-in, a visit booked on the whole act), the act-level path advanced the
+         *    NEXT pending step every time — three re-saves and a three-séance couronne read « terminé »;
+         *  - once the devis had closed (a one-act devis completes on its first fiche), marking again ran the
+         *    plan's `EnsureActive` and the whole save was refused « Ce devis est clôturé » — the fiche could
+         *    never be corrected again.
+         * So whatever this fiche already evidences is left exactly as it is, and only work it does not yet hold
+         * is recorded — which is also the only thing that needs a live devis.
+         */
+        var alreadyHeld = item.LinkedDentalRecordId == dentalRecordId
+                          || item.Steps.Any(s => s.LinkedDentalRecordId == dentalRecordId);
+
         {
             if (stepIds.Count > 0)
             {
                 // Checked against THIS act's steps, not the plan's — a step id from another line of the same
                 // devis would otherwise record progress against the wrong bridge. Same rule, same reason, as
                 // AppointmentPlanLink.ValidateManyAsync.
-                if (stepIds.Any(stepId => item.Steps.All(s => s.Id != stepId)))
-                {
-                    return Result<PlanActLink>.Failure("Étape du devis introuvable.");
-                }
+                //
+                // ⚠️ An id the act no longer has is SKIPPED, not refused: the séance was booked on a step the
+                // dentist has since removed from the devis, and refusing took the whole fiche down with « Étape
+                // du devis introuvable » — naming a step nobody can see any more. The skip-don't-fail rule below
+                // is the same decision for the same shape.
+                stepIds.RemoveWhere(stepId => item.Steps.All(s => s.Id != stepId));
+            }
+
+            if (stepIds.Count > 0)
+            {
 
                 /*
                  * In the protocol's own order, so a séance covering steps 1 and 2 records them in that order
@@ -203,8 +223,7 @@ public static class DentalRecordLinker
                  */
                 var closable = item.Steps
                     .Where(s => stepIds.Contains(s.Id))
-                    .Where(s => !s.IsDone || s.LinkedDentalRecordId == null
-                                || s.LinkedDentalRecordId == dentalRecordId)
+                    .Where(s => !s.IsDone || s.LinkedDentalRecordId == null)
                     .Select(s => s.Id)
                     .ToList();
 
@@ -213,7 +232,7 @@ public static class DentalRecordLinker
                     plan.MarkItemStepDone(treatmentPlanItemId, stepId, doneOn, dentalRecordId);
                 }
             }
-            else
+            else if (!alreadyHeld)
             {
                 plan.MarkItemDone(treatmentPlanItemId, doneOn, dentalRecordId);
             }

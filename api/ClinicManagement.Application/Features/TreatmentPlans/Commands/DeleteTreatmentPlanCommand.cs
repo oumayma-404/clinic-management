@@ -20,13 +20,20 @@ public class DeleteTreatmentPlanCommandHandler : IRequestHandler<DeleteTreatment
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<DeleteTreatmentPlanCommandHandler> _logger;
+    // Optional for the older construction sites; the DI container always supplies them.
+    private readonly IAppointmentRepository? _appointmentRepository;
+    private readonly ISender? _sender;
 
     public DeleteTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
-        ILogger<DeleteTreatmentPlanCommandHandler> logger)
+        ILogger<DeleteTreatmentPlanCommandHandler> logger,
+        IAppointmentRepository? appointmentRepository = null,
+        ISender? sender = null)
     {
+        _appointmentRepository = appointmentRepository;
+        _sender = sender;
         _planRepository = planRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
@@ -83,8 +90,25 @@ public class DeleteTreatmentPlanCommandHandler : IRequestHandler<DeleteTreatment
                     + "qui conserve ce qui a déjà été fait.");
             }
 
+            /*
+             * ⚠️ The séances booked on it are let go FIRST. There is no FK from a visit to a devis act (the
+             * links are bare columns, deliberately), so deleting the plan used to leave its visits booked —
+             * reminded, chased by the worklist — pointing at acts that no longer exist.
+             */
+            var emptied = _appointmentRepository is null
+                ? new List<Guid>()
+                : await PlanBookingRelease.ReleaseAsync(
+                    plan.Items.Select(i => i.Id).ToList(), clinicResult.Value, _appointmentRepository,
+                    cancellationToken);
+
             await _planRepository.DeleteAsync(plan.Id, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (_sender is not null)
+            {
+                await PlanBookingRelease.CancelEmptiedAsync(
+                    _sender, emptied, "Traitement supprimé", _logger, cancellationToken);
+            }
 
             return Result.Success();
         }

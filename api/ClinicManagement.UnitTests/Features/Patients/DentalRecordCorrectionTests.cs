@@ -144,9 +144,12 @@ public class DentalRecordCorrectionTests
         /// <inheritdoc cref="MedicalDocuments"/>
         public Mock<IClinicContext> Context { get; } = new();
 
+        /// <summary>Consulted by `TreatmentPlanStepProtocol` for an act added to the devis from the fiche.</summary>
+        public Mock<IProcedureTypeRepository> ProcedureTypes { get; } = new();
+
         public UpdateDentalRecordCommandHandler Handler() => new(
-            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Appointments.Object,
-            Invoices.Object,
+            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, ProcedureTypes.Object,
+            Appointments.Object, Invoices.Object,
             CreditNotes.Object, MedicalDocuments.Object, Clinics.Object, Doctors.Object, Context.Object,
             Resolver.Object, Uow.Object, Stock.Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);

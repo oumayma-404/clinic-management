@@ -8,6 +8,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Patients;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
@@ -93,6 +94,19 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid? TreatmentPlanItemStepId { get; set; }
 
     /// <summary>
+    /// The séance's OTHER acts of the same devis, each closed by this fiche too (C4). A visit booked with two
+    /// devis acts used to close act 1 only — see <see cref="FicheExtraPlanActs"/>.
+    /// </summary>
+    public List<FichePlanItemLink> AdditionalTreatmentPlanItems { get; set; } = new();
+
+    /// <summary>
+    /// Acts of THIS séance the dentist is putting on the devis — the devis grows by their fee and the acts are
+    /// then recorded at 0, in this one transaction. See <see cref="FichePlanActAdditions"/> for why it is here
+    /// and not a second call from the browser.
+    /// </summary>
+    public List<FichePlanActAddition> PlanActAdditions { get; set; } = new();
+
+    /// <summary>
     /// What was prescribed at this séance. Creates the ordonnance, or updates the one this fiche already
     /// issued — <b>inside this save's transaction</b>, and never deleting it. See
     /// <see cref="Documents.FicheOrdonnanceEmitter"/>.
@@ -112,6 +126,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly IPatientRepository _patientRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     // Read only to answer « which steps did this séance carry out? » — see DentalRecordLinker.
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
@@ -132,6 +147,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         IPatientRepository patientRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         ICreditNoteRepository creditNoteRepository,
@@ -149,6 +165,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _patientRepository = patientRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _creditNoteRepository = creditNoteRepository;
@@ -199,9 +216,40 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // « Un acte porté par un devis est à 0 », imposed here rather than trusted from the client — the same
             // rule `PriceForPlanLinkedAct` already imposes when the séance is booked. Overtyping that 0 on the
             // fiche is what raised a note d'honoraires for work the treatment already prices.
-            var acts = await PlanCarriedActPricing.ImposeAsync(
+            var imposed = await PlanCarriedActPricing.ImposeAsync(
                 _treatmentPlanRepository, parsed.Value!, request.TreatmentPlanId, request.TreatmentPlanItemId,
                 clinicResult.Value, _logger, cancellationToken);
+            // ⚠️ The refusal is read, not just the acts: a fiche claiming a devis act it does not hold makes the
+            // devis mark the WRONG act done. See `PlanCarriedAct.NamesAnActTheFicheDoesNotHold`.
+            if (imposed.Refusal is not null)
+            {
+                return Result<DentalRecordDto>.Failure(
+                    imposed.Refusal, PlanCarriedActPricing.ActNotOnTheFicheCode);
+            }
+            var extraActs = await FicheExtraPlanActs.ResolveAsync(
+                _treatmentPlanRepository, imposed.Acts, request.TreatmentPlanId, request.TreatmentPlanItemId,
+                request.AdditionalTreatmentPlanItems, dentalRecord.Id, clinicResult.Value, cancellationToken);
+
+            /*
+             * « Ajouter au devis » — an act of THIS séance joining the treatment it is being carried out for.
+             *
+             * ⚠️ AFTER `ResolveAsync`, and that order is what makes a re-save a no-op: an addition is applied
+             * only to an act index nothing has claimed, and the line a previous save created is linked to this
+             * fiche, so `ResolveAsync` claims it. See `FichePlanActAdditions`.
+             */
+            var additions = await FichePlanActAdditions.ApplyAsync(
+                _treatmentPlanRepository, _invoiceRepository, _procedureTypeRepository, extraActs.Acts,
+                request.TreatmentPlanId, request.TreatmentPlanItemId, request.PlanActAdditions,
+                extraActs.Extras, clinicResult.Value, _logger, cancellationToken);
+            if (additions.Refusal is not null)
+            {
+                return Result<DentalRecordDto>.Failure(
+                    additions.Refusal, FichePlanActAdditions.RefusalCode);
+            }
+            var acts = additions.Acts;
+            // The devis acts this fiche closes: the ones it was already carrying out, plus the ones it just put
+            // on the devis. One list from here on, so a later reader cannot consult only half of them.
+            var planExtras = extraActs.Extras.Concat(additions.Added).ToList();
 
             // AC-P4.10 on the EDIT path: consume only what this edit ADDS. A fiche is re-saved routinely (a
             // corrected note, one more tooth), and consuming the whole list again each time would draw stock for
@@ -209,6 +257,12 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // per procedure because SetActs regenerates act ids, so a before/after diff by id is impossible;
             // counting occurrences also keeps "two composites" meaning two capsules.
             var consumedBefore = CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId));
+
+            // What the fiche's acts bill AS STORED, read before the edit is applied. Compared with the same
+            // thing afterwards by `DentalRecordBillingGuard.Check`, which is how « les actes d'une fiche
+            // facturée ne changent pas » stops being a statement only about the total. Cheap and unconditional:
+            // the guard below runs only for a billed fiche, but this has to be taken before `SetActs`.
+            var actsBefore = DentalRecordInvoiceLines.For(dentalRecord);
 
             if (!Enum.TryParse<PaymentMethod>(request.PaymentMethod ?? nameof(PaymentMethod.Cash), ignoreCase: true, out var method))
             {
@@ -255,7 +309,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 
             if (billedBy is { } note)
             {
-                var allowed = DentalRecordBillingGuard.Check(note, dentalRecord.Cost, request.AmountPaid);
+                // ⚠️ Both sides of the edit, not merely its total — at equal money the acts could be swapped
+                // in silence and the numbered document went on billing work the séance no longer records.
+                // `DentalRecordInvoiceLines.For` is the one authority on how a fiche becomes lines, so what is
+                // compared is exactly what a re-billing would print, before and after.
+                var allowed = DentalRecordBillingGuard.Check(
+                    note, dentalRecord.Cost, request.AmountPaid,
+                    actsBefore, DentalRecordInvoiceLines.For(dentalRecord));
                 if (allowed.IsFailure)
                 {
                     if (string.IsNullOrWhiteSpace(request.CorrectionReason))
@@ -300,6 +360,30 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 }
             }
 
+            // G5 — the devis side of L4: money collected on the treatment at this fiche, and the séances it
+            // evidences, take the fiche's new date too. Refused (not skipped) on a banked cheque, like the note.
+            if (previousDate.Date != request.InterventionDate.Date)
+            {
+                var collectedOn = await _treatmentPlanRepository.GetByCollectedDentalRecordAsync(
+                    clinicResult.Value, dentalRecord.Id, cancellationToken) ?? Array.Empty<TreatmentPlan>();
+                var evidencedBy = await _treatmentPlanRepository.GetByLinkedDentalRecordAsync(
+                    clinicResult.Value, dentalRecord.Id, cancellationToken) ?? Array.Empty<TreatmentPlan>();
+                foreach (var datedPlan in collectedOn.Concat(evidencedBy).DistinctBy(p => p.Id))
+                {
+                    try
+                    {
+                        if (datedPlan.FollowDentalRecordDate(dentalRecord.Id, request.InterventionDate))
+                        {
+                            await _treatmentPlanRepository.UpdateAsync(datedPlan, cancellationToken);
+                        }
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return Result<DentalRecordDto>.Failure(ex.Message, DentalRecordBillingRefusals.PaymentBankedCode);
+                    }
+                }
+            }
+
             var addedProcedureIds = PositiveDelta(
                 consumedBefore, CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId)));
 
@@ -321,6 +405,54 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // end state is legitimate only once the act is finished, and only the aggregate can say whether the
             // step just marked was the last one. See `ToothChartingRules`. The two commands must keep the same
             // order: a re-save that charted early would put back exactly what the create path now withholds.
+            /*
+             * ⚠️ **« Aucun », or another devis act, must really let go of the one this fiche evidenced.** The save
+             * only ever ADDED links, so choosing « Aucun » (or switching act A → B) left A « réalisé » against this
+             * fiche: the devis claimed work nobody did, and the next reopen picked A again. Released here, before
+             * the new link is made, through the aggregate's own un-mark.
+             *
+             * An act is released when the fiche no longer names it AND either names no devis act at all (the
+             * dentist said « Aucun ») or no longer carries that act's procedure — so a séance that genuinely did
+             * two devis acts keeps the first while the second is being attached.
+             */
+            var ficheProcedures = dentalRecord.Acts
+                .Where(a => a.ProcedureTypeId.HasValue)
+                .Select(a => a.ProcedureTypeId!.Value)
+                .ToHashSet();
+            var holding = await _treatmentPlanRepository.GetByLinkedDentalRecordAsync(
+                clinicResult.Value, dentalRecord.Id, cancellationToken) ?? Array.Empty<TreatmentPlan>();
+            var releasedItemIds = new List<Guid>();
+            foreach (var heldPlan in holding)
+            {
+                var releasedAny = false;
+                foreach (var heldItem in heldPlan.Items
+                             .Where(i => i.Id != request.TreatmentPlanItemId
+                                         && planExtras.All(e => e.Item.Id != i.Id)
+                                         && (i.LinkedDentalRecordId == dentalRecord.Id
+                                             || i.Steps.Any(st => st.LinkedDentalRecordId == dentalRecord.Id)))
+                             .ToList())
+                {
+                    var stillOnTheFiche = heldItem.ProcedureTypeId.HasValue
+                                          && ficheProcedures.Contains(heldItem.ProcedureTypeId.Value);
+                    if (request.TreatmentPlanItemId.HasValue && stillOnTheFiche)
+                    {
+                        continue;
+                    }
+                    if (heldPlan.ReleaseDentalRecordFor(heldItem.Id, dentalRecord.Id) > 0)
+                    {
+                        releasedAny = true;
+                        releasedItemIds.Add(heldItem.Id);
+                    }
+                }
+                if (releasedAny)
+                {
+                    await _treatmentPlanRepository.UpdateAsync(heldPlan, cancellationToken);
+                }
+            }
+            await TreatmentPlans.PlanBookingRelease.DetachVisitAsync(
+                dentalRecord.AppointmentId, releasedItemIds, clinicResult.Value, _appointmentRepository,
+                cancellationToken);
+
             DentalRecordLinker.PlanActLink? planLink = null;
             if (request.TreatmentPlanItemId.HasValue)
             {
@@ -338,14 +470,31 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 planLink = link.Value;
             }
 
+            // The séance's other devis acts, closed by this same fiche (C4).
+            var extraLinks = new List<(int ActIndex, bool ItemIsComplete)>();
+            foreach (var extra in planExtras)
+            {
+                var extraLink = await DentalRecordLinker.LinkPlanItemAsync(
+                    _treatmentPlanRepository, _appointmentRepository,
+                    request.TreatmentPlanId, extra.Item.Id,
+                    dentalRecord.PatientId, clinicResult.Value, dentalRecord.Id, request.InterventionDate, cancellationToken,
+                    extra.StepId, dentalRecord.AppointmentId);
+                if (extraLink.IsFailure)
+                {
+                    return Result<DentalRecordDto>.Failure(extraLink.Error!);
+                }
+                extraLinks.Add((extra.ActIndex, extraLink.Value!.ItemIsComplete));
+            }
+
             /*
              * ⚠️ `ChartableActs`, never `acts` — see `ToothChartingRules`. It matters twice as much on this path:
              * the block above has just DELETED this fiche's existing tooth states, so re-saving an unfinished
              * treatment's fiche is also the moment an early-charted row would be rewritten rather than corrected.
              * Withholding here is what lets a re-save clean up rows the old behaviour left behind.
              */
-            var chartable = ToothChartingRules.ChartableActs(
-                acts, planLink?.Item, planLink?.ItemIsComplete ?? true);
+            var chartable = FicheExtraPlanActs.Chartable(
+                ToothChartingRules.ChartableActs(acts, planLink?.Item, planLink?.ItemIsComplete ?? true),
+                extraLinks);
 
             var toothStates = DentalRecordActParser
                 .BuildToothStates(

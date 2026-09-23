@@ -29,6 +29,16 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
+    public async Task<TreatmentPlan?> GetByItemIdAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return await _context.TreatmentPlans
+            .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
+            .Include(p => p.Installments)
+            .ThenInclude(i => i.Payments)
+            .FirstOrDefaultAsync(p => p.Items.Any(i => i.Id == itemId), cancellationToken);
+    }
+
     public async Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordAsync(
         Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
     {
@@ -45,6 +55,22 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .Where(p => p.ClinicId == clinicId && p.Items.Any(i =>
                 i.LinkedDentalRecordId == dentalRecordId
                 || i.Steps.Any(s => s.LinkedDentalRecordId == dentalRecordId)))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<TreatmentPlan>> GetByCollectedDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
+    {
+        // The échéancier AND its ledger rows, unlike the clinical read above — see the interface. Without the
+        // second Include, `CollectedOnRecord` reads an empty collection and reports 0,000 DT on money that is
+        // there, which is the quietest possible way to lose a patient's payment.
+        return await _context.TreatmentPlans
+            .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
+            .Include(p => p.Installments)
+                .ThenInclude(i => i.Payments)
+            .Where(p => p.ClinicId == clinicId
+                && p.Installments.Any(i => i.Payments.Any(pay => pay.DentalRecordId == dentalRecordId)))
             .ToListAsync(cancellationToken);
     }
 
@@ -141,11 +167,22 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                                 join appt in _context.Appointments on ap.AppointmentId equals appt.Id
                                 where ap.TreatmentPlanItemStepId == nextStepId
                                       && liveAppointmentStatuses.Contains(appt.Status)
+                                      && appt.DisregardedAtUtc == null
                                 select (DateTime?)appt.AppointmentDateTime).Min()
             let lastDoneOn = item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate)
             let nextMinDays = item.Steps.Where(s => s.DoneDate == null)
                     .OrderBy(s => s.SequenceNumber)
                     .Select(s => s.MinDaysAfterPrevious)
+                    .FirstOrDefault()
+            let nextSequence = item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => (int?)s.SequenceNumber)
+                    .FirstOrDefault()
+            // H9: the séance BEFORE the next one in the protocol — `TreatmentPlanItem.NextStepDueFromSteps`' rule —
+            // never the latest date: a séance 2 done first says nothing about when séance 1 is due.
+            let previousDoneOn = item.Steps.Where(s => s.DoneDate != null && s.SequenceNumber < nextSequence)
+                    .OrderByDescending(s => s.SequenceNumber)
+                    .Select(s => s.DoneDate)
                     .FirstOrDefault()
             where plan.ClinicId == clinicId
                   && liveStatuses.Contains(plan.Status)
@@ -197,8 +234,8 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             orderby
                 nextSeanceOn != null,
                 (nextSeanceOn
-                 ?? (lastDoneOn != null && nextMinDays != null
-                        ? lastDoneOn.Value.AddDays(nextMinDays.Value)
+                 ?? (previousDoneOn != null && nextMinDays != null
+                        ? previousDoneOn.Value.AddDays(nextMinDays.Value)
                         : lastDoneOn)
                  ?? todayUtc),
                 // The act's rank inside its plan, so a plan's acts stay in protocol order when they tie…
@@ -235,7 +272,25 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                     .OrderBy(s => s.SequenceNumber)
                     .Select(s => s.MinDaysAfterPrevious)
                     .FirstOrDefault(),
-                item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate));
+                item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate),
+                /*
+                 * The act's place in its devis, and how many acts the devis still counts.
+                 *
+                 * ⚠️ Counted over the acts that are NOT parked, never `item.SequenceNumber + 1`: a withdrawn act
+                 * keeps its stored rank (`TreatmentPlan.Reorder` merely pushes parked ones to the end), so the
+                 * raw column names the second act of a devis « 3ᵉ » as soon as one before it is set aside.
+                 *
+                 * ⚠️ `Status != Withdrawn` and not `!item.IsWithdrawn`: the domain property is computed and
+                 * unmapped, so it does not translate — it would throw at query time, where nothing but the page
+                 * can see it.
+                 */
+                _context.Set<TreatmentPlanItem>().Count(sib =>
+                    sib.TreatmentPlanId == item.TreatmentPlanId
+                    && sib.Status != TreatmentPlanItemStatus.Withdrawn
+                    && sib.SequenceNumber < item.SequenceNumber) + 1,
+                _context.Set<TreatmentPlanItem>().Count(sib =>
+                    sib.TreatmentPlanId == item.TreatmentPlanId
+                    && sib.Status != TreatmentPlanItemStatus.Withdrawn));
 
         var totalCount = await query.CountAsync(cancellationToken);
         if (paging is not { } page)
@@ -341,14 +396,62 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                 p.CreatedAt,
                 p.AcceptedDate,
                 TotalItems = p.Items.Count,
-                DoneItems = p.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done)
+                DoneItems = p.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done),
+                // H9: the last work actually delivered — a stall counts from here, never from the signature.
+                LastItemDoneOn = p.Items
+                    .Where(i => i.Status != TreatmentPlanItemStatus.Withdrawn)
+                    .Max(i => i.DoneDate),
+                LastStepDoneOn = p.Items
+                    .Where(i => i.Status != TreatmentPlanItemStatus.Withdrawn)
+                    .SelectMany(i => i.Steps)
+                    .Max(s => s.DoneDate),
             })
             .ToListAsync(cancellationToken);
 
+        // The protocol's own due date for each plan's next séance — the devis' rule, over one batched read.
+        var dueByPlan = (await GetStepTimingsAsync(clinicId, rows.Select(r => r.PlanId).ToList(), cancellationToken))
+            .Where(s => s.ItemStatus is not (TreatmentPlanItemStatus.Done or TreatmentPlanItemStatus.Withdrawn))
+            .GroupBy(s => (s.PlanId, s.ItemId))
+            .Select(g => (g.Key.PlanId, Due: TreatmentPlanItem.NextStepDueFromSteps(g.Select(s =>
+                new TreatmentPlanItem.StepTiming(s.SequenceNumber, s.DoneOn, s.MinDaysAfterPrevious)))))
+            .Where(x => x.Due.HasValue)
+            .GroupBy(x => x.PlanId)
+            .ToDictionary(g => g.Key, g => g.Min(x => x.Due!.Value));
+
         return rows
             .Select(r => new RecallPlanFact(
-                r.PatientId, r.PlanId, r.Number, r.Status, r.CreatedAt, r.AcceptedDate, r.TotalItems, r.DoneItems))
+                r.PatientId, r.PlanId, r.Number, r.Status, r.CreatedAt, r.AcceptedDate, r.TotalItems, r.DoneItems,
+                LastWorkOn: Later(r.LastItemDoneOn, r.LastStepDoneOn),
+                NextStepDueFrom: dueByPlan.TryGetValue(r.PlanId, out var due) ? due : null))
             .ToList();
+
+        static DateTime? Later(DateTime? a, DateTime? b) => a is null ? b : b is null ? a : a > b ? a : b;
+    }
+
+    public async Task<int> CountItemsUsingProcedureTypeAsync(
+        Guid clinicId, Guid procedureTypeId, CancellationToken cancellationToken = default) =>
+        await (from item in _context.Set<TreatmentPlanItem>()
+               join plan in _context.TreatmentPlans on item.TreatmentPlanId equals plan.Id
+               where plan.ClinicId == clinicId && item.ProcedureTypeId == procedureTypeId
+               select item.Id)
+            .CountAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<PlanStepTimingRow>> GetStepTimingsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default)
+    {
+        if (planIds.Count == 0)
+        {
+            return Array.Empty<PlanStepTimingRow>();
+        }
+
+        return await (
+                from step in _context.Set<TreatmentPlanItemStep>()
+                join item in _context.Set<TreatmentPlanItem>() on step.TreatmentPlanItemId equals item.Id
+                join plan in _context.TreatmentPlans on item.TreatmentPlanId equals plan.Id
+                where plan.ClinicId == clinicId && planIds.Contains(plan.Id)
+                select new PlanStepTimingRow(
+                    plan.Id, item.Id, item.Status, step.SequenceNumber, step.DoneDate, step.MinDaysAfterPrevious))
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<int> CountByStatusAsync(
@@ -431,7 +534,8 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                         // `plan-step-sequence-dense`); +1 so the row can read « étape 3 / 6 » the way the rest
                         // of the feature counts.
                         s.SequenceNumber + 1,
-                        item.Steps.Count))))
+                        item.Steps.Count,
+                        null))))
             .ToListAsync(cancellationToken);
 
         var actLinks = await _context.TreatmentPlans
@@ -442,7 +546,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                                && ids.Contains(item.LinkedDentalRecordId!.Value))
                 .Select(item => new DentalRecordPlanLinkRow(
                     item.LinkedDentalRecordId!.Value, plan.Id, item.Id, plan.Number,
-                    item.DesignationFr, null, null, item.Steps.Count)))
+                    item.DesignationFr, null, null, item.Steps.Count, null)))
             .ToListAsync(cancellationToken);
 
         // One row per fiche. A fiche recording séances of two different treatments is possible and rare; the
@@ -450,7 +554,17 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         return stepLinks
             .Concat(actLinks)
             .GroupBy(r => r.DentalRecordId)
-            .Select(g => g.First())
+            .Select(g =>
+            {
+                var lead = g.First();
+                return lead with
+                {
+                    CarriedItemIds = g.Where(r => r.TreatmentPlanId == lead.TreatmentPlanId)
+                        .Select(r => r.TreatmentPlanItemId)
+                        .Distinct()
+                        .ToList(),
+                };
+            })
             .ToList();
     }
 
@@ -561,7 +675,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // undone by cancelling the bridge, which this comment used to claim: an invoice holding a non-voided
         // payment cannot be cancelled at all, and a bridge that carried collections is in exactly that state.
         // The avoir is the only correction. See PlanBillingRules for the full note.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         // Summed from the payment LEDGER, each row on its own date. This used to key the whole cumulative
@@ -647,7 +761,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         //
         // Rooted at the clinic-filtered TreatmentPlans set and reached by SelectMany — that traversal IS the
         // tenant scoping for a great-grandchild with no ClinicId and no DbSet of its own.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         var rows = await _context.TreatmentPlans
@@ -694,7 +808,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // GetInstallmentCollectedBetweenAsync with a GROUP BY — identical committed-plan filter, identical
         // bridged-plan exclusion, identical `!IsVoided` and bounds. The breakdown is shown under the total, so
         // the two must be the same question asked at two granularities and not two questions that happen to agree.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         var totals = await _context.TreatmentPlans
@@ -727,7 +841,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // makes a cheque un-markable twice (B-1): once the plan is bridged only the invoice-side row is reachable.
         //
         // ⚠️ Banked cheques are returned and the caller filters — see the invoice-side twin for why.
-        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var debtStatuses = PlanBillingRules.CashBearingPlanStatuses; // money moved, not owed (G7)
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
         var rows = await _context.TreatmentPlans
@@ -790,7 +904,12 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         var rows = await plans
             .SelectMany(p => p.Installments
                 .Where(i => i.Amount > i.AmountPaid)
-                .Select(i => new { p.PatientId, i.Amount, i.AmountPaid, i.DueDate }))
+                .Select(i => new
+                {
+                    p.PatientId, i.Amount, i.AmountPaid, i.DueDate, i.IsAutoRaised, p.Status,
+                    HasUnrealisedWork = p.Items.Any(it => it.Status != TreatmentPlanItemStatus.Done
+                                                          && it.Status != TreatmentPlanItemStatus.Withdrawn),
+                }))
             .ToListAsync(cancellationToken);
 
         return rows
@@ -800,7 +919,11 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                 var outstanding = g.Sum(r => r.Amount - r.AmountPaid);
                 // Calendar-day comparison (in memory, so .Date is safe): an échéance due TODAY is not late.
                 // Comparing instants against a midnight due date flagged it a full day early.
-                var overdueDates = g.Where(r => r.DueDate.Date < asOfUtc.Date).Select(r => r.DueDate).ToList();
+                // G8: through `InstallmentLateness`, the one rule — an auto-raised « solde à régler » is not late
+                // the day after signing.
+                var overdueDates = g.Where(r => InstallmentLateness.IsLate(
+                        false, r.IsAutoRaised, r.DueDate, r.Status, false, r.HasUnrealisedWork, asOfUtc))
+                    .Select(r => r.DueDate).ToList();
                 DateTime? oldestOverdue = overdueDates.Count > 0 ? overdueDates.Min() : null;
                 return (PatientId: g.Key, Outstanding: outstanding, OldestOverdueDueDate: oldestOverdue);
             })

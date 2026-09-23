@@ -20,7 +20,7 @@ import { CategoryCombobox } from "@/components/ui/category-combobox"
 import { ApiError } from "@/lib/api/client"
 import { suppliersApi, SUPPLIER_DUPLICATE_CODE } from "@/lib/api/suppliers"
 import type { SupplierDto } from "@/lib/api/types"
-import { isDeliverablePhone, DEFAULT_REGION, regionOf } from "@/lib/phone"
+import { isDeliverablePhone, DEFAULT_REGION, storedPhoneCountry } from "@/lib/phone"
 import type { CountryCode } from "libphonenumber-js/max"
 import { PhoneField } from "@/components/ui/phone-field"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
@@ -78,7 +78,8 @@ export function SupplierFormDialog({
     setName(editing?.name ?? "")
     setCategory(editing?.category ?? "")
     setPhoneNumber(editing?.phoneNumber ?? "")
-    setPhoneCountry(regionOf(editing?.phoneNumber) ?? DEFAULT_REGION)
+    // `phoneE164` first — it is the only record of the country the writer picked. See `storedPhoneCountry`.
+    setPhoneCountry(storedPhoneCountry(editing?.phoneE164, editing?.phoneNumber))
     setAddress(editing?.address ?? "")
     setNotes(editing?.notes ?? "")
     setNameError("")

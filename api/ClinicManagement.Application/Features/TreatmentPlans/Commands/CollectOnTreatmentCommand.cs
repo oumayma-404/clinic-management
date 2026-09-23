@@ -225,6 +225,21 @@ public class CollectOnTreatmentCommandHandler
                 return Result<TreatmentCollectionResult>.Failure(dateError);
             }
 
+            // Bounded here rather than left to the aggregate: `CollectChairside` throws once the schedule is
+            // full, which is right as an invariant and unusable as a message. ⚠️ BEFORE issuance (G9): a Draft
+            // holds no money, so what it can take is its whole total — refusing after the number was minted
+            // spent a devis number on a collection that never happened.
+            var room = plan.Number is null
+                ? InvoiceCalculator.RoundMoney(plan.TotalPlanned)
+                : plan.Outstanding;
+            if (delta > room)
+            {
+                return Result<TreatmentCollectionResult>.Failure(
+                    $"Le montant encaissé dépasse ce qui reste dû sur ce traitement "
+                    + $"({room:0.000} DT).",
+                    TreatmentCollectionRefusals.ExceedsOutstandingCode);
+            }
+
             /*
              * ⚠️ Every refusal above this line, and none below it: the next step spends a gapless devis number,
              * and a number consumed by a save that then fails can only be released by a cancellation carrying a
@@ -239,17 +254,6 @@ public class CollectOnTreatmentCommandHandler
                     return Result<TreatmentCollectionResult>.FailureFrom(issuance);
                 }
                 issued = true;
-            }
-
-            // Bounded here rather than left to the aggregate: `CollectChairside` throws once the schedule is
-            // full, which is right as an invariant and unusable as a message. Checked AFTER issuance because a
-            // Draft has no échéancier, so `Outstanding` only means anything once the devis exists.
-            if (delta > plan.Outstanding)
-            {
-                return Result<TreatmentCollectionResult>.Failure(
-                    $"Le montant encaissé dépasse ce qui reste dû sur ce traitement "
-                    + $"({plan.Outstanding:0.000} DT).",
-                    TreatmentCollectionRefusals.ExceedsOutstandingCode);
             }
 
             plan.CollectChairside(delta, method, paidOn, cheque, record.Id);

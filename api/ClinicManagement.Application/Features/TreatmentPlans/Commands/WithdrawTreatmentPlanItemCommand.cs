@@ -40,6 +40,12 @@ public class WithdrawTreatmentPlanItemCommand : IRequest<Result<TreatmentPlanDto
 
     /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
     public uint Version { get; set; }
+
+    /// <summary>
+    /// Set only after the screen asked « rendre X DT au patient ? »: how the difference is given back today
+    /// (<see cref="PlanRefund"/>). Absent, a total below what was collected is refused with <see cref="PlanRefund.Code"/>.
+    /// </summary>
+    public string? RefundMethod { get; set; }
 }
 
 public class WithdrawTreatmentPlanItemCommandHandler
@@ -91,7 +97,18 @@ public class WithdrawTreatmentPlanItemCommandHandler
 
             // Refuses the last active act (« arrêtez le traitement plutôt ») and re-spreads the échéancier,
             // which is where the « déjà encaissé » rule fires. See `TreatmentPlan.WithdrawItem`.
-            plan.WithdrawItem(request.ItemId, ClinicClock.ClinicToday());
+            if (!PlanRefund.TryParse(request.RefundMethod, out var refundMethod, out var methodError))
+            {
+                return Result<TreatmentPlanDto>.Failure(methodError!);
+            }
+            try
+            {
+                plan.WithdrawItem(request.ItemId, ClinicClock.ClinicToday(), refundMethod);
+            }
+            catch (InvalidOperationException) when (PlanRefund.IsNeeded(plan, refundMethod))
+            {
+                return Result<TreatmentPlanDto>.Failure(PlanRefund.Sentence(plan), PlanRefund.Code);
+            }
 
             var appointmentsToCancel = await PlanBookingRelease.ReleaseAsync(
                 new[] { request.ItemId }, clinicId, _appointmentRepository, cancellationToken);

@@ -199,7 +199,32 @@ public static class DentalRecordBillingGuard
     /// <para>Success does <b>not</b> mean « there is money to collect » — that is the billing command's own
     /// arithmetic. It means « nothing about this edit contradicts the note d'honoraires ».</para>
     /// </summary>
-    public static Result Check(Snapshot invoice, decimal proposedCost, decimal proposedAmountPaid)
+    /// <param name="actsBefore">
+    /// What the fiche's acts bill <b>as stored</b> — <c>DentalRecordInvoiceLines.For(record)</c> taken before
+    /// the edit is applied to the aggregate.
+    /// </param>
+    /// <param name="actsAfter">
+    /// The same, taken after. Both omitted (null) by a caller that is not editing the work at all, which is
+    /// <c>BillDentalRecordCommand</c>: it bills the fiche as stored, so there is no « after » and demanding one
+    /// would refuse every ordinary billing.
+    ///
+    /// <para>
+    /// ⚠️ <b>The comparison is between the two sides of THIS EDIT, never against the note's own stored lines.</b>
+    /// That was the first shape and it is wrong in production: a note raised before
+    /// <see cref="DentalRecordInvoiceLines"/> existed (the rule lived in the browser), one whose lines were
+    /// edited by hand afterwards, or a legacy fiche billed from its <c>ProcedureType</c> summary all carry text
+    /// this class would no longer compose — so re-dating such a séance, changing nothing, would be refused for
+    /// ever with « les actes … ne peuvent plus être modifiés ». A check that cannot go green is worse than no
+    /// check. What the rule actually claims is that <i>this save</i> does not move the work, and that is a
+    /// question about the two sides of the save.
+    /// </para>
+    /// </param>
+    public static Result Check(
+        Snapshot invoice,
+        decimal proposedCost,
+        decimal proposedAmountPaid,
+        IReadOnlyList<DentalRecordInvoiceLines.Line>? actsBefore = null,
+        IReadOnlyList<DentalRecordInvoiceLines.Line>? actsAfter = null)
     {
         if (invoice.IsSpent)
         {
@@ -209,9 +234,33 @@ public static class DentalRecordBillingGuard
         }
 
         // An issued note's lines are frozen, so a fiche whose acts moved would stop describing what was billed.
-        // Compared on the money rather than on the act list: `SetActs` regenerates every act id on every save, so
-        // there is no before/after identity to diff — and it is the *price* that has to agree with the document.
+        // The money first: it is the cheaper test and the only one a caller with no « after » can make.
         if (InvoiceCalculator.RoundMoney(proposedCost) != invoice.BilledTotalHt)
+        {
+            return Result.Failure(
+                DentalRecordBillingRefusals.ActsChanged(invoice.Number),
+                DentalRecordBillingRefusals.ActsChangedCode);
+        }
+
+        /*
+         * Then the lines themselves, and this half was missing.
+         *
+         * ⚠️ **Equal money is not an unchanged act.** The comment that used to sit above the test said the acts
+         * could not be diffed because `SetActs` regenerates every act id — true, and it answered the wrong
+         * question: the note's identity is its LINES, not the act rows behind them. So swapping « Détartrage »
+         * for « Gingivectomie » at the same 60 DT passed here, the fiche was rewritten, and the numbered
+         * document went on billing an act the séance no longer records — silently, with a green toast, and with
+         * this guard's own refusal sentence (« les actes … ne peuvent plus être modifiés ») printed nowhere.
+         *
+         * ⚠️ **Compared as a multiset, not in order.** `Invoice.Lines` is an EF collection with no ordering
+         * configured, so a re-read that happened to hand them back in another order would refuse an edit that
+         * changed nothing — a refusal nobody could act on, on a document nobody had touched.
+         *
+         * ⚠️ **The remedy is « Corriger la note », which already exists**: `ActsChangedCode` is in
+         * `DentalRecordBillingRefusals.Correctable`, so the modal offers the correction and the update command
+         * retires the note and raises its replacement. Nothing here is a dead end.
+         */
+        if (actsBefore is not null && actsAfter is not null && !SameLines(actsBefore, actsAfter))
         {
             return Result.Failure(
                 DentalRecordBillingRefusals.ActsChanged(invoice.Number),
@@ -228,5 +277,30 @@ public static class DentalRecordBillingGuard
         }
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Do these two sets of lines bill the same work? Order-insensitive — see the note at the call site.
+    /// Compared on the act, the quantity and the price — never on the designation's teeth (H5): moving a flat act
+    /// from 36 to 46 is a clinical correction that bills the same thing, and refusing it forced a new note.
+    /// </summary>
+    private static bool SameLines(
+        IReadOnlyList<DentalRecordInvoiceLines.Line> before,
+        IReadOnlyList<DentalRecordInvoiceLines.Line> after)
+    {
+        if (before.Count != after.Count)
+        {
+            return false;
+        }
+
+        static IEnumerable<(string Act, int Quantity, decimal UnitPriceHt)> Ordered(
+            IEnumerable<DentalRecordInvoiceLines.Line> lines) =>
+            lines
+                .Select(l => (Act: l.Act ?? l.Designation, l.Quantity, l.UnitPriceHt))
+                .OrderBy(l => l.Act, StringComparer.Ordinal)
+                .ThenBy(l => l.Quantity)
+                .ThenBy(l => l.UnitPriceHt);
+
+        return Ordered(before).SequenceEqual(Ordered(after));
     }
 }

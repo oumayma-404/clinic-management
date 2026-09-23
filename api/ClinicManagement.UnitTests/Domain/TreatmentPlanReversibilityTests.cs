@@ -73,7 +73,7 @@ public class TreatmentPlanReversibilityTests
 
         var ex = Assert.Throws<InvalidOperationException>(() => plan.RespreadScheduleToTotal(Today));
 
-        Assert.Contains("avoir", ex.Message);
+        Assert.Contains("Rendez", ex.Message); // G3: a rendu on the devis, never an avoir
     }
 
     /// <summary>The invariant the refusal exists for: every writer leaves Σ Amount == TotalPlanned.</summary>
@@ -142,14 +142,14 @@ public class TreatmentPlanReversibilityTests
     /// <see cref="TreatmentPlan.Cancel"/> would then refuse. A remedy a refusal names has to exist.
     /// </summary>
     [Fact]
-    public void Stopping_A_Deposit_Only_Devis_Names_The_Avoir_Not_The_Cancellation()
+    public void Stopping_A_Deposit_Only_Devis_Names_The_Rendu_Not_The_Cancellation()
     {
         var plan = Plan();
         plan.RecordInstallmentPayment(SoleInstallment(plan).Id, 500m, PaymentMethod.Cash, Today);
 
         var ex = Assert.Throws<InvalidOperationException>(() => plan.StopTreatment(Today));
 
-        Assert.Contains("avoir", ex.Message);
+        Assert.Contains("Rendez", ex.Message); // G3: a rendu on the devis, never an avoir
         Assert.DoesNotContain("annulez", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -308,7 +308,7 @@ public class TreatmentPlanReversibilityTests
         var ex = Assert.Throws<InvalidOperationException>(
             () => plan.WithdrawItem(plan.Items.Last().Id, Today));
 
-        Assert.Contains("avoir", ex.Message);
+        Assert.Contains("Rendez", ex.Message); // G3: a rendu on the devis, never an avoir
     }
 
     // ---- M5 · the wrong patient ---------------------------------------------------------------------

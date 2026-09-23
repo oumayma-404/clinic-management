@@ -66,6 +66,7 @@ import {
   usePatientPlanActs,
   resolveAttachedPlanId,
   materialiseTreatments,
+  discardUnbookedTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import {
@@ -202,7 +203,7 @@ function withMintedDevis(message: string, numbers: string[]): string {
   const which = numbers.length === 1 ? `le devis ${numbers[0]} a` : `les devis ${numbers.join(", ")} ont`
   return (
     `${message} — ${which} déjà été créé pour ce traitement. Le rendez-vous n'a pas été enregistré : ` +
-    "réessayez, ou ouvrez le devis pour y planifier la séance."
+    "réessayez ; si vous fermez sans enregistrer, il sera annulé."
   )
 }
 
@@ -339,22 +340,32 @@ export function CreateAppointmentDialog({
    * `createdPatientIdRef`'s reason, one object over. See {@link materialiseTreatments}.
    */
   const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
+  /** True once the visit is saved — a close before that undoes every plan in `createdPlansRef` (E4). */
+  const visitSavedRef = useRef(false)
 
   /**
    * A pending continuation belongs to the patient whose fiche it continues, so changing patient drops it.
    *
    * ⚠️ Without this the row survives the switch and the save creates the FIRST patient's devis, then has the
    * booking refused because the plan is not the second patient's — the orphan this whole change removes,
-   * through the one door still open to it. The pending row is the only one keyed to a patient's own record;
-   * a devis act picked from « Actes du devis » has the same weakness and is not this change's to fix.
+   * through the one door still open to it. A devis act picked from « Actes du devis » is the other row keyed to
+   * a patient's own record, and it goes too: kept, the save was refused « Plan de traitement introuvable » for
+   * a devis the new patient does not have. So does the plan memo, which is keyed on the act and not the patient.
    */
   const continuationPatientRef = useRef(selectedPatientId)
   useEffect(() => {
     if (continuationPatientRef.current === selectedPatientId) return
     continuationPatientRef.current = selectedPatientId
+    // A fixed patient is being SEEDED, not changed — its preset devis acts are the booking.
+    if (patientIsFixed) return
+    if (createdPlansRef.current.size > 0) void discardUnbookedTreatments(createdPlansRef.current)
+    createdPlansRef.current = new Map()
     setSelectedActs((prev) =>
-      prev.some((a) => a.pendingContinuation) ? prev.filter((a) => !a.pendingContinuation) : prev,
+      prev.some((a) => a.pendingContinuation || a.treatmentPlanItemId)
+        ? prev.filter((a) => !a.pendingContinuation && !a.treatmentPlanItemId)
+        : prev,
     )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPatientId])
 
   /**
@@ -672,7 +683,11 @@ export function CreateAppointmentDialog({
       // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
       createdPatientIdRef.current = null
       // Same reason, and the consequence is worse: a treatment reused across two openings would attach a
-      // second patient's séance to the first patient's plan.
+      // second patient's séance to the first patient's plan. One that no visit was saved for is undone.
+      if (!visitSavedRef.current && createdPlansRef.current.size > 0) {
+        void discardUnbookedTreatments(createdPlansRef.current)
+      }
+      visitSavedRef.current = false
       createdPlansRef.current = new Map()
       setCreatedPatientName(null)
       grantedOverridesRef.current = { ...NO_OVERRIDES }
@@ -1038,6 +1053,7 @@ export function CreateAppointmentDialog({
         allowOverlap: allowOverlap || undefined,
       })
 
+      visitSavedRef.current = true
       onCreated?.(created.id)
       onSuccess?.(appointmentDateTime)
       onOpenChange(false)

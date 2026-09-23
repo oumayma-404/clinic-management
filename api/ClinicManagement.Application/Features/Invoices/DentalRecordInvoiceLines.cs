@@ -20,8 +20,12 @@ namespace ClinicManagement.Application.Features.Invoices;
 /// </summary>
 public static class DentalRecordInvoiceLines
 {
-    /// <summary>One priced invoice line: designation, quantity and unit price HT.</summary>
-    public sealed record Line(string Designation, int Quantity, decimal UnitPriceHt);
+    /// <summary>
+    /// One priced invoice line: designation, quantity and unit price HT. <paramref name="Act"/> is the act's name
+    /// without its teeth — what a billed fiche's edit is compared on (H5), so correcting a tooth on a flat act does
+    /// not refuse the save.
+    /// </summary>
+    public sealed record Line(string Designation, int Quantity, decimal UnitPriceHt, string? Act = null);
 
     /// <summary>
     /// The lines billing <paramref name="record"/>'s acts, in the order the fiche records them.
@@ -35,7 +39,7 @@ public static class DentalRecordInvoiceLines
     {
         if (record.Acts.Count == 0)
         {
-            return new[] { new Line(Designation(record.ProcedureType, record.Teeth.Select(t => t.ToothNumber)), 1, record.Cost) };
+            return new[] { new Line(Designation(record.ProcedureType, record.Teeth.Select(t => t.ToothNumber)), 1, record.Cost, record.ProcedureType) };
         }
 
         return record.Acts.Select(ToLine).ToList();
@@ -49,10 +53,10 @@ public static class DentalRecordInvoiceLines
         // guess. `UnitCost` is nullable precisely because a legacy act never captured one.
         if (act.IsPerTooth && act.ToothNumbers.Count > 0 && act.UnitCost is { } unitCost)
         {
-            return new Line(designation, act.ToothNumbers.Count, unitCost);
+            return new Line(designation, act.ToothNumbers.Count, unitCost, act.ProcedureName);
         }
 
-        return new Line(designation, 1, act.Cost);
+        return new Line(designation, 1, act.Cost, act.ProcedureName);
     }
 
     /// <summary>

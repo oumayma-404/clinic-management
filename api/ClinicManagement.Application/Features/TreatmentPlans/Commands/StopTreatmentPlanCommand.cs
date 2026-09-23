@@ -6,6 +6,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
@@ -42,6 +43,12 @@ public class StopTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
     public uint Version { get; set; }
 
     /// <summary>
+    /// Set only after the screen asked « rendre X DT au patient ? »: how the difference is given back today
+    /// (<see cref="PlanRefund"/>). Absent, a total below what was collected is refused with <see cref="PlanRefund.Code"/>.
+    /// </summary>
+    public string? RefundMethod { get; set; }
+
+    /// <summary>
     /// The motif, required <b>only</b> when this stop is really a cancellation — see
     /// <see cref="Domain.Entities.TreatmentPlan.StopWouldCancel"/>. Optional otherwise and ignored.
     /// <para>
@@ -67,6 +74,9 @@ public class StopTreatmentPlanCommandHandler
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<StopTreatmentPlanCommandHandler> _logger;
+    // Optional for the older construction sites; the DI container always supplies them.
+    private readonly IAppointmentRepository? _appointmentRepository;
+    private readonly ISender? _sender;
 
     public StopTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
@@ -76,8 +86,12 @@ public class StopTreatmentPlanCommandHandler
         IToothStateRepository toothStateRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
-        ILogger<StopTreatmentPlanCommandHandler> logger)
+        ILogger<StopTreatmentPlanCommandHandler> logger,
+        IAppointmentRepository? appointmentRepository = null,
+        ISender? sender = null)
     {
+        _appointmentRepository = appointmentRepository;
+        _sender = sender;
         _planRepository = planRepository;
         _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
@@ -128,9 +142,15 @@ public class StopTreatmentPlanCommandHandler
                 var released = await TreatmentPlanBridgeRelease.DetachAsync(
                     _invoiceRepository, clinicResult.Value, plan.Id, cancellationToken);
 
+                // The séances booked for it go too — `CancelTreatmentPlanCommand`'s rule, the same helper.
+                var emptiedByCancel = await ReleaseBookingsAsync(
+                    plan.Items.Where(i => i.Status != TreatmentPlanItemStatus.Done).Select(i => i.Id).ToList(),
+                    clinicResult.Value, cancellationToken);
+
                 _unitOfWork.SetExpectedVersion(plan, request.Version);
                 await _planRepository.UpdateAsync(plan, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await CancelEmptiedAsync(emptiedByCancel, "Devis annulé", cancellationToken);
 
                 _logger.LogInformation(
                     "Cancelled treatment plan {PlanId} through the stop path: nothing delivered, {Released} note(s) released",
@@ -143,7 +163,20 @@ public class StopTreatmentPlanCommandHandler
             // `ClinicClock`, never `DateTime.Today` — the re-spread échéance is a calendar day in Tunisia, and
             // the client used to build it from the browser's own clock, which dates it to yesterday for the
             // first hour of every Tunisian day and makes it « En retard » the moment it is written.
-            var parked = plan.StopTreatment(ClinicClock.ClinicToday());
+            if (!PlanRefund.TryParse(request.RefundMethod, out var refundMethod, out var methodError))
+            {
+                return Result<TreatmentPlanDto>.Failure(methodError!);
+            }
+            var refundOnStop = plan.RefundOnStop;
+            IReadOnlyList<Domain.Entities.TreatmentPlanItem> parked;
+            try
+            {
+                parked = plan.StopTreatment(ClinicClock.ClinicToday(), refundMethod);
+            }
+            catch (InvalidOperationException) when (refundMethod is null && refundOnStop > 0m)
+            {
+                return Result<TreatmentPlanDto>.Failure(PlanRefund.StopSentence(refundOnStop), PlanRefund.Code);
+            }
 
             /*
              * Parking un-finishes an act, so its end state must stop being charted — the fourth caller of
@@ -162,9 +195,16 @@ public class StopTreatmentPlanCommandHandler
                     _dentalRecordRepository, _toothStateRepository, cancellationToken);
             }
 
+            // ⚠️ A parked act's booked séance is let go, exactly as parking ONE act (`Withdraw…`) always did.
+            // Stopping parked them all and left every booking standing — on the agenda, reminded, and refused
+            // on its next save and on its fiche because it pointed at an act nobody is coming back for.
+            var emptied = await ReleaseBookingsAsync(
+                parked.Select(i => i.Id).ToList(), clinicResult.Value, cancellationToken);
+
             _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await CancelEmptiedAsync(emptied, "Traitement arrêté", cancellationToken);
 
             _logger.LogInformation(
                 "Stopped treatment plan {PlanId}: {ParkedCount} act(s) withdrawn, kept total {Total}",
@@ -187,6 +227,20 @@ public class StopTreatmentPlanCommandHandler
         {
             _logger.LogError(ex, "Error stopping treatment plan {PlanId}", request.Id);
             return Result<TreatmentPlanDto>.Failure("Erreur lors de l'arrêt du traitement.");
+        }
+    }
+
+    private async Task<List<Guid>> ReleaseBookingsAsync(
+        List<Guid> itemIds, Guid clinicId, CancellationToken cancellationToken) =>
+        _appointmentRepository is null
+            ? new List<Guid>()
+            : await PlanBookingRelease.ReleaseAsync(itemIds, clinicId, _appointmentRepository, cancellationToken);
+
+    private async Task CancelEmptiedAsync(List<Guid> ids, string reason, CancellationToken cancellationToken)
+    {
+        if (_sender is not null)
+        {
+            await PlanBookingRelease.CancelEmptiedAsync(_sender, ids, reason, _logger, cancellationToken);
         }
     }
 }

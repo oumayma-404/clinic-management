@@ -62,6 +62,16 @@ public class PatientDto
     /// </para>
     /// </summary>
     public string? PhoneE164 { get; set; }
+
+    /// <summary>
+    /// The patient's OTHER numbers, in the order the practice entered them — empty for almost every patient.
+    /// <para>
+    /// ⚠️ <see cref="PhoneNumber"/> stays the primary and is unaffected: it is what the reminders dispatch to,
+    /// what the duplicate index folds and what the CSV carries. These are the numbers a human dials when the
+    /// first one does not answer. See <see cref="Domain.ValueObjects.PatientPhone"/>.
+    /// </para>
+    /// </summary>
+    public List<PatientPhoneDto> AdditionalPhones { get; set; } = new();
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     public string? Medications { get; set; }

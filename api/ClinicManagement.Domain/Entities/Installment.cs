@@ -90,7 +90,8 @@ public class Installment : Entity<Guid>
     /// </summary>
     public void Revise(DateTime dueDate, decimal amount)
     {
-        if (amount <= 0)
+        // A fully rendu row (paid, then given back) stays at 0 — see `Resize`.
+        if (amount < 0 || (amount == 0 && (_payments.Count == 0 || AmountPaid != 0m)))
             throw new ArgumentException("Le montant de l'échéance doit être supérieur à 0.", nameof(amount));
 
         var rounded = InvoiceCalculator.RoundMoney(amount);
@@ -114,6 +115,23 @@ public class Installment : Entity<Guid>
     /// bookkeeping, not an agreement, so it must not silently promote a row nobody scheduled.
     /// </summary>
     internal void MarkAutoRaised() => IsAutoRaised = true;
+
+    /// <summary>
+    /// Change the amount only — the date and <see cref="IsAutoRaised"/> stay. Used by the plan's re-spread,
+    /// which is bookkeeping after a total changed, not a new agreement.
+    /// </summary>
+    internal void Resize(decimal amount)
+    {
+        var rounded = InvoiceCalculator.RoundMoney(amount);
+        // 0 only for a row that keeps ledger history (paid, then rendu): deleting it would cascade its receipts
+        // away and rewrite the day they were taken.
+        if (rounded < 0m || (rounded == 0m && _payments.Count == 0))
+            throw new ArgumentException("Le montant de l'échéance doit être supérieur à 0.", nameof(amount));
+        if (rounded < AmountPaid)
+            throw new InvalidOperationException(
+                $"Une échéance ne peut pas être ramenée en dessous du montant déjà encaissé ({AmountPaid:0.000} DT).");
+        Amount = rounded;
+    }
 
     /// <summary>Record a payment as its own ledger row, then re-derive the stored totals from the ledger.</summary>
     /// <param name="cheque">
@@ -145,6 +163,18 @@ public class Installment : Entity<Guid>
         return payment;
     }
 
+    /// <summary>Give back up to what this row holds, today (G3). See <see cref="InstallmentPayment.Refund"/>.</summary>
+    internal InstallmentPayment RecordRefund(decimal amount, PaymentMethod method, DateTime refundedOn)
+    {
+        var rounded = InvoiceCalculator.RoundMoney(amount);
+        if (rounded > AmountPaid)
+            throw new InvalidOperationException("Le montant rendu dépasse ce qui a été encaissé sur cette échéance.");
+        var refund = InstallmentPayment.Refund(Id, rounded, method, refundedOn);
+        _payments.Add(refund);
+        RecomputeFromLedger();
+        return refund;
+    }
+
     /// <summary>
     /// Void a recorded payment — "this was never received". The row is kept and marked; the stored totals are
     /// re-derived from the remaining live rows.
@@ -157,7 +187,29 @@ public class Installment : Entity<Guid>
         if (payment.IsVoided)
             throw new InvalidOperationException("Ce paiement est déjà annulé.");
 
+        // A rendu is money that left the caisse — a fact, not a typo; and voiding a payment partly given back
+        // would leave this row owing a negative amount.
+        if (payment.IsRefund)
+            throw new InvalidOperationException("Un rendu au patient ne s'annule pas : encaissez à nouveau le montant.");
+        if (InvoiceCalculator.RoundMoney(AmountPaid - payment.Amount) < 0m)
+            throw new InvalidOperationException(
+                "Une partie de ce paiement a déjà été rendue au patient : il ne peut plus être annulé.");
+
         payment.Void(reason, actorUserId, actorName);
+        RecomputeFromLedger();
+    }
+
+    /// <summary>Move one live payment to a new date; refused on a banked cheque (rapproché avec la banque).</summary>
+    internal void AmendPaymentDate(Guid paymentId, DateTime paidOn)
+    {
+        var payment = _payments.FirstOrDefault(p => p.Id == paymentId)
+            ?? throw new InvalidOperationException("Paiement introuvable sur cette échéance.");
+        if (payment.IsVoided || payment.IsRefund) return;
+        if (payment.ChequeBankedOn is not null)
+            throw new InvalidOperationException(
+                "Un chèque encaissé sur le devis est déjà déposé : sa date est rapprochée avec la banque et la "
+                + "séance ne peut plus être redatée. Retirez la marque de dépôt d'abord.");
+        payment.AmendPaidOn(paidOn);
         RecomputeFromLedger();
     }
 
@@ -169,6 +221,8 @@ public class Installment : Entity<Guid>
 
         if (payment.IsVoided)
             throw new InvalidOperationException("Ce paiement est annulé : il ne détient plus de chèque à encaisser.");
+        if (payment.IsRefund)
+            throw new InvalidOperationException("Un rendu au patient n'est pas un chèque à encaisser.");
 
         if (payment.ChequeBankedOn.HasValue == banked)
             throw new InvalidOperationException(
@@ -193,7 +247,9 @@ public class Installment : Entity<Guid>
 
         // "Most recent" is by money date, with the insertion stamp as the tiebreaker — two payments on the
         // same day are common.
+        // A rendu is not « the last payment » (timeline, receipts).
         var latest = live
+            .Where(p => !p.IsRefund)
             .OrderByDescending(p => p.PaidOn)
             .ThenByDescending(p => p.CreatedAt)
             .FirstOrDefault();

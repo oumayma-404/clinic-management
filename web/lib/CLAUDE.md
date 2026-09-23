@@ -91,8 +91,8 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 - `errors.ts` — `getErrorMessage(err, fallback)` / `showErrorToast(err)` + `DEFAULT_ERROR_MESSAGE` (single French-first error-text formatter over `ApiError`/`Error`/string).
 - `format.ts` — French/Tunisian formatters: `formatDT` (millimes + "DT", fr-TN grouping), `formatDateFr`, `formatDate`, `formatDateTime`, `isBeforeToday`, **`formatFileSize`** (« o / Ko / Mo » — one shared function; the patient page and the files manager each carried a byte-identical English `B / KB / MB` copy, which is how they drifted from the rest of the French UI), **`todayLocalIso()`** — the single authority for pre-filling a date input (AC-P6.5) — and **`formatCalendarDay()`**, for a date the server sent that names a *day* rather than an instant (a subscription's inclusive end, the stretch a payment covered). ⚠️ Those arrive as UTC midnight, so `formatDate` renders them in the **workstation's** zone and prints the day before anywhere west of UTC — disagreeing with the server's own French sentence about the same date. `formatCalendarDay` reads the ISO string's date part and builds no `Date` at all.
   ⚠️ **Never use `new Date().toISOString().slice(0, 10)` for "today"**: it converts to UTC first, so between 00:00 and 01:00 in Tunis it returns *yesterday*. That is how a payment taken at 00:30 was booked to the previous day — and on the 1st, to the previous month. Five call sites carried it (the payment modal, the avoir refund date, the installment payment date, and the two échéancier due-date seeds); three of the five were money dates. `isBeforeToday` already had the local-calendar logic inline and correct, so the file held one right answer and several wrong ones — it now delegates to the same helper. Server-side counterpart: `ClinicClock.ClinicToday`.
-- **`phone.ts`** — `toE164` / `isDeliverablePhone` / `regionOf` / `DEFAULT_REGION` / `PHONE_COUNTRIES` /
-  `countrySearchValue` + `PHONE_ERROR_FR`, all over **libphonenumber-js** (`/max` metadata). Any country is
+- **`phone.ts`** — `toE164` / `isDeliverablePhone` / `regionOf` / **`storedPhoneCountry`** / `DEFAULT_REGION` /
+  `PHONE_COUNTRIES` / `countrySearchValue` + `PHONE_ERROR_FR`, all over **libphonenumber-js** (`/max` metadata). Any country is
   accepted; a bare national number resolves against the caller's `region`, which is what the country control in
   `ui/phone-field.tsx` supplies. *(`toE164Tunisian` is gone — it hand-rolled `+216` for exactly eight digits.)*
   ⚠️ **Validity is per-country and that is the point**: `201234567` — a Tunisian number with a ninth digit — is
@@ -113,6 +113,16 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   browser. The server stays the authority — it re-checks every write, now with the region the form sends as
   `phoneRegion`, and `PatientDto.phoneE164` (the **stored** normalisation, not a re-derivation) is what decides
   whether a WhatsApp action appears.
+  ⚠️ **A form re-opens its country through `storedPhoneCountry(e164, raw)`, never `regionOf(raw)`** — the
+  read-back half of the same defect, and it survived the 2026-09-11 fix by ten days. The region is a write-time
+  input: what is stored is the answer it produced (`phoneE164`), so `regionOf(patient.phoneNumber)` re-derives
+  against Tunisia and a French patient saved as `06 12 34 56 78` re-opened on **+216**. Its second half is the
+  expensive one — the pre-check beside the selector then reads the number against Tunisia too, so the next
+  *ordinary* save of that patient is refused with « Numéro de téléphone invalide », about a field nobody touched.
+  Both seeding sites had it (the patient edit dialog and the fournisseur dialog); `check:responsive`'s **N43**
+  `stored-phone-country-has-one-owner` bans `regionOf` in any `.tsx`. ⚠️ `ui/phone-field.tsx` is the one
+  exception and must stay: its AC-11 effect reads the **live** value so a pasted `+33…` moves the selector,
+  which is a different question from « what did the writer choose? ».
 - `working-hours.ts` — the **one** `WorkingDay` shape (three other copies used to exist: `lib/api/doctors.ts`, `clinic-settings.tsx`'s `WorkingHoursInput`, and the server's `WorkingDayDto`), plus `WEEKDAYS`, `WEEKDAY_LABELS_FR`, `DEFAULT_WORKING_HOURS` (Mon–Sat 09:00–17:00, no pause), `hasBreak`, `validateWorkingHours` (mirrors `WorkingHoursSerializer.Validate` and **names the day**; called by both editors) and `summarizeWorkingHours` (grouped French summary, break included in the run key). A day may carry an optional mid-day closure — `breakFrom`/`breakTo`, both ends or neither.
 - `hooks/use-url-filters.ts` — `useUrlFilters(values, enabled)` mirrors a screen's filters into its own query string (`replaceState`, empty/false keys dropped) and `useUrlFilterSeed()` reads the query string **once** in a lazy `useState`. ⚠️ It only **writes**: a screen that mounts it must seed the same keys itself, or it manufactures links it discards on the next load — the defect shape found three times (`/lab-orders`' `search`, `/appointments`' `date`+`view`, `/journal`'s `page`).
 - ⚠️ **`cnam.ts` and `arret-travail.ts` are gone**, with the rest of the CNAM interface

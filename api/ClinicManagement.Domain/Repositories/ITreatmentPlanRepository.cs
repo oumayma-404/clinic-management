@@ -19,7 +19,21 @@ public sealed record RecallPlanFact(
     DateTime CreatedAt,
     DateTime? AcceptedDate,
     int TotalItems,
-    int DoneItems);
+    int DoneItems,
+    DateTime? LastWorkOn = null,
+    DateTime? NextStepDueFrom = null);
+
+/// <summary>
+/// One séance of a devis act, reduced to what « when is the next one due? » needs (H9) — read in one batch so a
+/// list asks <c>TreatmentPlanItem.NextStepDueFromSteps</c>, the devis' own rule, instead of re-deriving it.
+/// </summary>
+public sealed record PlanStepTimingRow(
+    Guid PlanId,
+    Guid ItemId,
+    TreatmentPlanItemStatus ItemStatus,
+    int SequenceNumber,
+    DateTime? DoneOn,
+    int? MinDaysAfterPrevious);
 
 /// <summary>
 /// One échéance-collection row behind the caisse statement — the plan side of <see cref="CaissePaymentRow"/>.
@@ -80,7 +94,13 @@ public sealed record DentalRecordPlanLinkRow(
     /// </summary>
     string? StepLabel,
     int? StepNumber,
-    int StepTotal);
+    int StepTotal,
+    /// <summary>
+    /// Every act of <b>this</b> devis the fiche carries, the lead one included (C4b). A séance can carry several
+    /// devis acts (C4), and with only the lead id a reopened fiche marked one card « sur le devis » and brought
+    /// « Payé », « Mode » and « Total » back for the others.
+    /// </summary>
+    IReadOnlyList<Guid>? CarriedItemIds = null);
 
 public sealed record CaisseInstallmentPaymentRow(
     Guid PaymentId,
@@ -112,6 +132,12 @@ public interface ITreatmentPlanRepository
     Task<TreatmentPlan?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The plan holding this act, loaded like <see cref="GetByIdAsync"/>. For a caller that holds an act id and no
+    /// plan id — an appointment edit re-sending the link it was booked with.
+    /// </summary>
+    Task<TreatmentPlan?> GetByItemIdAsync(Guid itemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every plan in the clinic holding an act linked to this fiche de soins, loaded with its items so the act can
     /// be un-marked. Backs the cleanup that runs when a fiche is deleted: <c>TreatmentPlanItem.LinkedDentalRecordId</c>
     /// is FK-less by design, so without this the act would stay « réalisé » pointing at a row that no longer exists —
@@ -137,6 +163,32 @@ public interface ITreatmentPlanRepository
     /// </summary>
     Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordsAsync(
         Guid clinicId, IReadOnlyCollection<Guid> dentalRecordIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every plan in the clinic that <b>collected money</b> at this fiche — matched on
+    /// <c>InstallmentPayment.DentalRecordId</c>, with the échéancier and its ledger rows loaded.
+    ///
+    /// <para>
+    /// ⚠️ <b>A separate read from <see cref="GetByLinkedDentalRecordAsync"/>, and it has to be, twice over.</b>
+    /// That one matches the <i>clinical</i> link (an act or a step evidenced by the fiche) and states in as many
+    /// words that it does not load the échéancier « since detaching an act never touches money ». Reusing it to
+    /// reverse a collection would hit the trap this solution has already paid for: an unloaded collection
+    /// navigation is <b>empty, not stale</b>, so <c>CollectedOnRecord</c> would answer 0,000 DT confidently and
+    /// wrongly, and <c>VoidInstallmentPayment</c> would then throw « Échéance introuvable » on money that is
+    /// plainly there.
+    /// </para>
+    /// <para>
+    /// ⚠️ And the two questions genuinely have different answers. The clinical link is cleared the moment an act
+    /// is un-marked, while the money keeps its own tag for ever — that asymmetry is exactly how a deleted fiche
+    /// came to leave a live encaissement behind with nothing pointing at it.
+    /// </para>
+    /// <para>
+    /// <c>Items</c> and their steps are included too: the caller that reverses a collection is the same one that
+    /// releases the note d'honoraires from the devis, and <c>TreatmentPlan.DetachNote</c> reads the acts.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<TreatmentPlan>> GetByCollectedDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Every planned act of the clinic that is <b>under way</b> — some of its steps carried out and some still to
@@ -212,6 +264,17 @@ public interface ITreatmentPlanRepository
     /// </summary>
     Task<IReadOnlyList<RecallPlanFact>> GetRecallPlanFactsAsync(
         Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many devis lines of this clinic name <paramref name="procedureTypeId"/> (I4) — the lines that would lose
+    /// their colour, duration, protocol and prefill if the act were deleted rather than archived.
+    /// </summary>
+    Task<int> CountItemsUsingProcedureTypeAsync(
+        Guid clinicId, Guid procedureTypeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Every séance of these plans' acts, with its date and interval — see <see cref="PlanStepTimingRow"/>.</summary>
+    Task<IReadOnlyList<PlanStepTimingRow>> GetStepTimingsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default);
 
     Task<int> CountByStatusAsync(
         Guid clinicId,
@@ -495,4 +558,21 @@ public sealed record TreatmentInProgressFact(
     int? NextStepMinDaysAfterPrevious,
     /// <summary>When the most recent carried-out step happened — « dernière séance il y a 12 j ». Never null in
     /// practice (an act under way has at least one step done), but nullable so the shape cannot lie if it is.</summary>
-    DateTime? LastStepDoneOn);
+    DateTime? LastStepDoneOn,
+    /// <summary>
+    /// The act's <b>1-based place in its devis</b>, counted over the acts that still count — a parked one is
+    /// excluded, so <c>SequenceNumber + 1</c> is not this number.
+    /// <para>
+    /// ⚠️ It exists because the list is one row per <i>act</i> while the row's most prominent identifier is the
+    /// devis number, and only the acts carrying a protocol are listed. A devis of three acts whose only stepped
+    /// one is the third showed a single row reading « 2026-0015 · Retraitement endodontique » — and was read as
+    /// the devis being <i>called</i> that. Reported in as many words: « the plan name is retraitement
+    /// endodontique, even though it's the last one in the plan, why ??? »
+    /// </para>
+    /// </summary>
+    int PlanActRank,
+    /// <summary>
+    /// How many acts the devis still counts. Served beside the rank because the screen prints the rank
+    /// <b>only</b> past one: « 1ᵉʳ acte du devis » on a single-act devis is noise on every row of the list.
+    /// </summary>
+    int PlanActCount);

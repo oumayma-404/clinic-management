@@ -1,11 +1,17 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { clinicsApi, type ClinicDto, type DoctorDto } from '@/lib/api/clinics'
 import { useClinicAccess } from './use-clinic-access'
 
 export interface UseDoctorsResult {
+  /** The roster — practitioners still active. What a picker offers. */
   doctors: DoctorDto[]
+  /**
+   * Every practitioner the clinic has had, retired ones included (I3) — for resolving a name on history and for
+   * filters over past work. Retiring used to delete the row and take « who did it » off every record.
+   */
+  allDoctors: DoctorDto[]
   currentUserDoctor: DoctorDto | null
   /**
    * The clinic this status read already carried.
@@ -26,7 +32,7 @@ export interface UseDoctorsResult {
  */
 export function useDoctors(): UseDoctorsResult {
   const { status, isLoading: clinicLoading } = useClinicAccess(false)
-  const [doctors, setDoctors] = useState<DoctorDto[]>([])
+  const [allDoctors, setAllDoctors] = useState<DoctorDto[]>([])
   const [currentUserDoctor, setCurrentUserDoctor] = useState<DoctorDto | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +43,7 @@ export function useDoctors(): UseDoctorsResult {
     }
 
     if (!status?.hasClinic || !status.doctors) {
-      setDoctors([])
+      setAllDoctors([])
       setCurrentUserDoctor(null)
       setIsLoading(false)
       return
@@ -48,7 +54,7 @@ export function useDoctors(): UseDoctorsResult {
       setError(null)
 
       const doctorsList = status.doctors || []
-      setDoctors(doctorsList)
+      setAllDoctors(doctorsList)
 
       // Resolve the current user's linked doctor (if any). The practitioner can hold ANY role — in a
       // single-dentist cabinet the practitioner is an "admin" with a linked Doctor — so match on the
@@ -79,7 +85,7 @@ export function useDoctors(): UseDoctorsResult {
     } catch (err: any) {
       console.error('Error loading doctors:', err)
       setError(err.message || 'Échec du chargement des médecins')
-      setDoctors([])
+      setAllDoctors([])
       setCurrentUserDoctor(null)
     } finally {
       setIsLoading(false)
@@ -90,8 +96,11 @@ export function useDoctors(): UseDoctorsResult {
     loadDoctors()
   }, [loadDoctors])
 
+  const doctors = useMemo(() => allDoctors.filter((d) => d.isActive !== false), [allDoctors])
+
   return {
     doctors,
+    allDoctors,
     currentUserDoctor,
     clinic: status?.clinic ?? null,
     isLoading,
@@ -100,5 +109,10 @@ export function useDoctors(): UseDoctorsResult {
   }
 }
 
-
-
+/**
+ * A picker's options: the active roster, plus the one already chosen on this record even if that practitioner has
+ * since been retired (I3) — so reopening an old visit or devis still shows who it is on, instead of a blank select.
+ */
+export function doctorsForPicker(allDoctors: DoctorDto[], keepId?: string | null): DoctorDto[] {
+  return allDoctors.filter((d) => d.isActive !== false || (keepId != null && d.id === keepId))
+}

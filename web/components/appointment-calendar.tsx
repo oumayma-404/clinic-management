@@ -1727,8 +1727,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     // The name a screen reader (and the hover tooltip) gets. Status is in it because status is now *paint* on
     // the block — a struck-through, dashed or ringed block states something, and until this it stated it to
     // sighted users only.
+    // J3: on a finished visit the act is the one BOOKED — its fiche may record another — so it says « prévu ».
+    const bookedActPrefix = canonicalStatus === "Completed" ? "prévu : " : ""
     const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")} · ${durationMinutes} min · ${statusLabel}${
-      actsSummary ? ` · ${actsSummary}` : ""
+      actsSummary ? ` · ${bookedActPrefix}${actsSummary}` : ""
     }${planSeance ? " · séance d'un devis" : ""}`
 
     /*
@@ -1826,7 +1828,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             >
               {format(aptStart, "HH:mm")}
               {planSeance && " · devis"}
-              {actsSummary ? ` · ` : ""}
+              {actsSummary ? ` · ${bookedActPrefix}${actsSummary.split(" + ")[0]}` : ""}
             </span>
           )}
         </button>
@@ -1945,8 +1947,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 « Détartrage + Obturation » in 120 px truncates to « Détarta… » — which says less than the badge
                 beside the name already said. */}
             {actsSummary && (
-              <span className="min-w-0 truncate" title={actsSummary}>
-                {view === "day" ? actsSummary : actsSummary.split(" + ")[0]}
+              <span className="min-w-0 truncate" title={`${bookedActPrefix}${actsSummary}`}>
+                {view === "day" ? `${bookedActPrefix}${actsSummary}` : actsSummary.split(" + ")[0]}
               </span>
             )}
           </div>

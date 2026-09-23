@@ -121,6 +121,12 @@ public class DentalRecordDto
     public Guid? TreatmentPlanItemId { get; set; }
 
     /// <summary>
+    /// Every act of that devis this fiche carries, <see cref="TreatmentPlanItemId"/> included (C4b) — so a reopened
+    /// séance whose acts are all on the devis marks every card, and « Payé » / « Total » stay withdrawn.
+    /// </summary>
+    public IReadOnlyList<Guid> TreatmentPlanItemIds { get; set; } = Array.Empty<Guid>();
+
+    /// <summary>
     /// What this séance actually WAS — the devis act it carries out and, when the act is cut into séances, the
     /// step it carried out with its rank (« Pose de l'implant », 3 of 6).
     ///

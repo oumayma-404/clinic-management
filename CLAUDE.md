@@ -76,7 +76,15 @@ clinic-management/
 │                                   ios/             = Swift + WKWebView ⚠️ WRITTEN, NEVER COMPILED — no Mac here,
 │                                                      so .github/workflows/ios-shell.yml (free macos-latest) is
 │                                                      the first compiler it will meet. Read mobile/ios/README.md
-├── packaging/                    Local/offline-LAN publish + installers (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
+├── packaging/                    Local/offline-LAN publish + installer (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
+│                                   ⚠️ ONE installer now — `setup/clinic-setup.iss`, whose first page asks
+│                                   whether this PC is the cabinet's SERVER or a POSTE. The old
+│                                   `client/clinic-client.iss` was deleted rather than kept: it imported a
+│                                   `ca.crt` staged by hand from a server that does not exist at build time
+│                                   (so it imported NOTHING and every staff PC met a certificate warning), and
+│                                   the shell it installed could never self-update (`UpdateManager.IsInstalled`
+│                                   is false for an Inno install under %ProgramFiles%). The poste role fetches
+│                                   the CA from the server, shows its fingerprint, and runs the Velopack setup
 ├── console/                      The VENDOR's private back-office (Next 15) — `platform-console`, HostedMultiTenant
 │                                   only, served on its own loopback-published Caddy site behind an SSH tunnel.
 │                                   Contains NO clinic surfaces: that is FR-2, not a packaging choice.
@@ -89,6 +97,12 @@ clinic-management/
 │                                                               server pulls them instead of building; nothing else
 ├── backend/                      EMPTY (only .idea/) — ignore
 ├── .github/workflows/            ci.yml = the api · web · desktop · android gate (see below)
+│                                   ⚠️ its `local-mode` job is the ONLY thing anywhere that exercises
+│                                   `SelfHostedLan`: `appsettings.Development.json` pins `HostedMultiTenant`, so
+│                                   every `dotnet run`, every `dotnet ef` and the whole `e2e` suite resolve the
+│                                   HOSTED profile. It boots with `Deployment__Profile=SelfHostedLan`, plants a
+│                                   legacy plaintext Google token, asserts `verify-schema` REPORTS it (exit 2),
+│                                   restarts and asserts the deferred startup pass converged it (exit 0)
 │                                   ios-shell.yml = the iOS shell's only compiler, path-filtered (billed macOS runner)
 │                                   client-installer.yml = « Client release ». On a `desktop/**` change landing on main
 │                                                       (or a `client-v*` tag): builds the shell, packs a **Velopack**
@@ -188,6 +202,7 @@ how it was built, `notes.md` is what shipped.
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`unfinished-act-continuation`](features/unfinished-act-continuation/notes.md) — Un acte peut être noté « non terminé », et ce qui reste apparaît quelque part · « Suites à planifier » n'est PAS une quatrième question de la clôture
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
+- [`devis-fiche-rdv-flexibility`](features/devis-fiche-rdv-flexibility/notes.md) — A visit is judged on what it ADDS, never on what it already holds · A fiche re-save is not new work · « Aucun » really detaches · A devis that changes lets its bookings go
 - [`multi-act-appointments`](features/multi-act-appointments/notes.md) — A séance is several acts, and the scalars are derived
 - [`bridge-identity-and-tooth-gesture`](features/bridge-identity-and-tooth-gesture/notes.md) — A bridge's extent cannot be read off the arch either · The gesture stopped being a mode · The pontique question is now asked, and there are three roles · Three roles as two subset lists, and a fourth would not fit
 - [`multi-seance-treatment-steps`](features/multi-seance-treatment-steps/notes.md) — An échéance nobody agreed to is not late · An act's end state is charted when the act is FINISHED · A séance remembers the teeth the last one treated · A séance says what it WAS · The header is one action and a menu · Deux surfaces annonçaient l'étape SUIVANTE comme si elle avait eu lieu
@@ -199,6 +214,9 @@ how it was built, `notes.md` is what shipped.
   serveur est intact · **six choses ont délibérément survécu** (les deux entrées `DOCUMENT_TEMPLATES`, la clé
   realtime `DentalActs`, l'aller-retour `dentalActCodeId`, `cnamInfo` omis et non vidé, un contrat de test
   skippé par attribut, un refus de route) · la conséquence qu'un `revert` ne défera pas
+- [`patient-multiple-phone-numbers`](features/patient-multiple-phone-numbers/notes.md) — Un numéro
+  enregistré rouvre sur le pays que son auteur a choisi (et la moitié coûteuse : le save ORDINAIRE suivant
+  était refusé) · Un patient porte plusieurs numéros, le principal reste le principal
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
 - [`dicom-interactive-viewer`](features/dicom-interactive-viewer/notes.md) — A radiograph you can read, not just look at: window/level, zoom, frame scrolling and a ruler that refuses to invent millimetres
@@ -389,6 +407,27 @@ touching the area.
   that 0 is how a 250 DT act with 150 collected left the patient owing 250 on the devis **and** 100 on an
   unlinked note: an invoice raised from a fiche carries `dentalRecordId` and **no `TreatmentPlanId`**, so
   `PlanBillingRules.BilledPlanIds` cannot de-duplicate it.
+- **Supprimer une fiche de soins annulait tout SAUF son argent, et l'encaissement était la clé d'idempotence.**
+  `DeleteDentalRecordCommand` nettoyait trois des **six** liens souples vers une fiche — son propre commentaire
+  disait « the two soft links to this fiche » — et les trois oubliés étaient
+  `InstallmentPayment.DentalRecordId`, `Invoice.DentalRecordId` et `MedicalDocument.DentalRecordId`. Or le
+  premier *est* la clé de `TreatmentPlan.CollectedOnRecord` : fiche supprimée → nouvelle fiche → nouvel id → la
+  clé repart de zéro et **le même acte est encaissé une deuxième fois**, le premier paiement restant en place.
+  Mesuré en production le 2026-09-21 : une séance, trois fiches en neuf minutes, **160 DT encaissés pour une
+  extraction à 80 DT** plus une note d'honoraires payée pour une fiche supprimée — six écritures, six 200,
+  découvert par hasard une semaine plus tard. `DentalRecordDeletionReversal` est le seul propriétaire : il
+  **décide** (`InspectAsync`) et **exécute** (`ApplyAsync`), et la modale d'avertissement lit la même décision,
+  donc les chiffres annoncés ne peuvent pas diverger de ce qui bouge. ⚠️ Une note **numérotée** est annulée, pas
+  supprimée — `Invoice.Cancel` sanctionne l'enchaînement (« *voided payments do not count* »), donc on annule
+  les paiements **puis** la note, et la séquence ne perd aucun rang. ⚠️ Une note **pontée** à un devis est
+  détachée **des deux côtés** (`Invoice.DetachFromTreatmentPlan` + `TreatmentPlan.DetachNote`) avant d'être
+  annulée : sans cela `PlanBillingRules.BilledPlanIds` rend le total complet du devis à « Solde patient » et
+  « Créances » alors que l'argent reporté ne revient pas. ⚠️ Trois refus **avant** la transaction (chèque déjà
+  encaissé en banque, avoir bloquant, note facturant une autre séance) — de l'argent à moitié défait est le seul
+  résultat illisible. ⚠️ **L'ordonnance survit** (« elle n'efface jamais »), seul son pointeur est vidé.
+  `Every_Soft_Link_To_A_Fiche_Is_Accounted_For` casse au septième lien ; `reconcile-money` gagne
+  `no-money-without-a-fiche`, la question que le rapport ne posait pas pendant que le patient payait deux fois.
+  [`features/fiche-delete-reverts-money/notes.md`](features/fiche-delete-reverts-money/notes.md)
 - **A note that REPRESENTS a devis may not be attached to one holding money the note does not bill.** The
   bridge is all-or-nothing — `BilledPlanIds` drops the *whole* plan from « Solde patient », « Créances », la
   caisse and the dashboard the moment a real note names it — so « Montant du travail restant » priced on the
@@ -499,11 +538,14 @@ touching the area.
   **not** on the branch the amend handler takes when it changes a total without being sent a schedule, so
   removing a 200 DT act from a 500 DT devis with 500 DT collected left `Σ Amount` at 500 against a
   `TotalPlanned` of 300: `Outstanding` clamped at 0, both balances read 0, and **200 DT of the patient's money
-  became unreachable** with no error and no avoir prompt. ⚠️ A collected row is **kept and trimmed, never
-  dropped**, and `MarkAutoRaised` is re-applied — `Revise` clears `IsAutoRaised`, so without the re-mark a
-  respread silently promotes the auto lump-sum into an « agreed » date and puts « En retard » back on it. Its
-  visible consequence is two undated « Solde à régler » rows after a stop→reopen, one of them a settled
-  receipt; that is correct and `installmentDueLabel` keys purely on `isAutoRaised`. ⚠️ **`Reopen` re-spreads
+  became unreachable** with no error and no avoir prompt. ⚠️ **It keeps the agreed dates** (owner's call,
+  2026-09-23): a lower total comes off the LAST unpaid rows, a higher one lands on the last unpaid row, and a
+  new auto row appears only when nothing is left unpaid — it used to collapse the schedule into one lump sum
+  due today, erasing dates the patient agreed to. `Installment.Resize` moves the amount only, so `IsAutoRaised`
+  survives. ⚠️ **Below what was collected is a « rendu », not a refusal, once confirmed**: a NEGATIVE
+  `InstallmentPayment` dated today (`RefundExcess`), refused with `plan-total-below-collected` until the screen
+  sends a `refundMethod` — see `features/devis-fiche-rdv-flexibility/notes.md` § wave 3 for the guards it needs
+  (not voidable, no receipt, never carried onto a note, a fully-rendu row kept at 0). ⚠️ **`Reopen` re-spreads
   too**, and leaving it out put two different balances on two screens — « Solde patient » is
   `TotalPlanned − AmountPaid` while « Créances », the dashboard and `PatientDebtLines` sum
   `Amount − AmountPaid` over the installment **rows**, so a 1 200 DT devis stopped at 400 kept and 400
@@ -635,6 +677,26 @@ touching the area.
   re-derived without its country and accepting one the product cannot dial is the quieter half of the same defect
   (no WhatsApp, no reminder, a `tel:` link dialling a French national number from a Tunisian handset). Nothing is
   backfilled; both fall back to re-deriving, which is exactly what legacy rows already resolved to.
+  ⚠️ **And the read-back half survived that fix by ten days**: both forms seeded the selector with
+  `regionOf(record.phoneNumber)`, which re-derives against Tunisia, so a French patient re-opened on **+216**
+  — reported from use as « l'indicatif revient toujours au tunisien ». The costly part is what follows: the
+  client pre-check then reads the number against Tunisia too, so the next *ordinary* save of that patient is
+  refused with « Numéro de téléphone invalide », blaming the one field nobody touched. `storedPhoneCountry`
+  (`web/lib/phone.ts`) is the one owner of the E.164-first order, `check:responsive`'s **N43** bans `regionOf`
+  in any `.tsx`, and `ui/phone-field.tsx` is its single deliberate exception — that effect reads the **live**
+  value so a pasted `+33…` moves the selector.
+- **A patient's EXTRA numbers are an owned collection, and the setter replaces the whole list.**
+  `Patient.AdditionalPhoneNumbers` sits beside `PhoneNumber`, which stays the primary and is what the
+  rappels, the duplicate index and the CSV still use — « quel numéro appelle-t-on ? » keeps one answer.
+  ⚠️ **Owned, never an entity**: EF loads an owned collection with its owner, so there is no `Include` to
+  forget, and a forgotten one would have saved the patient with an *empty* list (an unloaded navigation is
+  empty, not stale). ⚠️ `SetAdditionalPhoneNumbers` is the `SetActs` shape, so the only thing stopping an
+  ordinary save from deleting every extra number is `UpdatePatientCommand.AdditionalPhonesSpecified` —
+  an omitted key must never reach the setter, and `[]` is how the last one goes.
+  ⚠️ `PatientPhone.E164` is **non-nullable** (the constructor refuses what no country can parse, and the
+  table has no legacy rows), which is why nothing there restates `PersistedE164 ?? ToE164(Value)`.
+  ⚠️ Each row carries **its own region** — a patient's mobile may be Tunisian and their son's French.
+  See [`features/patient-multiple-phone-numbers/notes.md`](features/patient-multiple-phone-numbers/notes.md).
 - **In the Windows shell, EVERY failed navigation used to mean « the clinic server is unreachable ».** The panel
   it raises replaces the whole application, so raising it is a claim that the server is down — but
   `NavigationCompleted` reports a failure for at least four things that say nothing of the kind: a `tel:` or

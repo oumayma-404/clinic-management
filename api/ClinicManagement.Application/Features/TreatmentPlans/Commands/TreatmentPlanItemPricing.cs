@@ -23,7 +23,7 @@ internal static class TreatmentPlanItemPricing
     /// <summary>
     /// Resolves each request line into the <see cref="TreatmentPlanItemInput"/> that
     /// <see cref="TreatmentPlan.SetItems(IEnumerable{TreatmentPlanItemInput}, bool)"/> expects, filling
-    /// <c>PlannedCost</c> from the chosen procedure's default cost when the caller sent a non-positive cost.
+    /// <c>PlannedCost</c> from the chosen procedure's default cost when the caller left it blank (null).
     /// Only procedures belonging to <paramref name="clinicId"/> are trusted (defense-in-depth over the query
     /// filter).
     /// <para>
@@ -58,9 +58,10 @@ internal static class TreatmentPlanItemPricing
 
         foreach (var item in items)
         {
-            var plannedCost = item.PlannedCost;
+            // Only a BLANK price is filled — a typed 0 is a price (G1).
+            var plannedCost = item.PlannedCost ?? 0m;
 
-            if (plannedCost <= 0m && item.ProcedureTypeId is Guid procedureTypeId)
+            if (item.PlannedCost is null && item.ProcedureTypeId is Guid procedureTypeId)
             {
                 if (!feeCache.TryGetValue(procedureTypeId, out var fee))
                 {

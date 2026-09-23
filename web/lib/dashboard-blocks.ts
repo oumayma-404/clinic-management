@@ -105,7 +105,7 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   absenceRate: { section: 'activity', form: 'figure', label: 'Taux d’absence' },
   newPatients: { section: 'activity', form: 'figure', label: 'Nouveaux patients' },
   acceptedPlans: { section: 'activity', form: 'figure', label: 'Devis acceptés' },
-  procedureMix: { section: 'activity', form: 'chart', label: 'Répartition des actes' },
+  procedureMix: { section: 'activity', form: 'chart', label: 'Répartition des actes prévus' },
   // The only block on the page with its own period control, which is why its label names the window it defaults
   // to rather than a fixed one — « Semaine » is where it opens, not what it can show.
   appointmentStatusMix: { section: 'activity', form: 'chart', label: 'Rendez-vous par statut' },

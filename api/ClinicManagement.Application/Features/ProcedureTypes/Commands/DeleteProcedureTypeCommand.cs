@@ -9,48 +9,55 @@ using Microsoft.Extensions.Logging;
 namespace ClinicManagement.Application.Features.ProcedureTypes.Commands;
 
 /// <summary>
-/// Deletes an act — or ARCHIVES it when a future appointment still refers to it.
+/// Deletes an act — or ARCHIVES it when a future appointment or a devis line still refers to it.
 ///
-/// <para>⚠️ The <c>bool</c> is the outcome: <b>true = archived, false = deleted permanently.</b> It used to be
-/// <c>true</c> either way, so nothing downstream could tell the two apart and the screen showed no feedback at
-/// all — the row simply vanished in both cases, which is what made the dialog's wrong promise dangerous rather
-/// than merely sloppy.</para>
+/// <para>⚠️ <see cref="ProcedureTypeDeletion.Archived"/> is the outcome: <b>true = archived, false = deleted
+/// permanently.</b> It used to be <c>true</c> either way, so nothing downstream could tell the two apart and the
+/// screen showed no feedback at all — the row simply vanished in both cases.</para>
+/// <para>⚠️ A devis line archives it too (I4): the line keeps the act's id, and deleting the act took its colour,
+/// duration, protocol and prefill with it — the one consumer the dialog never mentioned.</para>
 /// </summary>
-public class DeleteProcedureTypeCommand : IRequest<Result<bool>>
+public class DeleteProcedureTypeCommand : IRequest<Result<ProcedureTypeDeletion>>
 {
     public Guid Id { get; set; }
 }
 
-public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedureTypeCommand, Result<bool>>
+/// <summary>What a delete did, and what kept the act alive when it was archived instead.</summary>
+public sealed record ProcedureTypeDeletion(bool Archived, int FutureAppointments, int PlanLines);
+
+public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedureTypeCommand, Result<ProcedureTypeDeletion>>
 {
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<DeleteProcedureTypeCommandHandler> _logger;
+    private readonly ITreatmentPlanRepository? _planRepository;
 
     public DeleteProcedureTypeCommandHandler(
         IProcedureTypeRepository procedureTypeRepository,
         IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
-        ILogger<DeleteProcedureTypeCommandHandler> logger)
+        ILogger<DeleteProcedureTypeCommandHandler> logger,
+        ITreatmentPlanRepository? planRepository = null)
     {
         _procedureTypeRepository = procedureTypeRepository;
         _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
+        _planRepository = planRepository;
     }
 
-    public async Task<Result<bool>> Handle(DeleteProcedureTypeCommand request, CancellationToken cancellationToken)
+    public async Task<Result<ProcedureTypeDeletion>> Handle(DeleteProcedureTypeCommand request, CancellationToken cancellationToken)
     {
         try
         {
             var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
             if (procedureType == null)
             {
-                return Result<bool>.Failure("Type de procédure introuvable.");
+                return Result<ProcedureTypeDeletion>.Failure("Type de procédure introuvable.");
             }
 
             // Explicit tenant check (defense-in-depth alongside the global query filter): a procedure
@@ -58,26 +65,32 @@ public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedure
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<bool>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+                return Result<ProcedureTypeDeletion>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
             }
             if (procedureType.ClinicId != clinicResult.Value)
             {
-                return Result<bool>.Failure("Type de procédure introuvable.");
+                return Result<ProcedureTypeDeletion>.Failure("Type de procédure introuvable.");
             }
 
-            // Check if used by future appointments
-            var allAppointments = await _appointmentRepository.GetAllAsync(cancellationToken);
-            if (procedureType.IsUsedByFutureAppointments(allAppointments))
+            // Only this act's visits, filtered in SQL — it used to load every appointment of the clinic (I4).
+            var futureAppointments = procedureType.CountFutureAppointments(
+                await _appointmentRepository.GetByProcedureTypeIdAsync(procedureType.Id, cancellationToken));
+            var planLines = _planRepository is null
+                ? 0
+                : await _planRepository.CountItemsUsingProcedureTypeAsync(
+                    clinicResult.Value, procedureType.Id, cancellationToken);
+            if (futureAppointments > 0 || planLines > 0)
             {
                 // Soft delete instead
-                _logger.LogInformation("Procedure type {ProcedureTypeId} is used by future appointments. Performing soft delete.", request.Id);
+                _logger.LogInformation(
+                    "Procedure type {ProcedureTypeId} is used by {Appointments} future appointments and {PlanLines} devis lines. Archiving.",
+                    request.Id, futureAppointments, planLines);
                 procedureType.Deactivate();
                 await _procedureTypeRepository.UpdateAsync(procedureType, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                // ⚠️ `true` = ARCHIVED. The two outcomes used to be indistinguishable to the caller — both
-                // `Success(true)` — so the screen could not say which had happened and a permanent delete looked
-                // exactly like a deactivation. See the controller for the shape it becomes on the wire.
-                return Result<bool>.Success(true);
+                // ⚠️ ARCHIVED. The two outcomes used to be indistinguishable to the caller, so a permanent delete
+                // looked exactly like a deactivation. See the controller for the shape it becomes on the wire.
+                return Result<ProcedureTypeDeletion>.Success(new ProcedureTypeDeletion(true, futureAppointments, planLines));
             }
 
             // Hard delete if not used
@@ -85,13 +98,13 @@ public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedure
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation("Deleted procedure type {ProcedureTypeId}", request.Id);
-            // `false` = permanently deleted.
-            return Result<bool>.Success(false);
+            // Permanently deleted.
+            return Result<ProcedureTypeDeletion>.Success(new ProcedureTypeDeletion(false, 0, 0));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deleting procedure type {ProcedureTypeId}", request.Id);
-            return Result<bool>.Failure(ErrorMessages.Generic, ex);
+            return Result<ProcedureTypeDeletion>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

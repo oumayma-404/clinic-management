@@ -90,6 +90,41 @@ export class Arrange {
     })
   }
 
+  /**
+   * An accepted devis on a multi-séance act, closed the only way left: one fiche per séance, so the last step
+   * auto-completes it. ⚠️ `POST /complete` refuses unrealised acts since `135b5c73` — « Arrêter » owns that case.
+   */
+  async completedPlan(patientId: string, agreedTotal = 500) {
+    const act = await this.api.protocolAct(2)
+    const started = await this.api.startTreatment({
+      patientId,
+      procedureTypeId: act.id,
+      agreedTotal,
+      toothNumbers: [16],
+      steps: null,
+    })
+    if (started.status !== 200) throw new Error(`arrange: start refused — ${started.raw?.slice(0, 300)}`)
+    const planId = (started.body?.value ?? started.body).id
+    const accepted = await this.api.acceptPlan(planId, {})
+    if (accepted.status !== 200) throw new Error(`arrange: accept refused — ${accepted.raw?.slice(0, 300)}`)
+
+    const item = (await this.api.plan(planId)).items[0]
+    for (const step of item.steps ?? []) {
+      const r = await this.fiche(
+        patientId,
+        [this.act({ procedureTypeId: act.id, name: act.name, cost: 0, teeth: [16] })],
+        { treatmentPlanId: planId, treatmentPlanItemId: item.id, treatmentPlanItemStepId: step.id },
+      )
+      if (r.status !== 200) throw new Error(`arrange: fiche for step ${step.id} refused — ${r.raw?.slice(0, 300)}`)
+    }
+
+    const plan = await this.api.plan(planId)
+    if (plan.status !== "Completed") {
+      throw new Error(`arrange: every séance is recorded, so the devis should be Completed — got ${plan.status}`)
+    }
+    return { act, plan }
+  }
+
   /** One act row for a fiche, with the fields the parser actually reads. */
   act(o: {
     procedureTypeId?: string | null

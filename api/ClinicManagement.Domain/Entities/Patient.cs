@@ -219,6 +219,27 @@ public class Patient : AggregateRoot<Guid>
     private readonly List<PatientFamilyHistory> _familyHistoryEntries = new();
     public IReadOnlyCollection<PatientFamilyHistory> FamilyHistoryEntries => _familyHistoryEntries.AsReadOnly();
 
+    private readonly List<PatientPhone> _additionalPhoneNumbers = new();
+
+    /// <summary>
+    /// The patient's other numbers, beside <see cref="PhoneNumber"/> — see <see cref="PatientPhone"/> for why
+    /// the primary is not one of them.
+    ///
+    /// <para>⚠️ <b>An OWNED collection, so EF loads it with the patient and no <c>Include</c> is needed.</b>
+    /// That is deliberate and it is the whole reason this is not an entity of its own: an unloaded collection
+    /// navigation is <i>empty, not stale</i>, and a domain property over it then answers confidently and
+    /// wrongly — the defect `RecoveryCodeLoadingCoverageTests` exists for. There is no lazy loading in this
+    /// solution, so a plain entity collection would have had to be Included on every one of the repository's
+    /// reads, and the one that was forgotten would silently drop a patient's numbers on save.</para>
+    /// </summary>
+    public IReadOnlyCollection<PatientPhone> AdditionalPhoneNumbers => _additionalPhoneNumbers.AsReadOnly();
+
+    /// <summary>
+    /// How many extra numbers one patient may carry. A cap, not a rule anybody will meet: it exists so a
+    /// scripted caller cannot grow the row without bound, and the form stops offering « Ajouter » at it.
+    /// </summary>
+    public const int MaxAdditionalPhoneNumbers = 5;
+
     private Patient() { } // For EF Core
 
     public Patient(
@@ -395,6 +416,37 @@ public class Patient : AggregateRoot<Guid>
     {
         Email = email;
         PhoneNumber = phoneNumber;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Replace the patient's additional numbers with exactly this list.
+    ///
+    /// <para>⚠️ <b>A REPLACE-WHOLE-LIST setter</b>, the shape this codebase has been bitten by most
+    /// (<c>DentalRecord.SetActs</c>). A field read back into the editor but not sent again — or sent but not
+    /// read back — is silently erased by reopening the form and pressing Enregistrer. The protection is that
+    /// the command is <b>tri-state</b>: an omitted key never reaches this method, so every caller that does
+    /// not know about these numbers leaves them alone. Only a request that actually carries the list replaces
+    /// it, and <c>[]</c> is how the last one is removed.</para>
+    ///
+    /// <para>⚠️ <b>Deliberately NOT folded into <see cref="UpdateContact"/>.</b> Same reason
+    /// <see cref="SetReminderConsent"/> is not: the two are edited independently, and six positional
+    /// parameters is how an unrelated stale value overwrites a good one.</para>
+    /// </summary>
+    /// <exception cref="ArgumentException">More than <see cref="MaxAdditionalPhoneNumbers"/> numbers.</exception>
+    public void SetAdditionalPhoneNumbers(IEnumerable<PatientPhone> phoneNumbers)
+    {
+        var incoming = phoneNumbers?.ToList() ?? new List<PatientPhone>();
+
+        if (incoming.Count > MaxAdditionalPhoneNumbers)
+        {
+            throw new ArgumentException(
+                $"A patient may carry at most {MaxAdditionalPhoneNumbers} additional phone numbers",
+                nameof(phoneNumbers));
+        }
+
+        _additionalPhoneNumbers.Clear();
+        _additionalPhoneNumbers.AddRange(incoming);
         UpdatedAt = DateTime.UtcNow;
     }
 

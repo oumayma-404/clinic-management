@@ -94,6 +94,8 @@ export interface AmendTreatmentPlanRequest {
   installments?: TreatmentPlanInstallmentInput[];
   /** The `version` the client read, so a concurrent edit 409s instead of silently overwriting a fee. */
   version?: number;
+  /** Only after « Rendre au patient ? » was confirmed — see `ApiErrorCode.PlanTotalBelowCollected`. */
+  refundMethod?: string;
 }
 
 export interface CreateTreatmentPlanRequest {
@@ -305,8 +307,13 @@ export const treatmentPlansApi = {
    * were deleted rather than parked, taking their step rows and the links to the fiches that evidenced them;
    * and the clôture threw *after* the removals had committed, leaving the plan half-stopped with no way back.
    */
-  stopTreatment: async (id: string, version?: number, reason?: string): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/stop`, { version, reason }),
+  stopTreatment: async (
+    id: string,
+    version?: number,
+    reason?: string,
+    refundMethod?: string,
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/stop`, { version, reason, refundMethod }),
 
   /**
    * « Reprendre le traitement » — the patient came back. Reopens a stopped devis and restores every parked act
@@ -350,6 +357,13 @@ export const treatmentPlansApi = {
     }),
 
   /**
+   * Undo a treatment a booking dialog created on save, when the visit itself was never created. The server
+   * accepts only a plan minutes old with no visit and no money: a Draft is deleted, a numbered devis cancelled.
+   */
+  discardBookingPlan: async (id: string): Promise<void> =>
+    apiPost<void>(`/treatment-plans/${id}/discard-booking`, {}),
+
+  /**
    * « Éditer le devis » — take the number, because the patient is being handed a document. The only call that
    * consumes a devis number, and idempotent on a treatment that already has one.
    */
@@ -387,8 +401,13 @@ export const treatmentPlansApi = {
    * « Mettre cet acte de côté » — park one act: its fee leaves the total, the échéancier re-spreads, and its
    * fiche links are kept. Refused on an act with delivered work, and on the last active act of the devis.
    */
-  withdrawItem: async (id: string, itemId: string, version?: number): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/withdraw`, { version }),
+  withdrawItem: async (
+    id: string,
+    itemId: string,
+    version?: number,
+    refundMethod?: string,
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/withdraw`, { version, refundMethod }),
 
   /** « Remettre au devis » — the mirror of `withdrawItem`. Does not re-derive the plan's own status. */
   restoreItem: async (id: string, itemId: string, version?: number): Promise<TreatmentPlanDto> =>
@@ -431,10 +450,12 @@ export const treatmentPlansApi = {
     itemId: string,
     discountAmount: number,
     version?: number,
+    refundMethod?: string,
   ): Promise<TreatmentPlanDto> =>
     apiPut<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/discount`, {
       discountAmount,
       version,
+      refundMethod,
     }),
 
   /**

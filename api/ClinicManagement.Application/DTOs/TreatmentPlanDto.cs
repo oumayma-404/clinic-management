@@ -419,7 +419,9 @@ public class InstallmentDto
 public class InstallmentPaymentDto
 {
     public Guid Id { get; set; }
+    /// <summary>Negative for a « rendu » — money given back to the patient that day (G3).</summary>
     public decimal Amount { get; set; }
+    public bool IsRefund { get; set; }
     public string Method { get; set; } = string.Empty;
     public DateTime PaidOn { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -463,7 +465,12 @@ public class TreatmentPlanItemRequest
     public Guid? ProcedureTypeId { get; set; }
 
     public string DesignationFr { get; set; } = string.Empty;
-    public decimal PlannedCost { get; set; }
+    /// <summary>
+    /// ⚠️ Nullable on the REQUEST only: <c>null</c> = « left blank », priced from the catalogue; <c>0</c> is a
+    /// price the dentist typed (G1 — a 0 used to be overwritten by the tarif, and a continuation line kept at 0
+    /// by its note could no longer be edited at all).
+    /// </summary>
+    public decimal? PlannedCost { get; set; }
     public List<int> ToothNumbers { get; set; } = new();
 
     /// <summary>

@@ -29,4 +29,14 @@ public static class ProcedureTypeRefusals
     /// </summary>
     public static string DuplicateName(string name) =>
         $"Un acte nommé « {name} » existe déjà dans votre catalogue.";
+
+    /// <summary>
+    /// The name belongs to an ARCHIVED act (I1). One name per cabinet is a database rule, so the way out is to bring
+    /// that act back — which keeps its history, colour and protocol — never a second row.
+    /// </summary>
+    public static string ArchivedName(string name) =>
+        $"L'acte « {name} » est archivé : réactivez-le dans « Types de procédures » (« Afficher les archivés ») plutôt que d'en créer un nouveau.";
+
+    /// <summary>Code of <see cref="ArchivedName"/>, so the screen offers « Réactiver » without reading the sentence.</summary>
+    public const string ArchivedNameCode = "procedure-type-archived-name";
 }

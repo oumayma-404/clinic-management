@@ -291,10 +291,14 @@ public class ProcedureType : AggregateRoot<Guid>
     /// <c>Appointment.ProcedureTypeId</c> would hard-delete it out from under that booking.
     /// </para>
     /// </summary>
-    public bool IsUsedByFutureAppointments(IEnumerable<Appointment> appointments)
+    public bool IsUsedByFutureAppointments(IEnumerable<Appointment> appointments) =>
+        CountFutureAppointments(appointments) > 0;
+
+    /// <summary>How many of <paramref name="appointments"/> are still ahead and carry this act — what the delete names.</summary>
+    public int CountFutureAppointments(IEnumerable<Appointment> appointments)
     {
         var now = DateTime.UtcNow;
-        return appointments.Any(apt =>
+        return appointments.Count(apt =>
             (apt.ProcedureTypeId == Id || apt.Procedures.Any(p => p.ProcedureTypeId == Id)) &&
             apt.AppointmentDateTime > now &&
             apt.Status != AppointmentStatus.Cancelled &&

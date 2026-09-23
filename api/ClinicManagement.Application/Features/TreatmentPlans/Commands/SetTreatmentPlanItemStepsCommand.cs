@@ -78,13 +78,17 @@ public class SetTreatmentPlanItemStepsCommandHandler
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<SetTreatmentPlanItemStepsCommandHandler> _logger;
+    // Optional for the older construction sites; the DI container always supplies it.
+    private readonly IAppointmentRepository? _appointmentRepository;
 
     public SetTreatmentPlanItemStepsCommandHandler(
         ITreatmentPlanRepository planRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
-        ILogger<SetTreatmentPlanItemStepsCommandHandler> logger)
+        ILogger<SetTreatmentPlanItemStepsCommandHandler> logger,
+        IAppointmentRepository? appointmentRepository = null)
     {
+        _appointmentRepository = appointmentRepository;
         _planRepository = planRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
@@ -108,6 +112,10 @@ public class SetTreatmentPlanItemStepsCommandHandler
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
+            // Read before the replace: which séances exist now, so the ones this edit removes can be let go.
+            var stepsBefore = plan.Items.FirstOrDefault(i => i.Id == request.ItemId)?.Steps
+                .Select(st => st.Id).ToList() ?? new List<Guid>();
+
             try
             {
                 plan.SetItemSteps(
@@ -121,6 +129,19 @@ public class SetTreatmentPlanItemStepsCommandHandler
                 // status gate, the count cap, an unknown echoed id, and « une étape déjà réalisée ne peut pas
                 // être retirée ». Re-writing them here would be a second copy free to drift from the rule.
                 return Result<TreatmentPlanDto>.Failure(ex.Message);
+            }
+
+            /*
+             * ⚠️ A séance removed from the protocol while booked must let its visit go. The visit kept the dead
+             * step id, so saving that visit — and its fiche — was refused « Étape du devis introuvable » for a
+             * step nobody could see any more. The visit keeps the act; only the dead step goes.
+             */
+            if (_appointmentRepository is not null)
+            {
+                var stepsAfter = plan.Items.First(i => i.Id == request.ItemId).Steps.Select(st => st.Id).ToHashSet();
+                await PlanBookingRelease.ReleaseStepsAsync(
+                    request.ItemId, stepsBefore.Where(id => !stepsAfter.Contains(id)).ToList(),
+                    clinicResult.Value, _appointmentRepository, cancellationToken);
             }
 
             _unitOfWork.SetExpectedVersion(plan, request.Version);

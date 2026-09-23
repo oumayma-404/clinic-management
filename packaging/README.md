@@ -4,7 +4,7 @@ Operator reference for the Local (offline-LAN) Windows deployment (Phase 5). Clo
 unaffected by anything here.
 
 > **Status:** Complete for Phase 5. Covers the backup/restore, packaged admin recovery, and Local build
-> environment (slices S1–S4) **and** the build & publish orchestration, server + client installers, bundled
+> environment (slices S1–S4) **and** the build & publish orchestration, the single role-aware installer, bundled
 > PostgreSQL, the WebView2 desktop shell, and the per-AC operator verification checklist (slices S5–S7).
 >
 > **R-1 — packaging is operator-verified.** The S5–S7 artifacts (`publish-server.ps1`, the two `.iss`
@@ -50,11 +50,11 @@ NEXT_PUBLIC_API_URL=/api AUTH_MODE=local API_INTERNAL_URL=http://localhost:5000/
 | `Hosting:WebPort` (default `3000`) | localhost port the Next server listens on; the front door proxies non-`/api` routes here. |
 | `Https:CertPath` | Leave **empty** to self-generate a CA + server cert into `.local/` (FR-E2). If set, the file must exist or the server refuses to start (no silent HTTP downgrade). |
 | `Clients:MinimumShellVersion` | Oldest **shell** build this server still answers — the mobile apps **and the Windows shell**. Leave **empty** (the default) and nothing is refused. Set it (e.g. `1.2.0`) and an older client says « Mise à jour requise » with a download link instead of failing screen by screen; it takes effect **without restarting the service**. ⚠️ **Two different enforcement points, and the difference matters.** A *mobile* shell sends `X-Client-Version` on every call, so `ClientVersionMiddleware` refuses it with **426**. The *desktop* shell's WebView sends no header (it has no `window.__clinicShell` bridge), so the middleware cannot refuse it — instead `ClientRequirements.cs` reads the floor **natively at launch** and raises the shell's own wall. A plain browser is affected by neither. (This row used to say the desktop shell was « never affected », which was true only before that launch probe existed.) |
-| `Clients:CurrentShellVersion` · `Clients:StoreUrls:Android` / `:Ios` / **`:Windows`** | What a refused client is told to install, and where to get it. Published anonymously at `GET /api/meta/client-requirements` — the one route deliberately exempt from the floor, since it is what a refused client reads. ⚠️ **`:Windows` is the one to set on an offline-LAN install**: it is the URL the desktop shell offers as « Télécharger », so point it at wherever `ClinicManagementClientSetup-<version>.exe` is reachable **from the LAN** — a share, or a path served by the clinic server itself. Left empty, the wall still appears and names the version, with nothing to click. |
+| `Clients:CurrentShellVersion` · `Clients:StoreUrls:Android` / `:Ios` / **`:Windows`** | What a refused client is told to install, and where to get it. Published anonymously at `GET /api/meta/client-requirements` — the one route deliberately exempt from the floor, since it is what a refused client reads. ⚠️ **`:Windows` is the one to set on an offline-LAN install**: it is the URL the desktop shell offers as « Télécharger », so point it at wherever the client setup is reachable **from the LAN** — a share, or a path served by the clinic server itself. Left empty, the wall still appears and names the version, with nothing to click. |
 
 Secrets (signing key, cert password, Google refresh token) live in the gitignored per-install `.local/`
 folder, generated on the target machine — never committed (FR-F4). The exported CA is `.local/ca.crt`
-(imported into client trust by the client installer, S7).
+(fetched and imported by the poste role of the installer, which shows its fingerprint first).
 
 ---
 
@@ -219,11 +219,16 @@ That release carries **five migrations**, and the last one is order-sensitive.
 
 ---
 
-## Building the installers (S6/S7 — operator build machine)
+## Building the installer (S6/S7 — operator build machine)
 
-Everything the two installers bundle is staged by **`packaging/publish-server.ps1`** into
+Everything the installer bundles is staged by **`packaging/publish-server.ps1`** into
 `packaging/build-output/` (gitignored). The script does **not** fabricate the third-party runtimes —
 point it at local copies.
+
+> **There is one installer now.** `setup/clinic-setup.iss` asks on its first page whether the PC being
+> installed is the cabinet's **serveur** or a **poste de travail**, and the two old scripts
+> (`server/clinic-server.iss`, `client/clinic-client.iss`) are gone. See § « Poste de travail » below for
+> why the client half had to be replaced rather than kept.
 
 ### Prerequisites (build machine)
 
@@ -231,9 +236,15 @@ point it at local copies.
 - **Node.js** (`npm` on PATH) — builds the Next.js standalone bundle. Also keep a **Node runtime folder**
   (containing `node.exe`) to ship as the web server's runtime → `-NodeDir`.
 - **EnterpriseDB PostgreSQL 16** Windows binaries (extracted folder with `bin\`, `lib\`, `share\`) → `-PostgresDir`.
-- **Inno Setup 6** (`ISCC.exe`) — compiles the `.iss` scripts.
+- **Inno Setup 6.1 or newer** (`ISCC.exe`) — compiles the `.iss` script. ⚠️ **6.1 is a floor, not a
+  preference**: the poste role calls `DownloadTemporaryFile`, which 6.0 does not have, and 6.0 fails the
+  compile with « Unknown identifier » on a line of Pascal rather than with anything naming a version. CI pins
+  6.2.2.
 - **NSSM** (`nssm.exe`) — hosts the Node web server as a service (R-8). Drop it into
-  `packaging/server/tools/nssm.exe` before compiling the server installer.
+  `packaging/server/tools/nssm.exe` before compiling.
+- **`vpk`** (`dotnet tool install -g vpk`) — packs the Velopack feed. ⚠️ **Required, not optional.** It used
+  to be a warning if missing; the feed's own `Setup.exe` is now the only thing a *poste* install can
+  download, so a build without one produces a server no staff PC can be connected to.
 
 ### Run
 
@@ -247,17 +258,22 @@ This produces:
 
 ```
 packaging/build-output/
-  server/  api/  web/  node/  postgres/          → bundled by clinic-server.iss
-  client/  shell/  ca/                            → bundled by clinic-client.iss
-  ClinicManagementServerSetup-1.0.0.exe          (if Inno Setup present)
-  ClinicManagementClientSetup-1.0.0.exe
+  server/  api/  web/  node/  postgres/   → bundled by clinic-setup.iss (serveur role)
+           updates/                       → the Velopack feed, carried by the server and served at
+                                            /api/meta/client-download + /client-feed
+  client/  shell/  releases/              → the published shell, and the feed packed from it
+  ClinicManagementSetup-1.0.0.exe         (if Inno Setup present)
 ```
+
+⚠️ **`build-output/client/ca/` and `build-output/client/webview2/` are gone.** They were two payloads an
+operator was told to stage by hand — and in practice never did, which is exactly why neither ever shipped.
+Both are fetched at install time now.
 
 `publish-server.ps1` also **scrubs the real-looking secrets** (Google/HuggingFace/Auth0) out of the
 *published* `appsettings.json` and sets `Auth:Mode=Local` — no real secret is shipped (FR-F4). The
 committed source `appsettings.json` is untouched.
 
-## Server installer (`server/clinic-server.iss`)
+## Serveur du cabinet (`setup/clinic-setup.iss`, first page → « Le serveur du cabinet »)
 
 Installs to `C:\Program Files\Clinic Management\` and, in one pass:
 
@@ -287,7 +303,7 @@ Installs to `C:\Program Files\Clinic Management\` and, in one pass:
    *Permissions & data at rest* below.
 6. Opens **only** TCP `5001` on the LAN firewall (`3000` and the API's plain-HTTP `5000` stay loopback-only).
 7. Starts the services and **exports the generated CA** (`api\.local\ca.crt`) to
-   `%ProgramData%\ClinicManagement\ca.crt` for the client installer.
+   `%ProgramData%\ClinicManagement\ca.crt`, and served at `http://<server>:5080/api/trust/ca.crt`.
 
 First-run setup is served **localhost-only** (AC-1.2a, enforced by the API) — open `https://localhost:5001`
 on the server PC to create the clinic + first admin.
@@ -389,30 +405,47 @@ trust over that same certificate. It is not a second door into the API — the a
 except `/api/trust` on that port (`TrustPortGate`), so what it exposes is a CA's *public* certificate, install
 instructions and a QR of an address the LAN already broadcasts. Set `Hosting:TrustPort` to `0` in
 `appsettings.Production.json` to switch the page off entirely (staff phones then need the CA installed by hand,
-or by the client installer on a Windows PC).
+or by the poste role of the installer on a Windows PC).
 
-## Client installer (`client/clinic-client.iss`)
+## Poste de travail (`setup/clinic-setup.iss`, first page → « Un poste de travail »)
 
-A lightweight per-PC installer for staff machines:
+**It carries no payload.** Everything it installs comes from the clinic's own server, in this order:
 
-1. Places the published WebView2 **desktop shell** with a Start-menu shortcut (+ optional desktop icon, AC-2.1).
-2. **Imports the server's CA** (`ca.crt`) into the Windows **Root** store via `certutil -addstore Root`, so
-   the shell reaches `https://<server>:5001` with no certificate warning (FR-E2).
+1. **Asks for the server's address.** Type the **name** of the server PC — the server install shows it to
+   you at the end, on purpose. ⚠️ Prefer the name to an IP address: an address changes the day the box hands
+   out a different lease, and then every poste stops connecting at once. Worse, the server's certificate
+   captured its SANs when it was generated, so even after somebody finds the new address HTTPS still fails —
+   see the DHCP row under § « When it does not work ».
+2. **Fetches the certificate authority** from `http://<server>:5080/api/trust/ca.crt`, **shows you its
+   SHA-256 fingerprint**, and imports it into the Windows **Root** store only if you accept. Check the
+   fingerprint against the one the server shows at `http://<server>:5080/api/trust`. ⚠️ The CA is fetched over
+   plain HTTP — it has to be, because this PC cannot trust the HTTPS port until it holds that very file — so
+   the fingerprint is the only thing standing between you and trusting whatever answered.
+3. **Installs the Microsoft WebView2 runtime** if this PC lacks it. Present on Windows 11 and Windows 10
+   21H2+, so it almost never runs; if it does and the PC has no internet, it says so instead of failing.
+4. **Downloads and runs the application's own setup** from `https://<server>:5001/api/meta/client-download`.
 
-Obtain the CA from the server PC at **`%ProgramData%\ClinicManagement\ca.crt`** (exported by the server
-installer) and drop it into `packaging/build-output/client/ca/ca.crt` **before** compiling the client
-installer — or import it manually on the client into "Autorités de certification racines de confiance".
+> ### Why the old client installer was replaced rather than kept
+>
+> **It never installed a certificate authority.** It took `ca.crt` from `build-output/client/ca/`, staged by
+> hand, with `skipifsourcedoesntexist` — and a CA is minted on the clinic's own server at *its* first boot,
+> which on a build machine has not happened and never will. So every client setup ever compiled imported
+> **nothing**, silently and by design, and every staff PC met a certificate warning.
+>
+> **And the shell it installed could never update itself.** `ShellUpdater` gives up when
+> `UpdateManager.IsInstalled` is false, which is exactly what an Inno install under `%ProgramFiles%` is — so
+> « Mettre à jour maintenant » did nothing, for ever, with no error anywhere. Step 4 above runs the
+> **Velopack** setup (per-user, delta, no UAC), which is the only channel where updates work.
 
-**One client installer fits every clinic:** the shell asks for the server address on first launch
-(AC-2.2) and stores it in `%AppData%\ClinicManagement\server.json`; change it any time by **right-clicking
-anywhere in the app → Changer de serveur…** (AC-2.3). On the server PC, point it at `localhost` (AC-2.5).
+**One installer fits every clinic and every role.** The shell stores the address in
+`%AppData%\ClinicManagement\server.json`; change it any time by **right-clicking anywhere in the app →
+Changer de serveur…** (AC-2.3). On the server PC, point it at `localhost` (AC-2.5).
 ⚠️ **There is no menu bar** — the two shell commands (**Recharger**, **Changer de serveur…**) sit at the top of
 the page's own right-click menu, so the window is the title bar and the app with nothing in between. If a staff
 PC has been pointed at the wrong server and cannot load anything, the **Changer de serveur** button is on the
 « Impossible de joindre le serveur » screen itself, which is where that situation actually lands. If the server is
 unreachable the shell shows a friendly **"Impossible de joindre le serveur de la clinique"** screen with
-**Réessayer** — never a blank page or raw browser error (AC-2.4). Re-running the client installer updates
-the shell in place (auto-update is out of scope).
+**Réessayer** — never a blank page or raw browser error (AC-2.4).
 
 ---
 
@@ -472,25 +505,26 @@ overrides it), validated by the same `Resolve-Version` the operator build uses. 
 runtime and no `ca.crt` (both optional in the `.iss`), which is right for *updating* a PC that already has them —
 a **first** install on a fresh machine still wants the operator build below.
 
-**Operator build (both installers, needed for a first install or a server upgrade):**
+**Operator build (needed for a first install or a server upgrade):**
 
 ```powershell
 cd packaging
 .\publish-server.ps1 -PostgresDir <...> -NodeDir <...>     # prints « Building version x.y.z »
 ```
 
-⚠️ It compiles the **client installer first** and stages it into the server payload, then — if `vpk` is on
-the machine (`dotnet tool install -g vpk`) — packs the **Velopack feed** beside it. So `{app}\updates` ends
-up holding both: the Inno setup for a first install, and the feed every update after that comes through.
-A missing `vpk` is a warning rather than a failure; the server is still correct, its clients just do not
-self-update until a feed is published.
+⚠️ It packs the **Velopack feed** with `vpk` and stages it into `{app}\updates` **before** running ISCC —
+that folder is a `[Files]` payload, so a feed packed afterwards would silently not be in the .exe. The feed
+is now *both* halves: its own `Setup.exe` is what a **poste** install downloads, and its delta packages are
+every update after that. ⚠️ **A missing `vpk` is now a failure**, where it used to be a warning: with the Inno
+client installer gone there is nothing else a poste could install, so a server built without a feed is one no
+staff PC can be connected to.
 
-Out come `build-output\ClinicManagementServerSetup-<version>.exe` and `…ClientSetup-<version>.exe`.
+Out comes `build-output\ClinicManagementSetup-<version>.exe` — one file, both roles.
 
 ### 3. Publish the download, then set the keys
 
-**On an offline LAN, there is usually nothing to publish and nothing to set.** The server installer bundles the
-matching client setup, and the API serves it at **`GET /api/meta/client-download`** — anonymous and exempt from
+**On an offline LAN, there is usually nothing to publish and nothing to set.** The server installer carries the
+Velopack feed, and the API serves its setup at **`GET /api/meta/client-download`** — anonymous and exempt from
 the client-version floor, like the requirements route that points at it. Where `Clients:StoreUrls:Windows` is
 empty the requirements payload is filled from that package: its URL (built from the request the shell actually
 reached the server on), its version, and a SHA-256 **computed from the bytes that will be served**. So upgrading
@@ -500,7 +534,7 @@ Set the keys below only to override that — an own mirror, or a release you are
 An explicit value always wins over the bundled package.
 
 ⚠️ **On `HostedMultiTenant` there is no server installer, so nothing is bundled.** That deployment runs from
-an image and never executes `clinic-server.iss`, so `{app}\updates` would be empty and the download would
+an image and never executes `clinic-setup.iss`, so `{app}\updates` would be empty and the download would
 404. `deploy/docker-compose.hosted.yml` therefore bind-mounts **`deploy/updates:/app/updates:ro`**: drop the
 CI artifact in that folder on the server and `up -d api`, and the same endpoint serves it with a hash
 computed from the bytes. See `deploy/README.md` § « Mettre à jour l'application Windows ».
@@ -510,7 +544,7 @@ In the server's `appsettings.Production.json`:
 | Key | Set it to |
 |---|---|
 | `Clients:CurrentShellVersion` | the new version |
-| `Clients:StoreUrls:Windows` | the URL of the new `ClientSetup-<version>.exe` |
+| `Clients:StoreUrls:Windows` | the URL of the new Velopack `Setup.exe` (or of `ClinicManagementSetup-<version>.exe` on a mirror) |
 | `Clients:MinimumShellVersion` | **leave alone for now** |
 
 With only the first two set, an older shell shows the **dismissible notice strip** — docked above the
@@ -542,7 +576,7 @@ copied over them.
 
 ## Phones & tablets — the device-trust page (AC-44 / AC-45)
 
-The client installer above covers **Windows PCs**. A phone or tablet has no installer, so it gets the CA from
+The poste role above covers **Windows PCs**. A phone or tablet has no installer, so it gets the CA from
 a page the server publishes for exactly that purpose.
 
 **The flow.** On the device, open **`http://<adresse-du-serveur>:5080/api/trust`**. The page is in French,
@@ -676,11 +710,30 @@ behaviour is the thing under test.
       lifetime note above first; the change needs CA-key persistence and leaf-only renewal, and without them a
       short leaf expires with nothing able to renew it.
 
-### Client installer (S7)
+### Poste de travail (S7)
 
 - [ ] **AC-2.1** — Installs a working shell with a Start-menu icon.
 - [ ] **FR-E2** — After install, the shell reaches the server over HTTPS **with no certificate warning** (CA imported into Root).
 - [ ] Uninstall removes the shell; the imported CA is removed (or its removal is documented).
+- [ ] The wizard's **first page** offers the two roles and defaults to « serveur ».
+- [ ] On the poste role, the CA prompt shows a **SHA-256 fingerprint** and the install **stops** if it is refused.
+- [ ] That fingerprint **matches** the one the server shows at `http://<server>:5080/api/trust`.
+- [ ] A **wrong or unreachable** server address produces the French « impossible de récupérer le certificat » box, not a silent success.
+- [ ] Nothing is copied into `C:\Program Files\Clinic Management\` on a poste install except the uninstaller.
+- [ ] The shell it installed **self-updates**: bump the server, relaunch the shell, and the update strip appears
+      and can be applied. ⚠️ This is the one the old Inno client silently could not do — if it fails, the poste
+      was installed by something other than the Velopack setup.
+
+### Serveur — the two additions (sleep, and being findable)
+
+- [ ] `powercfg /query` on the server PC shows **standby, hibernate and disk timeouts of 0 on AC** after install.
+- [ ] The install ends by showing **this PC's name**, and typing that name on a poste works.
+- [ ] Renewing the server's DHCP lease does **not** break the postes that were configured with the name.
+      ⚠️ A poste configured with an **IP** does break — that is the failure the shell's advisory exists for.
+- [ ] The **backup page** appears, and choosing the system drive (or leaving it empty) raises the
+      « même disque » warning and can still be accepted.
+- [ ] The destination chosen there is what **Paramètres → Sauvegarde** shows afterwards, and what
+      « Sauvegarder maintenant » actually writes to.
 
 ### Cloud regression (all slices)
 

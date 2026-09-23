@@ -268,6 +268,12 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
             return Result.Success();
         }
 
+        // G12: a written-off devis is counted as a loss; billing it would count the same work twice.
+        if (plan.Status == Domain.Enums.TreatmentPlanStatus.WrittenOff)
+        {
+            return Result.Failure("Ce devis est passé en perte : reprenez-le avant de le facturer.");
+        }
+
         var collected = plan.Installments
             .SelectMany(i => i.Payments)
             .Where(p => !p.IsVoided)
@@ -278,6 +284,15 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
         if (collected.Count == 0)
         {
             return Result.Success();
+        }
+
+        // A rendu (G3) has no invoice form — a note cannot hold a negative payment, and folding it into an
+        // older receipt would rewrite that receipt's day. Named rather than half-carried.
+        if (collected.Any(p => p.IsRefund))
+        {
+            return Result.Failure(
+                "Ce devis porte un rendu au patient : ses encaissements ne peuvent pas être reportés sur une note "
+                + "d'honoraires.");
         }
 
         var total = InvoiceCalculator.RoundMoney(collected.Sum(p => p.Amount));

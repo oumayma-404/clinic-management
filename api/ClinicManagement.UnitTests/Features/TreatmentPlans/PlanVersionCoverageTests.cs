@@ -45,6 +45,7 @@ public class PlanVersionCoverageTests
         ["DeleteTreatmentPlanCommand"] = "Draft with no work only, and the row is removed rather than written",
         ["AcceptTreatmentPlanCommand"] = "legacy drafts only; superseded by IssueDevisCommand, which is versioned",
         ["CollectOnTreatmentCommand"] = "driven by the fiche's own save, which carries the fiche's version",
+        ["DiscardBookingPlanCommand"] = "only a plan minutes old that no visit books; delegates to Delete / Cancel",
         ["DuplicateTreatmentPlanCommand"] = "inserts a copy as a new Draft; the source is read and never written",
         ["TreatmentPlanItemPricing"] = "not a command — shared pricing resolution",
         ["TreatmentPlanStepProtocol"] = "not a command — shared protocol application",
