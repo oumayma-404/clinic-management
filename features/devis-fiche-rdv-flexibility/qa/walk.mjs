@@ -242,7 +242,7 @@ const scenarios = [
     const d = page.locator('[role=alertdialog]:visible').last(); await d.waitFor({ timeout: 10000 })
     const text = await d.innerText()
     await page.screenshot({ path: join(shots, 'D1-cancel-dialog.png') })
-    ;/rendez-vous prévus seront libérés/.test(text) ? ok('D1', 'cancel dialog says the booked visit is freed') : bad('D1', 'cancel dialog is silent about the booking', text.slice(0, 300))
+    ;/rendez-vous prévus? (sera|seront) libérés?/.test(text) ? ok('D1', 'cancel dialog says the booked visit is freed') : bad('D1', 'cancel dialog is silent about the booking', text.slice(0, 300))
     await d.locator('#plan-cancel-reason').fill('QA — patient a renoncé')
     const resp = page.waitForResponse((r) => r.url().includes(`/treatment-plans/${f.F10.plan}/stop`), { timeout: 15000 })
     await d.getByRole('button', { name: /Annuler le devis/ }).click()
@@ -263,7 +263,7 @@ const scenarios = [
     }
     const d = page.locator('[role=alertdialog]:visible').last(); await d.waitFor({ timeout: 10000 })
     const text = await d.innerText()
-    ;/rendez-vous prévus seront libérés/.test(text) ? ok('D2', 'delete dialog says the booked visit is freed') : bad('D2', 'delete dialog is silent about the booking', text.slice(0, 300))
+    ;/rendez-vous prévus? (sera|seront) libérés?/.test(text) ? ok('D2', 'delete dialog says the booked visit is freed') : bad('D2', 'delete dialog is silent about the booking', text.slice(0, 300))
     const resp = page.waitForResponse((r) => r.url().includes(`/treatment-plans/${f.F11.plan}`) && r.request().method() === 'DELETE', { timeout: 15000 })
     await d.getByRole('button', { name: /^Supprimer$/ }).click()
     const r = await resp

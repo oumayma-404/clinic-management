@@ -187,7 +187,8 @@ const P2 = await patient('B'); f.patient2 = P2.id
 // R4 — fiche from a booked live devis step, recorded in the browser.
 {
   const plan = await devis(P2.id, [[PT.canal, 150, 'Traitement de canal']], 'QA R4')
-  const v = await visit(P2.id, 0, [{ procedureTypeId: PT.canal, treatmentPlanItemId: plan.items[0].id }], plan.id, 8)
+  // ⚠️ Not today: B2 saves a walk-in fiche on P2 today, and the app ties a visit-less fiche to that day's only visit.
+  const v = await visit(P2.id, -4, [{ procedureTypeId: PT.canal, treatmentPlanItemId: plan.items[0].id }], plan.id, 8)
   f.R4 = { plan: plan.id, item: plan.items[0].id, visit: v.id }
 }
 // A5 — a live devis on P, so the create dialog offers « Actes du devis ».

@@ -19,12 +19,10 @@ const ok = (id, m) => console.log(`  ✅ [${id}] ${m}`)
 const bad = (id, m, d = '') => { console.log(`  ❌ [${id}] ${m} ${d}`); findings.push({ id, m, d }) }
 const skip = (id, why) => { console.log(`  ⏭  [${id}] not exercised — ${why}`); findings.push({ id, skipped: why }) }
 
-// A separate API token for arranging concurrent writes (never the browser's session).
-const login = await (await fetch(`${API}/auth/login`, {
-  method: 'POST', headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: 'salma.benyoussef@cabinet-ibnkhaldoun.tn', password: 'QaAudit2026!y', totpCode: totp('4YRLT22RBPRP3RRKUKLFQERU4H62BRBO') }),
-})).json()
-const token = login.value?.accessToken ?? login.accessToken
+// A separate API token for arranging concurrent writes (never the browser's session) — minted AFTER the browser
+// login, in a fresh TOTP window: a code is single-use, and minting it here reused the arrange script's window, so
+// `token` was undefined and every API read null (a probe bug, measured 2026-09-23).
+let token = null
 const api = async (method, path, body) => {
   const r = await fetch(`${API}${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) })
   const t = await r.text(); let j; try { j = t ? JSON.parse(t) : null } catch { j = t }
@@ -46,6 +44,15 @@ await page.waitForTimeout((30 - (Math.floor(Date.now() / 1000) % 30) + 1) * 1000
 await page.fill('input[inputmode=numeric]', totp('4YRLT22RBPRP3RRKUKLFQERU4H62BRBO'))
 await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 30000 })
 console.log('signed in')
+await page.waitForTimeout((30 - (Math.floor(Date.now() / 1000) % 30) + 1) * 1000)
+{
+  const login = await (await fetch(`${API}/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'salma.benyoussef@cabinet-ibnkhaldoun.tn', password: 'QaAudit2026!y', totpCode: totp('4YRLT22RBPRP3RRKUKLFQERU4H62BRBO') }),
+  })).json()
+  token = login.value?.accessToken ?? login.accessToken
+  if (!token) throw new Error('api login failed ' + JSON.stringify(login).slice(0, 200))
+}
 
 const dialog = () => page.locator('[role=dialog]:visible').last()
 
