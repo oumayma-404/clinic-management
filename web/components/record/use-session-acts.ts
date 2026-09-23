@@ -121,7 +121,9 @@ export interface SessionAct {
    */
   billedOnPlan: boolean
   /**
-   * « Ajouter au devis » — this act is NOT on the treatment yet, and the dentist is putting it there.
+   * This act is NOT on the treatment yet and is going there — set by {@link SessionAction} `markAddToPlan`,
+   * never by a human. Adding an act to a séance a devis is carrying out IS the decision to put it on that
+   * devis (owner, 2026-09-23); there is no tick and no way out, and the way back is amending the devis.
    *
    * <p>The complaint this exists for: a séance carried by a devis, a second act done the same day, and the
    * only way to charge it was a note d'honoraires — a separate document the devis' own balance never
@@ -133,6 +135,10 @@ export interface SessionAct {
    * about to price this », so the field stays — somebody has to type the fee being agreed — and the act takes
    * no share of the séance's own total, exactly as a carried act does. After the save the act IS carried, and
    * a reopened fiche reads it back as `billedOnPlan`.</p>
+   *
+   * <p>⚠️ <b>A hand-typed act is never marked</b>, which is the one way an act still stays on the séance: a
+   * devis line with no catalogue identity could not be bound back to this act on the next save, so it would
+   * be re-added on every reopen.</p>
    *
    * <p>⚠️ <b>Form state, never stored and never sent as an act field.</b> What reaches the server is an
    * amendment of the devis plus the act's id in `additionalTreatmentPlanItems`. `actFromDto` therefore seeds
@@ -475,6 +481,26 @@ export type SessionAction =
    * the hydration path, which is where this family of bug always reappears.
    */
   | { type: "markBilledOnPlan"; procedureTypeId: string | null }
+  /**
+   * Put every act this séance ADDS onto the devis it is carrying out — the owner's decision, 2026-09-23:
+   * « if doctor chose to add another act, he's implicitly choosing to add it to treatment ».
+   *
+   * <p>⚠️ <b>There is deliberately no way out, and that is the decision rather than an oversight.</b> A
+   * radiographie, a contrôle or a courtesy act done during that séance joins the devis too, and the way back
+   * is amending the devis. It replaced an opt-in tick, which was rejected for the reason the tick was built
+   * to avoid and did not: a control that shows one answer and hides the other teaches nobody there was a
+   * choice, so the dentist who does not notice it gets the very situation this feature exists to remove.</p>
+   *
+   * <p>⚠️ <b>Idempotent and self-correcting</b>: it sets the flag to what eligibility says for every act, so
+   * an act that later becomes the devis' own, or loses its catalogue procedure, is un-marked by the same
+   * dispatch. It returns the identical state when nothing moves, which is what stops the modal's effect
+   * looping on itself.</p>
+   *
+   * <p>⚠️ A <b>hand-typed</b> act is never marked: the devis line would carry no catalogue identity, so
+   * nothing could bind it back to this act on the next save and it would be re-added on every reopen. That
+   * act keeps its own fee and is billed on the séance — the server refuses the other way round.</p>
+   */
+  | { type: "markAddToPlan"; enabled: boolean }
   /**
    * « Aucun » — the séance carries no devis act after all, so every card let go by the devis gets its price back
    * (the catalogue tarif, unless one was typed). Without it the card kept « Aucun honoraire sur cette séance »
@@ -907,6 +933,14 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         acts: state.acts.map((a, i) =>
           (i === index ? { ...a, billedOnPlan: true, addToPlan: false } : a)),
       }
+    }
+
+    case "markAddToPlan": {
+      // Eligible = a named catalogue act the devis does not already carry. See the action's own note.
+      const wanted = (a: SessionAct) =>
+        action.enabled && isActNamed(a) && !a.billedOnPlan && a.procedureTypeId !== null
+      if (state.acts.every((a) => a.addToPlan === wanted(a))) return state
+      return { ...state, acts: state.acts.map((a) => ({ ...a, addToPlan: wanted(a) })) }
     }
 
     case "releaseBilledOnPlan": {

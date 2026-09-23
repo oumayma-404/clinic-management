@@ -1282,6 +1282,7 @@ export function PatientRecordModal({
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
   }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, dispatch])
 
+
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
 
@@ -1329,6 +1330,22 @@ export function PatientRecordModal({
    */
   const addToPlanTarget =
     collectsOnTreatment && billedPlanItem?.planNumber ? billedPlanItem.planNumber : null
+
+  /*
+   * Every act this séance ADDS goes on the devis it is carrying out — no tick, no way out (owner's decision,
+   * 2026-09-23: « if doctor chose to add another act, he's implicitly choosing to add it to treatment »).
+   *
+   * ⚠️ It has to run on `acts` as well as on the target, because an act added a minute later must be marked
+   * too. That is safe here and would not be with an ordinary reducer: `markAddToPlan` returns the **identical
+   * state object** when nothing moves, so `acts` keeps its reference and this effect does not re-fire itself.
+   *
+   * ⚠️ It must also run when the target goes away — picking « Aucun » in « Acte planifié » un-marks every act,
+   * which is the same arm `releaseBilledOnPlan` covers for the devis' own act.
+   */
+  useEffect(() => {
+    if (!open) return
+    dispatch({ type: "markAddToPlan", enabled: addToPlanTarget !== null })
+  }, [open, addToPlanTarget, acts, dispatch])
 
   /**
    * « sur cette séance », for the figures that describe the séance's own note while the treatment's money is on
