@@ -155,9 +155,26 @@ public class GetVisitsToCloseQueryHandler
 
             var page = PagedResult<OpenVisit>.FromSource(open, request.Paging);
 
+            // What each fiche on the page RECORDED (J3), one batched read over the page's fiches only.
+            var ficheIds = page.Items.Where(o => o.DentalRecordId.HasValue).Select(o => o.DentalRecordId!.Value)
+                .Distinct().ToList();
+            var recorded = ((await _dentalRecordRepository.GetActNamesAsync(clinicId, ficheIds, cancellationToken))
+                    ?? Array.Empty<(Guid DentalRecordId, string ProcedureName)>())
+                .GroupBy(r => r.DentalRecordId)
+                .ToDictionary(g => g.Key, g => g.Select(r => r.ProcedureName)
+                    .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().ToList());
+
             return Result<VisitsToCloseDto>.Success(new VisitsToCloseDto
             {
-                Visits = page.Map(o => Map(o, patients, roster)),
+                Visits = page.Map(o =>
+                {
+                    var dto = Map(o, patients, roster);
+                    if (o.DentalRecordId is { } ficheId && recorded.TryGetValue(ficheId, out var acts))
+                    {
+                        dto.RecordedProcedures = acts;
+                    }
+                    return dto;
+                }),
                 // Always the set-aside count, whichever half was asked for: the worklist needs it to offer the
                 // way back, and the set-aside screen needs it to say what it is showing.
                 DisregardedCount = worklist.Disregarded.Count

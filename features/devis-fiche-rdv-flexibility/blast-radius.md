@@ -52,3 +52,22 @@
 | 10 | `FollowDentalRecordDate` from `UpdateDentalRecordCommand` | fiche save | the fiche modal (only updater) | must re-test — redate a fiche with a devis payment |
 | 11 | web `planItemToPreset` net cost; `saveActTotal` sends net + remise | booking prefill | both booking dialogs | must re-test — a remise shows on the booking card and survives a re-price |
 | 12 | web `displayedOutstanding`/`planNextAction` WrittenOff; `catalogueLineCost`; `usePlanRefundConfirm` (4 call sites) | tsx | workspace, form, odontogram seed | must re-test — rendu dialog on remise / amend / withdraw / stop |
+
+# Blast radius — wave 4 (H, I, J + C4b)
+
+| # | Touching | What it is | Other consumers | Verdict |
+|---|----------|------------|-----------------|---------|
+| 1 | `Appointment.Reschedule(dt, sameClinicDay)` — Completed moves, InProgress resets on another day | domain mutator | `UpdateAppointmentCommand` (2 sites), status-transition tests | must re-test — move a « Terminé » visit; drag an « En cours » to tomorrow |
+| 2 | `UpdateAppointmentCommand` cancelled-date refusal + future guard + J4 domain catch | handler | every edit-dialog save, agenda drag, quick actions, 4 internal senders (status only) | must re-test — edit notes on a cancelled visit still saves (seconds diff ignored) |
+| 3 | `TreatmentPlan.FollowTheActSet` after Add/Remove/Withdraw/Restore | status re-derive | amend, fiche « Ajouter au devis » (a6), park/restore, stop | must re-test — amend adds act to « Terminé » devis; a6's suite green |
+| 4 | `TreatmentPlanItem.SetSteps` converts a done step-less act | domain | séances dialog, amend protocol | must re-test — split a done act into 3 |
+| 5 | `DentalRecordInvoiceLines.Line.Act` + `SameLines` on act/qty/price | billing guard | fiche re-save on a billed fiche, `BillDentalRecord`, billable-lines read | must re-test — tooth 36→46 on a billed flat act saves; act swap still refused |
+| 6 | `TreatmentPlanItem.NextStepDueFromSteps` + `GetStepTimingsAsync` | shared rule + read | devis item DTO, « Traitements en cours », recall facts, in-progress sort key (SQL) | must re-test — list loads (SQL translation), dots per séance |
+| 7 | `RecallPlanFact.LastWorkOn/NextStepDueFrom`, `RecallWorklistRules.StalledSince` | recall rule | « À rappeler » list, its `alwaysInclude` set | must re-test — list loads; a recent séance on an old devis is not chased |
+| 8 | `TreatmentInProgressDto.DoneStepNumbers` | additive field | treatments-in-progress-list dots | must change — web reads it |
+| 9 | `ProcedureTypeRefusals.ArchivedName` on create + rename | refusal | procedure form (create/edit) | must change — web offers « Réactiver » on the code |
+| 10 | `POST procedure-types/{id}/activate` | new endpoint | admin catalogue list | must change — list gets « Archivés » filter + action |
+| 11 | `DeleteProcedureTypeCommand` → `ProcedureTypeDeletion` body | wire shape | `procedureTypesApi.delete` (only caller) | must change — toast reads the counts |
+| 12 | `UpdateProcedureTypeCommand` version-first + « appointments » broadcast | handler | catalogue edit, agenda realtime | unaffected — one save instead of two, same key the fiche save already emits |
+| 13 | `Doctor.IsActive` + migration `RetireDoctorsInsteadOfDeleting` | column | roster save, `DoctorDto` (status read), every picker via `useDoctors` | must change — pickers show active only, names resolve on all; verify-schema before/after |
+| 14 | `DentalRecordDto.TreatmentPlanItemIds` + `DentalRecordPlanLinkRow.CarriedItemIds` | additive field | fiche modal reopen (`markBilledOnPlan`) | must change — modal marks every carried act |

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { actSolidStyle } from "@/lib/dashboard/act-colour"
 import { formatClock, formatDuration, type DaySlot } from "@/lib/dashboard/day-summary"
-import { appointmentStatusBadgeClass, appointmentStatusLabel } from "@/components/appointment-labels"
+import { appointmentStatusBadgeClass, appointmentStatusLabel, normalizeStatus } from "@/components/appointment-labels"
 
 interface AppointmentListProps {
   /** Today's occupying visits, already filtered and ordered by `buildDaySummary`. */
@@ -136,6 +136,10 @@ function Row({ slot }: { slot: DaySlot }) {
 
         {acts.length > 0 && (
           <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+            {/* J3: a finished visit's acts are the BOOKED ones — its fiche may record others. */}
+            {normalizeStatus(appointment.status) === "Completed" && (
+              <span className="text-2xs text-muted-foreground">Prévu :</span>
+            )}
             {acts.map((proc) => (
               <span
                 key={proc.id}

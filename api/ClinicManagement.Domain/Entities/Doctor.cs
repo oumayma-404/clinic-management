@@ -27,6 +27,13 @@ public class Doctor : AggregateRoot<Guid>
     // clinic-wide hours. Opaque JSON here — the shape is owned by WorkingHoursSerializer in the Application layer.
     public string? WorkingHoursJson { get; private set; }
 
+    /// <summary>
+    /// False once the practitioner is retired from the roster (I3). Retiring used to DELETE the row, and every
+    /// FK to it is <c>SetNull</c> — so the visits, fiches, notes and devis they did lost who did them, and « qui a
+    /// gagné quoi » for past money went with it. A retired practitioner leaves the pickers and stays on history.
+    /// </summary>
+    public bool IsActive { get; private set; } = true;
+
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
 
@@ -64,6 +71,22 @@ public class Doctor : AggregateRoot<Guid>
         Phone = phone;
         Email = email;
         CodeProfessionnelSante = codeProfessionnelSante;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Take the practitioner off the roster, keeping every record that names them (I3).</summary>
+    public void Retire()
+    {
+        if (!IsActive) return;
+        IsActive = false;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Put a retired practitioner back on the roster, with their history.</summary>
+    public void Reinstate()
+    {
+        if (IsActive) return;
+        IsActive = true;
         UpdatedAt = DateTime.UtcNow;
     }
 

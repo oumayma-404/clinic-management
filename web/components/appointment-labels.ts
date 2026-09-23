@@ -166,8 +166,25 @@ export function appointmentActsSummary(appointment: {
     .map((p) => p.name?.trim())
     .filter((n): n is string => !!n)
 
-  if (names.length > 0) return names.join(" + ")
+  // Once per act: two séances of one act booked together read « Couronne + Couronne », i.e. two crowns (J3).
+  if (names.length > 0) return [...new Set(names)].join(" + ")
   return appointment.procedureTypeName?.trim() || null
+}
+
+/**
+ * What a visit's act line says, and which kind of fact it is (J3): the acts its fiche RECORDED once one exists
+ * (« Réalisé »), else the acts it was BOOKED for (« Prévu »). The two can differ — the fiche records what was
+ * done — and eleven screens printed the booking with no word to say which it was. `null` when there is neither.
+ */
+export function visitActsLine(
+  booked: readonly string[],
+  recorded?: readonly string[] | null,
+): { label: "Réalisé" | "Prévu"; text: string } | null {
+  const once = (names: readonly string[]) => [...new Set(names.map((n) => n.trim()).filter(Boolean))]
+  const done = once(recorded ?? [])
+  if (done.length > 0) return { label: "Réalisé", text: done.join(" · ") }
+  const planned = once(booked)
+  return planned.length > 0 ? { label: "Prévu", text: planned.join(" · ") } : null
 }
 
 /**

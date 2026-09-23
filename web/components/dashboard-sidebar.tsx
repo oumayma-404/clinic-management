@@ -166,7 +166,8 @@ export function DashboardSidebar() {
    * invented or placeholder subtitle here would be a claim about the practice on the one piece of chrome that is
    * on screen at all times; « — » or « Clinique » says nothing and costs a line.
    */
-  const doctorCount = status?.doctors?.length ?? 0
+  // The active roster only — a retired practitioner is not « 3 praticiens » (I3).
+  const doctorCount = status?.doctors?.filter((d) => d.isActive !== false).length ?? 0
   const brandSubtitle =
     [status?.clinic?.city?.trim(), doctorCount > 0 ? `${doctorCount} praticien${doctorCount > 1 ? "s" : ""}` : null]
       .filter(Boolean)

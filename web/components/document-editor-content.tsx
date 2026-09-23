@@ -536,7 +536,7 @@ export function DocumentEditorContent() {
   // leaving a handle on it is an invitation to render this legal document a second way. See `handlePrint`.
 
   // Load clinic and doctor info
-  const { doctors, currentUserDoctor } = useDoctors()
+  const { doctors, allDoctors, currentUserDoctor } = useDoctors()
   
   // FR-4.1: the liaison recipient is a free-text external confrère (no longer selected from clinic doctors).
   // These derived names feed the recipient snapshot columns (RecipientDoctorName/Specialty) unchanged.
@@ -623,7 +623,8 @@ export function DocumentEditorContent() {
     }
   }, [currentUserDoctor, doctors, selectedDoctorId, documentId])
 
-  const chosenDoctor = doctors.find((d) => d.id === selectedDoctorId) ?? null
+  // A reopened document keeps its prescriber even once retired (I3) — the roster is only for the default.
+  const chosenDoctor = allDoctors.find((d) => d.id === selectedDoctorId) ?? null
 
   /*
    * ⚠️ The `doctors[0]` fall-back is **gone**, for every document type — the narrow scoping K3 left in place no

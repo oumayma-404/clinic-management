@@ -60,3 +60,37 @@ Arranged by `qa/arrange-3.mjs` (fresh « QAG Flex » patient), driven by `qa/wal
 | G5 | C | Redate a fiche with a devis payment | not in browser — aggregate unit test | unit |
 | G4 | C | Per-tooth act over 3 teeth in the devis form | not scripted — eye pass | eye |
 | R1 | D | Ordinary workspace figures | render | browser |
+
+# QA plan — wave 4 (H · I · J · C4b)
+
+Arranged by `qa/arrange-4.mjs` (fresh « QAH Flex » patient, two throwaway acts, one throwaway practitioner), driven by `qa/walk-4.mjs`.
+
+| ID | Tier | Scenario | Expected | Layer |
+|----|------|----------|----------|-------|
+| H1 | A | Edit a « Terminé » visit's start time | moved, still Terminé | browser + api |
+| H1b | A | Edit a cancelled visit | time locked, reason stated | browser |
+| J4 | A | Move a cancelled visit over the API | 400, named refusal | api |
+| H10 | A | Move « En cours » to another day | Planifié | api |
+| H6 | A | « ⋯ » → Annulé on a finished billed visit | confirm names the note; « Non » changes nothing | browser + api |
+| H7 | A | Finished visit whose fiche was deleted | « Enregistrer la fiche » offered | browser |
+| H8 | A | Lower « Encaissé sur le traitement » | link to the devis | browser |
+| H9 | A | Séance 2 done first | only dot 2 green; no invented due date | browser + api |
+| H11 | A | Edit dialog of a visit with no devis act | « C'est la suite… » opens its dialog | browser |
+| H2 | B | Delete a fiche on a cancelled devis | 204 | api |
+| H3 | B | Add an act to a « Terminé » devis | En cours | api |
+| H4 | B | Cut a done act into 3 séances | séance 1 keeps the fiche | api |
+| H5 | B | Tooth 16 → 26 on a billed flat act | saves | api |
+| C4b | A | Reopen a fiche carrying two devis acts | both cards carried, no « Payé » | browser + api |
+| I1b | A | Create the name of an archived act | refused with its code | api |
+| I1 | A | « Afficher les archivés » → Réactiver | active again | browser + api |
+| I4 | A | Delete an act a devis line names | dialog names devis; archived; toast counts | browser + api |
+| I3 | A | Settings → Praticiens retirés → Réactiver | same record active | browser + api |
+| J3a | A | « Travail non facturé » / « À clôturer » | « Réalisé : Détartrage » | browser + api |
+| J3b | A | Patient history | « Réalisé : … » | browser |
+| J3c | A | Agenda, finished visit | « prévu : … » | browser |
+| J5a | A | Cancelled devis list menu | « Modifier » kept with its reason | browser |
+| J5b | A | Devis « ⋯ » while séances remain | « Facturer le devis » | browser |
+| R1 | D | Ordinary visit notes edit | saves | browser + api |
+| R2 | D | a6's `walk-act-onto-devis.mjs` | money rows green | browser |
+| C320 | C | History, catalogue, à clôturer, edit dialog at 320 | no horizontal overflow | browser |
+| C730 | C | Edit dialog at 1536×730 | footer reachable | browser |

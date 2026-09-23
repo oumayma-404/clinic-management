@@ -327,6 +327,38 @@ export function canBillPlan(plan: TreatmentPlanDto): boolean {
 }
 
 /**
+ * Why « Modifier les actes et les prix » is not offered — null when it is (J5). A named refusal, never a control
+ * that silently vanishes (M26).
+ */
+export function amendPlanRefusal(plan: TreatmentPlanDto): string | null {
+  if (canAmendPlan(plan)) return null
+  return plan.status === "Cancelled"
+    ? "Devis annulé : rétablissez-le pour le modifier."
+    : "Créance passée en perte : reprenez le traitement pour le modifier."
+}
+
+/** Why « Facturer le devis » is not offered — null when it is (J5). */
+export function billPlanRefusal(plan: TreatmentPlanDto): string | null {
+  if (canBillPlan(plan)) return null
+  if (plan.status === "Draft") return "Traitement sans devis : éditez d'abord le devis."
+  if (plan.status === "Cancelled") return "Devis annulé."
+  if (plan.status === "WrittenOff") return "Créance passée en perte : reprenez le traitement pour le facturer."
+  return plan.linkedInvoiceNumber ? `Déjà facturé sur la note ${plan.linkedInvoiceNumber}.` : "Déjà facturé."
+}
+
+/**
+ * Why « Annuler le devis » is not offered on a devis that is not a deletable draft — null when it is (J5). The
+ * list has no « Arrêter le traitement », so the refusal names where the way out is.
+ */
+export function cancelPlanRefusal(plan: TreatmentPlanDto): string | null {
+  if (canCancelPlan(plan) || canDeletePlan(plan) || plan.status === "Cancelled") return null
+  if (plan.status === "WrittenOff") return "Créance passée en perte : reprenez le traitement pour l'annuler."
+  if (plan.number == null) return "Traitement sans devis : arrêtez-le depuis son plan."
+  if (plan.amountPaid > 0.0005) return "Des paiements sont encaissés : arrêtez le traitement depuis son plan."
+  return "Depuis son plan : « Arrêter le traitement » annule ce devis avec un motif."
+}
+
+/**
  * Would « Arrêter le traitement » come out as a <b>cancellation</b>? Mirrors `TreatmentPlan.StopWouldCancel`.
  *
  * <p>⚠️ The money term is load-bearing and was added with C2: a numbered devis carrying a deposit takes the

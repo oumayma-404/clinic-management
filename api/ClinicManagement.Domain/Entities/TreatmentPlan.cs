@@ -958,6 +958,19 @@ public class TreatmentPlan : AggregateRoot<Guid>
             or TreatmentPlanStatus.Cancelled);
 
     /// <summary>
+    /// Re-derive the status after the act set changed (H3): an act added to — or brought back onto — a
+    /// « Terminé » devis is work still to do, so the devis is open again and the act bookable; the last act still
+    /// to do removed or parked closes it. A status a human chose is left alone (<see cref="StatusFollowsTheWork"/>).
+    /// </summary>
+    private void FollowTheActSet()
+    {
+        if (StatusFollowsTheWork)
+        {
+            Status = StatusAfterWork;
+        }
+    }
+
+    /// <summary>
     /// The acts that still count as this plan's treatment — everything except the ones parked by
     /// <see cref="StopTreatment"/>. Every total, progress count and « is it finished » test reads this rather
     /// than <see cref="Items"/>, so a parked act contributes nothing while keeping its history.
@@ -1373,6 +1386,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
         }
 
         RecomputeTotal();
+        FollowTheActSet();
         Touch();
     }
 
@@ -1456,6 +1470,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         _items.Remove(item);
         RecomputeTotal();
+        FollowTheActSet();
         Touch();
     }
 
@@ -1507,6 +1522,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
         item.Withdraw();
         RecomputeTotal();
         RespreadSchedule(dueDate, "avant de mettre cet acte de côté", refundMethod);
+        FollowTheActSet();
         RevisionNumber++;
         Touch();
     }
@@ -1515,10 +1531,9 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Bring one parked act back, at whatever état its own steps derive — the mirror of
     /// <see cref="WithdrawItem"/>, and the per-act half of <see cref="Reopen"/>.
     /// <para>
-    /// ⚠️ The plan's own status is <b>not</b> re-derived here, and that is deliberate: restoring one act of a
+    /// ⚠️ The status is re-derived only through <see cref="StatusFollowsTheWork"/>: restoring one act of a
     /// <c>Stopped</c> treatment does not decide that the treatment is running again — <see cref="Reopen"/> is
-    /// the verb for that, and <see cref="StatusFollowsTheWork"/> states in as many words that a status a human
-    /// chose may not be overwritten by what the acts happen to say.
+    /// the verb for that. A <c>Completed</c> devis given an act back is open again (H3).
     /// </para>
     /// </summary>
     public void RestoreItem(Guid itemId, DateTime dueDate)
@@ -1535,6 +1550,7 @@ public class TreatmentPlan : AggregateRoot<Guid>
 
         RecomputeTotal();
         RespreadSchedule(dueDate, "avant de remettre cet acte au devis");
+        FollowTheActSet();
         RevisionNumber++;
         Touch();
     }

@@ -48,18 +48,20 @@ public class DentalRecordBilledActsUnchangedTests
     }
 
     /// <summary>
-    /// The teeth are part of the line the patient reads, so moving an act from 16 to 26 changes what the note
-    /// says was treated.
+    /// H5: correcting the tooth of a flat act bills the same work — same act, quantity and price — so the save
+    /// passes instead of forcing a new note. A different act at the same price is still refused.
     /// </summary>
     [Fact]
-    public void Moving_An_Act_To_Another_Tooth_Is_Refused()
+    public void Moving_A_Flat_Act_To_Another_Tooth_Passes_But_Another_Act_Does_Not()
     {
-        var result = DentalRecordBillingGuard.Check(
-            Note(), 120m, 120m,
-            Lines(("Détartrage (dents 16)", 1, 120m)),
-            Lines(("Détartrage (dents 26)", 1, 120m)));
+        var before = new[] { new DentalRecordInvoiceLines.Line("Détartrage (dents 36)", 1, 120m, "Détartrage") };
+        var moved = new[] { new DentalRecordInvoiceLines.Line("Détartrage (dents 46)", 1, 120m, "Détartrage") };
+        var swapped = new[] { new DentalRecordInvoiceLines.Line("Gingivectomie (dents 36)", 1, 120m, "Gingivectomie") };
 
-        Assert.Equal(DentalRecordBillingRefusals.ActsChangedCode, result.Code);
+        Assert.True(DentalRecordBillingGuard.Check(Note(), 120m, 120m, before, moved).IsSuccess);
+        Assert.Equal(
+            DentalRecordBillingRefusals.ActsChangedCode,
+            DentalRecordBillingGuard.Check(Note(), 120m, 120m, before, swapped).Code);
     }
 
     /// <summary>Adding a free act keeps the total and adds a line — still a change to what was billed.</summary>

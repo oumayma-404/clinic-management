@@ -338,22 +338,27 @@ public class TreatmentPlanItemStepTests
     }
 
     /// <summary>
-    /// A step-less act that is already réalisé may not be cut into steps: the recompute would have nothing to
-    /// derive « réalisé » from and would silently drop the fiche link that evidenced it.
+    /// H4: a finished step-less act cut into séances keeps its work — séance 1 inherits the act's date and fiche,
+    /// so nothing is reopened and the evidence survives. It used to be refused.
     /// </summary>
     [Fact]
-    public void A_Finished_Step_Less_Act_Cannot_Be_Cut_Into_Steps()
+    public void A_Finished_Step_Less_Act_Cut_Into_Steps_Keeps_Its_Work_On_Seance_One()
     {
         var (plan, item) = PlanWithSteps();
         plan.MarkItemDone(item.Id, Day1, FicheOne);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => plan.SetItemSteps(item.Id, new[]
+        plan.SetItemSteps(item.Id, new[]
         {
             new TreatmentPlanItemStepInput(null, "Préparation", null),
-        }));
+            new TreatmentPlanItemStepInput(null, "Empreinte", null),
+            new TreatmentPlanItemStepInput(null, "Pose", null),
+        });
 
-        Assert.Contains("découpé en étapes", ex.Message);
-        Assert.Equal(FicheOne, item.LinkedDentalRecordId);
+        var first = item.Steps.OrderBy(s => s.SequenceNumber).First();
+        Assert.Equal(Day1, first.DoneDate);
+        Assert.Equal(FicheOne, first.LinkedDentalRecordId);
+        Assert.Equal(TreatmentPlanItemStatus.InProgress, item.Status);
+        Assert.Equal(TreatmentPlanStatus.InProgress, plan.Status);
     }
 
     [Fact]

@@ -330,7 +330,8 @@ function Legend({ summary }: { summary: DaySummary }) {
 function Facts({ summary }: { summary: DaySummary }) {
   const items: Array<{ value: string; label: string }> = [
     { value: String(summary.count), label: "rendez-vous" },
-    { value: String(summary.actCount), label: summary.actCount === 1 ? "acte" : "actes" },
+    // J3: counted off the bookings, so said as such — a fiche may record other work.
+    { value: String(summary.actCount), label: summary.actCount === 1 ? "acte prévu" : "actes prévus" },
   ]
   // Stated, never folded into « rendez-vous »: a blocked hour is why the chair time and the load can outrun the
   // visit count, and a reader who cannot see it reads those two figures as wrong.

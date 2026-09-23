@@ -65,7 +65,7 @@ import {
   installmentDueLabel,
   installmentDueSentence,
 } from "./treatment-plan-labels"
-import { useDoctors } from "@/lib/hooks/use-doctors"
+import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   REFUND_DECLINED, RefundMethodField, usePlanRefundConfirm, type RefundMethod,
@@ -374,7 +374,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * prints `plan.doctorName`, which the server resolves, so the list is only needed to CHANGE it — but a
    * Select that populates after it opens shows « Aucun médecin » for a beat and reads as an empty cabinet.
    */
-  const { doctors, isLoading: loadingDoctors } = useDoctors()
+  const { allDoctors, isLoading: loadingDoctors } = useDoctors()
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -1397,6 +1397,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                     <DropdownMenuItem disabled={busy} onSelect={() => openAmend()}>
                       <FilePen className="h-4 w-4" />
                       Modifier les actes et les prix
+                    </DropdownMenuItem>
+                  )}
+                  {/* J5 — « Facturer » is the header's button only once the work is done; at every other moment it
+                      lives here, as the primary action's own note has always said. It was simply missing. */}
+                  {canBill && primaryAction?.label !== "Facturer le devis" && (
+                    <DropdownMenuItem disabled={busy} onSelect={confirmBill}>
+                      <ReceiptText className="h-4 w-4" />
+                      Facturer le devis
                     </DropdownMenuItem>
                   )}
                   {/* AC-P2.1 — the amendable window, matching the server's widened `EnsureAmendable`. */}
@@ -2999,10 +3007,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 />
               </SelectTrigger>
               <SelectContent>
-                {doctors.length === 0 && !loadingDoctors ? (
+                {/* The active roster plus this devis' own practitioner, even retired (I3). */}
+                {doctorsForPicker(allDoctors, plan.doctorId).length === 0 && !loadingDoctors ? (
                   <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun praticien enregistré</div>
                 ) : (
-                  doctors.map((doctor) => (
+                  doctorsForPicker(allDoctors, plan.doctorId).map((doctor) => (
                     <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
                       {doctor.name}
                     </SelectItem>

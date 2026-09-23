@@ -184,6 +184,11 @@ export default function ClinicSettings() {
   // Store original values for canceling edits
   const [originalClinicData, setOriginalClinicData] = useState<any>({})
   const [originalDoctors, setOriginalDoctors] = useState<Doctor[]>([])
+  /**
+   * Practitioners retired from the roster (I3). Leaving the roster used to DELETE them — and with them « who did
+   * it » on every visit, fiche, note and devis. They are kept, off every picker, and can be put back.
+   */
+  const [retiredDoctors, setRetiredDoctors] = useState<Doctor[]>([])
   const [originalWorkingHours, setOriginalWorkingHours] = useState<WorkingHoursInput[]>([])
 
   const loadLogoFromBackend = async () => {
@@ -247,10 +252,16 @@ export default function ClinicSettings() {
           }
         }
 
-        // Load doctors
-        if (status.doctors && status.doctors.length > 0) {
+        // Load doctors — the roster is the active ones; the retired are listed apart (I3).
+        setRetiredDoctors(
+          (status.doctors ?? [])
+            .filter((d) => d.isActive === false && d.id)
+            .map((d) => ({ id: d.id as string, name: d.name, specialty: d.specialty })),
+        )
+        const activeDoctors = (status.doctors ?? []).filter((d) => d.isActive !== false)
+        if (activeDoctors.length > 0) {
           setDoctors(
-            status.doctors.map((d, index) => ({
+            activeDoctors.map((d, index) => ({
               id: d.id || `doctor-${index}`,
               name: d.name,
               specialty: d.specialty,
@@ -444,11 +455,16 @@ export default function ClinicSettings() {
     setIsEditingDoctors(false)
   }
 
-  const handleSaveDoctors = async () => {
+  const handleSaveDoctors = () => saveRoster(doctors)
+
+  /** Put a retired practitioner back on the roster, with their history — they are sent back with their id. */
+  const reinstateDoctor = (retired: Doctor) => saveRoster([...doctors, retired], `${retired.name} est de nouveau dans l'équipe.`)
+
+  const saveRoster = async (roster: Doctor[], successMessage = "Informations des médecins enregistrées.") => {
     setIsSaving(true)
     try {
       // Filter out empty doctors and convert IDs properly
-      const validDoctors = doctors
+      const validDoctors = roster
         .filter((d) => d.name.trim() && d.specialty.trim())
         .map((d) => {
           let doctorId: string | null = null
@@ -489,9 +505,15 @@ export default function ClinicSettings() {
       // Save doctors to backend
       const savedDoctors = await clinicsApi.updateDoctors(validDoctors)
 
-      // Update local state with saved doctors (including IDs from backend)
+      // Update local state with saved doctors (including IDs from backend). The server answers with every
+      // practitioner, retired included, so the roster and the retired list are split again here.
+      setRetiredDoctors(
+        savedDoctors
+          .filter((d) => d.isActive === false && d.id)
+          .map((d) => ({ id: d.id as string, name: d.name, specialty: d.specialty })),
+      )
       setDoctors(
-        savedDoctors.map((d, index) => ({
+        savedDoctors.filter((d) => d.isActive !== false).map((d, index) => ({
           id: d.id || `doctor-${index}`,
           name: d.name,
           specialty: d.specialty,
@@ -501,7 +523,7 @@ export default function ClinicSettings() {
         })),
       )
 
-      toast.success("Informations des médecins enregistrées.")
+      toast.success(successMessage)
       setIsEditingDoctors(false)
     } catch (error: any) {
       toast.error(error.message || "Échec de l'enregistrement des informations des médecins. Veuillez réessayer.")
@@ -1166,6 +1188,26 @@ export default function ClinicSettings() {
                 </Card>
                 )
               })}
+
+              {!isEditingDoctors && isClinicAdmin && retiredDoctors.length > 0 && (
+                <div className="space-y-1.5 rounded-md border border-dashed p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Praticiens retirés</p>
+                  {retiredDoctors.map((retired) => (
+                    <div key={retired.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-sm">{retired.name}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs coarse:h-11"
+                        disabled={isSaving}
+                        onClick={() => void reinstateDoctor(retired)}
+                      >
+                        Réactiver
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {isEditingDoctors && (
                 <>

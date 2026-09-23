@@ -213,23 +213,32 @@ public class TreatmentPlanItem : Entity<Guid>
     /// worklist distinguish « pas encore due » from « oubliée », instead of alarming on a flat fortnight for
     /// every protocol whatever its clinical rhythm.
     /// </remarks>
-    public DateTime? NextStepDueFrom
+    public DateTime? NextStepDueFrom =>
+        NextStepDueFromSteps(_steps.Select(s => new StepTiming(s.SequenceNumber, s.DoneDate, s.MinDaysAfterPrevious)));
+
+    /// <summary>One step as a read sees it — the three facts <see cref="NextStepDueFromSteps"/> needs.</summary>
+    public readonly record struct StepTiming(int SequenceNumber, DateTime? DoneOn, int? MinDaysAfterPrevious);
+
+    /// <summary>
+    /// <see cref="NextStepDueFrom"/> over projected rows, so a list read (« Traitements en cours », « À rappeler »)
+    /// asks the same rule as the devis instead of re-deriving it (H9). The previous step is the one <b>before the
+    /// next one in the protocol</b>, never the latest date: a séance 2 done before séance 1 says nothing about when
+    /// séance 1 is due.
+    /// </summary>
+    public static DateTime? NextStepDueFromSteps(IEnumerable<StepTiming> steps)
     {
-        get
+        var list = steps.OrderBy(s => s.SequenceNumber).ToList();
+        var nextIndex = list.FindIndex(s => s.DoneOn is null);
+        if (nextIndex < 0)
         {
-            var next = NextStep;
-            if (next is null)
-            {
-                return null;
-            }
-
-            var previous = _steps
-                .Where(s => s.IsDone && s.SequenceNumber < next.SequenceNumber)
-                .OrderBy(s => s.SequenceNumber)
-                .LastOrDefault();
-
-            return next.DueFrom(previous?.DoneDate);
+            return null;
         }
+
+        var next = list[nextIndex];
+        var previous = list.Take(nextIndex).LastOrDefault(s => s.DoneOn is not null);
+        return next.MinDaysAfterPrevious is int days && previous.DoneOn is DateTime from
+            ? from.Date.AddDays(days)
+            : null;
     }
 
     /// <summary>The next step still to be carried out, or null when the act has none left (or none at all).</summary>
@@ -566,13 +575,12 @@ public class TreatmentPlanItem : Entity<Guid>
                 $"Un acte ne peut pas comporter plus de {TreatmentPlanItemStep.MaxStepsPerItem} étapes.");
         }
 
-        // Cutting a finished act into steps would leave the recompute below with nothing to derive « réalisé »
-        // from, so it would reopen the act and drop the fiche link that evidenced it.
-        if (!HasSteps && Status == TreatmentPlanItemStatus.Done && requested.Count > 0)
-        {
-            throw new InvalidOperationException(
-                "Un acte déjà réalisé ne peut pas être découpé en étapes. Détachez-le de sa fiche de soins d'abord.");
-        }
+        // A finished step-less act cut into séances (H4): the work already done becomes séance 1 — it inherits the
+        // act's date and fiche, so nothing is reopened and no evidence is dropped. It used to be refused, and the
+        // only way round was detaching the fiche and saving it again.
+        var carriedWork = !HasSteps && Status == TreatmentPlanItemStatus.Done && requested.Count > 0
+            ? (DoneOn: DoneDate ?? DateTime.UtcNow, RecordId: LinkedDentalRecordId)
+            : ((DateTime DoneOn, Guid? RecordId)?)null;
 
         var echoed = requested.Where(s => s.Id.HasValue).Select(s => s.Id!.Value).ToList();
         if (echoed.Distinct().Count() != echoed.Count)
@@ -619,6 +627,10 @@ public class TreatmentPlanItem : Entity<Guid>
 
         _steps.Clear();
         _steps.AddRange(rebuilt);
+        if (carriedWork is { } work)
+        {
+            _steps[0].MarkDone(work.DoneOn, work.RecordId);
+        }
         RecomputeStatusFromSteps();
     }
 

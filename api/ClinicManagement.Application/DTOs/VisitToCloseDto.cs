@@ -39,6 +39,12 @@ public class VisitToCloseDto
     /// <summary>The acts the séance was booked for, in the dentist's own order. Empty for a booking with none.</summary>
     public List<string> Procedures { get; set; } = new();
 
+    /// <summary>
+    /// The acts its fiche RECORDED, once there is one (J3) — the row names what was done (« réalisé ») rather than only
+    /// what was booked (« prévu »), which can differ. Empty while no fiche exists.
+    /// </summary>
+    public List<string> RecordedProcedures { get; set; } = new();
+
     /// <summary>The visit's own status, so the row can say « En cours » rather than only « à confirmer ».</summary>
     public string Status { get; set; } = string.Empty;
 

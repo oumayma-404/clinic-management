@@ -235,7 +235,7 @@ public static class ExportTables
     public static CsvTable Appointments(IEnumerable<AppointmentDto> appointments)
     {
         var table = CsvTable.Create(
-            "Date et heure", "Durée (min)", "Patient", "Praticien", "Actes", "Statut",
+            "Date et heure", "Durée (min)", "Patient", "Praticien", "Actes prévus", "Statut",
             "Facture", "Notes");
 
         foreach (var a in appointments)

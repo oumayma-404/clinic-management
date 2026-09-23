@@ -281,7 +281,8 @@ public static class DentalRecordBillingGuard
 
     /// <summary>
     /// Do these two sets of lines bill the same work? Order-insensitive — see the note at the call site.
-    /// <c>Line</c> is a record, so equality is by value and the designation carries the act's name and its teeth.
+    /// Compared on the act, the quantity and the price — never on the designation's teeth (H5): moving a flat act
+    /// from 36 to 46 is a clinical correction that bills the same thing, and refusing it forced a new note.
     /// </summary>
     private static bool SameLines(
         IReadOnlyList<DentalRecordInvoiceLines.Line> before,
@@ -292,9 +293,11 @@ public static class DentalRecordBillingGuard
             return false;
         }
 
-        static IEnumerable<DentalRecordInvoiceLines.Line> Ordered(IEnumerable<DentalRecordInvoiceLines.Line> lines) =>
+        static IEnumerable<(string Act, int Quantity, decimal UnitPriceHt)> Ordered(
+            IEnumerable<DentalRecordInvoiceLines.Line> lines) =>
             lines
-                .OrderBy(l => l.Designation, StringComparer.Ordinal)
+                .Select(l => (Act: l.Act ?? l.Designation, l.Quantity, l.UnitPriceHt))
+                .OrderBy(l => l.Act, StringComparer.Ordinal)
                 .ThenBy(l => l.Quantity)
                 .ThenBy(l => l.UnitPriceHt);
 

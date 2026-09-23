@@ -84,3 +84,28 @@ Tests: `DevisFicheRdvFlexibilityWave2Tests` (11). QA: `qa/run-2.md` GREEN.
 - **G9** collection amount checked before the devis number is minted. **G12** a written-off devis cannot be invoiced (create + issue bridge).
 
 Tests: `DevisFicheRdvFlexibilityWave3Tests` (18). reconcile-money before/after: only the 8 written-off plans join the checks (0 DT on them).
+
+# Wave 4 — status and date edits, the catalogue, the sentences (H, I, J + C4b)
+
+- **H1** `Appointment.Reschedule` moves a `Completed` visit (it stays Completed; never past today, refused by name). A cancelled visit is moved only by reactivating it: a real move is refused with `Appointment.CancelledCannotMoveMessage` (a seconds-only difference is still ignored). It used to be skipped and answered 200. The edit dialog locks the date/time of a cancelled visit and says why. A finished visit's redate sends no « déplacé » notice and re-enqueues no reminder.
+- **H10** `Reschedule(dt, sameClinicDay)`: « En cours » moved to another clinic day goes back to `Scheduled`; the same day keeps it. The handler decides the day through `ClinicClock`.
+- **H3** `TreatmentPlan.FollowTheActSet` after Add/Remove/Withdraw/Restore: an act added to (or brought back onto) a « Terminé » devis reopens it; the last act still to do removed or parked closes it. Through `StatusFollowsTheWork` — a Stopped / WrittenOff / Draft / Cancelled status is left alone.
+- **H4** `TreatmentPlanItem.SetSteps` on a done step-less act converts in place: séance 1 inherits the act's date and fiche. It used to be refused.
+- **H5** `DentalRecordInvoiceLines.Line.Act` — a billed fiche's edit is compared on act + quantity + price, not the designation text: 36 → 46 on a flat act saves; a different act at the same price is still refused. ⚠️ The issued note keeps its old tooth text (fiscal lines are frozen).
+- **H6** « ⋯ » → « Annulé » on a finished or billed visit asks first and names the note.
+- **H7** « Enregistrer la fiche » is offered on a « Terminé » visit with no fiche (deleted, or closed by hand).
+- **H8** the lowered-collection refusal links to the devis (new tab, the fiche stays open).
+- **H9** one rule for « when is the next séance due »: `TreatmentPlanItem.NextStepDueFromSteps` (the séance before the next one, never the latest date), read by the devis, « Traitements en cours » (`GetStepTimingsAsync`, dots from `DoneStepNumbers`) and « À rappeler » (`RecallWorklistRules.StalledSince`: protocol due date, else 14 days after the last work, else after acceptance — it counted 14 days from the signature). `RecallReason.DueSince` for a stall is now the day it stalled.
+- **H11** the edit dialog has « C'est la suite d'une séance précédente ? » — same `ContinueSessionDialog`, same `materialiseTreatments` on save.
+- **I1** `POST /procedure-types/{id}/activate` + « Afficher les archivés » + « Réactiver ». ⚠️ Decision: the name stays unique per clinic (a DB unique index already says so) — creating or renaming onto an archived act's name is refused with `procedure-type-archived-name`, naming the way back, instead of a second migration for a filtered index.
+- **I2** renaming an act: version checked before the (now single) save, and « appointments » broadcast.
+- **I3** `Doctor.IsActive` (migration `RetireDoctorsInsteadOfDeleting`, default true): leaving the roster retires, never deletes; sending a retired one back reinstates it. `useDoctors().doctors` is the active roster (pickers), `allDoctors` is history (filters, names); `doctorsForPicker` keeps a record's own retired practitioner selectable. Settings lists « Praticiens retirés » with « Réactiver ».
+- **I4** delete archives when a future visit OR a devis line names the act (counts returned and toasted); only the act's own visits are read (`GetByProcedureTypeIdAsync`), not the whole clinic's.
+- **J3** booked vs done: `visitActsLine` — « Réalisé » (the fiche's acts) where known (« À clôturer », « Travail non facturé », patient history), « Prévu » on a finished visit otherwise (agenda, dashboard list, invoice badge); « actes prévus » on the day ribbon, « Répartition des actes prévus », CSV « Actes prévus ». `VisitToCloseDto.RecordedProcedures` via `IDentalRecordRepository.GetActNamesAsync`. Also fixed: the phone agenda block printed « 09:00 · » with nothing after it; `appointmentActsSummary` names an act once (« Couronne + Couronne »).
+- **J4** `UpdateAppointmentCommand` passes a Domain `InvalidOperationException`'s French message (TargetSite in the Domain assembly); a framework one still gets « Veuillez réessayer ».
+- **J5** the devis list menu keeps « Planifier / Modifier / Facturer / Annuler » and states the rule (`amendPlanRefusal`, `billPlanRefusal`, `cancelPlanRefusal`); the devis « ⋯ » has « Facturer le devis » whenever the header does not.
+- **C4b** `DentalRecordDto.TreatmentPlanItemIds` (every act of the devis the fiche carries); the patient page adds each to the modal's plan options, and `markCarriedOnPlan` marks those cards « sur le devis » (no price field). With a6's implicit « Ajouter au devis » they read as acts being ADDED, with an editable price the server then dropped.
+- **Verified, not recoded**: H2 (delete a fiche on a cancelled devis → 204), J1 (« Le rendez-vous prévu pour cet acte sera libéré. » is true), J2 (wave 3).
+- ⚠️ QA trap: a fiche saved with NO visit is tied by `DentalRecordVisitLink` to that day's only visit, which it then closes — fixtures that need an open visit must not share its day with such a fiche.
+
+Tests: `DevisFicheRdvFlexibilityWave4Tests` (18) + 5 existing tests rewritten to the new rules. QA: `qa/run-4.md` GREEN, 26 rows. verify-schema + reconcile-money: no new drift.

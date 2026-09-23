@@ -2,6 +2,13 @@ import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { ProcedureTypeDto, ProcedureStepTemplateDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
+/** What a delete did — and, when it archived instead, what still names the act (I4). */
+export interface ProcedureTypeDeletion {
+  archived: boolean
+  futureAppointments: number
+  planLines: number
+}
+
 /** One selectable agenda colour: the value that is stored, and what the server calls it. */
 export interface ProcedureColor {
   hex: string;
@@ -137,8 +144,13 @@ export const procedureTypesApi = {
    * ⚠️ It used to return `void`, so the screen could say nothing and the row simply vanished either way — a
    * permanent delete was indistinguishable from a deactivation on the one action that cannot be undone.
    */
-  delete: async (id: string): Promise<{ archived: boolean }> => {
-    return apiDelete<{ archived: boolean }>(`/procedure-types/${id}`);
+  delete: async (id: string): Promise<ProcedureTypeDeletion> => {
+    return apiDelete<ProcedureTypeDeletion>(`/procedure-types/${id}`);
+  },
+
+  /** Bring an archived act back (I1) — archiving had no way back before. */
+  activate: async (id: string): Promise<void> => {
+    await apiPost<void>(`/procedure-types/${id}/activate`, {});
   },
 
   // Idempotently tops the clinic's ProcedureType menu up from the seeded starter catalogue, skipping names

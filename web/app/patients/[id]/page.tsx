@@ -118,6 +118,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import {
   appointmentActsSummary, appointmentStatusBadgeClass, appointmentStatusLabel, genderLabel, normalizeStatus,
+  visitActsLine,
 } from "@/components/appointment-labels"
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
@@ -504,8 +505,12 @@ function SectionLoadFailure({ onRetry }: { onRetry: () => void }) {
  * `Appointment.MarkVisitCompleted`, which returns `Contradicted` for exactly those two and is swallowed by its
  * best-effort caller — so the fiche would persist while the appointment silently stayed cancelled. A visit
  * recorded as not having happened should not offer to record what happened during it.
+ *
+ * ⚠️ A « Terminé » visit with NO fiche offers it too (H7) — its fiche was deleted, or it was closed by hand. It used
+ * to be excluded outright, so deleting a fiche left the visit with no way to record it again from its own row, and
+ * the only other door lost the booked act and its price.
  */
-function appointmentVisitState(appointment: AppointmentDto) {
+function appointmentVisitState(appointment: AppointmentDto, hasFiche = false) {
   const durationMinutes = appointment.duration
     ? parseInt(appointment.duration.split(":")[0]) * 60 + parseInt(appointment.duration.split(":")[1] || "0")
     : 0
@@ -516,7 +521,9 @@ function appointmentVisitState(appointment: AppointmentDto) {
     durationMinutes,
     isCanceled: appointment.status === "Cancelled",
     canRecordVisit:
-      endedAt < Date.now() && status !== "Completed" && status !== "Cancelled" && status !== "NoShow",
+      status !== "Cancelled"
+      && status !== "NoShow"
+      && (status === "Completed" ? !hasFiche : endedAt < Date.now()),
   }
 }
 
@@ -805,6 +812,19 @@ export default function PatientDetailsPage() {
    */
   const ficheForVisit = (appointmentId: string): DentalRecordDto | null =>
     dentalRecords.find((r) => r.appointmentId === appointmentId) ?? null
+
+  /**
+   * A history row's act line (J3): the fiche's acts « Réalisé » when it has one, the booked ones « Prévu » on a
+   * finished visit without one, and the plain booking on a visit still to come — where it cannot be confused with
+   * what was done. The column used to print the booking on every row, done or not, with no word to say which.
+   */
+  const historyActs = (appointment: AppointmentDto): string | null => {
+    const booked = appointmentActsSummary(appointment)
+    const fiche = ficheForVisit(appointment.id)
+    if (!fiche && normalizeStatus(appointment.status) !== "Completed") return booked
+    const line = visitActsLine(booked ? booked.split(" + ") : [], fiche?.acts.map((a) => a.procedureName))
+    return line ? `${line.label} : ${line.text}` : null
+  }
 
   /**
    * Open the record modal already bound to a finished visit — exactly the state the
@@ -1779,8 +1799,15 @@ procedureTypeId: it.procedureTypeId ?? null,
      * active, yet the fiche that evidenced either still happened and must still read correctly. Appended only
      * when a record is being edited, so nothing new is ever *offered* — a Select must contain its own value.
      */
-    const linkedId = editingRecord?.treatmentPlanItemId
-    if (linkedId && !options.some((o) => o.itemId === linkedId)) {
+    // Every devis act the fiche carries, not only the lead (C4b): a séance can carry several (C4), and the modal
+    // resolves each one's procedure here to mark its card « sur le devis ».
+    const linkedIds = new Set(
+      [editingRecord?.treatmentPlanItemId, ...(editingRecord?.treatmentPlanItemIds ?? [])].filter(
+        (id): id is string => !!id,
+      ),
+    )
+    for (const linkedId of linkedIds) {
+      if (options.some((o) => o.itemId === linkedId)) continue
       for (const p of treatmentPlans) {
         const it = p.items.find((i) => i.id === linkedId)
         if (it) {
@@ -3250,9 +3277,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                       items={appointmentsPage.items}
                       getKey={(appointment) => appointment.id}
                       title={(appointment) => formatDateTime(appointment.appointmentDateTime)}
-                      subtitle={(appointment) =>
-                        appointmentActsSummary(appointment) || "Rendez-vous général"
-                      }
+                      subtitle={(appointment) => historyActs(appointment) || "Rendez-vous général"}
                       accent={(appointment) =>
                         appointmentVisitState(appointment).isCanceled
                           ? undefined
@@ -3286,7 +3311,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                         and the identity gets the header back. (`app/waiting-list/page.tsx` is the template.)
                       */
                       primaryAction={(appointment) =>
-                        appointmentVisitState(appointment).canRecordVisit ? (
+                        appointmentVisitState(appointment, ficheForVisit(appointment.id) != null).canRecordVisit ? (
                           <Button
                             variant="outline"
                             className="w-full gap-1.5"
@@ -3323,7 +3348,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                              * `appointmentVisitState`, shared with the card list above.
                              */
                             const { durationMinutes, canRecordVisit, isCanceled } =
-                              appointmentVisitState(appointment)
+                              appointmentVisitState(appointment, ficheForVisit(appointment.id) != null)
 
                             // Determine row color based on status and procedure type
                             const rowColor = isCanceled
@@ -3351,13 +3376,13 @@ procedureTypeId: it.procedureTypeId ?? null,
                                   {/* A visit can be several acts; the shared summary joins them
                                       (« Détartrage + Obturation ») and the dot keeps the lead act's colour,
                                       which is what the row's own left border already uses. */}
-                                  {appointmentActsSummary(appointment) ? (
+                                  {historyActs(appointment) ? (
                                     <div className="flex items-center gap-2">
                                       <div
                                         className="h-3 w-3 rounded-full shrink-0"
                                         style={{ backgroundColor: appointment.procedureColorHex || "#6C757D" }}
                                       />
-                                      <span>{appointmentActsSummary(appointment)}</span>
+                                      <span>{historyActs(appointment)}</span>
                                     </div>
                                   ) : (
                                     <span className="text-muted-foreground">Rendez-vous général</span>

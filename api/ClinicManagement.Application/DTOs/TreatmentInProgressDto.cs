@@ -52,6 +52,12 @@ public class TreatmentInProgressDto
     public int StepsTotal { get; set; }
     public int StepsDone { get; set; }
 
+    /// <summary>
+    /// Which séances are done, 1-based — so the dots read each séance's own state (H9). A séance 2 recorded before
+    /// séance 1 filled the FIRST dot from <see cref="StepsDone"/>, claiming a préparation that never happened.
+    /// </summary>
+    public IReadOnlyList<int> DoneStepNumbers { get; set; } = Array.Empty<int>();
+
     /// <summary>The next step to carry out. Never null on a row of this list: an act with no step left is
     /// « réalisé » and drops out of it.</summary>
     public Guid? NextStepId { get; set; }

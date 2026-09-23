@@ -36,7 +36,7 @@ import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
-import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, Trash2 } from "lucide-react"
+import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, Trash2, History } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import {
   AppointmentRecap,
@@ -46,7 +46,8 @@ import {
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
-  AppointmentActsPicker, actLabelsOf, hasInvalidAgreedCost, negotiatedTotalOf, presetToSelectedAct,
+  AppointmentActsPicker, actLabelsOf, continuationToSelectedAct, hasInvalidAgreedCost, negotiatedTotalOf,
+  presetToSelectedAct,
   protocolError,
   toProcedurePayloads,
   totalActsDuration,
@@ -66,9 +67,10 @@ import {
   materialiseTreatments,
   discardUnbookedTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
+import { ContinueSessionDialog } from "@/components/treatment-plans/continue-session-dialog"
 import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
-import { useDoctors } from "@/lib/hooks/use-doctors"
+import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
@@ -134,6 +136,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   // `appointmentType` removed with the `Type: ` prefix (AC-P1.51) — the act is `procedureTypeId` alone.
   const [status, setStatus] = useState<string>("scheduled")
+  /** H1: a visit still cancelled cannot be moved — only « Planifié » (a reactivation) unlocks its date. */
+  const dateLocked = appointment?.status === "Cancelled" && status !== "scheduled"
   /**
    * The statut this form was hydrated with — the baseline the save compares against.
    *
@@ -145,12 +149,17 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [hydratedStatus, setHydratedStatus] = useState<string>("scheduled")
   
   // Load doctors list
-  const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
+  const { allDoctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
 
   // Procedure type state
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   /** The acts of this séance — several are the normal case, not the exception. */
   const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
+  /**
+   * « C'est la suite d'une séance précédente ? » — the create dialog's third door, here too (H11): a visit already
+   * in the agenda could never become the continuation of an earlier séance. Same row, same materialiser on save.
+   */
+  const [continueOpen, setContinueOpen] = useState(false)
   /**
    * Has the user set the duration by hand *during this editing session*? Until they do, it follows the sum of the
    * acts; afterwards it is left alone. Seeded true when the form hydrates, because a booked visit's stored
@@ -440,9 +449,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     return procedureTypes.find((p) => p.id === lead.procedureTypeId)?.colorHex ?? null
   }, [selectedActs, procedureTypes])
 
+  // The picker: the active roster plus this visit's own practitioner, even retired (I3).
+  const doctors = useMemo(() => doctorsForPicker(allDoctors, selectedDoctorId), [allDoctors, selectedDoctorId])
   const selectedDoctorName = useMemo(
-    () => doctors.find((d) => d.id === selectedDoctorId)?.name ?? null,
-    [doctors, selectedDoctorId],
+    () => allDoctors.find((d) => d.id === selectedDoctorId)?.name ?? null,
+    [allDoctors, selectedDoctorId],
   )
 
   /** Everything the récapitulatif states, all of it derived from this form. See `appointment-recap.tsx`. */
@@ -527,9 +538,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       // Try to find doctor by ID first, then by name as fallback
       if ((appointment as any).doctorId) {
         setSelectedDoctorId((appointment as any).doctorId)
-      } else if (appointment.doctorName && doctors.length > 0) {
+      } else if (appointment.doctorName && allDoctors.length > 0) {
         // Try to find doctor by name
-        const doctor = doctors.find(d => d.name === appointment.doctorName)
+        const doctor = allDoctors.find(d => d.name === appointment.doctorName)
         if (doctor) {
           setSelectedDoctorId(doctor.id || "")
         } else {
@@ -1090,6 +1101,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
             {/* Quand. */}
             <div className="space-y-3">
+              {/* H1: a cancelled visit moves only by being put back to « Planifié » — the server refuses the move
+                  by name; locking the field here says so before the press instead of after it. */}
+              {dateLocked && (
+                <p className="text-xs text-muted-foreground">
+                  Rendez-vous annulé : repassez-le en {quoteFr("Planifié")} pour changer sa date.
+                </p>
+              )}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {/* Date Picker */}
                 <div className="space-y-2">
@@ -1105,7 +1123,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                           "w-full h-10 justify-start bg-card text-left font-normal",
                           !date && "text-muted-foreground",
                         )}
-                        disabled={loading}
+                        disabled={loading || dateLocked}
                       >
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {date ? format(date, "dd/MM/yyyy") : "Choisir une date"}
@@ -1128,7 +1146,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       setStartHour(hour)
                       setStartMinute(minute)
                     }}
-                    disabled={loading}
+                    disabled={loading || dateLocked}
                     required
                   />
                 </div>
@@ -1235,6 +1253,19 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 // (the act is priced once) and the échéancier re-spreads itself server-side.
                 onTotalChange={saveTreatmentTotal}
               />
+
+              {/* The create dialog's door, with its gates: a patient, and no devis act on the séance yet. */}
+              {appointment?.patientId && !selectedActs.some((a) => a.treatmentPlanItemId) && (
+                <button
+                  type="button"
+                  onClick={() => setContinueOpen(true)}
+                  disabled={loading}
+                  className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover-hover:hover:text-foreground hover-hover:hover:underline coarse:min-h-11"
+                >
+                  <History className="h-3.5 w-3.5" />
+                  C&apos;est la suite d&apos;une séance précédente&nbsp;?
+                </button>
+              )}
 
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
@@ -1507,6 +1538,30 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       )}
 
       {/* Cancel Appointment Confirmation Dialog */}
+      {/* A sibling of the dialog, never a child — the create dialog's reason (two focus traps). Nothing is
+          created here: `materialiseTreatments` mints the treatment when this visit is saved, and replaces
+          rather than appends, since a visit carries ONE devis. */}
+      {appointment?.patientId && (
+        <ContinueSessionDialog
+          open={continueOpen}
+          onOpenChange={setContinueOpen}
+          patientId={appointment.patientId}
+          onChosen={(choice) => {
+            setSelectedActs((prev) => {
+              const row = continuationToSelectedAct(
+                choice.previous, choice.nextStepLabel, choice.remainingWorkCost, procedureTypes,
+              )
+              const at = prev.findIndex((a) => a.pendingContinuation)
+              return at >= 0 ? prev.map((a, i) => (i === at ? row : a)) : [...prev, row]
+            })
+            setDurationTouched(false)
+            toast.success(
+              "Séance ajoutée — le traitement et son devis seront créés à l'enregistrement du rendez-vous.",
+            )
+          }}
+        />
+      )}
+
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>

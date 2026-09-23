@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
@@ -1156,7 +1157,15 @@ export function PatientRecordModal({
    * `billedOnPlan` and the sentence stays above the pile rather than disappearing.</p>
    */
   /** The act the treatment carries, when the séance has marked one — the card both notices belong to. */
-  const planActKey = useMemo(() => acts.find((a) => a.billedOnPlan)?.key ?? null, [acts])
+  // ⚠️ The LEAD act's card when several are carried (C4b) — the first carried card put the couronne's « étape 2
+  // sur 2 » and its 300 DT on a détartrage.
+  const planActKey = useMemo(() => {
+    const carried = acts.filter((a) => a.billedOnPlan)
+    const lead = billedPlanItem?.procedureTypeId
+      ? carried.find((a) => a.procedureTypeId === billedPlanItem.procedureTypeId)
+      : undefined
+    return (lead ?? carried[0])?.key ?? null
+  }, [acts, billedPlanItem])
 
   /**
    * The act `seanceStepLine` is about.
@@ -1281,6 +1290,27 @@ export function PatientRecordModal({
     if (!open || !billedPlanItem) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
   }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, dispatch])
+
+  /*
+   * C4b — the séance's OTHER acts of the same devis. Read from the saved fiche on a reopen (the DTO names every
+   * carried line) and from the booking on a new one. Without it they were marked as acts being ADDED: their price
+   * stayed editable and a price typed there was dropped by the server, which prices a carried act 0.
+   * Every carried line is passed, the lead included, so two crowns of which both are on the devis mark two cards.
+   */
+  const carriedProcedureIds = useMemo(() => {
+    if (!billedPlanItem) return [] as string[]
+    const itemIds = record
+      ? (record.treatmentPlanItemIds ?? [])
+      : (appointment?.procedures ?? []).map((row) => row.treatmentPlanItemId).filter((id): id is string => !!id)
+    return [...new Set(itemIds)]
+      .map((id) => planItems.find((p) => p.itemId === id && p.planId === billedPlanItem.planId)?.procedureTypeId)
+      .filter((id): id is string => !!id)
+  }, [billedPlanItem, record, appointment?.procedures, planItems])
+
+  useEffect(() => {
+    if (!open || carriedProcedureIds.length < 2) return
+    dispatch({ type: "markCarriedOnPlan", procedureTypeIds: carriedProcedureIds })
+  }, [open, carriedProcedureIds, acts, dispatch])
 
 
   const paidAmount = parseAmountInput(amountPaid) || 0
@@ -2886,7 +2916,20 @@ export function PatientRecordModal({
                         {formatDT(alreadyCollectedOnPlan)}
                       </span>{" "}
                       déjà encaissés sur cette séance · un encaissement ne se diminue pas ici : annulez le
-                      paiement sur l&apos;échéancier du devis
+                      paiement sur{" "}
+                      {/* H8: the remedy is one click away — in a new tab, so this fiche and its edits stay open. */}
+                      {billedPlanItem?.planId ? (
+                        <Link
+                          href={`/treatment-plans/${billedPlanItem.planId}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="underline underline-offset-2 hover:text-destructive/80"
+                        >
+                          l&apos;échéancier du devis{billedPlanItem.planNumber ? ` ${billedPlanItem.planNumber}` : ""}
+                        </Link>
+                      ) : (
+                        "l'échéancier du devis"
+                      )}
                     </span>
                   ) : (
                     /*

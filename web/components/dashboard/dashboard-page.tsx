@@ -169,7 +169,7 @@ function DashboardContent() {
     refetch: refetchStatusMix,
   } = useAppointmentStatusMix(statusWindow.from, statusWindow.to)
 
-  const { doctors, clinic } = useDoctors()
+  const { allDoctors, doctors, clinic } = useDoctors()
   const { data, loading, refetching, error, refetch } = useDashboard(
     period,
     moneyDoctorId === ALL_DOCTORS ? undefined : moneyDoctorId,
@@ -669,7 +669,7 @@ function DashboardContent() {
                * are the practice's operational state, and a filter at page level would look like it applied to them.
                * In the header it is unmistakably this card's.
                */
-              doctors.length > 1 ? (
+              allDoctors.length > 1 ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <Label htmlFor="money-doctor" className="text-xs font-medium text-muted-foreground">
                     Praticien
@@ -680,11 +680,12 @@ function DashboardContent() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={ALL_DOCTORS}>Tout le cabinet</SelectItem>
-                      {doctors
+                      {/* Past work: a retired practitioner stays filterable (I3). */}
+                      {allDoctors
                         .filter((d) => d.id)
                         .map((d) => (
                           <SelectItem key={d.id} value={d.id as string}>
-                            {d.name}
+                            {d.isActive === false ? `${d.name} (retiré)` : d.name}
                           </SelectItem>
                         ))}
                     </SelectContent>

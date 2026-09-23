@@ -207,8 +207,9 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                 <span className="text-sm font-medium">
                   {formatDateTime(billedVisit.appointmentDateTime)}
                 </span>
+                {/* J3: the visit's BOOKED act, said as such — the billed acts are the list just below. */}
                 {billedVisit.procedureTypeName && (
-                  <Badge variant="outline" className="text-xs">{billedVisit.procedureTypeName}</Badge>
+                  <Badge variant="outline" className="text-xs">Prévu : {billedVisit.procedureTypeName}</Badge>
                 )}
               </section>
             )}

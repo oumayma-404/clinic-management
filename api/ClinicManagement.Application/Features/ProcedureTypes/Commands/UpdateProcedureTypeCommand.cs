@@ -72,19 +72,22 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateProcedureTypeCommandHandler> _logger;
+    private readonly IRealtimeNotifier? _realtimeNotifier;
 
     public UpdateProcedureTypeCommandHandler(
         IProcedureTypeRepository procedureTypeRepository,
         IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
-        ILogger<UpdateProcedureTypeCommandHandler> logger)
+        ILogger<UpdateProcedureTypeCommandHandler> logger,
+        IRealtimeNotifier? realtimeNotifier = null)
     {
         _procedureTypeRepository = procedureTypeRepository;
         _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
+        _realtimeNotifier = realtimeNotifier;
     }
 
     public async Task<Result<ProcedureTypeDto>> Handle(UpdateProcedureTypeCommand request, CancellationToken cancellationToken)
@@ -122,7 +125,11 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 var nameExists = await _procedureTypeRepository.ExistsByNameAsync(request.Name, request.Id, cancellationToken);
                 if (nameExists)
                 {
-                    return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.DuplicateName(request.Name));
+                    var holder = await _procedureTypeRepository.GetByNameAsync(request.Name, cancellationToken);
+                    return holder is { IsActive: false } && holder.Id != request.Id
+                        ? Result<ProcedureTypeDto>.Failure(
+                            ProcedureTypeRefusals.ArchivedName(holder.Name), ProcedureTypeRefusals.ArchivedNameCode)
+                        : Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.DuplicateName(request.Name));
                 }
 
                 oldName = procedureType.Name;
@@ -222,6 +229,10 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 }
             }
 
+            // Band B — validated against the copy the USER was editing, not the row this handler just read — and set
+            // BEFORE anything is saved (I2): the act rides on the first save below, which used to run unchecked.
+            _unitOfWork.SetExpectedVersion(procedureType, request.Version);
+
             // Update all appointments that use this procedure type if name or color changed
             bool needsAppointmentUpdate = (request.Name != null && oldName != request.Name) || 
                                          (request.ColorHex != null && oldColorHex != request.ColorHex);
@@ -244,10 +255,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                             procedureType.Color.Value);
                         await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
                     }
-                    
-                    // Save appointment changes before saving procedure type
-                    await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    
+
                     _logger.LogInformation("Updated {Count} appointments using procedure type {ProcedureTypeId} (name: {NameChanged}, color: {ColorChanged})", 
                         appointmentList.Count, 
                         procedureType.Id,
@@ -256,11 +264,23 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 }
             }
 
-            // Band B — validated against the copy the USER was editing, not the row this handler just read.
-            _unitOfWork.SetExpectedVersion(procedureType, request.Version);
-
+            // One save: the act and the visits it re-snapshots commit together, under the version check above.
             await _procedureTypeRepository.UpdateAsync(procedureType, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // This command broadcasts « procedureTypes »; the agenda on other desks shows the snapshot too (I2).
+            if (needsAppointmentUpdate && _realtimeNotifier is not null)
+            {
+                try
+                {
+                    await _realtimeNotifier.NotifyEntityChangedAsync(
+                        clinicResult.Value, "appointments", cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Appointments broadcast skipped after renaming procedure type {Id}", procedureType.Id);
+                }
+            }
 
             _logger.LogInformation("Updated procedure type {ProcedureTypeId}", procedureType.Id);
 

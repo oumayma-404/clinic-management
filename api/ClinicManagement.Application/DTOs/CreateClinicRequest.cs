@@ -27,5 +27,7 @@ public class DoctorDto
     public string? CodeProfessionnelSante { get; set; } // CNAM provider code (prints on the bulletin)
     public string? OrdreNumberCnomdt { get; set; } // CNOMDT registration number (pre-filled on certificats/liaisons)
     public bool HasCachet { get; set; } // whether a cachet/signature image is on file (FR-3.1)
+    /// <summary>False for a retired practitioner (I3): off the pickers, still named on history. Ignored on a roster save.</summary>
+    public bool IsActive { get; set; } = true;
 }
 

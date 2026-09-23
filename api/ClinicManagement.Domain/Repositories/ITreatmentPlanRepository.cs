@@ -19,7 +19,21 @@ public sealed record RecallPlanFact(
     DateTime CreatedAt,
     DateTime? AcceptedDate,
     int TotalItems,
-    int DoneItems);
+    int DoneItems,
+    DateTime? LastWorkOn = null,
+    DateTime? NextStepDueFrom = null);
+
+/// <summary>
+/// One séance of a devis act, reduced to what « when is the next one due? » needs (H9) — read in one batch so a
+/// list asks <c>TreatmentPlanItem.NextStepDueFromSteps</c>, the devis' own rule, instead of re-deriving it.
+/// </summary>
+public sealed record PlanStepTimingRow(
+    Guid PlanId,
+    Guid ItemId,
+    TreatmentPlanItemStatus ItemStatus,
+    int SequenceNumber,
+    DateTime? DoneOn,
+    int? MinDaysAfterPrevious);
 
 /// <summary>
 /// One échéance-collection row behind the caisse statement — the plan side of <see cref="CaissePaymentRow"/>.
@@ -80,7 +94,13 @@ public sealed record DentalRecordPlanLinkRow(
     /// </summary>
     string? StepLabel,
     int? StepNumber,
-    int StepTotal);
+    int StepTotal,
+    /// <summary>
+    /// Every act of <b>this</b> devis the fiche carries, the lead one included (C4b). A séance can carry several
+    /// devis acts (C4), and with only the lead id a reopened fiche marked one card « sur le devis » and brought
+    /// « Payé », « Mode » and « Total » back for the others.
+    /// </summary>
+    IReadOnlyList<Guid>? CarriedItemIds = null);
 
 public sealed record CaisseInstallmentPaymentRow(
     Guid PaymentId,
@@ -244,6 +264,17 @@ public interface ITreatmentPlanRepository
     /// </summary>
     Task<IReadOnlyList<RecallPlanFact>> GetRecallPlanFactsAsync(
         Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many devis lines of this clinic name <paramref name="procedureTypeId"/> (I4) — the lines that would lose
+    /// their colour, duration, protocol and prefill if the act were deleted rather than archived.
+    /// </summary>
+    Task<int> CountItemsUsingProcedureTypeAsync(
+        Guid clinicId, Guid procedureTypeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Every séance of these plans' acts, with its date and interval — see <see cref="PlanStepTimingRow"/>.</summary>
+    Task<IReadOnlyList<PlanStepTimingRow>> GetStepTimingsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default);
 
     Task<int> CountByStatusAsync(
         Guid clinicId,

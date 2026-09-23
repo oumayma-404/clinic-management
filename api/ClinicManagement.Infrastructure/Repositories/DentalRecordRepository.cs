@@ -77,6 +77,28 @@ public class DentalRecordRepository : IDentalRecordRepository
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<(Guid DentalRecordId, string ProcedureName)>> GetActNamesAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> dentalRecordIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (dentalRecordIds.Count == 0)
+        {
+            return Array.Empty<(Guid, string)>();
+        }
+
+        var ids = dentalRecordIds as ICollection<Guid> ?? dentalRecordIds.ToList();
+
+        // `ClinicId` explicitly, for `GetTreatedTeethAsync`' reason: no global filter on this table.
+        var rows = await _context.DentalRecords
+            .Where(r => r.ClinicId == clinicId && ids.Contains(r.Id))
+            .SelectMany(r => r.Acts.Select(a => new { DentalRecordId = r.Id, a.ProcedureName }))
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => (r.DentalRecordId, r.ProcedureName)).ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<(Guid DentalRecordId, int ToothNumber)>> GetTreatedTeethAsync(
         Guid clinicId,
         IReadOnlyCollection<Guid> dentalRecordIds,

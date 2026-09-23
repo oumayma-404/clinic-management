@@ -485,19 +485,21 @@ function NextStepCell({ row }: { row: TreatmentInProgressDto }) {
       */}
       {row.nextStepLabel && <span className="text-sm">{row.nextStepLabel}</span>}
       <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
-        {Array.from({ length: row.stepsTotal }).map((_, i) => (
-          <span
-            key={i}
-            className={cn(
-              "size-2.5 flex-none rounded-full border-[1.5px]",
-              i < row.stepsDone
-                ? "border-success bg-success"
-                : i === row.stepsDone
-                  ? "border-dashed border-primary"
-                  : "border-border",
-            )}
-          />
-        ))}
+        {/* Each dot reads its OWN séance (H9): filling the first `stepsDone` claimed a préparation that never
+            happened when séance 2 was recorded first. The dashed one is the next séance, whichever it is. */}
+        {Array.from({ length: row.stepsTotal }).map((_, i) => {
+          const done = row.doneStepNumbers ? row.doneStepNumbers.includes(i + 1) : i < row.stepsDone
+          const next = (row.nextStepNumber ?? row.stepsDone + 1) === i + 1
+          return (
+            <span
+              key={i}
+              className={cn(
+                "size-2.5 flex-none rounded-full border-[1.5px]",
+                done ? "border-success bg-success" : next ? "border-dashed border-primary" : "border-border",
+              )}
+            />
+          )
+        })}
       </span>
       {/*
         ⚠️ « étape » is VISIBLE, not `sr-only`, and that word is the whole difference between two readings of

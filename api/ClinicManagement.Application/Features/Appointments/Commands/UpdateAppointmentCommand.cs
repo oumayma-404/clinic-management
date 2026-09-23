@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -239,11 +240,9 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
                 if (appointment.AppointmentDateTime != appointmentDateTime)
                 {
-                    // A cancelled/completed appointment cannot be rescheduled directly (the domain guards it).
-                    // If the caller is reactivating a cancelled appointment (status → Scheduled), un-cancel it
-                    // as part of the move; if it stays cancelled, skip the date change so editing other fields
-                    // (notes, doctor) doesn't 400 on the reschedule guard — e.g. when the sent start time
-                    // differs only by zeroed seconds. Completed appointments are never rescheduled here.
+                    // A cancelled appointment moves only by being reactivated (status → Scheduled). Left cancelled,
+                    // a date that differs only by zeroed seconds is ignored so editing notes or the doctor never
+                    // trips; a real move is refused by name — it used to be skipped and answered 200 (H1).
                     if (appointment.Status == AppointmentStatus.Cancelled)
                     {
                         var reactivating = !string.IsNullOrWhiteSpace(request.Status)
@@ -253,10 +252,26 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                         {
                             appointment.Reactivate(appointmentDateTime);
                         }
+                        else if (ToMinute(appointment.AppointmentDateTime) != ToMinute(appointmentDateTime))
+                        {
+                            return Result<AppointmentDto>.Failure(Appointment.CancelledCannotMoveMessage);
+                        }
                     }
-                    else if (appointment.Status != AppointmentStatus.Completed)
+                    else
                     {
-                        appointment.Reschedule(appointmentDateTime);
+                        // A « Terminé » visit moves too — it happened, its date was mistyped (H1) — but never
+                        // past today: a finished visit in the future is nonsense.
+                        if (appointment.Status == AppointmentStatus.Completed
+                            && appointmentDateTime > ClinicClock.LastTickOfLocalDayUtc(ClinicClock.ClinicToday()))
+                        {
+                            return Result<AppointmentDto>.Failure(
+                                "Un rendez-vous terminé ne peut pas être placé à une date future.");
+                        }
+
+                        appointment.Reschedule(
+                            appointmentDateTime,
+                            sameClinicDay: ClinicClock.ToClinicLocal(appointment.AppointmentDateTime).Date
+                                           == ClinicClock.ToClinicLocal(appointmentDateTime).Date);
                     }
                 }
             }
@@ -443,7 +458,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                             }
                             else
                             {
-                                appointment.Reschedule(appointment.AppointmentDateTime);
+                                appointment.Reschedule(appointment.AppointmentDateTime, sameClinicDay: true);
                             }
                             break;
                         case AppointmentStatus.InProgress:
@@ -592,7 +607,9 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                                       && appointment.Status == AppointmentStatus.Cancelled;
                 // A cancelled→scheduled reactivation calls Reactivate(sameDateTime); guarding on an actual
                 // date change means that no-op reactivation never emits a bogus "rescheduled" (plan R-3).
-                var dateChanged = appointment.AppointmentDateTime != oldDateTime;
+                // A « Terminé » visit redated is a correction (H1): no « déplacé » notice, no reminder re-enqueued.
+                var dateChanged = appointment.AppointmentDateTime != oldDateTime
+                                  && appointment.Status != AppointmentStatus.Completed;
                 // Reactivating a cancelled appointment: the cancel already deleted its reminder, so a
                 // same-date reactivation would otherwise be left with no ~24h reminder (a date-changed
                 // reactivation is covered by the reschedule branch, which recreates it).
@@ -705,6 +722,12 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
             return Result<AppointmentDto>.Success(dto);
         }
+        catch (InvalidOperationException ex) when (ex.TargetSite?.DeclaringType?.Assembly == typeof(Appointment).Assembly)
+        {
+            // J4: a domain refusal is already French and names the rule — « Veuillez réessayer » hid it.
+            _logger.LogInformation(ex, "Appointment {AppointmentId} update refused by the domain", request.Id);
+            return Result<AppointmentDto>.Failure(ex.Message);
+        }
         catch (Exception ex) when (ex is not ConflictException)
         {
             // AC-13.2: the detail moves to the log; the caller gets French guidance, never exception text.
@@ -712,6 +735,9 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             return Result<AppointmentDto>.Failure("Erreur lors de la modification du rendez-vous. Veuillez réessayer.");
         }
     }
+
+    private static DateTime ToMinute(DateTime value) =>
+        new(value.Ticks - value.Ticks % TimeSpan.TicksPerMinute, value.Kind);
 
     private static bool Overlaps(DateTime aStart, TimeSpan aDuration, DateTime bStart, TimeSpan bDuration) =>
         aStart < bStart + bDuration && bStart < aStart + aDuration;

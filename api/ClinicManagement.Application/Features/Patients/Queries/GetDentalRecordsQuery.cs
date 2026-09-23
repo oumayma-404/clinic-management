@@ -92,6 +92,7 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
                     // The act's own id, so a reopened fiche can re-establish « Acte planifié » — without it the
                     // séance reads as un-carried and its locked 0 is announced as a discount. See the DTO.
                     dto.TreatmentPlanItemId = link.TreatmentPlanItemId;
+                    dto.TreatmentPlanItemIds = link.CarriedItemIds ?? new[] { link.TreatmentPlanItemId };
                     dto.TreatmentActDesignation = link.ActDesignationFr;
                     dto.TreatmentStepLabel = link.StepLabel;
                     dto.TreatmentStepNumber = link.StepNumber;
@@ -119,6 +120,7 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
                 if (dto.TreatmentPlanId != row.TreatmentPlanId)
                 {
                     dto.TreatmentPlanItemId = null;
+                    dto.TreatmentPlanItemIds = Array.Empty<Guid>();
                 }
 
                 dto.TreatmentPlanId = row.TreatmentPlanId;

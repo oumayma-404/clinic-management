@@ -59,6 +59,11 @@ public class DoctorConfiguration : IEntityTypeConfiguration<Doctor>
 
         builder.Property(d => d.UpdatedAt);
 
+        // I3 — every existing row is a practitioner on the roster, so the column defaults to true.
+        builder.Property(d => d.IsActive)
+            .IsRequired()
+            .HasDefaultValue(true);
+
         builder.HasOne(d => d.Clinic)
             .WithMany()
             .HasForeignKey(d => d.ClinicId)

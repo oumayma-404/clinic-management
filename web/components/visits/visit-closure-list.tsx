@@ -25,6 +25,7 @@ import { NothingToBillDialog } from "./nothing-to-bill-dialog"
 import { DisregardVisitsDialog } from "./disregard-visits-dialog"
 import { visitClosureDayGroups, type VisitClosureDayGroup } from "./visit-closure-days"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { visitActsLine } from "@/components/appointment-labels"
 
 /**
  * « À clôturer » — the séances still owing a presence, a fiche or a money document.
@@ -268,9 +269,11 @@ export function VisitClosureList({
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           <div>{formatDateTime(visit.appointmentDateTime)}</div>
-                          {visit.procedures.length > 0 && (
-                            <div className="text-xs">{visit.procedures.join(" · ")}</div>
-                          )}
+                          {/* J3: what was DONE once the fiche exists, else what was booked — and says which. */}
+                          {(() => {
+                            const acts = visitActsLine(visit.procedures, visit.recordedProcedures)
+                            return acts ? <div className="text-xs">{acts.label} : {acts.text}</div> : null
+                          })()}
                           {/* The motif belongs in BOTH trees. It was rendered in the cards and nowhere here, so
                               a « Rien à facturer » visit explained itself on a phone and not at the desk. */}
                           {visit.nothingToBillReason && (
@@ -339,7 +342,10 @@ export function VisitClosureList({
                     status={(v) => <ClosureProgress visit={v} />}
                     fields={(v) => [
                       v.doctorName ? { label: "Praticien", value: v.doctorName } : null,
-                      v.procedures.length > 0 ? { label: "Actes", value: v.procedures.join(" · ") } : null,
+                      (() => {
+                        const acts = visitActsLine(v.procedures, v.recordedProcedures)
+                        return acts ? { label: acts.label, value: acts.text } : null
+                      })(),
                       v.nothingToBillReason
                         ? { label: "Rien à facturer", value: v.nothingToBillReason }
                         : null,

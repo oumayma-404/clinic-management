@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
+import { visitActsLine } from "@/components/appointment-labels"
 import type { PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto } from "@/lib/api/types"
 
 /**
@@ -414,11 +415,13 @@ function PairingNote({ line }: { line: PatientDebtLineDto }) {
 }
 
 /**
- * The acts a séance was booked for. Falls back to a statement rather than an empty cell — a booking with no
- * acts is a real state (a walk-in typed as « consultation »), not a missing value.
+ * The séance's acts — what its fiche RECORDED (« Réalisé »), which is what « Facturer » bills, else what it was
+ * booked for (« Prévu ») (J3). Falls back to a statement rather than an empty cell — a booking with no acts is a
+ * real state (a walk-in typed as « consultation »), not a missing value.
  */
 function actsOf(visit: VisitToCloseDto): string {
-  return visit.procedures.length > 0 ? visit.procedures.join(", ") : "Séance sans acte nommé"
+  const acts = visitActsLine(visit.procedures, visit.recordedProcedures)
+  return acts ? `${acts.label} : ${acts.text}` : "Séance sans acte nommé"
 }
 
 /**

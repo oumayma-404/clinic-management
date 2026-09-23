@@ -250,6 +250,8 @@ export interface VisitToCloseDto {
   doctorName?: string | null;
   /** The acts the séance was booked for. Empty for a booking with none — a real state, not a missing one. */
   procedures: string[];
+  /** The acts its fiche RECORDED once there is one (J3) — shown « Réalisé », the booked ones « Prévu ». */
+  recordedProcedures?: string[];
   /** The visit's own status, so a row can say « En cours » rather than only « à confirmer ». */
   status: string;
   presenceAnswered: boolean;
@@ -1111,6 +1113,8 @@ export interface TreatmentInProgressDto {
   planActCount: number;
   stepsTotal: number;
   stepsDone: number;
+  /** Which séances are done, 1-based (H9) — the dots read each séance, not the first `stepsDone` of them. */
+  doneStepNumbers?: number[];
   nextStepId: string | null;
   nextStepLabel: string | null;
   /** 1-based for display — « étape 3 sur 3 ». The stored rank is 0-based. */
@@ -1282,6 +1286,8 @@ export interface DentalRecordDto {
    * plan from the clinical link, so it never points at an act of another treatment.
    */
   treatmentPlanItemId?: string | null;
+  /** Every act of that devis this fiche carries, the lead included (C4b) — so a reopened fiche marks them all. */
+  treatmentPlanItemIds?: string[];
   /** The devis act this séance carries out — see `DentalRecordDto.TreatmentActDesignation`. */
   treatmentActDesignation?: string | null;
   /** The step it carried out, with its rank («  Pose de l'implant », 3 of 6). Null for an act booked whole. */

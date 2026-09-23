@@ -502,6 +502,13 @@ export type SessionAction =
    */
   | { type: "markAddToPlan"; enabled: boolean }
   /**
+   * The séance's OTHER acts of the same devis (C4b) — one entry per carried line, by procedure. A séance can carry
+   * several devis acts (C4) and `markBilledOnPlan` marks one card, so a reopened fiche treated the others as acts
+   * being ADDED: their price field stayed open, and a price typed there was dropped by the server, which prices a
+   * carried act 0. Marks one un-marked matching card per entry; returns the identical state when nothing moves.
+   */
+  | { type: "markCarriedOnPlan"; procedureTypeIds: string[] }
+  /**
    * « Aucun » — the séance carries no devis act after all, so every card let go by the devis gets its price back
    * (the catalogue tarif, unless one was typed). Without it the card kept « Aucun honoraire sur cette séance »
    * and saved the act at 0, so « Aucun » could not be used to bill the act normally.
@@ -933,6 +940,28 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         acts: state.acts.map((a, i) =>
           (i === index ? { ...a, billedOnPlan: true, addToPlan: false } : a)),
       }
+    }
+
+    case "markCarriedOnPlan": {
+      if (action.procedureTypeIds.length === 0) return state
+      const pending = [...action.procedureTypeIds]
+      // Cards already marked account for their entries first, so a re-dispatch marks nothing twice.
+      for (const a of state.acts) {
+        if (!a.billedOnPlan || a.procedureTypeId == null) continue
+        const at = pending.indexOf(a.procedureTypeId)
+        if (at >= 0) pending.splice(at, 1)
+      }
+      if (pending.length === 0) return state
+      let changed = false
+      const acts = state.acts.map((a) => {
+        if (a.billedOnPlan || a.procedureTypeId == null || !isActNamed(a)) return a
+        const at = pending.indexOf(a.procedureTypeId)
+        if (at < 0) return a
+        pending.splice(at, 1)
+        changed = true
+        return { ...a, billedOnPlan: true, addToPlan: false }
+      })
+      return changed ? { ...state, acts } : state
     }
 
     case "markAddToPlan": {

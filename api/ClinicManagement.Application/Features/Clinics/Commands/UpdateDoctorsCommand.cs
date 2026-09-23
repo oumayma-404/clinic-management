@@ -79,6 +79,8 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                         var lastName = doctorDto.LastName ?? (doctorDto.Name?.Split(' ', 2).Length > 1 ? doctorDto.Name.Split(' ', 2)[1] : "");
                         
                         existingDoctor.Update(firstName, lastName, doctorDto.Specialty, doctorDto.Phone, doctorDto.Email, doctorDto.CodeProfessionnelSante);
+                        // Sent back on the roster = on the roster: a retired practitioner put back keeps their history.
+                        existingDoctor.Reinstate();
                         _doctorRepository.Update(existingDoctor);
                         doctorIdsToKeep.Add(existingDoctor.Id);
                     }
@@ -122,11 +124,12 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                 }
             }
 
-            // Delete doctors that are no longer in the list
-            var doctorsToDelete = existingDoctors.Where(d => !doctorIdsToKeep.Contains(d.Id)).ToList();
-            foreach (var doctorToDelete in doctorsToDelete)
+            // Retire — never delete — the practitioners no longer on the roster (I3). Every FK to a doctor is
+            // SetNull, so a delete took « who did this » off every visit, fiche, note and devis they ever did.
+            foreach (var retired in existingDoctors.Where(d => !doctorIdsToKeep.Contains(d.Id)))
             {
-                _doctorRepository.Remove(doctorToDelete);
+                retired.Retire();
+                _doctorRepository.Update(retired);
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -142,7 +145,8 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                 Specialty = d.Specialty,
                 Phone = d.Phone,
                 Email = d.Email,
-                CodeProfessionnelSante = d.CodeProfessionnelSante
+                CodeProfessionnelSante = d.CodeProfessionnelSante,
+                IsActive = d.IsActive
             }).ToList();
 
             return Result<List<DoctorDto>>.Success(doctorDtos);

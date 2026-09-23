@@ -15,6 +15,8 @@ export interface DoctorDto {
   // certificat ordre (FR-2.5) from the current doctor's profile.
   ordreNumberCnomdt?: string | null;
   hasCachet?: boolean;
+  /** False once retired from the roster (I3): off every picker, still named on history. */
+  isActive?: boolean;
 }
 
 export interface UserStatusDto {

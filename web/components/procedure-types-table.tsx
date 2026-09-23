@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, MoreHorizontal } from "lucide-react"
+import { Stethoscope, Pencil, Trash2, Clock, Plus, Coins, ListPlus, Loader2, MoreHorizontal, RotateCcw } from "lucide-react"
 /*
   `_LG`, not the plain `md:` pair: the Catégorie column takes this table to **eight** columns, every cell
   `whitespace-nowrap`. An iPad portrait is 820px and therefore already `md:`, so it would get the desktop table
@@ -72,6 +72,9 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
   const [search, setSearch] = useState("")
   /** `ALL_CATEGORIES` rather than `""`, because Radix Select forbids an empty-string item value. */
   const [category, setCategory] = useState(ALL_CATEGORIES)
+  /** I1: archived acts are listed on demand, each with « Réactiver » — archiving used to be one-way. */
+  const [showArchived, setShowArchived] = useState(false)
+  const [reactivating, setReactivating] = useState<string | null>(null)
   /** Filter options: the canonical disciplines plus whatever this clinic uses (served, not hardcoded). */
   const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   // Bumped to refetch the current page after a create / edit / delete / seed.
@@ -89,10 +92,10 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
         page,
         pageSize,
         search,
-        includeInactive: false,
+        includeInactive: showArchived,
         category: category === ALL_CATEGORIES ? undefined : category,
       }),
-    [category],
+    [category, showArchived],
   )
 
   const {
@@ -108,7 +111,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
     fetchPage,
     search,
     // Changing the catégorie returns to page 1 (AC-22).
-    filters: [category],
+    filters: [category, showArchived],
     refreshKey: `${reloadKey}:${reloadToken}`,
   })
 
@@ -193,6 +196,21 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
       />
     )
 
+  const reactivate = async (procedure: ProcedureTypeDto) => {
+    try {
+      setReactivating(procedure.id)
+      await procedureTypesApi.activate(procedure.id)
+      await loadProcedures()
+      toast.success("Acte réactivé", {
+        description: `${quoteFr(procedure.name)} est de nouveau proposé dans l'agenda, les devis et les fiches.`,
+      })
+    } catch (err) {
+      showErrorToast(err, "Échec de la réactivation de l'acte.")
+    } finally {
+      setReactivating(null)
+    }
+  }
+
   const handleDelete = (procedure: ProcedureTypeDto) => {
     setProcedureToDelete(procedure)
     setDeleteDialogOpen(true)
@@ -228,7 +246,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
 
     try {
       setDeleting(true)
-      const { archived } = await procedureTypesApi.delete(procedureToDelete.id)
+      const { archived, futureAppointments, planLines } = await procedureTypesApi.delete(procedureToDelete.id)
       await loadProcedures() // Reload list
       setDeleteDialogOpen(false)
       /*
@@ -237,8 +255,13 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
        * dialog's (now corrected) wrong promise dangerous rather than merely sloppy.
        */
       if (archived) {
+        // I4: name what kept it — a devis line keeps it alive too, and the dialog used to mention visits only.
+        const uses = [
+          futureAppointments > 0 ? `${futureAppointments} rendez-vous à venir` : null,
+          planLines > 0 ? `${planLines} ligne${planLines > 1 ? "s" : ""} de devis` : null,
+        ].filter(Boolean).join(" et ")
         toast.success("Acte archivé", {
-          description: `${quoteFr(procedureToDelete.name)} est utilisé par un rendez-vous à venir : il a été désactivé plutôt que supprimé, et ce rendez-vous n'est pas modifié.`,
+          description: `${quoteFr(procedureToDelete.name)} est utilisé par ${uses || "un rendez-vous ou un devis"} : il a été archivé plutôt que supprimé, et rien n'est modifié. « Afficher les archivés » permet de le réactiver.`,
           duration: 8000,
         })
       } else {
@@ -341,6 +364,20 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                 </SelectContent>
               </Select>
             </div>
+            <div className="sm:w-52">
+              <Label htmlFor="procedure-types-archived" className="sr-only">
+                Actes archivés
+              </Label>
+              <Select value={showArchived ? "all" : "active"} onValueChange={(v) => setShowArchived(v === "all")}>
+                <SelectTrigger id="procedure-types-archived" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Actes actifs</SelectItem>
+                  <SelectItem value="all">Afficher les archivés</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {/* No `overflow-x-auto` here: `ui/table.tsx` already wraps its own table in one, so this was a second
               horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
@@ -359,7 +396,9 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
               // similarly-named acts apart, and it belongs at the top of the card with the name rather than
               // fourth in a list of values. `CardList` drops an empty status, so an unfiled act shows nothing.
               status={(p) =>
-                p.category ? (
+                !p.isActive ? (
+                  <Badge variant="outline" className="text-xs">Archivé</Badge>
+                ) : p.category ? (
                   // ⚠️ `min(10rem, 100%)` and not a bare `max-w-[10rem]`: a category is clinic-authored, the
                   // badge is `shrink-0`, and at 320 px the card gives this row ~149 px — so a flat 160 px cap
                   // painted « Chirurgie/Extraction » out through the card's right edge. The 10rem cap is still
@@ -401,12 +440,21 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onSelect={() => onEdit(p)}>Modifier</DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => setStepsTarget(p)}>Étapes</DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() => handleDelete(p)}
-                          >
-                            Supprimer
-                          </DropdownMenuItem>
+                          {p.isActive ? (
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => handleDelete(p)}
+                            >
+                              Supprimer
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              disabled={reactivating === p.id}
+                              onSelect={() => void reactivate(p)}
+                            >
+                              Réactiver
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )
@@ -475,6 +523,11 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                       </TableCell>
                       <TableCell className="font-medium text-foreground">
                         {procedure.name}
+                        {!procedure.isActive && (
+                          <Badge variant="outline" className="ml-2 text-xs font-normal">
+                            Archivé
+                          </Badge>
+                        )}
                         {/*
                           The act's protocol, under its own name — the same place and the same reading as
                           `PlanStepStrip` gives it on a devis, so the dentist recognises it in both. It stays
@@ -533,15 +586,28 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                               <Pencil className="h-3 w-3" />
                               Modifier
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(procedure)}
-                              className="h-8 gap-1 text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              Supprimer
-                            </Button>
+                            {procedure.isActive ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(procedure)}
+                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Supprimer
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void reactivate(procedure)}
+                                disabled={reactivating === procedure.id}
+                                className="h-8 gap-1"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                Réactiver
+                              </Button>
+                            )}
                           </div>
                         )}
                       </TableCell>
@@ -589,9 +655,9 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
               */}
               Le type d'acte <span className="font-semibold">{procedureToDelete?.name}</span> sera{" "}
               <span className="font-semibold">supprimé définitivement</span> s'il n'est utilisé par aucun
-              rendez-vous à venir. S'il l'est, il sera <span className="font-semibold">archivé</span> à la place et
-              ces rendez-vous ne sont pas modifiés. Les fiches de soins déjà enregistrées ne changent pas dans les
-              deux cas.
+              rendez-vous à venir ni aucun devis. S'il l'est, il sera <span className="font-semibold">archivé</span>{" "}
+              à la place et rien n'est modifié ; vous pourrez le réactiver. Les fiches de soins déjà enregistrées ne
+              changent pas dans les deux cas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -160,7 +160,24 @@ public class ProcedureTypesController : ApiControllerBase
         // the act, or deleted permanently — are decided server-side from usage, and the screen has no way to know
         // which happened: the row simply vanished either way, so a permanent delete was indistinguishable from a
         // deactivation on the one action that cannot be undone.
-        return Ok(new { archived = result.Value });
+        return Ok(new
+        {
+            archived = result.Value.Archived,
+            futureAppointments = result.Value.FutureAppointments,
+            planLines = result.Value.PlanLines,
+        });
+    }
+
+    /// <summary>
+    /// Bring an archived act back (I1). A separate route rather than a flag on the DELETE, so the inverse of an
+    /// archive is a thing a client can point at — the dental-acts catalogue's shape.
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [HttpPost("{id}/activate")]
+    public async Task<IActionResult> ReactivateProcedureType(Guid id)
+    {
+        var result = await _mediator.Send(new ReactivateProcedureTypeCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : NoContent();
     }
 
     /// <summary>

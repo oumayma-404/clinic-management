@@ -174,6 +174,16 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                     .OrderBy(s => s.SequenceNumber)
                     .Select(s => s.MinDaysAfterPrevious)
                     .FirstOrDefault()
+            let nextSequence = item.Steps.Where(s => s.DoneDate == null)
+                    .OrderBy(s => s.SequenceNumber)
+                    .Select(s => (int?)s.SequenceNumber)
+                    .FirstOrDefault()
+            // H9: the séance BEFORE the next one in the protocol — `TreatmentPlanItem.NextStepDueFromSteps`' rule —
+            // never the latest date: a séance 2 done first says nothing about when séance 1 is due.
+            let previousDoneOn = item.Steps.Where(s => s.DoneDate != null && s.SequenceNumber < nextSequence)
+                    .OrderByDescending(s => s.SequenceNumber)
+                    .Select(s => s.DoneDate)
+                    .FirstOrDefault()
             where plan.ClinicId == clinicId
                   && liveStatuses.Contains(plan.Status)
                   /*
@@ -224,8 +234,8 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             orderby
                 nextSeanceOn != null,
                 (nextSeanceOn
-                 ?? (lastDoneOn != null && nextMinDays != null
-                        ? lastDoneOn.Value.AddDays(nextMinDays.Value)
+                 ?? (previousDoneOn != null && nextMinDays != null
+                        ? previousDoneOn.Value.AddDays(nextMinDays.Value)
                         : lastDoneOn)
                  ?? todayUtc),
                 // The act's rank inside its plan, so a plan's acts stay in protocol order when they tie…
@@ -386,14 +396,62 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                 p.CreatedAt,
                 p.AcceptedDate,
                 TotalItems = p.Items.Count,
-                DoneItems = p.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done)
+                DoneItems = p.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done),
+                // H9: the last work actually delivered — a stall counts from here, never from the signature.
+                LastItemDoneOn = p.Items
+                    .Where(i => i.Status != TreatmentPlanItemStatus.Withdrawn)
+                    .Max(i => i.DoneDate),
+                LastStepDoneOn = p.Items
+                    .Where(i => i.Status != TreatmentPlanItemStatus.Withdrawn)
+                    .SelectMany(i => i.Steps)
+                    .Max(s => s.DoneDate),
             })
             .ToListAsync(cancellationToken);
 
+        // The protocol's own due date for each plan's next séance — the devis' rule, over one batched read.
+        var dueByPlan = (await GetStepTimingsAsync(clinicId, rows.Select(r => r.PlanId).ToList(), cancellationToken))
+            .Where(s => s.ItemStatus is not (TreatmentPlanItemStatus.Done or TreatmentPlanItemStatus.Withdrawn))
+            .GroupBy(s => (s.PlanId, s.ItemId))
+            .Select(g => (g.Key.PlanId, Due: TreatmentPlanItem.NextStepDueFromSteps(g.Select(s =>
+                new TreatmentPlanItem.StepTiming(s.SequenceNumber, s.DoneOn, s.MinDaysAfterPrevious)))))
+            .Where(x => x.Due.HasValue)
+            .GroupBy(x => x.PlanId)
+            .ToDictionary(g => g.Key, g => g.Min(x => x.Due!.Value));
+
         return rows
             .Select(r => new RecallPlanFact(
-                r.PatientId, r.PlanId, r.Number, r.Status, r.CreatedAt, r.AcceptedDate, r.TotalItems, r.DoneItems))
+                r.PatientId, r.PlanId, r.Number, r.Status, r.CreatedAt, r.AcceptedDate, r.TotalItems, r.DoneItems,
+                LastWorkOn: Later(r.LastItemDoneOn, r.LastStepDoneOn),
+                NextStepDueFrom: dueByPlan.TryGetValue(r.PlanId, out var due) ? due : null))
             .ToList();
+
+        static DateTime? Later(DateTime? a, DateTime? b) => a is null ? b : b is null ? a : a > b ? a : b;
+    }
+
+    public async Task<int> CountItemsUsingProcedureTypeAsync(
+        Guid clinicId, Guid procedureTypeId, CancellationToken cancellationToken = default) =>
+        await (from item in _context.Set<TreatmentPlanItem>()
+               join plan in _context.TreatmentPlans on item.TreatmentPlanId equals plan.Id
+               where plan.ClinicId == clinicId && item.ProcedureTypeId == procedureTypeId
+               select item.Id)
+            .CountAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<PlanStepTimingRow>> GetStepTimingsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default)
+    {
+        if (planIds.Count == 0)
+        {
+            return Array.Empty<PlanStepTimingRow>();
+        }
+
+        return await (
+                from step in _context.Set<TreatmentPlanItemStep>()
+                join item in _context.Set<TreatmentPlanItem>() on step.TreatmentPlanItemId equals item.Id
+                join plan in _context.TreatmentPlans on item.TreatmentPlanId equals plan.Id
+                where plan.ClinicId == clinicId && planIds.Contains(plan.Id)
+                select new PlanStepTimingRow(
+                    plan.Id, item.Id, item.Status, step.SequenceNumber, step.DoneDate, step.MinDaysAfterPrevious))
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<int> CountByStatusAsync(
@@ -476,7 +534,8 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                         // `plan-step-sequence-dense`); +1 so the row can read « étape 3 / 6 » the way the rest
                         // of the feature counts.
                         s.SequenceNumber + 1,
-                        item.Steps.Count))))
+                        item.Steps.Count,
+                        null))))
             .ToListAsync(cancellationToken);
 
         var actLinks = await _context.TreatmentPlans
@@ -487,7 +546,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                                && ids.Contains(item.LinkedDentalRecordId!.Value))
                 .Select(item => new DentalRecordPlanLinkRow(
                     item.LinkedDentalRecordId!.Value, plan.Id, item.Id, plan.Number,
-                    item.DesignationFr, null, null, item.Steps.Count)))
+                    item.DesignationFr, null, null, item.Steps.Count, null)))
             .ToListAsync(cancellationToken);
 
         // One row per fiche. A fiche recording séances of two different treatments is possible and rare; the
@@ -495,7 +554,17 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         return stepLinks
             .Concat(actLinks)
             .GroupBy(r => r.DentalRecordId)
-            .Select(g => g.First())
+            .Select(g =>
+            {
+                var lead = g.First();
+                return lead with
+                {
+                    CarriedItemIds = g.Where(r => r.TreatmentPlanId == lead.TreatmentPlanId)
+                        .Select(r => r.TreatmentPlanItemId)
+                        .Distinct()
+                        .ToList(),
+                };
+            })
             .ToList();
     }
 

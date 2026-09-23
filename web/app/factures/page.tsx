@@ -91,7 +91,7 @@ function FacturesContent() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   // The clinic roster, for the L9 practitioner filter. The hook already resolves the caller's own doctor.
-  const { doctors } = useDoctors()
+  const { allDoctors, doctors } = useDoctors()
   const [status, setStatus] = useState<string>(ALL_STATUSES)
   // L9 — the practitioner filter. `ALL_DOCTORS` rather than "" because a Radix Select cannot hold an empty value.
   const [doctorId, setDoctorId] = useState<string>(ALL_DOCTORS)
@@ -301,7 +301,7 @@ function FacturesContent() {
               single-dentist case (the common Tunisian one) it would be a control with exactly one meaningful value,
               and « filtrer par praticien » on a solo practice reads as a feature that is broken.
             */}
-            {doctors.length > 1 && (
+            {allDoctors.length > 1 && (
               <div className="space-y-1.5">
                 <Label htmlFor="doctor">Praticien</Label>
                 <Select value={doctorId} onValueChange={setDoctorId}>
@@ -310,11 +310,12 @@ function FacturesContent() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL_DOCTORS}>Tous</SelectItem>
-                    {doctors
+                    {/* Past work: a retired practitioner stays filterable (I3). */}
+                    {allDoctors
                       .filter((d) => d.id)
                       .map((d) => (
                         <SelectItem key={d.id} value={d.id as string}>
-                          {d.name}
+                          {d.isActive === false ? `${d.name} (retiré)` : d.name}
                         </SelectItem>
                       ))}
                   </SelectContent>
