@@ -446,6 +446,12 @@ export type SessionAction =
    * the hydration path, which is where this family of bug always reappears.
    */
   | { type: "markBilledOnPlan"; procedureTypeId: string | null }
+  /**
+   * « Aucun » — the séance carries no devis act after all, so every card let go by the devis gets its price back
+   * (the catalogue tarif, unless one was typed). Without it the card kept « Aucun honoraire sur cette séance »
+   * and saved the act at 0, so « Aucun » could not be used to bill the act normally.
+   */
+  | { type: "releaseBilledOnPlan"; procedureTypes: ProcedureTypeDto[] }
 
 /**
  * Load a persisted act back into the editor. The pricing intent is read from the stored provenance and is
@@ -853,8 +859,33 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const target = action.procedureTypeId
       const match = (a: SessionAct) =>
         target != null ? a.procedureTypeId === target : state.acts.filter(isActNamed).length === 1
-      if (!state.acts.some((a) => match(a) && !a.billedOnPlan)) return state
-      return { ...state, acts: state.acts.map((a) => (match(a) ? { ...a, billedOnPlan: true } : a)) }
+      /*
+       * ⚠️ ONE card, the first match — never every act sharing the procedure. A devis line is one act, and
+       * `PlanCarriedActPricing` zeroes exactly one server-side: marking both crowns of a day where one is on a
+       * devis hid the second one's price, took it out of « Total », and left its stored cost in the séance.
+       */
+      if (state.acts.some((a) => match(a) && a.billedOnPlan)) return state
+      const index = state.acts.findIndex(match)
+      if (index < 0) return state
+      return {
+        ...state,
+        acts: state.acts.map((a, i) => (i === index ? { ...a, billedOnPlan: true } : a)),
+      }
+    }
+
+    case "releaseBilledOnPlan": {
+      if (!state.acts.some((a) => a.billedOnPlan)) return state
+      return {
+        ...state,
+        acts: state.acts.map((a) => {
+          if (!a.billedOnPlan) return a
+          const released: SessionAct = {
+            ...a, billedOnPlan: false, unitCost: "", unitCostLocked: false, perToothLocked: false,
+          }
+          const pt = action.procedureTypes.find((p) => p.id === a.procedureTypeId)
+          return pt ? applyProcedure(released, pt) : released
+        }),
+      }
     }
 
     default:

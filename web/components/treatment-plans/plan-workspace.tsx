@@ -296,6 +296,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [patientQuery, setPatientQuery] = useState("")
   const [patientResults, setPatientResults] = useState<PatientDto[] | null>(null)
   const [patientDraft, setPatientDraft] = useState<PatientDto | null>(null)
+  /** What cancelling or deleting does to the séances already booked on this plan — null when none is. */
+  const bookedVisitCount = new Set(plan.items.map((i) => i.scheduledAppointmentId).filter(Boolean)).size
+  const bookedVisitsNotice =
+    bookedVisitCount === 0
+      ? null
+      : bookedVisitCount === 1
+        ? "Le rendez-vous prévu sera libéré."
+        : `Les ${bookedVisitCount} rendez-vous prévus seront libérés.`
   /** « Supprimer le traitement » — a followed treatment nothing has been recorded on. See `canDelete`. */
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
@@ -2506,6 +2514,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
               {planLabel} sera supprimé, avec ses actes et ses séances à planifier. Aucun numéro de devis
               n&apos;a été consommé, donc rien ne manquera dans la numérotation — et aucune séance n&apos;a été
               réalisée, donc aucune fiche de soins n&apos;est touchée. Cette action est irréversible.
+              {bookedVisitsNotice && <span className="text-warning-ink"> {bookedVisitsNotice}</span>}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2859,7 +2868,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 <>
                   {" "}
                   <span className="text-warning-ink">
-                    Un rendez-vous est réservé pour cet acte&nbsp;: il reste à annuler dans l&apos;agenda.
+                    Le rendez-vous prévu pour cet acte sera libéré.
                   </span>
                 </>
               )}
@@ -3249,6 +3258,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   */}
                   Le numéro, lui, est définitif ; le devis peut être remis en service par « Rétablir ce devis
                   annulé », avec un motif.
+                  {bookedVisitsNotice && <span className="text-warning-ink"> {bookedVisitsNotice}</span>}
                 </>
               ) : (
                 <>
@@ -3313,10 +3323,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                         <li key={i.id} className="flex items-baseline justify-between gap-3">
                           <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                             {i.designationFr}
-                            {/* A booked séance is the commonest abandon shape, and the dialog is where it has
-                                to be said: the appointment is not cancelled by stopping the treatment. */}
+                            {/* Stopping now lets a parked act's booked séance go (`PlanBookingRelease`), the way
+                                parking one act always did — so the dialog says what happens, not a chore. */}
                             {i.scheduledAppointmentId && (
-                              <span className="text-warning-ink"> · un rendez-vous reste à annuler</span>
+                              <span className="text-warning-ink"> · son rendez-vous sera libéré</span>
                             )}
                           </span>
                           <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">

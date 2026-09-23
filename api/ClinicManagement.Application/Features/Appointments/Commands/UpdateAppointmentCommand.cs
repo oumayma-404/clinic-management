@@ -310,12 +310,19 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             // immediately collapse the list it just set.
             if (request.ProceduresSpecified)
             {
-                var requestedProcedures = request.Procedures ?? new List<AppointmentProcedureRequest>();
+                // The links the visit already carries are repaired against what their devis became (a deleted
+                // step or line is dropped, a missing plan id derived) and are then exempt from the « still
+                // bookable? » checks — re-saving a visit must never be refused for what it was booked on.
+                var heldItemIds = appointment.LinkedTreatmentPlanItemIds;
+                var (requestedProcedures, planId) = await AppointmentPlanLink.RepairHeldLinksAsync(
+                    _treatmentPlanRepository, request.Procedures ?? new List<AppointmentProcedureRequest>(),
+                    request.TreatmentPlanId, heldItemIds, clinicResult.Value, appointment.PatientId,
+                    cancellationToken);
 
                 var linkResult = await AppointmentPlanLink.ValidateManyAsync(
-                    _treatmentPlanRepository, request.TreatmentPlanId,
+                    _treatmentPlanRepository, planId,
                     AppointmentProcedureSelection.PlanLinks(requestedProcedures),
-                    clinicResult.Value, appointment.PatientId, cancellationToken);
+                    clinicResult.Value, appointment.PatientId, cancellationToken, heldItemIds);
                 if (linkResult.IsFailure)
                 {
                     return Result<AppointmentDto>.Failure(linkResult.Error!);
@@ -323,7 +330,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
 
                 var proceduresResult = await AppointmentProcedureSelection.ResolveAsync(
                     _procedureTypeRepository, clinicResult.Value, requestedProcedures,
-                    linkResult.Value!, cancellationToken);
+                    linkResult.Value!, cancellationToken, appointment.Procedures);
                 if (proceduresResult.IsFailure)
                 {
                     return Result<AppointmentDto>.Failure(proceduresResult.Error!);

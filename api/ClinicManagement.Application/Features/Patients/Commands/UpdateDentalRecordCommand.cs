@@ -8,6 +8,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Patients;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
@@ -341,6 +342,53 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // end state is legitimate only once the act is finished, and only the aggregate can say whether the
             // step just marked was the last one. See `ToothChartingRules`. The two commands must keep the same
             // order: a re-save that charted early would put back exactly what the create path now withholds.
+            /*
+             * ⚠️ **« Aucun », or another devis act, must really let go of the one this fiche evidenced.** The save
+             * only ever ADDED links, so choosing « Aucun » (or switching act A → B) left A « réalisé » against this
+             * fiche: the devis claimed work nobody did, and the next reopen picked A again. Released here, before
+             * the new link is made, through the aggregate's own un-mark.
+             *
+             * An act is released when the fiche no longer names it AND either names no devis act at all (the
+             * dentist said « Aucun ») or no longer carries that act's procedure — so a séance that genuinely did
+             * two devis acts keeps the first while the second is being attached.
+             */
+            var ficheProcedures = dentalRecord.Acts
+                .Where(a => a.ProcedureTypeId.HasValue)
+                .Select(a => a.ProcedureTypeId!.Value)
+                .ToHashSet();
+            var holding = await _treatmentPlanRepository.GetByLinkedDentalRecordAsync(
+                clinicResult.Value, dentalRecord.Id, cancellationToken) ?? Array.Empty<TreatmentPlan>();
+            var releasedItemIds = new List<Guid>();
+            foreach (var heldPlan in holding)
+            {
+                var releasedAny = false;
+                foreach (var heldItem in heldPlan.Items
+                             .Where(i => i.Id != request.TreatmentPlanItemId
+                                         && (i.LinkedDentalRecordId == dentalRecord.Id
+                                             || i.Steps.Any(st => st.LinkedDentalRecordId == dentalRecord.Id)))
+                             .ToList())
+                {
+                    var stillOnTheFiche = heldItem.ProcedureTypeId.HasValue
+                                          && ficheProcedures.Contains(heldItem.ProcedureTypeId.Value);
+                    if (request.TreatmentPlanItemId.HasValue && stillOnTheFiche)
+                    {
+                        continue;
+                    }
+                    if (heldPlan.ReleaseDentalRecordFor(heldItem.Id, dentalRecord.Id) > 0)
+                    {
+                        releasedAny = true;
+                        releasedItemIds.Add(heldItem.Id);
+                    }
+                }
+                if (releasedAny)
+                {
+                    await _treatmentPlanRepository.UpdateAsync(heldPlan, cancellationToken);
+                }
+            }
+            await TreatmentPlans.PlanBookingRelease.DetachVisitAsync(
+                dentalRecord.AppointmentId, releasedItemIds, clinicResult.Value, _appointmentRepository,
+                cancellationToken);
+
             DentalRecordLinker.PlanActLink? planLink = null;
             if (request.TreatmentPlanItemId.HasValue)
             {

@@ -345,16 +345,23 @@ export function CreateAppointmentDialog({
    *
    * ⚠️ Without this the row survives the switch and the save creates the FIRST patient's devis, then has the
    * booking refused because the plan is not the second patient's — the orphan this whole change removes,
-   * through the one door still open to it. The pending row is the only one keyed to a patient's own record;
-   * a devis act picked from « Actes du devis » has the same weakness and is not this change's to fix.
+   * through the one door still open to it. A devis act picked from « Actes du devis » is the other row keyed to
+   * a patient's own record, and it goes too: kept, the save was refused « Plan de traitement introuvable » for
+   * a devis the new patient does not have. So does the plan memo, which is keyed on the act and not the patient.
    */
   const continuationPatientRef = useRef(selectedPatientId)
   useEffect(() => {
     if (continuationPatientRef.current === selectedPatientId) return
     continuationPatientRef.current = selectedPatientId
+    // A fixed patient is being SEEDED, not changed — its preset devis acts are the booking.
+    if (patientIsFixed) return
+    createdPlansRef.current = new Map()
     setSelectedActs((prev) =>
-      prev.some((a) => a.pendingContinuation) ? prev.filter((a) => !a.pendingContinuation) : prev,
+      prev.some((a) => a.pendingContinuation || a.treatmentPlanItemId)
+        ? prev.filter((a) => !a.pendingContinuation && !a.treatmentPlanItemId)
+        : prev,
     )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPatientId])
 
   /**

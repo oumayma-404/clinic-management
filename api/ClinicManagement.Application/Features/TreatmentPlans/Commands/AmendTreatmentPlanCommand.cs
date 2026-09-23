@@ -177,6 +177,11 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
             // line being removed in the same amendment cannot fight over the same id.
             if (request.UpdateItems.Count > 0)
             {
+                // Read before the edit: which act each line was, and which séances it had — so a visit booked on
+                // a line whose act changed follows it, and one booked on a séance this edit removes lets it go.
+                var actBefore = plan.Items.ToDictionary(i => i.Id, i => i.ProcedureTypeId);
+                var stepsBefore = plan.Items.ToDictionary(i => i.Id, i => i.Steps.Select(st => st.Id).ToList());
+
                 var edits = await TreatmentPlanItemPricing.ResolveWithIdsAsync(
                     request.UpdateItems, clinicId, _procedureTypeRepository, cancellationToken);
                 plan.UpdateItems(edits);
@@ -198,6 +203,28 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
                         line.Id!.Value,
                         line.Steps!.Select(s => new TreatmentPlanItemStepInput(
                             s.Id, s.Label, s.EstimatedDurationMinutes, s.MinDaysAfterPrevious)));
+                }
+
+                foreach (var item in plan.Items.Where(i => stepsBefore.ContainsKey(i.Id)))
+                {
+                    var after = item.Steps.Select(st => st.Id).ToHashSet();
+                    await PlanBookingRelease.ReleaseStepsAsync(
+                        item.Id, stepsBefore[item.Id].Where(id => !after.Contains(id)).ToList(),
+                        clinicId, _appointmentRepository, cancellationToken);
+
+                    // ⚠️ The devis line now names another act: its booked visit follows, or it kept the old
+                    // act's name, colour and length — and the fiche prefilled from it was refused as « not the
+                    // devis act ».
+                    if (item.ProcedureTypeId != actBefore[item.Id] && item.ProcedureTypeId.HasValue)
+                    {
+                        var procedureType = await _procedureTypeRepository.GetByIdAsync(
+                            item.ProcedureTypeId.Value, cancellationToken);
+                        if (procedureType != null && procedureType.ClinicId == clinicId)
+                        {
+                            await PlanBookingRelease.FollowActChangeAsync(
+                                item.Id, procedureType, clinicId, _appointmentRepository, cancellationToken);
+                        }
+                    }
                 }
             }
 

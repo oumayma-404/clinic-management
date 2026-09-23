@@ -321,6 +321,12 @@ export function PatientRecordModal({
   const [catalogFailed, setCatalogFailed] = useState(false)
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
+  /**
+   * Which séance of the linked act this NEW fiche records, when no booked visit says so. Without it a walk-in
+   * fiche could only ever close the next pending séance, so a dentist doing séance 2 before séance 1 could not
+   * record it. Null = the server's own default (the next pending one).
+   */
+  const [chosenStepId, setChosenStepId] = useState<string | null>(null)
   /** Which record's stored devis link has already been hydrated into the Select — see the effect below. */
   const hydratedPlanLinkRef = useRef<string | null>(null)
   // Only « Notes de séance » folds now. The acts are the point of this dialog and are always open — the old
@@ -625,6 +631,7 @@ export function PatientRecordModal({
     if (!open) return
     setPatientName(initialPatientName)
     setLinkedPlanItemId(NO_PLAN_ITEM)
+    setChosenStepId(null)
     // A fresh open starts from the fiche's stored devis link again, whatever the last session chose.
     hydratedPlanLinkRef.current = null
     // Back to the seed: an arch the user picked for the *previous* fiche must not decide this one's.
@@ -1028,7 +1035,10 @@ export function PatientRecordModal({
   // Linking a plan step carries its designation / cost / teeth into the first act, so the dentist does not
   // retype what the plan already knows. Only an untouched séance is prefilled.
   const handlePlanItemLink = (value: string) => {
+    // Any change of devis act first lets the previous one go — its card had the devis' locked 0.
+    if (value !== linkedPlanItemId) dispatch({ type: "releaseBilledOnPlan", procedureTypes })
     setLinkedPlanItemId(value)
+    setChosenStepId(null)
     if (value === NO_PLAN_ITEM) return
     const item = planItems.find((p) => p.itemId === value)
     if (!item) return
@@ -1107,15 +1117,32 @@ export function PatientRecordModal({
         .map((row) => row.treatmentPlanItemStepId as string),
     )
     const named = steps.filter((s) => booked.has(s.id))
+    const chosen = chosenStepId ? steps.filter((s) => s.id === chosenStepId) : []
     // The server's own fallback, not a guess: with no step on the booked row it advances `NextStep`.
     const target =
-      named.length > 0 ? named : steps.filter((s) => !s.doneDate).slice(0, 1)
+      named.length > 0 ? named : chosen.length > 0 ? chosen : steps.filter((s) => !s.doneDate).slice(0, 1)
     if (target.length === 0) return null
 
     const ordered = [...target].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
     const ranks = joinFr(ordered.map((s) => String(s.sequenceNumber + 1)))
     const rank = `étape${ordered.length > 1 ? "s" : ""} ${ranks} sur ${steps.length}`
     return `Cette séance : ${rank} · ${joinFr(ordered.map((s) => s.label))}`
+  }, [record, billedPlanItem, appointment?.procedures, chosenStepId])
+
+  /**
+   * The séances a new fiche may be recorded against when no booked visit names one — every séance not yet
+   * carried out, in protocol order. Empty (so no picker) on a reopened fiche, on an act with one séance, and
+   * whenever the booked visit already says which séance this is.
+   */
+  const pickableSteps = useMemo(() => {
+    if (record || !billedPlanItem) return []
+    const steps = billedPlanItem.steps ?? []
+    if (steps.length <= 1) return []
+    const bookedHere = (appointment?.procedures ?? []).some(
+      (row) => row.treatmentPlanItemId === billedPlanItem.itemId && row.treatmentPlanItemStepId,
+    )
+    if (bookedHere) return []
+    return steps.filter((st) => !st.doneDate).sort((a, b) => a.sequenceNumber - b.sequenceNumber)
   }, [record, billedPlanItem, appointment?.procedures])
 
   /**
@@ -1240,9 +1267,14 @@ export function PatientRecordModal({
   const recordCarriesPlanItem =
     billedPlanItem != null && record?.treatmentPlanItemId === billedPlanItem.itemId
 
+  /*
+   * ⚠️ The dentist's own pick is a third source, and it was missing: linking an act by hand to a card that
+   * already held that act skips the prefill, so the card kept its tarif, the button read « Enregistrer — X DT »
+   * and the server then saved 0. Whoever says so — the booking, the record, or the dentist — the séance
+   * carries this devis act, so its card is marked.
+   */
   useEffect(() => {
     if (!open || !billedPlanItem) return
-    if (!carriedByAppointment && !recordCarriesPlanItem) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
   }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, dispatch])
 
@@ -1570,7 +1602,8 @@ export function PatientRecordModal({
          */
         treatmentPlanItemStepId:
           appointment?.procedures?.find((p) => p.treatmentPlanItemId === linkedItem?.itemId)
-            ?.treatmentPlanItemStepId ?? null,
+            ?.treatmentPlanItemStepId
+          ?? (chosenStepId && pickableSteps.some((st) => st.id === chosenStepId) ? chosenStepId : null),
         // Only carried on create — links the new record to the appointment it documents (closes the prompt).
         appointmentId: appointmentId ?? null,
         /*
@@ -1937,6 +1970,27 @@ export function PatientRecordModal({
                   {planItems.map((p) => (
                     <SelectItem key={p.itemId} value={p.itemId}>
                       {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {pickableSteps.length > 1 && (
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="plan-item-step">Séance</Label>
+              <Select
+                value={chosenStepId ?? pickableSteps[0].id}
+                onValueChange={setChosenStepId}
+                disabled={loading}
+              >
+                <SelectTrigger id="plan-item-step" className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {pickableSteps.map((st) => (
+                    <SelectItem key={st.id} value={st.id}>
+                      {`${st.sequenceNumber + 1}. ${st.label}`}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -29,6 +29,16 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
+    public async Task<TreatmentPlan?> GetByItemIdAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return await _context.TreatmentPlans
+            .Include(p => p.Items)
+                .ThenInclude(i => i.Steps)
+            .Include(p => p.Installments)
+            .ThenInclude(i => i.Payments)
+            .FirstOrDefaultAsync(p => p.Items.Any(i => i.Id == itemId), cancellationToken);
+    }
+
     public async Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordAsync(
         Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
     {
@@ -157,6 +167,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                                 join appt in _context.Appointments on ap.AppointmentId equals appt.Id
                                 where ap.TreatmentPlanItemStepId == nextStepId
                                       && liveAppointmentStatuses.Contains(appt.Status)
+                                      && appt.DisregardedAtUtc == null
                                 select (DateTime?)appt.AppointmentDateTime).Min()
             let lastDoneOn = item.Steps.Where(s => s.DoneDate != null).Max(s => s.DoneDate)
             let nextMinDays = item.Steps.Where(s => s.DoneDate == null)

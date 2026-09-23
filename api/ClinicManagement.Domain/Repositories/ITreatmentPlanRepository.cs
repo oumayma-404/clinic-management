@@ -112,6 +112,12 @@ public interface ITreatmentPlanRepository
     Task<TreatmentPlan?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The plan holding this act, loaded like <see cref="GetByIdAsync"/>. For a caller that holds an act id and no
+    /// plan id — an appointment edit re-sending the link it was booked with.
+    /// </summary>
+    Task<TreatmentPlan?> GetByItemIdAsync(Guid itemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every plan in the clinic holding an act linked to this fiche de soins, loaded with its items so the act can
     /// be un-marked. Backs the cleanup that runs when a fiche is deleted: <c>TreatmentPlanItem.LinkedDentalRecordId</c>
     /// is FK-less by design, so without this the act would stay « réalisé » pointing at a row that no longer exists —

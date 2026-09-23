@@ -149,8 +149,9 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Since « Suivre ce traitement » a <c>Draft</c> is a treatment under way — un-numbered, but carrying
     /// séances, recorded steps and links to the fiches that evidence them — and deleting one cascades:
     /// <c>TreatmentPlanConfiguration</c> and <c>TreatmentPlanItemConfiguration</c> both declare
-    /// <c>DeleteBehavior.Cascade</c>, so the acts and their step rows go, while the appointments' links are
-    /// <c>SetNull</c>. The fiches survive attached to nothing — which is precisely the wreckage
+    /// <c>DeleteBehavior.Cascade</c>, so the acts and their step rows go. The appointments' links are bare
+    /// columns with NO foreign key — <c>DeleteTreatmentPlanCommand</c> releases them through
+    /// <c>PlanBookingRelease</c> before the delete, or nothing would. The fiches survive attached to nothing — which is precisely the wreckage
     /// <see cref="StopTreatment"/> was written to avoid, and it names it as one of the three defects it fixed.
     /// </para>
     /// <para>
@@ -677,6 +678,60 @@ public class TreatmentPlan : AggregateRoot<Guid>
         }
 
         Touch();
+    }
+
+    /// <summary>
+    /// Take back what this plan holds as evidence from one fiche de soins — every act and step it links to
+    /// <paramref name="dentalRecordId"/>, except <paramref name="keepItemId"/>'s. For a fiche that was deleted,
+    /// or re-saved no longer carrying the act.
+    /// <para>
+    /// On a live, stopped or completed plan this is the ordinary correction, with the status re-derived the way
+    /// <see cref="UnmarkItemDone"/> does it. ⚠️ On a <b>cancelled or written-off</b> plan — void records kept for
+    /// their number — only the pointers go and the status is left alone: the fiche they point at is gone or no
+    /// longer says so, and refusing (as <see cref="EnsureCorrectable"/> does) made deleting such a fiche fail
+    /// with a generic error, and « Aucun » on it impossible.
+    /// </para>
+    /// </summary>
+    /// <returns>How many acts and steps were released.</returns>
+    public int ReleaseDentalRecord(Guid dentalRecordId, Guid? keepItemId = null) =>
+        Release(dentalRecordId, i => i.Id != keepItemId);
+
+    /// <summary><see cref="ReleaseDentalRecord"/> for one act only.</summary>
+    public int ReleaseDentalRecordFor(Guid itemId, Guid dentalRecordId) =>
+        Release(dentalRecordId, i => i.Id == itemId);
+
+    private int Release(Guid dentalRecordId, Func<TreatmentPlanItem, bool> which)
+    {
+        var released = 0;
+        foreach (var item in _items.Where(which))
+        {
+            foreach (var step in item.Steps.Where(s => s.LinkedDentalRecordId == dentalRecordId).ToList())
+            {
+                if (item.UnmarkStep(step.Id))
+                {
+                    released++;
+                }
+            }
+            // Read after the steps: a stepped act carries the record link only while its last step does.
+            if (item.LinkedDentalRecordId == dentalRecordId && item.Unmark())
+            {
+                released++;
+            }
+        }
+
+        if (released == 0)
+        {
+            return 0;
+        }
+
+        var isVoid = Status is TreatmentPlanStatus.Cancelled or TreatmentPlanStatus.WrittenOff;
+        if (!isVoid && StatusFollowsTheWork)
+        {
+            Status = OpenStatusFromWork;
+        }
+
+        Touch();
+        return released;
     }
 
     /// <summary>

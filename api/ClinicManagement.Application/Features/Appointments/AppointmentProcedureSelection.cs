@@ -160,7 +160,8 @@ public static class AppointmentProcedureSelection
         Guid clinicId,
         IReadOnlyCollection<AppointmentProcedureRequest> requested,
         IReadOnlyDictionary<Guid, string> planItemDesignations,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyCollection<AppointmentProcedure>? heldRows = null)
     {
         if (requested.Count > MaxProceduresPerAppointment)
         {
@@ -213,6 +214,28 @@ public static class AppointmentProcedureSelection
             }
 
             var procedureType = await procedureTypeRepository.GetByIdAsync(item.ProcedureTypeId.Value, cancellationToken);
+
+            // ⚠️ An act the visit ALREADY carries is kept even when « Mes actes » has since archived or deleted it:
+            // archiving is exactly what happens when a future visit still uses the act, and refusing that visit's
+            // next save made it uneditable for ever. Only a NEW act must be live in the catalogue.
+            var held = heldRows?.FirstOrDefault(r => r.ProcedureTypeId == item.ProcedureTypeId);
+            if (held != null && (procedureType == null || procedureType.ClinicId != clinicId || !procedureType.IsActive))
+            {
+                if (procedureType != null && procedureType.ClinicId != clinicId)
+                {
+                    return Result<List<AppointmentProcedureInput>>.Failure("Type de procédure introuvable.");
+                }
+                inputs.Add(new AppointmentProcedureInput(
+                    procedureType?.Id,
+                    procedureType?.Name ?? held.ProcedureName ?? "Acte",
+                    procedureType?.DefaultDurationMinutes ?? held.DurationMinutes,
+                    procedureType?.Color.Value ?? held.ColorHex,
+                    PriceForPlanLinkedAct(item.TreatmentPlanItemId, item.AgreedCost),
+                    item.TreatmentPlanItemId,
+                    item.TreatmentPlanItemStepId));
+                continue;
+            }
+
             if (procedureType == null || procedureType.ClinicId != clinicId)
             {
                 return Result<List<AppointmentProcedureInput>>.Failure("Type de procédure introuvable.");

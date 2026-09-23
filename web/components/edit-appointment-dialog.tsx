@@ -236,7 +236,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // `schedulablePlanItems` + `planItemToPreset` beside this one is the defect shape this repository produces
   // most: two call sites, one of which quietly stops agreeing with the rule.
   const {
-    plans: patientPlans, planActs, planIdByItem, register: registerPlan, saveActTotal: saveTreatmentTotal,
+    plans: patientPlans, planActs, planIdByItem, heldPlanActs, planIdByAnyItem,
+    register: registerPlan, saveActTotal: saveTreatmentTotal,
   } = usePatientPlanActs(source?.patientId, open)
 
   /**
@@ -292,19 +293,21 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * touch a price, a step or a name the user has changed.</p>
    */
   useEffect(() => {
-    if (!open || planActs.length === 0 || procedureTypes.length === 0) return
+    if (!open || heldPlanActs.length === 0 || procedureTypes.length === 0) return
     setSelectedActs((prev) => {
       let changed = false
       const next = prev.map((act) => {
         if (!act.treatmentPlanItemId || act.billedOnPlan) return act
-        const fields = planFieldsFor(act.treatmentPlanItemId, planActs, procedureTypes)
+        // `heldPlanActs`, never `planActs`: an act already recorded, or on a devis since closed, is not bookable
+        // any more and is still this visit's act — resolved against the bookable ones it lost its locked price.
+        const fields = planFieldsFor(act.treatmentPlanItemId, heldPlanActs, procedureTypes)
         if (!fields.billedOnPlan && !fields.stepOptions) return act
         changed = true
         return { ...act, ...fields }
       })
       return changed ? next : prev
     })
-  }, [open, planActs, procedureTypes])
+  }, [open, heldPlanActs, procedureTypes])
 
 
   useEffect(() => {
@@ -563,7 +566,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                  * `stepOptions` is the same omission one level down: without it the « Étapes de cette séance »
                  * chips do not render, so which step a booked visit is for cannot be changed at all.
                  */
-                ...planFieldsFor(p.treatmentPlanItemId, planActs, procedureTypes),
+                ...planFieldsFor(p.treatmentPlanItemId, heldPlanActs, procedureTypes),
+                // ⚠️ A stored act is already decided. Left `undefined`, the picker's default splits any act with
+                // a catalogue protocol into séances, so merely moving an implant visit created a new treatment
+                // and zeroed the visit's price on save.
+                plannedProtocol: null,
               }))
           : appointment.procedureTypeId
             ? [
@@ -582,7 +589,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   planLabel: appointment.treatmentPlanItemId ? "devis" : undefined,
                   fallbackName: appointment.procedureTypeName ?? undefined,
                   // Same reason as the branch above: this row's price must stay locked at 0 on a devis act.
-                  ...planFieldsFor(appointment.treatmentPlanItemId, planActs, procedureTypes),
+                  ...planFieldsFor(appointment.treatmentPlanItemId, heldPlanActs, procedureTypes),
+                  plannedProtocol: null,
                 },
               ]
             : []
@@ -638,6 +646,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       // The server's copy belongs to the appointment that was open — keeping it would hydrate the next one
       // from the previous patient's row.
       setRefreshed(null)
+      // Both belong to the visit that was open. The page keeps ONE instance of this dialog, so a kept plan memo
+      // re-used visit A's treatment on visit B (another patient's → « Plan de traitement introuvable »), and a
+      // kept dismissal hid the suggestion on every later visit until reload.
+      createdPlansRef.current = new Map()
+      setSuggestionDismissed(false)
     }
   }, [open])
 
@@ -750,7 +763,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       }
 
       // Merged: a treatment created moments ago cannot be in `planIdByItem`, whose read predates it.
-      const attachedPlan = resolveAttachedPlanId(actsToSend, { ...planIdByItem, ...freshPlanIds })
+      // `planIdByAnyItem` first: an act the visit already held keeps resolving to its devis even once that act is
+      // recorded or its devis closed — the server accepts the unchanged link, it only needs the id.
+      const attachedPlan = resolveAttachedPlanId(actsToSend, { ...planIdByAnyItem, ...planIdByItem, ...freshPlanIds })
       if (attachedPlan.error) {
         setError(attachedPlan.error)
         setLoading(false)

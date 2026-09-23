@@ -275,7 +275,10 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                     _treatmentPlanRepository, _appointmentRepository,
                     request.TreatmentPlanId, request.TreatmentPlanItemId.Value,
                     request.PatientId, clinicResult.Value, record.Id, request.InterventionDate, cancellationToken,
-                    request.TreatmentPlanItemStepId, request.AppointmentId);
+                    // The RESOLVED visit, the one stored on the record — so this save and every later re-save
+                    // (which reads `dentalRecord.AppointmentId`) resolve the same séance. With the request's own
+                    // id, a fiche matched to a visit automatically closed one step now and another on re-save.
+                    request.TreatmentPlanItemStepId, appointmentId);
                 if (link.IsFailure)
                 {
                     return Result<DentalRecordDto>.Failure(link.Error!);

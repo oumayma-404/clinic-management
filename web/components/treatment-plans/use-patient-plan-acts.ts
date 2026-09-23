@@ -20,6 +20,17 @@ export interface PatientPlanActs {
   planActs: PresetPlanAct[]
   /** Which devis each of those acts belongs to — see {@link resolveAttachedPlanId}. */
   planIdByItem: Record<string, string>
+  /**
+   * EVERY act of every devis read — done, parked, on a closed devis — as a preset, keyed the same way.
+   *
+   * <p>⚠️ For reading back what a visit ALREADY holds, never for offering. A visit booked on an act that has
+   * since been recorded, or on a devis since cancelled or completed, still carries that link; resolving it only
+   * against `planActs` (the bookable ones) lost its plan id and its locked price, so the next save of the visit —
+   * its time, its notes — was refused with « Le plan de traitement est requis pour lier l'acte. »</p>
+   */
+  heldPlanActs: PresetPlanAct[]
+  /** The devis of every act in {@link heldPlanActs}. */
+  planIdByAnyItem: Record<string, string>
   loading: boolean
   /**
    * Fold a devis **this dialog just created** into the derived sets, without a re-read.
@@ -48,7 +59,7 @@ export interface PatientPlanActs {
 }
 
 const EMPTY: Omit<PatientPlanActs, "register" | "saveActTotal"> = {
-  plans: [], planActs: [], planIdByItem: {}, loading: false,
+  plans: [], planActs: [], planIdByItem: {}, heldPlanActs: [], planIdByAnyItem: {}, loading: false,
 }
 
 /**
@@ -160,13 +171,19 @@ export function usePatientPlanActs(
     if (plans.length === 0) return { ...EMPTY, loading, register, saveActTotal }
     const planActs: PresetPlanAct[] = []
     const planIdByItem: Record<string, string> = {}
+    const heldPlanActs: PresetPlanAct[] = []
+    const planIdByAnyItem: Record<string, string> = {}
     for (const plan of plans) {
       for (const item of schedulablePlanItems(plan)) {
         planActs.push(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined))
         planIdByItem[item.id] = plan.id
       }
+      for (const item of plan.items) {
+        heldPlanActs.push(planItemToPreset(plan, item, (i) => i.procedureTypeId ?? undefined))
+        planIdByAnyItem[item.id] = plan.id
+      }
     }
-    return { plans, planActs, planIdByItem, loading, register, saveActTotal }
+    return { plans, planActs, planIdByItem, heldPlanActs, planIdByAnyItem, loading, register, saveActTotal }
   }, [plans, loading, register, saveActTotal])
 }
 
