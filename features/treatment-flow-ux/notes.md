@@ -38,7 +38,7 @@ screenshot shows it open). Blast-radius tables: `blast-radius-{booking,fiche,pla
 - **The fiche's « Changer ▾ » menu IS the two old Selects** (same `handlePlanItemLink` / `setChosenStepId`
   values); « Sans traitement » is the old « Aucun » and is still the only way out of the automatic devis add.
 - **The continuation is inline in the booking dialog** (R3): the continuable-acts read still includes acts not
-  ticked « non terminé » (a sort, never a filter) — those sit behind « Suite d'une séance passée… ».
+  ticked « non terminé » (a sort, never a filter) — those sit behind « Suite d'une séance précédente… ».
   « Planifier la suite » on /a-cloturer re-reads them and opens ONE dialog with the row added.
 - **Phone fiche footer**: below `sm:` the labels sit above « Payé aujourd'hui » and « Mode » so both share one
   row, and the three figures are one `grid-cols-3` row. The sticky band left the acts area ~110 px at 320×720.
@@ -69,6 +69,19 @@ screenshot shows it open). Blast-radius tables: `blast-radius-{booking,fiche,pla
   soins », « Nouvelle fiche de soins », « Prix » / « Prix par défaut » (not « Coût »), durations « 1 h 30 », « Tout en 1
   séance » / « Répartir en N séances », post-visit prompt « Séance terminée » (composed client-side).
 - Test accounts: each `arrange-2.mjs` run creates a throwaway secretary « QA Secrétaire {ts} »; deactivate them after.
+- **« Suite d'une séance précédente… » is always there** while the booking can continue a séance (a patient, no
+  devis act): shown only with rows, the door read as removed. Empty → « Aucune séance passée pour ce patient. »
+- **A treatment act in the booking has « Séances ▾ »** (the split act's own look): tick chips for this RDV + « Ajouter
+  une séance au traitement », which opens the treatment page's séances window over the booking
+  (`use-booking-plan-steps.tsx`, `AdminOrDoctor` only, live plans only). Tapping the strip still works.
+- **The fiche says it the moment the treatment's act leaves the séance** (changed with « Changer d'acte » or
+  deleted): « « Couronne » n'est plus dans cette séance » on the band, with « Remettre « Couronne » » and « Séance
+  sans traitement » — also under the save refusal, which used to keep its remedy in a toast. One rule for both
+  (`missingPlanAct`, the client mirror of `PlanCarriedAct.NamesAnActTheFicheDoesNotHold`); « Remettre » is the
+  reducer's `restoreAct`, built from the open prefill's own two steps (`planItemCard` → `bookedActCard`), and the
+  replacement act stays. With no act left it speaks only once the act had been there (no flash on open). The
+  « Aussi prévu » chip for a row of the LINKED devis now re-adds it the same way — it used to re-add it as a new act,
+  marked « Ajouté au traitement », i.e. quoted twice.
 
 ## Known, left as they are (pre-existing, outside this change)
 
@@ -76,6 +89,14 @@ Agenda toolbar truncation at 1440 · dialog title focus ring (focus lands on the
 backdrop styles (Dialog vs AlertDialog primitives) · native date inputs showing « dd/mm/yyyy » on an English Chrome
 · « À clôturer » wording (« Venue » chip vs « Venu » button, header count) · white teeth on the dark theme · the
 catalogue table still scrolls inside its box between ~1024 and 1150 px.
+
+- **Review fixes (2026-09-25).** The edit dialog carries the version its own séances-window save left on the visit
+  (removing a séance booked there rewrites the visit's rows — the next « Enregistrer » was a 409 whose
+  « Recharger » threw away every edit). « Remettre » on a reopened fiche puts back the act as it was SAVED (a reopen
+  has no appointment, so the devis-line rebuild lost état, faces, note, bridge roles, « non terminé » and teeth), and
+  never a booked row whose act is not the devis act. `useDirtyGuard` answers only for the top-most open guard, so a
+  window over a dialog closes alone on back and typing in it does not dirty the one below. The picker's index-keyed
+  editors and typed totals move with the rows on every row writer (`commitRows`).
 
 ## Open
 

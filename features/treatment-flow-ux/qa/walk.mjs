@@ -202,6 +202,7 @@ await scenario('A8', async () => {
     await page.locator("button[data-size='sm']:has-text('Nouveau')").first().click()
     d = await waitText(dialog(), /Nouveau rendez-vous/, 10000)
   }
+  d = await waitText(dialog(), new RegExp(F.plain.name.split(' ')[0]), 10000)
   check('A8', new RegExp(F.plain.name.split(' ')[0]).test(d), 'patient preselected from ?patientId')
   await waitText(dialog(), /Sélectionner un type d'acte/, 15000)
   await dialog().getByText("Sélectionner un type d'acte").first().click(); await page.waitForTimeout(500)

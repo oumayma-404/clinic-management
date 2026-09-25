@@ -76,6 +76,7 @@ import {
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { DEFAULT_NEXT_LABEL, useContinuableActs } from "@/components/treatment-plans/continue-session-dialog"
 import { ContinueTreatmentList, allPlanSuggestions } from "@/components/treatment-plans/plan-step-suggestion-notice"
+import { useBookingPlanSteps } from "@/components/treatment-plans/use-booking-plan-steps"
 import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
 import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
@@ -265,6 +266,35 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     plans: patientPlans, planActs, planIdByItem, heldPlanActs, planIdByAnyItem,
     register: registerPlan, saveActTotal: saveTreatmentTotal,
   } = usePatientPlanActs(source?.patientId, open)
+  // « + Ajouter une séance au traitement » under a treatment act's « Séances » — the treatment page's own window.
+  const planSteps = useBookingPlanSteps(patientPlans, registerPlan)
+  /**
+   * The version the séances window's own save left on THIS visit, tied to the version it replaced.
+   *
+   * <p>⚠️ Removing a séance booked here makes the server rewrite this visit's rows (the booking is released),
+   * which spends the token this form holds — the next « Enregistrer » was a 409 on a visit nobody else touched,
+   * and « Recharger » then threw away every unsaved edit. So only the token is re-read, never the form. Keyed on
+   * the version it replaced: any re-hydration (« Recharger », the open-time re-read) supersedes it.</p>
+   */
+  const [ownWriteVersion, setOwnWriteVersion] = useState<{ from: number; to: number } | null>(null)
+  const versionToSend = (a: AppointmentDto) =>
+    ownWriteVersion && ownWriteVersion.from === a.version ? ownWriteVersion.to : a.version
+  const planStepsOnEdit = planSteps.onEditPlanSteps
+  const onEditPlanSteps = planStepsOnEdit
+    ? async (treatmentPlanItemId: string) => {
+        const steps = await planStepsOnEdit(treatmentPlanItemId)
+        const current = source
+        if (steps && current) {
+          try {
+            const fresh = await appointmentsApi.get(current.id)
+            if (fresh.version !== current.version) setOwnWriteVersion({ from: current.version, to: fresh.version })
+          } catch {
+            /* the save's own 409 and « Recharger » remain the backstop */
+          }
+        }
+        return steps
+      }
+    : undefined
 
   /**
    * The treatments this dialog has already created, keyed on the catalogue act — see
@@ -847,8 +877,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         procedures: toProcedurePayloads(actsToSend),
         allowOutsideWorkingHours: allowOutsideWorkingHours || undefined,
         allowOverlap: allowOverlap || undefined,
-        // The version this form was hydrated from.
-        version: appointment.version,
+        // The version this form was hydrated from (or the one our own séances-window save left — see above).
+        version: versionToSend(appointment),
       })
 
       visitSavedRef.current = true
@@ -911,7 +941,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     try {
       await appointmentsApi.update(appointment.id, {
         status: "cancelled",
-        version: appointment.version,
+        version: versionToSend(appointment),
       })
 
       setShowCancelDialog(false)
@@ -1288,6 +1318,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 // An act's price is editable from here too — see `onTotalChange`. It saves to the TREATMENT
                 // (the act is priced once) and the échéancier re-spreads itself server-side.
                 onTotalChange={saveTreatmentTotal}
+                onEditPlanSteps={onEditPlanSteps}
+                canEditPlanSteps={planSteps.canEditPlanSteps}
               />
 
               <div className="grid grid-cols-1 gap-4">
@@ -1649,6 +1681,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {planSteps.stepsDialog}
       <DiscardChangesDialog guard={guard} />
     </>
   )

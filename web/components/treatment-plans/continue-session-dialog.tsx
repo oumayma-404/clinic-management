@@ -46,7 +46,7 @@ export interface ContinuableActs {
  *
  * <p>⚠️ The server puts ticked acts first and returns every recent act: the tick is a SORT, never a filter,
  * because it is one checkbox at the end of a séance and a forgotten tick must stay recoverable. The list
- * shows the ticked ones and folds the rest behind « Suite d'une séance passée… ».</p>
+ * shows the ticked ones and folds the rest behind « Suite d'une séance précédente… ».</p>
  *
  * <p>⚠️ A stale answer is dropped: the booking dialog changes patient under this read, and a late response for
  * the previous patient would offer their séances on the new one.</p>

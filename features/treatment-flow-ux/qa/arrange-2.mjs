@@ -162,7 +162,7 @@ await step('mixed', async () => {        // a followed treatment (no devis) + to
   const v = await visit(P.id, 0, [{ procedureTypeId: PT.couronne, treatmentPlanItemId: it.id, treatmentPlanItemStepId: it.steps?.[0]?.id ?? null }], started.id, 7)
   return { ...out(P, started.id), visit: v.id }
 })
-await step('secretary', async () => {    // a reception account, enrolled and past its forced password change
+if (!process.env.QA_NO_SECRETARY) await step('secretary', async () => {    // a reception account, enrolled and past its forced password change
   const email = `qa.secr.${ts}@cabinet-ibnkhaldoun.tn`
   const created = await call('POST', '/users', { email, fullName: `QA Secrétaire ${ts}`, role: 'secretary' })
   const temp = created.temporaryPassword

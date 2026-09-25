@@ -15,7 +15,7 @@ import { formatDurationFr } from "@/components/appointment-recap"
 import { teethSuffix } from "@/components/treatment-plans/treatment-plan-labels"
 import { cn } from "@/lib/utils"
 import { AppointmentProtocolEditor } from "@/components/appointment-protocol-editor"
-import { SeanceStrip, type SeanceStripStep } from "@/components/treatment-plans/seance-strip"
+import { SeanceStrip, seanceCaption, type SeanceStripStep } from "@/components/treatment-plans/seance-strip"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
@@ -746,6 +746,14 @@ interface AppointmentActsPickerProps {
    * rather than crashing.</p>
    */
   onTotalChange?: (treatmentPlanItemId: string, total: number) => Promise<boolean>
+  /**
+   * « + Ajouter une séance au traitement » under a treatment act's « Séances »: opens the treatment's séances
+   * window and resolves with the act's séances as they now are, or null when nothing was written. Absent (a
+   * secretary — the endpoint is `AdminOrDoctor`) = the button is not rendered; ticking séances still works.
+   */
+  onEditPlanSteps?: (treatmentPlanItemId: string) => Promise<PlanStepOption[] | null>
+  /** Whether that act's treatment may be edited now (live, and known). Absent = yes. */
+  canEditPlanSteps?: (treatmentPlanItemId: string) => boolean
 }
 
 /**
@@ -771,8 +779,15 @@ export function AppointmentActsPicker({
   idPrefix = "appt-acts",
   planActs,
   onTotalChange,
+  onEditPlanSteps,
+  canEditPlanSteps,
 }: AppointmentActsPickerProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Read by `addPlanSeance` after the séances window closes — the rows may have moved while it was open.
+  const valueRef = useRef(value)
+  valueRef.current = value
+  /** The treatment act whose séances window is open, so its button reads busy. */
+  const [editingSteps, setEditingSteps] = useState<string | null>(null)
   /**
    * Which followed acts have « Séances » open, keyed on the group's representative index — and which séance row
    * inside it is open (null = none). Absent = folded.
@@ -864,6 +879,77 @@ export function AppointmentActsPicker({
       setSavingTotal(null)
     }
   }
+  /**
+   * Commit a new row list and carry the editors (`openProtocols`) and typed totals (`totalDrafts`) with the rows —
+   * both are keyed on a group's FIRST row index, so a row removed or inserted above one moves it onto another act.
+   * `moved[old]` is that row's new index, or null when it left; a key whose row left follows its act to the act's
+   * new first row, and goes with it when the act left entirely.
+   */
+  const commitRows = (prev: SelectedAct[], next: SelectedAct[], moved: (number | null)[]) => {
+    const reindex = <T,>(rec: Record<number, T>): Record<number, T> => {
+      const out: Record<number, T> = {}
+      for (const [key, v] of Object.entries(rec)) {
+        const k = Number(key)
+        let to = moved[k] ?? null
+        if (to === null) {
+          const planItemId = prev[k]?.treatmentPlanItemId
+          const j = planItemId ? next.findIndex((a) => a.treatmentPlanItemId === planItemId) : -1
+          to = j >= 0 ? j : null
+        }
+        if (to !== null) out[to] = v
+      }
+      return out
+    }
+    setOpenProtocols(reindex)
+    setTotalDrafts(reindex)
+    onChange(next)
+  }
+  const filterRows = (prev: SelectedAct[], keep: (act: SelectedAct, index: number) => boolean) => {
+    const next: SelectedAct[] = []
+    const moved = prev.map((act, i) => {
+      if (!keep(act, i)) return null
+      next.push(act)
+      return next.length - 1
+    })
+    commitRows(prev, next, moved)
+  }
+
+  /**
+   * « + Ajouter une séance au traitement »: the treatment's séances window, then every row of that act takes the
+   * séances back. A booked séance removed there is dropped from this RDV rather than sent to a refusal.
+   */
+  const addPlanSeance = async (itemId: string) => {
+    if (!onEditPlanSteps) return
+    setEditingSteps(itemId)
+    try {
+      const steps = await onEditPlanSteps(itemId)
+      if (!steps) return
+      const ids = new Set(steps.map((s) => s.id))
+      const mapped = valueRef.current.map((act) =>
+        act.treatmentPlanItemId !== itemId
+          ? act
+          : {
+              ...act,
+              stepOptions: steps,
+              treatmentPlanItemStepId:
+                act.treatmentPlanItemStepId && ids.has(act.treatmentPlanItemStepId) ? act.treatmentPlanItemStepId : null,
+            },
+      )
+      // A step-less row beside another row of the same act would book the act twice: keep at most one, and none
+      // when a séance of the act is still ticked.
+      const stepped = mapped.some((a) => a.treatmentPlanItemId === itemId && a.treatmentPlanItemStepId)
+      let keptBare = false
+      filterRows(mapped, (a) => {
+        if (a.treatmentPlanItemId !== itemId || a.treatmentPlanItemStepId) return true
+        if (stepped || keptBare) return false
+        keptBare = true
+        return true
+      })
+    } finally {
+      setEditingSteps(null)
+    }
+  }
+
   /** « Séances » folds the editor; a séance tapped on the strip opens it on that row. */
   const toggleProtocol = (index: number) =>
     setOpenProtocols((prev) => {
@@ -1010,20 +1096,8 @@ export function AppointmentActsPicker({
    */
   const removeGroup = (group: ActGroup) => {
     const drop = new Set(group.indices)
-    // The open editors and typed totals are keyed on a row's index: shift them with the rows, or an editor opened
-    // on the act below reappears on a different act.
-    const reindex = <T,>(rec: Record<number, T>): Record<number, T> => {
-      const next: Record<number, T> = {}
-      for (const [key, v] of Object.entries(rec)) {
-        const k = Number(key)
-        if (drop.has(k)) continue
-        next[k - group.indices.filter((i) => i < k).length] = v
-      }
-      return next
-    }
-    setOpenProtocols(reindex)
-    setTotalDrafts(reindex)
-    onChange(value.filter((_, i) => !drop.has(i)))
+    // The open editors and typed totals move with the rows — see `commitRows`.
+    filterRows(value, (_, i) => !drop.has(i))
   }
 
   /** `undefined` puts the row back to « rien de négocié » — the field shows the tarif again and sends nothing. */
@@ -1053,10 +1127,9 @@ export function AppointmentActsPicker({
         )
         return
       }
-      onChange(
-        value.filter(
-          (a) => !(a.treatmentPlanItemId === row.treatmentPlanItemId && a.treatmentPlanItemStepId === stepId),
-        ),
+      filterRows(
+        value,
+        (a) => !(a.treatmentPlanItemId === row.treatmentPlanItemId && a.treatmentPlanItemStepId === stepId),
       )
       return
     }
@@ -1068,7 +1141,11 @@ export function AppointmentActsPicker({
     }
 
     const clone: SelectedAct = { ...row, treatmentPlanItemStepId: stepId, agreedCost: undefined }
-    onChange([...value.slice(0, index + 1), clone, ...value.slice(index + 1)])
+    commitRows(
+      value,
+      [...value.slice(0, index + 1), clone, ...value.slice(index + 1)],
+      value.map((_, i) => (i <= index ? i : i + 1)),
+    )
   }
 
   const handleCreateCustom = async () => {
@@ -1167,6 +1244,31 @@ export function AppointmentActsPicker({
             const saving = act.treatmentPlanItemId != null && savingTotal === act.treatmentPlanItemId
             const invalidPrice = hasInvalidAgreedCost(act)
             const invalidRemaining = isInvalidAmount(pending?.remainingInput)
+            // A treatment act with séances: its « Séances » opens the tick chips (+ « Ajouter une séance »).
+            const devisSteps = !!act.treatmentPlanItemId && (act.stepOptions?.length ?? 0) > 0
+            const planItemId = act.treatmentPlanItemId ?? null
+            const canAddSeance =
+              !!onEditPlanSteps && planItemId != null && (canEditPlanSteps?.(planItemId) ?? true)
+            // One look for both kinds of act — a new split act and one already on a treatment.
+            const seancesButton = (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 px-2 text-xs coarse:h-11"
+                disabled={disabled}
+                aria-expanded={index in openProtocols}
+                aria-label={`Modifier les séances de ${row.name}`}
+                onClick={() => toggleProtocol(index)}
+              >
+                <PenLine className="h-3.5 w-3.5" aria-hidden="true" />
+                Séances
+                <ChevronDown
+                  className={cn("h-3.5 w-3.5 transition-transform", index in openProtocols && "rotate-180")}
+                  aria-hidden="true"
+                />
+              </Button>
+            )
 
             return (
               <li
@@ -1234,6 +1336,7 @@ export function AppointmentActsPicker({
                 {/*
                   A devis act's séances. The ringed one(s) are this RDV; a tap adds or removes a séance, so
                   « préparation + empreinte » in one visit is two taps. A séance already faite is not offered.
+                  ⚠️ The tap alone was invisible, so « Séances » opens the same choice as tick chips below.
                 */}
                 {act.stepOptions && act.stepOptions.length > 0 && (
                   <>
@@ -1372,6 +1475,7 @@ export function AppointmentActsPicker({
                         enregistrement…
                       </span>
                     )}
+                    {devisSteps && <div className="sm:ms-auto">{seancesButton}</div>}
                   </div>
                 ) : (
                   <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1422,30 +1526,10 @@ export function AppointmentActsPicker({
                       takes it back. An outline button, because as ghost text beside a 3-séance strip it read as a
                       contradiction. « Séances » folds the editor — nothing here reads as a « valider ».
                     */}
+                    {devisSteps && !hasProtocol && <div className="sm:ms-auto">{seancesButton}</div>}
                     {hasProtocol && (
                       <div className="flex flex-wrap items-center gap-1.5 sm:ms-auto">
-                        {followed && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 gap-1 px-2 text-xs coarse:h-11"
-                            disabled={disabled}
-                            aria-expanded={index in openProtocols}
-                            aria-label={`Modifier les séances de ${row.name}`}
-                            onClick={() => toggleProtocol(index)}
-                          >
-                            <PenLine className="h-3.5 w-3.5" aria-hidden="true" />
-                            Séances
-                            <ChevronDown
-                              className={cn(
-                                "h-3.5 w-3.5 transition-transform",
-                                index in openProtocols && "rotate-180",
-                              )}
-                              aria-hidden="true"
-                            />
-                          </Button>
-                        )}
+                        {followed && seancesButton}
                         <Button
                           type="button"
                           variant="outline"
@@ -1493,6 +1577,18 @@ export function AppointmentActsPicker({
                   <p className="mt-1 text-2xs font-semibold text-warning-ink">
                     Devis numéroté à l&apos;enregistrement : il ne se supprimera plus.
                   </p>
+                )}
+
+                {devisSteps && index in openProtocols && (
+                  <PlanSeanceChips
+                    options={act.stepOptions ?? []}
+                    ticked={row.group.stepIds}
+                    onToggle={(stepId) => toggleStep(row.group, stepId)}
+                    disabled={disabled}
+                    actName={row.name}
+                    onAdd={canAddSeance && planItemId ? () => void addPlanSeance(planItemId) : undefined}
+                    adding={editingSteps === planItemId}
+                  />
                 )}
 
                 {followed && index in openProtocols && (
@@ -1871,6 +1967,92 @@ export function totalActsDuration(acts: SelectedAct[], procedureTypes: Procedure
 function splitTeeth(name: string): { base: string; teeth: string } {
   const match = /^(.*\S)\s*(?:·\s*dents? ([\d,\s]+)|\(dents? ([\d,\s]+)\))$/.exec(name)
   return match ? { base: match[1], teeth: (match[2] ?? match[3]).trim() } : { base: name, teeth: "" }
+}
+
+/**
+ * A treatment act's séances as tick chips, under its « Séances » — the strip's own tap made visible, plus the way
+ * to add a séance the treatment does not have yet.
+ *
+ * <p>⚠️ A séance already faite stays on screen, disabled, with its date: hiding it would leave a strip and a chip
+ * list that disagree about the protocol. Its caption is the strip's own (`seanceCaption`), so the two cannot word
+ * one séance two ways.</p>
+ *
+ * <p>⚠️ The chips GROW their box (`coarse:min-h-11`), never `.touch-target`: they sit a few pixels apart, and an
+ * overlay would steal the neighbour's tap (§ 2).</p>
+ */
+function PlanSeanceChips({
+  options,
+  ticked,
+  onToggle,
+  disabled,
+  actName,
+  onAdd,
+  adding,
+}: {
+  options: PlanStepOption[]
+  ticked: string[]
+  onToggle: (stepId: string) => void
+  disabled: boolean
+  actName: string
+  onAdd?: () => void
+  adding: boolean
+}) {
+  return (
+    <div className="mt-2 space-y-1.5 border-t border-dashed pt-2">
+      <ul className="flex flex-wrap gap-1.5" aria-label={`Séances de ce RDV — ${actName}`}>
+        {options.map((option) => {
+          const on = ticked.includes(option.id)
+          const caption = !option.done && on ? "ce RDV" : seanceCaption(stepOptionToStrip(option))
+          const minutes = option.estimatedDurationMinutes
+          return (
+            <li key={option.id} className="max-w-full">
+              <button
+                type="button"
+                disabled={disabled || option.done}
+                onClick={() => onToggle(option.id)}
+                aria-pressed={on}
+                className={cn(
+                  "inline-flex min-h-9 max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border px-3 py-1 text-start text-xs font-medium coarse:min-h-11",
+                  on ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-foreground",
+                  option.done && "opacity-70",
+                )}
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "flex size-4 flex-none items-center justify-center rounded-[4px] border-[1.5px]",
+                    on ? "border-primary bg-primary" : "border-border",
+                  )}
+                >
+                  {on && <Check className="size-2.5 text-primary-foreground" strokeWidth={4} />}
+                </span>
+                <span className="[overflow-wrap:anywhere]">{option.label}</span>
+                <span className="text-2xs font-normal text-muted-foreground">{caption}</span>
+                {minutes != null && minutes > 0 && (
+                  <span className="text-2xs font-normal tabular-nums text-muted-foreground">
+                    {formatDurationFr(minutes)}
+                  </span>
+                )}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {onAdd && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1 px-2 text-xs text-primary coarse:h-11"
+          disabled={disabled || adding}
+          onClick={onAdd}
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          Ajouter une séance au traitement
+        </Button>
+      )}
+    </div>
+  )
 }
 
 /**

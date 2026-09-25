@@ -471,6 +471,13 @@ export type SessionAction =
   | { type: "clearTeeth" }
   | { type: "applyAppointment"; procedures: BookedActPrefill[] }
   | { type: "applyPlanItem"; item: PlanItemPrefill }
+  /**
+   * « Remettre « Couronne » » — the treatment's act back on the séance after it was changed or deleted. Built by
+   * the SAME two steps the fiche runs when it opens on this séance (`planItemCard`, then `bookedActCard` when the
+   * appointment books the act), onto the trailing blank card or a new one. The act that replaced it stays.
+   */
+  | { type: "restoreAct"; planItem: PlanItemPrefill; booked: BookedActPrefill | null }
+  | { type: "reinsertAct"; act: DentalRecordActDto }
   /** The dentist typed the séance total; the acts follow. See {@link distributeSessionTotal}. */
   | { type: "setTotal"; total: number }
   /**
@@ -690,6 +697,41 @@ function applyProcedure(act: SessionAct, pt: ProcedureTypeDto, agreedCost?: numb
   return { ...next, perTooth: derivePerTooth(next, next.toothNumbers.length) }
 }
 
+/** One booked act as a card — `applyAppointment`'s per-entry step. `billedOnPlan` is what the price MEANS. */
+function bookedActCard(base: SessionAct, p: BookedActPrefill): SessionAct {
+  // Applied after `applyProcedure` so it survives the branch that rebuilds the act.
+  return { ...applyProcedure(base, p.procedure, p.agreedCost), billedOnPlan: p.billedOnPlan }
+}
+
+/** A devis act's designation / identity / teeth carried into one card — `applyPlanItem`'s step. */
+function planItemCard(base: SessionAct, item: PlanItemPrefill): SessionAct {
+  const teeth = item.toothNumbers && item.toothNumbers.length > 0 ? sorted(item.toothNumbers) : base.toothNumbers
+  const named = item.designationFr?.trim()
+  /*
+   * ⚠️ **A carried act is 0 on the fiche, and the price is NOT prefilled.** The devis prices the act once;
+   * `PlanCarriedActPricing` imposes that 0 server-side whatever this sends, so putting `plannedCost` in the
+   * fee field showed the dentist a total the save would refuse — « Créer la fiche — 500,000 DT » answered by
+   * « le montant payé dépasse le total de la séance (0,000 DT) ». `billedOnPlan` is what makes the card read
+   * « Chiffré sur le traitement » and what opens « Encaissé sur le traitement », the field that does collect.
+   */
+  const carried = item.billedOnPlan === true
+  const next: SessionAct = {
+    ...base,
+    procedureName: named || base.procedureName,
+    // The act's identity, kept even when the devis' own désignation is what is displayed — see the field.
+    procedureTypeId: item.procedureTypeId ?? base.procedureTypeId,
+    unitCost: carried
+      ? "0"
+      : item.plannedCost != null && item.plannedCost > 0
+        ? formatAmount(item.plannedCost)
+        : base.unitCost,
+    billedOnPlan: carried || base.billedOnPlan,
+    // A step that names the act closes the catalogue; one that only carries teeth leaves it open.
+    picking: named ? false : base.picking,
+  }
+  return withTeeth(next, teeth)
+}
+
 function reducer(state: SessionState, action: SessionAction): SessionState {
   const focused = state.focusKey ? (state.acts.find((a) => a.key === state.focusKey) ?? null) : null
 
@@ -872,13 +914,10 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       // not performed is removed rather than never mentioned.
       const first = state.acts[0]
       if (state.acts.length !== 1 || isActNamed(first) || action.procedures.length === 0) return state
+      // `billedOnPlan` travels with the price, because it is what the price MEANS: 0 on a devis act is a rule,
+      // not a gesture.
       const acts = action.procedures.map((p, i) =>
-        // `billedOnPlan` travels with the price, because it is what the price MEANS: 0 on a devis act is a rule,
-        // not a gesture. Applied after `applyProcedure` so it survives the branch that rebuilds the act.
-        ({
-          ...applyProcedure(i === 0 ? first : emptyAct(makeKey(state.nextKey + i - 1)), p.procedure, p.agreedCost),
-          billedOnPlan: p.billedOnPlan,
-        }),
+        bookedActCard(i === 0 ? first : emptyAct(makeKey(state.nextKey + i - 1)), p),
       )
       return { acts, focusKey: acts[0].key, nextKey: state.nextKey + action.procedures.length - 1 }
     }
@@ -887,32 +926,30 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       // Carry the plan step's designation / cost / teeth into an untouched session only.
       const first = state.acts[0]
       if (state.acts.length !== 1 || isActNamed(first) || first.unitCost.trim() !== "") return state
-      const item = action.item
-      const teeth = item.toothNumbers && item.toothNumbers.length > 0 ? sorted(item.toothNumbers) : first.toothNumbers
-      const named = item.designationFr?.trim()
-      /*
-       * ⚠️ **A carried act is 0 on the fiche, and the price is NOT prefilled.** The devis prices the act once;
-       * `PlanCarriedActPricing` imposes that 0 server-side whatever this sends, so putting `plannedCost` in the
-       * fee field showed the dentist a total the save would refuse — « Créer la fiche — 500,000 DT » answered by
-       * « le montant payé dépasse le total de la séance (0,000 DT) ». `billedOnPlan` is what makes the card read
-       * « Chiffré sur le traitement » and what opens « Encaissé sur le traitement », the field that does collect.
-       */
-      const carried = item.billedOnPlan === true
-      const next: SessionAct = {
-        ...first,
-        procedureName: named || first.procedureName,
-        // The act's identity, kept even when the devis' own désignation is what is displayed — see the field.
-        procedureTypeId: item.procedureTypeId ?? first.procedureTypeId,
-        unitCost: carried
-          ? "0"
-          : item.plannedCost != null && item.plannedCost > 0
-            ? formatAmount(item.plannedCost)
-            : first.unitCost,
-        billedOnPlan: carried || first.billedOnPlan,
-        // A step that names the act closes the catalogue; one that only carries teeth leaves it open.
-        picking: named ? false : first.picking,
-      }
-      return { ...state, acts: [withTeeth(next, teeth)], focusKey: first.key }
+      return { ...state, acts: [planItemCard(first, action.item)], focusKey: first.key }
+    }
+
+    case "restoreAct": {
+      // The open-time order: the devis act's teeth (and, with no booked row, its name) first, the booked act second.
+      const last = state.acts[state.acts.length - 1]
+      const reuse = last != null && !isActTouched(last)
+      const base = reuse ? last : emptyAct(makeKey(state.nextKey))
+      const withPlan = planItemCard(base, action.planItem)
+      const card = action.booked ? bookedActCard(withPlan, action.booked) : withPlan
+      return reuse
+        ? { ...state, acts: state.acts.map((a) => (a.key === last.key ? card : a)), focusKey: card.key }
+        : { acts: [...state.acts, card], focusKey: card.key, nextKey: state.nextKey + 1 }
+    }
+
+    case "reinsertAct": {
+      // A reopened fiche's act put back as it was read — état, faces, note, bridge roles, « non terminé » and its
+      // own teeth — never rebuilt from the devis line, which knows none of them.
+      const last = state.acts[state.acts.length - 1]
+      const reuse = last != null && !isActTouched(last)
+      const card = actFromDto(action.act, reuse ? last.key : makeKey(state.nextKey))
+      return reuse
+        ? { ...state, acts: state.acts.map((a) => (a.key === last.key ? card : a)), focusKey: card.key }
+        : { acts: [...state.acts, card], focusKey: card.key, nextKey: state.nextKey + 1 }
     }
 
     case "setTotal":

@@ -47,7 +47,7 @@ interface ContinueTreatmentListProps {
   pendingActId?: string | null
   /** Adds the continuation row (replacing a pending one). Writes nothing — see `materialiseTreatments`. */
   onContinue: (act: ContinuableActDto) => void
-  /** Hides the prompts for this patient; « Suite d'une séance passée… » and « Actes du devis » still hold everything. */
+  /** Hides the prompts for this patient; « Suite d'une séance précédente… » and « Actes du devis » still hold everything. */
   dismissed: boolean
   onDismiss: () => void
   /** Set while the caller is still fetching what it needs to accept — the catalogue, usually. */
@@ -66,8 +66,11 @@ type Card =
  *
  * <p>Two kinds of card, one list: a treatment's next séance (« Planifier : Empreinte · 30 min ») and a past
  * séance ticked « non terminé » (« Continuer »). Three are shown, the rest are one tap away under « N autres »;
- * an unticked past séance sits under « Suite d'une séance passée… », which is also what stays once the
+ * an unticked past séance sits under « Suite d'une séance précédente… », which is also what stays once the
  * prompts are hidden.</p>
+ *
+ * <p>⚠️ That fold is <b>always there while the door is offered</b>, even with nothing behind it (« Aucune séance
+ * passée pour ce patient. »): shown only with rows, the door read as removed — the old link was always visible.</p>
  */
 export function ContinueTreatmentList({
   suggestions,
@@ -94,8 +97,9 @@ export function ContinueTreatmentList({
   const promptedIds = new Set(prompts.flatMap((c) => (c.kind === "past" ? [c.act.actId] : [])))
   const foldedPast = pastActs.filter((a) => !promptedIds.has(a.actId))
 
-  // The fold appears once the read has answered — with rows, or with a failure to retry. Loading shows nothing.
-  const offerPast = continuable != null && (continuable.failed || foldedPast.length > 0)
+  // ⚠️ Always offered while the door is open, rows or not: a door that appears only when it has something behind
+  // it read as « la suite d'une séance précédente a disparu ». Loading / empty / failed are said inside it.
+  const offerPast = continuable != null
   if (visible.length === 0 && !offerPast) return null
 
   const renderCard = (card: Card) =>
@@ -147,7 +151,7 @@ export function ContinueTreatmentList({
       {offerPast && (
         <>
           <FoldButton open={showPast} onToggle={() => setShowPast((v) => !v)} icon>
-            {promptedIds.size > 0 ? "Autre séance passée…" : "Suite d'une séance passée…"}
+            {promptedIds.size > 0 ? "Autre séance précédente…" : "Suite d'une séance précédente…"}
           </FoldButton>
           {showPast &&
             (continuable?.failed ? (
@@ -156,6 +160,12 @@ export function ContinueTreatmentList({
                 message="Séances passées non chargées."
                 onRetry={continuable.reload}
               />
+            ) : continuable?.acts == null ? (
+              <p role="status" className="text-xs text-muted-foreground">Chargement…</p>
+            ) : foldedPast.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {promptedIds.size > 0 ? "Aucune autre séance passée." : "Aucune séance passée pour ce patient."}
+              </p>
             ) : (
               <ul className="space-y-2">
                 {foldedPast.map((act) => (

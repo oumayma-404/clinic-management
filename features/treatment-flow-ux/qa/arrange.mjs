@@ -179,5 +179,11 @@ f.couronneSteps = (list.find((t) => t.id === PT.couronne)?.steps ?? []).map((s) 
   f.plain = { patient: P.id, name: `${P.firstName} ${P.lastName}` }
 }
 
+// ── EMPTY: never booked or saved by any walk — the tour's « nothing on file » steps ─────────────────────────
+{
+  const P = await patient('Empty')
+  f.empty = { patient: P.id, name: `${P.firstName} ${P.lastName}` }
+}
+
 writeFileSync(join(here, 'fixtures.json'), JSON.stringify(f, null, 2))
 console.log(JSON.stringify(f, null, 2))

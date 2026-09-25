@@ -1,4 +1,4 @@
-import type { PlanActContinuation, PresetPlanAct } from "@/components/appointment-acts-picker"
+import type { PlanActContinuation, PlanStepOption, PresetPlanAct } from "@/components/appointment-acts-picker"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { PLAN_STATUS_LABELS, planHasRecordedWork, teethSuffix } from "./treatment-plan-labels"
 
@@ -728,18 +728,7 @@ export function planItemToPreset(
     label: planActLabel(item, continuationContext(plan, item)),
     // G6: the price after remise — the booking screens showed the tarif and hid the discount.
     plannedCost: itemNetCost(item),
-    // ⚠️ **The whole protocol, réalisé steps included — `PlanStepOption.done` is what withholds them.** This
-    // filtered them out, which is right for a chip somebody can tick and wrong for every label lookup that
-    // resolves an appointment's OWN booked step against this list: once the fiche was recorded the step
-    // vanished from here and the booking dialog printed « Séance : étape ».
-    steps: item.steps?.map((step) => ({
-      id: step.id,
-      label: step.label,
-      estimatedDurationMinutes: step.estimatedDurationMinutes,
-      done: step.doneDate != null,
-      doneDate: step.doneDate ?? null,
-      bookedAt: step.scheduledAppointmentId ? step.scheduledAt ?? null : null,
-    })),
+    steps: planItemStepOptions(item),
     // ⚠️ The first séance nobody has booked yet: `nextStepId` ignores bookings, so « Planifier la suite » put a
     // second visit on a step already in the agenda and its fiche was then skipped at 0 DT (E6).
     preselectedStepId: firstUnbookedStepId(item),
@@ -753,6 +742,26 @@ export function planItemToPreset(
       continuation: continuationContext(plan, item),
     },
   }
+}
+
+/**
+ * A devis act's séances as a booking row offers them — the one mapping, also used to refresh a row after its
+ * séances were edited from the booking dialog.
+ *
+ * <p>⚠️ **The whole protocol, réalisé steps included — `PlanStepOption.done` is what withholds them.** This
+ * filtered them out, which is right for a chip somebody can tick and wrong for every label lookup that resolves
+ * an appointment's OWN booked step against this list: once the fiche was recorded the step vanished from here
+ * and the booking dialog printed « Séance : étape ».</p>
+ */
+export function planItemStepOptions(item: TreatmentPlanItemDto): PlanStepOption[] | undefined {
+  return item.steps?.map((step) => ({
+    id: step.id,
+    label: step.label,
+    estimatedDurationMinutes: step.estimatedDurationMinutes,
+    done: step.doneDate != null,
+    doneDate: step.doneDate ?? null,
+    bookedAt: step.scheduledAppointmentId ? step.scheduledAt ?? null : null,
+  }))
 }
 
 /** The first un-done step with no visit on it, by rank — else the server's `nextStepId`. */

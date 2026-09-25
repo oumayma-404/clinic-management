@@ -70,6 +70,7 @@ import {
   discardUnbookedTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
 import { ContinueTreatmentList, allPlanSuggestions } from "@/components/treatment-plans/plan-step-suggestion-notice"
+import { useBookingPlanSteps } from "@/components/treatment-plans/use-booking-plan-steps"
 import {
   DEFAULT_NEXT_LABEL,
   useContinuableActs,
@@ -277,6 +278,8 @@ export function CreateAppointmentDialog({
     register: registerPlan,
     saveActTotal: saveTreatmentTotal,
   } = usePatientPlanActs(selectedPatientId, !isPlanScheduling && !isBusySlot)
+  // « + Ajouter une séance au traitement » under a treatment act's « Séances » — the treatment page's own window.
+  const planSteps = useBookingPlanSteps(patientPlans, registerPlan, isPlanScheduling ? presetPlanId : null)
 
   /**
    * « La suite » of a séance already done — the third door, for work that never had a devis. Loaded for a real
@@ -1623,10 +1626,13 @@ export function CreateAppointmentDialog({
                 idPrefix="create-appt"
                 // « Actes du devis » — the same group the edit dialog offers. It is the un-hurried half of the
                 // suggestion above: the reminder names ONE act, this holds every one the patient has outstanding.
-                planActs={offeredPlanActs}
+                // Off in the workspace « Planifier » flow, where the séances window's `register` fills the plan list.
+                planActs={isPlanScheduling ? undefined : offeredPlanActs}
                 // An act's price is editable from here too — see `onTotalChange`. It saves to the TREATMENT
                 // (the act is priced once) and the échéancier re-spreads itself server-side.
                 onTotalChange={saveTreatmentTotal}
+                onEditPlanSteps={planSteps.onEditPlanSteps}
+                canEditPlanSteps={planSteps.canEditPlanSteps}
               />
             )}
 
@@ -1878,7 +1884,8 @@ export function CreateAppointmentDialog({
       </AlertDialogContent>
     </AlertDialog>
 
-    <DiscardChangesDialog guard={guard} />
+    {planSteps.stepsDialog}
+      <DiscardChangesDialog guard={guard} />
     </>
   )
 }

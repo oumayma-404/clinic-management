@@ -396,12 +396,12 @@ test.describe("HP-2 · la suite d'une séance ne s'écrit qu'à l'enregistrement
    * Continues the recorded séance from the booking dialog's own list and prices it on its card, leaving the dialog
    * carrying a PENDING continuation.
    *
-   * ⚠️ An act nobody ticked « non terminé » sits behind the « … séance passée… » fold — the tick is a sort, never a
-   * filter — and the fold appears only once the read has answered, so wait for the card OR the fold.
+   * ⚠️ An act nobody ticked « non terminé » sits behind the « … séance précédente… » fold — the tick is a sort, never a
+   * filter — so wait for the card OR the fold (the fold is always there, and opens onto « Chargement… » early).
    */
   async function chooseContinuation(page: any, dialog: any, actName: string, remaining: string) {
     const card = dialog.locator("[data-continuable-act]", { hasText: actName }).first()
-    const fold = dialog.locator("button", { hasText: /séance passée/ }).first()
+    const fold = dialog.locator("button", { hasText: /séance précédente…/ }).first()
     await expect(card.or(fold).first(), "the recorded séance must be offered as continuable").toBeVisible()
     if (!(await card.isVisible())) await fold.click()
     await expect(card, "the recorded séance must be offered as continuable").toBeVisible()

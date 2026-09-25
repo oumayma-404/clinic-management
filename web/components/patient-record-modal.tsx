@@ -65,6 +65,7 @@ import { PRESCRIPTION_KINDS, prescriptionKind, type PrescriptionLine } from "@/l
 import type { MedicationDto } from "@/lib/api/types"
 import {
   actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs, type BookedActPrefill, type PlanItemPrefill,
+  type SessionAct,
 } from "@/components/record/use-session-acts"
 import {
   CHEQUE_METHOD,
@@ -218,6 +219,36 @@ function planItemPrefill(item: PlanItemOption, appointment?: AppointmentDto | nu
       }
 }
 
+/**
+ * The devis act the band names when none of the séance's acts is it — or null.
+ *
+ * <p>⚠️ <b>Mirrors `PlanCarriedAct.NamesAnActTheFicheDoesNotHold` term for term, and the server is still the
+ * authority.</b> ONE rule, read twice: by the save guard (so the refusal arrives before the round trip) and by the
+ * band, live, the moment the act is changed or deleted. Changing the act on a devis-carried card used to leave the
+ * link standing, and the save then marked the devis' OLD act done against a fiche recording a different one.</p>
+ *
+ * <p>⚠️ The narrowing matters as much as the rule: a devis line naming no catalogue act, or a fiche holding a
+ * hand-typed one, is unidentifiable rather than wrong — every fiche recorded before `planItemPrefill` carried a
+ * `procedureTypeId` is in that state, and refusing them would make an old plan fiche impossible to reopen.</p>
+ */
+function missingPlanAct(linked: PlanItemOption | null | undefined, namedActs: readonly SessionAct[]): PlanItemOption | null {
+  if (!linked?.procedureTypeId) return null
+  if (!namedActs.every((a) => a.procedureTypeId)) return null
+  return namedActs.some((a) => a.procedureTypeId === linked.procedureTypeId) ? null : linked
+}
+
+/** One booked row as the fiche prefills it — the open effect's mapping, shared with « Remettre ». */
+function bookedPrefillOf({ row, procedure }: { row: AppointmentProcedureDto; procedure: ProcedureTypeDto }): BookedActPrefill {
+  return {
+    procedure,
+    // ⚠️ From the ROW, never `defaultCost` — a visit booked at a negotiated 120 DT would open at the 150 DT tarif.
+    agreedCost: row.agreedCost ?? null,
+    // The row's own devis link is the authority: with it, the 0 is a rule and the card must not read it as a
+    // discount or offer to undo it.
+    billedOnPlan: row.treatmentPlanItemId != null,
+  }
+}
+
 interface PatientRecordModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -333,6 +364,8 @@ export function PatientRecordModal({
   const [catalogFailed, setCatalogFailed] = useState(false)
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
+  /** The devis act a card of this séance has carried since the fiche opened — see `planActNotice`. */
+  const [heldPlanItemId, setHeldPlanItemId] = useState<string | null>(null)
   /**
    * Which séance of the linked act this NEW fiche records, when no booked visit says so. Without it a walk-in
    * fiche could only ever close the next pending séance, so a dentist doing séance 2 before séance 1 could not
@@ -646,6 +679,7 @@ export function PatientRecordModal({
     if (!open) return
     setPatientName(initialPatientName)
     setLinkedPlanItemId(NO_PLAN_ITEM)
+    setHeldPlanItemId(null)
     setChosenStepId(null)
     // A fresh open starts from the fiche's stored devis link again, whatever the last session chose.
     hydratedPlanLinkRef.current = null
@@ -849,13 +883,7 @@ export function PatientRecordModal({
     if (!open || record || procedureTypes.length === 0) return
     // ⚠️ Prices come from the appointment's own act ROWS, never from `defaultCost` — a visit booked at a
     // negotiated 120 DT would otherwise open the fiche at the 150 DT tarif.
-    const prefill: BookedActPrefill[] = bookedActs.map(({ row, procedure }) => ({
-      procedure,
-      agreedCost: row.agreedCost ?? null,
-      // The act row's own devis link is the authority: with it, the 0 is a rule and the card must not read it
-      // as a discount or offer to undo it.
-      billedOnPlan: row.treatmentPlanItemId != null,
-    }))
+    const prefill: BookedActPrefill[] = bookedActs.map(bookedPrefillOf)
     // A response predating `procedures` carries only the lead-act scalar; without this fallback such a visit
     // would propose nothing at all.
     if (prefill.length === 0 && appointment?.procedureTypeId) {
@@ -1246,6 +1274,58 @@ export function PatientRecordModal({
     dispatch({ type: "markCarriedOnPlan", procedureTypeIds: carriedProcedureIds })
   }, [open, carriedProcedureIds, acts, dispatch])
 
+  /*
+   * The treatment's act has left the séance — changed with « Changer d'acte », or deleted. Said on the band the
+   * moment it happens, with both ways out, instead of by a refused save whose remedy lived in a toast and in the
+   * band's « Changer ▾ » menu. `missingPlanAct` is the save guard's own rule.
+   *
+   * ⚠️ With no named act left it speaks only once the act HAD been on this séance: the fiche opens linked a beat
+   * before the booked act is proposed, and a notice flashing on every open is noise.
+   */
+  const holdsPlanAct =
+    billedPlanItem?.procedureTypeId != null &&
+    namedActs.some((a) => a.procedureTypeId === billedPlanItem.procedureTypeId)
+  useEffect(() => {
+    if (holdsPlanAct && billedPlanItem) setHeldPlanItemId(billedPlanItem.itemId)
+  }, [holdsPlanAct, billedPlanItem])
+  const planActHeld = billedPlanItem != null && heldPlanItemId === billedPlanItem.itemId
+  const absentPlanAct = missingPlanAct(billedPlanItem, namedActs)
+  const planActNotice = absentPlanAct && (namedActs.length > 0 || planActHeld) ? absentPlanAct : null
+
+  /** A booked row put back as the open prefill builds it: the devis act's teeth, then the séance's own row. */
+  const restoreBookedAct = (entry: { row: AppointmentProcedureDto; procedure: ProcedureTypeDto }) => {
+    const item = planItems.find((p) => p.itemId === entry.row.treatmentPlanItemId)
+    dispatch({
+      type: "restoreAct",
+      planItem: item ? planItemPrefill(item, appointment) : {},
+      booked: bookedPrefillOf(entry),
+    })
+  }
+
+  const rowOfLinkedDevis = (row: AppointmentProcedureDto) =>
+    billedPlanItem != null &&
+    row.treatmentPlanItemId != null &&
+    planItems.some((p) => p.itemId === row.treatmentPlanItemId && p.planId === billedPlanItem.planId)
+
+  /**
+   * « Remettre « Couronne » » — on a reopened fiche the act as it was SAVED (a reopen has no appointment, so
+   * rebuilding it from the devis line lost its état, faces, note, bridge roles and teeth); else the booked row when
+   * it IS the devis act (another act there would leave the notice standing); else the devis act itself.
+   */
+  const restorePlanAct = () => {
+    if (!billedPlanItem) return
+    const saved = record?.acts?.find((a) => a.procedureTypeId === billedPlanItem.procedureTypeId)
+    if (saved) {
+      dispatch({ type: "reinsertAct", act: saved })
+      // Read back unlocked, like every reopened act; the devis still carries it.
+      dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
+      return
+    }
+    const entry = bookedActs.find(({ row }) => row.treatmentPlanItemId === billedPlanItem.itemId)
+    if (entry && entry.procedure.id === billedPlanItem.procedureTypeId) restoreBookedAct(entry)
+    else dispatch({ type: "restoreAct", planItem: planItemPrefill(billedPlanItem, null), booked: null })
+  }
+
 
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
@@ -1565,31 +1645,14 @@ export function PatientRecordModal({
       return
     }
 
-    /*
-     * The band names a devis act that none of the cards is.
-     *
-     * ⚠️ **Mirrors `PlanCarriedAct.NamesAnActTheFicheDoesNotHold` term for term, and the server is still the
-     * authority** — this runs first only so the refusal arrives before the round trip and can point at the
-     * control that fixes it. Changing the act on a devis-carried card used to leave this link standing, and
-     * the save then marked the devis' OLD act done against a fiche recording a different one.
-     *
-     * ⚠️ The narrowing matters as much as the rule: a devis line naming no catalogue act, or a fiche holding a
-     * hand-typed one, is unidentifiable rather than wrong — every fiche recorded before `planItemPrefill`
-     * carried a `procedureTypeId` is in that state, and refusing them would make an old plan fiche impossible
-     * to reopen and fix.
-     *
-     * ⚠️ `refuseSave(null, …)`: no card is at fault, so none wears the message.
-     */
-    const linkedPlanAct = planItems.find((p) => p.itemId === linkedPlanItemId)
-    if (
-      linkedPlanAct?.procedureTypeId &&
-      namedActs.every((a) => a.procedureTypeId) &&
-      !namedActs.some((a) => a.procedureTypeId === linkedPlanAct.procedureTypeId)
-    ) {
+    // The band names a devis act that none of the cards is — `missingPlanAct`, the one rule the band reads too.
+    // `refuseSave(null, …)`: no card is at fault, so none wears the message; the banner carries both remedies.
+    const linkedPlanAct = missingPlanAct(billedPlanItem, namedActs)
+    if (linkedPlanAct) {
       refuseSave(
         null,
         `Aucun acte de la séance n'est ${quoteFr(linkedPlanAct.designationFr ?? "l'acte du devis")}`,
-        "Remettez cet acte, ou « Changer › Sans traitement » en haut de la fiche.",
+        "Remettez cet acte, ou « Séance sans traitement ».",
       )
       return
     }
@@ -2040,6 +2103,16 @@ export function PatientRecordModal({
             onPickStep={(id) => {
               if (id !== (chosenStepId ?? pickableSteps[0]?.id)) setChosenStepId(id)
             }}
+            missing={
+              planActNotice
+                ? {
+                    label: planActNotice.designationFr ?? planActNotice.label,
+                    held: planActHeld,
+                    onRestore: restorePlanAct,
+                    onUnlink: () => handlePlanItemLink(NO_PLAN_ITEM),
+                  }
+                : null
+            }
             disabled={loading}
           />
         )}
@@ -2109,9 +2182,21 @@ export function PatientRecordModal({
             nothing. A refusal nobody can see is the defect this whole feature exists to remove.
           */}
           {saveError && !acts.some((a) => a.key === saveError.actKey) && (
-            <p ref={pileSaveErrorRef} role="alert" className="text-xs font-medium text-destructive">
-              {saveError.message}
-            </p>
+            <div className="space-y-1.5">
+              <p ref={pileSaveErrorRef} role="alert" className="text-xs font-medium text-destructive">
+                {saveError.message}
+              </p>
+              {/* The remedy on the page, not only in a toast that is gone before it is read. */}
+              {planActNotice && (
+                <PlanActRemedies
+                  label={planActNotice.designationFr ?? planActNotice.label}
+                  held={planActHeld}
+                  onRestore={restorePlanAct}
+                  onUnlink={() => handlePlanItemLink(NO_PLAN_ITEM)}
+                  disabled={loading}
+                />
+              )}
+            </div>
           )}
 
           <Button
@@ -2147,11 +2232,16 @@ export function PatientRecordModal({
                   className="h-7 gap-1 text-xs"
                   disabled={loading}
                   onClick={() =>
-                    dispatch({
-                      type: "addFromProcedure",
-                      procedure,
-                      agreedCost: row.agreedCost ?? null,
-                    })
+                    // A row of the LINKED devis goes back as the open prefill builds it — carried, at the devis'
+                    // 0 — never as a new act, which would be marked « Ajouté au traitement » and quoted twice.
+                    // Unlinked (« Sans traitement »), it is an ordinary act of the séance, as before.
+                    rowOfLinkedDevis(row)
+                      ? restoreBookedAct({ row, procedure })
+                      : dispatch({
+                          type: "addFromProcedure",
+                          procedure,
+                          agreedCost: row.agreedCost ?? null,
+                        })
                   }
                 >
                   <Plus className="h-3 w-3" />
@@ -2948,6 +3038,7 @@ function TreatmentBand({
   chosenStepId,
   onPick,
   onPickStep,
+  missing,
   disabled,
 }: {
   options: PlanItemOption[]
@@ -2958,6 +3049,8 @@ function TreatmentBand({
   chosenStepId: string | null
   onPick: (itemId: string) => void
   onPickStep: (stepId: string) => void
+  /** The treatment's act is not among the séance's acts — see `planActNotice`. */
+  missing?: { label: string; held: boolean; onRestore: () => void; onUnlink: () => void } | null
   disabled?: boolean
 }) {
   const menu = (
@@ -3032,7 +3125,52 @@ function TreatmentBand({
         currentLabel={currentLabel}
         label="Séances du traitement"
       />
+      {missing && (
+        <div role="status" className="space-y-1.5 rounded-md bg-warning-wash px-2 py-1.5">
+          <p className="text-xs font-semibold text-warning-ink [overflow-wrap:anywhere]">
+            {quoteFr(missing.label)} {missing.held ? "n'est plus" : "n'est pas"} dans cette séance
+          </p>
+          <PlanActRemedies
+            label={missing.label}
+            held={missing.held}
+            onRestore={missing.onRestore}
+            onUnlink={missing.onUnlink}
+            disabled={disabled}
+          />
+        </div>
+      )}
     </section>
+  )
+}
+
+/**
+ * The two ways out when the treatment's act is not in the séance: put it back, or record the séance with no
+ * treatment (« Changer › Sans traitement »). On the band and in the save refusal, so the remedy is never only in
+ * a toast. Grown boxes, never an overlay: the two sit 8 px apart.
+ */
+function PlanActRemedies({
+  label,
+  held,
+  onRestore,
+  onUnlink,
+  disabled,
+}: {
+  label: string
+  held: boolean
+  onRestore: () => void
+  onUnlink: () => void
+  disabled?: boolean
+}) {
+  const box = "h-auto min-h-8 max-w-full whitespace-normal py-1 text-start text-xs coarse:min-h-11"
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button type="button" variant="outline" size="sm" className={cn(box, "bg-card")} onClick={onRestore} disabled={disabled}>
+        {held ? "Remettre" : "Ajouter"} {quoteFr(label)}
+      </Button>
+      <Button type="button" variant="ghost" size="sm" className={box} onClick={onUnlink} disabled={disabled}>
+        Séance sans traitement
+      </Button>
+    </div>
   )
 }
 
