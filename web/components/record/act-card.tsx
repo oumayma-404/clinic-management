@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
-import { ChevronDown, ChevronRight, Trash2, X } from "lucide-react"
+import { useState } from "react"
+import { ChevronDown, ChevronRight, Lock, RotateCcw, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
-import { formatDT, parseAmountInput } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput } from "@/lib/format"
 import { conditionStyle, isBridgeUnit } from "@/components/odontogram-conditions"
 import { ActCatalogPicker } from "@/components/record/act-catalog-picker"
 import { ActDetailFields } from "@/components/record/act-detail-fields"
@@ -49,6 +49,38 @@ function summariseTeeth(teeth: number[], arch: ArchTeeth): string {
   return teeth.join(" · ")
 }
 
+/** Where a treatment-carried act's price is — shown where its price field would be. */
+function PaidTag({ label, className }: { label?: string | null; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-primary/10 px-2 py-0.5 text-2xs font-semibold text-primary",
+        className,
+      )}
+    >
+      <Lock className="size-3" aria-hidden="true" />
+      {label || "Inclus dans le traitement"}
+    </span>
+  )
+}
+
+/**
+ * An act this séance puts onto the devis it is carrying out (owner's rule: no opt-out). No « + » glyph: with one
+ * it read as a button (run3 A12), and there is nothing to press.
+ */
+function AddedTag({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-success-wash px-2 py-0.5 text-2xs font-semibold text-success",
+        className,
+      )}
+    >
+      Ajouté au traitement
+    </span>
+  )
+}
+
 interface ActCardProps {
   act: SessionAct
   /** 1-based position in the séance — the card's name until an act is chosen. */
@@ -64,36 +96,21 @@ interface ActCardProps {
   color: string
   /** The teeth the chart draws, so a whole arch reads as « toute la bouche » rather than as 32 numbers. */
   arch: ArchTeeth
-  /** Set when this card holds the act the appointment booked and nothing has been changed. */
-  proposedFromAppointment?: boolean
   /**
-   * Which séance of its treatment THIS act is — « Cette séance : étape 1 sur 2 · Incision et drainage ».
-   *
-   * <p>⚠️ <b>It belongs on the card and it used to float above the pile.</b> The modal printed it once, over a
-   * list of every act of the séance, so on a fiche holding three acts nothing said which of them had séances
-   * or which séance was being recorded. Reported by the person who built the app, in those words. The modal
-   * still composes the sentence — it is the only thing that can, see `seanceStepLine` — and hands it to the
-   * one card it is about.</p>
+   * The tag a treatment-carried act wears where its price would be — « Inclus dans le traitement », or « Payé sur
+   * la note n° N » when a note holds the money. Composed by the modal (it alone knows the note); absent → the
+   * treatment wording.
    */
-  seanceStepLine?: string | null
+  paidOnLabel?: string | null
+  /** The act this one finishes, on the second half of a continuation — « Suite de : … ». */
+  continuationOf?: string | null
   /**
-   * « Chiffré sur le devis / Suivi comme traitement » — the modal's own notice, rendered on the act it is about.
+   * The devis this séance is carrying out — « 2026-0027 ». Absent when this séance names no devis, or when this
+   * act is the one the devis already carries. The fiche's treatment band names that devis; this card only says
+   * « Ajouté au traitement ».
    *
-   * <p>⚠️ A node rather than the figures, so the sentence has exactly one composer. When it is present the card
-   * shortens its own line to « Aucun honoraire sur cette séance. »: this notice already says the rest, with the
-   * amount, and the pair used to be the same fact twice on one card.</p>
-   */
-  planNotice?: ReactNode
-  /**
-   * The devis this séance is carrying out, named — « 2026-0027 ». Absent when this séance names no devis, or
-   * when this act is the one the devis already carries (that one has its own notice).
-   *
-   * <p>⚠️ A <b>label, not a boolean</b>, because the statement has to name what grew. « Chiffré sur le
-   * devis » on a patient with three treatments says nothing a dentist can check.</p>
-   *
-   * <p>⚠️ There is <b>no control</b> here any more. An act added to a séance a devis is carrying out goes
-   * onto that devis, full stop (owner's decision, 2026-09-23) — this prop only decides whether the card can
-   * say so.</p>
+   * <p>⚠️ There is <b>no control</b> here. An act added to a séance a devis is carrying out goes onto that
+   * devis, full stop (owner's decision, 2026-09-23) — this prop only decides whether the card can say so.</p>
    */
   addToPlanTarget?: string | null
   /** A save refusal this act caused, rendered where the offending field is. */
@@ -124,9 +141,8 @@ export function ActCard({
   procedureTypes,
   color,
   arch,
-  proposedFromAppointment,
-  seanceStepLine,
-  planNotice,
+  paidOnLabel,
+  continuationOf,
   addToPlanTarget,
   error,
   duplicate,
@@ -154,10 +170,9 @@ export function ActCard({
   const tariff = procedure?.defaultCost ?? null
   const typedUnit = parseAmountInput(act.unitCost)
   /*
-   * ⚠️ **Never on an act the devis carries.** Its price is 0 by rule, so against a 120 DT tariff this read
-   * « Tarif catalogue 120,000 DT — geste de 120,000 DT » with a « remettre au tarif » link beside it: a
-   * discount the dentist never granted, and one press from re-charging an act the devis already bills. The
-   * « Déjà facturé » notice above the cards states the real reason, so nothing is lost by staying silent here.
+   * ⚠️ **Never on an act the devis carries.** Its price is 0 by rule, so against a 120 DT tariff this offered
+   * « ↺ tarif 120,000 » for a discount the dentist never granted — one press from re-charging an act the devis
+   * already bills. The card's « Inclus dans le traitement » tag states the real reason.
    */
   const gesture =
     !act.billedOnPlan &&
@@ -173,12 +188,20 @@ export function ActCard({
     .filter(Boolean)
     .join(" · ")
 
+  /*
+   * Negative block margins on the ARMED card: the button keeps its 32 / 44 px box, but the head is as tall as the
+   * name. Laid out at full size it made that head 56 px on a finger — an empty band between the title and
+   * « Dents » (gap2 C2-820). The margins stop at the card's top edge, so `overflow-hidden` clips none of it.
+   */
   const remove = (
     <Button
       type="button"
       variant="ghost"
       size="icon"
-      className="size-8 shrink-0 text-muted-foreground hover:text-destructive coarse:size-11"
+      className={cn(
+        "size-8 shrink-0 text-muted-foreground hover:text-destructive coarse:size-11",
+        focused && "-my-1 coarse:-mt-1.5 coarse:-mb-2.5",
+      )}
       onClick={() => dispatch({ type: "removeAct", key: act.key })}
       disabled={disabled}
       aria-label={named ? `Supprimer ${act.procedureName}` : `Supprimer l'acte ${index}`}
@@ -206,15 +229,9 @@ export function ActCard({
       {/* ── the head, in both states ─────────────────────────────────────────────────────────────────── */}
       <div className="flex items-start gap-1 ps-3 pe-1.5 py-1.5">
         {focused ? (
-          <div className="min-w-0 flex-1 py-0.5">
-            <p className="flex flex-wrap items-center gap-1.5 font-mono text-2xs uppercase tracking-[0.09em] text-muted-foreground">
-              {proposedFromAppointment ? "Acte prévu au rendez-vous" : `Acte ${index}`}
-              {duplicate && (
-                <Badge variant="outline" className="border-amber-500 text-2xs text-amber-700 dark:text-amber-300">
-                  en double ?
-                </Badge>
-              )}
-            </p>
+          /* `flex-wrap`: the name takes the line it needs and the tag drops under it at 320 px rather than
+             squeezing the name into a column of single words. */
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 py-0.5">
             {/* A free-text act has no catalogue name to fall back on, so its désignation is editable right here —
                 it is what the card is identified by, and folding it away is how an unnamed act reached save and
                 was silently dropped. */}
@@ -222,20 +239,29 @@ export function ActCard({
               <Input
                 value={act.procedureName}
                 onChange={(e) => dispatch({ type: "patchAct", key: act.key, patch: { procedureName: e.target.value } })}
-                className={cn("mt-1 h-8 w-full text-sm font-semibold", !named && "border-destructive")}
+                className={cn("h-8 min-w-0 flex-1 basis-40 text-sm font-semibold", !named && "border-destructive")}
                 placeholder="Désignation de l'acte"
                 disabled={disabled}
                 aria-label="Désignation de l'acte"
                 aria-invalid={!named}
               />
             ) : (
-              <p className="mt-0.5 text-sm font-semibold leading-tight">
+              <p className="min-w-0 text-sm font-semibold leading-tight">
                 {named ? (
                   act.procedureName
                 ) : (
-                  <span className="font-normal italic text-muted-foreground">Choisissez l&apos;acte réalisé…</span>
+                  <span className="font-normal italic text-muted-foreground">Acte {index} — à compléter</span>
                 )}
               </p>
+            )}
+            {duplicate && (
+              <Badge variant="outline" className="border-amber-500 text-2xs text-amber-700 dark:text-amber-300">
+                en double ?
+              </Badge>
+            )}
+            {named && act.billedOnPlan && <PaidTag label={paidOnLabel} className="ms-auto" />}
+            {named && !act.billedOnPlan && act.addToPlan && addToPlanTarget && (
+              <AddedTag className="ms-auto" />
             )}
           </div>
         ) : (
@@ -257,52 +283,47 @@ export function ActCard({
               )}
             </span>
             {/*
-              ⚠️ **On the card's FACE, because the card is closed most of the time.** « Non terminé » is the
-              one thing about a recorded act that changes what happens next, and a fiche holding three acts
-              shows three collapsed rows — so a state readable only on the armed card is a state nobody reads.
+              ⚠️ **On the card's FACE, because the card is closed most of the time.** « À continuer » is the one
+              thing about a recorded act that changes what happens next, and a fiche holding three acts shows
+              three collapsed rows — so a state readable only on the armed card is a state nobody reads.
 
               ⚠️ **It WRAPS rather than truncates.** Every other item on this line is `truncate`, which is right
-              for a name and wrong for a two-word verdict: clipped to « Non ter… » it says something else
-              entirely. `basis-full` on the narrow layout gives it its own row instead of squeezing the name.
+              for a name and wrong for a verdict: clipped, it says something else entirely. `basis-full` on the
+              narrow layout gives it its own row instead of squeezing the name.
             */}
             {/*
-              ⚠️ **Withheld on a treatment-carried act, on the SAME condition as the checkbox itself** — see the
-              note on the control in the armed body. Two reasons, and the second is the one that forced it: the
-              chip would sit beside « étape 2 sur 2 », i.e. two rival statements about what remains; and with the
-              control hidden it would be a state the reader can see and cannot change, which is worse than not
-              showing it. A stale tick is harmless — `ContinuationTracking`, not the flag, is what keeps the act
-              off « Suites à planifier ».
+              ⚠️ **Withheld on a treatment-carried act, on the SAME condition as the checkbox itself** — the
+              treatment's séances already say what remains, and with the control hidden the chip would be a state
+              the reader can see and cannot change. A stale tick is harmless — `ContinuationTracking`, not the
+              flag, is what keeps the act off « Suites à planifier ».
             */}
             {act.isUnfinished && !act.billedOnPlan && (
               <span className="inline-flex min-w-0 basis-full items-center rounded border border-warning-ink/45 bg-warning-ink/10 px-1.5 py-px text-2xs font-medium leading-tight text-warning-ink [overflow-wrap:anywhere] sm:basis-auto">
-                Non terminé
+                À continuer
               </span>
             )}
-            {/* ⚠️ The whole sentence, never a bare rank: « étape 1 sur 2 » alone is read as progress — see N31,
-                and the modal's `seanceStepLine`, which is why « Cette séance » is inside the string. */}
-            {seanceStepLine && (
-              <span className="min-w-0 basis-full truncate text-2xs font-medium text-primary sm:basis-auto">
-                {seanceStepLine}
-              </span>
-            )}
-            <span className="flex min-w-0 shrink-0 items-center gap-2 sm:ms-auto">
+            {/* `flex-wrap` + `max-w-full`: at 320 px a long teeth phrase and the « Payé sur … » tag stack instead
+                of pushing past the card. */}
+            <span className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 sm:ms-auto">
               <span
-                className="max-w-[20ch] truncate font-mono text-2xs text-muted-foreground"
+                className="max-w-[20ch] truncate text-2xs tabular-nums text-muted-foreground"
                 title={toothCount > 0 ? `Dents ${act.toothNumbers.join(", ")}` : undefined}
               >
                 {summariseTeeth(act.toothNumbers, arch)}
               </span>
-              {/* ⚠️ No figure at all on an act the treatment prices — see the body's own note. A collapsed
-                  card reading « 0,000 DT » beside the act's name is the third of the séance's zeros and it
-                  says nothing: the act has no price *here*, which is different from costing nothing. */}
-              {!act.billedOnPlan && (
+              {/* ⚠️ No figure on an act the treatment prices: « 0,000 DT » beside its name reads as a free act.
+                  The tag says where the price is instead. */}
+              {act.billedOnPlan ? (
+                <PaidTag label={paidOnLabel} className="bg-transparent px-0" />
+              ) : (
                 <span className="text-xs font-semibold tabular-nums">{formatDT(total)}</span>
               )}
             </span>
           </button>
         )}
 
-        {focused && named && !act.billedOnPlan && (
+        {/* An act going onto the devis wears its tag here instead; its figure is in the price row below. */}
+        {focused && named && !act.billedOnPlan && !(act.addToPlan && addToPlanTarget) && (
           <span className="shrink-0 self-center whitespace-nowrap ps-1 text-sm font-semibold tabular-nums">
             {formatDT(total)}
           </span>
@@ -327,34 +348,23 @@ export function ActCard({
             </div>
           ) : (
             <>
-              {/* Which séance of the treatment this is — the first thing on the card, because it is what the
-                  dentist is looking for when an act appears among several. */}
-              {seanceStepLine && (
-                <p className="text-2xs font-semibold text-primary">{seanceStepLine}</p>
+              {/* What this séance finishes, on a continuation — its own désignation is often just « continuation ». */}
+              {continuationOf && (
+                <span className="inline-flex w-fit max-w-full items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 text-2xs text-muted-foreground">
+                  Suite de&nbsp;:
+                  <span className="min-w-0 truncate font-medium text-foreground">{continuationOf}</span>
+                </span>
               )}
               {/*
-                ⚠️ **An act the treatment prices shows NO money row at all**, and that is a removal with a rule
-                behind it rather than a tidy-up. Read-only, the row still drew four things a dentist could
-                neither change nor act on — a locked « 0,000 », the words « Chiffré sur le traitement », a
-                live « / dent · forfait » switch multiplying a figure imposed at zero, and the same 0,000 a
-                third time — on a screen where « 0,000 » already appeared seven times. Reported from use as
-                « trop chargé, la même information répétée » and « pourquoi ce 0 que je ne peux pas modifier ».
-                What the dentist needs instead is one sentence, and the *amount* the treatment was agreed at,
-                which the modal states above where it is actually read.
+                ⚠️ **An act the treatment prices shows NO money row at all** — only the head's « Payé sur le
+                traitement » tag. A locked « 0,000 » and a live « par dent · pour tout » switch multiplying a
+                figure imposed at zero were reported as « pourquoi ce 0 que je ne peux pas modifier ».
 
                 ⚠️ It is withheld **per act**, never per fiche: a détartrage done in the same séance is real
                 honoraires and keeps its price, its switch and its total. Hiding on « this séance touches a
                 devis » would make that act unbillable.
               */}
-              {act.billedOnPlan ? (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">Aucun honoraire sur cette séance.</span>
-                    {!planNotice && " Cet acte est chiffré une fois, sur le traitement."}
-                  </p>
-                  {planNotice}
-                </>
-              ) : (
+              {!act.billedOnPlan && (
               <>
               {/* The price, on the card face. It used to be a read-only figure with the editable field two folds
                   down, so the dentist looked straight at the number they wanted to change and could not touch
@@ -371,12 +381,13 @@ export function ActCard({
                   )}
                   placeholder="0,000"
                   disabled={disabled}
-                  aria-label={act.perTooth ? "Prix par dent (DT)" : "Montant forfaitaire (DT)"}
+                  aria-label={act.perTooth ? "Prix par dent (DT)" : "Prix pour tout (DT)"}
                   aria-invalid={priceInvalid}
                 />
+                <span className="-ms-1 text-xs text-muted-foreground">DT</span>
                 {/* ⚠️ `coarse:h-11` on both, not the inherited `.touch-target`. `buttonVariants` centres a 44 px
                     overlay on every Button, so two 32 px ones 4 px apart overhang each other and the later
-                    sibling paints last — tapping the right of « / dent » would set « forfait », i.e. silently
+                    sibling paints last — tapping the right of « par dent » would set « pour tout », i.e. silently
                     change what the act is billed at. Growing the painted box makes the overlay coincide. */}
                 <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
                   <Button
@@ -386,10 +397,9 @@ export function ActCard({
                     className="h-8 px-2.5 text-2xs coarse:h-11"
                     onClick={() => dispatch({ type: "patchAct", key: act.key, patch: { perTooth: true } })}
                     disabled={disabled || toothCount === 0}
-                    title={toothCount === 0 ? "Sélectionnez au moins une dent" : "Prix par dent"}
                     aria-pressed={act.perTooth}
                   >
-                    / dent
+                    par dent
                   </Button>
                   <Button
                     type="button"
@@ -398,64 +408,40 @@ export function ActCard({
                     className="h-8 px-2.5 text-2xs coarse:h-11"
                     onClick={() => dispatch({ type: "patchAct", key: act.key, patch: { perTooth: false } })}
                     disabled={disabled}
-                    title="Montant forfaitaire pour l'acte entier"
                     aria-pressed={!act.perTooth}
                   >
-                    forfait
+                    pour tout
                   </Button>
                 </div>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {act.perTooth && toothCount > 0 && (
-                    <>
-                      × {toothCount} dent{toothCount > 1 ? "s" : ""} ={" "}
-                    </>
-                  )}
-                  <span className="text-sm font-semibold text-foreground">{formatDT(total)}</span>
-                </span>
+                {act.perTooth && toothCount > 0 && (
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    × {toothCount} dent{toothCount > 1 ? "s" : ""} ={" "}
+                    <span className="text-sm font-semibold text-foreground">{formatDT(total)}</span>
+                  </span>
+                )}
                 {priceInvalid && <span className="text-xs text-destructive">Montant invalide</span>}
                 {!priceInvalid && act.unitCost.trim() === "" && (
-                  <span className="text-xs text-warning-ink">Sans tarif — à compléter plus tard</span>
+                  <span className="text-xs text-warning-ink">Sans tarif</span>
                 )}
-              </div>
-
-              {/*
-                ⚠️ A STATEMENT of where this fee lands, and the ONLY thing left of what used to be a choice.
-                An act added to a séance a devis is carrying out goes onto that devis — the owner's decision,
-                2026-09-23 — so there is no tick here and no way out; the way back is amending the devis.
-                The line stays because without it the card shows a real amount that « Total » and « Payé »
-                both ignore, which is unreadable. Same job as `billedOnPlan`'s « Aucun honoraire sur cette
-                séance », one step earlier in the act's life.
-
-                ⚠️ The price row above is deliberately still editable: that figure is what the devis will be
-                amended by, so somebody has to be able to type it.
-              */}
-              {act.addToPlan && addToPlanTarget && (
-                <p className="text-xs">
-                  <span className="font-medium text-foreground">
-                    Chiffré sur le devis {addToPlanTarget}.
-                  </span>{" "}
-                  <span className="text-muted-foreground">Aucun honoraire sur cette séance.</span>
-                </p>
-              )}
-
-              </>
-              )}
-
-              {gesture !== null && !priceInvalid && (
-                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs">
-                  <span className="text-warning-ink">
-                    Tarif catalogue {formatDT(tariff!)} —{" "}
-                    {gesture > 0 ? `geste de ${formatDT(gesture)}` : `majoration de ${formatDT(-gesture)}`}
-                  </span>
+                {/* The tariff, as one link and only when the price differs. The geste / majoration figure stays
+                    in the name a screen reader hears. `coarse:min-h-11` grows the box: an overlay would reach
+                    into the switch beside it. */}
+                {gesture !== null && !priceInvalid && (
                   <button
                     type="button"
-                    className="touch-target underline underline-offset-2 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    className="inline-flex min-h-8 items-center gap-1 rounded px-1 text-2xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50 coarse:min-h-11"
                     onClick={() => dispatch({ type: "resetUnitCostToTariff", key: act.key, defaultCost: tariff })}
                     disabled={disabled}
+                    aria-label={`Remettre au tarif catalogue ${formatDT(tariff!)} (${
+                      gesture > 0 ? `geste de ${formatDT(gesture)}` : `majoration de ${formatDT(-gesture)}`
+                    })`}
                   >
-                    remettre au tarif
+                    <RotateCcw className="size-3" aria-hidden="true" />
+                    tarif {formatAmount(tariff!)}
                   </button>
-                </p>
+                )}
+              </div>
+              </>
               )}
 
               {/* The act's own teeth. Chips rather than a list, so three teeth are three objects a finger can
@@ -463,9 +449,7 @@ export function ActCard({
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <span className="shrink-0 text-2xs text-muted-foreground">Dents</span>
                 {toothCount === 0 ? (
-                  <span className="text-2xs italic text-muted-foreground">
-                    aucune — tapez sur le schéma, ou laissez vide pour un acte général (détartrage, panoramique…)
-                  </span>
+                  <span className="text-2xs italic text-muted-foreground">aucune</span>
                 ) : (
                   act.toothNumbers.map((tooth) => (
                     /* The « × » grows its own box on a coarse pointer instead of taking a `.touch-target`
@@ -479,7 +463,7 @@ export function ActCard({
                         backgroundColor: `color-mix(in oklab, ${color} 14%, transparent)`,
                         borderColor: `color-mix(in oklab, ${color} 42%, transparent)`,
                       }}
-                      className="inline-flex min-h-7 items-center gap-0.5 rounded-md border ps-2 pe-0.5 font-mono text-xs tabular-nums coarse:min-h-11"
+                      className="inline-flex min-h-7 items-center gap-0.5 rounded-md border ps-2 pe-0.5 text-xs tabular-nums coarse:min-h-11"
                     >
                       {tooth}
                       {/*
@@ -562,18 +546,18 @@ export function ActCard({
 
                 ⚠️ **It states nothing about money and moves none.** An act billed 1 000 with 800 collected
                 still owes 200 on its note, where la caisse, « Créances » and « Solde patient » already carry
-                it. Ticking this changes no figure here or anywhere else, and the sub-label says so rather than
-                leaving a dentist to wonder whether it re-opens the séance's billing.
+                it. Ticking this changes no figure here or anywhere else. The label says what it means
+                (« À continuer une autre séance ») and nothing more — the owner's rule, no helper under a control.
 
                 The `<label>` wraps the control, so the text is part of the target: one ≥ 44 px hit area on a
                 coarse pointer without a `.touch-target` overlay that would reach into the row below.
               */}
               {/*
                 ⚠️ **Withheld on an act a TREATMENT already carries, and that is the whole condition.** Such an
-                act has an échéancier of séances behind it — « étape 2 sur 3 » is printed on this very card —
-                so the devis is already the authority on what remains, and a second, free-text « non terminé »
-                beside it is a rival answer to a question that is already answered. The flag exists for the case
-                the devis cannot cover: a one-off act, no treatment, nothing tracking the remainder.
+                act has its séances behind it — the band at the top of the fiche draws them — so the devis is
+                already the authority on what remains, and a second, free-text « à continuer » beside it is a
+                rival answer to a question that is already answered. The flag exists for the case the devis
+                cannot cover: a one-off act, no treatment, nothing tracking the remainder.
 
                 ⚠️ **Per ACT, never per séance**: a mixed visit — a carried couronne beside an ordinary
                 détartrage — must keep the box on the détartrage, which is exactly the act that might be left
@@ -593,10 +577,8 @@ export function ActCard({
               <label
                 htmlFor={`${act.key}-unfinished`}
                 className={cn(
-                  "flex cursor-pointer items-start gap-2 rounded-md border border-dashed px-2.5 py-2 transition-colors coarse:min-h-11",
-                  act.isUnfinished
-                    ? "border-warning-ink/50 bg-warning-ink/[0.06]"
-                    : "hover-hover:hover:bg-muted/50",
+                  "flex w-fit max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1 transition-colors coarse:min-h-11",
+                  act.isUnfinished ? "bg-warning-ink/[0.06]" : "hover-hover:hover:bg-muted/50",
                   disabled && "cursor-not-allowed opacity-60",
                 )}
               >
@@ -607,54 +589,46 @@ export function ActCard({
                     dispatch({ type: "patchAct", key: act.key, patch: { isUnfinished: checked === true } })
                   }
                   disabled={disabled}
-                  className="mt-0.5 shrink-0"
+                  className="shrink-0"
                 />
-                {/* `min-w-0` because the block below holds wrapping prose: without it the flex item's
-                    min-content is the longest word and the card grows past its own edge at 320 px. */}
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-medium leading-tight">Acte non terminé</span>
-                  <span className="mt-0.5 block text-2xs leading-relaxed text-muted-foreground">
-                    Il faudra une autre séance. L&apos;acte passe dans « Suites à planifier » ; aucun montant
-                    n&apos;est modifié.
-                  </span>
-                </span>
+                <span className="min-w-0 text-xs font-medium leading-tight">À continuer une autre séance</span>
               </label>
               )}
 
-              {/* ── the act's detail, folded but summarised ───────────────────────────────────────── */}
-              <div className="rounded-md border">
+              {/* ── the act's detail, folded but summarised, with « Changer d'acte » beside it ───────── */}
+              {/* `flex-wrap` + `basis-48`: at 320 px « Changer d'acte » drops under the fold instead of cutting
+                  its summary to « Couronn… » (run3 C1-fiche-320). */}
+              <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+                <div className="min-w-0 flex-1 basis-48 rounded-md border">
+                  <button
+                    type="button"
+                    onClick={() => setDetailsOpen((v) => !v)}
+                    aria-expanded={detailsOpen}
+                    className="flex min-h-9 w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-muted coarse:min-h-11"
+                  >
+                    {detailsOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    )}
+                    <span className="shrink-0 text-xs font-semibold">Détails</span>
+                    <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">{detailsSummary}</span>
+                  </button>
+                  {detailsOpen && (
+                    <div className="grid gap-3 border-t px-2.5 pb-2.5 pt-2.5">
+                      <ActDetailFields act={act} dispatch={dispatch} disabled={disabled} />
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
-                  onClick={() => setDetailsOpen((v) => !v)}
-                  aria-expanded={detailsOpen}
-                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-muted coarse:min-h-11"
-                >
-                  {detailsOpen ? (
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  )}
-                  <span className="shrink-0 text-xs font-semibold">Détails</span>
-                  <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">{detailsSummary}</span>
-                </button>
-                {detailsOpen && (
-                  <div className="grid gap-3 border-t px-2.5 pb-2.5 pt-2.5">
-                    <ActDetailFields act={act} dispatch={dispatch} disabled={disabled} />
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
+                  className="ms-auto inline-flex min-h-9 shrink-0 items-center rounded px-1.5 text-xs font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50 coarse:min-h-11"
                   onClick={() => dispatch({ type: "beginPicking", key: act.key })}
                   disabled={disabled}
+                  aria-label={named ? `Changer d'acte — ${act.procedureName}` : undefined}
                 >
                   Changer d&apos;acte
-                </Button>
+                </button>
               </div>
             </>
           )}
@@ -747,7 +721,7 @@ function BridgeRolesStep({
           const role = bridgeRoleOf(act, tooth)
           return (
             <div key={tooth} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="min-w-8 font-mono text-xs tabular-nums">{tooth}</span>
+              <span className="min-w-8 text-xs tabular-nums">{tooth}</span>
               {/* All three visible at once — the reason this is not a cycle on the chip. `flex-wrap` because
                   three French role names do not fit one line inside a card at 320 px. */}
               <div className="flex flex-wrap gap-1">

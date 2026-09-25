@@ -207,9 +207,6 @@ export function PrescriptionLineRow({
                   </Button>
                 ))}
             </div>
-            <p className="text-2xs text-muted-foreground">
-              Écrivez ce que vous voulez : la ligne est imprimée telle quelle sur l&apos;ordonnance.
-            </p>
           </div>
         ) : (
           <>
@@ -295,14 +292,12 @@ export function PrescriptionLineRow({
                 {catalogFailed ? (
                   <div className="p-2">
                     <LoadFailureNotice
-                      message="Le catalogue des médicaments n'a pas pu être chargé. Ce n'est pas un catalogue vide — la lecture a échoué. Réessayez avant de saisir à la main."
+                      message="Le catalogue des médicaments n'a pas pu être chargé."
                       onRetry={onRetryCatalog}
                     />
                   </div>
                 ) : matches.length === 0 ? (
-                  <p className="p-3 text-xs text-muted-foreground">
-                    Aucun médicament ne correspond. Écrivez le nom : il sera prescrit tel quel.
-                  </p>
+                  <p className="p-3 text-xs text-muted-foreground">Aucun médicament ne correspond.</p>
                 ) : (
                   <ul className="max-h-56 overflow-y-auto py-1">
                     {matches.map((m) => (

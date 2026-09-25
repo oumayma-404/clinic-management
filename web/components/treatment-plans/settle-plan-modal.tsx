@@ -98,6 +98,8 @@ export function SettlePlanModal({ open, onOpenChange, plan, onSuccess }: SettleP
    * and `CollectChairside` cannot describe two different outcomes.
    */
   const landing = Number.isFinite(parsed) && parsed > 0 ? installmentsPayableRoom(plan, parsed) : []
+  // One auto-raised row IS the « Reste à payer » above: listing it would print the same figure twice.
+  const namesRows = landing.length > 1 || (landing.length === 1 && !landing[0].isAutoRaised)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -108,7 +110,7 @@ export function SettlePlanModal({ open, onOpenChange, plan, onSuccess }: SettleP
       return
     }
     if (parsed > outstanding + 0.0005) {
-      conflict.setError(`Le règlement dépasse le reste dû (${formatDT(outstanding)}).`)
+      conflict.setError(`Le montant dépasse le reste à payer (${formatDT(outstanding)}).`)
       return
     }
 
@@ -123,8 +125,8 @@ export function SettlePlanModal({ open, onOpenChange, plan, onSuccess }: SettleP
       })
       toast.success(
         landing.length > 1
-          ? `Règlement enregistré — ${formatDT(parsed)} réparti sur ${landing.length} échéances.`
-          : "Règlement enregistré",
+          ? `Paiement enregistré — ${formatDT(parsed)} sur ${landing.length} échéances`
+          : "Paiement enregistré",
       )
       onSuccess?.()
       onOpenChange(false)
@@ -143,10 +145,9 @@ export function SettlePlanModal({ open, onOpenChange, plan, onSuccess }: SettleP
       <Dialog open={open} onOpenChange={guard.onOpenChange}>
         <DialogContent className="md:max-w-md">
           <DialogHeader>
-            <DialogTitle>Régler le devis</DialogTitle>
+            <DialogTitle>Encaisser</DialogTitle>
             <DialogDescription>
-              Un seul encaissement, réparti sur l&apos;échéancier à partir de la plus ancienne échéance impayée.
-              Reste dû {formatDT(outstanding)}.
+              Reste à payer <b className="text-foreground">{formatDT(outstanding)}</b>
             </DialogDescription>
           </DialogHeader>
 
@@ -172,7 +173,7 @@ export function SettlePlanModal({ open, onOpenChange, plan, onSuccess }: SettleP
 
             {/* What the press will actually do — stated before it, because the receipts are per-payment and
                 one press here can produce several. */}
-            {landing.length > 0 && (
+            {namesRows && (
               <ul className="space-y-0.5 rounded-md bg-muted/40 p-2.5 text-2xs text-muted-foreground">
                 {landing.map((row) => (
                   <li key={row.installmentId} className="flex flex-wrap items-baseline justify-between gap-x-2">
@@ -225,7 +226,7 @@ export function SettlePlanModal({ open, onOpenChange, plan, onSuccess }: SettleP
                 Annuler
               </Button>
               <Button type="submit" disabled={loading}>
-                {loading ? "Enregistrement…" : "Enregistrer le règlement"}
+                {loading ? "Enregistrement…" : "Encaisser"}
               </Button>
             </DialogFooter>
           </form>

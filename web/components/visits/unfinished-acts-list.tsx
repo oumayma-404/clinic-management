@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 import { CalendarPlus, CircleDashed } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -12,7 +13,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientNameLink } from "@/components/patient-name-link"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import {
-  ContinueSessionDialog,
+  PRESELECTED_NEXT_LABEL,
   type ContinuationChoice,
 } from "@/components/treatment-plans/continue-session-dialog"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
@@ -20,7 +21,7 @@ import type { UnfinishedActDto } from "@/lib/api/types"
 import type { PagedResponse } from "@/lib/api/paging"
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import { formatDT, formatDateFr } from "@/lib/format"
-import { getErrorMessage } from "@/lib/errors"
+import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { cn } from "@/lib/utils"
@@ -45,8 +46,9 @@ import { cn } from "@/lib/utils"
  * still owed, which is what was actually asked for.</p>
  *
  * <p>⚠️ <b>Its action is a PRE-FILLER, never a second writer.</b> « Planifier la suite » opens the ordinary
- * booking dialog with the continuation already chosen, and the devis is minted by `materialiseTreatments` when
- * that booking is saved — exactly as the in-dialog door does it. One materialiser, not two.</p>
+ * booking dialog with the continuation already on it — one dialog, the séance's name and « Prix du reste »
+ * typed on its card — and the devis is minted by `materialiseTreatments` when that booking is saved, exactly as
+ * the in-dialog « Continuer » does it. One materialiser, not two.</p>
  *
  * <p>⚠️ <b>Empty on the day this ships, and that is correct.</b> The flag is not derivable, so nothing was
  * backfilled; the list fills as séances are charted. Do not repair it by inference.</p>
@@ -66,18 +68,10 @@ export function UnfinishedActsList({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  /**
-   * The row whose « Planifier la suite » was pressed — the act `ContinueSessionDialog` opens on.
-   *
-   * ⚠️ **Two steps, not one, and the first version skipped the first.** What the remaining work is worth is a
-   * decision only the dentist can make, and it decides everything the booking card then says: with no amount
-   * the séance is named after the act already DONE, its price field is withheld (a devis-carried act holds no
-   * fee on the séance) and the card states both « n'ajoute aucun honoraire » and « Encaissement sur la note ».
-   * That question has one home and this is the door to it.
-   */
-  const [continuing, setContinuing] = useState<UnfinishedActDto | null>(null)
+  /** The row whose « Planifier la suite » is being resolved — its button waits while the séance is re-read. */
+  const [opening, setOpening] = useState<string | null>(null)
 
-  /** The choice, once made — what the booking dialog opens on. */
+  /** The continuation the booking dialog opens on. */
   const [booking, setBooking] = useState<{ patientId: string; patientName: string | null; choice: ContinuationChoice } | null>(null)
 
   const load = useCallback(async () => {
@@ -120,8 +114,35 @@ export function UnfinishedActsList({
 
   const items = data?.items ?? []
 
-  /** Open the continuation dialog on this act — it asks the price, then hands back the choice. */
-  const planNext = (row: UnfinishedActDto) => setContinuing(row)
+  /**
+   * Open the booking dialog on this act, already continued.
+   *
+   * ⚠️ The act is re-read through `continuableActs`, the row the booking dialog's own « Continuer » uses: this
+   * list's DTO carries neither the note's total nor the tick, and a colleague may have continued it meanwhile —
+   * then it is no longer offered, and saying so beats booking a séance whose devis the server will refuse.
+   */
+  const planNext = async (row: UnfinishedActDto) => {
+    if (opening) return
+    setOpening(row.actId)
+    try {
+      const offered = await treatmentPlansApi.continuableActs(row.patientId)
+      const previous = offered.find((a) => a.actId === row.actId)
+      if (!previous) {
+        toast.info("Cette séance n'est plus à poursuivre.")
+        void load()
+        return
+      }
+      setBooking({
+        patientId: row.patientId,
+        patientName: row.patientName,
+        choice: { previous, nextStepLabel: PRESELECTED_NEXT_LABEL, remainingWorkCost: null },
+      })
+    } catch (err) {
+      showErrorToast(err, "La séance n'a pas pu être relue.")
+    } finally {
+      setOpening(null)
+    }
+  }
 
   if (error) {
     return (
@@ -145,7 +166,6 @@ export function UnfinishedActsList({
               icon={CircleDashed}
               title="Aucune suite à planifier"
               joke={<EmptyJoke surface="unfinishedActs" />}
-              description="Un acte coché « non terminé » sur une fiche de soins apparaît ici jusqu'à ce que sa suite soit planifiée."
             />
           </div>
         ) : (
@@ -158,7 +178,7 @@ export function UnfinishedActsList({
                     <TableHead>Acte</TableHead>
                     <TableHead className="whitespace-nowrap">Séance</TableHead>
                     <TableHead className="text-end">Honoraires</TableHead>
-                    <TableHead>Encaissement</TableHead>
+                    <TableHead>Facturation</TableHead>
                     <TableHead className="text-end">Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -174,7 +194,7 @@ export function UnfinishedActsList({
                       <TableCell>
                         <span className="font-medium">{row.procedureName}</span>
                         {row.toothNumbers.length > 0 && (
-                          <span className="ms-1.5 font-mono text-2xs text-muted-foreground">
+                          <span className="ms-1.5 text-2xs tabular-nums text-muted-foreground">
                             {row.toothNumbers.join(", ")}
                           </span>
                         )}
@@ -187,7 +207,7 @@ export function UnfinishedActsList({
                         <MoneyLine row={row} />
                       </TableCell>
                       <TableCell className="text-end">
-                        <Button size="sm" onClick={() => planNext(row)}>
+                        <Button size="sm" disabled={opening === row.actId} onClick={() => void planNext(row)}>
                           <CalendarPlus className="h-4 w-4" aria-hidden="true" />
                           Planifier la suite
                         </Button>
@@ -215,10 +235,10 @@ export function UnfinishedActsList({
                 fields={(row) => [
                   { label: "Séance", value: <SeanceAge row={row} /> },
                   ...(row.toothNumbers.length > 0
-                    ? [{ label: "Dents", value: <span className="font-mono">{row.toothNumbers.join(", ")}</span> }]
+                    ? [{ label: "Dents", value: <span className="tabular-nums">{row.toothNumbers.join(", ")}</span> }]
                     : []),
                   { label: "Honoraires", value: formatDT(row.cost) },
-                  { label: "Encaissement", value: <MoneyLine row={row} /> },
+                  { label: "Facturation", value: <MoneyLine row={row} /> },
                 ]}
                 /*
                   ⚠️ `primaryAction`, not `actions` — the sanctioned exception this list is exactly the case for:
@@ -227,7 +247,12 @@ export function UnfinishedActsList({
                   crushing the act's name in the header row.
                 */
                 primaryAction={(row) => (
-                  <Button size="sm" className="w-full" onClick={() => planNext(row)}>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    disabled={opening === row.actId}
+                    onClick={() => void planNext(row)}
+                  >
                     <CalendarPlus className="h-4 w-4" aria-hidden="true" />
                     Planifier la suite
                   </Button>
@@ -252,34 +277,9 @@ export function UnfinishedActsList({
       </div>
 
       {/*
-        Both dialogs are SIBLINGS of the list, never children of a row — Radix unmounts a closed dialog's
-        content, and every row is re-rendered by the realtime refresh under it.
-      */}
-
-      {/*
-        Step 1 — what is this séance, and what is the remaining work worth? `ContinueSessionDialog` is the one
-        place that question is asked, and it writes nothing: it hands back a `ContinuationChoice`.
-      */}
-      {continuing && (
-        <ContinueSessionDialog
-          open
-          onOpenChange={(next) => !next && setContinuing(null)}
-          patientId={continuing.patientId}
-          preselectActId={continuing.actId}
-          onChosen={(choice) => {
-            setBooking({
-              patientId: continuing.patientId,
-              patientName: continuing.patientName,
-              choice,
-            })
-            setContinuing(null)
-          }}
-        />
-      )}
-
-      {/*
-        Step 2 — the booking itself, with the continuation already chosen. The devis is still minted by
-        `materialiseTreatments` when THIS is saved, so abandoning it writes nothing.
+        The booking itself, with the continuation already on it. A SIBLING of the list, never a child of a row —
+        every row is re-rendered by the realtime refresh under it. The devis is minted by `materialiseTreatments`
+        when THIS is saved, so abandoning it writes nothing.
 
         ⚠️ `presetPatientId` travels with the continuation: the pending row is keyed on one patient's fiche, so
         a patient changed mid-dialog either drops it or mints the FIRST patient's devis and is then refused.
@@ -326,43 +326,32 @@ function SeanceAge({ row }: { row: UnfinishedActDto }) {
 /**
  * Which document collects this act, and what is still owed on it.
  *
- * ⚠️ **It states the money and moves none.** The two cases lead to opposite actions at the next séance and
- * neither is guessable from the act's name, which is the whole reason the row carries a sentence rather than a
- * figure. ⚠️ Branches on `invoiceId`, **never** on the number: a DRAFT note collects and has no number yet, and
- * reading the number puts a billed séance on the « non facturée » branch — the exact inversion the continuation
- * dialog already paid for.
+ * ⚠️ **It states the money and moves none** — billed or not leads to opposite actions at the next séance.
+ * ⚠️ Branches on `invoiceId`, **never** on the number: a DRAFT note collects and has no number yet, and reading
+ * the number puts a billed séance on the « non facturée » branch.
  */
 function MoneyLine({ row }: { row: UnfinishedActDto }) {
-  if (!row.invoiceId) {
-    return (
-      <span className="text-muted-foreground">
-        Non facturée — le devis portera {formatDT(row.cost)}.
-      </span>
-    )
-  }
+  if (!row.invoiceId) return <span className="text-muted-foreground">Non facturée</span>
   return (
     <span className="text-muted-foreground">
-      Facturée sur {row.invoiceNumber ? "la note " : "un brouillon de note"}
-      {row.invoiceNumber && <span className="font-mono">{row.invoiceNumber}</span>}
+      {row.invoiceNumber ? "Note " : "Brouillon de note"}
+      {row.invoiceNumber && <span className="tabular-nums">{row.invoiceNumber}</span>}
       {row.invoiceOutstanding > 0 ? (
-        <span className="font-medium text-warning-ink">
-          {" "}
-          · reste {formatDT(row.invoiceOutstanding)} sur cette note
-        </span>
+        <span className="font-medium text-warning-ink"> · Reste à payer {formatDT(row.invoiceOutstanding)}</span>
       ) : (
-        <span> · entièrement réglée</span>
+        <span> · payée</span>
       )}
     </span>
   )
 }
 
 /**
- * ⚠️ « un rendez-vous est prévu », never « cet acte est planifié ». Nothing links a booking to an act with no
+ * ⚠️ « RDV prévu », never « cet acte est planifié ». Nothing links a booking to an act with no
  * treatment behind it — which is exactly what these acts are — so the row may only say the patient is coming
  * back. Claiming the stronger of the two is how a worklist starts lying.
  */
 function bookedLine(row: UnfinishedActDto): string {
-  return `Un rendez-vous est déjà prévu le ${formatDateFr(row.nextAppointmentAt!)}`
+  return `RDV prévu le ${formatDateFr(row.nextAppointmentAt!)}`
 }
 
 /** Loading is its own state — a card list has no header row, so empty and loading are otherwise one blank box. */

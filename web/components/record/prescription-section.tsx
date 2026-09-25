@@ -165,17 +165,9 @@ export function PrescriptionSection({
          * the existing ordonnance exactly as it is; offering to type into a document we could not read would
          * let one save replace a prescription nobody has seen.
          */
-        <LoadFailureNotice
-          message="L'ordonnance de cette séance n'a pas pu être lue. Ce n'est pas une séance sans prescription — la lecture a échoué. Rouvrez la fiche pour la modifier ; enregistrer maintenant la laisse telle quelle."
-        />
+        <LoadFailureNotice message="L'ordonnance n'a pas pu être lue — enregistrer la laisse telle quelle." />
       ) : lines.length === 0 ? (
-        <div className="flex flex-col items-center gap-1 px-3 py-2.5 text-center">
-          <span className="text-xs font-medium">Rien de prescrit à cette séance</span>
-          <span className="max-w-md text-2xs text-muted-foreground">
-            Un médicament se choisit dans le catalogue — ou s&apos;écrit librement. Un examen (bilan, radio)
-            s&apos;écrit comme vous le diriez au patient.
-          </span>
-        </div>
+        <p className="px-3 py-2 text-center text-xs font-medium">Rien de prescrit à cette séance</p>
       ) : (
         <div className="grid min-w-0 gap-2">
           {lines.map((line, index) => (
@@ -278,32 +270,18 @@ export function PrescriptionSection({
         // ⚠️ Plural-aware, because the rule holds per document: a séance can have issued one of each.
         <p className="text-2xs text-muted-foreground" role="status">
           {existingDocumentId && existingExamensDocumentId
-            ? "L'ordonnance et la demande d'examens déjà émises pour cette séance restent au dossier. Pour les supprimer, ouvrez-les depuis l'onglet « Documents » du patient."
+            ? "L'ordonnance et la demande d'examens déjà émises restent au dossier (onglet « Documents »)."
             : existingExamensDocumentId
-              ? "La demande d'examens déjà émise pour cette séance reste au dossier. Pour la supprimer, ouvrez-la depuis l'onglet « Documents » du patient."
-              : "L'ordonnance déjà émise pour cette séance reste au dossier. Pour la supprimer, ouvrez-la depuis l'onglet « Documents » du patient."}
+              ? "La demande d'examens déjà émise reste au dossier (onglet « Documents »)."
+              : "L'ordonnance déjà émise reste au dossier (onglet « Documents »)."}
         </p>
       ) : (
-        lines.length > 0 && (
-          /*
-           * ⚠️ It names the DOCUMENTS, plural when there are two. « Une ordonnance est émise » would be a
-           * half-truth on a séance that also requests a panoramique: two separate papers leave this save, and
-           * the patient hands one to the pharmacie and the other to the laboratoire. Saying so here is also
-           * the only place a dentist learns why we split them.
-           */
-          <p className="text-2xs text-muted-foreground">
-            {hasMedication && hasExamen
-              ? `À l'enregistrement, deux documents ${
-                  existingDocumentId && existingExamensDocumentId ? "sont mis à jour" : "sont émis"
-                } : une ordonnance pour les médicaments et une demande d'examens — un médicament et un examen ne peuvent pas figurer sur la même ordonnance. Imprimables et envoyables depuis l'onglet « Documents » du patient.`
-              : hasExamen
-                ? `À l'enregistrement, une demande d'examens ${
-                    existingExamensDocumentId ? "est mise à jour" : "est émise au nom du praticien de la séance"
-                  } — imprimable et envoyable depuis l'onglet « Documents » du patient.`
-                : `À l'enregistrement, l'ordonnance de cette séance ${
-                    existingDocumentId ? "est mise à jour" : "est émise au nom du praticien de la séance"
-                  } — imprimable et envoyable depuis l'onglet « Documents » du patient.`}
-          </p>
+        /*
+         * ⚠️ One fact, only when both kinds are typed: two separate papers leave this save (a médicament and
+         * an examen may not share a sheet). One kind needs no sentence — the « Aperçu » button names its sheet.
+         */
+        hasMedication && hasExamen && (
+          <p className="text-2xs font-medium text-muted-foreground">2 ordonnances : médicaments · examens</p>
         )
       )}
     </RecordSection>

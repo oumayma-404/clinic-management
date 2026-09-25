@@ -2,16 +2,39 @@
 
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
-import { planItemState, planSeanceProgress, type PlanItemState } from "./plan-next-action"
+import { isPlanLive, planItemState, planSeanceProgress, type PlanItemState } from "./plan-next-action"
 import { itemWorkflowInk } from "./treatment-plan-labels"
 import { PlanProgressBar } from "./plan-progress-bar"
 
 /**
  * Past this many acts the pips stop being readable — a row of eighteen 9px dots is a smear, not a count — so the
- * component falls back to the shared thin bar plus the fraction. The threshold lives here rather than at the call
+ * component falls back to the shared thin bar plus the count. The threshold lives here rather than at the call
  * site so every surface that shows pips switches over at the same point.
  */
 const MAX_PIPS = 12
+
+/**
+ * A séance count in words — « 3 séances à faire » · « 2 séances sur 5 faites » · « Toutes les séances faites ».
+ *
+ * <p>⚠️ Never a bare « 2 / 5 »: a fraction is read as progress by some and as « the next one » by others (N31).
+ * Zero done is said as the work still to do, and all done as a fact, so no line ever reads « 0 séance sur 3
+ * faite ».</p>
+ *
+ * <p>`closed` — a treatment no longer running (arrêté, non réclamé, annulé, terminé) counts only what was DONE:
+ * « Aucune séance faite », never « 3 séances à faire » of work nobody will book.</p>
+ */
+export function seanceCountLabel(done: number, total: number, closed = false): string | null {
+  if (total <= 0) return null
+  if (done <= 0) return closed ? "Aucune séance faite" : `${total} séance${total > 1 ? "s" : ""} à faire`
+  if (done >= total) return total === 1 ? "1 séance faite" : "Toutes les séances faites"
+  return `${done} séance${done > 1 ? "s" : ""} sur ${total} faite${done > 1 ? "s" : ""}`
+}
+
+/** {@link seanceCountLabel} for a whole plan, counted by `planSeanceProgress` (a step-less act is one séance). */
+export function planSeanceCountLabel(plan: TreatmentPlanDto): string | null {
+  const { done, total } = planSeanceProgress(plan)
+  return seanceCountLabel(done, total, !isPlanLive(plan.status))
+}
 
 interface PlanActPipsProps {
   items: TreatmentPlanItemDto[]
@@ -19,54 +42,38 @@ interface PlanActPipsProps {
   done: number
   total: number
   /**
-   * The plan the acts belong to, so the figure can lead with **séances**.
-   *
-   * <p>⚠️ <b>Without it this printed « 0 / 1 acte » for the whole life of a six-visit treatment</b>, because an
-   * act only becomes `Done` when its last step lands — so the one surface a patient's own page gives their
-   * treatment had no progress signal at all, on exactly the acts the feature exists for. The workspace and the
-   * treatments table had already been given `planSeanceProgress`; this was the third of three and was missed.</p>
-   *
-   * <p>Acts are kept as the secondary figure rather than dropped: a bridge is not réalisé until it is scellé,
-   * and rounding that up would be a claim about a patient's mouth. Same split, same wording, as the workspace's
-   * « Séances réalisées » figure and its « N / M actes » hint.</p>
-   *
-   * <p>Optional, so a caller with only the items renders exactly as before.</p>
+   * The plan the acts belong to, so the words count **séances** — an act only becomes `Done` when its last step
+   * lands, so an act count printed « 0 acte » for the whole life of a six-visit treatment. Optional, so a caller
+   * with only the items still gets words (counted in acts).
    */
   plan?: TreatmentPlanDto
   className?: string
 }
 
 /**
- * One pip per planned act, coloured by its derived état.
+ * One pip per planned act, coloured by its derived état, then the count in words.
  *
- * <p>This replaced a percentage bar on the patient page, for a reason worth keeping: a pip row encodes **four**
- * states — réalisé, séance planifiée, séance passée sans fiche, à planifier — in less width than a bar needs for
- * one. And at zero réalisé it still shows the plan's *shape* (how many acts, all waiting), which is exactly where
- * the bar degenerated into a full-width grey slab carrying no information at all.</p>
+ * <p>A pip row encodes four états — fait, prévu, à enregistrer, à planifier — in less width than a bar needs for
+ * one, and at zero done it still shows the plan's shape. <b>Acts stay in plan order</b>, not sorted by état: a
+ * plan whose 1st and 3rd acts are done while the 2nd is not tells you something got skipped.</p>
  *
- * <p><b>Acts stay in plan order</b>, not sorted by état. The API returns them by `sequenceNumber`, and that order
- * is information: a plan whose 1st and 3rd acts are done while the 2nd is not tells you something got skipped.
- * Sorting done-first would read as a tidier progress meter while destroying that.</p>
- *
- * <p>The pips are <b>decorative</b> (`aria-hidden`) and the fraction beside them carries the accessible value. That
- * is deliberate: the `role="progressbar"` this replaces had to special-case an empty plan because `aria-valuemax`
- * of 0 announces as undefined progress. A text fraction has no such edge.</p>
+ * <p>The pips are decorative (`aria-hidden`); the words beside them carry the meaning.</p>
  */
 export function PlanActPips({ items, done, total, plan, className }: PlanActPipsProps) {
   if (total <= 0) return null
 
-  // Séances lead when the plan is in hand; acts stay beside them. See the `plan` prop.
   const seances = plan ? planSeanceProgress(plan) : null
-  const actsLabel = `${done}/${total} acte${total > 1 ? "s" : ""}`
+  const words =
+    seances && seances.total > 0
+      ? seanceCountLabel(seances.done, seances.total, plan ? !isPlanLive(plan.status) : false)
+      : actCountLabel(done, total)
 
   // A long plan: hand over to the bar, which stays legible at any act count.
   if (items.length > MAX_PIPS) {
     return (
       <span className={cn("flex items-center gap-2", className)}>
         <PlanProgressBar done={done} total={total} className="w-24" />
-        <span className="text-sm tabular-nums text-muted-foreground">
-          {seances && seances.total > 0 ? `${seances.done}/${seances.total} séances` : actsLabel}
-        </span>
+        <span className="text-sm text-muted-foreground">{words}</span>
       </span>
     )
   }
@@ -82,45 +89,25 @@ export function PlanActPips({ items, done, total, plan, className }: PlanActPips
           />
         ))}
       </span>
-      <span className="text-sm tabular-nums text-muted-foreground">
-        {/* The noun agrees with the count. The card this replaces pluralised « réalisé » on `itemsDone`, so a
-            plan at 0/2 printed « 0/2 actes réalisé ». The participle is dropped here for width and restored
-            below, for screen readers. */}
-        {seances && seances.total > 0 ? (
-          <>
-            {seances.done}/{seances.total} séance{seances.total > 1 ? "s" : ""}
-            <span className="sr-only"> réalisée{seances.total > 1 ? "s" : ""}</span>
-            {/* The act count survives as the hint, never as the headline — a treatment is finished when its
-                acts are, and a séance count alone would let « 5/6 » read as almost-done work that is not.
-
-                ⚠️ **Withheld on a ONE-act plan, where it is structurally uninformative.** With a single act
-                the hint can only ever read « 0/1 acte » until the very last séance and then « 1/1 » — it never
-                carries news, and beside « 2/5 séances » it puts two fractions with different denominators on
-                one line and asks the reader to work out that they count different things. The defence above is
-                real and is why this is a *narrowing* rather than a deletion: on a plan of several acts the
-                figure is the one that says whether the treatment is actually finished. */}
-            {total > 1 && <span className="ms-1.5 text-2xs opacity-80">· {actsLabel}</span>}
-          </>
-        ) : (
-          <>
-            {actsLabel}
-            <span className="sr-only"> réalisé{total > 1 ? "s" : ""}</span>
-          </>
-        )}
-      </span>
+      <span className="text-sm text-muted-foreground">{words}</span>
     </span>
   )
 }
 
+/** The act-count twin of {@link seanceCountLabel}, for a caller that has no plan to count séances on. */
+function actCountLabel(done: number, total: number): string {
+  if (done <= 0) return `${total} acte${total > 1 ? "s" : ""} à faire`
+  if (done >= total) return total === 1 ? "1 acte fait" : "Tous les actes faits"
+  return `${done} acte${done > 1 ? "s" : ""} sur ${total} fait${done > 1 ? "s" : ""}`
+}
+
 /**
  * The **form** half of a pip — filled, thick ring, thin ring — so an état is distinguishable without colour and
- * the visual weight tracks how much attention it deserves: réalisé is solid, the two live états carry a full
- * ring, and « à planifier » is the faintest outline.
+ * the visual weight tracks how much attention it deserves: fait is solid, the two live états carry a full ring,
+ * and « à planifier » is the faintest outline.
  *
  * <p>⚠️ The **colour** half is deliberately not here. It comes from `itemWorkflowInk`, which reads the same
- * `ITEM_WORKFLOW_TONE` the badges do, so one état has exactly one colour across the whole plan area. This map
- * used to carry both, and the two drifted on all four états — including a hard-coded `oklch(0.77 0.16 70)` for
- * « à enregistrer » that matched no token and would have been left behind by any palette edit.</p>
+ * `ITEM_WORKFLOW_TONE` the badges do, so one état has exactly one colour across the whole plan area.</p>
  *
  * <p>Still an inline `boxShadow` rather than a Tailwind arbitrary value: the ring widths differ per état, and a
  * `shadow-[inset_0_0_0_2px_var(--warning-ink)]` built by interpolation is a class Tailwind never sees in the
@@ -129,8 +116,7 @@ export function PlanActPips({ items, done, total, plan, className }: PlanActPips
 const PIP_RING: Record<PlanItemState, number | "fill"> = {
   done: "fill",
   scheduled: 2,
-  // The séance has passed with no fiche — the one état that is overdue rather than merely pending, which is why
-  // its tone is `active` and its ink the workflow badge's amber.
+  // The séance has passed with no fiche — the one état that is overdue rather than merely pending.
   "to-record": 2,
   "to-schedule": 1.5,
 }
@@ -147,9 +133,9 @@ export function PlanActPipsLegend({ className }: { className?: string }) {
     <span className={cn("flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground", className)}>
       {(
         [
-          ["done", "réalisé"],
-          ["scheduled", "planifié"],
-          ["to-record", "fiche à saisir"],
+          ["done", "fait"],
+          ["scheduled", "prévu"],
+          ["to-record", "à enregistrer"],
           ["to-schedule", "à planifier"],
         ] as [PlanItemState, string][]
       ).map(([state, label]) => (

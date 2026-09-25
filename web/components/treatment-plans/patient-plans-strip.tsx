@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
@@ -10,273 +10,218 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { ArrowRight, ChevronRight, Loader2 } from "lucide-react"
+import { CalendarPlus, ChevronRight, FilePlus2, Loader2, MoreHorizontal } from "lucide-react"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { showErrorToast } from "@/lib/errors"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { formatDT, formatDateFr } from "@/lib/format"
+import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
 import {
   planStatusLabel,
   planStatusBadgeClass,
   planNextActionLabel,
   planHasRecordedWork,
-  planDisplayName,
-  itemWorkflowLabel,
+  planDevisLabel,
+  treatmentName,
+  teethSuffix,
+  planItemStateLabel,
   itemWorkflowBadgeClass,
 } from "./treatment-plan-labels"
 import {
   activeItems,
   displayedOutstanding,
-  leadPlan,
+  firstUnbookedStep,
   nextStepOf,
-  planHeadline,
   isPlanLive,
   planItemState,
+  planItemToPreset,
   planNextAction,
   planStatusCounts,
+  type PlanNextAction,
 } from "./plan-next-action"
 import { PlanActPips } from "./plan-act-pips"
+import { SeancePips, seanceSummary } from "./seance-strip"
+import { Consequences } from "./plan-consequences"
 
 interface PatientPlansStripProps {
   plans: TreatmentPlanDto[]
-  /** Show the patient's other plans — the plans tab, which lists them all. */
+  /** Show the patient's other treatments — the plans tab, which lists them all. */
   onOpen: () => void
   /** Called after a mutation so the parent can refresh dependent views. */
   onChanged?: () => void
+  /**
+   * Opens the fiche de soins of a séance whose slot has passed — the page's own `openVisitRecord`. Absent, the
+   * button falls back to the `?addRecord=1&appointmentId=` deep link the treatment page uses.
+   */
+  onRecordVisit?: (appointmentId: string) => void
 }
 
 /**
- * The patient page's treatment band: which plan is running, the one thing to do next, the money still owed, and
- * that the patient's other plans exist — including the finished ones.
+ * The patient page's treatments: **one card per live treatment** — its name, its status, where its séances
+ * stand, what is left to pay, and ONE button naming the next séance, which books it right here.
  *
- * <p>Replaced `patient-plan-card.tsx`, a ~250 px `Card` that spent that height on four facts about one plan. It is
- * a **band in the page flow** (`border-y`, no card) rather than an object floating on it, at roughly 76 px. Same
- * reasoning as the dashboard's `KpiGrid`: when everything on a page is a bordered rectangle, the borders stop
- * carrying meaning.</p>
+ * <p>⚠️ <b>« Planifier : Empreinte » opens the booking dialog directly</b>, with the same preset the treatment
+ * page's « Planifier la séance » builds (`planItemToPreset`). It used to navigate to the treatment page first,
+ * where the act's row then had to be found — two screens for the most frequent action on the file.</p>
  *
- * <p>Four things the card got wrong, all fixed here:</p>
- * <ol>
- *   <li>A 0 %-progress plan drew a full-width grey slab — `PlanProgressBar` only hides itself at *zero acts*, not
- *       at zero done. Pips keep meaning at zero (see {@link PlanActPips}).</li>
- *   <li>« 0/2 actes réalisé » — the participle was pluralised on `itemsDone`.</li>
- *   <li>« Reste » was never shown, though it is the money question staff actually have.</li>
- *   <li>`Completed`/`Cancelled` plans were filtered out of « +N autres », making finished treatment
- *       unrepresentable. They are chips now, and the band still renders when they are all a patient has.</li>
- * </ol>
+ * <p>⚠️ <b>A Draft (a treatment followed without a devis) is asked for its next séance, never « À accepter ».</b>
+ * Numbering the devis is not the next step of the work, and a headline nagging for it on every followed
+ * treatment was read as something being wrong. « Créer le devis » stays one press away in the card's « ⋯ »,
+ * behind the same confirmation it always had.</p>
  *
- * <p>Renders nothing only when the patient has no plans whatsoever.</p>
+ * <p>Closed treatments (terminé, arrêté, annulé, non réclamé) stay as counts under the cards — finished treatment
+ * is information, just not an action. Renders nothing only when the patient has no treatment whatsoever.</p>
  */
-export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStripProps) {
+export function PatientPlansStrip({ plans, onOpen, onChanged, onRecordVisit }: PatientPlansStripProps) {
   const [accepting, setAccepting] = useState(false)
   /**
-   * The devis whose acceptance is waiting for a yes — M20.
-   *
-   * <p>⚠️ <b>It fired straight off the click.</b> Accepting spends a per-clinic-per-year devis number, ends
-   * free editing of the acts and turns the total into a live créance in « Solde patient », in the créances and
-   * on the dashboard — and its only exits are an annulation carrying a motif or the rétablissement that
-   * follows one. The workspace guards the identical transition (« Éditer le devis ») with a full dialog naming
-   * the definitive number; this band, which sits on the patient page under a « Voir les plans » button of the
-   * same size, had none at all.</p>
+   * The treatment whose devis is waiting for a yes — M20. Creating the devis spends a per-clinic-per-year number
+   * and turns the total into a live créance, and its only exits are an annulation with a motif; so it is never
+   * fired straight off the click.
    */
   const [acceptTarget, setAcceptTarget] = useState<TreatmentPlanDto | null>(null)
+  /** The booking dialog, opened from a card with that treatment's next séance preset. */
+  const [booking, setBooking] = useState<{
+    plan: TreatmentPlanDto
+    presets: PresetPlanAct[]
+    defaultDay?: Date
+  } | null>(null)
   const router = useRouter()
 
   if (plans.length === 0) return null
-
-  const plan = leadPlan(plans)
 
   const handleAccept = async (planId: string) => {
     setAccepting(true)
     try {
       await treatmentPlansApi.accept(planId)
-      toast.success("Devis accepté")
+      toast.success("Devis créé")
       setAcceptTarget(null)
       onChanged?.()
     } catch (err) {
-      // `showErrorToast`, not a hand-rolled `toast.error`: the 8-second error duration and the network-only
-      // « Réessayer » live there, and this toast is raised on the patient page where a 4-second refusal can be
-      // pushed off screen by the next one before it is read.
-      showErrorToast(err, "Échec de l'acceptation.")
+      // `showErrorToast`: the 8-second duration and the network « Réessayer » live there.
+      showErrorToast(err, "Échec de la création du devis.")
     } finally {
       setAccepting(false)
     }
   }
 
-  /*
-   * No active or draft plan, but the patient has history. The card rendered NOTHING here, which quietly asserted
-   * "this patient has never had a treatment plan" about someone who has completed three. The band stays, carrying
-   * the chips and a way into the list.
-   */
-  if (!plan) {
-    return (
-      <section aria-label="Plans de traitement" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-3">
-        <span className="text-sm font-medium text-muted-foreground">Aucun plan en cours</span>
-        <StatusChips counts={planStatusCounts(plans)} onOpen={onOpen} className="ml-auto" />
-        <Button size="sm" variant="outline" onClick={onOpen}>
-          Voir les plans
-        </Button>
-      </section>
+  // Same order `leadPlan` reads them in: most recently accepted (else created) first.
+  const livePlans = plans
+    .filter((p) => isPlanLive(p.status))
+    .sort(
+      (a, b) =>
+        new Date(b.acceptedDate ?? b.createdAt).getTime() - new Date(a.acceptedDate ?? a.createdAt).getTime(),
     )
+  const otherCounts = planStatusCounts(plans).filter((c) => !isPlanLive(c.status))
+
+  const openWorkspace = (plan: TreatmentPlanDto) => router.push(`/treatment-plans/${plan.id}`)
+
+  const book = (plan: TreatmentPlanDto, preset: PresetPlanAct, item: TreatmentPlanItemDto) => {
+    // The protocol's own interval as the day the sheet opens on — never a past date. `defaultDay`, never
+    // `defaultDate`: a due date is midnight, and `defaultDate` would open the form on 00:00 (N20). A LATER séance
+    // (the next one already booked) opens on its own earliest day.
+    const step = item.steps?.find((s) => s.id === preset.preselectedStepId)
+    const dueIso = step && item.nextStepId && step.id !== item.nextStepId ? step.earliestOn : item.nextStepDueFrom
+    const due = dueIso ? new Date(dueIso) : null
+    setBooking({ plan, presets: [preset], defaultDay: due && due.getTime() > Date.now() ? due : undefined })
   }
 
-  const isDraft = plan.status === "Draft"
-  const next = planNextAction(plan)
-  const owed = displayedOutstanding(plan)
-  /*
-   * ⚠️ **The live plans are excluded from the chips because they now have their own LINES in the fold.**
-   * Leaving them in stated the same treatments twice — once as « 3 en cours » and once as three rows — and the
-   * chip is the weaker of the two, since it cannot say which one has a séance next week. A finished or
-   * cancelled treatment is genuinely a count, and keeps its chip.
-   */
-  const livePlans = plans.filter((p) => isPlanLive(p.status))
-  const otherCounts = planStatusCounts(plans).filter((c) => !isPlanLive(c.status))
-  const openWorkspace = () => router.push(`/treatment-plans/${plan.id}`)
+  const recordVisit = (plan: TreatmentPlanDto, appointmentId: string) => {
+    if (onRecordVisit) onRecordVisit(appointmentId)
+    else router.push(`/patients/${plan.patientId}?addRecord=1&appointmentId=${appointmentId}`)
+  }
 
   return (
-    <section aria-label="Plans de traitement" className="flex flex-col gap-2 border-y py-3">
-      {/* Line 1 — identity · the one thing to do · the way in. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {/*
-          ⚠️ **`planDisplayName`, never a ternary here.** This line read « Devis — brouillon » — written by
-          hand — directly beside the badge that `planStatusLabel` had deliberately renamed to « Sans devis »,
-          so the same object carried two names eight pixels apart, and one of them was the exact word the
-          rename existed to remove: « brouillon » says unfinished paperwork about a treatment with séances
-          recorded against it, and invites a dentist to delete it.
-        */}
-        <span className="text-sm font-semibold">{planDisplayName(plan)}</span>
-        <Badge variant="secondary" className={planStatusBadgeClass(plan.status, planHasRecordedWork(plan))}>
-          {planStatusLabel(plan.status, planHasRecordedWork(plan))}
-        </Badge>
-        {/* « · révision N » only once amended, so a patient holding an earlier printout can tell which they signed. */}
-        {plan.revisionNumber > 0 && (
-          <span className="text-xs text-muted-foreground">révision {plan.revisionNumber}</span>
-        )}
-        {plan.linkedInvoiceNumber && (
-          <Link href={`/factures?search=${encodeURIComponent(plan.linkedInvoiceNumber)}`}>
-            <Badge variant="outline" className="hover:bg-accent">
-              Facturé — {plan.linkedInvoiceNumber}
-            </Badge>
-          </Link>
-        )}
+    <section aria-label="Traitements" className="flex flex-col gap-2">
+      {livePlans.length === 0 ? (
+        /* No live treatment, but history: the band stays, carrying the counts and the way into the list. */
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-3">
+          <span className="text-sm font-medium text-muted-foreground">Aucun traitement en cours</span>
+          <StatusChips counts={planStatusCounts(plans)} onOpen={onOpen} className="ms-auto" />
+          <Button size="sm" variant="outline" onClick={onOpen}>
+            Voir les traitements
+          </Button>
+        </div>
+      ) : (
+        <>
+          <ul className={cn("grid gap-2", livePlans.length > 1 && "xl:grid-cols-2")}>
+            {livePlans.map((plan) => (
+              <TreatmentCard
+                key={plan.id}
+                plan={plan}
+                busy={accepting && acceptTarget?.id === plan.id}
+                onOpenWorkspace={() => openWorkspace(plan)}
+                onBook={(preset, item) => book(plan, preset, item)}
+                onRecord={(appointmentId) => recordVisit(plan, appointmentId)}
+                onCreateDevis={() => setAcceptTarget(plan)}
+                onOpenAll={onOpen}
+              />
+            ))}
+          </ul>
 
-        {/*
-          The headline: the largest text on the band, because it is the only line that says what to DO — and it
-          re-derives as visit times pass. Everything on line 2 is context for it.
-        */}
-        <span className="ml-auto flex items-center gap-2">
-          {/* `bg-warning-ink`, not `bg-amber-500`. This dot marks the « à enregistrer » état, which the badge
-              renders with `--warning-ink` and the pip now does too — three ambers for one état meant the band,
-              the row badge and the pip were each a slightly different colour for the same fact, and only one of
-              them followed the palette. */}
-          {next.kind === "record" && (
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning-ink" aria-hidden="true" />
+          {(otherCounts.length > 0 || plans.length > 1) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+              {otherCounts.length > 0 && <StatusChips counts={otherCounts} onOpen={onOpen} />}
+              {plans.length > 1 && (
+                // A real `Button variant="link"`: its `touch-target` raises the hit area on a coarse pointer.
+                <Button variant="link" size="sm" onClick={onOpen} className="ms-auto h-auto px-0 text-xs">
+                  Tous les traitements
+                </Button>
+              )}
+            </div>
           )}
-          <span className="text-base font-semibold">{planHeadline(plan)}</span>
-        </span>
 
-        {next.kind === "accept" ? (
-          <Button size="sm" onClick={() => setAcceptTarget(plan)} disabled={accepting} className="gap-2">
-            {accepting && <Loader2 className="h-4 w-4 animate-spin" />}
-            {planNextActionLabel("accept")}
-          </Button>
-        ) : (
-          <Button size="sm" onClick={openWorkspace} className="gap-2">
-            {planNextActionLabel(next.kind)}
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
+          <PlanActsFold plans={livePlans} />
+        </>
+      )}
 
-      {/* Line 2 — the facts, hairline-separated so they read as distinct figures without four boxes. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-        {isDraft ? (
-          <>
-            {/*
-              A draft devis is not debt — it contributes 0 to « Solde patient » by design — so it shows its planned
-              total and never a « Reste », and no progress, since nothing can be done before acceptance.
-            */}
-            <span className="tabular-nums text-muted-foreground">
-              {plan.itemsTotal} acte{plan.itemsTotal > 1 ? "s" : ""}
-            </span>
-            <Separator />
-            <Fact label="Total" value={formatDT(plan.totalPlanned)} />
-          </>
-        ) : (
-          <>
-            <PlanActPips items={plan.items} done={plan.itemsDone} total={plan.itemsTotal} plan={plan} />
-            <Separator />
-            {/*
-              ⚠️ **`displayedOutstanding`, and the red is what made this the worst of the seven sites.** On a
-              devis a note d'honoraires already collects, `plan.outstanding` is the plan's own untouched
-              auto-échéance — so a finished, fully-paid treatment showed the whole devis in alert red, directly
-              under the patient's name, while the header above it read « Solde dû 0,000 DT ». Withheld rather
-              than guessed when the note's own figure is not on the wire: a missing number is recoverable, a
-              wrong one in red is not.
-            */}
-            {owed && (
-              <>
-                <Fact
-                  label={owed.isBilled ? `Reste (note ${owed.invoiceNumber ?? ""})`.trim() : "Reste"}
-                  value={formatDT(owed.amount)}
-                  tone={
-                    owed.amount > 0 && plan.itemsDone === plan.itemsTotal ? "alert" : "default"
-                  }
-                />
-                <Separator />
-              </>
-            )}
-            {plan.nextAppointmentAt ? (
-              <Fact label="Prochaine séance" value={formatDateFr(plan.nextAppointmentAt)} />
-            ) : (
-              <span className="text-muted-foreground">Aucune séance planifiée</span>
-            )}
-          </>
-        )}
+      {/* The treatment page's own booking dialog, with the same preset — see `book`. */}
+      {booking && (
+        <CreateAppointmentDialog
+          open
+          onOpenChange={(o) => !o && setBooking(null)}
+          presetPatientId={booking.plan.patientId}
+          presetPatientName={booking.plan.patientName ?? undefined}
+          presetPlanId={booking.plan.id}
+          presetPlanActs={booking.presets}
+          defaultDay={booking.defaultDay}
+          onSuccess={() => {
+            setBooking(null)
+            onChanged?.()
+          }}
+        />
+      )}
 
-        {otherCounts.length > 0 && (
-          <>
-            <Separator />
-            <StatusChips counts={otherCounts} onOpen={onOpen} />
-          </>
-        )}
-
-        {/* Omitted for a lone plan rather than rendered as a dead « 0 autre ».
-
-            A real `Button variant="link"`, not a bare styled `<button>`: the hand-rolled one was ~16 px tall
-            with no padding, well under the 44 px touch floor, so on a phone it sat between two other tap
-            targets and was effectively unhittable. `size="sm"` paints the same small text while the shared
-            `touch-target` utility raises the hit area on a coarse pointer without changing what is drawn. */}
-        {plans.length > 1 && (
-          <Button variant="link" size="sm" onClick={onOpen} className="ml-auto h-auto px-0 text-xs">
-            Tous les plans
-          </Button>
-        )}
-      </div>
-
-      <PlanActsFold plans={livePlans} />
-      {/*
-        M20 — the same shape the workspace uses for « Éditer le devis »: an `AlertDialog`, modal, not
-        dismissible by a click outside, focus on the cancel. It names the money, because the figure is what
-        makes the consequence real — « un numéro sera attribué » is abstract until it says to whom and for how
-        much.
-      */}
+      {/* M20 — modal, not dismissible by an outside click, focus on the cancel. It names the money. */}
       <AlertDialog
         open={!!acceptTarget}
         onOpenChange={(open) => { if (!open && !accepting) setAcceptTarget(null) }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Accepter ce devis&nbsp;?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {acceptTarget && (
-                <>
-                  Un numéro de devis définitif sera attribué à {planDisplayName(acceptTarget)} et son total,{" "}
-                  {formatDT(acceptTarget.totalPlanned)}, devient exigible&nbsp;: il apparaîtra dans le solde du
-                  patient, dans les créances et dans la caisse. Le numéro ne se libère pas — une erreur
-                  s&apos;annule avec un motif, elle ne se supprime pas.
-                </>
+            <AlertDialogTitle>
+              {acceptTarget ? `Créer le devis de ${treatmentName(acceptTarget)} ?` : "Créer le devis ?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {/* The same three bullets as the treatment page's « Créer le devis », in plain words. */}
+              {acceptTarget ? (
+                <Consequences
+                  items={[
+                    <>Un <b className="text-foreground">numéro de devis</b> est attribué</>,
+                    <>
+                      <b className="text-foreground">{formatDT(acceptTarget.totalPlanned)}</b> sont à payer par le
+                      patient
+                    </>,
+                    <><b className="text-foreground">Définitif</b> : une erreur s&apos;annule avec un motif</>,
+                  ]}
+                />
+              ) : (
+                <span />
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -289,7 +234,8 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
                 if (acceptTarget) void handleAccept(acceptTarget.id)
               }}
             >
-              Accepter le devis
+              {accepting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {planNextActionLabel("accept")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -299,68 +245,352 @@ export function PatientPlansStrip({ plans, onOpen, onChanged }: PatientPlansStri
 }
 
 /**
- * The plan's acts, act by act — « Traitements en cours »' three columns, on the patient's own page and folded shut.
+ * What the card's one button does. {@link planNextAction} for a treatment with a devis; for a Draft, the same
+ * work order (a séance to record, then one to book) — never « accept », which lives in the « ⋯ ».
+ */
+function cardNextAction(plan: TreatmentPlanDto, now: Date = new Date()): PlanNextAction {
+  const live = activeItems(plan)
+  let next: PlanNextAction = { kind: "open" }
+  if (plan.status !== "Draft") next = planNextAction(plan, now)
+  else {
+    const toRecord = live.find((i) => planItemState(i, now) === "to-record")
+    const toSchedule = live.find((i) => planItemState(i, now) === "to-schedule")
+    if (toRecord) next = { kind: "record", itemId: toRecord.id }
+    else if (toSchedule) next = { kind: "schedule", itemId: toSchedule.id }
+  }
+  if (next.kind !== "collect" && next.kind !== "open") return next
+  // The next séance is booked but a later one is not: « Planifier : Scellement » — the treatment page's own rule.
+  const later = isPlanLive(plan.status)
+    ? live.find((i) => i.status !== "Done" && planItemState(i, now) === "scheduled" && firstUnbookedStep(i) !== null)
+    : undefined
+  return later ? { kind: "schedule", itemId: later.id } : next
+}
+
+/** The act a card speaks for: the one its next action names, else the first unfinished one. */
+function leadItemOf(plan: TreatmentPlanDto, next: PlanNextAction): TreatmentPlanItemDto | null {
+  const live = activeItems(plan)
+  if ("itemId" in next) {
+    const named = live.find((i) => i.id === next.itemId)
+    if (named) return named
+  }
+  return live.find((i) => i.status !== "Done") ?? live[0] ?? null
+}
+
+function sortedSteps(item: TreatmentPlanItemDto) {
+  return [...(item.steps ?? [])].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+}
+
+/** The appointment a « to-record » act's séance was booked on — the one its fiche belongs to. */
+function recordAppointmentOf(item: TreatmentPlanItemDto): string | null {
+  const step = nextStepOf(item)
+  return (step ? step.scheduledAppointmentId : item.scheduledAppointmentId) ?? null
+}
+
+function TreatmentCard({
+  plan,
+  busy,
+  onOpenWorkspace,
+  onBook,
+  onRecord,
+  onCreateDevis,
+  onOpenAll,
+}: {
+  plan: TreatmentPlanDto
+  busy: boolean
+  onOpenWorkspace: () => void
+  onBook: (preset: PresetPlanAct, item: TreatmentPlanItemDto) => void
+  onRecord: (appointmentId: string) => void
+  onCreateDevis: () => void
+  onOpenAll: () => void
+}) {
+  const name = treatmentName(plan)
+  const hasWork = planHasRecordedWork(plan)
+  const next = cardNextAction(plan)
+  const live = activeItems(plan)
+  const lead = leadItemOf(plan, next)
+  const leadSteps = lead ? sortedSteps(lead) : []
+  const owed = displayedOutstanding(plan)
+  const isDraft = plan.status === "Draft"
+
+  const facts: ReactNode[] = [
+    ...progressFacts(plan, live, lead, leadSteps),
+    owed && owed.amount > 0.0005 ? (
+      <span key="owed" className="text-muted-foreground">
+        Reste à payer{owed.isBilled && owed.invoiceNumber ? ` (note n° ${owed.invoiceNumber})` : ""}{" "}
+        <b
+          className={cn(
+            "font-semibold tabular-nums",
+            // Red only once the work is done and the money is not.
+            plan.itemsDone === plan.itemsTotal ? "text-destructive" : "text-foreground",
+          )}
+        >
+          {formatDT(owed.amount)}
+        </b>
+      </span>
+    ) : null,
+    // A Draft carries no debt, so it states its price rather than a « reste ».
+    isDraft && plan.totalPlanned > 0 ? (
+      <span key="price" className="text-muted-foreground">
+        Prix du traitement{" "}
+        <b className="font-semibold tabular-nums text-foreground">{formatDT(plan.totalPlanned)}</b>
+      </span>
+    ) : null,
+  ].filter(Boolean)
+
+  return (
+    <li className="flex min-w-0 flex-col gap-2 rounded-md border bg-card p-3">
+      {/* Identity · status · the devis paper, with the menu pinned top-right so it never wraps onto a line alone. */}
+      <div className="flex items-start gap-2">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+        <Link
+          href={`/treatment-plans/${plan.id}`}
+          className="inline-flex min-w-0 items-center font-semibold underline-offset-4 [overflow-wrap:anywhere] hover:underline coarse:min-h-11"
+        >
+          {name}
+        </Link>
+        <Badge variant="secondary" className={planStatusBadgeClass(plan.status, hasWork)}>
+          {planStatusLabel(plan.status, hasWork)}
+        </Badge>
+        <span className="text-2xs text-muted-foreground">
+          {planDevisLabel(plan)}
+          {/* Only once amended, so a patient holding an earlier printout can tell which one they signed. */}
+          {plan.revisionNumber > 0 && ` · révision ${plan.revisionNumber}`}
+        </span>
+        {plan.linkedInvoiceNumber && (
+          <Link href={`/factures?search=${encodeURIComponent(plan.linkedInvoiceNumber)}`}>
+            <Badge variant="outline" className="hover:bg-accent">
+              Facturé — {plan.linkedInvoiceNumber}
+            </Badge>
+          </Link>
+        )}
+      </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              disabled={busy}
+              aria-label={`Actions — ${name}`}
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem className="coarse:py-3" onSelect={onOpenWorkspace}>
+              {planNextActionLabel("open")}
+            </DropdownMenuItem>
+            {isDraft && (
+              <DropdownMenuItem className="coarse:py-3" onSelect={onCreateDevis}>
+                {planNextActionLabel("accept")}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem className="coarse:py-3" onSelect={onOpenAll}>
+              Tous les traitements
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Where the séances stand, and the money — facts only, a middle dot between two. */}
+      {facts.length > 0 && (
+        <div className="flex flex-col items-start gap-y-1 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2">
+          {/* One fact per line on a phone — a wrapped dotted row left a « · » alone at a line's start. */}
+          {facts.map((fact, index) => (
+            <span key={index} className="inline-flex min-w-0 items-center gap-x-2">
+              {index > 0 && <span aria-hidden="true" className="hidden text-muted-foreground sm:inline">·</span>}
+              {fact}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <CardAction
+        plan={plan}
+        name={name}
+        next={next}
+        lead={lead}
+        onOpenWorkspace={onOpenWorkspace}
+        onBook={onBook}
+        onRecord={onRecord}
+      />
+    </li>
+  )
+}
+
+/**
+ * The séance facts: the lead act's dots + « Empreinte prévue le 28/09 »; for several step-less acts, one dot per
+ * act + a worded count and the next séance; for one step-less act, its séance when there is one.
+ */
+function progressFacts(
+  plan: TreatmentPlanDto,
+  live: TreatmentPlanItemDto[],
+  lead: TreatmentPlanItemDto | null,
+  leadSteps: ReturnType<typeof sortedSteps>,
+): ReactNode[] {
+  if (lead && leadSteps.length > 0) {
+    return [
+      <span key="seances" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        {/* On a treatment of several acts, name the act the dots are about. */}
+        {live.length > 1 && (
+          <span className="text-muted-foreground">
+            {lead.designationFr}
+            {teethSuffix(lead.toothNumbers)}
+          </span>
+        )}
+        <SeancePips steps={leadSteps} />
+        <span className="font-medium">{seanceSummary(leadSteps)}</span>
+      </span>,
+    ]
+  }
+
+  if (live.length > 1) {
+    return [
+      <PlanActPips key="acts" items={live} done={plan.itemsDone} total={plan.itemsTotal} plan={plan} />,
+      plan.nextAppointmentAt ? (
+        <span key="next" className="text-muted-foreground">
+          Prochaine séance le <b className="font-semibold text-foreground">{formatDateFr(plan.nextAppointmentAt)}</b>
+        </span>
+      ) : null,
+    ].filter(Boolean)
+  }
+
+  if (!lead) return []
+  const state = planItemState(lead)
+  if (state === "scheduled" && lead.scheduledAt) {
+    return [
+      <span key="next" className="text-muted-foreground">
+        Séance prévue le <b className="font-semibold text-foreground">{formatDateFr(lead.scheduledAt)}</b>
+      </span>,
+    ]
+  }
+  if (state === "to-record") {
+    return [<span key="record" className="font-medium text-warning-ink">Séance à enregistrer</span>]
+  }
+  if (state === "done") return [<span key="done" className="font-medium text-success">Fait</span>]
+  // « À planifier » is what the button below says.
+  return []
+}
+
+/** The card's ONE button — the next séance to book, the fiche to record, the money to take, or the page. */
+function CardAction({
+  plan,
+  name,
+  next,
+  lead,
+  onOpenWorkspace,
+  onBook,
+  onRecord,
+}: {
+  plan: TreatmentPlanDto
+  name: string
+  next: PlanNextAction
+  lead: TreatmentPlanItemDto | null
+  onOpenWorkspace: () => void
+  onBook: (preset: PresetPlanAct, item: TreatmentPlanItemDto) => void
+  onRecord: (appointmentId: string) => void
+}) {
+  if (next.kind === "schedule" && lead) {
+    const preset = planItemToPreset(plan, lead, (i) => i.procedureTypeId ?? undefined)
+    // The séance the dialog will preselect — so the button names what gets booked.
+    const stepLabel =
+      preset.steps?.find((s) => s.id === preset.preselectedStepId)?.label ?? nextStepOf(lead)?.label ?? null
+    return (
+      <Button
+        size="sm"
+        // The label holds a free-text séance name: it wraps rather than overflowing the card (§ 10.1).
+        className="h-auto min-h-8 max-w-full gap-1.5 self-start whitespace-normal py-1.5 text-start coarse:min-h-11"
+        onClick={() => onBook(preset, lead)}
+        // Starts with the visible label, so a voice command naming the button still reaches it.
+        aria-label={stepLabel ? `Planifier : ${stepLabel} — ${name}` : `Planifier — ${name}`}
+      >
+        <CalendarPlus className="h-4 w-4 shrink-0" aria-hidden="true" />
+        {stepLabel ? `Planifier : ${stepLabel}` : "Planifier"}
+      </Button>
+    )
+  }
+
+  if (next.kind === "record" && lead) {
+    const appointmentId = recordAppointmentOf(lead)
+    return (
+      <Button
+        size="sm"
+        className="gap-1.5 self-start coarse:h-11"
+        onClick={() => (appointmentId ? onRecord(appointmentId) : onOpenWorkspace())}
+        aria-label={`${planNextActionLabel("record")} — ${name}`}
+      >
+        <FilePlus2 className="h-4 w-4" aria-hidden="true" />
+        {planNextActionLabel("record")}
+      </Button>
+    )
+  }
+
+  if (next.kind === "collect") {
+    // Collecting lives on the treatment page, where the échéancier is.
+    return (
+      <Button
+        size="sm"
+        className="gap-1.5 self-start coarse:h-11"
+        onClick={onOpenWorkspace}
+        aria-label={`${planNextActionLabel("collect")} — ${name}`}
+      >
+        {planNextActionLabel("collect")}
+        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+      </Button>
+    )
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="gap-1.5 self-start coarse:h-11"
+      onClick={onOpenWorkspace}
+      aria-label={`${planNextActionLabel("open")} — ${name}`}
+    >
+      {planNextActionLabel("open")}
+      <ChevronRight className="h-4 w-4" aria-hidden="true" />
+    </Button>
+  )
+}
+
+/**
+ * Every live treatment, act by act — état, next séance, last séance — folded shut.
  *
- * <p><b>Folded, and that is the whole design constraint.</b> This band sits above a patient's fiches, their
- * odontogramme and their files; a treatment listing six séances open by default would push all of it below the
- * fold to answer a question nobody asked yet. Line 1 already says what to do next, so the detail is the *second*
- * question and is one press away — the native `&lt;details&gt;` this repo already uses in three components, so
- * the fold works with no JavaScript, no state and full keyboard support for free.</p>
+ * <p><b>Folded</b>: the cards already say what to do next, so the detail is the second question and one press
+ * away (a native `&lt;details&gt;`, keyboard-operable with no state). Stacked rows, never a `&lt;table&gt;` — at
+ * 320 px three columns of French act names cannot be a grid. Withdrawn acts are excluded (`activeItems`).</p>
  *
- * <p>⚠️ Every état, label and next-step here is <b>derived by the same helpers the workspace and the worklist
- * use</b> — `planItemState`, `nextStepOf`, `itemWorkflowLabel`. Nothing about an act is decided in this file. The
- * worklist's own row components could not be reused directly: they take the server's `TreatmentInProgressDto`
- * projection, while a patient page holds the plan aggregate — so the rules are shared and only the markup is
- * new.</p>
- *
- * <p>⚠️ Rendered as stacked rows, never a `&lt;table&gt;`: at 320 px three columns of French act names cannot be
- * a grid, and the device contract's answer to a narrow table is a card. Each row is its own block that grows
- * downward instead of scrolling sideways.</p>
- *
- * <p>Withdrawn acts are excluded (`activeItems`) for the reason the counters exclude them: a stopped treatment
- * listing the séances the patient is not coming back for reads as outstanding work.</p>
+ * <p>⚠️ Every état is derived by the same helpers the treatment page uses (`planItemState`, `nextStepOf`), and
+ * the séances by the one strip's helpers — never a bare « 2 / 6 », which three reviewers read as « two of six
+ * done » on a treatment with one séance behind it.</p>
  */
 function PlanActsFold({ plans }: { plans: TreatmentPlanDto[] }) {
-  /*
-   * ⚠️ **Every live treatment, not only the lead one.** The band showed one plan in detail and reduced the
-   * rest to counter chips — « 2 accepté · 3 en cours · 1 annulé » — so a patient with five treatments running
-   * had four of them represented by a number, and no way to tell which one has a séance next week. Reported
-   * as « in patient details page, should be noticeable, traitement en cours, à venir ». The chips stay for the
-   * FINISHED ones, where a count really is the whole story.
-   */
   const groups = plans
     .map((p) => ({ plan: p, items: activeItems(p) }))
     .filter((g) => g.items.length > 0)
   if (groups.length === 0) return null
-  // Nothing to unfold for one act with no protocol — line 2 already says everything the fold would.
+  // Nothing to unfold for one act with no séances — its card already says everything the fold would.
   if (groups.length === 1 && groups[0].items.length === 1 && (groups[0].items[0].steps?.length ?? 0) === 0) {
     return null
   }
 
-  const actCount = groups.reduce((n, g) => n + g.items.length, 0)
   const several = groups.length > 1
 
   return (
     <details className="group">
-      {/* `list-none` + the marker rule: Safari paints its own triangle from `::-webkit-details-marker`, which
-          `list-none` alone does not remove, so the chevron below would sit beside a second one. */}
+      {/* `list-none` + the marker rule: Safari paints its own triangle from `::-webkit-details-marker`. */}
       <summary className="flex w-full cursor-pointer list-none items-center gap-1.5 py-1 text-xs text-muted-foreground touch-target hover:text-foreground [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
-        {several ? "Traitements suivis" : "Détail des séances"}
-        <span className="text-2xs opacity-70">
-          ({several ? `${groups.length} traitements · ` : ""}
-          {actCount} acte{actCount > 1 ? "s" : ""})
-        </span>
+        Détail des séances
       </summary>
 
       <ul className="mt-1 flex flex-col gap-1.5">
         {groups.map((g) => (
           <li key={g.plan.id} className="flex flex-col gap-1.5">
-            {/* Named only when there is more than one — on a single treatment the band's own line 1 already
-                says which plan this is, and repeating it would be a heading over its only child. */}
             {several && (
               <span className="ps-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-                {planDisplayName(g.plan)}
+                {treatmentName(g.plan)}
               </span>
             )}
             <ul className="flex flex-col gap-1.5">
@@ -375,19 +605,17 @@ function PlanActsFold({ plans }: { plans: TreatmentPlanDto[] }) {
   )
 }
 
-/** One act: what it is, where it has got to, and the séance that is waiting. */
+/** One act: what it is, where it has got to, and its séances in words. */
 function PlanActLine({ item }: { item: TreatmentPlanItemDto }) {
   const state = planItemState(item)
-  const steps = item.steps ?? []
-  const step = nextStepOf(item)
-  const doneSteps = steps.filter((s) => s.doneDate).length
-  // The most recent séance actually carried out — the act's own date when it has no protocol.
+  const steps = sortedSteps(item)
+  // The most recent séance actually carried out — the act's own date when it has no séances.
   const lastDone = steps.length > 0
     ? steps.filter((s) => s.doneDate).map((s) => s.doneDate!).sort().at(-1) ?? null
     : item.doneDate
 
   return (
-    <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
       <span className="font-medium text-foreground">
         {item.designationFr}
         {item.toothNumbers.length > 0 && (
@@ -395,22 +623,13 @@ function PlanActLine({ item }: { item: TreatmentPlanItemDto }) {
         )}
       </span>
       <Badge variant="secondary" className={cn("shrink-0 text-2xs", itemWorkflowBadgeClass(state))}>
-        {itemWorkflowLabel(state)}
+        {planItemStateLabel(item, state)}
       </Badge>
 
-      {/* ⚠️ « étape » and « à faire » are both VISIBLE words, copied from the worklist deliberately: « 2 / 6 »
-          alone was read as « two of six done » by three reviewers on a treatment with one séance behind it. */}
-      {step && (
-        <span className="text-muted-foreground">
-          {step.label}
-          <span className="ms-1 tabular-nums opacity-80">
-            · étape {step.sequenceNumber + 1} / {steps.length} à faire
-          </span>
-        </span>
-      )}
-      {!step && steps.length > 0 && (
-        <span className="tabular-nums text-muted-foreground">
-          {doneSteps} / {steps.length} séances faites
+      {steps.length > 0 && (
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <SeancePips steps={steps} />
+          {seanceSummary(steps)}
         </span>
       )}
 
@@ -423,29 +642,11 @@ function PlanActLine({ item }: { item: TreatmentPlanItemDto }) {
   )
 }
 
-/** A hairline between two figures — cheaper than a box each, and it survives wrapping. */
-function Separator() {
-  return <span aria-hidden="true" className="hidden min-h-4 w-px self-stretch bg-border sm:block" />
-}
-
-/** A labelled figure: quiet label, emphasised value, tabular digits so columns of them line up. */
-function Fact({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "alert" }) {
-  return (
-    <span className="text-muted-foreground">
-      {label}{" "}
-      <b className={tone === "alert" ? "font-semibold tabular-nums text-destructive" : "font-semibold tabular-nums text-foreground"}>
-        {value}
-      </b>
-    </span>
-  )
-}
-
 /**
- * The patient's other plans, one chip per statut.
+ * The patient's other treatments, one chip per statut — each a button into the plans tab.
  *
- * Each chip is a button into the plans tab rather than inert text: the count is only useful if you can act on it.
- * The accessible name spells the statut out (« 2 plans terminés ») — « 2 terminés » beside a green pill reads fine
- * visually but is meaningless read aloud in isolation.
+ * <p>`gap-2` and a padded button rather than `touch-target`: these sit side by side, and a 44 px overlay on a
+ * 20 px chip overhangs its neighbour so the later sibling wins the hit test.</p>
  */
 function StatusChips({
   counts,
@@ -457,27 +658,14 @@ function StatusChips({
   className?: string
 }) {
   return (
-    /*
-     * `gap-2` and a padded button, because these chips are adjacent tap targets.
-     *
-     * Each was a bare `<button>` wrapping a `<Badge>` — a ~20 px target — with `gap-1` (4 px) between them in a
-     * row that wraps. On a phone, tapping « 2 terminés » regularly landed on « 1 annulé » beside it. They all
-     * call the same `onOpen`, so a mis-tap was harmless *today*; that is exactly the kind of latent defect that
-     * becomes a real one the moment a chip gets its own destination.
-     *
-     * `py-1` on the button rather than `touch-target`: these sit side by side, and a 44 px overlay on a 20 px
-     * control overhangs its neighbour by 12 px each side and the later sibling wins the hit test — the failure
-     * this codebase now documents in several places. Real padding plus a wider gap keeps paint and hit area
-     * honest.
-     */
-    <span className={`flex flex-wrap items-center gap-2 ${className ?? ""}`}>
+    <span className={cn("flex flex-wrap items-center gap-2", className)}>
       {counts.map(({ status, count }) => (
         <button
           key={status}
           type="button"
           onClick={onOpen}
           className="-my-1 rounded-full py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={`${count} plan${count > 1 ? "s" : ""} ${planStatusLabel(status).toLowerCase()}`}
+          aria-label={`${count} traitement${count > 1 ? "s" : ""} ${planStatusLabel(status).toLowerCase()}`}
         >
           <Badge variant="secondary" className={`${planStatusBadgeClass(status)} hover:brightness-95`}>
             {count} {planStatusLabel(status).toLowerCase()}

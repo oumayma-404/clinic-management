@@ -245,12 +245,7 @@ export default function TreatmentPlansPage() {
       <AppShell contentClassName="space-y-6">
         <PageHeader
           title="Traitements"
-          // A fact, not a paraphrase: the two questions the page answers, in the order it answers them.
-          // ⚠️ « commencés » stopped being true the day the list started showing a treatment booked this
-          // morning whose first séance has not happened yet. Caught in the eye pass, one line under a heading
-          // that had already been corrected — the page title said « suivis » while its own subtitle still said
-          // « commencés ».
-          subtitle="Les traitements qui ont encore une séance à venir, puis les devis et leurs échéanciers."
+          // No subtitle: the two section headings below already name what the page holds.
           // L5 — every filter on screen, including the acceptance window. ⚠️ `acceptedFrom`/`acceptedTo` bound a
           // DIFFERENT date from `from`/`to` (acceptance vs. creation), so both pairs are sent: dropping either
           // would export a different set of devis from the one the table is showing.
@@ -316,20 +311,18 @@ export default function TreatmentPlansPage() {
           answers, so the heading never claims « 0 acte » about a list still loading.
         */}
         {/*
-          ⚠️ « Traitements suivis », not « Traitements en cours », and « séances à venir », not « actes à
-          terminer ». Both words changed for the same reason: the list now includes a treatment whose first
-          séance has not happened yet — booked this morning for the 12th — and calling that « en cours » or
-          counting it as an act « à terminer » says two things about it that are not true. What every row here
-          has in common is a séance still to come, so that is what the heading counts.
+          One name for the list, everywhere: « Traitements en cours » — the heading, its count, the pager and the
+          empty state. The count is the server's row total, so it says « traitements », never « séances à venir »
+          (it counts rows, one per treatment act, not séances).
         */}
         <DashboardSection
-          title="Traitements suivis"
+          title="Traitements en cours"
           hint={
             inProgressTotal === null
               ? undefined
               : inProgressTotal === 0
-                ? "rien en attente"
-                : `${inProgressTotal} séance${inProgressTotal > 1 ? "s" : ""} à venir`
+                ? "aucun"
+                : `${inProgressTotal} traitement${inProgressTotal > 1 ? "s" : ""}`
           }
         >
           <TreatmentsInProgressList onTotalChange={setInProgressTotal} searchTerm={search} />

@@ -17,6 +17,7 @@ import type { TreatmentPlanDto } from "@/lib/api/types"
 import { isPlanBilled } from "./plan-next-action"
 import { formatAmount, formatDateFr, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 import { installmentDueInputValue, installmentDueLabel } from "./treatment-plan-labels"
+import { Consequences } from "./plan-consequences"
 
 interface Row {
   /** The existing échéance this row revises; null for a row the user just added. */
@@ -180,6 +181,21 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
   }
 
   const lockedCount = rows.filter((r) => r.amountPaid > 0).length
+  /** « payée » only when the row took its whole amount — 60 of 360 is « entamée ». Read off the stored row. */
+  const paidCount = rows.filter(
+    (r) => r.amountPaid > 0 && plan.installments.some((inst) => inst.id === r.id && inst.isPaid),
+  ).length
+  const startedCount = lockedCount - paidCount
+  const plural = (n: number) => (n > 1 ? "s" : "")
+  const lockedLabel = [
+    paidCount > 0 && `${paidCount} échéance${plural(paidCount)} déjà payée${plural(paidCount)}`,
+    startedCount > 0 &&
+      (paidCount > 0
+        ? `${startedCount} entamée${plural(startedCount)}`
+        : `${startedCount} échéance${plural(startedCount)} entamée${plural(startedCount)}`),
+  ]
+    .filter(Boolean)
+    .join(", ")
 
   return (
     <>
@@ -194,16 +210,20 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
             this dialog said nothing, so a dentist hunting for *where do I take the money* landed here and
             re-split échéances that collect nothing.
           */}
-          <DialogDescription>
-            Re-répartissez l&apos;échéancier du devis sans toucher aux actes. Le devis garde son numéro
-            {plan.number ? ` (${plan.number})` : ""} et passe en révision {plan.revisionNumber + 1}.
-            {isPlanBilled(plan) && (
-              <>
-                {" "}⚠️ Ce devis est facturé sur la note{" "}
-                {plan.linkedInvoiceNumber ?? "d'honoraires"} : l&apos;encaissement se fait sur cette note, et
-                ces échéances n&apos;encaissent rien.
-              </>
-            )}
+          <DialogDescription asChild>
+            <Consequences
+              items={[
+                <>Les actes et le prix <b className="text-foreground">ne changent pas</b></>,
+                isPlanBilled(plan) && (
+                  <>
+                    <b className="text-foreground">
+                      Facturé sur la note {plan.linkedInvoiceNumber ? `n° ${plan.linkedInvoiceNumber}` : "d'honoraires"}
+                    </b>{" "}
+                    : ces échéances n&apos;encaissent rien
+                  </>
+                ),
+              ]}
+            />
           </DialogDescription>
         </DialogHeader>
 
@@ -216,9 +236,8 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
             <p className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
-                {lockedCount === 1
-                  ? "Une échéance a déjà encaissé de l'argent : elle peut être re-datée et augmentée, mais ni supprimée ni ramenée en dessous du montant encaissé."
-                  : `${lockedCount} échéances ont déjà encaissé de l'argent : elles peuvent être re-datées et augmentées, mais ni supprimées ni ramenées en dessous du montant encaissé.`}
+                <b className="text-foreground">{lockedLabel}</b> : non supprimable{plural(lockedCount)}, jamais
+                moins que ce qui est déjà payé
               </span>
             </p>
           )}
@@ -227,7 +246,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
             <Label>Échéances</Label>
             {rows.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Aucune échéance. Un devis accepté doit en compter au moins une.
+                <b className="text-foreground">Aucune échéance</b> — il en faut au moins une
               </p>
             )}
             {rows.map((row, index) => {
@@ -293,16 +312,14 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
                       that writes an agreed date nobody typed). */}
                   {collected ? (
                     <p className="text-xs text-muted-foreground">
-                      Déjà encaissé : {formatDT(row.amountPaid)}
-                      {row.lastPaidOn ? ` — encaissée le ${formatDateFr(row.lastPaidOn)}` : ""}
-                      {row.isAutoRaised && !row.dueDate && " · aucune date convenue"}
+                      Déjà payé : <b className="text-foreground">{formatDT(row.amountPaid)}</b>
+                      {row.lastPaidOn ? ` — le ${formatDateFr(row.lastPaidOn)}` : ""}
+                      {row.isAutoRaised && !row.dueDate && " · sans date convenue"}
                     </p>
                   ) : (
                     row.isAutoRaised &&
                     !row.dueDate && (
-                      <p className="text-xs text-muted-foreground">
-                        Solde à régler — aucune date convenue. Laissez vide pour le garder tel quel.
-                      </p>
+                      <p className="text-xs text-muted-foreground">Solde à régler · sans date convenue</p>
                     )
                   )}
                 </div>
@@ -318,8 +335,8 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
                 palette on its own, and `--warning-ink` is the step chosen for legibility as small text —
                 `--warning` itself sits at L 0.62 and is under the contrast floor at this size. */}
             <span className={matchesTotal ? "text-muted-foreground" : "text-warning-ink"}>
-              Total des échéances : {formatDT(sum)} / {formatDT(plan.totalPlanned)}
-              {!matchesTotal && " — les deux doivent être égaux."}
+              Échéances <b>{formatDT(sum)}</b> · prix <b>{formatDT(plan.totalPlanned)}</b>
+              {!matchesTotal && " — doivent être égaux"}
             </span>
           </div>
           </DialogBody>
@@ -329,7 +346,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement…" : "Enregistrer la révision"}
+              {loading ? "Enregistrement…" : "Enregistrer"}
             </Button>
           </DialogFooter>
         </form>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Check, ChevronDown, ChevronUp, GripVertical, Plus, Trash2, Unlink } from "lucide-react"
+import { Check, ChevronDown, ChevronUp, Plus, Trash2, Undo2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -20,8 +20,11 @@ import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { treatmentPlansApi, type TreatmentPlanItemStepInput } from "@/lib/api/treatment-plans"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
-import { formatDateFr, quoteFr } from "@/lib/format"
+import { quoteFr } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { planDevisLabel } from "./treatment-plan-labels"
+import { seanceDay } from "./seance-strip"
+import { Consequences } from "./plan-consequences"
 
 /** One row of the editor. `id` present = an existing step whose identity must survive the save. */
 interface StepRow {
@@ -47,8 +50,16 @@ interface StepRow {
   linkedDentalRecordId: string | null
 }
 
+/** A new séance row — the « + » on the strip and « Ajouter une séance » here. */
+function emptyRow(position: number): StepRow {
+  return {
+    key: `new-${Date.now()}-${position}`, id: null, label: "", duration: "", minDays: "",
+    doneDate: null, linkedDentalRecordId: null,
+  }
+}
+
 /**
- * « Modifier les étapes » — the protocol of one devis act, as an ordered list.
+ * « Séances » — the protocol of one devis act, as an ordered list.
  *
  * <p>Its own dialog rather than a section of the devis editor, for `procedure-type-materials-dialog`'s reason:
  * the endpoint has <b>replace</b> semantics (an empty list means « cet acte se fait en une séance », a real
@@ -70,12 +81,18 @@ export function PlanItemStepsDialog({
   open,
   onOpenChange,
   onSaved,
+  focusStepId = null,
+  addOnOpen = false,
 }: {
   plan: TreatmentPlanDto
   item: TreatmentPlanItemDto | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: () => void
+  /** « Modifier la séance » on the strip — that séance is scrolled to and outlined (T2). */
+  focusStepId?: string | null
+  /** The strip's « + » — the dialog opens with one new séance row at the end. */
+  addOnOpen?: boolean
 }) {
   const router = useRouter()
   const [rows, setRows] = useState<StepRow[]>([])
@@ -126,7 +143,7 @@ export function PlanItemStepsDialog({
     try {
       await treatmentPlansApi.markStepUndone(plan.id, item.id, detaching.id, seededVersionRef.current)
       reseedRef.current = true
-      toast.success(`${detaching.label} : la fiche a été détachée.`, {
+      toast.success(`${quoteFr(detaching.label)} remise à faire`, {
         action: recordId
           ? {
               label: "Ouvrir la fiche",
@@ -170,20 +187,22 @@ export function PlanItemStepsDialog({
     }
     if (seededForRef.current === item.id && !reseedRef.current) return
     seededForRef.current = item.id
+    const firstSeed = !reseedRef.current
     reseedRef.current = false
     seededVersionRef.current = plan.version
     conflict.reset()
-    setRows(
-      (item.steps ?? []).map((step) => ({
-        key: step.id,
-        id: step.id,
-        label: step.label,
-        duration: step.estimatedDurationMinutes?.toString() ?? "",
-        minDays: step.minDaysAfterPrevious?.toString() ?? "",
-        doneDate: step.doneDate,
-        linkedDentalRecordId: step.linkedDentalRecordId,
-      })),
-    )
+    const seeded: StepRow[] = (item.steps ?? []).map((step) => ({
+      key: step.id,
+      id: step.id,
+      label: step.label,
+      duration: step.estimatedDurationMinutes?.toString() ?? "",
+      minDays: step.minDaysAfterPrevious?.toString() ?? "",
+      doneDate: step.doneDate,
+      linkedDentalRecordId: step.linkedDentalRecordId,
+    }))
+    // The strip's « + »: one new row, on the first seed of this open only — a reload must not add a second.
+    if (addOnOpen && firstSeed) seeded.push(emptyRow(seeded.length))
+    setRows(seeded)
     // `conflict.reset` is a stable useCallback; listing `conflict` itself would re-run this on every render
     // and discard what the dentist is typing — matching `edit-patient-dialog`'s own seeding effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,14 +215,22 @@ export function PlanItemStepsDialog({
 
   const remove = (key: string) => setRows((prev) => prev.filter((r) => r.key !== key))
 
-  const add = () =>
-    setRows((prev) => [
-      ...prev,
-      {
-        key: `new-${Date.now()}-${prev.length}`, id: null, label: "", duration: "", minDays: "",
-        doneDate: null, linkedDentalRecordId: null,
-      },
-    ])
+  const add = () => setRows((prev) => [...prev, emptyRow(prev.length)])
+
+  /*
+   * Put the séance the strip was tapped on (or the row « + » just added) in front of the reader. Deferred a frame:
+   * the content mounts in the tick `open` flips. Scrolled, never focused — a field focused on open raises the
+   * keyboard over the list on a tablet (§ 5).
+   */
+  const rowRefs = useRef(new Map<string, HTMLDivElement | null>())
+  const targetKey = focusStepId ?? (addOnOpen ? rows[rows.length - 1]?.key ?? null : null)
+  useEffect(() => {
+    if (!open || !targetKey) return
+    const frame = requestAnimationFrame(() => {
+      rowRefs.current.get(targetKey)?.scrollIntoView({ block: "center" })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open, targetKey])
 
   /**
    * Move a row one place. A carried-out step cannot move and nothing can move above one — the ranks are dense
@@ -260,8 +287,8 @@ export function PlanItemStepsDialog({
       await treatmentPlansApi.setItemSteps(plan.id, item.id, payload, seededVersionRef.current)
       toast.success(
         payload.length === 0
-          ? "Étapes retirées — cet acte se fait en une séance."
-          : "Étapes enregistrées",
+          ? "Séances retirées — une seule séance"
+          : "Séances enregistrées",
       )
       onSaved()
       // Before the close, or the guard would ask whether to discard the edit it just persisted.
@@ -282,11 +309,8 @@ export function PlanItemStepsDialog({
     <Dialog open={open} onOpenChange={guard.onOpenChange}>
       <DialogContent mobile="sheet" className="md:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Séances de l&apos;acte</DialogTitle>
-          <DialogDescription>
-            {item.designationFr}
-            {plan.number ? ` · devis ${plan.number}` : ""}
-          </DialogDescription>
+          <DialogTitle>Séances · {item.designationFr}</DialogTitle>
+          <DialogDescription>{planDevisLabel(plan)}</DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-2 px-1 py-1">
@@ -308,7 +332,7 @@ export function PlanItemStepsDialog({
 
           {rows.length === 0 && (
             <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              Aucune séance définie — cet acte se fait en une visite.
+              <b className="text-foreground">Une seule séance</b>
             </p>
           )}
 
@@ -317,16 +341,20 @@ export function PlanItemStepsDialog({
             return (
               <div
                 key={row.key}
+                ref={(el) => {
+                  rowRefs.current.set(row.key, el)
+                }}
                 className={cn(
                   "flex flex-wrap items-center gap-2 rounded-md border p-2 sm:flex-nowrap",
                   done && "bg-muted",
+                  // A ring, not a colour: the row is not in a state, it is the one the strip pointed at.
+                  row.key === targetKey && "ring-2 ring-primary/40",
                 )}
               >
                 <div className="flex shrink-0 items-center">
                   {done ? (
-                    <span className="flex size-9 items-center justify-center text-muted-foreground/40">
-                      <GripVertical className="h-4 w-4" aria-hidden="true" />
-                    </span>
+                    // A done séance cannot move — no handle, just the arrows' width so the numbers line up.
+                    <span aria-hidden="true" className="w-6 shrink-0 coarse:w-8" />
                   ) : (
                     /*
                       ⚠️ **`size-6 coarse:size-8`, and this pair used to be `h-5 w-8`: on a touch device the
@@ -347,9 +375,7 @@ export function PlanItemStepsDialog({
                       the boxes instead of overlaying them, and was tap-verified at 390, 820 and 1440. This is the
                       documented `.touch-target`-on-adjacent-siblings trap; growing is the only fix for a stack.
 
-                      ⚠️ And `title` states WHY a disabled chevron is disabled. Both were `disabled` with
-                      `title=null` on a 2-step act with step 1 done — no tooltip, no message, nothing saying that
-                      a réalisé step cannot be moved.
+                      A done séance cannot move: its « faite le » chip says why, visibly — a `title` needs a hover.
                     */
                     <div className="flex flex-col">
                       <Button
@@ -358,15 +384,6 @@ export function PlanItemStepsDialog({
                         className="size-6 coarse:size-8"
                         aria-label={`Monter ${quoteFr(row.label || "cette séance")}`}
                         disabled={saving || index === 0 || row.doneDate != null || rows[index - 1]?.doneDate != null}
-                        title={
-                          row.doneDate != null
-                            ? "Cette séance est déjà réalisée : elle ne peut pas être déplacée."
-                            : rows[index - 1]?.doneDate != null
-                              ? "La séance précédente est déjà réalisée : elle ne peut pas être déplacée."
-                              : index === 0
-                                ? "C'est déjà la première séance."
-                                : undefined
-                        }
                         onClick={() => move(index, -1)}
                       >
                         <ChevronUp className="h-4 w-4" />
@@ -379,59 +396,50 @@ export function PlanItemStepsDialog({
                         // ⚠️ Disabled whenever `move` would refuse — it was clickable and did nothing when this or
                         // the next séance was already réalisée (F11).
                         disabled={saving || index === rows.length - 1 || row.doneDate != null || rows[index + 1]?.doneDate != null}
-                        title={
-                          row.doneDate != null
-                            ? "Cette séance est déjà réalisée : elle ne peut pas être déplacée."
-                            : rows[index + 1]?.doneDate != null
-                              ? "La séance suivante est déjà réalisée : elle ne peut pas être déplacée."
-                              : index === rows.length - 1
-                                ? "C'est déjà la dernière séance."
-                                : undefined
-                        }
                         onClick={() => move(index, 1)}
                       >
                         <ChevronDown className="h-4 w-4" />
                       </Button>
                     </div>
                   )}
-                  <span className="w-4 shrink-0 text-center font-mono text-2xs text-muted-foreground">
+                  <span className="w-4 shrink-0 text-center tabular-nums text-2xs text-muted-foreground">
                     {index + 1}
                   </span>
                 </div>
 
-                <div className="min-w-0 flex-1 basis-full sm:basis-0">
+                {/* A done séance's name takes the free width and wraps — never « Prépar… » (a name is an identity). */}
+                <div className={cn("min-w-0 flex-1 basis-full sm:basis-0", done && "sm:min-w-24")}>
                   <Label htmlFor={`step-label-${row.key}`} className="sr-only">
                     Nom de la séance {index + 1}
                   </Label>
                   {done ? (
-                    <p className="truncate text-sm font-medium" title={row.label}>
-                      {row.label}
-                    </p>
+                    <p className="text-sm font-medium [overflow-wrap:anywhere]">{row.label}</p>
                   ) : (
                     <Input
                       id={`step-label-${row.key}`}
                       value={row.label}
                       onChange={(e) => update(row.key, { label: e.target.value })}
                       disabled={saving}
-                      placeholder="ex. : Empreinte"
+                      placeholder="Nom de la séance"
                       className="md:text-sm"
                     />
                   )}
                 </div>
 
                 {done && (
-                  <span className="flex shrink-0 items-center gap-1 rounded-md bg-success-wash px-2 py-0.5 text-2xs font-semibold text-success">
+                  <span className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-success-wash px-2 py-0.5 text-2xs font-semibold text-success">
                     <Check className="h-3 w-3" aria-hidden="true" />
-                    réalisée le {formatDateFr(row.doneDate!)}
+                    faite le {seanceDay(row.doneDate)}
                   </span>
                 )}
 
-                <div className="flex shrink-0 items-center gap-2">
+                {/* `flex-wrap` + `max-w-full`: on its own line at 320 px « Remettre à faire » wraps under the figures. */}
+                <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
                   <Label htmlFor={`step-dur-${row.key}`} className="sr-only">
                     Durée de la séance {index + 1}, en minutes
                   </Label>
                   {done ? (
-                    <span className="w-20 text-end font-mono text-2xs text-muted-foreground">
+                    <span className="w-20 text-end tabular-nums text-2xs text-muted-foreground">
                       {row.duration ? `${row.duration} min` : "—"}
                     </span>
                   ) : (
@@ -443,7 +451,7 @@ export function PlanItemStepsDialog({
                         disabled={saving}
                         inputMode="numeric"
                         placeholder="30"
-                        className="w-24 pe-9 text-end font-mono tabular-nums md:text-sm"
+                        className="w-24 pe-9 text-end tabular-nums md:text-sm"
                       />
                       <span className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
                         min
@@ -458,8 +466,8 @@ export function PlanItemStepsDialog({
                     after — and disabled on a done one, whose date is already a fact.
                   */}
                   {done || index === 0 ? (
-                    <span className="w-20 text-end font-mono text-2xs text-muted-foreground">
-                      {index === 0 ? "1re séance" : row.minDays ? `+ ${row.minDays} j` : "—"}
+                    <span className="w-20 text-end tabular-nums text-2xs text-muted-foreground">
+                      {index === 0 ? "aucun délai" : row.minDays ? `+ ${row.minDays} j` : "—"}
                     </span>
                   ) : (
                     <div className="relative">
@@ -470,7 +478,7 @@ export function PlanItemStepsDialog({
                         disabled={saving}
                         inputMode="numeric"
                         placeholder="0"
-                        className="w-24 pe-14 text-end font-mono tabular-nums md:text-sm"
+                        className="w-24 pe-14 text-end tabular-nums md:text-sm"
                       />
                       <span className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
                         j après
@@ -478,25 +486,33 @@ export function PlanItemStepsDialog({
                     </div>
                   )}
                   {/*
-                    A done step is DETACHED, never deleted: the link to the fiche that attests it is the only
-                    route back to that record, so the two verbs are different operations and get different
-                    controls rather than one control that changes meaning.
+                    A done step is put back « à faire », never deleted: its link is the only route back to the
+                    fiche that attests it, so the two verbs get different controls — the first one in words.
                   */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-9 shrink-0 text-muted-foreground coarse:size-11"
-                    aria-label={
-                      done
-                        ? `Détacher la fiche de soins de la séance ${quoteFr(row.label)}`
-                        : `Supprimer la séance ${quoteFr(row.label || String(index + 1))}`
-                    }
-                    title={done ? "Détacher la fiche de soins de cette séance" : undefined}
-                    disabled={saving || detachBusy}
-                    onClick={() => (done ? setDetaching(row) : remove(row.key))}
-                  >
-                    {done ? <Unlink className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                  </Button>
+                  {done ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 shrink-0 gap-1.5 px-2 text-muted-foreground coarse:h-11 hover-hover:hover:text-foreground"
+                      aria-label={`Remettre à faire la séance ${quoteFr(row.label)}`}
+                      disabled={saving || detachBusy}
+                      onClick={() => setDetaching(row)}
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      Remettre à faire
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-9 shrink-0 text-muted-foreground coarse:size-11"
+                      aria-label={`Supprimer la séance ${quoteFr(row.label || String(index + 1))}`}
+                      disabled={saving || detachBusy}
+                      onClick={() => remove(row.key)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             )
@@ -512,21 +528,21 @@ export function PlanItemStepsDialog({
             Ajouter une séance
           </Button>
 
-          <div className="space-y-2 border-t pt-3 text-xs text-muted-foreground">
-            <p>
-              <span className="font-semibold text-foreground">Rien ici ne touche à l&apos;argent.</span> Le prix
-              de l&apos;acte, le total du devis et l&apos;échéancier sont inchangés, et le numéro de révision ne
-              bouge pas.
-            </p>
-            {doneCount > 0 && (
-              <p>
-                {doneCount === 1 ? "Une séance est déjà réalisée" : `${doneCount} séances sont déjà réalisées`} :
-                elles portent le lien vers la fiche de soins qui les atteste, et ne peuvent donc pas être
-                supprimées. Pour en corriger une, détachez sa fiche avec l&apos;icône au bout de sa ligne :
-                la séance redevient « à faire » et reste modifiable.
-              </p>
-            )}
-          </div>
+          {/* The question a dentist has before re-cutting a signed devis — stated as a fact. */}
+          <Consequences
+            className="border-t pt-3 text-xs"
+            items={[
+              <><b className="text-foreground">Aucun montant</b> ne change</>,
+              doneCount > 0 && (
+                <>
+                  <b className="text-foreground">
+                    {doneCount} séance{doneCount > 1 ? "s" : ""} faite{doneCount > 1 ? "s" : ""}
+                  </b>{" "}
+                  : {doneCount > 1 ? "liées à leur fiche, non supprimables" : "liée à sa fiche, non supprimable"}
+                </>
+              ),
+            ]}
+          />
         </DialogBody>
 
         <DialogFooter>
@@ -545,27 +561,26 @@ export function PlanItemStepsDialog({
           <AlertDialogHeader>
             {/* Names what it acts on, per § 13 — with three steps on screen « Êtes-vous sûr ? » cannot say which. */}
             <AlertDialogTitle>
-              Détacher la fiche de {quoteFr(detaching?.label ?? "")} ?
+              Remettre {quoteFr(detaching?.label ?? "")} à faire&nbsp;?
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              La séance redevient « à faire » et son lien vers la fiche de soins est retiré. La fiche
-              elle-même n&apos;est pas supprimée, et aucun montant ne bouge.{" "}
-              {/*
-                ⚠️ The one condition, stated before the press. The server refuses when a live note bills this
-                séance, and the fiche→note link is not on the plan DTO — so unlike « Supprimer l'acte », whose
-                blocker arrives pre-emptively, this one can only be foretold. What made it a dead end was not
-                the refusal but its remedy: it said « annulez la facture ou émettez un avoir », the avoir did
-                not lift it and the cancellation was refused on a paid note. Both halves are fixed server-side;
-                this is so the refusal is expected rather than a surprise mid-correction.
-              */}
-              Si sa fiche est facturée sur une note d&apos;honoraires, il faudra d&apos;abord créditer cette
-              note en totalité — le refus vous dira laquelle et combien.
+            {/*
+              ⚠️ The one condition, stated before the press: the server refuses when a live note bills this
+              séance, and the fiche→note link is not on the plan DTO, so it can only be foretold.
+            */}
+            <AlertDialogDescription asChild>
+              <Consequences
+                items={[
+                  <>La fiche de soins est <b className="text-foreground">conservée</b>, seulement détachée</>,
+                  <><b className="text-foreground">Aucun montant</b> ne bouge</>,
+                  <>Fiche facturée : <b className="text-foreground">créditer la note</b> d&apos;abord</>,
+                ]}
+              />
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={detachBusy}>Retour</AlertDialogCancel>
             <AlertDialogAction variant="destructive" disabled={detachBusy} onClick={handleDetach}>
-              {detachBusy ? "Détachement…" : "Détacher la fiche"}
+              {detachBusy ? "En cours…" : "Remettre à faire"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

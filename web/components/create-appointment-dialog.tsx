@@ -37,7 +37,13 @@ import { TimeField } from "@/components/ui/time-field"
 import { format } from "date-fns"
 import { CalendarIcon, Stethoscope, FileText, Check, ChevronsUpDown, ChevronDown, History } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { AppointmentRecap, type AppointmentRecapModel } from "@/components/appointment-recap"
+import {
+  AppointmentRecap,
+  BookingPromptFacts,
+  bookingSlotLabel,
+  formatDurationFr,
+  type AppointmentRecapModel,
+} from "@/components/appointment-recap"
 import { ModeSegmented } from "@/components/ui/mode-segmented"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
@@ -45,7 +51,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import {
   AppointmentActsPicker, actLabelsOf, continuationToSelectedAct, hasInvalidAgreedCost, negotiatedTotalOf,
   presetToSelectedAct, protocolError, toProcedurePayloads, totalActsDuration,
-  type SelectedAct, type PlanStepOption, type BilledOnPlan,
+  type SelectedAct,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage } from "@/lib/errors"
 import type { PresetPlanAct } from "@/components/appointment-acts-picker"
@@ -53,14 +59,9 @@ import type { PresetPlanAct } from "@/components/appointment-acts-picker"
 // Re-exported for the callers that have always imported it from this module. Its home is now
 // `appointment-acts-picker`, beside `SelectedAct`.
 export type { PresetPlanAct }
-import { formatAmount, formatDT, formatDateFr } from "@/lib/format"
-import type { PatientDto, ProcedureStepTemplateDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
+import type { ContinuableActDto, PatientDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { treatmentPlansApi } from "@/lib/api/treatment-plans"
-import {
-  planItemToPreset,
-  suggestedPlanSteps,
-} from "@/components/treatment-plans/plan-next-action"
+import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
 import type { PlanStepSuggestion } from "@/components/treatment-plans/plan-next-action"
 import {
   usePatientPlanActs,
@@ -68,12 +69,12 @@ import {
   materialiseTreatments,
   discardUnbookedTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
-import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
+import { ContinueTreatmentList, allPlanSuggestions } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import {
-  ContinueSessionDialog,
+  DEFAULT_NEXT_LABEL,
+  useContinuableActs,
   type ContinuationChoice,
 } from "@/components/treatment-plans/continue-session-dialog"
-import { showErrorToast } from "@/lib/errors"
 import { toast } from "sonner"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
@@ -178,9 +179,10 @@ interface CreateAppointmentDialogProps {
   /**
    * A continuation the caller has ALREADY chosen — « Planifier la suite » on « Suites à planifier ».
    *
-   * ⚠️ **It is the same `ContinuationChoice` the in-dialog `ContinueSessionDialog` hands back, and it goes
-   * through the same seeding**, so this is a second *pre-filler* and not a second materialiser: the devis is
-   * still minted by `materialiseTreatments` when the booking is saved. A door that created the plan itself
+   * ⚠️ **It goes through the same builder as the in-dialog « Continuer » (`continuationToSelectedAct`)**, so
+   * this is a second *pre-filler* and not a second materialiser: the devis is still minted by
+   * `materialiseTreatments` when the booking is saved. The séance's name and « Prix du reste » are typed on the
+   * row's own card. A door that created the plan itself
    * would be the trap `use-patient-plan-acts` records — one materialiser, not two — and it would also re-open
    * the defect the in-dialog door already paid for, where pressing « Annuler » on the booking left a numbered,
    * accepted devis for a séance nobody booked.
@@ -201,10 +203,7 @@ interface CreateAppointmentDialogProps {
 function withMintedDevis(message: string, numbers: string[]): string {
   if (numbers.length === 0) return message
   const which = numbers.length === 1 ? `le devis ${numbers[0]} a` : `les devis ${numbers.join(", ")} ont`
-  return (
-    `${message} — ${which} déjà été créé pour ce traitement. Le rendez-vous n'a pas été enregistré : ` +
-    "réessayez ; si vous fermez sans enregistrer, il sera annulé."
-  )
+  return `${message} — ${which} déjà été créé ; le rendez-vous, non. Réessayez, ou fermez pour l'annuler.`
 }
 
 export function CreateAppointmentDialog({
@@ -242,8 +241,8 @@ export function CreateAppointmentDialog({
    *
    * <p>⚠️ It governs the patient block ALONE. `isPlanScheduling` additionally hides the acts picker, withholds
    * the continuation door and decides where `treatmentPlanId` comes from — none of which is true here: a
-   * continuation is an ordinary séance that may carry other acts, and re-opening « C'est la suite d'une séance
-   * précédente ? » is the documented way to correct the choice or price it.</p>
+   * continuation is an ordinary séance that may carry other acts, and its card is where it is named and
+   * priced.</p>
    */
   const patientIsFixed = isPlanScheduling || presetContinuation != null
   // Patient state
@@ -279,8 +278,13 @@ export function CreateAppointmentDialog({
     saveActTotal: saveTreatmentTotal,
   } = usePatientPlanActs(selectedPatientId, !isPlanScheduling && !isBusySlot)
 
-  /** « C'est la suite d'une séance précédente ? » — the third door, for work that never had a devis. */
-  const [continueOpen, setContinueOpen] = useState(false)
+  /**
+   * « La suite » of a séance already done — the third door, for work that never had a devis. Loaded for a real
+   * patient; offered while no devis act is on the séance (an appointment carries ONE treatment).
+   */
+  const continuable = useContinuableActs(selectedPatientId, open && !isBusySlot && !isPlanScheduling)
+  const continuationOffered =
+    !isBusySlot && !isPlanScheduling && !!selectedPatientId && !selectedActs.some((a) => a.treatmentPlanItemId)
 
   /**
    * The act the dialog offers unprompted, or null.
@@ -291,17 +295,16 @@ export function CreateAppointmentDialog({
    */
   const [dismissedSuggestionFor, setDismissedSuggestionFor] = useState<string | null>(null)
   const suggestions = useMemo(() => {
-    if (isPlanScheduling || isBusySlot) return null
-    if (!selectedPatientId || dismissedSuggestionFor === selectedPatientId) return null
+    if (isPlanScheduling || isBusySlot || !selectedPatientId) return null
     // ⚠️ And withdrawn for a pending continuation too — that row already holds the one treatment an appointment
     // can carry, so offering the suggestion beside it would be inviting the refusal `protocolError` now raises.
     if (selectedActs.some((a) => a.treatmentPlanItemId || a.pendingContinuation)) return null
-    return suggestedPlanSteps(patientPlans)
-  }, [isPlanScheduling, isBusySlot, selectedPatientId, dismissedSuggestionFor, selectedActs, patientPlans])
+    return allPlanSuggestions(patientPlans)
+  }, [isPlanScheduling, isBusySlot, selectedPatientId, selectedActs, patientPlans])
 
   /**
    * Put one devis act — with the step it is waiting on — onto the séance being booked. The shared tail of all
-   * three doors: the suggestion, « Créer le devis et planifier la 1re séance », and the continuation dialog.
+   * doors: the « Continuer un traitement » cards, « Créer le devis et planifier la 1re séance », and the save.
    *
    * <p>⚠️ <b>`registerPlan` is not optional.</b> The act carries a `treatmentPlanItemId`, and
    * `resolveAttachedPlanId` reads `planIdByItem` to fill the appointment's own `treatmentPlanId`; a plan created
@@ -387,6 +390,22 @@ export function CreateAppointmentDialog({
     },
     [attachPlanAct],
   )
+
+  /**
+   * « Continuer » on a past séance: its row goes on the séance at once. **Nothing is created here** — the
+   * devis is minted by `materialiseTreatments` on save, so « Annuler » leaves nothing behind.
+   *
+   * ⚠️ **Replaces, never appends.** An appointment carries ONE `TreatmentPlanId`, so a second continuation
+   * would mint two devis and only then be refused.
+   */
+  const addContinuation = (act: ContinuableActDto) => {
+    setSelectedActs((prev) => {
+      const row = continuationToSelectedAct(act, DEFAULT_NEXT_LABEL, null, procedureTypes)
+      const at = prev.findIndex((a) => a.pendingContinuation)
+      return at >= 0 ? prev.map((a, i) => (i === at ? row : a)) : [...prev, row]
+    })
+    toast.success("Séance ajoutée — son devis sera créé à l'enregistrement du RDV.")
+  }
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
   /** Has the catalog fetch SETTLED — loaded or failed? See the plan-act seeding effect. */
   const [procedureTypesLoaded, setProcedureTypesLoaded] = useState(false)
@@ -743,14 +762,8 @@ export function CreateAppointmentDialog({
     return Number.parseInt(duration)
   }, [useEndTime, startHour, startMinute, endHour, endMinute, duration])
 
-  // Format duration display
-  const durationDisplay = useMemo(() => {
-    const hours = Math.floor(calculatedDuration / 60)
-    const mins = calculatedDuration % 60
-    if (hours > 0 && mins > 0) return `${hours}h ${mins}m`
-    if (hours > 0) return `${hours}h`
-    return `${mins}m`
-  }, [calculatedDuration])
+  // « 1 h 10 » — the same words as the presets and the récapitulatif.
+  const durationDisplay = formatDurationFr(calculatedDuration)
 
   // Display name of the currently-selected patient (for the searchable picker trigger).
   const selectedPatientName = useMemo(() => {
@@ -868,7 +881,7 @@ export function CreateAppointmentDialog({
     // Refused here rather than sent: `agreedCostOf` reads an unparseable amount as null, so a typo like « 12O »
     // would book the visit silently at the catalogue tarif — the one figure the user was overriding.
     if (selectedActs.some(hasInvalidAgreedCost)) {
-      setError("Corrigez le prix d'un acte : saisissez un montant en dinars, par exemple 120,000.")
+      setError("Prix d'un acte invalide — par exemple 120,000.")
       return false
     }
 
@@ -1218,17 +1231,6 @@ export function CreateAppointmentDialog({
                       </Badge>
                     )}
                   </div>
-                  {planActs.length > 1 && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Ces {planActs.length} actes seront réalisés dans la même séance.
-                    </p>
-                  )}
-                  {presetContinuation && (
-                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                      Séance du {formatDateFr(presetContinuation.previous.interventionDate)}. Le traitement et son
-                      devis seront créés à l&apos;enregistrement de ce rendez-vous.
-                    </p>
-                  )}
                 </div>
               </div>
             ) : !isBusySlot ? (
@@ -1275,9 +1277,7 @@ export function CreateAppointmentDialog({
                         role="status"
                         className="rounded-md border border-warning/40 bg-warning-wash px-3 py-2 text-xs text-warning-ink"
                       >
-                        {createdPatientName ?? "Ce patient"} a été créé. Il reste à enregistrer le rendez-vous —
-                        corrigez l&apos;heure si besoin puis réessayez. Pour modifier son nom, ouvrez sa fiche depuis
-                        « Patients ».
+                        <b>{createdPatientName ?? "Ce patient"}</b> est créé, pas le rendez-vous : réessayez.
                       </p>
                     )}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1312,7 +1312,7 @@ export function CreateAppointmentDialog({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="newPatientPhone" className="text-sm">
-                        Téléphone <span className="text-xs text-muted-foreground">(recommandé)</span>
+                        Téléphone
                       </Label>
                       <PhoneField
                         id="newPatientPhone"
@@ -1323,12 +1323,6 @@ export function CreateAppointmentDialog({
                         onCountryChange={setNewPatientPhoneCountry}
                         disabled={patientAlreadyCreated}
                       />
-                      {/* Names no country any more: the control beside the field says which, and the sentence
-                          said « tunisien à 8 chiffres » — false for every other country the field now takes. */}
-                      <p className="text-xs text-muted-foreground">
-                        Choisissez le pays si le numéro n'est pas tunisien. Sans numéro, ce patient ne recevrait
-                        ni rappel ni relance.
-                      </p>
                     </div>
                   </div>
                 ) : (
@@ -1402,9 +1396,6 @@ export function CreateAppointmentDialog({
                         </Command>
                       </PopoverContent>
                     </Popover>
-                    {patients.length === 0 && !loadingPatients && (
-                      <p className="text-xs text-muted-foreground">Créez un nouveau patient à l'aide du bouton ci-dessus</p>
-                    )}
                   </div>
                 )}
               </>
@@ -1423,9 +1414,7 @@ export function CreateAppointmentDialog({
               */
               <div className="p-3 rounded-lg bg-warning-wash border border-warning/30">
                 <p className="text-sm text-warning-ink">
-                  {selectedDoctorId
-                    ? "Ce créneau sera marqué comme occupé pour ce praticien : toute tentative de lui assigner un rendez-vous à cette période demandera une confirmation."
-                    : "Ce créneau sera marqué comme occupé pour tout le cabinet : toute tentative d'y créer un rendez-vous demandera une confirmation."}
+                  {selectedDoctorId ? "Bloqué pour ce praticien." : "Bloqué pour tout le cabinet."}
                 </p>
               </div>
             )}
@@ -1444,10 +1433,14 @@ export function CreateAppointmentDialog({
               It belongs here on the content, too: the suggestion is derived from the PATIENT and from nothing
               else on the form. Under the acts it read as a footnote to a decision already made.
             */}
-            {suggestions && !isBusySlot && (
-              <PlanStepSuggestionNotice
-                set={suggestions}
+            {!isBusySlot && selectedPatientId && (
+              <ContinueTreatmentList
+                suggestions={suggestions}
                 onAccept={acceptSuggestion}
+                continuable={continuationOffered ? continuable : null}
+                pendingActId={selectedActs.find((a) => a.pendingContinuation)?.pendingContinuation?.actId}
+                onContinue={addContinuation}
+                dismissed={dismissedSuggestionFor === selectedPatientId}
                 onDismiss={() => setDismissedSuggestionFor(selectedPatientId)}
                 // The act it inserts is priced and named from the catalogue, so accepting before it has loaded
                 // would produce a row whose procedure does not resolve.
@@ -1523,50 +1516,52 @@ export function CreateAppointmentDialog({
                 </div>
               ) : (
                 /*
-                 * A GRID below `sm:`, because these six buttons could not shrink and could not wrap.
-                 *
-                 * `buttonVariants` carries both `shrink-0` and `whitespace-nowrap`, and `flex-1` /
-                 * `shrink-0` are different tailwind-merge groups — so both survived and `flex-shrink: 0`
-                 * won. Six `px-3` presets need ~324 px of min-content against ~310 px of form body at 390 px
-                 * (~294 px at 360 px), and the body is `overflow-y-auto`, which computes `overflow-x` to
-                 * `auto`: « 2h » was clipped and the form gained a horizontal scrollbar, breaking the
-                 * "the body never scrolls sideways" invariant the shell is built on.
-                 *
-                 * Two rows of three fits every phone with room to spare, and `sm:flex` restores the single
-                 * row where it always fitted. `flex-1` is dropped: a grid cell is already equal-width.
+                 * ⚠️ `Button` is `shrink-0 whitespace-nowrap`, so these can neither shrink nor wrap a label.
+                 * Hinged on the ROW's width (`@container`), not the viewport's: one row once the six labels fit
+                 * (~315 px of min-content — a 390 px phone's body is 342), else two rows of three (320 px). A 7th
+                 * chip (a non-preset length) needs ~370 px, so it takes the single row later.
                  */
-                <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-                  {/*
-                    The summed length as a chip of its own, active, when it is not one of the presets.
-                    Before this the acts could sum to 70 min and *no* preset was highlighted, so the row read as
-                    « aucune durée choisie » while a badge elsewhere said otherwise. Pressing it is a real
-                    action — « garder cette longueur » — which is why it also sets `durationTouched`.
-                  */}
-                  {!DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0 && (
-                    <Button
-                      type="button"
-                      variant="default"
-                      size="sm"
-                      onClick={() => { setDurationTouched(true); setDuration(String(calculatedDuration)) }}
-                      className="sm:flex-1"
-                    >
-                      {durationDisplay}
-                    </Button>
-                  )}
-                  {DURATION_PRESETS.map((mins) => (
-                    <Button
-                      key={mins}
-                      type="button"
-                      variant={duration === String(mins) ? "default" : "outline"}
-                      size="sm"
-                      // Picking a duration by hand stops the act-sum from overwriting it — see `durationTouched`.
-                      onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
-                      // `bg-card` on the unselected ones for the reason the date trigger states.
-                      className={cn("sm:flex-1", duration !== String(mins) && "bg-card")}
-                    >
-                      {mins < 60 ? `${mins}m` : `${mins / 60}h`}
-                    </Button>
-                  ))}
+                <div className="@container">
+                  <div
+                    className={cn(
+                      "grid grid-cols-3 gap-2",
+                      !DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0
+                        ? "@min-[24rem]:flex @min-[24rem]:gap-1"
+                        : "@min-[21rem]:flex @min-[21rem]:gap-1",
+                    )}
+                  >
+                    {/*
+                      The summed length as a chip of its own, active, when it is not one of the presets.
+                      Before this the acts could sum to 70 min and *no* preset was highlighted, so the row read
+                      as « aucune durée choisie » while a badge elsewhere said otherwise. Pressing it is a real
+                      action — « garder cette longueur » — which is why it also sets `durationTouched`.
+                    */}
+                    {!DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0 && (
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        onClick={() => { setDurationTouched(true); setDuration(String(calculatedDuration)) }}
+                        className="flex-1 px-1.5 coarse:h-11"
+                      >
+                        {durationDisplay}
+                      </Button>
+                    )}
+                    {DURATION_PRESETS.map((mins) => (
+                      <Button
+                        key={mins}
+                        type="button"
+                        variant={duration === String(mins) ? "default" : "outline"}
+                        size="sm"
+                        // Picking a duration by hand stops the act-sum from overwriting it — see `durationTouched`.
+                        onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
+                        // `bg-card` on the unselected ones for the reason the date trigger states.
+                        className={cn("flex-1 px-1.5 coarse:h-11", duration !== String(mins) && "bg-card")}
+                      >
+                        {formatDurationFr(mins)}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               )}
               {/*
@@ -1634,24 +1629,6 @@ export function CreateAppointmentDialog({
                 onTotalChange={saveTreatmentTotal}
               />
             )}
-
-            {/*
-              The third door, and it is a plain link rather than a notice: unlike the suggestion above, nothing
-              here knows whether it applies — a fiche records what was done and never what remains — so this
-              asks a question instead of stating a fact. Offered whenever there is a patient to ask about and no
-              devis act on the séance yet; once one is attached the question is answered.
-            */}
-            {!isBusySlot && !isPlanScheduling && selectedPatientId &&
-              !selectedActs.some((a) => a.treatmentPlanItemId) && (
-                <button
-                  type="button"
-                  onClick={() => setContinueOpen(true)}
-                  className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover-hover:hover:text-foreground hover-hover:hover:underline coarse:min-h-11"
-                >
-                  <History className="h-3.5 w-3.5" />
-                  C&apos;est la suite d&apos;une séance précédente&nbsp;?
-                </button>
-              )}
 
             <div className="grid grid-cols-1 gap-4">
               <div className="space-y-2">
@@ -1742,51 +1719,15 @@ export function CreateAppointmentDialog({
       </DialogContent>
     </Dialog>
 
-    {/*
-      A SIBLING of the booking dialog, never a child: Radix unmounts a closed dialog's content, and nesting one
-      inside the form would also put two dialogs' focus traps and Escape handlers on top of each other.
-    */}
-    {selectedPatientId && (
-      <ContinueSessionDialog
-        open={continueOpen}
-        onOpenChange={setContinueOpen}
-        patientId={selectedPatientId}
-        onChosen={(choice) => {
-          /*
-           * ⚠️ **Nothing is created here, and that is the fix.** This handler used to receive a devis — the
-           * dialog minted it on its own button press, numbered and accepted, with the lump-sum échéance
-           * `Accept` raises. Pressing « Annuler » on this booking afterwards could not un-mint it, so the
-           * patient was left owing money for a séance nobody had booked, and the act it continued had left
-           * « Suite d'une séance précédente » for good — `ContinuationTracking` counts an act on any
-           * non-cancelled plan as taken, so the only way back was to cancel the devis with a motif. Reported
-           * from use. `materialiseTreatments` mints it on save now, exactly like a split protocol.
-           *
-           * ⚠️ **Replaces, never appends.** An appointment carries ONE `TreatmentPlanId`
-           * (`resolveAttachedPlanId` refuses two), and re-opening this dialog to correct the séance or the
-           * price is the ordinary way to change one's mind — appending would send two continuations to the
-           * save, mint two devis, and only then be refused.
-           */
-          setSelectedActs((prev) => {
-            const row = continuationToSelectedAct(
-              choice.previous, choice.nextStepLabel, choice.remainingWorkCost, procedureTypes,
-            )
-            const at = prev.findIndex((a) => a.pendingContinuation)
-            return at >= 0 ? prev.map((a, i) => (i === at ? row : a)) : [...prev, row]
-          })
-          toast.success(
-            "Séance ajoutée — le traitement et son devis seront créés à l'enregistrement du rendez-vous.",
-          )
-        }}
-      />
-    )}
-
     {/* Past-time confirmation (AC-2): blocking; confirming proceeds, cancelling leaves the form intact. */}
     <AlertDialog open={showPastTimeConfirm} onOpenChange={setShowPastTimeConfirm}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Heure dans le passé</AlertDialogTitle>
-          <AlertDialogDescription>
-            L&apos;heure sélectionnée est déjà passée. Voulez-vous quand même créer ce rendez-vous ?
+          <AlertDialogTitle>Créer ce rendez-vous dans le passé ?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <BookingPromptFacts
+              extra={[<><b className="text-foreground">{bookingSlotLabel(recapModel)}</b> : heure déjà passée</>]}
+            />
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1821,10 +1762,12 @@ export function CreateAppointmentDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Créneau déjà occupé</AlertDialogTitle>
-          <AlertDialogDescription>
-            {slotTakenPrompt} Voulez-vous quand même créer ce rendez-vous ? Le double rendez-vous sera enregistré comme
-            volontaire.
+          <AlertDialogTitle>Créer ce rendez-vous sur un créneau déjà pris ?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <BookingPromptFacts
+              message={slotTakenPrompt}
+              extra={[<>Noté comme <b className="text-foreground">double rendez-vous voulu</b></>]}
+            />
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1859,9 +1802,9 @@ export function CreateAppointmentDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>En dehors des horaires d&apos;ouverture</AlertDialogTitle>
-          <AlertDialogDescription>
-            {outsideHoursPrompt} Voulez-vous quand même créer ce rendez-vous ?
+          <AlertDialogTitle>Créer ce rendez-vous hors des heures d&apos;ouverture ?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <BookingPromptFacts message={outsideHoursPrompt} />
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1896,9 +1839,13 @@ export function CreateAppointmentDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Ce patient existe peut-être déjà</AlertDialogTitle>
-          <AlertDialogDescription>
-            {duplicatePatientPrompt}
+          <AlertDialogTitle>
+            {recapModel.patientName
+              ? `Créer quand même un dossier pour ${recapModel.patientName} ?`
+              : "Créer quand même ce patient ?"}
+          </AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <BookingPromptFacts message={duplicatePatientPrompt} />
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

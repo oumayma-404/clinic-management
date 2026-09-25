@@ -1,6 +1,6 @@
 import type { PlanActContinuation, PresetPlanAct } from "@/components/appointment-acts-picker"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
-import { PLAN_STATUS_LABELS, planHasRecordedWork } from "./treatment-plan-labels"
+import { PLAN_STATUS_LABELS, planHasRecordedWork, teethSuffix } from "./treatment-plan-labels"
 
 /** Derived workflow état of one planned act. */
 export type PlanItemState = "to-schedule" | "scheduled" | "to-record" | "done"
@@ -215,17 +215,21 @@ export type ActRemovalPlan =
  * carries others, which is why this reports which of the two it will be rather than refusing.</p>
  */
 export function actRemovalPlan(plan: TreatmentPlanDto, item: TreatmentPlanItemDto): ActRemovalPlan {
-  if (item.status === "Done") {
+  const doneSteps = item.steps?.filter((s) => s.doneDate).length ?? 0
+  if (item.status === "Done" && doneSteps === 0) {
     return {
       removable: false,
-      reason: `Acte déjà réalisé — utilisez « Détacher la fiche » sur la ligne de l'acte, puis réessayez.`,
+      reason: "Acte fait — remettez-le à faire d'abord",
     }
   }
-  if (hasDeliveredWork(item)) {
-    const done = item.steps?.filter((s) => s.doneDate).length ?? 0
+  if (item.status === "Done" || hasDeliveredWork(item)) {
+    // The strip's LAST done séance carries « Remettre à faire », and each press undoes that one séance.
     return {
       removable: false,
-      reason: `${done} séance(s) déjà réalisée(s) — détachez-les de leur fiche de soins, puis réessayez.`,
+      reason:
+        doneSteps > 1
+          ? `${doneSteps} séances faites — remettez-les à faire d'abord`
+          : "1 séance faite — remettez-la à faire d'abord",
     }
   }
 
@@ -334,15 +338,15 @@ export function amendPlanRefusal(plan: TreatmentPlanDto): string | null {
   if (canAmendPlan(plan)) return null
   return plan.status === "Cancelled"
     ? "Devis annulé : rétablissez-le pour le modifier."
-    : "Créance passée en perte : reprenez le traitement pour le modifier."
+    : "Non réclamé : reprenez le traitement pour le modifier."
 }
 
 /** Why « Facturer le devis » is not offered — null when it is (J5). */
 export function billPlanRefusal(plan: TreatmentPlanDto): string | null {
   if (canBillPlan(plan)) return null
-  if (plan.status === "Draft") return "Traitement sans devis : éditez d'abord le devis."
+  if (plan.status === "Draft") return "Pas de devis : créez d'abord le devis."
   if (plan.status === "Cancelled") return "Devis annulé."
-  if (plan.status === "WrittenOff") return "Créance passée en perte : reprenez le traitement pour le facturer."
+  if (plan.status === "WrittenOff") return "Non réclamé : reprenez le traitement pour le facturer."
   return plan.linkedInvoiceNumber ? `Déjà facturé sur la note ${plan.linkedInvoiceNumber}.` : "Déjà facturé."
 }
 
@@ -352,10 +356,10 @@ export function billPlanRefusal(plan: TreatmentPlanDto): string | null {
  */
 export function cancelPlanRefusal(plan: TreatmentPlanDto): string | null {
   if (canCancelPlan(plan) || canDeletePlan(plan) || plan.status === "Cancelled") return null
-  if (plan.status === "WrittenOff") return "Créance passée en perte : reprenez le traitement pour l'annuler."
-  if (plan.number == null) return "Traitement sans devis : arrêtez-le depuis son plan."
-  if (plan.amountPaid > 0.0005) return "Des paiements sont encaissés : arrêtez le traitement depuis son plan."
-  return "Depuis son plan : « Arrêter le traitement » annule ce devis avec un motif."
+  if (plan.status === "WrittenOff") return "Non réclamé : reprenez le traitement pour l'annuler."
+  if (plan.number == null) return "Pas de devis : arrêtez le traitement depuis sa page."
+  if (plan.amountPaid > 0.0005) return "Déjà payé en partie : arrêtez le traitement depuis sa page."
+  return "Depuis sa page : « Arrêter » annule ce devis avec un motif."
 }
 
 /**
@@ -611,8 +615,8 @@ export function planNextAction(plan: TreatmentPlanDto, now: Date = new Date()): 
  * ordering below is that function's, not a second opinion.</p>
  */
 export function planHeadline(plan: TreatmentPlanDto, now: Date = new Date()): string {
-  if (plan.status === "Draft") return "À accepter";
-  if (plan.status === "Cancelled") return "Plan annulé";
+  if (plan.status === "Draft") return "Pas de devis";
+  if (plan.status === "Cancelled") return "Devis annulé";
 
   const live = activeItems(plan);
 
@@ -625,7 +629,7 @@ export function planHeadline(plan: TreatmentPlanDto, now: Date = new Date()): st
   // Same reader as `planNextAction`, and for its reason: « Reste à encaisser » on a devis the note already
   // collected is the headline sending somebody to an échéancier that refuses them.
   const owed = displayedOutstanding(plan);
-  if (owed && !owed.isBilled && owed.amount > 0) return "Reste à encaisser";
+  if (owed && !owed.isBilled && owed.amount > 0) return "Reste à payer";
 
   const scheduled = live.filter((i) => planItemState(i, now) === "scheduled").length;
   if (scheduled > 0) return `${scheduled} séance${scheduled > 1 ? "s" : ""} à venir`;
@@ -714,6 +718,7 @@ export function planItemToPreset(
   return {
     planItemId: item.id,
     procedureTypeId: resolveProcedureTypeId(item),
+    designationFr: item.designationFr,
     /*
      * ⚠️ **A continuation names the act it FINISHES, and which séance this is.** Left as its own désignation
      * the row read « continuation (dents 11) » — a label the dentist typed, on a card that looked like an
@@ -732,6 +737,7 @@ export function planItemToPreset(
       label: step.label,
       estimatedDurationMinutes: step.estimatedDurationMinutes,
       done: step.doneDate != null,
+      doneDate: step.doneDate ?? null,
       bookedAt: step.scheduledAppointmentId ? step.scheduledAt ?? null : null,
     })),
     // ⚠️ The first séance nobody has booked yet: `nextStepId` ignores bookings, so « Planifier la suite » put a
@@ -751,21 +757,31 @@ export function planItemToPreset(
 
 /** The first un-done step with no visit on it, by rank — else the server's `nextStepId`. */
 function firstUnbookedStepId(item: TreatmentPlanItemDto): string | null {
-  const open = [...(item.steps ?? [])]
-    .filter((s) => !s.doneDate)
-    .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-  return open.find((s) => !s.scheduledAppointmentId)?.id ?? item.nextStepId ?? null
+  return firstUnbookedStep(item)?.id ?? item.nextStepId ?? null
+}
+
+/**
+ * The first un-done séance with no visit on it, by rank — null when every open séance is booked. The rule the
+ * booking dialog preselects with, so « Planifier : Scellement » names what the dialog will book.
+ */
+export function firstUnbookedStep(item: TreatmentPlanItemDto) {
+  return (
+    [...(item.steps ?? [])]
+      .filter((s) => !s.doneDate)
+      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+      .find((s) => !s.scheduledAppointmentId) ?? null
+  )
 }
 
 /**
  * How an act is named wherever a séance is composed — its own désignation, or, for a continuation, the act it
  * finishes and the séance's rank first.
  *
- * <p>« Traitement de canal (dévitalisation) — séance 2 sur 2 : continuation (dents 11) ». ⚠️ Long, and
+ * <p>« Traitement de canal (dévitalisation) — séance 2 sur 2 : continuation · dent 11 ». ⚠️ Long, and
  * deliberately not shortened: it is the row's <b>identity</b>, and § 10.1 forbids truncating a control's name.</p>
  */
 function planActLabel(item: TreatmentPlanItemDto, continuation: PlanActContinuation | undefined): string {
-  const teeth = item.toothNumbers.length > 0 ? ` (dents ${item.toothNumbers.join(", ")})` : ""
+  const teeth = teethSuffix(item.toothNumbers)
   if (!continuation) return `${item.designationFr}${teeth}`
   return (
     `${continuation.ofLabel} — séance ${continuation.seanceNumber} sur ${continuation.seanceTotal}` +

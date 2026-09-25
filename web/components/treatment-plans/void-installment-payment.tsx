@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api/client"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { formatDT, formatDateFr } from "@/lib/format"
 import { installmentDueSentence } from "./treatment-plan-labels"
+import { Consequences } from "./plan-consequences"
 import type { InstallmentDto, InstallmentPaymentDto } from "@/lib/api/types"
 
 /**
@@ -82,17 +83,17 @@ export function VoidInstallmentPayment({
   return (
     <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
       <p className="text-sm">
-        Annuler cet encaissement de <span className="font-semibold">{formatDT(payment.amount)}</span> du{" "}
-        {formatDateFr(payment.paidOn)},{" "}
-        sur {installmentDueSentence(installment)}{" "}
-        ?
-        L&apos;encaissement sera retiré du devis et de la caisse, à sa date d&apos;origine. Cette action est
-        définitive.
+        Annuler l&apos;encaissement de <b>{formatDT(payment.amount)}</b> du <b>{formatDateFr(payment.paidOn)}</b>, sur{" "}
+        {installmentDueSentence(installment)}&nbsp;?
       </p>
-      {/* The one thing the user cannot infer, and the reason a receipt already in the patient's hands matters. */}
-      <p className="text-sm text-muted-foreground">
-        Si un reçu a déjà été remis au patient, récupérez-le : sa réimpression portera la mention « REÇU ANNULÉ ».
-      </p>
+      <Consequences
+        items={[
+          <>Retiré du devis et de la caisse, <b className="text-foreground">à sa date</b></>,
+          /* The one thing the user cannot infer: a receipt already in the patient's hands. */
+          <>Reçu déjà remis : sa réimpression porte <b className="text-foreground">« REÇU ANNULÉ »</b></>,
+          <b className="text-foreground">Définitif</b>,
+        ]}
+      />
 
       <div className="space-y-1">
         {/* The id carries the payment's, so two panels can never share a `for` — the échéancier renders one row

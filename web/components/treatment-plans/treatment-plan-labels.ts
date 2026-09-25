@@ -55,6 +55,13 @@ export function installmentDueInputValue(inst: { dueDate: string; isAutoRaised?:
   return inst.isAutoRaised ? "" : inst.dueDate.slice(0, 10);
 }
 
+/**
+ * The words for each status in a FILTER or a chip count — one entry per stored status, so no two read the same.
+ *
+ * <p>⚠️ The BADGE reads {@link planStatusLabel}, not this map: a Draft there says where the work stands
+ * (« À commencer » / « En cours »), and whether a devis exists is its own chip (« Devis n° … » / « Pas de
+ * devis »). Only a filter, which must tell a Draft from an Accepted plan, prints « Sans devis ».</p>
+ */
 export const PLAN_STATUS_LABELS: Record<string, string> = {
   /*
    * ⚠️ « Brouillon » described a form somebody had not finished, and that is no longer what this status is.
@@ -64,7 +71,8 @@ export const PLAN_STATUS_LABELS: Record<string, string> = {
    * « Éditer le devis » would change.
    */
   Draft: "Sans devis",
-  Accepted: "Accepté",
+  // A filter must tell a signed devis from a treatment followed without one; the BADGE says « À commencer » for both.
+  Accepted: "Devis accepté",
   InProgress: "En cours",
   Completed: "Terminé",
   /*
@@ -75,12 +83,12 @@ export const PLAN_STATUS_LABELS: Record<string, string> = {
    */
   Stopped: "Arrêté",
   /*
-   * ⚠️ « Créance abandonnée », not « Perte » or « Irrécouvrable ». The badge is read on a patient's file by
-   * whoever picks it up next, and it has to say what happened to the MONEY without accusing the patient: the
-   * work was done, the cabinet decided it would not chase what was left. « Reprendre le traitement » brings
-   * the créance back, so this is not a terminal judgement either.
+   * ⚠️ « Non réclamé », not « Perte » or « Irrécouvrable ». The badge is read on a patient's file by whoever
+   * picks it up next, and it has to say what happened to the MONEY without accusing the patient: the work was
+   * done, the cabinet decided it would not chase what was left. « Reprendre le traitement » brings it back, so
+   * this is not a terminal judgement either. (It read « Créance abandonnée » — two words of accounting jargon.)
    */
-  WrittenOff: "Créance abandonnée",
+  WrittenOff: "Non réclamé",
   Cancelled: "Annulé",
 };
 
@@ -107,8 +115,8 @@ export const PLAN_STATUS_TONE: Record<string, StatusTone> = {
 };
 
 export const ITEM_STATUS_LABELS: Record<string, string> = {
-  Planned: "Planifié",
-  Done: "Réalisé",
+  Planned: "Prévu",
+  Done: "Fait",
 };
 
 // Derived workflow état of an act (see plan-next-action.ts). Richer than ITEM_STATUS_LABELS above, which only
@@ -116,9 +124,9 @@ export const ITEM_STATUS_LABELS: Record<string, string> = {
 // its date has passed, so a visit that happened without a fiche reads « À enregistrer » instead of « Planifié ».
 export const ITEM_WORKFLOW_LABELS: Record<string, string> = {
   "to-schedule": "À planifier",
-  scheduled: "Planifié",
+  scheduled: "Prévu",
   "to-record": "À enregistrer",
-  done: "Réalisé",
+  done: "Fait",
 };
 
 /** « À enregistrer » is `active`: the visit happened and nobody has written it up — the one état that asks for work. */
@@ -161,11 +169,11 @@ export function itemWorkflowInk(state: string): string {
 
 // The single next step a plan needs, as button copy.
 export const PLAN_NEXT_ACTION_LABELS: Record<string, string> = {
-  accept: "Accepter le devis",
+  accept: "Créer le devis",
   record: "Enregistrer la fiche",
   schedule: "Planifier la suite",
   collect: "Encaisser",
-  open: "Voir le plan",
+  open: "Voir le traitement",
 };
 
 /**
@@ -180,23 +188,20 @@ export function planHasRecordedWork(plan: { items?: { status?: string }[] }): bo
 }
 
 /**
- * The badge's words for a plan's status.
+ * The badge's words for a plan's status — where the WORK stands, in the six words a dentist already uses.
  *
- * <p>⚠️ <b>« Sans devis » alone was half the truth, and the missing half is the one a dentist acts on.</b> The
- * status column answers two different questions at once — <i>has a quote been issued</i> and <i>is work under
- * way</i> — because `PlanBillingRules.CarriesDebt` reads it, so an un-numbered treatment must never be
- * promoted to `InProgress`: it would owe its whole total on a devis nobody wrote. The stored status therefore
- * keeps answering the financial question, and the badge answers both — « En cours · sans devis » on a
- * treatment that has séances recorded, plain « Sans devis » on one where nothing has been done yet.</p>
- *
- * <p>The deeper fix is to make debt key on the devis <i>number</i> rather than on the status, which would let
- * the status itself tell the clinical truth. That changes every money read (`DebtBearingPlanStatuses` is a SQL
- * filter in four of them), so it is a decision of its own and not a consequence of this wording.</p>
+ * <p>⚠️ A Draft is « À commencer » or « En cours », never « Sans devis » or « En cours · sans devis »: whether a
+ * devis exists is a second fact, and it has its own chip ({@link planDevisLabel}). The stored status still
+ * answers the financial question — `PlanBillingRules.CarriesDebt` reads it, so an un-numbered treatment is never
+ * promoted to `InProgress` — and this function is only the display.</p>
  */
+/** Nothing done yet — a devis signed or not, the work is the same: still to begin. */
+const NOT_STARTED_LABEL = "À commencer";
+
 export function planStatusLabel(status: string, hasRecordedWork = false): string {
-  if (status === "Draft" && hasRecordedWork) {
-    return `${PLAN_STATUS_LABELS.InProgress} · ${PLAN_STATUS_LABELS.Draft.toLowerCase()}`;
-  }
+  // One word per idea: the badge says where the WORK stands; « Pas de devis » is the devis chip's job.
+  if (status === "Draft" && hasRecordedWork) return PLAN_STATUS_LABELS.InProgress;
+  if (status === "Draft" || status === "Accepted") return NOT_STARTED_LABEL;
   return PLAN_STATUS_LABELS[status] ?? status;
 }
 
@@ -206,10 +211,53 @@ export function planStatusLabel(status: string, hasRecordedWork = false): string
  * amber, tells the reader the two are different kinds of thing when they are the same kind of thing.
  */
 export function planStatusBadgeClass(status: string, hasRecordedWork = false): string {
-  if (status === "Draft" && hasRecordedWork) {
-    return statusToneClass(PLAN_STATUS_TONE.InProgress);
+  // Same word, same colour: a Draft wears the tone of the status whose word it borrows.
+  if (status === "Draft") {
+    return statusToneClass(hasRecordedWork ? PLAN_STATUS_TONE.InProgress : PLAN_STATUS_TONE.Accepted);
   }
   return statusToneClass(PLAN_STATUS_TONE[status]);
+}
+
+/** The devis chip: « Devis n° 2026-0677 », or « Pas de devis » on a treatment followed without one. */
+export function planDevisLabel(plan: { number?: string | null }): string {
+  const number = plan.number?.trim();
+  return number ? `Devis n° ${number}` : "Pas de devis";
+}
+
+/**
+ * A stored title that names nothing — « Plan de traitement » (the default for 2+ acts), « Devis », « Traitement ».
+ * The one test: the page name falls back to the acts, and « Tout modifier » opens such a title empty.
+ */
+export function isPlaceholderTitle(title: string | null | undefined): boolean {
+  const raw = title?.trim();
+  return !raw || /^(plan( de traitement)?|devis|traitement)$/i.test(raw);
+}
+
+/**
+ * What a treatment is CALLED on screen — the act and its teeth (« Couronne · dent 16 »), or the title the
+ * dentist typed. Never « Plan 2026-0677 »: the number is the devis, and it has its own chip.
+ */
+export function treatmentName(plan: {
+  number?: string | null;
+  title?: string | null;
+  items?: { designationFr: string; toothNumbers?: number[]; isWithdrawn?: boolean }[];
+}): string {
+  const items = (plan.items ?? []).filter((i) => !i.isWithdrawn);
+  // A stored placeholder title (« Plan de traitement », « Devis ») names nothing — fall back to the acts.
+  const raw = plan.title?.trim();
+  const title = raw && !isPlaceholderTitle(raw) ? raw : undefined;
+  const sole = items.length === 1 ? items[0] : null;
+  // A followed treatment's title IS its act's designation — add the teeth rather than print it bare.
+  if (title && !(sole && title === sole.designationFr.trim())) return title;
+  if (sole) return `${sole.designationFr}${teethSuffix(sole.toothNumbers)}`;
+  if (items.length > 1) return `${items[0].designationFr} + ${items.length - 1} acte${items.length > 2 ? "s" : ""}`;
+  return title || (plan.number?.trim() ? `Devis n° ${plan.number.trim()}` : "Traitement");
+}
+
+/** « · dent 16 » / « · dents 14, 15, 16 » / nothing for an act on no tooth. */
+export function teethSuffix(teeth: number[] | undefined): string {
+  if (!teeth || teeth.length === 0) return "";
+  return teeth.length === 1 ? ` · dent ${teeth[0]}` : ` · dents ${teeth.join(", ")}`;
 }
 
 /**
@@ -224,10 +272,10 @@ export function planStatusBadgeClass(status: string, hasRecordedWork = false): s
  * title that merely repeats the act (see {@link planItemHeading}), falls back to the generic name.</p>
  */
 export function planDisplayName(plan: { number?: string | null; title?: string | null }): string {
-  const number = plan.number?.trim();
-  if (number) return `Plan ${number}`;
   const title = plan.title?.trim();
-  return title ? title : "Traitement suivi";
+  if (title) return title;
+  const number = plan.number?.trim();
+  return number ? `Devis n° ${number}` : "Traitement";
 }
 
 /**
@@ -249,7 +297,7 @@ export function planItemHeading(
   const number = plan.number?.trim();
   if (number) return number;
   const title = plan.title?.trim();
-  if (!title || title === item.designationFr.trim()) return "Traitement suivi";
+  if (!title || title === item.designationFr.trim()) return "Sans devis";
   return title;
 }
 
@@ -259,6 +307,20 @@ export function itemStatusLabel(status: string): string {
 
 export function itemWorkflowLabel(state: string): string {
   return ITEM_WORKFLOW_LABELS[state] ?? state;
+}
+
+/**
+ * The état word for ONE act: once a séance is done, « À planifier » / « Prévu » read as « not started », so a
+ * stepped act says « Suite à planifier » / « Suite prévue » — still the next action, never a rank.
+ */
+export function planItemStateLabel(
+  item: { steps?: { doneDate?: string | null }[]; stepsDone?: number },
+  state: string,
+): string {
+  const done = item.stepsDone ?? (item.steps ?? []).filter((s) => s.doneDate).length;
+  if (done > 0 && state === "to-schedule") return "Suite à planifier";
+  if (done > 0 && state === "scheduled") return "Suite prévue";
+  return itemWorkflowLabel(state);
 }
 
 export function itemWorkflowBadgeClass(state: string): string {

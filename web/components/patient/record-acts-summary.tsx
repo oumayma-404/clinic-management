@@ -69,7 +69,7 @@ function SeanceIdentity({ record }: { record: DentalRecordDto }) {
   if (!record.treatmentPlanId) return null
   const rank =
     record.treatmentStepNumber && record.treatmentStepTotal
-      ? `étape ${record.treatmentStepNumber} / ${record.treatmentStepTotal}`
+      ? `séance ${record.treatmentStepNumber} sur ${record.treatmentStepTotal}`
       : null
   // Names the treatment when it HAS a name: a followed treatment is un-numbered (`Accept` is the only writer
   // of `Number`), and « Ouvrir le traitement undefined » is what a template would have printed.

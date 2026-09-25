@@ -35,9 +35,8 @@ export interface PatientPlanActs {
   /**
    * Fold a devis **this dialog just created** into the derived sets, without a re-read.
    *
-   * ⚠️ Load-bearing, not a convenience. Two surfaces mint a plan from inside the booking dialog — « Créer le
-   * devis et planifier la 1re séance » and « C'est la suite d'une séance précédente ? » — and both then put its
-   * act on the séance. That act carries a `treatmentPlanItemId`, so the save MUST send the appointment's own
+   * ⚠️ Load-bearing, not a convenience. The booking dialog mints plans on save (`materialiseTreatments` — a split
+   * act, and « Continuer » on a past séance) and then puts their act on the séance. That act carries a `treatmentPlanItemId`, so the save MUST send the appointment's own
    * `treatmentPlanId` — see {@link resolveAttachedPlanId} — or the server refuses the booking outright with
    * « Le plan de traitement est requis pour lier l'acte. » The plan is seconds old and cannot be in the read
    * this hook did when the patient was picked, so it is handed in instead.
@@ -119,7 +118,7 @@ export function usePatientPlanActs(
     }
     const item = plan?.items.find((i) => i.id === treatmentPlanItemId)
     if (!plan || !item) {
-      toast.error("Le devis de cet acte n'a pas pu être relu — le total n'a pas été modifié. Rechargez la page.")
+      toast.error("Traitement introuvable — prix non modifié. Rechargez la page.")
       return false
     }
     try {
@@ -137,10 +136,10 @@ export function usePatientPlanActs(
         version: plan.version,
       })
       register(saved)
-      toast.success(`Total mis à jour — ${formatDT(total)}`)
+      toast.success(`Prix du traitement : ${formatDT(total)}`)
       return true
     } catch (err) {
-      showErrorToast(err, "Le total n'a pas pu être modifié.")
+      showErrorToast(err, "Prix du traitement non modifié.")
       return false
     }
   }, [plans, register, patientId])
@@ -217,8 +216,7 @@ export function resolveAttachedPlanId(
 
   if (attached.length > 1) {
     return {
-      error:
-        "Les actes de ce rendez-vous appartiennent à deux devis différents. Une séance ne peut être rattachée qu'à un seul devis.",
+      error: "Ce rendez-vous porte deux traitements : un seul possible. Retirez l'un des actes.",
     }
   }
   return { planId: attached[0] }

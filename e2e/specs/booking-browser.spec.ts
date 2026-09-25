@@ -109,7 +109,7 @@ test.describe("HP-2 · une confirmation ne duplique rien @mutating @t0", () => {
     // The server refuses with `PatientDuplicate`; the dialog turns it into a question. Any other prompt the
     // calendar happens to raise is confirmed too — see `drainConfirmations`.
     const seen = await drainConfirmations(page)
-    sawPrompt(seen, /existe peut-être déjà/i, "Ce patient existe peut-être déjà")
+    sawPrompt(seen, /Créer quand même/i, "Créer quand même un dossier pour … ?")
 
     // The dialog closes on success.
     await expect(dialog).toBeHidden({ timeout: 20_000 })
@@ -158,8 +158,8 @@ test.describe("HP-2 · une confirmation ne duplique rien @mutating @t0", () => {
     await submit(dialog)
 
     const seen = await drainConfirmations(page)
-    sawPrompt(seen, /passé/i, "Heure dans le passé")
-    sawPrompt(seen, /existe peut-être déjà/i, "Ce patient existe peut-être déjà")
+    sawPrompt(seen, /passé/i, "Créer ce rendez-vous dans le passé ?")
+    sawPrompt(seen, /Créer quand même/i, "Créer quand même un dossier pour … ?")
     expect(
       seen.length,
       `at least two prompts must have been answered for this to exercise a double re-entry. Saw: ${seen.join(" · ")}`,
@@ -211,17 +211,18 @@ test.describe("HP-2 · une confirmation ne duplique rien @mutating @t0", () => {
 
     await pickAct(page, dialog, act.name)
 
-    // Split by default — the séance frise must be on screen, or this scenario is not exercising a treatment.
+    // Split by default — the séance strip (« ce RDV ») and its way out must be on screen, or this scenario is
+    // not exercising a treatment.
     const text = ((await dialog.textContent()) ?? "").replace(/ /g, " ")
     expect(
-      /Traitement en \d+\s*séances?/.test(text),
+      /ce RDV/.test(text) && /Tout en 1 séance/.test(text),
       `the act must be split by default for this to test anything. Dialog said: ${text.slice(0, 250)}`,
     ).toBeTruthy()
 
     await dialog.locator("#create-appt-start-time").fill(earlierToday())
     await submit(dialog)
     const seen = await drainConfirmations(page)
-    sawPrompt(seen, /passé/i, "Heure dans le passé")
+    sawPrompt(seen, /passé/i, "Créer ce rendez-vous dans le passé ?")
     await expect(dialog).toBeHidden({ timeout: 20_000 })
     // A past-dated booking is « terminée » on arrival, so the review prompt fires immediately. Snoozed here so
     // it cannot sit over the next test's first click.
@@ -257,17 +258,17 @@ test.describe("HP-2 · l'éditeur de séances est toujours là @mutating @t0", (
   const assertSeanceEditor = async (dialog: any, page: any) => {
     const text = ((await dialog.textContent()) ?? "").replace(/ /g, " ")
     expect(
-      /Traitement en \d+\s*séances?/.test(text),
-      `the protocol must be resolved and split by default. Dialog said: ${text.slice(0, 250)}`,
+      /ce RDV/.test(text),
+      `the protocol must be resolved and split by default — its strip names « ce RDV ». Dialog said: ${text.slice(0, 250)}`,
     ).toBeTruthy()
 
-    // Both the frise and its exit live below the fold in this dialog, so scroll its own body, not the page.
+    // Both the strip and its exit live below the fold in this dialog, so scroll its own body, not the page.
     await dialog.evaluate((el: HTMLElement) => {
       const body = el.querySelector(".overflow-y-auto") as HTMLElement | null
       if (body) body.scrollTop = body.scrollHeight
     })
     await expect(
-      dialog.locator("button", { hasText: /Tout faire en une\s+(seule\s+)?séance/ }).first(),
+      dialog.locator("button", { hasText: /Tout en 1 séance/ }).first(),
       "split-by-default needs a reachable way out, or the dentist cannot say « une seule séance »",
     ).toBeVisible()
     void page
@@ -307,7 +308,7 @@ test.describe("HP-2 · l'éditeur de séances est toujours là @mutating @t0", (
     await assertSeanceEditor(dialog, page)
   })
 
-  test("BOOK-37 · « Tout faire en une seule séance » creates NO treatment", async ({
+  test("BOOK-37 · « Tout en 1 séance » creates NO treatment", async ({
     api,
     page,
     patient,
@@ -327,12 +328,13 @@ test.describe("HP-2 · l'éditeur de séances est toujours là @mutating @t0", (
 
     await pickAct(page, dialog, act.name)
 
-    // The way out of split-by-default. `plannedProtocol = null` means « one séance », and `[]` is never stored.
+    // The way out of split-by-default (« Tout en 1 séance »). `plannedProtocol = null` means « one séance », and `[]`
+    // is never stored.
     await dialog.evaluate((el: HTMLElement) => {
       const body = el.querySelector(".overflow-y-auto") as HTMLElement | null
       if (body) body.scrollTop = body.scrollHeight
     })
-    await dialog.locator("button", { hasText: /Tout faire en une\s+(seule\s+)?séance/ }).first().click()
+    await dialog.locator("button", { hasText: /Tout en 1 séance/ }).first().click()
 
     await submit(dialog)
     // No prompt is *expected* here, but the dev calendar may still raise a slot collision, so drain rather
@@ -390,27 +392,26 @@ test.describe("HP-2 · la suite d'une séance ne s'écrit qu'à l'enregistrement
     return { act, fiche, ficheActId: fiche.acts[0].id }
   }
 
-  /** Opens the third door and fills it in, leaving the booking dialog carrying a PENDING continuation. */
+  /**
+   * Continues the recorded séance from the booking dialog's own list and prices it on its card, leaving the dialog
+   * carrying a PENDING continuation.
+   *
+   * ⚠️ An act nobody ticked « non terminé » sits behind the « … séance passée… » fold — the tick is a sort, never a
+   * filter — and the fold appears only once the read has answered, so wait for the card OR the fold.
+   */
   async function chooseContinuation(page: any, dialog: any, actName: string, remaining: string) {
-    await dialog.locator("button", { hasText: /suite d'une séance précédente/i }).first().click()
-    const cont = page
-      .locator("[data-slot='dialog-content']")
-      .filter({
-        has: page.locator("[data-slot='dialog-title']", { hasText: /Suite d'une séance précédente/ }),
-      })
-      .first()
-    await expect(cont).toBeVisible()
+    const card = dialog.locator("[data-continuable-act]", { hasText: actName }).first()
+    const fold = dialog.locator("button", { hasText: /séance passée/ }).first()
+    await expect(card.or(fold).first(), "the recorded séance must be offered as continuable").toBeVisible()
+    if (!(await card.isVisible())) await fold.click()
+    await expect(card, "the recorded séance must be offered as continuable").toBeVisible()
 
-    const row = cont.locator("[role='radio']", { hasText: actName }).first()
-    await expect(row, "the recorded séance must be offered as continuable").toBeVisible()
-    await row.click()
+    // ⚠️ The label is itself an assertion: the press adds the row and writes nothing.
+    await card.locator("button", { hasText: /^Continuer$/ }).first().click()
 
-    await cont.locator("#next-step-label").fill("Finition")
-    await cont.locator("#remaining-cost").fill(remaining)
-
-    // ⚠️ The label is itself an assertion: « Créer le traitement » would mean the press still writes.
-    await cont.locator("button", { hasText: /^Ajouter au rendez-vous$/ }).first().click()
-    await expect(cont).toBeHidden({ timeout: 15_000 })
+    await dialog.locator("[id$='-next-step-label']").first().fill("Finition")
+    await dialog.locator("[id$='-remaining-cost']").first().fill(remaining)
+    void page
   }
 
   test("BOOK-49 · « Annuler » after choosing a continuation leaves NO devis behind", async ({
@@ -429,17 +430,17 @@ test.describe("HP-2 · la suite d'une séance ne s'écrit qu'à l'enregistrement
     await chooseContinuation(page, dialog, act.name, "20")
 
     /*
-     * The card states what it is before anything exists — and both halves of that sentence were reported
-     * wrong: it named the act as though this visit were the whole of it, and quoted the devis' own balance
-     * while the note beside it still held 50 for the same work.
+     * The card states what it is before anything exists — and both halves were once reported wrong: it named
+     * the act as though this visit were the whole of it, and quoted the devis' own balance while the note beside
+     * it still held 50 for the same work.
      */
     const text = ((await dialog.textContent()) ?? "").replace(/\u00a0/g, " ")
     expect(
-      /séance 2 sur 2/.test(text),
-      `the row must say which séance this is, and of what. Dialog said: ${text.slice(0, 400)}`,
+      /suite du \d{2}\/\d{2}/.test(text),
+      `the row must say which séance it continues. Dialog said: ${text.slice(0, 400)}`,
     ).toBeTruthy()
     expect(
-      /Total des deux séances/.test(text),
+      /Reste à payer/.test(text) && /sur la note/.test(text),
       `the row must state BOTH documents. Dialog said: ${text.slice(0, 400)}`,
     ).toBeTruthy()
 

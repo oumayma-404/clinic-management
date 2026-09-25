@@ -9,6 +9,17 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { SeanceStrip } from "@/components/treatment-plans/seance-strip"
+import { planDevisLabel } from "@/components/treatment-plans/treatment-plan-labels"
 import { cn } from "@/lib/utils"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
@@ -89,16 +100,11 @@ const ACT_PALETTE = ["#7c5cd6", "#0f9b8e", "#c9376d", "#b8792f", "#3b82f6", "#5d
 // Sentinel for "not linked to a treatment-plan step".
 const NO_PLAN_ITEM = "__none__"
 
-/** « Préparation et Empreinte » / « 1, 2 et 3 » — a French list, for the two-steps-in-one-séance case. */
-const joinFr = (parts: string[]): string =>
-  parts.length <= 1
-    ? (parts[0] ?? "")
-    : `${parts.slice(0, -1).join(", ")} et ${parts[parts.length - 1]}`
-
 /** An open treatment-plan step offered for linking a dental record (closes the plan→record loop). */
 export interface PlanItemOption {
   itemId: string
   planId: string
+  /** What the treatment is called on the band and in « Changer » — « Couronne · dent 16 ». */
   label: string
   /** Plan-step designation — prefilled into the composer on link (P0-1, carry-forward). */
   designationFr?: string
@@ -114,7 +120,7 @@ export interface PlanItemOption {
   netCost?: number
   /** Plan-step teeth — become the chart selection on link. */
   toothNumbers?: number[]
-  /** The devis number, for the « Déjà facturé » notice. */
+  /** The devis number — the band's « Devis n° … » chip. */
   planNumber?: string | null
   /** The note d'honoraires that holds this devis' money, when one does. */
   billedOnInvoiceNumber?: string | null
@@ -124,8 +130,8 @@ export interface PlanItemOption {
    *
    * <p>⚠️ **Not `billedOnInvoiceNumber` above, which is the opposite arrangement**: that note represents the
    * whole devis (so the devis collects nothing more), this one collects one act beside a devis that is still
-   * collecting the rest. Without it the two sentences below read « L'acte entier est chiffré 0,000 DT » and
-   * « 0,000 DT convenus pour tout le traitement » about a 90 DT act a patient has already paid 50 towards.</p>
+   * collecting the rest. It is what makes the act's card say « Sur la note n° N » rather than imply a
+   * 90 DT act a patient has already paid 50 towards was free.</p>
    */
   carriedOnNoteNumber?: string | null
   /** What that note bills for this act. `0` when it could not be recovered — then the note is named alone. */
@@ -142,6 +148,11 @@ export interface PlanItemOption {
   /** What is still to collect on the whole devis — meaningless once `billedOnInvoiceNumber` is set. */
   planOutstanding?: number
   /**
+   * The devis' own total (`totalPlanned`, net of remises) — « Prix » in the footer's three figures. With
+   * `planOutstanding` it gives « Déjà payé » without any sum done here.
+   */
+  planTotal?: number
+  /**
    * The act's protocol — every séance it is cut into, with the ones already carried out dated.
    *
    * <p>⚠️ <b>The steps themselves, and not the two counts this used to carry.</b> It was `stepsTotal` +
@@ -152,8 +163,8 @@ export interface PlanItemOption {
    * cannot answer the question that was actually asked either — <i>which</i> séance is this? « Séance 1 sur 3 »
    * names a position and never the work, so the fiche said nothing the dentist did not already know.</p>
    *
-   * <p>Absent or empty for an act with no protocol, which is most acts, and the fiche then says nothing about
-   * séances at all: « étape 1 sur 1 » is a fact nobody needs and it would appear on every ordinary fiche.</p>
+   * <p>Absent or empty for an act with no protocol, which is most acts, and the fiche's band then draws no
+   * séance strip at all — a one-sitting act looks as it always did.</p>
    */
   steps?: TreatmentPlanItemStepDto[]
   /**
@@ -231,7 +242,7 @@ interface PatientRecordModalProps {
 
 /**
  * Confirm-first dental-record entry. The act comes first — proposed from the appointment when there is one,
- * otherwise picked from the catalogue — then the chart says which teeth, then « Confirmer » saves. Everything
+ * otherwise picked from the catalogue — then the chart says which teeth, then « Enregistrer la séance » saves. Everything
  * the two-pane form carried (tarif and per-tooth pricing, état résultant, faces, notes, montant payé, several
  * acts per session, mixed dentition) is still here, folded into sections whose headers state their own
  * contents so nothing is hidden by being collapsed.
@@ -328,7 +339,7 @@ export function PatientRecordModal({
    * record it. Null = the server's own default (the next pending one).
    */
   const [chosenStepId, setChosenStepId] = useState<string | null>(null)
-  /** Which record's stored devis link has already been hydrated into the Select — see the effect below. */
+  /** Which record's stored devis link has already been hydrated into the band — see the effect below. */
   const hydratedPlanLinkRef = useRef<string | null>(null)
   // Only « Notes de séance » folds now. The acts are the point of this dialog and are always open — the old
   // « Actes de la séance » fold, shut by default, is where an act appeared to vanish when a second one was added.
@@ -415,11 +426,11 @@ export function PatientRecordModal({
   }, [resync, conflict])
 
   /**
-   * The refusal that blocked the last « Confirmer », **anchored to the act that caused it**.
+   * The refusal that blocked the last save, **anchored to the act that caused it**.
    *
    * <p>All three of this dialog's validation refusals used to be toasts and nothing else. On a phone sonner lands
    * bottom-centre — directly over this dialog's own footer, i.e. over the button just pressed — and is gone in
-   * four seconds, so the dentist presses « Confirmer la séance » again and gets the same flash. Nothing on the
+   * four seconds, so the dentist presses « Enregistrer la séance » again and gets the same flash. Nothing on the
    * form itself ever said which field was wrong; « Montant invalide » does not say *which act's* montant, and the
    * offending one may be three sections down and folded shut.</p>
    *
@@ -750,7 +761,7 @@ export function PatientRecordModal({
    *
    * ⚠️ **Guarded on `planItems`, the same rule as its twin**: that list holds the plan's *open* acts, so an act
    * on a cancelled plan, or one already fully réalisé, falls through to exactly the behaviour it has today
-   * rather than selecting an option the Select does not offer.
+   * rather than selecting an option the « Changer » menu does not offer.
    */
   /*
    * ⚠️ **Once per open, tracked in a ref — never « whenever the value is NO_PLAN_ITEM ».**
@@ -1082,39 +1093,39 @@ export function PatientRecordModal({
 
 
   /**
-   * WHICH séance of the treatment this fiche is — « Cette séance : étape 1 sur 3 · Préparation ».
+   * WHICH séance(s) of the treatment this fiche records — drawn as the current séance on the band's strip
+   * (« Préparation ✓ · ● Empreinte aujourd'hui · ○ Scellement »).
    *
-   * <p>⚠️ <b>The step, named, and not merely a rank.</b> The fiche is where a multi-séance act is recorded and
-   * it said only the act's name: a dentist recording the préparation of a couronne saw « Couronne / bridge (par
-   * élément) », exactly what they would see on the scellement six weeks later, and reported it as « nothing
-   * mentions the step that was done ». The label was on record all along — `TreatmentPlanItemStep.Label`, which
-   * the saved fiche then reads back through `RecordActsSummary` — so the one screen that could not say what the
-   * séance was is the screen that creates it.</p>
+   * <p>⚠️ <b>The step, shown by name, never a rank.</b> A dentist recording the préparation of a couronne used to
+   * see only « Couronne / bridge (par élément) », exactly what they would see on the scellement six weeks later,
+   * and reported « nothing mentions the step that was done ». The strip names every séance and marks this one.</p>
    *
    * <p>⚠️ <b>Mirrors {@code DentalRecordLinker.ResolveStepsOfTheSeanceAsync} exactly, and that is the whole
    * point.</b> Which steps a fiche closes is decided server-side from the <b>appointment's own procedure
    * rows</b> — several of them when « préparation + empreinte » share one visit — falling back to the act's
    * next pending step when the séance names none (`TreatmentPlanItem.MarkDone`). Anything else here is a second
-   * opinion about a fact the database already holds, and it would name one séance while the save recorded
+   * opinion about a fact the database already holds, and it would mark one séance while the save recorded
    * another.</p>
    */
-  const seanceStepLine = useMemo(() => {
-    /*
-     * ⚠️ **A REOPENED fiche answers from ITSELF, and the fallback below would have named the wrong séance.**
-     * The page passes no appointment when a record is being edited (`recordAppointment` is null for
-     * `editingRecord`, deliberately), so with nothing booked to read this would drop to « the next pending
-     * step » — and on a fiche that recorded the préparation, the next pending step is the empreinte. That is
-     * the very defect this whole change exists to remove, one door further in. `treatmentStepLabel` is the
-     * server's own read-back of the step this record closed (`GetPlanLinksByDentalRecordAsync`), so it is the
-     * one answer that cannot disagree with what the patient's history prints for the same fiche.
-     */
-    if (record?.treatmentStepLabel && record.treatmentStepNumber && record.treatmentStepTotal) {
-      return `Cette séance : étape ${record.treatmentStepNumber} sur ${record.treatmentStepTotal} · ${record.treatmentStepLabel}`
-    }
-
+  const seanceStepIds = useMemo<string[]>(() => {
     const steps = billedPlanItem?.steps ?? []
-    // « étape 1 sur 1 » on every ordinary act is noise; an act booked whole has no step to name.
-    if (!billedPlanItem || steps.length <= 1) return null
+    // An act booked whole has no séance to mark.
+    if (!billedPlanItem || steps.length <= 1) return []
+
+    /*
+     * ⚠️ **A REOPENED fiche answers from ITSELF, and the fallback below would mark the wrong séance.** The page
+     * passes no appointment when a record is being edited, so « the next pending step » is the empreinte on a
+     * fiche that recorded the préparation. The step this record evidences is the server's own link
+     * (`linkedDentalRecordId`), then its read-back rank; with neither, nothing is marked rather than a guess.
+     */
+    if (record) {
+      const own = steps.filter((s) => s.linkedDentalRecordId === record.id)
+      if (own.length > 0) return own.map((s) => s.id)
+      const byRank = record.treatmentStepNumber
+        ? steps.find((s) => s.sequenceNumber === (record.treatmentStepNumber as number) - 1)
+        : undefined
+      return byRank ? [byRank.id] : []
+    }
 
     const booked = new Set(
       (appointment?.procedures ?? [])
@@ -1126,13 +1137,17 @@ export function PatientRecordModal({
     // The server's own fallback, not a guess: with no step on the booked row it advances `NextStep`.
     const target =
       named.length > 0 ? named : chosen.length > 0 ? chosen : steps.filter((s) => !s.doneDate).slice(0, 1)
-    if (target.length === 0) return null
-
-    const ordered = [...target].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-    const ranks = joinFr(ordered.map((s) => String(s.sequenceNumber + 1)))
-    const rank = `étape${ordered.length > 1 ? "s" : ""} ${ranks} sur ${steps.length}`
-    return `Cette séance : ${rank} · ${joinFr(ordered.map((s) => s.label))}`
+    return target.map((s) => s.id)
   }, [record, billedPlanItem, appointment?.procedures, chosenStepId])
+
+  /**
+   * « Séance 2 · Empreinte » — a reopened fiche's own step when the band cannot draw it (its act is not among
+   * the patient's plan acts). The server's read-back, so it cannot disagree with the patient's history.
+   */
+  const recordStepFallback =
+    !billedPlanItem && record?.treatmentStepLabel && record.treatmentStepNumber
+      ? `Séance ${record.treatmentStepNumber} · ${record.treatmentStepLabel}`
+      : null
 
   /**
    * The séances a new fiche may be recorded against when no booked visit names one — every séance not yet
@@ -1150,15 +1165,9 @@ export function PatientRecordModal({
     return steps.filter((st) => !st.doneDate).sort((a, b) => a.sequenceNumber - b.sequenceNumber)
   }, [record, billedPlanItem, appointment?.procedures])
 
-  /**
-   * The act `seanceStepLine` is about — the one the treatment carries, when the séance has marked one.
-   *
-   * <p>⚠️ Null on a reopened fiche, deliberately: `billedPlanItem` is not hydrated there, so no act wears
-   * `billedOnPlan` and the sentence stays above the pile rather than disappearing.</p>
-   */
-  /** The act the treatment carries, when the séance has marked one — the card both notices belong to. */
-  // ⚠️ The LEAD act's card when several are carried (C4b) — the first carried card put the couronne's « étape 2
-  // sur 2 » and its 300 DT on a détartrage.
+  /** The act the treatment carries, when the séance has marked one — the card its note and « Suite de » go on. */
+  // ⚠️ The LEAD act's card when several are carried (C4b) — the first carried card put the couronne's figures on a
+  // détartrage.
   const planActKey = useMemo(() => {
     const carried = acts.filter((a) => a.billedOnPlan)
     const lead = billedPlanItem?.procedureTypeId
@@ -1168,95 +1177,20 @@ export function PatientRecordModal({
   }, [acts, billedPlanItem])
 
   /**
-   * The act `seanceStepLine` is about.
+   * What a carried card wears where its price would be. « Sur la note n° N » when a note holds the money —
+   * the note this ACT is carried on (a continuation, lead card only), else the note the whole devis is billed
+   * into — otherwise « Inclus dans le traitement ».
    *
-   * <p>⚠️ Null on a reopened fiche, deliberately: `billedPlanItem` is not hydrated there, so no act wears
-   * `billedOnPlan` and the sentence stays above the pile rather than disappearing.</p>
+   * <p>⚠️ Never a figure: a carried act's `plannedCost` is 0 by rule, so quoting it would say the act was free
+   * (N34). « Prix » in the footer is the treatment's own total.</p>
    */
-  const stepLineActKey = seanceStepLine ? planActKey : null
-
-  /**
-   * « Cet acte est chiffré une fois, sur le traitement » — composed once, rendered wherever it belongs.
-   *
-   * <p>⚠️ It goes ON the act card whenever a card can take it, and stays above the pile only when none can
-   * (a reopened fiche marks no act). One node, two homes: re-composing this sentence beside the card is how
-   * it and the banner would drift, which has already happened once between this screen and the booking
-   * dialog.</p>
-   */
-  const planNotice = carriedByDevis && billedPlanItem ? (
-            <p
-              role="status"
-              className="rounded-md border border-primary bg-primary/[0.07] p-2.5 text-2xs leading-relaxed"
-            >
-              {/*
-                ⚠️ « le devis » names a DOCUMENT, and an un-numbered followed treatment has none — so on one
-                this banner asserted a devis that does not exist. `appointment-acts-picker` was given the
-                un-numbered wording and this screen was not: the same non-propagation, one surface apart.
-
-                ⚠️ **It said « Déjà facturé. » and no longer does.** A devis is a quote, not a facture — the
-                document that bills is the note d'honoraires, named separately on the line below — and
-                « déjà » read as « the money is settled » on a séance that may be about to collect some.
-                Reworded on the booking dialog's notice at the same time, deliberately: these two sentences
-                are the same statement on two screens and have already drifted apart once.
-              */}
-              {/* ⚠️ What this séance FINISHES, first — a continuation's own désignation is whatever the dentist
-                  typed (« continuation »), so left alone the banner named nothing the séance is part of. */}
-              {billedPlanItem.continuationOf && (
-                <span className="block font-semibold text-foreground">
-                  Suite de&nbsp;: {billedPlanItem.continuationOf}
-                </span>
-              )}
-              <span className="font-semibold text-primary">
-                {billedPlanItem.planNumber ? "Chiffré sur le devis." : "Suivi comme traitement."}
-              </span>{" "}
-              {/* ⚠️ A carried act's `plannedCost` is 0 BY RULE — a note already collects its fee — so quoting it
-                  here would tell a dentist the act was free. Held by `check:responsive`'s N34. */}
-              {billedPlanItem.carriedOnNoteNumber ? (
-                <>
-                  L&apos;acte entier est facturé{" "}
-                  {(billedPlanItem.carriedOnNoteAmount ?? 0) > 0 && (
-                    <>
-                      <span className="font-mono tabular-nums">
-                        {formatDT(billedPlanItem.carriedOnNoteAmount!)}
-                      </span>{" "}
-                    </>
-                  )}
-                  sur la note n° {billedPlanItem.carriedOnNoteNumber}
-                </>
-              ) : billedPlanItem.netCost != null ? (
-                <>
-                  L&apos;acte entier est chiffré{" "}
-                  <span className="font-mono tabular-nums">{formatDT(billedPlanItem.netCost)}</span>
-                </>
-              ) : (
-                "L'acte entier est chiffré une seule fois"
-              )}
-              {billedPlanItem.planNumber
-                ? ` sur le devis ${billedPlanItem.planNumber}`
-                : " pour tout le traitement"}
-              {/*
-                ⚠️ It used to end « laissez « Payé » à 0 », which was half of a contradiction the same dialog
-                carried: this banner said the séance takes no money while the footer labelled its payment field
-                « Encaissé aujourd'hui » and offered to state what would remain. The instruction is now the true
-                one — the séance adds no honoraires, and money for the treatment has its own field.
-              */}
-              {/*
-                ⚠️ The « où taper » half is gone. It named a field two blocks below and, since that field is now
-                the only money control on a wholly-carried séance, the instruction had become a direction to the
-                one thing that is impossible to miss. The « n'ajoute pas d'honoraires » half moved to the act
-                card, where the missing price field is what raises the question.
-              */}
-              .
-              {/* The devis' own balance is unusable once a note holds the money — its auto-échéance will never
-                  see a payment — so the note is named instead. Same rule as the booking dialog's notice. */}
-              {billedPlanItem.billedOnInvoiceNumber && (
-                <>
-                  {" "}Encaissement sur la note{" "}
-                  <span className="font-mono">{billedPlanItem.billedOnInvoiceNumber}</span>.
-                </>
-              )}
-            </p>
-  ) : null
+  const paidOnLabelFor = (actKey: string): string => {
+    const note =
+      (actKey === planActKey ? billedPlanItem?.carriedOnNoteNumber : null) ??
+      billedPlanItem?.billedOnInvoiceNumber ??
+      null
+    return note ? `Sur la note n° ${note}` : "Inclus dans le traitement"
+  }
 
   /*
    * Back-fill « this act is carried by the devis » onto a REOPENED fiche. `applyAppointment` carries it per act
@@ -1369,7 +1303,7 @@ export function PatientRecordModal({
    * too. That is safe here and would not be with an ordinary reducer: `markAddToPlan` returns the **identical
    * state object** when nothing moves, so `acts` keeps its reference and this effect does not re-fire itself.
    *
-   * ⚠️ It must also run when the target goes away — picking « Aucun » in « Acte planifié » un-marks every act,
+   * ⚠️ It must also run when the target goes away — « Changer › Sans traitement » un-marks every act,
    * which is the same arm `releaseBilledOnPlan` covers for the devis' own act.
    */
   useEffect(() => {
@@ -1378,14 +1312,14 @@ export function PatientRecordModal({
   }, [open, addToPlanTarget, acts, dispatch])
 
   /**
-   * « sur cette séance », for the figures that describe the séance's own note while the treatment's money is on
+   * « (séance) », for the figures that describe the séance's own note while the treatment's money is on
    * screen beside them — two scopes, each named, which is the rule the acts picker's own hint states.
    *
    * <p>⚠️ Reported from a mixed séance: « restera 1 000,000 DT sur ce traitement » and « Reste à payer :
    * 0,000 DT » one line apart, both true, and only one of them about the same money. A wholly-carried séance
    * already withdraws the séance figures, so this is the case that was left.</p>
    */
-  const seanceScope = collectsOnTreatment ? " sur cette séance" : ""
+  const seanceScope = collectsOnTreatment ? " (séance)" : ""
 
   const treatmentOutstandingBefore = billedPlanItem
     ? roundMillimes(billedPlanItem.planOutstanding ?? billedPlanItem.netCost ?? 0)
@@ -1423,6 +1357,24 @@ export function PatientRecordModal({
     0,
     roundMillimes(treatmentOutstandingAfterAdditions - Math.max(0, collectionDelta)),
   )
+  /**
+   * « Prix » before and after this save's additions — the devis' own served total, the act's net only when no
+   * total was served.
+   */
+  const treatmentPriceBefore = billedPlanItem
+    ? roundMillimes(billedPlanItem.planTotal ?? billedPlanItem.netCost ?? 0)
+    : 0
+  const treatmentPrice = roundMillimes(treatmentPriceBefore + planAdditionTotal)
+  /**
+   * « Déjà payé » — what OTHER séances put on the treatment. This séance's own figure is the field beside it,
+   * so Prix − Déjà payé − the field = Reste à payer, whatever was typed. Arithmetic on served figures only.
+   */
+  const treatmentPaidBefore = Math.max(
+    0,
+    roundMillimes(treatmentPriceBefore - treatmentOutstandingBefore - alreadyCollectedOnPlan),
+  )
+  /** The séance's date says which: « aujourd'hui » is false on a fiche reopened a week later. */
+  const paidNowLabel = interventionDate === todayLocalIso() ? "Payé aujourd'hui" : "Payé à cette séance"
   /**
    * More than the treatment is worth. Refused server-side (`treatment_collection_exceeds_outstanding`), so the
    * field says so before the round trip — the same shape as `overpaid` one field over.
@@ -1504,6 +1456,8 @@ export function PatientRecordModal({
   /** The withhold, with its two exceptions applied. Every « Payé » / « Mode » / « Total » gate reads this. */
   const withholdSeanceMoneyFields =
     seanceIsWhollyOnTreatment && !hasStoredSeancePayment && !hasTypedSeancePayment
+  /** Both « Payé » fields are on screen, so each label says what it pays: « (séance) » · « (traitement) ». */
+  const twoPaidFields = collectsOnTreatment && !withholdSeanceMoneyFields
   /**
    * Collecting will mint the devis number — <c>CollectOnTreatmentCommand</c> issues one when the treatment has
    * none. A gapless number can only be released by a cancellation carrying a motif, so this is said on the
@@ -1574,7 +1528,7 @@ export function PatientRecordModal({
   // Any edit to the acts clears the refusal: an inline error that outlives the thing it described is worse than
   // none, because the next press is refused for a reason the message no longer names.
   // ⚠️ `linkedPlanItemId` too, since one refusal names that control as the remedy — a banner still standing
-  // after « Aucun » has been chosen says the fix did not work.
+  // after « Sans traitement » has been chosen says the fix did not work.
   useEffect(() => {
     setSaveError(null)
   }, [acts, linkedPlanItemId])
@@ -1586,7 +1540,7 @@ export function PatientRecordModal({
     }
 
     if (namedActs.length === 0) {
-      refuseSave(acts[0]?.key ?? null, "Ajoutez au moins un acte", "Choisissez l'acte réalisé, puis les dents.")
+      refuseSave(acts[0]?.key ?? null, "Ajoutez au moins un acte")
       return
     }
 
@@ -1600,23 +1554,19 @@ export function PatientRecordModal({
       refuseSave(
         unnamed.key,
         "Un acte n'a pas de désignation",
-        "Choisissez l'acte réalisé, ou supprimez la carte.",
+        "Choisissez l'acte ou supprimez la carte.",
       )
       return
     }
 
     const badPrice = namedActs.find((a) => hasInvalidPrice(a.unitCost))
     if (badPrice) {
-      refuseSave(
-        badPrice.key,
-        `Montant invalide pour ${quoteFr(badPrice.procedureName)}`,
-        "Corrigez le tarif de l'acte, puis confirmez.",
-      )
+      refuseSave(badPrice.key, `Montant invalide pour ${quoteFr(badPrice.procedureName)}`)
       return
     }
 
     /*
-     * « Acte planifié » names a devis act that none of the cards is.
+     * The band names a devis act that none of the cards is.
      *
      * ⚠️ **Mirrors `PlanCarriedAct.NamesAnActTheFicheDoesNotHold` term for term, and the server is still the
      * authority** — this runs first only so the refusal arrives before the round trip and can point at the
@@ -1639,7 +1589,7 @@ export function PatientRecordModal({
       refuseSave(
         null,
         `Aucun acte de la séance n'est ${quoteFr(linkedPlanAct.designationFr ?? "l'acte du devis")}`,
-        "Remettez l'acte du devis, ou choisissez « Aucun » dans « Acte planifié » pour enregistrer cette séance hors du devis.",
+        "Remettez cet acte, ou « Changer › Sans traitement » en haut de la fiche.",
       )
       return
     }
@@ -1796,7 +1746,7 @@ export function PatientRecordModal({
       // « Montant payé » now becomes real money — the note d'honoraires is issued and the payment recorded on
       // save. Say which, and say it plainly: the whole reason that field was a trap is that it looked like a
       // receipt while nothing downstream read it, so the one thing this must never do is stay quiet.
-      const base = record ? "Fiche dentaire mise à jour" : "Fiche dentaire enregistrée"
+      const base = record ? "Fiche de soins mise à jour" : "Fiche de soins enregistrée"
       // Every outcome is surfaced, and each one gets the tone it deserves (AC-3). The old version had three
       // branches and let AlreadyBilled fall into a plain green « enregistrée » — indistinguishable from a fiche
       // that had just put money in the till, on the one screen whose whole history is money silently not moving.
@@ -1805,14 +1755,14 @@ export function PatientRecordModal({
           toast.success(base, {
             description: `Note n° ${saved.billing.invoiceNumber} émise — ${formatDT(
               saved.billing.amountCollected ?? 0,
-            )} encaissé`,
+            )} payés`,
           })
           break
         case "ToppedUp":
           // The edit this part exists for. It names the *increment*, not the note's new total: the dentist typed
           // a cumulative figure, and what they need confirmed is what this save moved.
           toast.success(base, {
-            description: `${formatDT(saved.billing.amountCollected ?? 0)} encaissé en plus sur la note n° ${
+            description: `${formatDT(saved.billing.amountCollected ?? 0)} payés en plus sur la note n° ${
               saved.billing.invoiceNumber
             }`,
           })
@@ -1822,7 +1772,7 @@ export function PatientRecordModal({
           // believe an amount they just changed had reached the till.
           toast.info(base, {
             description:
-              saved.billing.message ?? "Aucun encaissement supplémentaire — la fiche est déjà facturée.",
+              saved.billing.message ?? "Déjà facturée — rien de plus payé.",
           })
           break
         case "Refused":
@@ -1840,7 +1790,7 @@ export function PatientRecordModal({
           toast.warning(base, {
             description:
               saved.billing.message ??
-              "La facturation automatique a échoué — facturez cette intervention manuellement.",
+              "La facturation a échoué — facturez la séance à la main.",
             duration: 10000,
           })
           break
@@ -1861,14 +1811,14 @@ export function PatientRecordModal({
       switch (saved.treatmentCollection?.outcome) {
         case "Collected": {
           const collection = saved.treatmentCollection
-          const devis = collection.planNumber ? ` sur le devis ${collection.planNumber}` : ""
+          const devis = collection.planNumber ? ` (devis n° ${collection.planNumber})` : ""
           toast.success(base, {
             description:
-              `${formatDT(collection.amountCollected ?? 0)} encaissé${devis}` +
+              `${formatDT(collection.amountCollected ?? 0)} payés sur le traitement${devis}` +
               // The number this save minted, named. It cannot be released except by a cancellation with a motif,
               // so the dentist has to see that it happened even though they were warned before pressing.
-              (collection.devisIssued ? " — devis établi" : "") +
-              ` · reste ${formatDT(collection.outstanding ?? 0)} sur le traitement`,
+              (collection.devisIssued ? " — devis créé" : "") +
+              ` · reste à payer ${formatDT(collection.outstanding ?? 0)}`,
           })
           break
         }
@@ -1877,7 +1827,7 @@ export function PatientRecordModal({
           toast.warning(base, {
             description:
               saved.treatmentCollection.message ??
-              "L'encaissement sur le traitement a été refusé.",
+              "Le paiement sur le traitement a été refusé.",
             duration: 10000,
           })
           break
@@ -1983,18 +1933,6 @@ export function PatientRecordModal({
           .join(" · ")
 
   /**
-   * The cards that came from the booking. Every booked act is proposed now, so this is a set rather than one key
-   * — labelling only the first left the second and third looking hand-added on a visit that had planned them.
-   */
-  const proposedFromAppointment = useMemo(() => {
-    if (record) return new Set<string>()
-    const booked = new Set(bookedActs.map((b) => b.procedure.id))
-    return new Set(
-      acts.filter((a) => a.procedureTypeId && booked.has(a.procedureTypeId)).map((a) => a.key),
-    )
-  }, [record, bookedActs, acts])
-
-  /**
    * The séance's other booked acts, resolved against the catalogue and minus anything already in this session
    * (charted or in the draft) — so the shortcuts thin out as the dentist works through the visit instead of
    * re-offering an act they have just recorded.
@@ -2022,14 +1960,29 @@ export function PatientRecordModal({
         mobile="sheet"
         className="gap-3 md:max-h-[92dvh] md:w-[min(96vw,780px)] md:max-w-[min(96vw,780px)]"
       >
+        {/* One title for create and edit, the date beside it — the patient is named here, so no read-only
+            « Patient » field. `flex-wrap`: at 320 px the date takes the line under the title. */}
         <DialogHeader>
-          <DialogTitle>{record ? "Modifier la fiche médicale" : "Ajouter une fiche médicale"}</DialogTitle>
-          <DialogDescription>
-            {record
-              ? "Les sections qui portent une valeur sont déjà dépliées."
-              : appointment?.procedureTypeName
-                ? "Confirmez ce qui a été réalisé, puis les dents concernées."
-                : "Indiquez l'acte réalisé, puis les dents concernées."}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <DialogTitle className="min-w-0 text-start">
+              Fiche de soins{patientName ? ` · ${patientName}` : ""}
+            </DialogTitle>
+            <div className="flex shrink-0 items-center">
+              <Label htmlFor="date" className="sr-only">
+                Date de la séance
+              </Label>
+              <Input
+                id="date"
+                type="date"
+                className="h-9 w-auto"
+                value={interventionDate}
+                onChange={(e) => setInterventionDate(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <DialogDescription className="sr-only">
+            Actes, dents, notes, prescription et paiement de la séance.
           </DialogDescription>
         </DialogHeader>
 
@@ -2065,96 +2018,40 @@ export function PatientRecordModal({
         {patient && <PatientAlertPanel patient={patient} />}
 
         {/*
-          Session header: patient, date, dentition view, optional plan-step link.
-
-          ⚠️ **Two columns is the ceiling, and `lg:grid-cols-4` is why this dialog had a horizontal scrollbar.**
-          A breakpoint variant keys on the VIEWPORT, not on this container — and the dialog is capped at
-          `min(96vw,780px)`. So on any screen ≥1024 px the row became four tracks inside ~750 px of usable width,
-          ~175 px each. A grid item's `min-width` is `auto`, so the « Acte planifié » `Select` — whose options are
-          whole act designations — could not shrink below its content and pushed the row past the body. And
-          `DialogBody` sets only `overflow-y-auto`, which per the CSS overflow spec makes the other axis compute to
-          `auto`, so the overflow surfaced as a scrollbar under the whole fiche. `min-w-0` on the cells is the
-          second half: it lets the track shrink so a long label truncates instead of pushing.
+          THE TREATMENT BAND — which treatment this fiche carries out, and which of its séances it records. It
+          replaced two Selects (« Acte planifié (facultatif) » and « Séance ») and the « Cette séance : étape N
+          sur M » line: the séance is SEEN on the strip rather than read. « Changer ▾ » holds exactly what the two
+          Selects offered — every plan act, the séance choice (on the same condition), and « Sans traitement »,
+          which un-links and is the only way out of the automatic devis add.
         */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="min-w-0 space-y-1.5">
-            <Label htmlFor="patient-name">Patient</Label>
-            <Input id="patient-name" value={patientName} readOnly className="h-9 font-medium" />
-          </div>
-          <div className="min-w-0 space-y-1.5">
-            <Label htmlFor="date">Date</Label>
-            <Input
-              id="date"
-              type="date"
-              className="h-9"
-              value={interventionDate}
-              onChange={(e) => setInterventionDate(e.target.value)}
-              disabled={loading}
-            />
-          </div>
-          {/* The Adulte/Enfant switch that stood here is gone — the arch follows the patient's stored dentition.
-              The warning stays: an act charted on the other dentition is still preserved and must still be visible,
-              which is now only reachable by editing an older fiche. */}
-          {hiddenDentitionActs > 0 && (
-            <div className="min-w-0 space-y-1.5">
-              <Label>Autre dentition</Label>
-              <p className="text-2xs text-warning-ink">
-                {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur des dents que cette vue n&apos;affiche
-                pas (conservé{hiddenDentitionActs > 1 ? "s" : ""}) — choisissez « Mixte » pour les voir.
-              </p>
-            </div>
-          )}
-          {planItems.length > 0 && (
-            <div className="min-w-0 space-y-1.5">
-              <Label htmlFor="plan-item">
-                Acte planifié <span className="font-normal text-muted-foreground">(facultatif)</span>
-              </Label>
-              <Select value={linkedPlanItemId} onValueChange={handlePlanItemLink} disabled={loading}>
-                {/*
-                  ⚠️ **`w-full`, because `SelectTrigger` is `w-fit` and this trigger now holds a long value.**
-                  The primitive already truncates the value correctly (`block min-w-0 truncate`), but a `w-fit`
-                  box sizes to its content first, so the cell's `min-w-0` had nothing to shrink. Invisible while
-                  the value was « Aucun »; the moment a reopened fiche hydrates its own devis act the label
-                  becomes « 2026-0027 · Couronne / bridge (par élément) » and the trigger measured **380 px in a
-                  257 px cell** at 320 px, pushing the whole Patient/Date/Acte row 108 px past the dialog. With
-                  `w-full` it takes the cell and ellipsises.
-                */}
-                <SelectTrigger id="plan-item" className="h-9 w-full">
-                  <SelectValue placeholder="Lier à un acte du plan" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_PLAN_ITEM}>Aucun</SelectItem>
-                  {planItems.map((p) => (
-                    <SelectItem key={p.itemId} value={p.itemId}>
-                      {p.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          {pickableSteps.length > 1 && (
-            <div className="min-w-0 space-y-1.5">
-              <Label htmlFor="plan-item-step">Séance</Label>
-              <Select
-                value={chosenStepId ?? pickableSteps[0].id}
-                onValueChange={setChosenStepId}
-                disabled={loading}
-              >
-                <SelectTrigger id="plan-item-step" className="h-9 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {pickableSteps.map((st) => (
-                    <SelectItem key={st.id} value={st.id}>
-                      {`${st.sequenceNumber + 1}. ${st.label}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </div>
+        {planItems.length > 0 && (
+          <TreatmentBand
+            options={planItems}
+            linked={billedPlanItem}
+            currentStepIds={seanceStepIds}
+            currentLabel={interventionDate === todayLocalIso() ? "aujourd'hui" : "cette séance"}
+            pickableSteps={pickableSteps}
+            chosenStepId={chosenStepId}
+            // ⚠️ A Select never fired for its own value, and `handlePlanItemLink` resets the séance choice — so
+            // re-picking the current entry must stay a no-op.
+            onPick={(value) => {
+              if (value !== linkedPlanItemId) handlePlanItemLink(value)
+            }}
+            onPickStep={(id) => {
+              if (id !== (chosenStepId ?? pickableSteps[0]?.id)) setChosenStepId(id)
+            }}
+            disabled={loading}
+          />
+        )}
+
+        {/* The arch follows the patient's stored dentition; an act charted on the other one is preserved and
+            must still be visible. */}
+        {hiddenDentitionActs > 0 && (
+          <p className="text-2xs text-warning-ink">
+            {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur des dents hors de cette vue — vue
+            « Mixte » pour {hiddenDentitionActs > 1 ? "les" : "le"} voir.
+          </p>
+        )}
 
         {/*
           THE ACTS — one card each, all of them real, all of them editable, and « Ajouter un autre acte » always
@@ -2164,60 +2061,19 @@ export function PatientRecordModal({
         <div ref={actsAnchorRef} className="space-y-2">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <Label className="text-xs font-semibold">Actes de la séance</Label>
-            <span className="font-mono text-2xs text-muted-foreground">{actsSummary}</span>
+            <span className="text-2xs tabular-nums text-muted-foreground">{actsSummary}</span>
           </div>
 
-          {/*
-            ⚠️ The « Déjà facturé » statement the booking dialog makes and this screen did not. The dialog is
-            exemplary about it — read-only 0, « facturé sur le devis », the act's own fee and the devis balance
-            as two separately-labelled figures — and the fiche, the screen that actually creates money, said
-            nothing at all: no « déjà facturé », no « facturé sur le devis », nowhere on the page. The text
-            existed one screen away and never reached this one.
-          */}
-          {/*
-            ⚠️ **The séance's own position leads, and the act card no longer repeats any of this.** The banner
-            used to carry three sentences — what the act is chiffré at, that the séance adds no honoraires, and
-            where to type what the patient hands over — above an act card that then showed a locked 0, the words
-            « Chiffré sur le traitement » and the same 0 twice more. Reported as « trop chargé, la même
-            information répétée ». The act card now states the « no honoraires » half once, in its own body; this
-            states the two facts only the plan knows: which séance this is, and the agreed total.
-          */}
-          {/*
-            ⚠️ « Cette séance : » is a VISIBLE prefix and the rank is no longer alone. « Séance 2 sur 3 » in
-            small caps read as a statement about the treatment's progress rather than about the fiche being
-            typed, and it named no work at all — see `seanceStepLine`, which also explains why the rank comes
-            from the appointment's booked step and not from `stepsDone + 1`. Not `uppercase` any more either: a
-            protocol's own label (« Essai de l'armature ») is prose and shouting it makes it hard to read.
-          */}
-          {/*
-            ⚠️ **Gated on the line itself, NOT on `carriedByDevis`, and that difference is what makes it visible
-            on a reopened fiche.** `linkedPlanItemId` is never hydrated from a saved record — it is reset to
-            `NO_PLAN_ITEM` on open and only the appointment effect sets it — so `billedPlanItem` is null when a
-            fiche is edited, and every one of the money statements below is absent there. Which séance this is
-            is not a money statement: it is true whether or not the devis carries the fee, and on the edit path
-            it comes from the record's own read-back, which exists only when the fiche really closed a step.
-          */}
-          {/*
-            ⚠️ **Only when no CARD could take it.** The sentence belongs on the act it describes — floating over
-            the pile it said « étape 1 sur 2 » above three acts and named which one nowhere, which is the report
-            this moved for. A reopened fiche is the case that keeps it here: its line comes from the record's own
-            read-back and `billedPlanItem` is null there, so no act is marked and nothing else would say it.
-          */}
-          {seanceStepLine && !stepLineActKey && (
-            <p className="text-2xs font-semibold text-primary">{seanceStepLine}</p>
+          {/* A reopened fiche whose act the band cannot draw still says which séance it recorded. */}
+          {recordStepFallback && (
+            <p className="text-2xs font-semibold text-primary">{recordStepFallback}</p>
           )}
-          {/*
-            ⚠️ **Only when no CARD could take it** — same rule as the step line above, and the same report.
-            « L'acte entier est chiffré 40,000 DT » floating over a pile of acts names which act nowhere.
-          */}
-          {!planActKey && planNotice}
 
           {/* Above the cards, because that is where the consequence lands: an empty catalogue invites free text. */}
           {catalogFailed && (
             <LoadFailureNotice
               variant="inline"
               message="Le catalogue des actes n'a pas pu être chargé."
-              detail="Un acte saisi à la main n'aura ni tarif ni état résultant."
               onRetry={() => void loadCatalog()}
             />
           )}
@@ -2231,9 +2087,8 @@ export function PatientRecordModal({
               procedureTypes={procedureTypes}
               color={actColors.get(act.key) ?? ACT_PALETTE[0]}
               arch={arch}
-              proposedFromAppointment={proposedFromAppointment.has(act.key)}
-              seanceStepLine={act.key === stepLineActKey ? seanceStepLine : null}
-              planNotice={act.key === planActKey ? planNotice : null}
+              paidOnLabel={act.billedOnPlan ? paidOnLabelFor(act.key) : null}
+              continuationOf={act.key === planActKey ? (billedPlanItem?.continuationOf ?? null) : null}
               // Withheld on the act the devis ALREADY carries — it is on the treatment, adding it again would
               // quote the same work twice. Every other act of a devis-carried séance may join it.
               addToPlanTarget={act.billedOnPlan ? null : addToPlanTarget}
@@ -2246,7 +2101,7 @@ export function PatientRecordModal({
 
           {/*
             A refusal that named no card — « ajoutez au moins un acte » on an empty pile, and the devis-act
-            mismatch, whose remedy is the « Acte planifié » control rather than any one act.
+            mismatch, whose remedy is the band's « Changer » menu rather than any one act.
 
             ⚠️ It carries a ref because `refuseSave` scrolls to the acts ANCHOR, and this renders *after* the
             pile: measured at 320 px, centring the anchor left this banner at y 456 in a scrollport ending at
@@ -2279,9 +2134,7 @@ export function PatientRecordModal({
         */}
         {!record && otherBookedActs.length > 0 && (
           <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2">
-            <p className="text-xs text-muted-foreground">
-              Prévu à ce rendez-vous, retiré de la fiche — remettre :
-            </p>
+            <p className="text-xs text-muted-foreground">Aussi prévu à ce rendez-vous :</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {otherBookedActs.map(({ row, procedure }, i) => (
                 <Button
@@ -2319,29 +2172,17 @@ export function PatientRecordModal({
         {/* THE TEETH — full width, no longer competing with a form column for space. */}
         <div className="space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            {/* Inert, the chart says so where the eye already is — the sentence under it went unread. */}
-            {/* ⚠️ The gesture hint is PERMANENT, not shown once a drag is under way. On the odontogramme the
-                same sentence rendered only while a mode was on, so the one thing that taught the gesture was
-                behind already knowing it existed — which is what the dentist reported as « it isn't
-                noticeable ». It is withheld only when there is nothing to drag onto. */}
-            <Label>
-              {focusedAct ? (
-                <>
-                  Sur quelle(s) dent(s) ?{" "}
-                  <span className="font-normal text-muted-foreground">— glissez pour en sélectionner plusieurs</span>
-                </>
-              ) : (
-                "Cliquez un acte pour modifier ses dents"
-              )}
-            </Label>
+            {/* A label, not an instruction (owner's rule): the drag and the tap need no sentence. */}
+            <Label>Dents</Label>
             {/* The bulk selectors write to the armed act, so with nothing armed they have no subject and are
-                disabled rather than silently doing nothing. */}
+                disabled rather than silently doing nothing. `coarse:h-11` grows each box: siblings 6 px apart,
+                so the Button's 44 px overlay must coincide with it rather than overhang a neighbour. */}
             <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-2xs"
+                className="h-6 px-2 text-2xs coarse:h-11 coarse:px-3"
                 disabled={loading || !focusedAct}
                 onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(upperQuadrants), additive: true })}
               >
@@ -2351,7 +2192,7 @@ export function PatientRecordModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-2xs"
+                className="h-6 px-2 text-2xs coarse:h-11 coarse:px-3"
                 disabled={loading || !focusedAct}
                 onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(lowerQuadrants), additive: true })}
               >
@@ -2361,7 +2202,7 @@ export function PatientRecordModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 px-2 text-2xs"
+                className="h-6 px-2 text-2xs coarse:h-11 coarse:px-3"
                 disabled={loading || !focusedAct}
                 onClick={() => dispatch({ type: "selectMany", teeth: viewTeeth, additive: true })}
               >
@@ -2371,7 +2212,7 @@ export function PatientRecordModal({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-2xs"
+                className="h-6 px-2 text-2xs coarse:h-11 coarse:px-3"
                 disabled={loading || !focusedAct || focusedAct.toothNumbers.length === 0}
                 onClick={() => dispatch({ type: "clearTeeth" })}
               >
@@ -2399,11 +2240,9 @@ export function PatientRecordModal({
             disabled={loading || !focusedAct}
             footer={
               /*
-                The condition legend, inside the card it describes and folded by default.
-                It used to be nine `text-2xs` entries in a permanent row of the dialog body — a lot of standing
-                chrome for orientation nobody re-reads after the first week, and it was the row your screenshot
-                showed sliced in half by the body's scroll edge. Collapsed it still carries the colours (the key is
-                the hues, not the words), so what folds away is the labelling, not the information.
+                The condition legend, inside the card it describes and folded by default. Collapsed it still
+                carries the colours (the key is the hues, not the words); the « remplissage / contour » caption
+                lives inside the fold only — an always-on caption is a hint nobody reads twice.
                 `min-h-11` on a coarse pointer PAINTS the floor rather than overlaying it: the last row of teeth
                 sits directly above, and a 44 px overlay centred on a ~20 px row would reach into it and steal taps.
               */
@@ -2422,7 +2261,7 @@ export function PatientRecordModal({
                 {legendOpen ? (
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     {namedActs.length === 0 ? (
-                      <span className="italic">Aucun acte encore — le remplissage prendra la couleur de sa carte.</span>
+                      <span className="italic">aucun acte</span>
                     ) : (
                       namedActs.map((a) => (
                         <span key={a.key} className="flex items-center gap-1">
@@ -2435,27 +2274,26 @@ export function PatientRecordModal({
                       ))
                     )}
                     <span className="flex items-center gap-1">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/40" />
+                      remplissage = l&apos;acte
+                    </span>
+                    <span className="flex items-center gap-1">
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/70" />
-                      contour = état déjà au dossier
+                      contour pointillé = état déjà au dossier
                     </span>
                   </span>
                 ) : (
-                  <>
-                    {/* `aria-hidden`: collapsed these dots are a preview of what expanding names, and a row of
-                        unlabelled colours announced one by one is noise. The button's own name carries the action. */}
-                    <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
-                      {namedActs.map((a) => (
-                        <span
-                          key={a.key}
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: actColors.get(a.key) }}
-                        />
-                      ))}
-                    </span>
-                    <span className="ms-auto truncate">
-                      remplissage = l&apos;acte · contour pointillé = état déjà au dossier
-                    </span>
-                  </>
+                  /* `aria-hidden`: collapsed these dots are a preview of what expanding names, and a row of
+                     unlabelled colours announced one by one is noise. The button's own name carries the action. */
+                  <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
+                    {namedActs.map((a) => (
+                      <span
+                        key={a.key}
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: actColors.get(a.key) }}
+                      />
+                    ))}
+                  </span>
                 )}
               </button>
             }
@@ -2481,9 +2319,11 @@ export function PatientRecordModal({
               className="touch-target flex min-h-11 w-full items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-left text-2xs text-orange-800 hover:bg-orange-100 disabled:cursor-not-allowed dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200"
             >
               <Stethoscope className="h-3.5 w-3.5 shrink-0" />
+              {/* The verb lives in the accessible name only — the button itself is the invitation. */}
+              <span className="sr-only">Sélectionner : </span>
               <span>
                 {openDiagnosisTeeth.length} dent{openDiagnosisTeeth.length > 1 ? "s" : ""} à traiter (
-                {openDiagnosisTeeth.join(", ")}) — cliquez pour sélectionner
+                {openDiagnosisTeeth.join(", ")})
               </span>
             </button>
           )}
@@ -2502,23 +2342,25 @@ export function PatientRecordModal({
                   aria-hidden="true"
                 />
                 <span className="text-muted-foreground">
-                  Les dents tapées vont à{" "}
                   <span className="font-semibold text-foreground">
-                    {focusedAct.procedureName.trim() || `l'acte ${acts.indexOf(focusedAct) + 1}`}
+                    {focusedAct.procedureName.trim() || `Acte ${acts.indexOf(focusedAct) + 1}`}
                   </span>
                   {focusedAct.toothNumbers.length > 0
                     ? ` · ${focusedAct.toothNumbers.length} dent${focusedAct.toothNumbers.length > 1 ? "s" : ""}`
-                    : " · aucune dent pour l'instant"}
+                    : " · aucune dent"}
                 </span>
-                <span className="ms-auto tabular-nums text-muted-foreground">
-                  {focusedAct.perTooth && focusedAct.toothNumbers.length > 0 && (
-                    <>
-                      {formatDT(parseAmountInput(focusedAct.unitCost) || 0)} × {focusedAct.toothNumbers.length} dent
-                      {focusedAct.toothNumbers.length > 1 ? "s" : ""} ={" "}
-                    </>
-                  )}
-                  <span className="font-semibold text-foreground">{formatDT(actTotal(focusedAct))}</span>
-                </span>
+                {/* No figure for an act the treatment prices: « 0,000 DT » reads as a free act (the card's tag says where). */}
+                {!focusedAct.billedOnPlan && (
+                  <span className="ms-auto tabular-nums text-muted-foreground">
+                    {focusedAct.perTooth && focusedAct.toothNumbers.length > 0 && (
+                      <>
+                        {formatDT(parseAmountInput(focusedAct.unitCost) || 0)} × {focusedAct.toothNumbers.length} dent
+                        {focusedAct.toothNumbers.length > 1 ? "s" : ""} ={" "}
+                      </>
+                    )}
+                    <span className="font-semibold text-foreground">{formatDT(actTotal(focusedAct))}</span>
+                  </span>
+                )}
               </>
             ) : (
               /* The instruction is the chart's own label now; saying it here too put it twice on one screen. */
@@ -2579,10 +2421,7 @@ export function PatientRecordModal({
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs">
-                Notes importantes
-                <span className="ml-2 text-2xs text-warning-ink">⚠ Mises en évidence</span>
-              </Label>
+              <Label className="text-xs">Notes importantes</Label>
               {importantNotes.map((note, index) => (
                 <div key={index} className="flex gap-2">
                   <Textarea
@@ -2687,24 +2526,11 @@ export function PatientRecordModal({
         */}
         <DialogFooter className="flex-col gap-3 md:flex-col md:justify-start md:[&>*]:w-full">
           {/*
-            The cheque's identity, above the figures rather than beside « Payé »: it is three fields, and three
-            more controls on the figures row is two columns at 320 px. Rendered only for a cheque — `ChequeFields`
-            deliberately does not self-hide, so the decision is visible here.
-
-            Placed in the FOOTER with « Payé » for the same reason the totals are: this is chairside, the dentist
-            is on a phone or a tablet at the unit, and the payment is the last thing entered before saving.
+            ⚠️ The money (figures + cheque) is capped below `md:` — and on a landscape phone, which is `md:` wide
+            (`short-viewport.ts`) — and scrolls in its own box: on a mixed séance paid by cheque it grew to the
+            whole phone screen and left the acts no room. The buttons stay outside.
           */}
-          {paymentMethod === CHEQUE_METHOD && !isInvoiced && (
-            <div className="w-full">
-              <ChequeFields
-                idPrefix="fiche"
-                value={cheque}
-                onChange={setCheque}
-                disabled={loading}
-              />
-            </div>
-          )}
-
+          <div className="relative flex w-full flex-col gap-3 max-md:max-h-[38dvh] max-md:overflow-y-auto [@media(max-height:560px)]:max-h-[38dvh] [@media(max-height:560px)]:overflow-y-auto">
           <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 p-3">
             {/*
               ⚠️ « Payé » settles THIS SÉANCE'S OWN ACTS and produces a note d'honoraires. It is withdrawn when
@@ -2717,26 +2543,30 @@ export function PatientRecordModal({
               mechanism that did not exist: nothing on this path could put that money anywhere.
             */}
             {!withholdSeanceMoneyFields && (
-            <div className="flex min-w-[9rem] flex-1 items-center gap-2">
+            // The longer « Payé (séance) » label takes a wider floor, so « Mode » wraps rather than the amount shrinking.
+            <div className={cn("flex flex-1 items-center gap-2", twoPaidFields ? "min-w-[12rem]" : "min-w-[9rem]")}>
               <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
-                Payé
+                {twoPaidFields ? "Payé (séance)" : "Payé"}
               </Label>
               {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma
                   this product prints with, and a rejected keystroke returns an EMPTY value — so « Payé » looked
                   filled and saved nothing. The numeric keypad still appears on a phone. */}
-              <Input
-                id="paid"
-                type="text"
-                inputMode="decimal"
-                className="h-8 w-full text-right tabular-nums"
-                value={amountPaid}
-                onChange={(e) => {
-                  setPaidDirty(true)
-                  setAmountPaid(e.target.value)
-                }}
-                placeholder="0,000"
-                disabled={loading}
-              />
+              <div className="relative min-w-0 flex-1">
+                <Input
+                  id="paid"
+                  type="text"
+                  inputMode="decimal"
+                  className="h-8 w-full pe-7 text-right tabular-nums"
+                  value={amountPaid}
+                  onChange={(e) => {
+                    setPaidDirty(true)
+                    setAmountPaid(e.target.value)
+                  }}
+                  placeholder="0,000"
+                  disabled={loading}
+                />
+                <DtSuffix />
+              </div>
             </div>
             )}
             {/* Beside the amount, because « combien » and « comment » are one answer. `min-w` + `flex-1` so it
@@ -2779,27 +2609,31 @@ export function PatientRecordModal({
               </Label>
               {/* Same `text` + `inputMode="decimal"` as « Payé » directly above, and for the same J8 reason: a
                   `type="number"` refuses the comma this product prints with and hands back an EMPTY value. */}
-              <Input
-                id="session-total"
-                type="text"
-                inputMode="decimal"
-                className="h-8 w-28 text-right text-base font-semibold tabular-nums"
-                value={totalDraft ?? formatAmount(grandTotal)}
-                onChange={(e) => setTotalDraft(e.target.value)}
-                onFocus={(e) => e.currentTarget.select()}
-                onBlur={commitTotal}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault()
-                    commitTotal()
-                  } else if (e.key === "Escape") {
-                    setTotalDraft(null)
-                  }
-                }}
-                aria-describedby="session-total-hint"
-                disabled={loading || namedActs.length === 0}
-                placeholder="0,000"
-              />
+              {/* `ps-2 pe-6` keeps « 1 250,000 » inside the 7 rem box beside the unit; wider, « Total » leaves « Mode »'s row at 390 px. */}
+              <div className="relative w-28 shrink-0">
+                <Input
+                  id="session-total"
+                  type="text"
+                  inputMode="decimal"
+                  className="h-8 w-full ps-2 pe-6 text-right text-base font-semibold tabular-nums"
+                  value={totalDraft ?? formatAmount(grandTotal)}
+                  onChange={(e) => setTotalDraft(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={commitTotal}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      commitTotal()
+                    } else if (e.key === "Escape") {
+                      setTotalDraft(null)
+                    }
+                  }}
+                  aria-describedby="session-total-hint"
+                  disabled={loading || namedActs.length === 0}
+                  placeholder="0,000"
+                />
+                <DtSuffix />
+              </div>
               <span id="session-total-hint" className="sr-only">
                 Modifier ce total répartit le montant sur les actes de la séance.
               </span>
@@ -2811,10 +2645,8 @@ export function PatientRecordModal({
               devis; each visit collects part of that one figure, and the amount typed here goes onto the
               treatment's échéancier rather than onto a note d'honoraires for this séance.
 
-              ⚠️ It replaced a *label change* on « Payé » that promised exactly this and delivered nothing: there
-              was no path from that field to a treatment, the save was disabled for any amount typed (a devis act
-              is 0, so the séance's total is 0), and the only way through was to overtype the act's tarif — which
-              raises a second, unlinked claim for work the treatment already prices.
+              ⚠️ Same field, same id, same caps and the same save-disabling refusals as « Encaissé sur le
+              traitement » had — only the words changed (« Payé aujourd'hui » + three figures).
             */}
             {collectsOnTreatment && (
               // ⚠️ A rule above it whenever the séance keeps money of its own: the two live in one bordered box
@@ -2825,30 +2657,40 @@ export function PatientRecordModal({
                   !withholdSeanceMoneyFields && "border-t border-border/70 pt-2.5",
                 )}
               >
-                <div className="flex min-w-[11rem] flex-1 items-center gap-2">
-                  <Label
-                    htmlFor="collected-on-plan"
-                    className="shrink-0 text-xs text-muted-foreground"
-                  >
-                    Encaissé sur le traitement
+                {/* Below `sm:` each label sits over its field, so amount + mode share one row at 320 px. With the
+                    mode up beside « Payé (séance) » this row holds the amount alone, so its label stays inline. */}
+                <div
+                  className={cn(
+                    "flex min-w-0 flex-1",
+                    withholdSeanceMoneyFields
+                      ? "flex-col gap-1 sm:min-w-[11rem] sm:flex-row sm:items-center sm:gap-2"
+                      : "flex-row items-center gap-2",
+                  )}
+                >
+                  {/* Two « Payé » on screen: each names what it pays. One: the séance's date says which day. */}
+                  <Label htmlFor="collected-on-plan" className="shrink-0 text-xs font-semibold text-foreground">
+                    {twoPaidFields ? "Payé (traitement)" : paidNowLabel}
                   </Label>
                   {/* `text` + `inputMode="decimal"`, never `type="number"` (J8) — same reason as « Payé »: a
                       number input refuses the comma this product prints with and hands back an EMPTY value. */}
-                  <Input
-                    id="collected-on-plan"
-                    type="text"
-                    inputMode="decimal"
-                    className={cn(
-                      "h-8 w-full text-right tabular-nums",
-                      overCollectedOnPlan && "border-destructive",
-                    )}
-                    value={collectedOnPlan}
-                    onChange={(e) => setCollectedOnPlan(e.target.value)}
-                    placeholder="0,000"
-                    disabled={loading}
-                    aria-invalid={overCollectedOnPlan}
-                    aria-describedby="collected-on-plan-hint"
-                  />
+                  <div className="relative min-w-0 flex-1">
+                    <Input
+                      id="collected-on-plan"
+                      type="text"
+                      inputMode="decimal"
+                      className={cn(
+                        "h-8 w-full pe-7 text-right tabular-nums",
+                        overCollectedOnPlan && "border-destructive",
+                      )}
+                      value={collectedOnPlan}
+                      onChange={(e) => setCollectedOnPlan(e.target.value)}
+                      placeholder="0,000"
+                      disabled={loading}
+                      aria-invalid={overCollectedOnPlan}
+                      aria-describedby="collected-on-plan-hint"
+                    />
+                    <DtSuffix />
+                  </div>
                 </div>
                 {/* The mode, beside the only amount this séance can take. Same field, same state, same payload
                     key — it moved here rather than being duplicated, so « comment » sits with « combien »
@@ -2864,124 +2706,70 @@ export function PatientRecordModal({
                     value={paymentMethod}
                     onChange={setPaymentMethod}
                     disabled={loading}
-                    className="min-w-[9rem] flex-1"
+                    className="min-w-0 flex-1 flex-col items-stretch gap-1 sm:min-w-[9rem] sm:flex-row sm:items-center sm:gap-2"
                   />
                 )}
-                {/*
-                  THE THREE FIGURES, so the amount can never be read as a price: what the whole treatment costs,
-                  and what is left after this séance. `planOutstanding` — the plan's own figure — not
-                  `plannedCost − typed`, which ignored every earlier séance and quoted the full price again at
-                  every visit.
-                */}
-                <p
-                  id="collected-on-plan-hint"
-                  role="status"
-                  className="w-full text-2xs text-muted-foreground"
-                >
-                  {/* ⚠️ Same rule as the banner above: a carried act's 0 is another document's money, so
-                      « 0,000 DT convenus pour tout le traitement » is false where it matters most — this is
-                      the hint beside the field a patient is handing money to. N34. */}
-                  {billedPlanItem?.carriedOnNoteNumber ? (
-                    <>
-                      Cet acte est facturé sur la note n° {billedPlanItem.carriedOnNoteNumber} ·{" "}
-                    </>
-                  ) : (
-                    billedPlanItem?.netCost != null && (
-                      <>
-                        <span className="font-mono tabular-nums">
-                          {formatDT(billedPlanItem.netCost)}
-                        </span>{" "}
-                        convenus pour tout le traitement
-                        {billedPlanItem.planNumber ? ` (${billedPlanItem.planNumber})` : ""} ·{" "}
-                      </>
-                    )
-                  )}
-                  {overCollectedOnPlan ? (
-                    <span className="font-medium text-destructive">
-                      il ne reste que{" "}
-                      <span className="font-mono tabular-nums">
-                        {formatDT(treatmentOutstandingAfterAdditions)}
-                      </span>{" "}
-                      à encaisser sur ce traitement
-                    </span>
-                  ) : loweredOnPlan ? (
-                    /*
-                      ⚠️ The refusal, moved from a post-save toast to the field itself — and it names the way
-                      out. Un-receiving money is a real operation and it belongs on the devis' échéancier,
-                      where the payment row can be voided with its motif and its author kept; retyping a
-                      figure on a fiche would leave la caisse and the échéancier disagreeing.
-                    */
-                    <span className="font-medium text-destructive">
-                      <span className="font-mono tabular-nums">
-                        {formatDT(alreadyCollectedOnPlan)}
-                      </span>{" "}
-                      déjà encaissés sur cette séance · un encaissement ne se diminue pas ici : annulez le
-                      paiement sur{" "}
-                      {/* H8: the remedy is one click away — in a new tab, so this fiche and its edits stay open. */}
-                      {billedPlanItem?.planId ? (
-                        <Link
-                          href={`/treatment-plans/${billedPlanItem.planId}`}
-                          target="_blank"
-                          rel="noopener"
-                          className="underline underline-offset-2 hover:text-destructive/80"
-                        >
-                          l&apos;échéancier du devis{billedPlanItem.planNumber ? ` ${billedPlanItem.planNumber}` : ""}
-                        </Link>
-                      ) : (
-                        "l'échéancier du devis"
-                      )}
-                    </span>
-                  ) : (
-                    /*
-                      ⚠️ **Three clauses, and the middle one is what was missing.** With « 200 déjà encaissés »
-                      beside « reste 250 » the two figures contradict each other — 200 is the past and 250
-                      already counts the 100 being typed, so the line reads as arithmetic that does not add up
-                      (reported in exactly those terms). The increment is named between them, and the tense
-                      turns: « reste » while nothing is being added, « restera » once something is.
-                    */
-                    <span className="font-medium text-foreground">
-                      {alreadyCollectedOnPlan > 0 && (
+                {/* An act added this séance shows as « ~~250 DT~~ 400 DT » in the price itself — one price, not two.
+                    « du traitement » always: beside « Inclus dans le traitement » a bare « Prix » read as the séance's. */}
+                <dl id="collected-on-plan-hint" className="grid w-full grid-cols-3 gap-x-3 gap-y-1">
+                  <div className="min-w-0">
+                    <dt className="text-2xs text-muted-foreground">Prix du traitement</dt>
+                    <dd role={planAdditionTotal > 0 ? "status" : undefined} className="text-xs font-semibold tabular-nums sm:text-sm">
+                      {planAdditionTotal > 0 && (
                         <>
-                          <span className="font-mono tabular-nums">
-                            {formatDT(alreadyCollectedOnPlan)}
-                          </span>{" "}
-                          déjà encaissés sur cette séance ·{" "}
+                          <s className="block font-normal text-muted-foreground">{formatDT(treatmentPriceBefore)}</s>
+                          <span className="sr-only"> devient </span>
                         </>
                       )}
-                      {collectionDelta > 0 && (
-                        <>
-                          <span className="font-mono tabular-nums">
-                            +{formatDT(collectionDelta)}
-                          </span>{" "}
-                          avec cet enregistrement ·{" "}
-                        </>
-                      )}
-                      {collectionDelta > 0 ? "restera " : "reste "}
-                      <span className="font-mono tabular-nums">{formatDT(treatmentRemaining)}</span>{" "}
-                      sur ce traitement
-                    </span>
-                  )}
-                </p>
+                      {formatDT(treatmentPrice)}
+                    </dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-2xs text-muted-foreground">Déjà payé</dt>
+                    <dd className="text-xs font-semibold tabular-nums sm:text-sm">{formatDT(treatmentPaidBefore)}</dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-2xs text-muted-foreground">Reste à payer</dt>
+                    <dd className="text-xs font-semibold tabular-nums text-primary sm:text-sm">{formatDT(treatmentRemaining)}</dd>
+                  </div>
+                </dl>
+                {overCollectedOnPlan && (
+                  <p role="status" className="w-full text-2xs font-medium text-destructive">
+                    Il ne reste que {formatDT(treatmentOutstandingAfterAdditions)} à payer sur ce traitement.
+                  </p>
+                )}
+                {loweredOnPlan && (
+                  /*
+                    ⚠️ The refusal beside the field, with its way out. Un-receiving money belongs on the devis'
+                    échéancier, where the payment is voided with its motif and its author kept; retyping a figure
+                    here would leave la caisse and the échéancier disagreeing.
+                  */
+                  <p role="status" className="w-full text-2xs font-medium text-destructive">
+                    {formatDT(alreadyCollectedOnPlan)} déjà payés à cette séance · un encaissement ne se diminue pas
+                    ici : annulez-le sur{" "}
+                    {/* H8: the remedy is one click away — in a new tab, so this fiche and its edits stay open. */}
+                    {billedPlanItem?.planId ? (
+                      <Link
+                        href={`/treatment-plans/${billedPlanItem.planId}`}
+                        target="_blank"
+                        rel="noopener"
+                        className="underline underline-offset-2 hover:text-destructive/80"
+                      >
+                        l&apos;échéancier du devis{billedPlanItem.planNumber ? ` ${billedPlanItem.planNumber}` : ""}
+                      </Link>
+                    ) : (
+                      "l'échéancier du devis"
+                    )}
+                  </p>
+                )}
                 {/*
                   ⚠️ Said BEFORE the press, never in a toast afterwards. Collecting on a treatment that has no
                   devis gives it one, and a gapless number can only be released by a cancellation carrying a
                   motif — so the one thing this must not do is happen quietly.
                 */}
-                {/*
-                  What « Ajouter au devis » will do, as a FIGURE — the one thing the act cards cannot say,
-                  because each of them knows only its own fee. Stated once, beside the treatment's own money,
-                  which is where a dentist reads « combien reste-t-il ? ».
-                */}
-                {planAdditionTotal > 0 && (
-                  <p role="status" className="w-full text-2xs font-medium text-primary">
-                    <span className="font-mono tabular-nums">+{formatDT(planAdditionTotal)}</span> sur le devis
-                    avec cet enregistrement
-                    {planAdditionActs.length > 1 ? ` (${planAdditionActs.length} actes)` : ""}
-                  </p>
-                )}
                 {collectionWillIssueDevis && (
-                  <p role="status" className="w-full text-2xs text-warning-ink">
-                    Ce traitement n&apos;a pas encore de devis : l&apos;encaisser lui en attribuera un.
+                  <p role="status" className="w-full text-2xs font-medium text-warning-ink">
+                    Un devis sera créé.
                   </p>
                 )}
               </div>
@@ -2999,34 +2787,26 @@ export function PatientRecordModal({
             <div className="w-full text-xs sm:w-auto">
               {overpaid ? (
                 <p role="status" className="font-medium text-destructive">
-                  Le montant payé dépasse le total de la séance ({formatDT(grandTotal)}).{" "}
+                  {twoPaidFields ? "« Payé (séance) »" : "« Payé »"} dépasse le total de la séance ({formatDT(grandTotal)}).{" "}
                   {/*
-                    ⚠️ The generic advice — « Corrigez le montant, ou ajoutez l'acte qui manque » — is actively
-                    wrong on a devis séance: there is no missing act, and a dentist following it literally adds
-                    one, which prices the treatment a second time. The correct action is the échéancier, and it
-                    was named nowhere: not in the refusal, not on the fiche, not in the booking notice.
+                    ⚠️ The generic remedy — « ajoutez l'acte manquant » — is actively wrong on a devis séance:
+                    there is no missing act, and a dentist following it literally adds one, which prices the
+                    treatment a second time. The treatment has its own field.
                   */}
-                  {carriedByDevis ? (
-                    <span className="font-normal text-muted-foreground">
-                      Cette séance est portée par le devis{" "}
-                      {billedPlanItem?.planNumber ?? ""} : l&apos;argent remis au fauteuil s&apos;encaisse sur
-                      son échéancier, pas ici.
-                    </span>
-                  ) : (
-                    <span className="font-normal text-muted-foreground">
-                      Corrigez le montant, ou ajoutez l&apos;acte qui manque.
-                    </span>
-                  )}
+                  <span className="font-normal text-muted-foreground">
+                    {carriedByDevis
+                      ? `Le traitement se paie à part${billedPlanItem?.planNumber ? ` (devis n° ${billedPlanItem.planNumber})` : ""}.`
+                      : "Corrigez le montant ou ajoutez l'acte manquant."}
+                  </span>
                 </p>
               ) : lowersBilledAmount ? (
                 <p role="status" className="font-medium text-destructive">
-                  {formatDT(alreadyCollected)} sont déjà encaissés sur la note. Un montant encaissé ne se diminue
-                  pas ici — établissez un avoir.
+                  {formatDT(alreadyCollected)} déjà payés sur la note · un montant payé ne se diminue pas ici —
+                  établissez un avoir.
                 </p>
               ) : isInvoiced ? (
                 <p className="text-muted-foreground">
-                  Facturé{reste > 0 ? ` — reste ${formatDT(reste)}${seanceScope}` : ""}. Augmentez « Payé » pour encaisser un
-                  complément sur la même note.
+                  Facturé{reste > 0 ? ` — reste à payer${seanceScope} ${formatDT(reste)}` : ""}
                 </p>
               ) : (
                 <p className="text-muted-foreground">
@@ -3043,9 +2823,26 @@ export function PatientRecordModal({
           </div>
 
           {/*
+            The cheque's identity, BELOW the figures: choosing « Chèque » in « Mode » then adds it under them
+            instead of pushing « Mode » out of the capped box. Only for a cheque — `ChequeFields` does not
+            self-hide, so the decision is visible here. `fold`: one summary row until tapped — open, the three
+            fields took half a phone screen (gap2 F-mixed-390).
+          */}
+          {paymentMethod === CHEQUE_METHOD && !isInvoiced && (
+            <ChequeFields
+              idPrefix="fiche"
+              value={cheque}
+              onChange={setCheque}
+              disabled={loading}
+              fold
+            />
+          )}
+          </div>
+
+          {/*
             `flex-col-reverse` below `sm:`, mirroring the primitive's own idiom: the DOM keeps the desktop
             reading order (cancel → confirm) while a phone stacks them primary-first, each full width, because
-            « Confirmer la séance — 180,000 DT » is ~230px of unwrappable French and `buttonVariants` is
+            « Enregistrer la séance — 180,000 DT » is ~240px of French and `buttonVariants` is
             `whitespace-nowrap`.
 
             ⚠️ The « Ajouter un autre acte » / « Enregistrer la modification » pair that stood here is gone. It
@@ -3063,10 +2860,9 @@ export function PatientRecordModal({
                 Annuler
               </Button>
               {/*
-                The amount rides ON the action. « Confirmer » and the figure it commits were two separate places
-                to look, and on a phone only one of them was visible — so the button now states what pressing it
-                will book. `formatDT`, never a hand-rolled `toFixed`: the millime and the decimal comma are the
-                product's, not this dialog's.
+                ONE save label for create and edit, from a visit or not (« Confirmer la séance » · « Créer la
+                fiche » · « Enregistrer » were three names for one press). The amount rides ON the action, so the
+                button states what pressing it will book. `formatDT`, never a hand-rolled `toFixed`.
               */}
               {/* ⚠️ On a BILLED fiche these two no longer disable the button — they change what it does.
                   Disabling was how the correction became unreachable: the dentist lowered a price, the button
@@ -3096,15 +2892,15 @@ export function PatientRecordModal({
                   || loweredOnPlan
                   || (!contradictsNote && (overpaid || lowersBilledAmount))
                 }
-                className="w-full sm:w-auto sm:min-w-[150px]"
+                // `whitespace-normal` below `sm:`: « Enregistrer la séance — 1 250,000 DT » is wider than a
+                // 320 px sheet and `Button` is `whitespace-nowrap`, so it wraps rather than overflowing.
+                className="h-auto min-h-9 w-full whitespace-normal py-2 sm:w-auto sm:min-w-[150px] sm:whitespace-nowrap"
               >
                 {loading
                   ? "Enregistrement…"
                   : contradictsNote
                     ? `Corriger la note${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`
-                    : `${
-                        record ? "Enregistrer" : appointmentId ? "Confirmer la séance" : "Créer la fiche"
-                      }${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`}
+                    : `Enregistrer la séance${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`}
               </Button>
             </div>
           </div>
@@ -3133,6 +2929,122 @@ export function PatientRecordModal({
     */}
     <DocumentPreviewDialog target={previewTarget} onClose={() => setPreviewTarget(null)} />
     </>
+  )
+}
+
+/**
+ * The fiche's treatment band: the treatment (bold, with its teeth and its devis), its séances with the one(s)
+ * this fiche records marked, and « Changer ▾ ». With nothing linked it folds to « Traitement : aucun · Choisir ».
+ *
+ * <p>⚠️ Presentation only. Every choice goes back through the modal's own handlers, so the linked act, the
+ * séance and everything derived from them are decided exactly where they were.</p>
+ */
+function TreatmentBand({
+  options,
+  linked,
+  currentStepIds,
+  currentLabel,
+  pickableSteps,
+  chosenStepId,
+  onPick,
+  onPickStep,
+  disabled,
+}: {
+  options: PlanItemOption[]
+  linked: PlanItemOption | null
+  currentStepIds: string[]
+  currentLabel: string
+  pickableSteps: TreatmentPlanItemStepDto[]
+  chosenStepId: string | null
+  onPick: (itemId: string) => void
+  onPickStep: (stepId: string) => void
+  disabled?: boolean
+}) {
+  const menu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1 px-2 text-xs font-medium text-primary coarse:h-11"
+          disabled={disabled}
+          aria-label={linked ? `Changer de traitement ou de séance — ${linked.label}` : "Choisir le traitement"}
+        >
+          {linked ? "Changer" : "Choisir"}
+          <ChevronDown className="size-3.5" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-2rem))]">
+        {/* The séance, only where the old « Séance » Select was offered: a walk-in fiche with no booked step. */}
+        {pickableSteps.length > 1 && (
+          <>
+            <DropdownMenuLabel className="text-2xs text-muted-foreground">Séance</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={chosenStepId ?? pickableSteps[0].id} onValueChange={onPickStep}>
+              {pickableSteps.map((st) => (
+                <DropdownMenuRadioItem key={st.id} value={st.id}>
+                  Séance {st.sequenceNumber + 1} · {st.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuLabel className="text-2xs text-muted-foreground">Traitement</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={linked?.itemId ?? NO_PLAN_ITEM} onValueChange={onPick}>
+          {options.map((o) => (
+            <DropdownMenuRadioItem key={o.itemId} value={o.itemId}>
+              <span className="min-w-0">
+                <span className="block">{o.label}</span>
+                <span className="block text-2xs text-muted-foreground">{planDevisLabel({ number: o.planNumber })}</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+          <DropdownMenuRadioItem value={NO_PLAN_ITEM}>Sans traitement</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  if (!linked) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-1.5 text-xs">
+        <span className="text-muted-foreground">Traitement :</span>
+        <span className="font-medium">aucun</span>
+        {menu}
+      </div>
+    )
+  }
+
+  return (
+    <section aria-label="Traitement" className="space-y-2 rounded-lg border border-primary/30 bg-primary/[0.04] p-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="min-w-0 text-sm font-semibold">{linked.label}</span>
+        <span className="shrink-0 rounded-full border bg-background px-1.5 py-px text-2xs text-muted-foreground">
+          {planDevisLabel({ number: linked.planNumber })}
+        </span>
+        <span className="ms-auto">{menu}</span>
+      </div>
+      {/* Nothing for a one-sitting act — the strip renders nothing without séances. */}
+      <SeanceStrip
+        steps={linked.steps}
+        currentStepIds={currentStepIds}
+        currentLabel={currentLabel}
+        label="Séances du traitement"
+      />
+    </section>
+  )
+}
+
+/** « DT » inside an amount field's end edge — the unit, never part of the value (the field keeps a `pe-*`). */
+function DtSuffix() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-y-0 end-2 flex items-center text-2xs font-medium text-muted-foreground"
+    >
+      DT
+    </span>
   )
 }
 

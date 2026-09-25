@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowDown, ArrowUp, ChevronRight, Minimize2, Plus, RotateCcw, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronRight, Plus, RotateCcw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { ProcedureStepTemplateDto } from "@/lib/api/types"
@@ -16,8 +16,8 @@ export const MAX_STEP_LABEL = 120
 const MAX_DAYS_BETWEEN = 1095
 
 /**
- * « Les séances de ce traitement » — the protocol of an act being booked, **always on screen**, one line per
- * séance, editable in place, **for this patient only**.
+ * « Les séances de ce traitement » — the protocol of an act being booked, one line per séance, editable in
+ * place, **for this patient only**. The picker folds it behind « Séances »; its strip shows the séances at rest.
  *
  * <p>A dentist's own words: « sometimes the steps vary depending on patient ». The catalogue protocol is a
  * proposal (`ProcedureType.DefaultSteps` says so in as many words: « le catalogue *propose*, le devis
@@ -34,9 +34,9 @@ const MAX_DAYS_BETWEEN = 1095
  *
  * <p>So the whole list is now a <b>readable frise</b> — pip, name, « + 7 j », « 30 min » — and tapping one row
  * opens <i>that</i> row into exactly the editor the whole list used to be. Three séances with one open is
- * ≈ 190 px; six is ≈ 300. There is no list-level mode left, so nothing can look like a « valider », and
- * <b>every one of the nine operations survives</b> (rename · minutes · days · up · down · delete · add ·
- * reset · one-séance) — see the row's own controls and the footer.</p>
+ * ≈ 190 px; six is ≈ 300. <b>Every operation survives</b> (rename · minutes · days · up · down · delete · add ·
+ * reset) — see the row's own controls and the footer; « Tout en 1 séance » is the card's own button beside
+ * « Séances », since it decides the act rather than editing a séance.</p>
  *
  * <p>⚠️ <b>Nothing here touches the catalogue.</b> The list is form state; it reaches the server as
  * `StartTreatmentCommand.Steps`, which copies it onto the treatment and never writes back to
@@ -55,40 +55,38 @@ export function AppointmentProtocolEditor({
   onChange,
   onReset,
   canReset = false,
-  onSingleSeance,
   disabled = false,
   idPrefix,
   actName,
+  openIndex: controlledOpenIndex,
+  onOpenIndexChange,
 }: {
   steps: ProcedureStepTemplateDto[]
   onChange: (next: ProcedureStepTemplateDto[]) => void
   /** Put the catalogue protocol back. Absent when the act has none to go back to. */
   onReset?: () => void
   canReset?: boolean
-  /**
-   * Give up on the séances entirely — the act is done in one sitting.
-   *
-   * ⚠️ **Full width, at the foot, and permanently on screen.** It used to appear and disappear with the list's
-   * open state, and while the list was open it sat immediately beside the control that closed it — so it read
-   * as the « valider » for the séances just typed, one press from collapsing the whole treatment into a single
-   * visit. Reported from use. It is the only other decision this card offers, so it is drawn as one.
-   */
-  onSingleSeance?: () => void
   disabled?: boolean
   idPrefix: string
   /** Named in every control's accessible label — a row of « Supprimer » buttons is otherwise unnavigable. */
   actName: string
+  /** The open séance, when the host drives it — a séance tapped on the picker's strip opens here. */
+  openIndex?: number | null
+  onOpenIndexChange?: (index: number | null) => void
 }) {
   /**
-   * Which séance is open for editing — **one at a time, and none on arrival**.
-   *
-   * <p>Held here rather than lifted: it is presentation, the host has no decision to make about it, and the
-   * only channel back to the host is `onChange`, whose edit-dialog implementation also resets
-   * `durationTouched` (see `resolvePlannedProtocols`). An index rather than an id because a séance being
-   * typed has no identity yet; a reorder or a delete closes the row rather than following it, which is the
-   * honest behaviour — after « descendre » the row under the finger is a different séance.</p>
+   * Which séance is open for editing — **one at a time**. Held here unless the host drives it (the picker does,
+   * so a séance tapped on its strip opens here) — and never through `onChange`, whose edit-dialog
+   * implementation also resets `durationTouched`. An index rather than an id because a séance being typed has
+   * no identity yet; a reorder or a delete closes the row, since after « descendre » the row under the finger
+   * is a different séance.
    */
-  const [openIndex, setOpenIndex] = useState<number | null>(null)
+  const [ownOpenIndex, setOwnOpenIndex] = useState<number | null>(null)
+  const openIndex = controlledOpenIndex !== undefined ? controlledOpenIndex : ownOpenIndex
+  const setOpenIndex = (index: number | null) => {
+    setOwnOpenIndex(index)
+    onOpenIndexChange?.(index)
+  }
   const atCap = steps.length >= MAX_PROTOCOL_STEPS
 
   const patch = (index: number, next: Partial<ProcedureStepTemplateDto>) =>
@@ -173,7 +171,7 @@ export function AppointmentProtocolEditor({
                     {blank ? `Séance ${index + 1} — à nommer` : step.label}
                     {/* Only the first séance is dated, because only it is this appointment. */}
                     {first && !blank && (
-                      <span className="text-muted-foreground"> · ce rendez-vous</span>
+                      <span className="text-muted-foreground"> · ce RDV</span>
                     )}
                   </span>
                 </span>
@@ -184,12 +182,12 @@ export function AppointmentProtocolEditor({
                 */}
                 <span className="ms-auto flex flex-none items-center gap-2">
                   {!first && step.minDaysAfterPrevious != null && (
-                    <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
+                    <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs tabular-nums text-muted-foreground">
                       + {step.minDaysAfterPrevious} j
                     </span>
                   )}
                   {step.durationMinutes != null && (
-                    <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
+                    <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs tabular-nums text-muted-foreground">
                       {step.durationMinutes} min
                     </span>
                   )}
@@ -334,30 +332,13 @@ export function AppointmentProtocolEditor({
             }}
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            Rétablir le protocole
+            Rétablir les séances
           </Button>
         )}
         {atCap && (
           <span className="text-2xs text-muted-foreground">{MAX_PROTOCOL_STEPS} séances au maximum.</span>
         )}
-        <span className="ms-auto text-2xs text-muted-foreground">
-          Touchez une séance pour la modifier — pour ce patient seulement.
-        </span>
       </div>
-
-      {onSingleSeance && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 w-full gap-1 border-primary/50 text-2xs text-primary coarse:h-11"
-          disabled={disabled}
-          onClick={onSingleSeance}
-        >
-          <Minimize2 className="h-3.5 w-3.5" />
-          Tout faire en une seule séance
-        </Button>
-      )}
     </div>
   )
 }

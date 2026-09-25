@@ -1,0 +1,881 @@
+<title>Treatment Flow Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f0f9fe; --card:#ffffff; --ink:#0e191f; --muted:#58666e; --line:#d9e3e8;
+  --soft:#ebf5fa; --accent:#daf2ff; --accent-ink:#014764; --primary:#02678f; --on-primary:#fbfdff;
+  --sel:#e8f5fc; --info-bg:#e3f2fa; --info-line:#a9cfe2;
+  --before:#b4432a; --before-soft:#fbece7; --after:#1d7a4f; --after-soft:#e5f5ec;
+  --warn:#8a5200; --warn-soft:#fff3dc; --warn-line:#f0c77a; --danger:#b8322a;
+  --done:#1d7a4f; --booked:#02678f; --todo:#9aa6ad; --halo:#b9e2f5;
+  --shadow:0 1px 2px rgb(14 25 31 / .06), 0 6px 18px rgb(14 25 31 / .05);
+  --sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"Geist Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#1f2023; --card:#2e2f32; --ink:#dbdcdf; --muted:#a2a5aa; --line:#3e4045;
+    --soft:#37393d; --accent:#32414e; --accent-ink:#7fcffb; --primary:#44b1e7; --on-primary:#0b1a22;
+    --sel:#2b3a45; --info-bg:#243745; --info-line:#37596e;
+    --before:#f0876c; --before-soft:#3d2923; --after:#6cd29e; --after-soft:#22362b;
+    --warn:#f2c46b; --warn-soft:#3a3122; --warn-line:#6b5530; --danger:#f08a7e;
+    --done:#5cc48f; --booked:#44b1e7; --todo:#7c8388; --halo:#2d5a73;
+    --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#1f2023; --card:#2e2f32; --ink:#dbdcdf; --muted:#a2a5aa; --line:#3e4045;
+  --soft:#37393d; --accent:#32414e; --accent-ink:#7fcffb; --primary:#44b1e7; --on-primary:#0b1a22;
+  --sel:#2b3a45; --info-bg:#243745; --info-line:#37596e;
+  --before:#f0876c; --before-soft:#3d2923; --after:#6cd29e; --after-soft:#22362b;
+  --warn:#f2c46b; --warn-soft:#3a3122; --warn-line:#6b5530; --danger:#f08a7e;
+  --done:#5cc48f; --booked:#44b1e7; --todo:#7c8388; --halo:#2d5a73;
+  --shadow:none;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;padding-inline:16px;padding-block:0 96px}
+.wrap{max-width:1120px;margin:0 auto}
+h1,h2,h3{text-wrap:balance;margin:0}
+a{color:var(--primary)}
+svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px}
+
+/* ---------- page chrome ---------- */
+.top{padding-block:40px 20px;display:grid;gap:14px}
+.kicker{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(28px,4vw,40px);font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.lede{color:var(--muted);max-width:62ch;margin:0}
+.rules{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:6px}
+.rule{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:4px}
+.rule b{font-size:15px}
+.rule span{color:var(--muted);font-size:13.5px}
+.today{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13.5px;color:var(--muted);padding:12px 16px;border:1px dashed var(--line);border-radius:12px}
+.today b{color:var(--before);font-variant-numeric:tabular-nums}
+nav.jump{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);padding-block:10px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+nav.jump .wrap{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+nav.jump a{flex:none;text-decoration:none;color:var(--ink);font-size:13px;font-weight:500;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card)}
+nav.jump a:hover,nav.jump a:focus-visible{border-color:var(--primary);color:var(--primary);outline:none}
+
+section.area{padding-block:28px 8px;display:grid;gap:18px;scroll-margin-top:64px}
+.area-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;border-bottom:2px solid var(--ink);padding-bottom:8px}
+.area-h h2{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.area-h span{color:var(--muted);font-size:13.5px}
+
+article.item{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;display:grid;gap:14px;scroll-margin-top:64px}
+.item-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.id{font-family:var(--mono);font-size:12px;font-weight:500;background:var(--ink);color:var(--card);border-radius:6px;padding:2px 7px}
+.item-h h3{font-size:17px;font-weight:600;flex:1 1 240px}
+.eff{font-family:var(--mono);font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+.pick{font:inherit;font-size:12.5px;font-weight:500;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer;min-height:32px}
+.pick[aria-pressed="true"]{background:var(--after);border-color:var(--after);color:var(--card)}
+.pick:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+
+.ba{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+figure.pane{margin:0;border-radius:12px;padding:10px;display:grid;gap:8px;align-content:start;min-width:0}
+figure.pane.before{background:var(--before-soft)}
+figure.pane.after{background:var(--after-soft)}
+figure.pane figcaption{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500}
+.before figcaption{color:var(--before)}
+.after figcaption{color:var(--after)}
+.wc{letter-spacing:0;text-transform:none;font-weight:400;opacity:.9}
+.gain{margin:0;display:flex;gap:10px;align-items:baseline;font-size:14.5px}
+.gain > span:first-child{flex:none;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--after);font-weight:500}
+
+/* ---------- mock UI (app look) ---------- */
+.ui{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;font-size:13px;line-height:1.4;color:var(--ink);box-shadow:var(--shadow);min-width:0;overflow-wrap:anywhere}
+.ui-title{font-size:15.5px;font-weight:600}
+.ui-sub{color:var(--muted);font-size:12.5px;margin-top:-6px}
+.lbl{font-size:12px;font-weight:500}
+.lbl i{font-style:normal;color:var(--muted);font-weight:400}
+.fld{border:1px solid var(--line);border-radius:8px;min-height:32px;padding:5px 10px;display:flex;align-items:center;gap:6px;background:var(--card);font-size:12.5px;min-width:0}
+.fld.sm{min-height:28px;padding:3px 8px}
+.fld.dis{background:var(--soft);color:var(--muted)}
+.fld.focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--halo)}
+.fld .grow{flex:1}
+.g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.stack{display:grid;gap:4px}
+.info{background:var(--info-bg);border:1px solid var(--info-line);border-radius:8px;padding:8px 10px;font-size:12px}
+.info b{color:var(--primary)}
+.warnbox{background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);border-radius:8px;padding:8px 10px;font-size:12px;display:grid;gap:2px}
+.muted{color:var(--muted)}
+.xs{font-size:11.5px}
+.sm{font-size:12px}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.spread{justify-content:space-between}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px 11px;font-size:12.5px;font-weight:500;background:var(--card);color:var(--ink);white-space:nowrap}
+.btn.pri{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--primary);padding-inline:6px}
+.btn.danger{color:var(--danger)}
+.btn.dangerfill{background:var(--danger);border-color:var(--danger);color:var(--card)}
+.btn.big{padding:9px 14px;font-size:13.5px}
+.link{color:var(--primary);text-decoration:underline;text-underline-offset:2px;font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 9px;font-size:11.5px;background:var(--soft);border:1px solid var(--line);white-space:nowrap}
+.chip.tooth{background:var(--accent);border-color:transparent;color:var(--accent-ink);font-weight:500}
+.st{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11.5px;font-weight:500;white-space:nowrap}
+.st.amber{background:var(--warn-soft);color:var(--warn)}
+.st.blue{background:var(--accent);color:var(--accent-ink)}
+.st.green{background:var(--after-soft);color:var(--after)}
+.st.grey{background:var(--soft);color:var(--muted)}
+.card{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:8px;min-width:0}
+.card.sel{border-color:var(--primary);background:var(--sel)}
+.card.flat{background:var(--soft);border-color:transparent}
+.tag-lock{display:inline-flex;gap:5px;align-items:center;padding:3px 10px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:12px;white-space:nowrap}
+.tag-add{display:inline-flex;gap:5px;align-items:center;padding:3px 10px;border-radius:999px;background:var(--after-soft);color:var(--after);font-weight:600;font-size:12px;white-space:nowrap}
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.trio > div{display:grid;gap:1px;min-width:0}
+.trio span{font-size:11.5px;color:var(--muted)}
+.trio b{font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.trio b.hl{color:var(--primary)}
+.sep{height:1px;background:var(--line)}
+.menu{border:1px solid var(--line);border-radius:10px;padding:6px;display:grid;gap:1px;font-size:12.5px;background:var(--card);box-shadow:var(--shadow)}
+.menu div{padding:4px 8px;border-radius:6px}
+.menu .mh{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:6px}
+.menu .red{color:var(--danger)}
+.pop{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:8px;background:var(--card);box-shadow:var(--shadow);position:relative;margin-top:6px}
+.pop::before{content:"";position:absolute;top:-6px;left:var(--caret,50%);width:10px;height:10px;background:var(--card);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;background:var(--ink);color:var(--card);border-radius:10px;padding:8px 10px;font-size:12.5px}
+.bar .btn{border-color:transparent}
+table.mini{width:100%;border-collapse:collapse;font-size:11.5px}
+table.mini th{font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:4px 4px;border-bottom:1px solid var(--line)}
+table.mini td{padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+.tscroll{overflow-x:auto}
+.strike{text-decoration:line-through;color:var(--muted)}
+ul.bul{margin:0;padding-left:18px;display:grid;gap:3px}
+ul.bul b{font-weight:600}
+
+/* ---------- the séance strip (frise) ---------- */
+ol.frise{list-style:none;margin:0;padding:0;display:flex;min-width:0}
+ol.frise li{flex:1 1 0;min-width:0;position:relative;padding:22px 8px 0 0}
+ol.frise li::after{content:"";position:absolute;top:8px;left:22px;right:6px;height:2px;border-radius:2px;background:var(--line)}
+ol.frise li:last-child::after{display:none}
+ol.frise li.done::after{background:var(--done)}
+ol.frise .dot{position:absolute;top:0;left:0;width:18px;height:18px;border-radius:50%;border:2px solid var(--todo);background:var(--card)}
+ol.frise li.done .dot{background:var(--done);border-color:var(--done)}
+ol.frise li.done .dot::after{content:"";position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid var(--card);border-width:0 2px 2px 0;transform:rotate(45deg)}
+ol.frise li.booked .dot{background:var(--booked);border-color:var(--booked)}
+ol.frise li.now .dot{background:var(--booked);border-color:var(--booked);box-shadow:0 0 0 4px var(--halo)}
+ol.frise b{display:block;font-size:12.5px;font-weight:600;line-height:1.25}
+ol.frise small{display:block;font-size:11px;color:var(--muted);line-height:1.3}
+ol.frise li.done small{color:var(--done)}
+ol.frise li.booked small,ol.frise li.now small{color:var(--booked);font-weight:600}
+ol.frise li.pickable{cursor:pointer}
+ol.frise li.pickable b{text-decoration:underline dotted var(--muted);text-underline-offset:3px}
+ol.frise.big b{font-size:14px}
+ol.frise.big small{font-size:12px}
+.pips{display:inline-flex;gap:3px;align-items:center}
+.pips i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--todo);display:block}
+.pips i.d{background:var(--done);border-color:var(--done)}
+.pips i.b{background:var(--booked);border-color:var(--booked)}
+.addstep{align-self:start;margin-top:-2px}
+
+/* ---------- vocabulary / inventory tables ---------- */
+.tablecard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:6px 6px 2px}
+table.big{width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px}
+table.big th{text-align:left;font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:10px 10px 8px;border-bottom:1px solid var(--line)}
+table.big td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.big tr:last-child td{border-bottom:0}
+table.big td.old{color:var(--before)}
+table.big td.new b{color:var(--after)}
+table.big td.verdict{white-space:nowrap}
+
+.pickbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:10;display:flex;gap:10px;align-items:center;background:var(--ink);color:var(--card);padding:8px 8px 8px 16px;border-radius:999px;box-shadow:0 8px 30px rgb(0 0 0 / .25);font-size:13.5px;max-width:calc(100% - 32px)}
+.pickbar[hidden]{display:none}
+.pop.nocaret::before{display:none}
+.pickbar button{font:inherit;font-weight:600;font-size:13px;border:0;border-radius:999px;padding:7px 14px;background:var(--card);color:var(--ink);cursor:pointer;min-height:34px}
+.pickbar .ids{font-family:var(--mono);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+@media (max-width:900px){
+  .ba{grid-template-columns:minmax(0,1fr)}
+  .rules{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:440px){
+  article.item{padding:12px}
+  figure.pane{padding:8px}
+  .ui{padding:11px}
+  .g2{grid-template-columns:minmax(0,1fr)}
+  ol.frise b{font-size:11.5px}
+}
+@media (prefers-reduced-motion:no-preference){
+  nav.jump a,.pick{transition:background .15s,border-color .15s,color .15s}
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="undo" viewBox="0 0 24 24"><path d="M4 9h11a5 5 0 0 1 0 10h-3"/><path d="m8 5-4 4 4 4"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="warn" viewBox="0 0 24 24"><path d="M12 4 2 20h20L12 4z"/><path d="M12 10v4M12 17h.01"/></symbol>
+  <symbol id="pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></symbol>
+  <symbol id="file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></symbol>
+  <symbol id="left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+</svg>
+
+<div class="wrap">
+<header class="top">
+  <div class="kicker">APEXA · UX proposal · 24/09/2026</div>
+  <h1>The treatment flow, made obvious</h1>
+  <p class="lede">RDV with a multi-séance act → its fiches de soins → the treatment page. <b>UI only</b>: every server rule from the 4 waves stays, and no capability is removed (see <a href="#keep">Nothing is lost</a>).</p>
+  <div class="rules">
+    <div class="rule"><b>1 · One word per idea</b><span>Traitement · Séance · Payé · Reste à payer. Nothing else.</span></div>
+    <div class="rule"><b>2 · Facts in bold, no instructions</b><span>A figure + 3 words replaces a sentence.</span></div>
+    <div class="rule"><b>3 · One séance strip, everywhere</b><span>Faite · prévue · à planifier. Same look on every screen, and you edit by tapping it.</span></div>
+  </div>
+  <div class="today">
+    <span>Today:</span>
+    <span><b>7</b> ways to show progress</span>
+    <span><b>25</b> explanation texts in the fiche</span>
+    <span><b>21</b> dialogs on the treatment page, longest <b>≈120</b> words</span>
+    <span>the same balance under <b>4</b> names</span>
+  </div>
+</header>
+</div>
+
+<nav class="jump" aria-label="Sections">
+  <div class="wrap">
+    <a href="#approach">Approach</a>
+    <a href="#all">Everywhere</a>
+    <a href="#rdv">RDV</a>
+    <a href="#fiche">Fiche de soins</a>
+    <a href="#plan">Treatment page</a>
+    <a href="#patient">Patient file</a>
+    <a href="#keep">Nothing is lost</a>
+    <a href="#order">Order</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ================= APPROACH ================= -->
+<section class="area" id="approach">
+  <div class="area-h"><h2>Approach</h2><span>3 ways to do it, challenged</span></div>
+  <div class="tablecard tscroll">
+    <table class="big">
+      <thead><tr><th>Approach</th><th>Verdict</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Only cut the text</td><td class="verdict">⚠ Partial</td><td>Quick, but the flow stays hard to follow: 7 progress displays, edits spread over 21 dialogs.</td></tr>
+        <tr><td><b>Séance strip as the spine + facts in bold</b></td><td class="verdict"><b style="color:var(--after)">✅ Recommended</b></td><td>One component on 4 screens. Each séance is edited where it is shown. No server change.</td></tr>
+        <tr><td>Step-by-step wizard</td><td class="verdict">❌ Risky</td><td>It locks doctors into one order, and they refine as they go (« the app should not block edits »).</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================= EVERYWHERE ================= -->
+<section class="area" id="all">
+  <div class="area-h"><h2>Everywhere</h2><span>3 changes that touch every screen</span></div>
+
+  <article class="item" id="P1" data-id="P1">
+    <div class="item-h"><span class="id">P1</span><h3>One word per idea</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="tablecard tscroll" style="border:0;padding:0">
+      <table class="big">
+        <thead><tr><th>Before: several words for one thing</th><th>After</th></tr></thead>
+        <tbody>
+          <tr><td class="old">Plan · Plan de traitement · Traitement suivi · « Retour aux plans »</td><td class="new"><b>Traitement</b></td></tr>
+          <tr><td class="old">Sans devis · En cours · sans devis · Éditer le devis · Accepter le devis · À accepter</td><td class="new"><b>Devis</b> is only the paper: « Devis n° 2026-0677 » or « Pas de devis · Créer »</td></tr>
+          <tr><td class="old">Étape · Séance · protocole · « la 1re »</td><td class="new"><b>Séance</b> (« Séance 2 · Empreinte »)</td></tr>
+          <tr><td class="old">Réalisé · faite · Terminé · Travail terminé · Traitement clôturé</td><td class="new"><b>Faite</b> for a séance or an act · <b>Terminé</b> for the treatment</td></tr>
+          <tr><td class="old">Total convenu · Prix convenu · Prix du traitement (3 séances) · Chiffré sur le devis</td><td class="new"><b>Prix du traitement</b></td></tr>
+          <tr><td class="old">Encaissé sur le traitement · Encaissé · Payé · Régler le devis</td><td class="new"><b>Payé</b> · button <b>Encaisser</b></td></tr>
+          <tr><td class="old">Solde dû · Reste à payer · Reste · Reste à encaisser · Reste dû</td><td class="new"><b>Reste à payer</b></td></tr>
+          <tr><td class="old">Passer la créance en perte · Passer en perte · Créance abandonnée</td><td class="new"><b>Ne plus réclamer</b> · badge <b>Non réclamé</b></td></tr>
+          <tr><td class="old">Fiche médicale · fiche de soins · dossier médical · compte rendu de visite</td><td class="new"><b>Fiche de soins</b></td></tr>
+          <tr><td class="old">Détacher la fiche</td><td class="new"><b>Remettre à faire</b></td></tr>
+          <tr><td class="old">forfait · « / dent »</td><td class="new"><b>par dent · pour tout</b></td></tr>
+          <tr><td class="old">Acte planifié (facultatif)</td><td class="new"><b>Traitement</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>42 labels → 14.</b> « Plan », « devis » and « traitement » stop looking like 3 different things.</span></p>
+  </article>
+
+  <article class="item" id="P2" data-id="P2">
+    <div class="item-h"><span class="id">P2</span><h3>Sentences become bold facts</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before · booking</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="info"><b>Chiffré sur le devis.</b> L'acte entier est chiffré <span class="mono">250,000</span> DT sur le devis 2026-0681 — cette séance n'ajoute aucun honoraire. L'argent encaissé pendant la séance se saisit ensuite sur la fiche de soins, dans « Encaissé sur le traitement ». Reste à encaisser sur le devis : <span class="mono">250,000</span> DT.</div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui"><div class="row"><span class="tag-lock"><svg class="i"><use href="#lock"/></svg>Payé sur le traitement</span><span>Reste <b class="num">250,000 DT</b></span></div></div>
+      </figure>
+      <figure class="pane before"><figcaption><span>Before · stop dialog</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="ui-title">Rendre 100,000 DT et arrêter ?</div>
+          <div class="sm muted">Aucun acte de ce devis n'a été réalisé, mais <b>100,000 DT y ont déjà été encaissés</b>. Ils sont <b>rendus au patient aujourd'hui</b> et les actes sont mis de côté ; « Reprendre le traitement » les remet au devis.</div>
+          <div class="stack"><span class="lbl">Rendu en</span><span class="fld">Espèces<span class="grow"></span><svg class="i"><use href="#down"/></svg></span></div>
+          <div class="row" style="justify-content:flex-end"><span class="btn">Retour</span><span class="btn dangerfill">Rendre et arrêter</span></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="ui-title">Arrêter et rendre <b>100,000 DT</b> ?</div>
+          <ul class="bul sm"><li><b>100,000 DT</b> rendus aujourd'hui</li><li><b>3 séances</b> mises de côté</li><li>Réversible</li></ul>
+          <div class="stack"><span class="lbl">Rendu en</span><span class="fld">Espèces<span class="grow"></span><svg class="i"><use href="#down"/></svg></span></div>
+          <div class="row" style="justify-content:flex-end"><span class="btn">Retour</span><span class="btn dangerfill">Rendre et arrêter</span></div>
+        </div>
+      </figure>
+      <figure class="pane before"><figcaption><span>Before · duplicate warning</span><span class="wc"></span></figcaption>
+        <div class="ui"><div class="warnbox"><span>Un acte de ce devis est déjà devisé ailleurs</span><span>Couronne (dents 16) — aussi sur <u>le devis 2026-0681</u>.</span><span>Le patient le doit donc deux fois. Si c'est une erreur, annulez ou modifiez l'un des deux devis ; si c'est voulu, il n'y a rien à faire.</span></div></div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui"><div class="warnbox"><div class="row spread"><span><svg class="i"><use href="#warn"/></svg> <b>Couronne 16 aussi sur le devis 2026-0681</b></span><span class="link">Ouvrir</span></div></div></div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>Read in one glance.</b> Stays: figures, dates, statuses, errors, refusals with their fix. Goes: « Cochez… », « Utilisez… », « Touchez… » and every « how the system works » sentence.</span></p>
+  </article>
+
+  <article class="item" id="P3" data-id="P3">
+    <div class="item-h"><span class="id">P3</span><h3>One séance strip on every screen</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before · 7 displays</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="stack"><span class="eyebrow">Page traitement</span><span><b>0 séance sur 3 faite</b> · <span class="muted">0 acte sur 1 réalisé</span></span></div>
+          <div class="stack"><span class="eyebrow">Ligne d'acte</span><span class="sm">◌ Préparation — ○ Empreinte — ○ Scellement <span class="mono muted">0 / 3 faite</span></span></div>
+          <div class="stack"><span class="eyebrow">RDV</span><span class="sm">1 étape faite sur 3</span></div>
+          <div class="stack"><span class="eyebrow">Dossier patient</span><span class="sm">○ 0/1 séance · étape 2 / 3 à faire</span></div>
+          <div class="stack"><span class="eyebrow">Pastilles</span><span class="sm mono">2/5 séances · 1/2 actes</span></div>
+          <div class="stack"><span class="eyebrow">Fiche</span><span class="sm" style="color:var(--primary)">Cette séance : étape 2 sur 3 · Empreinte</span></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After · 1 component, 2 sizes</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <ol class="frise big">
+            <li class="done"><span class="dot"></span><b>Préparation</b><small>faite le 12/09</small></li>
+            <li class="booked"><span class="dot"></span><b>Empreinte</b><small>prévue le 28/09</small></li>
+            <li class="todo"><span class="dot"></span><b>Scellement</b><small>à planifier</small></li>
+          </ol>
+          <div class="sep"></div>
+          <div class="row"><span class="pips"><i class="d"></i><i class="b"></i><i></i></span><span class="sm"><b>Couronne · 16</b> — Empreinte prévue le 28/09</span></div>
+          <div class="row xs muted"><span class="pips"><i class="d"></i></span>faite<span class="pips"><i class="b"></i></span>prévue<span class="pips"><i></i></span>à planifier</div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>Learned once, read everywhere.</b> No more « 2 / 3 » that some read as done and others as next.</span></p>
+  </article>
+</section>
+
+<!-- ================= RDV ================= -->
+<section class="area" id="rdv">
+  <div class="area-h"><h2>Taking the RDV</h2><span>New RDV · Edit RDV</span></div>
+
+  <article class="item" id="R1" data-id="R1">
+    <div class="item-h"><span class="id">R1</span><h3>The patient's treatments come first</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card flat">
+            <div><b>Ce patient a 3 traitements en cours.</b><div class="xs muted">Lequel continuez-vous ?</div></div>
+            <div class="card" style="background:var(--card)"><div class="row spread"><b>Couronne</b><svg class="i"><use href="#right"/></svg></div><div class="xs">Prochaine étape : <b>Empreinte</b> · 30 min</div><div class="xs mono muted">2026-0653 · 300,000 DT</div><div class="xs muted">1 étape faite sur 3</div></div>
+            <div class="card" style="background:var(--card)"><div class="row spread"><b>Obturation</b><svg class="i"><use href="#right"/></svg></div><div class="xs mono muted">2026-0652 · 80,000 DT</div></div>
+            <div class="xs muted">Ces actes sont déjà facturés sur leur devis : la séance n'ajoute pas d'honoraires.</div>
+            <div class="xs muted">et 3 autres traitements ouverts — voir « Actes du devis » ci-dessous.</div>
+          </div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="lbl">Continuer un traitement</div>
+          <div class="card"><div class="row spread"><b>Couronne · 16</b><span class="pips"><i class="d"></i><i></i><i></i></span></div><span class="btn pri">Planifier : Empreinte · 30 min</span></div>
+          <div class="card"><div class="row spread"><b>Obturation · 26</b><span class="st grey">À faire</span></div><span class="btn">Planifier</span></div>
+          <span class="btn ghost" style="justify-self:start">3 autres <svg class="i"><use href="#down"/></svg></span>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>Next séance = 1 tap on its name.</b> No devis number or price to decode.</span></p>
+  </article>
+
+  <article class="item" id="R2" data-id="R2">
+    <div class="item-h"><span class="id">R2</span><h3>A multi-séance act shows its séances, not a paragraph</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><span><b>Couronne (dents 16)</b></span><span class="row xs muted">60 min <svg class="i"><use href="#x"/></svg></span></div>
+          <div class="stack"><span class="lbl">Prix du traitement (3 séances)</span><span class="fld" style="max-width:150px"><span class="muted xs">DT</span> 250,000</span></div>
+          <div class="card flat sm">
+            <div>Traitement en 3 séances. Ce rendez-vous est la 1re : « Préparation ».</div>
+            <div class="muted">Ensuite : 2. Empreinte · 3. Scellement</div>
+            <div class="xs muted">Touchez une séance pour la modifier — pour ce patient seulement.</div>
+            <div class="row"><span class="btn">+ Séance</span><span class="btn">Rétablir le protocole</span><span class="btn">Tout faire en une seule séance</span></div>
+          </div>
+          <div class="xs muted">Aucun devis, aucun numéro — le traitement est préparé à l'enregistrement du rendez-vous. Le prix saisi est celui de tout le traitement.</div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><span class="row"><b>Couronne</b><span class="chip tooth">16</span></span><svg class="i muted"><use href="#x"/></svg></div>
+          <ol class="frise">
+            <li class="now pickable"><span class="dot"></span><b>Préparation</b><small>ce RDV</small></li>
+            <li class="todo pickable"><span class="dot"></span><b>Empreinte</b><small>+7 j</small></li>
+            <li class="todo pickable"><span class="dot"></span><b>Scellement</b><small>+7 j</small></li>
+          </ol>
+          <div class="row spread"><span class="row"><span class="lbl">Prix du traitement</span><span class="fld sm" style="width:110px">250,000 <span class="muted xs">DT</span></span></span><span class="row"><span class="btn ghost"><svg class="i"><use href="#pen"/></svg>Séances</span><span class="btn ghost">En 1 séance</span></span></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>The plan is a picture.</b> Tap a séance = this RDV. The séance editor still opens under « Séances ».</span></p>
+  </article>
+
+  <article class="item" id="R3" data-id="R3">
+    <div class="item-h"><span class="id">R3</span><h3>« La suite » of an unfinished act, without a 2nd window</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before · link → 2nd dialog</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <span class="xs muted" style="text-decoration:underline">C'est la suite d'une séance précédente ?</span>
+          <div class="card">
+            <div class="ui-title" style="font-size:14px">Suite d'une séance précédente</div>
+            <div class="xs muted">Choisissez l'acte que ce rendez-vous poursuit. Il devient un traitement en plusieurs séances, et ce rendez-vous en est la deuxième.</div>
+            <div class="card flat xs"><b>Obturation · 26 · 12/09</b><span>Noté « non terminé » à la séance</span><span class="muted">Non facturée — le devis portera 80,000 DT et sera facturé une fois le traitement terminé.</span></div>
+            <div class="stack"><span class="lbl">Montant du travail restant <i>(facultatif)</i></span><span class="fld"></span></div>
+            <div class="xs muted">Ajouté au devis comme un acte à part… Laissez vide si…</div>
+            <div class="row" style="justify-content:flex-end"><span class="btn pri">Ajouter au rendez-vous</span></div>
+          </div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After · in the R1 list</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="lbl">Continuer un traitement</div>
+          <div class="card sel"><div class="row spread"><b>Obturation · 26</b><span class="st amber">Non terminée le 12/09</span></div><span class="btn pri">Continuer</span></div>
+          <div class="sep"></div>
+          <div class="row spread"><b>Obturation · 26</b><span class="xs muted">suite du 12/09</span></div>
+          <div class="row"><span class="lbl">Prix du reste</span><span class="fld sm" style="width:110px"><span class="muted">0,000</span></span><span class="muted xs">DT</span></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>2 windows → 0.</b> One place for everything that continues.</span></p>
+  </article>
+
+  <article class="item" id="R4" data-id="R4">
+    <div class="item-h"><span class="id">R4</span><h3>A footer with no trap</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before · Edit RDV</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row"><span class="lbl">Statut</span><span class="btn pri">Terminé</span><span class="btn">Annulé</span></div>
+          <div class="sep"></div>
+          <div class="row spread"><span class="btn danger"><svg class="i"><use href="#trash"/></svg>Supprimer</span><span class="row"><span class="btn"><svg class="i"><use href="#x"/></svg>Annuler</span><span class="btn">Fermer</span><span class="btn pri">Enregistrer</span></span></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row"><span class="lbl">Statut</span><span class="btn pri">Terminé</span><span class="btn">Annulé</span></div>
+          <div class="sep"></div>
+          <div class="row spread"><span class="btn"><svg class="i"><use href="#dots"/></svg></span><span class="row"><span class="btn">Fermer</span><span class="btn pri">Enregistrer</span></span></div>
+          <div class="menu" style="max-width:190px"><div>Annuler le RDV</div><div class="red">Supprimer</div></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>4 buttons → 2.</b> « Annuler » no longer means both « close » and « cancel the RDV ».</span></p>
+  </article>
+</section>
+
+<!-- ================= FICHE ================= -->
+<section class="area" id="fiche">
+  <div class="area-h"><h2>Fiche de soins</h2><span>The most frequent gesture at the chair</span></div>
+
+  <article class="item" id="F1" data-id="F1">
+    <div class="item-h"><span class="id">F1</span><h3>The header says which séance this is</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="ui-title">Ajouter une fiche médicale</div>
+          <div class="ui-sub">Confirmez ce qui a été réalisé, puis les dents concernées.</div>
+          <div class="g2"><div class="stack"><span class="lbl">Patient</span><span class="fld">Sami Ben Ali</span></div><div class="stack"><span class="lbl">Date</span><span class="fld">24/09/2026</span></div></div>
+          <div class="g2"><div class="stack"><span class="lbl">Acte planifié <i>(facultatif)</i></span><span class="fld"><span class="grow">2026-0677 · Couronne (dents 16)</span><svg class="i"><use href="#down"/></svg></span></div><div class="stack"><span class="lbl">Séance</span><span class="fld"><span class="grow">2. Empreinte</span><svg class="i"><use href="#down"/></svg></span></div></div>
+          <div class="card"><span class="eyebrow">Acte prévu au rendez-vous</span><b>Couronne</b><span class="xs" style="color:var(--primary)">Cette séance : étape 2 sur 3 · Empreinte</span></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><div class="ui-title">Fiche de soins · Sami Ben Ali</div><span class="fld sm"><svg class="i"><use href="#cal"/></svg>24/09/2026</span></div>
+          <div class="card sel">
+            <div class="row spread"><b>Couronne · dent 16</b><span class="btn ghost">Changer <svg class="i"><use href="#down"/></svg></span></div>
+            <ol class="frise">
+              <li class="done"><span class="dot"></span><b>Préparation</b><small>faite le 12/09</small></li>
+              <li class="now pickable"><span class="dot"></span><b>Empreinte</b><small>aujourd'hui</small></li>
+              <li class="todo"><span class="dot"></span><b>Scellement</b><small>à planifier</small></li>
+            </ol>
+          </div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>The séance is seen, not read.</b> 2 dropdowns + 3 lines → 1 band. « Changer » still offers the other séances and « Sans traitement ».</span></p>
+  </article>
+
+  <article class="item" id="F2" data-id="F2">
+    <div class="item-h"><span class="id">F2</span><h3>An act paid on the treatment = one tag</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card sel">
+            <div class="row spread"><span class="eyebrow">Acte prévu au rendez-vous</span><svg class="i muted"><use href="#trash"/></svg></div>
+            <b>Couronne</b>
+            <span class="sm">Aucun honoraire sur cette séance.</span>
+            <div class="info"><b>Chiffré sur le devis.</b> L'acte entier est chiffré <span class="mono">250,000</span> DT sur le devis 2026-0677.</div>
+            <div class="row"><span class="xs muted">Dents</span><span class="chip tooth">16 ×</span></div>
+            <div class="card flat xs"><span><svg class="i"><use href="#right"/></svg> <b>Détails</b> <span class="muted">aucun état · aucune face</span></span></div>
+            <span class="btn" style="justify-self:start">Changer d'acte</span>
+          </div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card sel">
+            <div class="row spread"><span class="row"><b>Couronne</b><span class="chip tooth">16 ×</span></span><span class="tag-lock"><svg class="i"><use href="#lock"/></svg>Payé sur le traitement</span></div>
+            <div class="row spread xs"><span class="muted"><svg class="i"><use href="#right"/></svg> Détails</span><span class="row"><span class="link">Changer d'acte</span><svg class="i muted"><use href="#trash"/></svg></span></div>
+          </div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>2 sentences → 1 tag, card ≈ half the height.</b> The fiche fits the 730 px laptop screen.</span></p>
+  </article>
+
+  <article class="item" id="F3" data-id="F3">
+    <div class="item-h"><span class="id">F3</span><h3>An act added during a treatment séance</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card sel">
+            <div class="row spread"><span class="eyebrow">Acte 2</span><b class="num">150,000 DT</b></div>
+            <b>Détartrage</b>
+            <div class="row"><span class="fld sm focus" style="width:70px;justify-content:flex-end">150</span><span class="xs muted">/ dent</span><span class="btn pri" style="padding:3px 8px;font-size:11px">forfait</span><b class="num sm">150,000 DT</b></div>
+            <span class="xs"><b>Chiffré sur le devis 2026-0677.</b> <span class="muted">Aucun honoraire sur cette séance.</span></span>
+            <span class="xs" style="color:var(--warn)">Tarif catalogue 60,000 DT — majoration de 90,000 DT <u>remettre au tarif</u></span>
+            <span class="xs muted">Dents aucune — tapez sur le schéma, ou laissez vide pour un acte général (détartrage, panoramique…)</span>
+          </div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card sel">
+            <div class="row spread"><b>Détartrage</b><span class="tag-add"><svg class="i"><use href="#plus"/></svg>Ajouté au traitement</span></div>
+            <div class="row"><span class="fld sm focus" style="width:90px;justify-content:flex-end">150,000</span><span class="xs muted">DT</span><span class="chip">par dent</span><span class="chip" style="background:var(--primary);color:var(--on-primary);border-color:var(--primary)">pour tout</span><span class="link"><svg class="i"><use href="#undo"/></svg> tarif 60</span></div>
+          </div>
+          <div class="row sm"><span class="muted">Prix du traitement</span><span class="strike num">250,000</span><svg class="i"><use href="#right"/></svg><b class="num">400,000 DT</b></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>No more « aucun honoraire » next to a 150 DT price.</b> The only question left is the price.</span></p>
+  </article>
+
+  <article class="item" id="F4" data-id="F4">
+    <div class="item-h"><span class="id">F4</span><h3>Money at the bottom: one question, three figures</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card flat">
+            <div class="row"><span class="sm">Encaissé sur le traitement</span><span class="fld" style="flex:1;justify-content:flex-end;min-width:90px;background:var(--card)">0,000</span><span class="sm">Mode</span><span class="fld" style="flex:1;min-width:100px;background:var(--card)"><span class="grow">Espèces</span><svg class="i"><use href="#down"/></svg></span></div>
+            <span class="xs"><span class="mono">250,000</span> DT convenus pour tout le traitement (2026-0677) · reste <span class="mono">200,000</span> DT sur ce traitement</span>
+          </div>
+          <div class="row" style="justify-content:flex-end"><span class="btn">Annuler</span><span class="btn pri">Confirmer la séance</span></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card flat">
+            <div class="row"><b class="sm">Payé aujourd'hui</b><span class="fld" style="flex:1;justify-content:flex-end;min-width:90px;background:var(--card)"><span class="muted">0,000</span></span><span class="fld" style="flex:1;min-width:100px;background:var(--card)"><span class="grow">Espèces</span><svg class="i"><use href="#down"/></svg></span></div>
+            <div class="trio"><div><span>Prix</span><b>250,000</b></div><div><span>Déjà payé</span><b>50,000</b></div><div><span>Reste à payer</span><b class="hl">200,000 DT</b></div></div>
+          </div>
+          <div class="row" style="justify-content:flex-end"><span class="btn">Annuler</span><span class="btn pri">Enregistrer la séance</span></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>The chair's own question, the chair's own words.</b> One save label instead of 3 (« Confirmer la séance » · « Créer la fiche » · « Enregistrer »).</span></p>
+  </article>
+
+  <article class="item" id="F5" data-id="F5">
+    <div class="item-h"><span class="id">F5</span><h3>Labels that say it, instead of hints under them</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><span class="lbl">Sur quelle(s) dent(s) ? <i>— glissez pour en sélectionner plusieurs</i></span><span class="row"><span class="chip">Haut</span><span class="chip">Bas</span><span class="chip">Toute la bouche</span></span></div>
+          <span class="xs muted">remplissage = l'acte · contour pointillé = état déjà au dossier</span>
+          <div class="stack"><span class="row sm"><span class="fld sm" style="width:18px;height:18px;min-height:0;padding:0"></span><b>Acte non terminé</b></span><span class="xs muted">Il faudra une autre séance. L'acte passe dans « Suites à planifier » ; aucun montant n'est modifié.</span></div>
+          <span class="xs muted">Les faces et la note s'appliquent aux 3 dents. Pour des faces différentes, ajoutez un acte par dent.</span>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><span class="lbl">Dents</span><span class="row"><span class="chip">Haut</span><span class="chip">Bas</span><span class="chip">Toute la bouche</span><span class="chip">Légende</span></span></div>
+          <span class="row sm"><span class="fld sm" style="width:18px;height:18px;min-height:0;padding:0"></span><b>À continuer une autre séance</b></span>
+          <span class="lbl">Faces <i>(3 dents)</i></span>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>The tooth chart gets the room.</b> Nothing to read before acting.</span></p>
+  </article>
+</section>
+
+<!-- ================= TREATMENT PAGE ================= -->
+<section class="area" id="plan">
+  <div class="area-h"><h2>Treatment page</h2><span>Where editing must feel easy</span></div>
+
+  <article class="item" id="T1" data-id="T1">
+    <div class="item-h"><span class="id">T1</span><h3>Header: who, what, where we are, what to do</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <span class="xs"><svg class="i"><use href="#left"/></svg> Retour aux plans</span>
+          <div class="row spread"><span class="row"><span class="ui-title">Plan couronne SBA</span><span class="st amber">En cours</span></span><span class="btn"><svg class="i"><use href="#dots"/></svg>Actions</span></div>
+          <span class="xs muted"><u>Sami Ben Ali</u> · dents 16 · Dr Karim Haddad · depuis le 12 sept. 2026 <span class="mono">2026-0677</span></span>
+          <div class="g2">
+            <div class="card"><b class="sm">1 séance sur 3 faite</b><span class="xs muted">0 acte sur 1 réalisé</span></div>
+            <div class="card flat"><span class="eyebrow">Prochaine séance</span><b class="sm">Empreinte — séance 2 sur 3</b><span class="xs muted">Rien à faire d'ici là.</span></div>
+          </div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <span class="xs"><svg class="i"><use href="#left"/></svg> Traitements</span>
+          <div class="row spread"><div class="stack"><span class="sm"><u>Sami Ben Ali</u></span><span class="row"><span class="ui-title">Couronne · dent 16</span><span class="st amber">En cours</span></span></div><span class="row"><span class="btn"><svg class="i"><use href="#file"/></svg>Devis n° 2026-0677</span><span class="btn"><svg class="i"><use href="#dots"/></svg></span></span></div>
+          <ol class="frise big">
+            <li class="done"><span class="dot"></span><b>Préparation</b><small>faite le 12/09</small></li>
+            <li class="booked"><span class="dot"></span><b>Empreinte</b><small>prévue le 28/09</small></li>
+            <li class="todo"><span class="dot"></span><b>Scellement</b><small>à planifier</small></li>
+          </ol>
+          <div class="row spread"><span class="xs muted">Dr Karim Haddad · depuis le 12/09</span><span class="btn pri big"><svg class="i"><use href="#cal"/></svg>Planifier : Scellement</span></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>One look answers everything.</b> The biggest button is the next thing to do.</span></p>
+  </article>
+
+  <article class="item" id="T2" data-id="T2">
+    <div class="item-h"><span class="id">T2</span><h3>Edit a séance where you see it</h3><span class="eff">Effort L</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><span class="row"><b>Couronne</b><span class="xs muted">DENTS</span><span class="chip tooth">16</span></span><span class="row"><span class="num">300,000 DT</span><span class="st grey">À planifier</span></span></div>
+          <span class="sm">◌ Préparation — ○ Empreinte — ○ Scellement <span class="mono muted xs">0 / 3 faite</span></span>
+          <div class="row"><span class="btn"><svg class="i"><use href="#cal"/></svg>Planifier la séance</span><span class="btn">Séances</span><span class="btn">Modifier</span><span class="btn">Remise</span></div>
+          <span class="xs muted">Un acte passe à « Réalisé » à l'enregistrement de la fiche de soins liée — il n'y a pas de bascule manuelle. Une séance cochée par erreur se détache de sa fiche depuis « Étapes », sur la ligne de l'acte ; un acte entièrement réalisé porte « Détacher la fiche ».</span>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After · tap a séance</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row" style="align-items:flex-start;flex-wrap:nowrap">
+            <ol class="frise" style="flex:1">
+              <li class="done pickable"><span class="dot"></span><b>Préparation</b><small>faite le 12/09</small></li>
+              <li class="booked pickable"><span class="dot"></span><b>Empreinte</b><small>prévue le 28/09</small></li>
+              <li class="todo pickable"><span class="dot"></span><b>Scellement</b><small>à planifier</small></li>
+            </ol>
+            <span class="btn addstep" title="Ajouter une séance"><svg class="i"><use href="#plus"/></svg></span>
+          </div>
+          <div class="pop" style="--caret:40%">
+            <div><b>Empreinte</b> · prévue le <b>28/09 à 10:00</b></div>
+            <div class="row"><span class="btn">Voir le RDV</span><span class="btn">Déplacer</span><span class="btn">Renommer</span><span class="btn">Durée · délai</span></div>
+          </div>
+          <span class="eyebrow">Autre exemple · séance faite</span>
+          <div class="pop nocaret" style="margin-top:0">
+            <div><b>Préparation</b> · faite le <b>12/09</b></div>
+            <div class="row"><span class="btn">Voir la fiche</span><span class="btn">Remettre à faire</span></div>
+          </div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>1 tap on the séance = all its actions.</b> Move a date without leaving the page. The 45-word note disappears.</span></p>
+  </article>
+
+  <article class="item" id="T3" data-id="T3">
+    <div class="item-h"><span class="id">T3</span><h3>Price and remise edited in the row</h3><span class="eff">Effort L</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before · 2 dialogs</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="ui-title">Modifier les actes et les prix</div>
+          <div class="ui-sub">Le devis garde son numéro (2026-0677) et passe en révision 2. Corrigez les actes et leurs montants, ajoutez ou retirez-en, puis ajustez l'échéancier au nouveau total. Seul le patient n'est pas modifiable.</div>
+          <div class="g2"><div class="stack"><span class="lbl">Patient</span><span class="fld dis">Sami Ben Ali</span></div><div class="stack"><span class="lbl">Titre</span><span class="fld">Plan couronne SBA</span></div></div>
+          <div class="card"><div class="row"><span class="fld" style="flex:1">Couronne</span><span class="btn">⌕</span></div><span class="chip" style="justify-self:start">Couronne / bridge (par élément) ×</span><div class="row"><span class="fld sm">Dents : 16</span><span class="xs muted">Coût (DT)</span><span class="fld sm">300,000</span><span class="xs muted">remise −50,000 DT</span></div></div>
+          <div class="card flat"><b class="sm">Remise sur « Couronne »</b><span class="xs muted">L'acte garde son tarif de 300,000 DT et la remise est une ligne à part — sur le devis imprimé comme dans vos totaux, pour que le cabinet sache ce qu'il a offert. Le patient doit le tarif moins la remise, et l'échéancier est ajusté. Saisissez 0 pour retirer une remise.</span></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After · on the page</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><span class="row"><b>Couronne</b><span class="chip tooth">16</span></span><span class="row sm"><span class="strike num">300,000</span><span class="muted">remise</span><span class="fld sm focus" style="width:74px;justify-content:flex-end">50,000</span><b class="num">250,000 DT</b></span></div>
+          <div class="row spread"><b>Détartrage</b><span class="fld sm" style="width:90px;justify-content:flex-end">90,000</span></div>
+          <span class="btn ghost" style="justify-self:start"><svg class="i"><use href="#plus"/></svg>Ajouter un acte</span>
+          <div class="bar"><span>2 modifications</span><span class="row"><span class="btn" style="background:transparent;color:var(--card)">Annuler</span><span class="btn pri">Enregistrer</span></span></div>
+          <span class="link" style="justify-self:start">Tout modifier (titre, notes, échéancier)</span>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>Fix a price without opening a window.</b> One save = one revision, done silently (visible in the history).</span></p>
+  </article>
+
+  <article class="item" id="T4" data-id="T4">
+    <div class="item-h"><span class="id">T4</span><h3>Money: three figures and one button</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><b>L'argent</b><span class="row"><span class="btn pri">Régler le devis</span><span class="btn">Modifier l'échéancier</span></span></div>
+          <div class="trio"><div><span>Total convenu</span><b>250,000 DT</b></div><div><span>Encaissé</span><b>50,000 DT</b></div><div><span>Reste à encaisser</span><b>200,000 DT</b></div></div>
+          <div class="tscroll"><table class="mini"><thead><tr><th>Échéance</th><th>Montant</th><th>Encaissé</th><th>Reste</th><th>Statut</th><th></th></tr></thead><tbody><tr><td>Solde à régler</td><td>250,000</td><td>50,000</td><td>200,000</td><td><span class="st grey">Solde à régler</span></td><td><span class="link">Encaisser</span></td></tr></tbody></table></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="trio"><div><span>Prix</span><b>250,000</b></div><div><span>Payé</span><b>50,000</b></div><div><span>Reste à payer</span><b class="hl">200,000 DT</b></div></div>
+          <div class="row spread"><span class="btn ghost"><svg class="i"><use href="#right"/></svg>Échéancier (1)</span><span class="btn pri big">Encaisser</span></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>Reception finds « Encaisser » without reading.</b> No figure shown twice.</span></p>
+  </article>
+
+  <article class="item" id="T5" data-id="T5">
+    <div class="item-h"><span class="id">T5</span><h3>A sorted menu, confirmations in 3 bullets</h3><span class="eff">Effort S</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before · flat menu + long dialog</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="menu" style="box-shadow:none"><div>Devis PDF</div><div>Modifier les actes et les prix</div><div>Facturer le devis</div><div>Arrêter le traitement</div><div>Dupliquer ce devis</div><div>Changer le praticien</div><div>Changer de patient</div><div>Détacher la note d'honoraires</div><div>Passer la créance en perte</div><div class="red">Annuler le devis</div><div class="red">Supprimer le traitement</div></div>
+          <div class="card"><b>Supprimer ce traitement ?</b><span class="xs muted">Ce plan sera supprimé, avec ses actes et ses séances à planifier. Aucun numéro de devis n'a été consommé, donc rien ne manquera dans la numérotation — et aucune séance n'a été réalisée, donc aucune fiche de soins n'est touchée. Cette action est irréversible. <span style="color:var(--warn)">Les rendez-vous prévus seront libérés.</span></span></div>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="menu" style="box-shadow:none"><div class="mh">Document</div><div>Devis PDF</div><div>Facturer</div><div class="mh">Modifier</div><div>Changer le praticien</div><div>Changer de patient</div><div>Dupliquer</div><div>Détacher la note</div><div class="mh">Fin du traitement</div><div>Arrêter</div><div>Ne plus réclamer le reste</div><div class="red">Annuler le devis</div><div class="red">Supprimer</div></div>
+          <div class="card"><b>Supprimer ce traitement ?</b><ul class="bul sm"><li><b>1 RDV prévu</b> sera libéré</li><li>Aucune fiche touchée</li><li><b>Irréversible</b></li></ul><div class="row" style="justify-content:flex-end"><span class="btn">Retour</span><span class="btn dangerfill">Supprimer</span></div></div>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>Decide in 3 seconds.</b> Consequences read in bold; « Modifier les actes et les prix » moves into the page (T3).</span></p>
+  </article>
+</section>
+
+<!-- ================= PATIENT FILE ================= -->
+<section class="area" id="patient">
+  <div class="area-h"><h2>Patient file</h2><span>Where the assistant starts</span></div>
+
+  <article class="item" id="L1" data-id="L1">
+    <div class="item-h"><span class="id">L1</span><h3>One card per treatment, booking straight from it</h3><span class="eff">Effort M</span><button class="pick" type="button" aria-pressed="false">Keep</button></div>
+    <div class="ba">
+      <figure class="pane before"><figcaption><span>Before</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="row spread"><span class="row"><b>Plan 2026-0677</b><span class="st amber">En cours</span></span><span class="row"><span class="sm">1 acte à planifier</span><span class="btn pri">Planifier la suite →</span></span></div>
+          <div class="row xs muted"><span>○ 1/3 séance</span><span>· Reste 200,000 DT</span><span>· Aucune séance planifiée</span><span class="link">Tous les plans</span></div>
+          <span class="xs"><svg class="i"><use href="#right"/></svg> Traitements suivis (2 traitements · 3 actes)</span>
+          <span class="xs muted">« Planifier la suite » opens the treatment page first.</span>
+        </div>
+      </figure>
+      <figure class="pane after"><figcaption><span>After</span><span class="wc"></span></figcaption>
+        <div class="ui">
+          <div class="card">
+            <div class="row spread"><b>Couronne · 16</b><span class="st amber">En cours</span></div>
+            <div class="row sm"><span class="pips"><i class="d"></i><i></i><i></i></span><span>Préparation faite</span><span class="muted">· Reste à payer</span><b class="num">200,000 DT</b></div>
+            <span class="btn pri" style="justify-self:start"><svg class="i"><use href="#cal"/></svg>Planifier : Empreinte</span>
+          </div>
+          <div class="card"><div class="row spread"><b>Obturation · 26</b><span class="st grey">À faire</span></div><span class="btn" style="justify-self:start">Planifier</span></div>
+          <span class="link" style="justify-self:start">Tous les traitements</span>
+        </div>
+      </figure>
+    </div>
+    <p class="gain"><span>Gain</span><span><b>Book the next séance in 1 click</b> instead of 2 screens. No « 1/3 » to guess.</span></p>
+  </article>
+</section>
+
+<!-- ================= NOTHING IS LOST ================= -->
+<section class="area" id="keep">
+  <div class="area-h"><h2>Nothing is lost</h2><span>Every capability, and where it lives after</span></div>
+  <div class="tablecard tscroll">
+    <table class="big">
+      <thead><tr><th>Capability</th><th>Today</th><th>After</th></tr></thead>
+      <tbody>
+        <tr><td>Pick which séance a RDV is</td><td class="old">chips behind « modifier »</td><td class="new">tap on the strip, always visible</td></tr>
+        <tr><td>Edit séances (name, length, delay, order, add, delete, protocol, 1 séance)</td><td class="old">editor inside the act card</td><td class="new">same editor, under « Séances »</td></tr>
+        <tr><td>Continue an unfinished act, with a remaining price</td><td class="old">link + 2nd dialog</td><td class="new">« Continuer » card + « Prix du reste »</td></tr>
+        <tr><td>Cancel / delete a RDV</td><td class="old">footer buttons</td><td class="new">« ⋯ » menu + status « Annulé »</td></tr>
+        <tr><td>Change or drop the treatment on a fiche</td><td class="old">« Acte planifié » dropdown</td><td class="new">« Changer » in the header band</td></tr>
+        <tr><td>Price, per tooth / flat, back to tariff</td><td class="old">act card</td><td class="new">same row, « ↺ tarif »</td></tr>
+        <tr><td>Chart legend, faces, état résultant</td><td class="old">folds + always-on caption</td><td class="new">same folds, no caption</td></tr>
+        <tr><td>Undo a séance ticked by mistake</td><td class="old">« Détacher la fiche »</td><td class="new">« Remettre à faire » on the séance</td></tr>
+        <tr><td>Change a séance's date</td><td class="old">leave the page</td><td class="new">« Déplacer » on the séance</td></tr>
+        <tr><td>Remise</td><td class="old">own dialog</td><td class="new">field in the row</td></tr>
+        <tr><td>Title, notes, échéancier, spread over N months</td><td class="old">« Modifier les actes et les prix »</td><td class="new">« Tout modifier »</td></tr>
+        <tr><td>Pay one échéance · settle all · void a payment</td><td class="old">2 buttons + table</td><td class="new">« Encaisser » + folded échéancier</td></tr>
+        <tr><td>The 12 menu actions</td><td class="old">flat list</td><td class="new">same 12, grouped</td></tr>
+        <tr><td>Book several acts together</td><td class="old">tick + « Planifier ensemble »</td><td class="new">unchanged</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================= ORDER ================= -->
+<section class="area" id="order">
+  <div class="area-h"><h2>Suggested order</h2><span>Each batch ships alone</span></div>
+  <div class="tablecard tscroll">
+    <table class="big">
+      <thead><tr><th>Batch</th><th>Items</th><th>Why this order</th></tr></thead>
+      <tbody>
+        <tr><td><b>1</b></td><td>P1 · P2 · R4 · F5 · T5</td><td>Words and text only. Touches every screen, moves nothing.</td></tr>
+        <tr><td><b>2</b></td><td>P3 · T1 · L1 · R1</td><td>The strip becomes the landmark.</td></tr>
+        <tr><td><b>3</b></td><td>F1 · F2 · F3 · F4</td><td>The fiche, the gesture repeated all day.</td></tr>
+        <tr><td><b>4</b></td><td>R2 · R3 · T2 · T3 · T4</td><td>Editing in place, the biggest change.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
+
+<div class="pickbar" id="pickbar" hidden>
+  <span><b id="pickcount">0</b> kept</span>
+  <span class="ids" id="pickids"></span>
+  <button type="button" id="pickcopy">Copy</button>
+</div>
+
+<script>
+(function(){
+  // word count per mock pane
+  document.querySelectorAll('figure.pane').forEach(function(f){
+    var ui = f.querySelector('.ui'); var slot = f.querySelector('.wc');
+    if(!ui || !slot) return;
+    var words = (ui.textContent || '').replace(/[·—–→×⌕›‹…:;,.«»()!?]/g,' ').split(/\s+/).filter(function(w){return /[A-Za-zÀ-ÿ0-9]/.test(w)});
+    slot.textContent = words.length + ' mots';
+  });
+
+  // "Keep" picks, remembered per viewer
+  var KEY = 'treatment-flow-picks';
+  var picks = [];
+  try { picks = JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch(e){ picks = []; }
+  var bar = document.getElementById('pickbar');
+  var count = document.getElementById('pickcount');
+  var ids = document.getElementById('pickids');
+  var order = Array.prototype.map.call(document.querySelectorAll('article.item'), function(a){return a.dataset.id});
+  function render(){
+    picks = order.filter(function(id){return picks.indexOf(id) !== -1});
+    document.querySelectorAll('article.item').forEach(function(a){
+      var b = a.querySelector('.pick'); var on = picks.indexOf(a.dataset.id) !== -1;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.textContent = on ? '✓ Kept' : 'Keep';
+    });
+    count.textContent = picks.length;
+    ids.textContent = picks.join(', ');
+    bar.hidden = picks.length === 0;
+    try { localStorage.setItem(KEY, JSON.stringify(picks)); } catch(e){}
+  }
+  document.querySelectorAll('.pick').forEach(function(b){
+    b.addEventListener('click', function(){
+      var id = b.closest('article.item').dataset.id; var i = picks.indexOf(id);
+      if(i === -1) picks.push(id); else picks.splice(i,1);
+      render();
+    });
+  });
+  document.getElementById('pickcopy').addEventListener('click', function(){
+    var text = 'Build: ' + picks.join(', ');
+    var btn = this;
+    function done(){ btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1400); }
+    function fallback(){ var r = document.createRange(); r.selectNodeContents(ids); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch(e){ fallback(); }
+  });
+  render();
+})();
+</script>

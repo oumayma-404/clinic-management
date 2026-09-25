@@ -1,10 +1,18 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import type { ToothDragSelectHandle } from "@/components/tooth-drag-select"
 import { cn } from "@/lib/utils"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import type { ToothQuadrants } from "@/components/tooth-multiselect"
+
+/** The fade on an edge of the scroll box that hides teeth — `seance-strip.tsx`'s mask, same width. */
+const ARCH_FADE = "2rem"
+const ARCH_MASK: Record<"end" | "start" | "both", string> = {
+  end: `linear-gradient(to right, #000 calc(100% - ${ARCH_FADE}), transparent)`,
+  start: `linear-gradient(to left, #000 calc(100% - ${ARCH_FADE}), transparent)`,
+  both: `linear-gradient(to right, transparent, #000 ${ARCH_FADE}, #000 calc(100% - ${ARCH_FADE}), transparent)`,
+}
 
 /** Which arch is on screen. `both` is the desktop/tablet default; below `md:` one at a time (AC-33). */
 export type ToothArch = "upper" | "lower"
@@ -135,6 +143,53 @@ export function ToothArchLayout({
   const showUpper = !isNarrow || shownArch === "upper"
   const showLower = !isNarrow || shownArch === "lower"
 
+  /*
+   * A fade on each edge of the scroll box that hides teeth, and only while it does (gap2 T3-820: 27/37 sliced,
+   * 28/38 hidden, nothing saying the arch scrolls). Measured on scroll and on resize of the box AND of the arch
+   * inside it — the dentition switch and the arch switch change the content, not the box.
+   */
+  const scrollBoxRef = useRef<HTMLDivElement | null>(null)
+  const [overflow, setOverflow] = useState({ start: false, end: false })
+  const measureOverflow = useCallback(() => {
+    const el = scrollBoxRef.current
+    if (!el) return
+    const scrollable = el.scrollWidth - el.clientWidth > 1
+    const next = {
+      start: scrollable && el.scrollLeft > 1,
+      end: scrollable && el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
+    }
+    setOverflow((prev) => (prev.start === next.start && prev.end === next.end ? prev : next))
+  }, [])
+  // ⚠️ Stable, never inline: the drag hook keeps its container in `useState`, so a new ref each render would
+  // hand it `null` then the node on every commit — a re-render loop.
+  const dragRef = dragSelect?.containerProps.ref
+  const setScrollBox = useCallback(
+    (node: HTMLDivElement | null) => {
+      scrollBoxRef.current = node
+      dragRef?.(node)
+    },
+    [dragRef],
+  )
+  useEffect(() => {
+    const el = scrollBoxRef.current
+    if (!el) return
+    measureOverflow()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measureOverflow)
+    observer.observe(el)
+    if (el.firstElementChild) observer.observe(el.firstElementChild)
+    return () => observer.disconnect()
+  }, [measureOverflow])
+  const mask =
+    overflow.start && overflow.end
+      ? ARCH_MASK.both
+      : overflow.end
+        ? ARCH_MASK.end
+        : overflow.start
+          ? ARCH_MASK.start
+          : null
+  const maskStyle: CSSProperties | undefined = mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined
+
   return (
     <div className="space-y-2">
       {/* The arch switch exists only where an arch does not fit. At `md:` and up both are drawn and a control
@@ -172,6 +227,9 @@ export function ToothArchLayout({
       <div className="rounded-lg border border-border bg-card">
       <div
         {...(dragSelect?.containerProps ?? {})}
+        ref={setScrollBox}
+        onScroll={measureOverflow}
+        style={maskStyle}
         className={cn("overflow-x-auto p-3", dragSelect && "select-none")}
       >
         <div className="mx-auto w-max">

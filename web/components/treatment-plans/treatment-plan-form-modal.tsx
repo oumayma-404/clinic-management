@@ -24,192 +24,59 @@ import { Check, Plus, ReceiptText, Search, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import {
   treatmentPlansApi,
-  type TreatmentPlanItemInput,
-  type TreatmentPlanItemStepInput,
-  type TreatmentPlanInstallmentInput,
   type CreateTreatmentPlanRequest,
   type UpdateTreatmentPlanRequest,
 } from "@/lib/api/treatment-plans"
-import {
-  catalogueLineCost, seedCost, type OdontogramPlanSeed, type SeedCandidate,
-} from "@/components/odontogram-plan-seed"
+import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { patientsApi } from "@/lib/api/patients"
-import type {
-  TreatmentPlanDto,
-  TreatmentPlanItemDto,
-  PatientDto,
-  ProcedureTypeDto,
-} from "@/lib/api/types"
+import type { TreatmentPlanDto, PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { formatAmount, formatDT, formatDateTime, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
 import { addMonths, format, parseISO } from "date-fns"
-import { installmentDueLabel } from "./treatment-plan-labels"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
 import { actRemovalPlan, type ActRemovalPlan } from "@/components/treatment-plans/plan-next-action"
 import { REFUND_DECLINED, usePlanRefundConfirm } from "@/components/treatment-plans/plan-refund-confirm"
+import { Consequences } from "@/components/treatment-plans/plan-consequences"
+import { isPlaceholderTitle, treatmentName } from "@/components/treatment-plans/treatment-plan-labels"
 
-interface LineRow {
-  /**
-   * The existing act this row stands for, when editing. Echoed back on save so the server keeps that act's
-   * id — otherwise every draft edit re-issues the ids and silently orphans any appointment or dental-record
-   * link pointing at those acts (neither has an FK to catch it).
-   */
-  id: string | null
-  /**
-   * The procedure this act will be performed as, kept when the row was filled from « Mes actes ». Persisted
-   * so booking the act preselects it; previously the pick was snapshotted to a name and the id thrown away,
-   * which left every plan-scheduled appointment without a procedure at all.
-   */
-  procedureTypeId: string | null
-  designationFr: string
-  /**
-   * The charted diagnosis this row was seeded from, e.g. « Carie — dent 15 ». Display only — it is a reason to
-   * treat, not an act, so it is never sent to the server. Empty for a hand-added row.
-   */
-  diagnosisLabel?: string
-  /** The condition behind that label, so the hint can use its own colour from the odontogram palette. */
-  diagnosisCondition?: string
-  /** The other acts that treat this line's diagnosis, best first. Empty on a hand-added row. */
-  candidates?: SeedCandidate[]
-  plannedCost: string
-  /**
-   * Has the dentist typed this fee themselves? Until they do, it **follows** whichever act the row is set to,
-   * so picking a different act reprices the line.
-   *
-   * The guard this replaces was `plannedCost === ""` — prefill only an empty field — which could not tell a fee
-   * the dentist typed from one a *previous pick* had prefilled, and so protected both. Any row arriving with a
-   * cost (every odontogram seed does) therefore kept its original fee through every subsequent change of act:
-   * « Détartrage » priced at the couronne's fee.
-   */
-  costTouched: boolean
-  /** The remise already granted on this act (read-only here) — the total is the fee minus it (F2). */
-  discount?: number
-  toothNumbers: number[]
-  /**
-   * The séances this act will be carried out over — the procedure's protocol, ticked and editable before the
-   * devis is accepted.
-   *
-   * ⚠️ Absent means « this act has no protocol », which is most acts: nineteen of the thirty-three starter
-   * acts are single-séance and the panel does not mention them at all. An empty array is different and is a
-   * decision — every step unticked, « cet acte se fait en une séance » — and is sent as `[]` so the server
-   * does not helpfully re-apply the protocol the dentist just declined.
-   */
-  steps?: StepRow[]
-  /**
-   * Has the dentist touched this act's séances? Until they do, the list **follows** whichever act the row is
-   * set to, so picking a different act re-proposes that act's protocol. Afterwards it is left alone — the same
-   * rule and the same reason as `costTouched`, which exists because a fee prefilled by a previous pick could
-   * not be told from one the dentist typed.
-   */
-  stepsTouched?: boolean
-}
+import {
+  buildAmendRequest,
+  derivedPlanTitle,
+  emptyPlanLine,
+  parsePlanInstallments,
+  parsePlanLines,
+  planInstallmentRows,
+  planLinesFromPlan,
+  planLinesTotal,
+  proposedStepsFor,
+  repricedCost,
+  type PlanInstallmentRow,
+  type PlanLineRow,
+  type PlanStepRow,
+} from "@/components/treatment-plans/plan-amend-payload"
 
-/**
- * A line's séances as one comparable string, over the fields that are actually sent — so « did the steps
- * change? » and « what will be saved » cannot answer differently. `null` for a line carrying no protocol,
- * which is not the same as one whose protocol is empty.
- */
-function stepSignature(steps: TreatmentPlanItemStepInput[] | undefined): string | null {
-  // ⚠️ `[]` and « no steps » are the same stored fact — returning "" here made every step-less act look edited,
-  // so a save with no change bumped the révision (F9).
-  if (!steps || steps.length === 0) return null
-  return steps
-    .map(
-      (st) =>
-        `${st.id ?? ""}|${st.label.trim()}|${st.estimatedDurationMinutes ?? ""}|${st.minDaysAfterPrevious ?? ""}`,
-    )
-    .join("~")
-}
-
-/** The same signature, computed from the stored act — the other half of the comparison. */
-function storedStepSignature(item: TreatmentPlanItemDto): string | null {
-  const steps = item.steps ?? []
-  if (steps.length === 0) return null
-  return steps
-    .map(
-      (st) =>
-        `${st.id}|${st.label.trim()}|${st.estimatedDurationMinutes ?? ""}|${st.minDaysAfterPrevious ?? ""}`,
-    )
-    .join("~")
-}
+// The editor's rows and the amendment builder live in `plan-amend-payload.ts`, shared with the page's in-place
+// price editor so both send the same payload for the same edit.
+type LineRow = PlanLineRow
+type StepRow = PlanStepRow
+type InstallmentRow = PlanInstallmentRow
+const emptyLine = emptyPlanLine
 
 /**
  * Accent-, case- and space-insensitive comparison key for an act's name — the same fold the backend's
- * `CategoryFolding` applies to a category, and for the same reason: « Implant dentaire » typed by hand and
- * picked from the catalogue must be recognised as one act.
+ * `CategoryFolding` applies to a category: « Implant dentaire » typed and picked must be recognised as one act.
  */
 const fold = (value: string): string =>
   value
     .normalize("NFD")
-    // The combining-diacritic block, as escapes: a literal range here is invisible in a diff and easy to
-    // mangle in an editor that normalises the file.
+    // The combining-diacritic block, as escapes: a literal range is invisible in a diff.
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
-
-/** One proposed séance in the confirmation panel. `duration` is a string because it is typed into an input. */
-interface StepRow {
-  /**
-   * The existing step this row stands for, echoed back on an amendment so it keeps its id — and with it its
-   * `doneDate`, its fiche link and any appointment booked for it. Null (or absent) means a new séance.
-   */
-  id?: string | null
-  label: string
-  duration: string
-  /**
-   * Calendar days to wait after the previous séance. A different quantity from `duration`: that one sizes the
-   * appointment, this one decides when it is due, and its absence is why the worklist alarmed on a flat
-   * fortnight whatever the protocol.
-   */
-  interval?: string
-  /** Unticked = not part of this devis. Kept in the list rather than removed, so it can be re-ticked. */
-  include: boolean
-  /** Already carried out. It cannot be unticked or removed — the aggregate refuses it, and rightly. */
-  done?: boolean
-}
-
-interface InstallmentRow {
-  /**
-   * The existing échéance this row revises. Dropped before (only `dueDate`/`amount` were kept), which is
-   * harmless on a draft — the server replaces the whole schedule — but destructive on an **amendment**: an
-   * échéance that has collected money must be echoed back by id or the server refuses the call outright
-   * ("Une échéance déjà encaissée ne peut pas être supprimée de l'échéancier").
-   */
-  id: string | null
-  dueDate: string
-  amount: string
-  /** Cash already collected on this échéance. 0 for a new row. Drives the "locked" affordance (AC-P2.6). */
-  amountPaid: number
-}
-
-/**
- * An act's protocol as proposed séances, all ticked. `undefined` when the act has none — which is most acts,
- * and is what keeps the confirmation panel off the screen for an ordinary devis.
- */
-const proposedStepsFor = (pt: ProcedureTypeDto | undefined): StepRow[] | undefined => {
-  if (!pt?.defaultSteps || pt.defaultSteps.length === 0) return undefined
-  return pt.defaultSteps.map((step) => ({
-    id: null,
-    label: step.label,
-    duration: step.durationMinutes != null ? String(step.durationMinutes) : "",
-    // The clinical interval travels with the label — see `ProcedureStepTemplateDto.minDaysAfterPrevious`.
-    interval: step.minDaysAfterPrevious != null ? String(step.minDaysAfterPrevious) : "",
-    include: true,
-  }))
-}
-
-const emptyLine = (): LineRow => ({
-  id: null,
-  procedureTypeId: null,
-  designationFr: "",
-  plannedCost: "",
-  costTouched: false,
-  toothNumbers: [],
-})
 
 /**
  * A draft act line pre-filled from the odontogram (« Créer un plan depuis l'odontogramme »).
@@ -323,6 +190,8 @@ export function TreatmentPlanFormModal({
    * form overwrite a colleague with a 200 (F3). Moved only by our own writes and by « Recharger ».
    */
   const hydratedVersionRef = useRef(0)
+  /** The stored placeholder title the field opened empty over — what an empty field saves (no accidental rename). */
+  const storedPlaceholderTitleRef = useRef<string | null>(null)
   /** After a failure that is not a 409, our own partial write may have moved the row: take its version. */
   const resync = async () => {
     if (!editingPlan) return
@@ -391,59 +260,18 @@ export function TreatmentPlanFormModal({
    * whatever the dentist had typed the moment anyone saved anything (F1).
    */
   const hydrateFrom = (plan: TreatmentPlanDto) => {
-      // A parked act is not part of the devis' total and cannot be amended — it comes back via « Rétablir » (F2).
-      hydratedVersionRef.current = plan.version
-      const liveItems = plan.items.filter((it) => !it.isWithdrawn)
-      setPatientId(plan.patientId)
-      setTitle(plan.title)
-      setNotes(plan.notes ?? "")
-      setLines(
-        liveItems.length > 0
-          ? liveItems.map((it) => ({
-              id: it.id,
-              procedureTypeId: it.procedureTypeId,
-              designationFr: it.designationFr,
-              plannedCost: formatAmount(it.plannedCost),
-              // A stored fee is the number that was agreed with the patient, whatever the catalogue says today.
-              // It is never re-derived from a default, so re-picking an act to fix its designation cannot
-              // reprice work already quoted.
-              costTouched: true,
-              discount: it.discountAmount ?? 0,
-              toothNumbers: it.toothNumbers,
-              /*
-               * ⚠️ **The act's own séances, and they were not hydrated at all** — so « Étapes proposées » was
-               * empty for every existing act and the dialog's own description (« Seul le patient n'est pas
-               * modifiable ») was false: the steps were not modifiable there either. Confirmed in the browser
-               * on a 6-step act with zero step controls on screen.
-               *
-               * `stepsTouched: true` because a stored protocol is already somebody's decision: re-picking the
-               * act to correct its designation must not silently re-propose the catalogue's version over the
-               * sequence this patient was quoted.
-               */
-              steps: (it.steps ?? []).map((st) => ({
-                id: st.id,
-                label: st.label,
-                duration: st.estimatedDurationMinutes != null ? String(st.estimatedDurationMinutes) : "",
-                interval: st.minDaysAfterPrevious != null ? String(st.minDaysAfterPrevious) : "",
-                include: true,
-                // A réalisé step cannot be dropped or re-ordered — the aggregate refuses it, because the row
-                // holds the only link to the fiche that evidences it. Said on the control rather than as a
-                // refusal after the save.
-                done: st.doneDate != null,
-              })),
-              stepsTouched: true,
-            }))
-          : [emptyLine()],
-      )
-      setInstallments(
-        plan.installments.map((inst) => ({
-          id: inst.id,
-          dueDate: inst.dueDate.slice(0, 10),
-          amount: formatAmount(inst.amount),
-          amountPaid: inst.amountPaid,
-        })),
-      )
-      setInstallmentsTouched(false)
+    hydratedVersionRef.current = plan.version
+    setPatientId(plan.patientId)
+    // A placeholder (« Plan de traitement ») opens EMPTY under the page's own name; left empty, it is sent back.
+    const placeholder = isPlaceholderTitle(plan.title) ? plan.title.trim() : ""
+    storedPlaceholderTitleRef.current = placeholder || null
+    setTitle(placeholder ? "" : plan.title)
+    setNotes(plan.notes ?? "")
+    // The shared mapping — the same lines the page's in-place editor builds its amendment from.
+    const hydrated = planLinesFromPlan(plan)
+    setLines(hydrated.length > 0 ? hydrated : [emptyLine()])
+    setInstallments(planInstallmentRows(plan))
+    setInstallmentsTouched(false)
   }
 
   const hydratedForRef = useRef<string | null>(null)
@@ -463,7 +291,9 @@ export function TreatmentPlanFormModal({
     } else {
       setPatientId(presetPatientId ?? "")
       const seeded = seedLines && seedLines.length > 0
-      setTitle(seeded ? "Plan de traitement" : "")
+      // Blank: the title is derived from the acts at save, and shown as the placeholder until then.
+      storedPlaceholderTitleRef.current = null
+      setTitle("")
       setNotes("")
       setLines(
         seeded
@@ -550,8 +380,8 @@ export function TreatmentPlanFormModal({
       index,
       label:
         plan.booking.sharedWith > 0
-          ? `L'acte sera retiré du rendez-vous du ${when}, qui reste prévu pour les autres actes.`
-          : `Le rendez-vous du ${when} sera annulé : cet acte est la seule raison de cette séance.`,
+          ? `Retiré du RDV du ${when}, qui reste prévu`
+          : `RDV du ${when} annulé`,
     })
   }
 
@@ -566,12 +396,8 @@ export function TreatmentPlanFormModal({
    * price, whereas a stale one silently asserts a wrong one. (Harmless server-side — for a CNAM-linked line
    * `TreatmentPlanItemPricing` fills a blank cost from the act's own default.)
    */
-  const repricedFor = (line: LineRow, pt: ProcedureTypeDto | undefined): string => {
-    if (line.costTouched) return line.plannedCost
-    // G4: the same per-tooth rule as the odontogram seed — a 3-tooth act was quoted once.
-    const cost = pt ? catalogueLineCost(pt, line.toothNumbers.length) : undefined
-    return cost != null && cost > 0 ? formatAmount(cost) : ""
-  }
+  // G4: the same per-tooth rule as the odontogram seed — repricedCost is shared with the page's editor.
+  const repricedFor = (line: LineRow, pt: ProcedureTypeDto | undefined): string => repricedCost(line, pt)
 
   /**
    * The catalogue act a typed designation names, when it names one — accent- and case-insensitively, on the
@@ -789,10 +615,7 @@ export function TreatmentPlanFormModal({
   }
 
   // What the patient owes: each fee minus the remise already granted on it (F2).
-  const total = Math.round(lines.reduce((sum, l) => {
-    const cost = parseAmountInput(l.plannedCost)
-    return Number.isFinite(cost) ? sum + Math.max(0, cost - (l.discount ?? 0)) : sum
-  }, 0) * 1000) / 1000
+  const total = planLinesTotal(lines)
 
   /** « Répartir le solde sur N mois » — paid rows keep what they took, the rest is spread monthly (F10). */
   const [spreadMonths, setSpreadMonths] = useState("3")
@@ -827,254 +650,81 @@ export function TreatmentPlanFormModal({
 
   const installmentsMatch = installments.length === 0 || Math.abs(installmentsSum - total) < 0.0005
 
-  /**
-   * The title the devis takes when the dentist types none — the first act's name, or « Plan de traitement » for
-   * a plan of several. Shown as the field's placeholder, so what will be used is visible before the save.
-   */
-  const derivedTitle = useMemo(() => {
+  /** The title the devis takes when none is typed. */
+  const derivedTitle = useMemo(() => derivedPlanTitle(lines), [lines])
+  /** The field's placeholder: what the page will CALL it (« Couronne + 1 acte »), never « Plan de traitement ». */
+  const titlePlaceholder = useMemo(() => {
     const named = lines.filter((l) => l.designationFr.trim() !== "")
-    if (named.length === 0) return ""
-    return named.length === 1 ? named[0].designationFr.trim() : "Plan de traitement"
+    return named.length > 0
+      ? treatmentName({ items: named.map((l) => ({ designationFr: l.designationFr.trim(), toothNumbers: l.toothNumbers })) })
+      : "Ex. Réhabilitation prothétique"
   }, [lines])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // An empty field over a stored placeholder title saves that title unchanged — never a rename, and an
+    // otherwise untouched form still answers « Aucune modification demandée ».
+    const submittedTitle =
+      title.trim() === "" && storedPlaceholderTitleRef.current ? storedPlaceholderTitleRef.current : title
     // ⚠️ `clearMessage`, never `setError(null)`: that one resets the consecutive-conflict counter, so a form
-    // clearing its banner at the top of every submit can never reach a second 409 and the escalated wording
-    // is unreachable. `use-conflict.ts` records this measured verbatim.
+    // clearing its banner at the top of every submit can never reach a second 409 (`use-conflict.ts`).
     conflict.clearMessage()
 
     if (!patientId) {
       setError("Veuillez sélectionner un patient.")
       return
     }
+
     /*
-     * ⚠️ **The title is derived rather than demanded.** It was the SOLE required field: pressing « Créer le
-     * plan » with everything else already filled from one act pick — the designation, the fee, the six séances
-     * and their durations — answered « Le titre est obligatoire. » and fired no request. Twenty devis a week,
-     * and the only keystrokes the form demanded were a label derivable from the act just inserted. The field
-     * stays editable and its placeholder now shows what will be used.
+     * ⚠️ An amendment is built by `buildAmendRequest` — the same builder the page's in-place price editor uses —
+     * so both send every act with its id, every step with its id and `minDaysAfterPrevious`, the échéancier only
+     * when edited, and the version this form's copy was read at (F3).
      */
-    const effectiveTitle = title.trim() || derivedTitle
-    if (!effectiveTitle) {
-      setError("Ajoutez au moins un acte, ou saisissez un titre.")
-      return
-    }
-
-    // ⚠️ A blank name on an EXISTING act used to drop the line, i.e. delete the act and cancel its visit with no
-    // confirmation (F8). Removing an act is the bin's job.
-    const blankExisting = lines.find((l) => l.id && l.designationFr.trim() === "")
-    if (blankExisting) {
-      setError("Donnez un nom à chaque acte — pour en retirer un, utilisez la corbeille.")
-      return
-    }
-
-    const parsedLines: TreatmentPlanItemInput[] = lines
-      .map((l) => ({
-        id: l.id,
-        procedureTypeId: l.procedureTypeId,
-        designationFr: l.designationFr.trim(),
-        plannedCost: parseAmountInput(l.plannedCost),
-        toothNumbers: l.toothNumbers,
-        /*
-         * The séances the dentist confirmed, and the tri-state matters at every point:
-         *   • no protocol at all      → `undefined`, and the server applies the procedure's own (which is
-         *                               also nothing for the nineteen single-séance acts)
-         *   • a protocol, some ticked → the ticked ones, in order
-         *   • a protocol, none ticked → `[]`, an explicit « cet acte se fait en une séance ». Sending
-         *                               `undefined` here would have the server helpfully re-apply the very
-         *                               protocol the dentist just declined.
-         * A blank label is dropped rather than refused: a row added and left empty is not a decision.
-         */
-        steps: l.steps
-          ? l.steps
-              .filter((st) => st.include && st.label.trim() !== "")
-              .map((st) => ({
-                // Echoed back so an existing séance keeps its identity — its réalisé date, the fiche that
-                // evidences it and any appointment already booked for it. Without it every amendment would be
-                // a delete-and-recreate, which the aggregate refuses as soon as one step is carried out.
-                id: st.id ?? null,
-                label: st.label.trim(),
-                estimatedDurationMinutes: st.duration.trim() === "" ? null : Number(st.duration),
-                minDaysAfterPrevious:
-                  !st.interval || st.interval.trim() === "" ? null : Number(st.interval),
-              }))
-          : undefined,
-      }))
-      .filter((l) => l.designationFr !== "")
-
-    if (parsedLines.length === 0) {
-      setError("Ajoutez au moins un acte.")
-      return
-    }
-    for (const l of parsedLines) {
-      if (!Number.isFinite(l.plannedCost) || l.plannedCost < 0) {
-        setError(`Coût invalide pour ${quoteFr(l.designationFr)}.`)
-        return
-      }
-    }
-
-    // Build the installments; the last row absorbs the remainder so the schedule sums exactly to the total.
-    let parsedInstallments: TreatmentPlanInstallmentInput[] = []
-    // ⚠️ On an amendment the schedule goes only when it was edited: re-sending it unchanged bumped the révision
-    // on a no-op save (F9), and a changed total is re-spread server-side while agreed dates are kept.
-    const sendSchedule = !isAmending || installmentsTouched
-    // Lowering the total can leave nothing for the later rows: unpaid rows at the end give way (F10).
-    const workingRows = [...installments]
-    const typedSum = (rows: InstallmentRow[]) =>
-      rows.slice(0, -1).reduce((sum, r) => {
-        const a = parseAmountInput(r.amount)
-        return sum + (Number.isFinite(a) ? a : 0)
-      }, 0)
-    while (
-      sendSchedule
-      && workingRows.length > 1
-      && workingRows[workingRows.length - 1].amountPaid <= 0
-      && total - typedSum(workingRows) < -0.0005
-    ) {
-      workingRows.pop()
-    }
-    if (sendSchedule && workingRows.length > 0) {
-      const installments = workingRows
-      for (const r of installments) {
-        if (!r.dueDate) {
-          setError("Chaque échéance doit avoir une date.")
-          return
-        }
-      }
-      const amounts = installments.map((r) => parseAmountInput(r.amount))
-      for (let i = 0; i < amounts.length - 1; i++) {
-        if (!Number.isFinite(amounts[i]) || amounts[i] < 0) {
-          setError("Montant d'échéance invalide.")
-          return
-        }
-      }
-      const allButLast = amounts.slice(0, -1).reduce((s, a) => s + (Number.isFinite(a) ? a : 0), 0)
-      const lastAmount = Math.round((total - allButLast) * 1000) / 1000
-      if (lastAmount < 0) {
-        setError("Le total des échéances dépasse le montant du plan.")
-        return
-      }
-      parsedInstallments = installments.map((r, i) => ({
-        // Echoing the id back is what lets the server *revise* an existing échéance rather than replace the
-        // schedule — mandatory for any row that has collected money.
-        id: r.id,
-        dueDate: `${r.dueDate}T00:00:00`,
-        amount: i === amounts.length - 1 ? lastAmount : parseAmountInput(r.amount),
-      }))
-
-      // AC-P2.6: refuse locally what the server refuses anyway, but name the row. A paid échéance may be
-      // re-dated and raised, never lowered below what was collected and never dropped.
-      for (let i = 0; i < installments.length; i++) {
-        const row = installments[i]
-        if (row.amountPaid > 0 && parsedInstallments[i].amount < row.amountPaid - 0.0005) {
-          setError(
-            // Named the way the échéancier names it. It printed the raw `2026-03-14` here.
-            `${installmentDueLabel({ dueDate: row.dueDate })} : déjà encaissé ${formatDT(row.amountPaid)} — `
-              + "son montant ne peut pas être ramené en dessous.",
-          )
-          return
-        }
-      }
-      // An unpaid row left at 0 is not an échéance — the aggregate refuses one, so it is dropped (F10).
-      const kept = parsedInstallments.filter((r, i) => r.amount > 0.0005 || installments[i].amountPaid > 0)
-      if (kept.length > 0) parsedInstallments = kept
-    }
-
     if (isAmending && editingPlan) {
-      const originalIds = new Set(editingPlan.items.filter((i) => !i.isWithdrawn).map((i) => i.id))
-      const keptIds = new Set(parsedLines.map((l) => l.id).filter((id): id is string => !!id))
-      const removeItemIds = [...originalIds].filter((id) => !keptIds.has(id))
-
-      const blocked = removeItemIds.map((id) => removalBlockerFor(id)).find(Boolean)
-      if (blocked) {
-        setError(blocked)
-        return
-      }
-
-      // Rows with no id are additions; rows with one are **corrections in place**, sent as `updateItems`.
-      //
-      // They used to be dropped here on the belief that the endpoint took additions and removals only. It takes
-      // `updateItems` too, and the inputs above were already editable — so a dentist could retype a fee, press
-      // « Enregistrer la révision », get a success toast and lose the edit. That silent discard is the whole
-      // reason a plan needed a draft stage to be correctable, and it has to go for creation-time acceptance to
-      // be safe. Sending an id also *preserves* it, so every appointment and fiche link survives the change —
-      // which remove-then-add cannot do, and which is refused outright for a réalisé or booked act.
-      const addItems = parsedLines.filter((l) => !l.id)
-      const updateItems = parsedLines.filter((l) => {
-        if (!l.id) return false
-        const before = editingPlan.items.find((i) => i.id === l.id)
-        if (!before) return false
-        // Only genuinely changed lines: re-sending every act unchanged would bump the révision counter on a
-        // no-op save, and that counter is how a patient's earlier printout is identified.
-        return (
-          l.designationFr.trim() !== before.designationFr.trim() ||
-          Math.abs(l.plannedCost - before.plannedCost) > 0.0005 ||
-          (l.procedureTypeId ?? null) !== (before.procedureTypeId ?? null) ||
-          l.toothNumbers.join(",") !== before.toothNumbers.join(",") ||
-          // ⚠️ **The steps, which this test did not compare.** So a steps-only edit — a renamed séance, a
-          // re-ordered protocol, a deleted middle step — was dropped from `updateItems`, and if nothing else
-          // had changed the form answered « Aucune modification demandée. » for a change the dentist had just
-          // made. The comparison is on the shape actually sent, so it cannot drift from the payload.
-          stepSignature(l.steps) !== storedStepSignature(before)
-        )
-      })
-
-      const retitling = title.trim() !== "" && title.trim() !== editingPlan.title
-      const renoting = (notes.trim() || null) !== (editingPlan.notes ?? null)
-
-      if (
-        addItems.length === 0 &&
-        updateItems.length === 0 &&
-        removeItemIds.length === 0 &&
-        !(sendSchedule && installments.length > 0) &&
-        !retitling &&
-        !renoting
-      ) {
-        setError("Aucune modification demandée.")
-        return
-      }
-
-      // An échéancier that was dropped entirely is sent as an empty list; the server answers
-      // "L'échéancier ne peut pas être vide sur un devis accepté." rather than us guessing a spread.
-      const droppedPaidRow = sendSchedule && editingPlan.installments.some(
-        (inst) => inst.amountPaid > 0 && !installments.some((r) => r.id === inst.id),
+      const built = buildAmendRequest(
+        editingPlan,
+        { lines, installments, installmentsTouched, title: submittedTitle, notes },
+        hydratedVersionRef.current || editingPlan.version,
       )
-      if (droppedPaidRow) {
-        setError(
-          "Une échéance déjà encaissée ne peut pas être supprimée de l'échéancier. Conservez-la et ajustez les autres.",
-        )
+      if (!built.ok) {
+        setError(built.error)
         return
       }
 
       setLoading(true)
       try {
-        const amended = await withRefund((refundMethod) => treatmentPlansApi.amend(editingPlan.id, {
-          addItems,
-          updateItems,
-          removeItemIds,
-          installments: parsedInstallments,
-          title: effectiveTitle,
-          // Tri-state server-side and always sent: it compares against the stored value, so an unchanged note
-          // is not counted as an amendment and does not bump the révision.
-          notes: notes.trim() || null,
-          // The row's version as last read, so a peer's edit 409s instead of overwriting their fees — and
-          // our own earlier write is not mistaken for one.
-          version: hydratedVersionRef.current || editingPlan.version,
-          refundMethod,
-        }))
+        const amended = await withRefund((refundMethod) =>
+          treatmentPlansApi.amend(editingPlan.id, { ...built.value, refundMethod }),
+        )
         // « Retour » on the rendu question: nothing was saved and the form stays as typed.
         if (amended === REFUND_DECLINED) return
-        toast.success("Devis modifié")
+        toast.success("Traitement modifié")
         onSuccess?.()
         onOpenChange(false)
       } catch (err) {
         // A non-conflict failure may still have moved the row; a real 409 is left alone, or the retry would
         // silently overwrite the colleague who caused it — « Recharger » on the banner is their door instead.
-        if (!conflict.capture(err, "Échec de la modification du devis.")) await resync()
+        if (!conflict.capture(err, "Échec de la modification du traitement.")) await resync()
       } finally {
         setLoading(false)
       }
+      return
+    }
+
+    // The title is derived rather than demanded — it was once the sole required field.
+    const effectiveTitle = submittedTitle.trim() || derivedTitle
+    if (!effectiveTitle) {
+      setError("Ajoutez au moins un acte, ou saisissez un titre.")
+      return
+    }
+    const parsedLines = parsePlanLines(lines)
+    if (!parsedLines.ok) {
+      setError(parsedLines.error)
+      return
+    }
+    const parsedInstallments = parsePlanInstallments(installments, total, true)
+    if (!parsedInstallments.ok) {
+      setError(parsedInstallments.error)
       return
     }
 
@@ -1084,39 +734,35 @@ export function TreatmentPlanFormModal({
         const payload: UpdateTreatmentPlanRequest = {
           title: effectiveTitle,
           notes: notes.trim() || null,
-          items: parsedLines,
-          installments: parsedInstallments,
+          items: parsedLines.value,
+          installments: parsedInstallments.value,
         }
         await treatmentPlansApi.update(editingPlan.id, {
           ...payload,
           version: hydratedVersionRef.current || editingPlan.version,
         })
-        toast.success("Plan de traitement mis à jour")
+        toast.success("Traitement mis à jour")
       } else {
         const payload: CreateTreatmentPlanRequest = {
           patientId,
           title: effectiveTitle,
           notes: notes.trim() || null,
-          items: parsedLines,
-          installments: parsedInstallments,
+          items: parsedLines.value,
+          installments: parsedInstallments.value,
         }
         const created = await treatmentPlansApi.create(payload)
-        // Names the number, because that is the evidence the plan is already live — a bare « créé » left the
-        // dentist looking for the « Accepter » button that no longer exists.
-        toast.success(
-          created.number ? `Devis ${created.number} créé et validé` : "Devis créé et validé",
-        )
+        // Names the number: the evidence the devis is already live.
+        toast.success(created.number ? `Devis ${created.number} créé` : "Devis créé")
       }
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      // A non-conflict failure may still have moved the row; a real 409 is left alone, or the retry would
-      // silently overwrite the colleague who caused it — « Recharger » on the banner is their door instead.
-      if (!conflict.capture(err, "Échec de l'enregistrement du plan.")) await resync()
+      if (!conflict.capture(err, "Échec de l'enregistrement du traitement.")) await resync()
     } finally {
       setLoading(false)
     }
   }
+
 
   return (
     <>
@@ -1125,26 +771,20 @@ export function TreatmentPlanFormModal({
       <DialogContent mobile="sheet" className="md:max-h-[90dvh] md:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {/* m15 — « Modifier les actes et les prix », the same words the workspace's menu uses. « Modifier
-                le devis » was renamed there precisely because it is a homophone of « Éditer le devis », which
-                mints the number; leaving the stale wording on the dialog's own title reintroduced it. */}
-            {isAmending
-              ? "Modifier les actes et les prix"
-              : isEditing
-                ? "Modifier le plan de traitement"
-                : "Nouveau plan de traitement"}
+            {/* The same words the workspace uses — « Tout modifier » opens this. */}
+            {isAmending ? "Tout modifier" : isEditing ? "Modifier le traitement" : "Nouveau traitement"}
           </DialogTitle>
+          {/*
+            Who it is for, as a fact — the patient is not a field here (a disabled input said the same thing and
+            « Changer de patient » lives in the workspace's menu). A new devis is numbered on creation.
+          */}
           <DialogDescription>
-            {isAmending ? (
-              <>
-                Le devis garde son numéro{editingPlan?.number ? ` (${editingPlan.number})` : ""} et passe en
-                révision {(editingPlan?.revisionNumber ?? 0) + 1}. Corrigez les actes et leurs montants, ajoutez
-                ou retirez-en, puis ajustez l&apos;échéancier au nouveau total. Seul le patient n&apos;est pas
-                modifiable.
-              </>
-            ) : (
-              "Devis : actes planifiés, coûts et échéancier. Il est validé et numéroté dès sa création — les montants restent corrigeables ensuite."
+            {(presetPatientId || isEditing) && (
+              <b className="text-foreground">{presetPatientName ?? editingPlan?.patientName ?? "Patient"}</b>
             )}
+            {isAmending
+              ? editingPlan?.number && <> · Devis n° {editingPlan.number}</>
+              : !isEditing && <>{presetPatientId ? " · " : ""}Numéroté dès sa création</>}
           </DialogDescription>
         </DialogHeader>
 
@@ -1163,10 +803,9 @@ export function TreatmentPlanFormModal({
             className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-wash p-3"
           >
             <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
-            <p className="text-2xs leading-relaxed text-warning-ink">
-              Ce devis est facturé sur la note{" "}
-              <span className="font-mono">{editingPlan.linkedInvoiceNumber}</span>. La note ne suivra pas cette
-              correction&nbsp;: si le montant change, corrigez-la par un avoir.
+            <p className="text-xs text-warning-ink">
+              <b>Facturé sur la note {editingPlan.linkedInvoiceNumber}</b> · la note ne suit pas : avoir si le
+              montant change
             </p>
           </div>
         )}
@@ -1205,19 +844,17 @@ export function TreatmentPlanFormModal({
           {pickersFailed && (
             <LoadFailureNotice
               message="Les listes de sélection n'ont pas pu être chargées."
-              detail="La liste des patients et celle de « Mes actes » sont peut-être incomplètes — un acte saisi à la main ne sera rattaché à aucune procédure du catalogue."
+              detail="Patients et actes peut-être incomplets."
               onRetry={() => void loadPickers()}
             />
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
+            {!(presetPatientId || isEditing) && (
             <div className="space-y-1.5">
               <Label htmlFor="patient">
                 Patient <span className="text-destructive">*</span>
               </Label>
-              {presetPatientId || isEditing ? (
-                <Input id="patient" value={presetPatientName ?? editingPlan?.patientName ?? "Patient"} disabled />
-              ) : (
                 <Select value={patientId} onValueChange={setPatientId} disabled={loading}>
                   <SelectTrigger id="patient">
                     <SelectValue placeholder="Sélectionner un patient" />
@@ -1230,9 +867,9 @@ export function TreatmentPlanFormModal({
                     ))}
                   </SelectContent>
                 </Select>
-              )}
             </div>
-            <div className="space-y-1.5">
+            )}
+            <div className={cn("space-y-1.5", (presetPatientId || isEditing) && "sm:col-span-2")}>
               <Label htmlFor="title">
                 Titre
               </Label>
@@ -1240,7 +877,7 @@ export function TreatmentPlanFormModal({
                 id="title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder={derivedTitle || "Ex. Réhabilitation prothétique"}
+                placeholder={titlePlaceholder}
                 disabled={loading}
               />
             </div>
@@ -1252,7 +889,7 @@ export function TreatmentPlanFormModal({
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notes (facultatives)"
+              placeholder="Notes"
               rows={2}
               disabled={loading}
             />
@@ -1461,22 +1098,28 @@ export function TreatmentPlanFormModal({
                         </div>
                       )}
 
-{/* Was the DCH code. A line now names the procedure it is performed as, and this is the only
-                          place that says so — without it, « détacher » would have no control and a line chosen
-                          from the catalog would be indistinguishable from a typed one. */}
-                      {line.procedureTypeId && (
-                        <Badge variant="secondary" className="gap-1 text-xs">
-                          {procedureTypes.find((pt) => pt.id === line.procedureTypeId)?.name ?? "Acte du catalogue"}
-                          <button
-                            type="button"
-                            onClick={() => detachAct(index)}
-                            className="ml-1 rounded-full hover:text-destructive"
-                            title="Détacher du catalogue (texte libre)"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      )}
+                      {/*
+                        The procedure the line is performed as, and the only « détacher du catalogue » control.
+                        The act's name is shown ONCE: the chip repeats it only when the typed désignation differs
+                        from the catalogue act it is linked to.
+                      */}
+                      {line.procedureTypeId && (() => {
+                        const linked = procedureTypes.find((pt) => pt.id === line.procedureTypeId)
+                        const same = linked ? fold(linked.name) === fold(line.designationFr) : false
+                        return (
+                          <Badge variant="secondary" className="gap-1 text-xs">
+                            {same ? "Acte du catalogue" : (linked?.name ?? "Acte du catalogue")}
+                            <button
+                              type="button"
+                              onClick={() => detachAct(index)}
+                              className="touch-target ms-1 rounded-full hover:text-destructive"
+                              aria-label="Détacher du catalogue"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        )
+                      })()}
                       {removalBlocked && (
                         <p className="text-xs text-muted-foreground">{removalBlocked}</p>
                       )}
@@ -1513,17 +1156,23 @@ export function TreatmentPlanFormModal({
                     </Button>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <ToothMultiSelect
-                      value={line.toothNumbers}
-                      onChange={(teeth) => updateLineTeeth(index, teeth)}
-                      disabled={loading}
-                    />
+                    {/* The teeth button wraps its list (« Dents : 14, 15, 16, 17 ») rather than overflowing the card. */}
+                    <div className="min-w-0 max-w-full [&_button]:h-auto [&_button]:min-h-9 [&_button]:max-w-full [&_button]:whitespace-normal [&_button]:text-start">
+                      <ToothMultiSelect
+                        value={line.toothNumbers}
+                        onChange={(teeth) => updateLineTeeth(index, teeth)}
+                        disabled={loading}
+                      />
+                    </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">Coût (DT)</span>
+                      <Label htmlFor={`plan-line-cost-${index}`} className="text-xs font-normal text-muted-foreground">
+                        Prix (DT)
+                      </Label>
                       {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the
                           comma this product prints with, and a rejected keystroke returns an EMPTY value — so an
                           act looked priced and the devis planned 0 for it. The keypad still appears. */}
                       <Input
+                        id={`plan-line-cost-${index}`}
                         type="text"
                         inputMode="decimal"
                         value={line.plannedCost}
@@ -1548,7 +1197,7 @@ export function TreatmentPlanFormModal({
           </div>
 
           <div className="flex justify-end text-sm">
-            <span className="text-muted-foreground">Total planifié :&nbsp;</span>
+            <span className="text-muted-foreground">Prix du traitement :&nbsp;</span>
             <span className="font-semibold">{formatDT(total)}</span>
           </div>
 
@@ -1567,19 +1216,8 @@ export function TreatmentPlanFormModal({
           */}
           {stepProposals.length > 0 && (
             <div className="space-y-2 rounded-md border border-dashed bg-muted/20 p-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                <Label className="text-sm">Séances</Label>
-                <span className="text-2xs text-muted-foreground">
-                  {(() => {
-                    const stepped = stepProposals.filter(({ line }) => (line.steps?.length ?? 0) > 0).length
-                    return stepped === 0
-                      ? "Chaque acte se fait en une séance"
-                      : stepped === 1
-                        ? "1 acte se fait en plusieurs séances"
-                        : `${stepped} actes se font en plusieurs séances`
-                  })()}
-                </span>
-              </div>
+              {/* No caption: each act's own row below says how many séances it has. */}
+              <Label className="text-sm">Séances</Label>
 
               {stepProposals.map(({ index, line }) => {
                 const steps = line.steps ?? []
@@ -1603,14 +1241,10 @@ export function TreatmentPlanFormModal({
                       </span>
                       {steps.length > 0 ? (
                         <>
-                          {/* ⚠️ « incluses » is visible: this counts the séances TICKED for the devis, and the
-                              same bare fraction elsewhere counts the ones already carried out. Two questions,
-                              one shape — the reader needs the word to know which was answered. */}
+                          {/* ⚠️ « incluses » is visible: this counts the séances TICKED for the devis — a count in
+                              words, never a bare fraction (N31). */}
                           <span className="shrink-0 text-2xs text-muted-foreground">
-                            <span className="font-mono tabular-nums">
-                              {kept} / {steps.length}
-                            </span>{" "}
-                            {kept > 1 ? "incluses" : "incluse"}
+                            {kept} sur {steps.length} {kept > 1 ? "incluses" : "incluse"}
                           </span>
                           <Button
                             type="button"
@@ -1651,16 +1285,11 @@ export function TreatmentPlanFormModal({
                             type="button"
                             role="checkbox"
                             aria-checked={step.include}
-                            aria-label={`Inclure l'étape ${quoteFr(step.label || String(stepIndex + 1))}`}
+                            aria-label={`Inclure la séance ${quoteFr(step.label || String(stepIndex + 1))}`}
                             // A réalisé séance cannot be dropped: the row holds the only link to the fiche
                             // that evidences it, and the aggregate refuses it. Disabled with the reason on the
                             // control rather than as a refusal after the save.
                             disabled={step.done}
-                            title={
-                              step.done
-                                ? "Cette séance est déjà réalisée : elle ne peut pas être retirée du devis."
-                                : undefined
-                            }
                             onClick={() => !step.done && toggleStepRow(index, stepIndex)}
                             className={cn(
                               "flex size-9 flex-none items-center justify-center rounded-md coarse:size-11",
@@ -1687,7 +1316,7 @@ export function TreatmentPlanFormModal({
                                 value={step.label}
                                 onChange={(e) => updateStepRow(index, stepIndex, { label: e.target.value })}
                                 placeholder="ex. : Empreinte"
-                                aria-label={`Libellé de l'étape ${stepIndex + 1}`}
+                                aria-label={`Nom de la séance ${stepIndex + 1}`}
                                 className="min-w-0 flex-1 md:text-sm"
                               />
                               <Input
@@ -1695,8 +1324,7 @@ export function TreatmentPlanFormModal({
                                 onChange={(e) => updateStepRow(index, stepIndex, { duration: e.target.value })}
                                 inputMode="numeric"
                                 placeholder="30"
-                                aria-label={`Durée de l'étape , en minutes`}
-                                title="Temps au fauteuil, en minutes."
+                                aria-label={`Durée de la séance ${stepIndex + 1}, en minutes`}
                                 className="w-20 text-end font-mono tabular-nums md:text-sm"
                               />
                               {/* The interval — « après », not « pendant ». The first séance has none. */}
@@ -1708,8 +1336,7 @@ export function TreatmentPlanFormModal({
                                   }
                                   inputMode="numeric"
                                   placeholder="7 j"
-                                  aria-label={`Délai après la séance précédente, en jours, pour l'étape `}
-                                  title="Délai minimum après la séance précédente, en jours. Vide = délai libre."
+                                  aria-label={`Délai avant la séance ${stepIndex + 1}, en jours`}
                                   className="w-20 text-end font-mono tabular-nums md:text-sm"
                                 />
                               )}
@@ -1718,13 +1345,8 @@ export function TreatmentPlanFormModal({
                                 variant="ghost"
                                 size="icon"
                                 className="size-9 shrink-0 text-muted-foreground coarse:size-11"
-                                aria-label={`Supprimer l'étape ${quoteFr(step.label || String(stepIndex + 1))}`}
+                                aria-label={`Supprimer la séance ${quoteFr(step.label || String(stepIndex + 1))}`}
                                 disabled={step.done}
-                                title={
-                                  step.done
-                                    ? "Cette séance est déjà réalisée : détachez sa fiche de soins avant de la retirer."
-                                    : undefined
-                                }
                                 onClick={() => removeStepRow(index, stepIndex)}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -1738,8 +1360,10 @@ export function TreatmentPlanFormModal({
                                   step.include ? "text-foreground" : "text-muted-foreground line-through",
                                 )}
                               >
-                                {step.label || `Étape ${stepIndex + 1}`}
+                                {step.label || `Séance ${stepIndex + 1}`}
                               </span>
+                              {/* Visible, not a `title`: a done séance cannot be unticked or removed. */}
+                              {step.done && <span className="shrink-0 text-2xs font-medium text-success">faite</span>}
                               <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
                                 {step.duration ? `${step.duration} min` : "—"}
                               </span>
@@ -1758,7 +1382,7 @@ export function TreatmentPlanFormModal({
                           className="h-8 gap-1 text-xs coarse:h-11"
                           onClick={() => addStepRow(index)}
                         >
-                          <Plus className="h-3.5 w-3.5" /> Ajouter une étape
+                          <Plus className="h-3.5 w-3.5" /> Ajouter une séance
                         </Button>
                         <Button
                           type="button"
@@ -1774,17 +1398,15 @@ export function TreatmentPlanFormModal({
 
                     {kept === 0 && (
                       <p className="mt-1.5 text-2xs text-muted-foreground" role="status">
-                        Aucune étape retenue — cet acte se fera en une seule séance.
+                        <b className="text-foreground">Une seule séance</b>
                       </p>
                     )}
                   </div>
                 )
               })}
 
-              <p className="text-2xs leading-relaxed text-muted-foreground">
-                Ces étapes ne portent <span className="font-medium text-foreground">aucun prix</span> : le coût de
-                l&apos;acte reste celui de sa ligne, quel que soit le nombre de séances. Vous pourrez les modifier
-                à tout moment depuis le devis.
+              <p className="text-2xs text-muted-foreground">
+                Les séances ne portent <b className="text-foreground">aucun prix</b>
               </p>
             </div>
           )}
@@ -1809,9 +1431,7 @@ export function TreatmentPlanFormModal({
                 */
                 <div className="space-y-2 rounded-md border border-dashed p-2.5">
                   <p className="text-sm text-muted-foreground">
-                    Sans échéancier, <b>le total est dû à la signature</b> — une seule ligne
-                    « Solde à régler », sans date convenue. Elle ne passe « en retard » qu&apos;une fois tout le
-                    traitement terminé et le solde impayé.
+                    Sans échéancier : <b className="text-foreground">tout est dû en une fois</b>
                   </p>
                   {total > 0 && (
                     <Button
@@ -1853,7 +1473,7 @@ export function TreatmentPlanFormModal({
                     </div>
                     <div className="min-w-0 flex-1 basis-28 space-y-1 sm:max-w-36">
                       {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
-                      {/* Same conversion as « Coût » above (J8). The `min` it drops was never the real guard:
+                      {/* Same conversion as « Prix » above (J8). The `min` it drops was never the real guard:
                           the server refuses an échéance below what it has already collected, and the locked-row
                           note above says so before submit. */}
                       <Input
@@ -1882,8 +1502,8 @@ export function TreatmentPlanFormModal({
                   </div>
                   {collected && (
                     <p className="text-xs text-muted-foreground">
-                      Déjà encaissé : {formatDT(row.amountPaid)} — cette échéance ne peut être ni supprimée ni
-                      ramenée en dessous de ce montant.
+                      Déjà payé <b className="text-foreground">{formatDT(row.amountPaid)}</b> — montant minimum,
+                      non supprimable
                     </p>
                   )}
                 </div>
@@ -1920,10 +1540,10 @@ export function TreatmentPlanFormModal({
                 {/* Token, not `amber-600` + a `dark:` twin — same reasoning as `revise-installments-modal`:
                     `--warning-ink` is the amber step that stays legible at this size and follows the palette. */}
                 <span className={installmentsMatch ? "text-muted-foreground" : "text-warning-ink"}>
-                  Total des échéances : {formatDT(installmentsSum)} / {formatDT(total)}
+                  Échéances <b>{formatDT(installmentsSum)}</b> · prix <b>{formatDT(total)}</b>
                   {!installmentsMatch && (isAmending && !installmentsTouched
-                    ? " — les échéances non encaissées suivront le nouveau total."
-                    : " — la dernière échéance sera ajustée à l'enregistrement.")}
+                    ? " — le reste suivra le nouveau prix"
+                    : " — la dernière sera ajustée")}
                 </span>
               </div>
             )}
@@ -1938,10 +1558,10 @@ export function TreatmentPlanFormModal({
               {loading
                 ? "Enregistrement…"
                 : isAmending
-                  ? "Enregistrer la révision"
+                  ? "Enregistrer"
                   : isEditing
                     ? "Enregistrer"
-                    : "Créer le plan"}
+                    : "Créer le devis"}
             </Button>
           </DialogFooter>
         </form>
@@ -1956,8 +1576,13 @@ export function TreatmentPlanFormModal({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Retirer cet acte du devis ?</AlertDialogTitle>
-          <AlertDialogDescription>
-            {pendingRemoval?.label} Rien n&apos;est modifié tant que la révision n&apos;est pas enregistrée.
+          <AlertDialogDescription asChild>
+            <Consequences
+              items={[
+                <b key="rdv" className="text-foreground">{pendingRemoval?.label}</b>,
+                <>Rien n&apos;est enregistré avant <b className="text-foreground">Enregistrer</b></>,
+              ]}
+            />
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

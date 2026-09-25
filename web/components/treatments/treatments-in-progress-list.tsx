@@ -19,6 +19,8 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { cn } from "@/lib/utils"
 import { PatientNameLink } from "@/components/patient-name-link"
 import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
+import { planDevisLabel } from "@/components/treatment-plans/treatment-plan-labels"
+import { SeancePips, seanceSummary, type SeanceStripStep } from "@/components/treatment-plans/seance-strip"
 import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
 
 /** Days after which a stalled treatment is worth pointing out. Two clinic weeks. */
@@ -272,7 +274,6 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
             size="compact"
             icon={Layers}
             title={`Aucun traitement en cours pour ${quoteFr(query)}`}
-            description="Ce patient a peut-être un devis sans séance commencée — regardez « Devis et échéanciers » ci-dessous."
           />
         ) : (
           <EmptyState
@@ -280,7 +281,6 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
             icon={Layers}
             title="Aucun traitement en cours"
             joke={<EmptyJoke surface="treatments" />}
-            description="Un acte commencé et non terminé apparaîtra ici avec l'étape qui reste à planifier."
           />
         )}
       </div>
@@ -296,25 +296,35 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
               <TableRow>
                 <TableHead>Patient</TableHead>
                 <TableHead>Acte</TableHead>
-                <TableHead>Prochaine étape</TableHead>
+                <TableHead>Séances</TableHead>
                 <TableHead className="whitespace-nowrap">Dernière séance</TableHead>
                 <TableHead className="text-right" />
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {/* No empty branch here or in the card tree: the early return above owns that state, so an
-                  `isEmpty` arm in each of the two trees would be two more copies of one sentence, unreachable. */}
-              {loading && rows.length === 0 ? (
+            {/* No empty branch here or in the card tree: the early return above owns that state, so an
+                `isEmpty` arm in each of the two trees would be two more copies of one sentence, unreachable. */}
+            {loading && rows.length === 0 ? (
+              <TableBody>
                 <SkeletonRows />
-              ) : (
-                grouped.flatMap((group) => [
-                  <TableRow key={`h-${group.key}`} className="hover:bg-transparent">
-                    <TableCell colSpan={5} className={cn("py-1.5", GROUP_HEADER_CLASS[group.key])}>
+              </TableBody>
+            ) : (
+              /*
+               * One `<tbody>` per group, its heading a tinted full-width band (`scope="rowgroup"`). Painted like
+               * the column heads and flush under them, « En retard 25 » read as part of the header row.
+               */
+              grouped.map((group) => (
+                <TableBody key={group.key}>
+                  <TableRow className="border-t hover:bg-transparent">
+                    <th
+                      scope="rowgroup"
+                      colSpan={5}
+                      className={cn("bg-muted/50 px-3 pt-3 pb-1.5 text-start", GROUP_HEADER_CLASS[group.key])}
+                    >
                       {group.label}
-                      <span className="ms-2 font-normal opacity-70">{group.rows.length}</span>
-                    </TableCell>
-                  </TableRow>,
-                  ...group.rows.map((row) => (
+                      <span className="ms-2 font-normal tabular-nums opacity-70">{group.rows.length}</span>
+                    </th>
+                  </TableRow>
+                  {group.rows.map((row) => (
                   /*
                    * The row opens the devis — that is where « et ensuite ? » is answered, and where the étapes,
                    * the money and the history live. `treatment-plans-table`'s pattern verbatim: `cursor-pointer`
@@ -337,7 +347,7 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
                         <span className="font-medium">Patient supprimé</span>
                       )}
                       {row.planNumber && (
-                        <p className="font-mono text-2xs text-muted-foreground">{row.planNumber}</p>
+                        <p className="text-2xs text-muted-foreground">{planDevisLabel({ number: row.planNumber })}</p>
                       )}
                     </TableCell>
                     <TableCell className="align-top" title={row.designationFr}>
@@ -354,10 +364,10 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
                       <RowAction row={row} onBook={book} onOpen={openAppointment} busy={preparingBooking === row.itemId} />
                     </TableCell>
                   </TableRow>
-                  )),
-                ])
-              )}
-            </TableBody>
+                  ))}
+                </TableBody>
+              ))
+            )}
           </Table>
         </div>
 
@@ -393,7 +403,7 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
                     underTitle={(row) => <PlanActPlace row={row} />}
                     fields={(row) => [
                       // Card order per § 6: identity → status → date. There is no money field on this surface.
-                      { label: "Prochaine étape", value: <NextStepCell row={row} /> },
+                      { label: "Séances", value: <NextStepCell row={row} /> },
                       { label: "Dernière séance", value: <LastSeance row={row} /> },
                     ]}
                     // Its own full-width row, never the card header — see `RowAction`'s `block` note.
@@ -421,7 +431,7 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
         )}
       </div>
 
-      {/* The workspace's own « Planifier l'étape » dialog, reused verbatim — see `book`. */}
+      {/* The treatment page's own booking dialog, reused verbatim — see `book`. */}
       {booking && (
         <CreateAppointmentDialog
           open
@@ -442,86 +452,66 @@ export function TreatmentsInProgressList({ onTotalChange, searchTerm }: Treatmen
 }
 
 /**
- * « 3e acte du devis » — where this act sits among the devis' acts.
+ * « 3e acte du traitement » — where this act sits among the treatment's acts.
  *
- * <p>⚠️ <b>The list is one row per ACT, and the row's loudest identifier is the devis number.</b> Only the acts
- * carrying a protocol are listed at all (`Steps.Any()` in the SQL, and that is deliberate — without it every
- * ordinary devis line joins the screen), so a devis of three acts whose stepped one is the third shows a single
- * line reading « 2026-0015 · Retraitement endodontique ». Read cold, that is the devis being <i>called</i>
- * Retraitement endodontique — reported in as many words, along with « why is it the last one in the plan? ».
- * This line is the answer: there are others, and this is the 3rd.</p>
+ * <p>⚠️ <b>The list is one row per ACT.</b> Only the acts carrying séances are listed (`Steps.Any()` in the
+ * SQL), so a treatment of three acts whose stepped one is the third shows a single line — read cold, as the
+ * treatment being <i>called</i> that act. This line says there are others, and which one this is.</p>
  *
- * <p>⚠️ <b>A position, never a ratio.</b> « acte 3 sur 3 » is the shape N31 exists to ban — a bare counter is
- * read as progress, three times measured in this product — and here it would announce that all three acts are
- * done on a devis with nothing done at all.</p>
- *
- * <p>⚠️ Withheld on a single-act devis: « 1er acte du devis » on every row of a list whose devis mostly hold one
- * act is a column of noise, which is why the server serves the count beside the rank.</p>
+ * <p>⚠️ <b>A position, never a ratio.</b> « acte 3 sur 3 » is the shape N31 bans — it would announce that all
+ * three acts are done on a treatment with nothing done at all. Withheld on a single-act treatment, where it is
+ * a column of noise.</p>
  */
 function PlanActPlace({ row }: { row: TreatmentInProgressDto }) {
   /*
-   * ⚠️ Phrased as « is it greater than 1 », never `<= 1`. An API older than this field serves neither key, so
-   * `planActCount` is `undefined` — and `undefined <= 1` is **false**, which renders the line anyway and prints
-   * « undefinede acte du devis ». A stale server under a fresh bundle is an ordinary state here (the Windows
-   * shell self-updates, and a hosted deploy ships web and api as separate images), so the absent case has to
-   * fall on the withholding side.
+   * ⚠️ Phrased as « is it greater than 1 », never `<= 1`: an API older than this field serves neither key, and
+   * `undefined <= 1` is false — which printed « undefinede acte ». The absent case must fall on the withholding
+   * side.
    */
   if (!(row.planActCount > 1)) return null
   return (
     <span className="mt-0.5 block text-2xs text-muted-foreground">
-      {ordinalFr(row.planActRank)} acte du devis
+      {ordinalFr(row.planActRank)} acte du traitement
     </span>
   )
 }
 
-/** The pips + « 3 / 3 » + the step's own name. The same three readings the devis row's strip uses. */
+/**
+ * The row's séances as the one strip's steps. The projection names only the NEXT séance, so the others carry no
+ * label — which is why the words below are built from that one step alone.
+ *
+ * <p>⚠️ Each dot reads its OWN séance (H9) through `doneStepNumbers`: filling the first `stepsDone` claimed a
+ * préparation that never happened when séance 2 was recorded first. The next séance is the server's
+ * `nextStepNumber`, never a count + 1.</p>
+ */
+function rowSeances(row: TreatmentInProgressDto): { steps: SeanceStripStep[]; next: SeanceStripStep | null } {
+  let next: SeanceStripStep | null = null
+  const steps = Array.from({ length: row.stepsTotal }, (_, i): SeanceStripStep => {
+    const rank = i + 1
+    const done = row.doneStepNumbers ? row.doneStepNumbers.includes(rank) : rank <= row.stepsDone
+    const isNext = !done && row.nextStepNumber === rank
+    const step: SeanceStripStep = {
+      id: String(rank),
+      label: isNext ? (row.nextStepLabel ?? "") : "",
+      // Only its presence is read — the dot is filled.
+      doneDate: done ? (row.lastStepDoneOn ?? "done") : null,
+      scheduledAt: isNext ? row.nextStepAppointmentAt : null,
+      earliestOn: isNext ? row.nextStepDueFrom : null,
+    }
+    if (isNext) next = step
+    return step
+  })
+  return { steps, next }
+}
+
+/** The séances as dots, then the next one in words — « Empreinte prévue le 28/09 » / « Scellement à planifier ». */
 function NextStepCell({ row }: { row: TreatmentInProgressDto }) {
+  const { steps, next } = rowSeances(row)
+  const words = next && next.label ? seanceSummary([next]) : row.nextStepLabel
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-      {/*
-        The step's NAME leads. The column asks « prochaine étape » and that is the answer; the pips and the rank
-        qualify it. Trailing, it landed last and least emphasised in both trees — and in the card, where the
-        value wraps under its own label, it ended up the third of three lines.
-      */}
-      {row.nextStepLabel && <span className="text-sm">{row.nextStepLabel}</span>}
-      <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
-        {/* Each dot reads its OWN séance (H9): filling the first `stepsDone` claimed a préparation that never
-            happened when séance 2 was recorded first. The dashed one is the next séance, whichever it is. */}
-        {Array.from({ length: row.stepsTotal }).map((_, i) => {
-          const done = row.doneStepNumbers ? row.doneStepNumbers.includes(i + 1) : i < row.stepsDone
-          const next = (row.nextStepNumber ?? row.stepsDone + 1) === i + 1
-          return (
-            <span
-              key={i}
-              className={cn(
-                "size-2.5 flex-none rounded-full border-[1.5px]",
-                done ? "border-success bg-success" : next ? "border-dashed border-primary" : "border-border",
-              )}
-            />
-          )
-        })}
-      </span>
-      {/*
-        ⚠️ « étape » is VISIBLE, not `sr-only`, and that word is the whole difference between two readings of
-        one shape. This is the next step's RANK — « la 3e des 3 » — while `PlanStepStrip`'s identical-looking
-        counter on the devis is « done / total ». Unlabelled, a bridge with two of three steps carried out read
-        « 3 / 3 » here and « 2 / 3 » one screen over, and the first of those says « terminé » about the act this
-        list exists to say is *not*. The screen-reader label was already right; the sighted reader had nothing.
-      */}
-      {/*
-        ⚠️ « à faire » is what the word « étape » alone could not carry. The defence for the bare label was
-        recorded and is real — without it a bridge two of three done would read « 3 / 3 » here and « 2 / 3 » on
-        the workspace — but three reviewers read « étape 2 / 2 » cold on a treatment with one of two séances
-        done and all three took it for finished. The label tells you *which* counter it is only if you already
-        know there are two kinds; « étape 2 / 2 à faire » says what it means to somebody who does not.
-      */}
-      <span className="rounded-md bg-accent px-2 py-0.5 text-2xs text-accent-foreground">
-        étape{" "}
-        <span className="font-mono tabular-nums">
-          {row.nextStepNumber ?? row.stepsDone + 1} / {row.stepsTotal}
-        </span>{" "}
-        à faire
-      </span>
+      <SeancePips steps={steps} />
+      {words && <span className="text-sm">{words}</span>}
     </div>
   )
 }
@@ -638,7 +628,7 @@ function RowAction({
       onClick={() => void onBook(row)}
       aria-label={
         row.nextStepLabel
-          ? `Planifier l'étape ${quoteFr(row.nextStepLabel)} pour ${quoteFr(who)}`
+          ? `Planifier la séance ${quoteFr(row.nextStepLabel)} pour ${quoteFr(who)}`
           : `Planifier la séance suivante pour ${quoteFr(who)}`
       }
     >

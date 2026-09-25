@@ -116,8 +116,7 @@ export function AppointmentQuickActions({
       await appointmentsApi.disregardVisit(appointment.id)
       setConfirmDelete(false)
       toast.success("Rendez-vous supprimé", {
-        description:
-          `Il ne compte pas comme une annulation. Vous pouvez le récupérer dans ${quoteFr("À clôturer")}.`,
+        description: `Récupérable dans ${quoteFr("À clôturer")}.`,
       })
       onChanged?.()
     } catch (err) {
@@ -212,8 +211,7 @@ export function AppointmentQuickActions({
               {appointment.invoiceId
                 ? ` et facturé${appointment.invoiceNumber ? ` sur la note ${appointment.invoiceNumber}` : ""}`
                 : ""}
-              . L&apos;annuler le compte comme une annulation dans le taux d&apos;absence ; la fiche de soins et la
-              note d&apos;honoraires restent enregistrées.
+              . Compté comme une annulation ; la fiche de soins et la note restent.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -243,10 +241,8 @@ export function AppointmentQuickActions({
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer ce rendez-vous ?</AlertDialogTitle>
             <AlertDialogDescription>
-              {target} quittera l&apos;agenda
-              {appointment.patientId ? " et le dossier du patient" : ""}, et ne comptera pas comme une annulation
-              dans le taux d&apos;absence. Vous pourrez le récupérer dans {quoteFr("À clôturer")} › séances
-              retirées.
+              {target} : retiré de l&apos;agenda{appointment.patientId ? " et du dossier" : ""}, sans compter comme
+              annulation. Récupérable dans {quoteFr("À clôturer")} › séances retirées.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

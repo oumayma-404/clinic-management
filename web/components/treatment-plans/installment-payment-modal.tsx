@@ -89,7 +89,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
       return
     }
     if (parsedAmount > installment.outstanding) {
-      setError(`Le paiement dépasse le reste dû (${formatDT(installment.outstanding)}).`)
+      setError(`Le paiement dépasse le reste à payer (${formatDT(installment.outstanding)}).`)
       return
     }
 
@@ -140,7 +140,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
     <Dialog open={open} onOpenChange={guard.onOpenChange}>
       <DialogContent className="md:max-w-md">
         <DialogHeader>
-          <DialogTitle>Enregistrer un paiement</DialogTitle>
+          <DialogTitle>Encaisser</DialogTitle>
           <DialogDescription>
             {/*
               ⚠️ **« Échéance du 14/03/2026 » was printed unconditionally, and 159 of the 184 rows on the dev
@@ -150,8 +150,8 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
               was naming a due date to the person handing over the money. `installmentDueLabel` is the one
               owner; N39 fails on a fourth surface formatting `dueDate` itself.
             */}
-            {installment ? installmentDueLabel(installment) : "Échéance"} — reste dû{" "}
-            {installment ? formatDT(installment.outstanding) : ""}
+            {installment ? installmentDueLabel(installment) : "Échéance"} · reste à payer{" "}
+            <b className="text-foreground">{installment ? formatDT(installment.outstanding) : ""}</b>
           </DialogDescription>
         </DialogHeader>
 
@@ -218,7 +218,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement…" : "Enregistrer"}
+              {loading ? "Enregistrement…" : "Encaisser"}
             </Button>
           </DialogFooter>
         </form>

@@ -22,6 +22,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
@@ -36,11 +42,13 @@ import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
-import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, Trash2, History } from "lucide-react"
+import { CalendarIcon, FileText, Save, Receipt, ChevronDown, Trash2, MoreHorizontal, CircleX, Loader2 } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import {
   AppointmentRecap,
-  AppointmentRecapSection,
+  BookingPromptFacts,
+  bookingSlotLabel,
+  formatDurationFr,
   type AppointmentRecapModel,
 } from "@/components/appointment-recap"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -57,9 +65,8 @@ import {
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatAmount, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
-import type { AppointmentDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
+import type { AppointmentDto, ContinuableActDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { suggestedPlanSteps } from "@/components/treatment-plans/plan-next-action"
 import type { PlanStepSuggestion } from "@/components/treatment-plans/plan-next-action"
 import {
   usePatientPlanActs,
@@ -67,8 +74,8 @@ import {
   materialiseTreatments,
   discardUnbookedTreatments,
 } from "@/components/treatment-plans/use-patient-plan-acts"
-import { ContinueSessionDialog } from "@/components/treatment-plans/continue-session-dialog"
-import { PlanStepSuggestionNotice } from "@/components/treatment-plans/plan-step-suggestion-notice"
+import { DEFAULT_NEXT_LABEL, useContinuableActs } from "@/components/treatment-plans/continue-session-dialog"
+import { ContinueTreatmentList, allPlanSuggestions } from "@/components/treatment-plans/plan-step-suggestion-notice"
 import { planItemToPreset } from "@/components/treatment-plans/plan-next-action"
 import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
@@ -76,11 +83,7 @@ import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
-import {
-  MANUALLY_SETTABLE_STATUSES,
-  appointmentStatusBadgeClass,
-  appointmentStatusLabel,
-} from "@/components/appointment-labels"
+import { MANUALLY_SETTABLE_STATUSES, appointmentStatusLabel } from "@/components/appointment-labels"
 
 /**
  * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
@@ -92,7 +95,7 @@ const UNASSIGNED_DOCTOR = "__unassigned__"
 const DURATION_PRESETS = [15, 30, 45, 60, 90, 120]
 
 /**
- * The devis-derived half of a stored act row: what makes its price read-only 0 with the « Déjà facturé » notice,
+ * The devis-derived half of a stored act row: what makes its price read-only 0 with the « Inclus dans le traitement » tag,
  * and what makes the « Étapes de cette séance » chips render.
  *
  * <p>Resolved through <b>the same builder the add paths use</b> — `presetToSelectedAct` over the preset the
@@ -120,9 +123,20 @@ interface EditAppointmentDialogProps {
   onSuccess?: () => void
 }
 
-/** Which acts a séance holds, ignoring prices and ticked séances — see the picker's `onChange` below. */
+/**
+ * Which acts a séance holds, ignoring prices and ticked séances — see the picker's `onChange` below. A pending
+ * continuation is keyed on its act: its name follows « Nom de la séance », which is not a change of acts.
+ */
 function actSetKey(acts: readonly SelectedAct[]): string {
-  return [...new Set(acts.map((a) => `${a.procedureTypeId ?? ""}:${a.treatmentPlanItemId ?? ""}:${a.fallbackName ?? ""}`))]
+  return [
+    ...new Set(
+      acts.map((a) =>
+        a.pendingContinuation
+          ? `suite:${a.pendingContinuation.actId}`
+          : `${a.procedureTypeId ?? ""}:${a.treatmentPlanItemId ?? ""}:${a.fallbackName ?? ""}`,
+      ),
+    ),
+  ]
     .sort()
     .join("|")
 }
@@ -155,11 +169,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   /** The acts of this séance — several are the normal case, not the exception. */
   const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
-  /**
-   * « C'est la suite d'une séance précédente ? » — the create dialog's third door, here too (H11): a visit already
-   * in the agenda could never become the continuation of an earlier séance. Same row, same materialiser on save.
-   */
-  const [continueOpen, setContinueOpen] = useState(false)
   /**
    * Has the user set the duration by hand *during this editing session*? Until they do, it follows the sum of the
    * acts; afterwards it is left alone. Seeded true when the form hydrates, because a booked visit's stored
@@ -275,10 +284,18 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    */
   const [suggestionDismissed, setSuggestionDismissed] = useState(false)
   const suggestions = useMemo(() => {
-    if (suggestionDismissed || !source?.patientId) return null
-    if (selectedActs.some((a) => a.treatmentPlanItemId)) return null
-    return suggestedPlanSteps(patientPlans)
-  }, [suggestionDismissed, source?.patientId, selectedActs, patientPlans])
+    if (!source?.patientId) return null
+    // A pending continuation already holds the one treatment this visit can carry — as on create.
+    if (selectedActs.some((a) => a.treatmentPlanItemId || a.pendingContinuation)) return null
+    return allPlanSuggestions(patientPlans)
+  }, [source?.patientId, selectedActs, patientPlans])
+
+  /**
+   * « La suite » of a séance already done — the create dialog's third door, here too (H11): a visit already in
+   * the agenda can become the continuation of an earlier séance. Same row, same materialiser on save.
+   */
+  const continuable = useContinuableActs(source?.patientId, open)
+  const continuationOffered = !!source?.patientId && !selectedActs.some((a) => a.treatmentPlanItemId)
 
   /** Any act of this séance is priced by a devis, so the visit itself is not what gets billed. */
   const carriedByDevis = useMemo(
@@ -302,12 +319,26 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   )
 
   /**
+   * « Continuer » on a past séance — the row goes on the visit at once, and nothing is written until the save.
+   * Replaces, never appends: a visit carries ONE devis.
+   */
+  const addContinuation = (act: ContinuableActDto) => {
+    setSelectedActs((prev) => {
+      const row = continuationToSelectedAct(act, DEFAULT_NEXT_LABEL, null, procedureTypes)
+      const at = prev.findIndex((a) => a.pendingContinuation)
+      return at >= 0 ? prev.map((a, i) => (i === at ? row : a)) : [...prev, row]
+    })
+    setDurationTouched(false)
+    toast.success("Séance ajoutée — son devis sera créé à l'enregistrement du RDV.")
+  }
+
+  /**
    * Back-fill the devis half of an already-hydrated act row once the patient's devis and the catalogue land.
    *
    * <p>⚠️ Hydration runs on open and deliberately does **not** re-run when other data arrives — a re-hydration
    * would clobber whatever the user has typed since. But `planActs` is an async read, so on the first pass
    * `planFieldsFor` has nothing to resolve against and every stored devis act would hydrate without
-   * `billedOnPlan`: the price field editable, the « Déjà facturé » notice absent, the step chips gone. This
+   * `billedOnPlan`: the price field editable, the « Inclus dans le traitement » tag absent, the séance strip gone. This
    * writes only those two derived fields and only where they are still missing, so it is idempotent and cannot
    * touch a price, a step or a name the user has changed.</p>
    */
@@ -384,14 +415,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     return Number.parseInt(duration)
   }, [useEndTime, startHour, startMinute, endHour, endMinute, duration])
 
-  // Format duration display
-  const durationDisplay = useMemo(() => {
-    const hours = Math.floor(calculatedDuration / 60)
-    const mins = calculatedDuration % 60
-    if (hours > 0 && mins > 0) return `${hours}h ${mins}m`
-    if (hours > 0) return `${hours}h`
-    return `${mins}m`
-  }, [calculatedDuration])
+  // « 1 h 10 » — the same words as the presets and the récapitulatif.
+  const durationDisplay = formatDurationFr(calculatedDuration)
 
   /**
    * The statuses this appointment may move to, plus its current one so the Select always has a value for what
@@ -584,8 +609,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                  * editable, typed 120, saved 200, `AgreedCost` 0.000 → 120.000. The fiche then bills whatever it
                  * finds. `presetToSelectedAct` sets both fields on the two *add* paths; hydration was the third.
                  *
-                 * `stepOptions` is the same omission one level down: without it the « Étapes de cette séance »
-                 * chips do not render, so which step a booked visit is for cannot be changed at all.
+                 * `stepOptions` is the same omission one level down: without it the séance strip's
+                 * séances do not render, so which step a booked visit is for cannot be changed at all.
                  */
                 ...planFieldsFor(p.treatmentPlanItemId, heldPlanActs, procedureTypes),
                 // ⚠️ A stored act is already decided. Left `undefined`, the picker's default splits any act with
@@ -708,7 +733,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     // Same guard as the create dialog: an unparseable amount reads as null and would silently put the act back
     // to its catalogue tarif on save.
     if (selectedActs.some(hasInvalidAgreedCost)) {
-      setError("Corrigez le prix d'un acte : saisissez un montant en dinars, par exemple 120,000.")
+      setError("Prix d'un acte invalide — par exemple 120,000.")
       return false
     }
 
@@ -920,8 +945,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
       setShowDeleteDialog(false)
       toast.success("Rendez-vous supprimé", {
-        description:
-          `Il ne compte pas comme une annulation. Vous pouvez le récupérer dans ${quoteFr("À clôturer")}.`,
+        description: `Récupérable dans ${quoteFr("À clôturer")}.`,
       })
       onSuccess?.()
       onOpenChange(false)
@@ -967,9 +991,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   return (
     <>
       <Dialog open={open} onOpenChange={guard.onOpenChange}>
-        {/* Scrolling body, pinned header and footer — see the create dialog for why. This one matters even
-            more: its footer holds three actions, one of them « Annuler le rendez-vous », and a destructive
-            action that has to be hunted for by scrolling is a destructive action someone will mis-click. */}
+        {/* Scrolling body, pinned header and footer — see the create dialog for why. */}
         <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl lg:max-w-4xl">
           {/*
             ⚠️ The patient is an IDENTITY here, not a field — this replaced a whole bordered card whose entire
@@ -1050,7 +1072,16 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 the same thing twice. The statut it now appears in is the récapitulatif, which is a different
                 claim (what the visit currently *is*, beside what the form would save).
               */}
-              <Label className="text-sm">Statut</Label>
+              <div className="flex items-baseline gap-2">
+                <Label className="text-sm">Statut</Label>
+                {/* Nothing is saved until « Enregistrer » — a control that looks like a toggle invites the
+                    opposite belief, so the fact is stated, in two words. */}
+                {status !== hydratedStatus && (
+                  <span role="status" className="text-2xs font-medium text-warning-ink">
+                    non enregistré
+                  </span>
+                )}
+              </div>
               <div role="radiogroup" aria-label="Statut du rendez-vous" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {statusOptions.map((s) => {
                   const value = s.toLowerCase()
@@ -1071,13 +1102,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   )
                 })}
               </div>
-              {/* Nothing is saved until the footer's button is pressed, and a control that looks like a toggle
-                  invites the opposite belief. */}
-              {status !== hydratedStatus && (
-                <p role="status" className="text-xs text-muted-foreground">
-                  Statut modifié — enregistrez pour l&apos;appliquer.
-                </p>
-              )}
             </div>
 
             {/*
@@ -1090,10 +1114,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               rendered below the sheet's scrolling fold, showing 7 of its 184 px. It is derived from the patient
               and nothing else on this form, so directly under the identity is where it belongs.
             */}
-            {suggestions && (
-              <PlanStepSuggestionNotice
-                set={suggestions}
+            {source?.patientId && (
+              <ContinueTreatmentList
+                suggestions={suggestions}
                 onAccept={acceptSuggestion}
+                continuable={continuationOffered ? continuable : null}
+                pendingActId={selectedActs.find((a) => a.pendingContinuation)?.pendingContinuation?.actId}
+                onContinue={addContinuation}
+                dismissed={suggestionDismissed}
                 onDismiss={() => setSuggestionDismissed(true)}
                 disabled={loadingProcedureTypes}
               />
@@ -1105,7 +1133,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   by name; locking the field here says so before the press instead of after it. */}
               {dateLocked && (
                 <p className="text-xs text-muted-foreground">
-                  Rendez-vous annulé : repassez-le en {quoteFr("Planifié")} pour changer sa date.
+                  Annulé : repassez en {quoteFr("Planifié")} pour changer la date.
                 </p>
               )}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1172,38 +1200,46 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     />
                   </div>
                 ) : (
-                  /* Two rows of three below `sm:` — see the note on the same control in
-                     `create-appointment-dialog.tsx`. `flex-1` loses to `buttonVariants`' `shrink-0`, so these
-                     six presets could neither shrink nor wrap and clipped « 2h » off a 390px phone. */
-                  <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-                    {/* The summed length as its own active chip when it is not a preset — see the create
-                        dialog. Pressing it is « garder cette longueur », so it also stops the act-sum from
-                        re-proposing over it. */}
-                    {!DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0 && (
-                      <Button
-                        type="button"
-                        variant="default"
-                        size="sm"
-                        onClick={() => { setDurationTouched(true); setDuration(String(calculatedDuration)) }}
-                        className="sm:flex-1"
-                        disabled={loading}
-                      >
-                        {durationDisplay}
-                      </Button>
-                    )}
-                    {DURATION_PRESETS.map((mins) => (
-                      <Button
-                        key={mins}
-                        type="button"
-                        variant={duration === String(mins) ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
-                        className={cn("sm:flex-1", duration !== String(mins) && "bg-card")}
-                        disabled={loading}
-                      >
-                        {mins < 60 ? `${mins}m` : `${mins / 60}h`}
-                      </Button>
-                    ))}
+                  /* One row once the labels fit the ROW, else two rows of three — see the note on the same
+                     control in `create-appointment-dialog.tsx`. */
+                  <div className="@container">
+                    <div
+                      className={cn(
+                        "grid grid-cols-3 gap-2",
+                        !DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0
+                          ? "@min-[24rem]:flex @min-[24rem]:gap-1"
+                          : "@min-[21rem]:flex @min-[21rem]:gap-1",
+                      )}
+                    >
+                      {/* The summed length as its own active chip when it is not a preset — see the create
+                          dialog. Pressing it is « garder cette longueur », so it also stops the act-sum from
+                          re-proposing over it. */}
+                      {!DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0 && (
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          onClick={() => { setDurationTouched(true); setDuration(String(calculatedDuration)) }}
+                          className="flex-1 px-1.5 coarse:h-11"
+                          disabled={loading}
+                        >
+                          {durationDisplay}
+                        </Button>
+                      )}
+                      {DURATION_PRESETS.map((mins) => (
+                        <Button
+                          key={mins}
+                          type="button"
+                          variant={duration === String(mins) ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
+                          className={cn("flex-1 px-1.5 coarse:h-11", duration !== String(mins) && "bg-card")}
+                          disabled={loading}
+                        >
+                          {formatDurationFr(mins)}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <button
@@ -1253,19 +1289,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 // (the act is priced once) and the échéancier re-spreads itself server-side.
                 onTotalChange={saveTreatmentTotal}
               />
-
-              {/* The create dialog's door, with its gates: a patient, and no devis act on the séance yet. */}
-              {appointment?.patientId && !selectedActs.some((a) => a.treatmentPlanItemId) && (
-                <button
-                  type="button"
-                  onClick={() => setContinueOpen(true)}
-                  disabled={loading}
-                  className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover-hover:hover:text-foreground hover-hover:hover:underline coarse:min-h-11"
-                >
-                  <History className="h-3.5 w-3.5" />
-                  C&apos;est la suite d&apos;une séance précédente&nbsp;?
-                </button>
-              )}
 
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
@@ -1330,11 +1353,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     ⚠️ A séance whose acts are carried by a devis must not offer « Facturer cette consultation ».
                     The fee is on the devis and is billed once, at the end, through « Facturer le devis » — a
                     note raised here would be the same money a second time, and the offer appeared precisely on
-                    the re-opened séance where the « Déjà facturé » notice had also gone missing.
+                    the re-opened séance where the devis notice had also gone missing.
                   */
-                  <span className="text-muted-foreground">
-                    Porté par le devis — facturation sur le devis, pas sur cette séance
-                  </span>
+                  <span className="text-muted-foreground">Inclus dans le traitement</span>
                 ) : (
                   <>
                     <span className="text-muted-foreground">Non facturé</span>
@@ -1403,117 +1424,63 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
             </DialogBody>
 
-            {/* The pane, and the two read-only sections only this dialog has. Both are *statements*; the
-                actions behind them (the statut buttons, « Facturer ») stay in the form column. */}
-            <AppointmentRecap model={recapModel} variant="rail" className="hidden w-[272px] shrink-0 lg:flex">
-              <AppointmentRecapSection title="Statut">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary" className={appointmentStatusBadgeClass(status)}>
-                    {appointmentStatusLabel(status)}
-                  </Badge>
-                  {status !== hydratedStatus && (
-                    <span className="text-2xs text-muted-foreground">non enregistré</span>
-                  )}
-                </div>
-              </AppointmentRecapSection>
-              {source?.patientId && (
-                <AppointmentRecapSection title="Facturation">
-                  <p className="text-xs text-muted-foreground">
-                    {source.invoiceId
-                      ? source.invoiceNumber
-                        ? `Facturé — n° ${source.invoiceNumber}`
-                        : "Facturé — brouillon"
-                      : "Non facturé"}
-                  </p>
-                </AppointmentRecapSection>
-              )}
-            </AppointmentRecap>
+            {/* The pane. Its statut and facturation sections went: both restated the form column beside it. */}
+            <AppointmentRecap model={recapModel} variant="rail" className="hidden w-[272px] shrink-0 lg:flex" />
             </div>
 
             <AppointmentRecap model={recapModel} variant="bar" className="lg:hidden" />
 
             {/*
-              ⚠️ `flex-col` is REMOVED, and that is the fix.
-
-              `DialogFooter`'s base is `flex-col-reverse`, and `flex-col` belongs to the same tailwind-merge
-              group — so passing it here silently cancelled the reverse and the three actions stacked in DOM
-              order on every phone: « Annuler le rendez-vous » (destructive) first, « Fermer », then
-              « Enregistrer les modifications » last. That put the irreversible action closest to the thumb and
-              the primary one furthest from it.
-
-              ⚠️ **And « Annuler le rendez-vous » is no longer one of them.** It was a *second door* to a state
-              the statut buttons at the top of this form already offer — « Annulé » is one of them — so the
-              dialog presented one outcome twice, once in red at the far edge of the footer where the thumb
-              lands. On a phone the three stacked full-width buttons cost ~150 px of an 844 px screen with the
-              destructive-looking one nearest the thumb and under the assistant's launcher. It lives in the
-              « ⋯ » menu now: still one press away, no longer competing with Enregistrer, and the confirmation
-              it opens is unchanged.
+              ⚠️ **Three controls, one row at every width.** « Annuler » used to sit beside « Fermer » and meant
+              « cancel the RDV » one button from « close the form » — the trap. Both destructive outcomes live in
+              the « ⋯ » now, each behind its own confirmation; « Annulé » is also one of the statut buttons above.
+              `flex-row` and `[&>*]:w-auto` replace the primitive's stacked phone layout (same tailwind-merge
+              groups, caller wins).
             */}
-            {/*
-              ⚠️ `flex-col` is deliberate and cancels `DialogFooter`'s `flex-col-reverse` — same tailwind-merge
-              group, caller wins — because with FOUR actions a reversed DOM order is unreadable to maintain. The
-              order is stated explicitly instead, and it is the point of the layout below `sm:`:
-
-                  [ Supprimer ] [ Annuler ]     ← destructive pair, furthest from the thumb
-                  [ Fermer ]    [ Enregistrer ] ← dismiss + primary, nearest it
-
-              Two rows, not four: four full-width rows is ~200 px of an 844 px screen, which is the defect this
-              footer was cut down from once already. Each row is a `flex` of two `flex-1` children, so nothing
-              relies on a label's intrinsic width. `sm:contents` dissolves both rows above the hinge, letting the
-              four buttons sit in one line with `sm:mr-auto` pushing the destructive pair to the far edge.
-            */}
-            <DialogFooter className="flex-shrink-0 flex-col gap-2 border-t bg-background px-6 py-4">
-              <div className="order-1 flex gap-2 sm:contents">
-                {/*
-                  ⚠️ Both actions are BUTTONS now, not items behind a « ⋯ ». They were folded away because
-                  « Annulé » is also one of the statut buttons at the top of this form, so the footer presented one
-                  outcome twice — but « Supprimer » is a third outcome that the statut row cannot express at all,
-                  and burying the pair made the two things a user comes here to do the two hardest to find.
-
-                  ⚠️ The visible labels are short and the full phrase lives in `aria-label` (§ 10.1): at 320 px each
-                  cell is ~116 px, and `Button` is `whitespace-nowrap shrink-0`, so « Supprimer le rendez-vous »
-                  would paint straight through the footer's edge rather than wrap.
-                */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive sm:mr-auto sm:flex-none"
-                  onClick={() => setShowDeleteDialog(true)}
-                  disabled={loading}
-                  aria-label="Supprimer le rendez-vous (créé par erreur)"
-                >
-                  <Trash2 className="h-4 w-4 sm:mr-2" />
-                  Supprimer
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 bg-card sm:flex-none"
-                  onClick={() => setShowCancelDialog(true)}
-                  disabled={loading || status === "cancelled"}
-                  aria-label="Annuler le rendez-vous"
-                >
-                  <X className="h-4 w-4 sm:mr-2" />
-                  Annuler
-                </Button>
-              </div>
-              <div className="order-2 flex gap-2 sm:contents">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 bg-card sm:flex-none"
-                  onClick={() => guard.onOpenChange(false)}
-                  disabled={loading}
-                >
-                  Fermer
-                </Button>
-                {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
-                    Blocking here made the warning a dead end and hid the fact that proceeding is allowed. */}
-                <Button type="submit" className="flex-1 sm:flex-none" disabled={loading}>
-                  <Save className="h-4 w-4 mr-2" />
-                  {loading ? "Enregistrement…" : "Enregistrer"}
-                </Button>
-              </div>
+            <DialogFooter className="flex-shrink-0 flex-row items-center gap-2 border-t bg-background px-6 py-4 [&>*]:w-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="me-auto min-w-9 bg-card coarse:size-11 coarse:min-w-11"
+                    disabled={loading}
+                    aria-label="Autres actions sur le rendez-vous"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="top" className="w-56">
+                  <DropdownMenuItem disabled={status === "cancelled"} onSelect={() => setShowCancelDialog(true)}>
+                    <CircleX className="h-4 w-4" />
+                    Annuler le rendez-vous
+                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onSelect={() => setShowDeleteDialog(true)}>
+                    <Trash2 className="h-4 w-4" />
+                    Supprimer
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 bg-card md:flex-none"
+                onClick={() => guard.onOpenChange(false)}
+                disabled={loading}
+              >
+                Fermer
+              </Button>
+              {/* Not disabled on an overlap: the collision is advisory and the server offers the override. */}
+              {/* One label in flight too — « Enregistrement… » pushed the row past 320 px on a coarse pointer. */}
+              <Button type="submit" className="flex-1 md:flex-none" disabled={loading} aria-busy={loading}>
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Save className="hidden h-4 w-4 sm:inline-block" aria-hidden="true" />
+                )}
+                Enregistrer
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -1537,38 +1504,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         />
       )}
 
-      {/* Cancel Appointment Confirmation Dialog */}
-      {/* A sibling of the dialog, never a child — the create dialog's reason (two focus traps). Nothing is
-          created here: `materialiseTreatments` mints the treatment when this visit is saved, and replaces
-          rather than appends, since a visit carries ONE devis. */}
-      {appointment?.patientId && (
-        <ContinueSessionDialog
-          open={continueOpen}
-          onOpenChange={setContinueOpen}
-          patientId={appointment.patientId}
-          onChosen={(choice) => {
-            setSelectedActs((prev) => {
-              const row = continuationToSelectedAct(
-                choice.previous, choice.nextStepLabel, choice.remainingWorkCost, procedureTypes,
-              )
-              const at = prev.findIndex((a) => a.pendingContinuation)
-              return at >= 0 ? prev.map((a, i) => (i === at ? row : a)) : [...prev, row]
-            })
-            setDurationTouched(false)
-            toast.success(
-              "Séance ajoutée — le traitement et son devis seront créés à l'enregistrement du rendez-vous.",
-            )
-          }}
-        />
-      )}
-
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Annuler le rendez-vous ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Voulez-vous vraiment annuler ce rendez-vous avec {patientName} ? Cette action peut être annulée en
-              remettant le statut sur « Planifié ».
+              {deletionTarget} sera annulé. Réversible : statut {quoteFr("Planifié")}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1591,9 +1532,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer ce rendez-vous ?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deletionTarget} quittera l&apos;agenda{source?.patientId ? " et le dossier du patient" : ""}, et ne
-              comptera pas comme une annulation dans le taux d&apos;absence. Vous pourrez le récupérer dans{" "}
-              {quoteFr("À clôturer")} › séances retirées.
+              {deletionTarget} : retiré de l&apos;agenda{source?.patientId ? " et du dossier" : ""}, sans compter
+              comme annulation. Récupérable dans {quoteFr("À clôturer")} › séances retirées.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1613,9 +1553,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       <AlertDialog open={showPastTimeConfirm} onOpenChange={setShowPastTimeConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Heure dans le passé</AlertDialogTitle>
-            <AlertDialogDescription>
-              L&apos;heure sélectionnée est déjà passée. Voulez-vous quand même enregistrer ce rendez-vous ?
+            <AlertDialogTitle>Enregistrer ce rendez-vous dans le passé ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <BookingPromptFacts
+                extra={[<><b className="text-foreground">{bookingSlotLabel(recapModel)}</b> : heure déjà passée</>]}
+              />
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1650,10 +1592,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Créneau déjà occupé</AlertDialogTitle>
-            <AlertDialogDescription>
-              {slotTakenPrompt} Voulez-vous quand même enregistrer ce rendez-vous ? Le double rendez-vous sera
-              enregistré comme volontaire.
+            <AlertDialogTitle>Enregistrer sur un créneau déjà pris ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <BookingPromptFacts
+                message={slotTakenPrompt}
+                extra={[<>Noté comme <b className="text-foreground">double rendez-vous voulu</b></>]}
+              />
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1685,9 +1629,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>En dehors des horaires d&apos;ouverture</AlertDialogTitle>
-            <AlertDialogDescription>
-              {outsideHoursPrompt} Voulez-vous quand même enregistrer ce rendez-vous ?
+            <AlertDialogTitle>Enregistrer ce rendez-vous hors des heures d&apos;ouverture ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <BookingPromptFacts message={outsideHoursPrompt} />
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
