@@ -110,7 +110,7 @@ import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
 import { activeItems, isPlanLive, itemNetCost, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
-import { planItemHeading } from "@/components/treatment-plans/treatment-plan-labels"
+import { teethSuffix } from "@/components/treatment-plans/treatment-plan-labels"
 import { teethUnderTreatment } from "@/components/treatment-plans/teeth-under-treatment"
 import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
@@ -297,7 +297,7 @@ const OTHER_DOCUMENT_TEMPLATES = CREATABLE_DOCUMENT_TEMPLATES.filter(
  * appointments and no files, a beat before listing all three, is worse than one that took longer to appear.
  */
 /**
- * What lets a badge in a card’s « Montant payé » cell stay inside the card.
+ * What lets a badge in a card’s « Payé » cell stay inside the card.
  *
  * <p>⚠️ <b>Both badges below were clipped at 320 px</b>, measured on the card tree: `CardList` gives its `<dd>`
  * `min-w-0 break-words`, but `Badge`’s base is `whitespace-nowrap shrink-0`, so with the `<dt>` label taking its
@@ -313,7 +313,7 @@ const OTHER_DOCUMENT_TEMPLATES = CREATABLE_DOCUMENT_TEMPLATES.filter(
 const MONEY_CELL_BADGE = "min-w-0 shrink whitespace-normal text-2xs font-normal"
 
 /**
- * The « Montant payé » of a fiche whose money has moved onto an invoice.
+ * The « Payé » of a fiche whose money has moved onto an invoice.
  *
  * ⚠️ **This used to be a strikethrough, and that is the defect it exists to fix.** `line-through` means
  * « annulé, ne compte pas » everywhere else money is shown in this app — nine sites, every one of them keyed
@@ -345,7 +345,7 @@ function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber
 }
 
 /**
- * The « Montant payé » of a séance whose money went onto its TREATMENT rather than onto a note d’honoraires.
+ * The « Payé » of a séance whose money went onto its TREATMENT rather than onto a note d’honoraires.
  *
  * <p>⚠️ <b>Without it this column read « 0,000 DT » on every séance of a multi-séance act.</b> Such an act is
  * priced once, on the treatment, so its fiche is 0 by rule and both money columns are derived from that 0 — a
@@ -375,7 +375,7 @@ function CollectedOnTreatment({
 }) {
   // See `BilledAmount`: the label may break, the devis number may not.
   const badgeLabel = planNumber ? (
-    <>traitement <span className="whitespace-nowrap">{planNumber}</span></>
+    <>Devis n° <span className="whitespace-nowrap">{planNumber}</span></>
   ) : (
     "sur le traitement"
   )
@@ -645,7 +645,7 @@ const PATIENT_TABS = [
  * ⚠️ **« Notes » was retired as a tab, and this is what keeps every old link working.** It was a strict subset
  * of two surfaces that are both on this page already: `PatientNotesStrip` — directly above the strip, showing
  * the patient's own alerts *and* every séance note, each dated and named by its act, with « Modifier » on both
- * halves — and the « Notes » field on every fiche row of « Dossiers médicaux », which carries
+ * halves — and the « Notes » field on every fiche row of « Fiches de soins », which carries
  * `DentalRecordNotes` and « Ouvrir la fiche ». The tab's one distinct property was rendering the same notes
  * unbounded rather than in a 120 px scroller: a scroll ceiling, not a capability (§ 0). A seventh destination
  * that shows nothing the sixth does not is what makes a screen feel complicated.
@@ -653,7 +653,7 @@ const PATIENT_TABS = [
 const RETIRED_PATIENT_TABS: Record<string, string> = {
   notes: "medical-records",
   /*
-   * ⚠️ Never a tab, and that is the point: « Actes dentaires » is what this panel is CALLED, and the devis
+   * ⚠️ Never a tab, and that is the point: « Fiches de soins » is what this panel is CALLED, and the devis
    * workspace's « Encaisser sur la note » was written from the label rather than from the value. `PATIENT_TABS`
    * has no « actes », so the link fell through to the default — which happens to be this same panel, so the
    * tab half looked fine while the deep link did nothing. `patientOutstandingHref` is the fix; this keeps every
@@ -663,7 +663,7 @@ const RETIRED_PATIENT_TABS: Record<string, string> = {
 }
 
 /**
- * Rows per page in « Actes dentaires ».
+ * Rows per page in « Fiches de soins ».
  *
  * Five, not the app's `DEFAULT_PAGE_SIZE` of 25: this list sits inside a tab under the patient's identity, its
  * rows are tall (teeth badges, expandable notes) and a fiche is *read* rather than scanned — a long-standing
@@ -855,7 +855,7 @@ export default function PatientDetailsPage() {
       return next
     })
   /**
-   * « Actes dentaires » pages **in the browser**, deliberately.
+   * « Fiches de soins » pages **in the browser**, deliberately.
    *
    * `dentalRecordsApi.list` takes no paging parameters, and four other things on this page read the *whole*
    * history anyway — the Notes tab, the odontogram band, the plan-act reconciliation and the delete
@@ -1150,7 +1150,7 @@ export default function PatientDetailsPage() {
   /**
    * Keep the SELECTED tab inside the strip's visible window.
    *
-   * <p>Below `sm:` the seven tabs are a horizontally scrolling row that always starts at « Dossiers médicaux ».
+   * <p>Below `sm:` the seven tabs are a horizontally scrolling row that always starts at « Fiches de soins ».
    * A `?tab=documents` deep-link — which is how `plan-act-row` and the post-visit prompt route here — therefore
    * landed on a panel whose tab was off the right edge, with nothing selected in view: the page looked like it
    * had ignored the link.</p>
@@ -1719,17 +1719,11 @@ export default function PatientDetailsPage() {
     itemId: it.id,
     planId: p.id,
     /*
-     * ⚠️ **A followed treatment's title IS its act's name, so the obvious `number ?? title` prints it
-     * twice.** `StartTreatmentCommand` sets the plan title from the procedure (« the dentist named it by
-     * picking it »), and such a plan has no number — so « Acte planifié » read
-     * « Couronne / bridge (par élément) · Couronne / bridge (par élément) », which is what a dentist
-     * reported as « pourquoi l'acte est écrit deux fois ». Five rows in the live database were in exactly
-     * that shape, and every future followed treatment is.
-     *
-     * A hand-written Draft devis whose title is genuinely something else (« Plan esthétique ») keeps it —
-     * only the duplicate is replaced, and it is replaced by what the object actually is.
+     * What the fiche's treatment band calls it — the act and the devis LINE's teeth (« Couronne · dent 16 »).
+     * The devis is its own chip there (`planDevisLabel`), so it is not prefixed here: the old « number ?? title »
+     * prefix printed a followed treatment's act twice (« pourquoi l'acte est écrit deux fois »).
      */
-    label: `${planItemHeading(p, it)} · ${it.designationFr}${it.toothNumbers.length > 0 ? ` (dents ${it.toothNumbers.join(", ")})` : ""}`,
+    label: `${it.designationFr}${teethSuffix(it.toothNumbers)}`,
     designationFr: it.designationFr,
     netCost: itemNetCost(it),
     /*
@@ -1746,11 +1740,13 @@ export default function PatientDetailsPage() {
       it.treatedToothNumbers && it.treatedToothNumbers.length > 0
         ? it.treatedToothNumbers
         : it.toothNumbers,
-    // The devis this act is priced on, so the fiche can say « déjà facturé » instead of re-charging it.
+    // The devis this act is priced on, so the fiche says « Inclus dans le traitement » instead of re-charging it.
     // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
     planNumber: p.number,
     billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
     planOutstanding: p.outstanding,
+    // « Prix » in the fiche's footer: the devis' own total, net of remises.
+    planTotal: p.totalPlanned,
     /*
      * ⚠️ **A DIFFERENT note from `billedOnInvoiceNumber` above, and the two mean opposite things.** That one is
      * the bridge — a note that REPRESENTS the whole devis, which is why it suppresses the devis' own « reste ».
@@ -1770,10 +1766,10 @@ export default function PatientDetailsPage() {
       ?? null,
     treatmentOutstanding: p.treatmentOutstanding ?? null,
     treatmentTotal: p.treatmentTotal ?? null,
-    // The protocol, so the fiche can say WHICH séance it is and name it — « Cette séance : étape 1 sur 3 ·
-    // Préparation ». The steps themselves rather than counts: the séance's step is the one the appointment
-    // booked, which `stepsDone + 1` only happens to equal when the séances are carried out in order. Empty
-    // for an act with no protocol, which is what keeps the ordinary fiche's banner unchanged.
+    // The protocol, so the fiche's band draws the séances and marks the one being recorded. The steps
+    // themselves rather than counts: the séance's step is the one the appointment booked, which
+    // `stepsDone + 1` only happens to equal when the séances are carried out in order. Empty for an act with
+    // no protocol, which is what keeps the ordinary fiche's band free of any strip.
     steps: it.steps ?? [],
     // Which catalogue act this line is priced on — how a reopened fiche knows which of its acts the devis
     // already pays for, so that act's 0 is not read back as a discount the dentist granted.
@@ -1919,7 +1915,7 @@ procedureTypeId: it.procedureTypeId ?? null,
   /**
    * « Solde dû » in the header → the breakdown, wherever it is.
    *
-   * ⚠️ **Two steps, and the scroll must wait for the first.** The band lives in the « Actes dentaires » tab,
+   * ⚠️ **Two steps, and the scroll must wait for the first.** The band lives in the « Fiches de soins » tab,
    * and Radix mounts a `TabsContent` only when it becomes active — so scrolling in the same tick finds no
    * element at all. `requestAnimationFrame` is what puts the lookup after the commit that mounts it.
    *
@@ -2161,7 +2157,7 @@ procedureTypeId: it.procedureTypeId ?? null,
               {billingSummary !== null && billingSummary.totalOutstanding > 0 && (
                 /*
                  * ⚠️ A real control, not a `<span>`, and that is the whole point of it: « Reste à payer » lives
-                 * inside the « Actes dentaires » tab now, so the one figure a header should carry has to be the
+                 * inside the « Fiches de soins » tab now, so the one figure a header should carry has to be the
                  * way to it — otherwise the breakdown is a section nobody on this page can find. It switches
                  * the tab AND scrolls, because either alone leaves the reader somewhere they did not ask for.
                  *
@@ -2173,9 +2169,9 @@ procedureTypeId: it.procedureTypeId ?? null,
                   type="button"
                   onClick={() => openOutstandingSection()}
                   className="touch-target inline-flex items-center gap-1 rounded text-muted-foreground underline-offset-2 hover:underline"
-                  aria-label={`Solde dû ${formatDT(billingSummary.totalOutstanding)} — voir le détail et encaisser`}
+                  aria-label={`Reste à payer ${formatDT(billingSummary.totalOutstanding)} — voir le détail et encaisser`}
                 >
-                  Solde dû{" "}
+                  Reste à payer{" "}
                   <span className="font-semibold text-warning-ink">
                     {formatDT(billingSummary.totalOutstanding)}
                   </span>
@@ -2299,7 +2295,7 @@ procedureTypeId: it.procedureTypeId ?? null,
             {/*
               ⚠️ **« Plans de traitement » stood HERE and was removed — it was the third route to one tab.**
               It called `openTab("treatment-plans")`, which is also what the tab strip itself does 200 px below
-              and what « Tous les plans » does in `PatientPlansStrip` between the two. Three doors, one room.
+              and what « Tous les traitements » does in `PatientPlansStrip` between the two. Three doors, one room.
 
               It was also the widest control in the row at **175 px** — wider than « Planifier un RDV », the one
               action that is not navigation — and that width is what made the group wrap: measured at 820 px the
@@ -2511,6 +2507,7 @@ procedureTypeId: it.procedureTypeId ?? null,
           plans={treatmentPlans}
           onOpen={() => openTab("treatment-plans")}
           onChanged={() => setRefreshKey((k) => k + 1)}
+          onRecordVisit={openVisitRecord}
         />
 
 
@@ -2560,12 +2557,12 @@ procedureTypeId: it.procedureTypeId ?? null,
           >
             <TabsTrigger value="medical-records" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileCheck className="h-4 w-4" />
-              Dossiers médicaux
+              Fiches de soins
             </TabsTrigger>
             {/* Second, not last: treatment is what the first tab's actes lead to, so the two sit side by side. */}
             <TabsTrigger value="treatment-plans" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <ClipboardCheck className="h-4 w-4" />
-              Plan de traitement
+              Traitements
             </TabsTrigger>
             <TabsTrigger value="appointments" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <Calendar className="h-4 w-4" />
@@ -2597,19 +2594,22 @@ procedureTypeId: it.procedureTypeId ?? null,
                 into three of these panels and missing from the four that had no action yet. */}
             <PatientTabSection
               icon={FileCheck}
-              title="Actes dentaires"
-              description="Historique complet des actes et interventions dentaires"
+              title="Fiches de soins"
               action={
-                <Button
-                  onClick={() => {
-                    setEditingRecord(null)
-                    setRecordModalOpen(true)
-                  }}
-                  size="sm"
-                  className="w-full sm:w-auto"
-                >
-                  Ajouter un acte dentaire
-                </Button>
+                // Withheld while the empty state below carries the same button — one door, not two. Kept on
+                // a failed read: that banner offers « Réessayer » and nothing that creates a fiche.
+                dentalRecords.length === 0 && !detailsLoading && !sectionFailed("dentalRecords") ? undefined : (
+                  <Button
+                    onClick={() => {
+                      setEditingRecord(null)
+                      setRecordModalOpen(true)
+                    }}
+                    size="sm"
+                    className="w-full sm:w-auto"
+                  >
+                    Nouvelle fiche de soins
+                  </Button>
+                )
               }
             >
                 {dentalRecords.length === 0 ? (
@@ -2628,20 +2628,20 @@ procedureTypeId: it.procedureTypeId ?? null,
                             setRecordModalOpen(true)
                           }}
                         >
-                          Ajouter un acte dentaire
+                          Nouvelle fiche de soins
                         </Button>
                       }
                     />,
                   )
                 ) : (
                   <>
-                    {/* No « Facturé » badge: the struck-through « Montant payé » is the one place this list says
-                        a fiche is billed. It used to be said three times on the same row — a status badge here,
-                        the word again in place of the Reste figure, and a third badge in the desktop table's
-                        Actions column — which is what pushed the figure staff actually read off the row. */}
+                    {/* No « Facturé » badge: the « Payé » cell is the one place this list says a fiche is
+                        billed. It used to be said three times on the same row — a status badge here, the word
+                        again in place of the Reste figure, and a third badge in the desktop table's Actions
+                        column — which is what pushed the figure staff actually read off the row. */}
                     <CardList
                       className={CARDS_ONLY_LG}
-                      ariaLabel="Actes dentaires"
+                      ariaLabel="Fiches de soins"
                       items={recordsPage.items}
                       getKey={(record) => record.id}
                       title={(record) => record.procedureType}
@@ -2674,7 +2674,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                               ) : null,
                           },
                           {
-                            label: "Montant payé",
+                            label: "Payé",
                             value: invoiced ? (
                               <BilledAmount
                                 amount={record.amountPaid}
@@ -2691,7 +2691,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                             ),
                           },
                           {
-                            label: "Reste",
+                            label: "Reste à payer",
                             value: onTreatment ? (
                               // ⚠️ A séance of a treatment has no « reste » of its OWN — the act is priced once
                               // and what remains is the treatment’s, not this visit’s. Printing 0,000 here read
@@ -2784,7 +2784,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                                 setRecordModalOpen(true)
                               }}
                             >
-                              Modifier le dossier
+                              Modifier la fiche
                             </DropdownMenuItem>
                             {canDeleteClinicalRecords && (
                               <DropdownMenuItem
@@ -2807,8 +2807,8 @@ procedureTypeId: it.procedureTypeId ?? null,
                               union of every act's teeth — so a séance of two acts printed both names beside all
                               five teeth and said nothing about which belonged to which. */}
                           <TableHead>Actes</TableHead>
-                          <TableHead>Montant payé</TableHead>
-                          <TableHead>Reste</TableHead>
+                          <TableHead>Payé</TableHead>
+                          <TableHead>Reste à payer</TableHead>
                           <TableHead>Notes</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -2880,7 +2880,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                               */}
                               <div className="flex items-center justify-end gap-1">
                                 {/* Billed → the action is simply absent, not replaced by a « Facturé » badge in
-                                    the Actions column. A status has no business there, and « Montant payé » on
+                                    the Actions column. A status has no business there, and « Payé » on
                                     the same row already carries it — see `BilledAmount`, which says so in words
                                     now rather than by striking the figure through. */}
                                 {!invoicedDentalRecordIds.has(record.id) && (
@@ -2903,7 +2903,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                                     setEditingRecord(record)
                                     setRecordModalOpen(true)
                                   }}
-                                  title="Modifier le dossier"
+                                  title="Modifier la fiche"
                                   aria-label={`Modifier la fiche du ${formatDate(record.interventionDate)}`}
                                 >
                                   <Pencil className="h-4 w-4" />
@@ -3013,8 +3013,7 @@ procedureTypeId: it.procedureTypeId ?? null,
           <TabsContent value="treatment-plans" className="space-y-4">
             <PatientTabSection
               icon={ClipboardCheck}
-              title="Plans de traitement"
-              description="Devis, actes planifiés et échéanciers de paiement du patient."
+              title="Traitements"
               action={
                 <Button
                   size="sm"
@@ -3022,7 +3021,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                   onClick={() => setNewPlanRequest((n) => n + 1)}
                 >
                   <Plus className="h-4 w-4" />
-                  Nouveau plan
+                  Nouveau devis
                 </Button>
               }
             >
@@ -3184,7 +3183,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                             <TableCell className="text-right">
                               {/*
                                 ⚠️ **One frequent action inline, the destructive one behind « ⋯ » — the same
-                                shape « Actes dentaires » carries, and this row is why that fix had to
+                                shape « Fiches de soins » carries, and this row is why that fix had to
                                 propagate.** « Ouvrir » and « Supprimer » were two labelled buttons side by
                                 side (with no `gap` at all at first, since JSX strips the whitespace-only line
                                 between siblings), the destructive one second, on the tab a secretary opens to

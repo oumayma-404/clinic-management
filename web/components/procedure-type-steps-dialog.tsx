@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ChevronDown, ChevronUp, Info, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -16,12 +16,14 @@ import { Label } from "@/components/ui/label"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
-import type { ProcedureTypeDto } from "@/lib/api/types"
+import type { ProcedureStepTemplateDto, ProcedureTypeDto } from "@/lib/api/types"
 import { getErrorMessage } from "@/lib/errors"
 import { ApiError } from "@/lib/api/client"
 import { quoteFr } from "@/lib/format"
 import { toast } from "sonner"
 import { formatDurationFr } from "@/components/appointment-recap"
+import { SeanceStrip, type SeanceStripStep } from "@/components/treatment-plans/seance-strip"
+import { Consequences } from "@/components/treatment-plans/plan-consequences"
 import { cn } from "@/lib/utils"
 
 interface ProcedureTypeStepsDialogProps {
@@ -43,7 +45,7 @@ interface StepRow {
 }
 
 /**
- * « Étapes » — the step-protocol editor for one act, in its own dialog.
+ * « Séances » — the step-protocol editor for one act, in its own dialog.
  *
  * <p><b>It was a field at the bottom of `procedure-type-form-modal`, and that is the defect this closes.</b>
  * The protocol sat fifth in a long form behind the cost and the category, and in the table it rendered as a grey
@@ -176,8 +178,8 @@ export function ProcedureTypeStepsDialog({
        */
       toast.success(
         payload.length === 0
-          ? "Protocole enregistré — cet acte se fait en une séance."
-          : `Protocole enregistré — ${payload.length} séance${payload.length > 1 ? "s" : ""}.`,
+          ? "Enregistré — une seule séance."
+          : `Enregistré — ${payload.length} séance${payload.length > 1 ? "s" : ""}.`,
       )
       onSaved()
       onOpenChange(false)
@@ -204,10 +206,17 @@ export function ProcedureTypeStepsDialog({
       <DialogContent mobile="sheet" className="md:max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {procedureType ? `Étapes — ${procedureType.name}` : "Étapes"}
+            {procedureType ? `Séances · ${procedureType.name}` : "Séances"}
           </DialogTitle>
-          <DialogDescription>
-            Les séances proposées quand cet acte est ajouté à un devis.
+          {/* The one consequence, as a bold fact: séances bear no price and change no treatment under way. */}
+          <DialogDescription asChild>
+            <Consequences
+              items={[
+                <>
+                  <b className="text-foreground">Sans prix</b> · ne change <b className="text-foreground">aucun devis en cours</b>
+                </>,
+              ]}
+            />
           </DialogDescription>
         </DialogHeader>
 
@@ -218,15 +227,32 @@ export function ProcedureTypeStepsDialog({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-accent-foreground">
             {kept.length === 0
-              ? "Aucune étape"
+              ? "Une seule séance"
               : `${kept.length} séance${kept.length > 1 ? "s" : ""}`}
           </span>
           {totalMinutes > 0 && (
-            <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+            <span className="text-2xs tabular-nums text-muted-foreground">
               {formatDurationFr(totalMinutes)} de fauteuil au total
             </span>
           )}
         </div>
+
+        {/* The protocol as every other screen will draw it — the one séance strip, live. */}
+        <SeanceStrip
+          steps={kept.map((row, index) => ({
+            id: String(index),
+            label: row.label.trim(),
+            note: protocolNote(
+              {
+                label: row.label,
+                durationMinutes: Number.parseInt(row.duration, 10) || null,
+                minDaysAfterPrevious: Number.parseInt(row.interval, 10) || null,
+              },
+              index,
+            ),
+          }))}
+          label="Aperçu des séances"
+        />
 
         <div className="space-y-2 overflow-y-auto">
           {error && <FormErrorBanner message={error} />}
@@ -259,7 +285,7 @@ export function ProcedureTypeStepsDialog({
                         size="icon"
                         disabled={saving || index === 0}
                         className="size-6 coarse:size-8"
-                        aria-label={`Monter l'étape ${quoteFr(row.label || String(index + 1))}`}
+                        aria-label={`Monter la séance ${quoteFr(row.label || String(index + 1))}`}
                         onClick={() => move(index, -1)}
                       >
                         <ChevronUp className="h-3.5 w-3.5" />
@@ -270,7 +296,7 @@ export function ProcedureTypeStepsDialog({
                         size="icon"
                         disabled={saving || index === rows.length - 1}
                         className="size-6 coarse:size-8"
-                        aria-label={`Descendre l'étape ${quoteFr(row.label || String(index + 1))}`}
+                        aria-label={`Descendre la séance ${quoteFr(row.label || String(index + 1))}`}
                         onClick={() => move(index, 1)}
                       >
                         <ChevronDown className="h-3.5 w-3.5" />
@@ -278,12 +304,12 @@ export function ProcedureTypeStepsDialog({
                     </div>
                   </div>
 
-                  <span className="w-4 shrink-0 text-center font-mono text-2xs text-muted-foreground">
+                  <span className="w-4 shrink-0 text-center text-2xs tabular-nums text-muted-foreground">
                     {index + 1}
                   </span>
 
                   <Label htmlFor={`proto-label-${index}`} className="sr-only">
-                    Libellé de l&apos;étape {index + 1}
+                    Nom de la séance {index + 1}
                   </Label>
                   <Input
                     id={`proto-label-${index}`}
@@ -294,7 +320,7 @@ export function ProcedureTypeStepsDialog({
                     onChange={(e) => update(index, { label: e.target.value })}
                     /*
                       Enter on the last row appends the next step and focuses it — a 4-step protocol cost four
-                      separate clicks on « Ajouter une étape », and the keyboard path was six keystrokes of
+                      separate clicks on « Ajouter une séance », and the keyboard path was six keystrokes of
                       overhead per step. `preventDefault` because not submitting on Enter is the right behaviour
                       here and must stay: this dialog's save rewrites the whole protocol.
                     */
@@ -308,7 +334,7 @@ export function ProcedureTypeStepsDialog({
                   />
 
                   <Label htmlFor={`proto-duration-${index}`} className="sr-only">
-                    Durée de l&apos;étape {index + 1}, en minutes
+                    Durée de la séance {index + 1}, en minutes
                   </Label>
                   <div className="relative shrink-0">
                     <Input
@@ -317,7 +343,7 @@ export function ProcedureTypeStepsDialog({
                       inputMode="numeric"
                       placeholder="30"
                       disabled={saving}
-                      className="w-24 pe-9 text-end font-mono tabular-nums md:text-sm"
+                      className="w-24 pe-9 text-end tabular-nums md:text-sm"
                       onChange={(e) => update(index, { duration: e.target.value })}
                     />
                     <span className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
@@ -338,7 +364,7 @@ export function ProcedureTypeStepsDialog({
                   {index > 0 ? (
                     <div className="relative shrink-0">
                       <Label htmlFor={`proto-interval-${index}`} className="sr-only">
-                        Délai après la séance précédente, en jours, pour l&apos;étape {index + 1}
+                        Délai après la séance précédente, en jours, pour la séance {index + 1}
                       </Label>
                       <Input
                         id={`proto-interval-${index}`}
@@ -346,8 +372,7 @@ export function ProcedureTypeStepsDialog({
                         inputMode="numeric"
                         placeholder="7"
                         disabled={saving}
-                        title="Délai minimum après la séance précédente. Laissez vide si le délai est libre."
-                        className="w-24 pe-14 text-end font-mono tabular-nums md:text-sm"
+                        className="w-24 pe-14 text-end tabular-nums md:text-sm"
                         onChange={(e) => update(index, { interval: e.target.value })}
                       />
                       <span className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-2xs text-muted-foreground">
@@ -369,7 +394,7 @@ export function ProcedureTypeStepsDialog({
                     size="icon"
                     disabled={saving}
                     className="size-9 shrink-0 text-muted-foreground coarse:size-11"
-                    aria-label={`Supprimer l'étape ${quoteFr(row.label || String(index + 1))}`}
+                    aria-label={`Supprimer la séance ${quoteFr(row.label || String(index + 1))}`}
                     onClick={() => remove(index)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -387,23 +412,8 @@ export function ProcedureTypeStepsDialog({
             onClick={() => setRows((prev) => [...prev, { label: "", duration: "", interval: "" }])}
           >
             <Plus className="h-4 w-4" />
-            Ajouter une étape
+            Ajouter une séance
           </Button>
-
-          {/*
-            The sentence that keeps a dentist from thinking this is retroactive. It says three things because a
-            dentist about to re-cut the protocol of a bridge asks all three: are these binding, do they carry
-            money, and does this change what is already quoted.
-          */}
-          <div className="flex gap-2 rounded-md bg-muted/50 p-3">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <p className="text-2xs leading-relaxed text-muted-foreground">
-              Ces étapes sont <span className="font-medium text-foreground">proposées</span> quand l&apos;acte est
-              ajouté à un devis, puis modifiables cas par cas. Elles ne portent{" "}
-              <span className="font-medium text-foreground">jamais de prix</span>, et les modifier ici ne change
-              aucun devis en cours.
-            </p>
-          </div>
         </div>
 
         <DialogFooter>
@@ -412,7 +422,7 @@ export function ProcedureTypeStepsDialog({
           </Button>
           <Button type="button" onClick={() => void save()} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Enregistrer les étapes
+            Enregistrer les séances
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -420,15 +430,28 @@ export function ProcedureTypeStepsDialog({
   )
 }
 
+
 /**
- * The act's protocol as the catalogue row shows it — a control, not a sentence.
+ * One protocol séance's caption on the strip — its delay after the previous one and its chair time
+ * (« +7 j · 30 min »). A protocol has no dates, so this replaces the strip's « à planifier ».
+ */
+function protocolNote(step: ProcedureStepTemplateDto, index: number): string {
+  const parts: string[] = []
+  if (index > 0 && (step.minDaysAfterPrevious ?? 0) > 0) parts.push(`+${step.minDaysAfterPrevious} j`)
+  if ((step.durationMinutes ?? 0) > 0) parts.push(formatDurationFr(step.durationMinutes as number))
+  return parts.length > 0 ? parts.join(" · ") : "—"
+}
+
+/**
+ * The act's protocol as the catalogue row shows it — the same séance strip the booking dialog, the fiche and the
+ * treatment page draw, with each séance's delay and chair time as its caption.
  *
  * <p>Exported beside the dialog it opens so the two cannot drift about what a protocol looks like, and used by
  * <b>both</b> trees of the table (the row and the card), which is the other way that pair drifts.</p>
  *
- * <p>⚠️ <b>It is a real `<button>` for an admin and inert text for everyone else.</b> `PUT /procedure-types/{id}`
- * is `AdminOnly`, so offering the control to reception would be a door that answers 403 — the reasoning
- * `access-denied-card` records, one control along.</p>
+ * <p>⚠️ <b>« Modifier les séances » is a real `<button>` for an admin and absent for everyone else.</b>
+ * `PUT /procedure-types/{id}` is `AdminOnly`, so offering it to reception would be a door that answers 403.
+ * It sits beside the strip rather than wrapping it: a list inside a button is not valid HTML.</p>
  */
 export function ProcedureStepsCell({
   procedureType,
@@ -442,103 +465,66 @@ export function ProcedureStepsCell({
 }) {
   const steps = procedureType.defaultSteps ?? []
   const total = steps.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0)
-  const shown = steps.slice(0, 2)
-  const rest = steps.length - shown.length
 
-  // An act with no protocol — most of them. It says so, and (for an admin) offers the one thing to do about it,
-  // which is where a dentist actually discovers that acts can be cut into séances at all.
+  // An act with no séances defined — most of them. For an admin it offers the one thing to do about it, which is
+  // where a dentist discovers that acts can be cut into séances at all.
   if (steps.length === 0) {
     if (!onEdit) {
-      // « Une seule séance » is a claim about the ACT; « Aucune étape définie » is a claim about its
-      // configuration, which is what this cell actually knows. A non-admin reading the first would take it for
-      // a clinical fact about an act nobody has cut up yet.
+      // A claim about the act's configuration, not about the act — which is all this cell knows.
       return (
-        <span className={cn("block text-2xs text-muted-foreground", className)}>Aucune étape définie</span>
+        <span className={cn("block text-2xs text-muted-foreground", className)}>Aucune séance définie</span>
       )
     }
     return (
       <button
         type="button"
         onClick={() => onEdit(procedureType)}
+        aria-label={`Découper ${quoteFr(procedureType.name)} en séances`}
         className={cn(
           // ⚠️ `flex w-fit`, never `inline-flex`: the cell above it is the act NAME, so an inline control flows
-          // straight after the last word — measured, « Extraction chirurgicale (sagesse / dent incluse) » ran
-          // into « + Découper en étapes » on one line and the button read as part of the act's name.
+          // straight after the last word and reads as part of the act's name.
           "flex w-fit min-h-8 items-center gap-1 rounded-md border border-dashed px-2 text-2xs text-muted-foreground transition-colors hover-hover:hover:border-primary/50 hover-hover:hover:text-primary coarse:min-h-11",
           className,
         )}
       >
         <Plus className="h-3 w-3" />
-        Découper en étapes
+        Découper en séances
       </button>
     )
   }
 
-  const body = (
-    <>
+  const seances: SeanceStripStep[] = steps.map((step, index) => ({
+    id: String(index),
+    label: step.label,
+    note: protocolNote(step, index),
+  }))
+
+  return (
+    <div className={cn("flex min-w-0 flex-col items-start gap-1.5", className)}>
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-2xs font-semibold text-accent-foreground">
-          {steps.length} séances
+          {steps.length} séance{steps.length > 1 ? "s" : ""}
         </span>
         {total > 0 && (
-          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-            {formatDurationFr(total)}
-          </span>
+          <span className="text-2xs tabular-nums text-muted-foreground">{formatDurationFr(total)} au fauteuil</span>
         )}
       </span>
-      {/*
-        The first two séances, numbered. The rank is what the run-on sentence could not carry and what makes the
-        list read as an ordered protocol rather than as prose — `PlanStepStrip` gives the same act the same
-        reading on a devis, so a dentist recognises it in both places.
-      */}
-      <span className="mt-1 flex flex-wrap gap-1">
-        {shown.map((step, i) => (
-          <span
-            key={i}
-            className="inline-flex max-w-full items-center gap-1 rounded-full bg-accent py-0.5 pe-2 ps-0.5 text-2xs text-accent-foreground"
-          >
-            <span className="flex size-4 flex-none items-center justify-center rounded-full bg-card font-mono text-2xs leading-none text-primary">
-              {i + 1}
-            </span>
-            <span className="truncate">{step.label}</span>
-          </span>
-        ))}
-        {rest > 0 && (
-          <span className="inline-flex items-center rounded-full border border-dashed px-2 py-0.5 text-2xs text-muted-foreground">
-            +{rest}
-          </span>
-        )}
-      </span>
-    </>
-  )
-
-  if (!onEdit) {
-    return <span className={cn("flex flex-col items-start", className)}>{body}</span>
-  }
-
-  /*
-    ⚠️ **A real bordered control, with a pencil — it had `border: 0`, `background: transparent` and
-    `cursor: default`.** So the 20 acts that need nothing shouted (« + Découper en étapes » in a dashed pill)
-    while the 14 a dentist actually needs to correct — an implant protocol that does not match how they work —
-    offered no visual invitation at all. Reviewed cold, the empty-act route was found *by seeing it* and the
-    filled-act route only *by reading the aria-label*.
-  */
-  return (
-    <button
-      type="button"
-      onClick={() => onEdit(procedureType)}
-      aria-label={`Modifier les ${steps.length} étapes de ${quoteFr(procedureType.name)}`}
-      title={`Modifier les séances de ${procedureType.name}`}
-      className={cn(
-        "group flex w-fit min-h-8 cursor-pointer flex-col items-start gap-0.5 rounded-md border px-2 py-1 text-start transition-colors hover-hover:hover:border-primary/50 hover-hover:hover:bg-accent/60 coarse:min-h-11",
-        className,
+      {/* `w-0 min-w-full`: the strip scrolls in its own box, so it must not size the table's name column — its
+          séances' minimum widths did, and pushed « Actions » out of the card at 1440 px. */}
+      <div className="w-0 min-w-full">
+        <SeanceStrip steps={seances} label={`Séances de ${procedureType.name}`} className="w-full max-w-md" />
+      </div>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={() => onEdit(procedureType)}
+          aria-label={`Modifier les ${steps.length} séances de ${quoteFr(procedureType.name)}`}
+          className="flex w-fit min-h-8 items-center gap-1 rounded-md border px-2 text-2xs text-muted-foreground transition-colors hover-hover:hover:border-primary/50 hover-hover:hover:text-primary coarse:min-h-11"
+        >
+          <Pencil className="h-3 w-3" aria-hidden="true" />
+          Modifier les séances
+        </button>
       )}
-    >
-      {body}
-      <span className="flex items-center gap-1 text-2xs text-muted-foreground group-hover:text-primary">
-        <Pencil className="h-3 w-3" aria-hidden="true" />
-        Modifier les séances
-      </span>
-    </button>
+    </div>
   )
 }

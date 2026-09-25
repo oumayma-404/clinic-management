@@ -157,6 +157,8 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/signup/verifier` | `app/signup/verifier/page.tsx` | Where the emailed link lands. One centred status panel at every width — vérification / créé / lien non valable. ⚠️ Guards the call behind a `useRef` because the token is **single-use** and StrictMode mounts effects twice; the second run would spend the token the first consumed and render success as a refusal. Success is a **link** to `/login`, not a redirect into the app: verification issues no session |
 | `/change-password` | `app/change-password/page.tsx` | **Local**: forced/voluntary password change (`ChangePasswordForm`) |
 
+> ⚠️ **Treatment flow UX (2026-09-24)** changed on-screen wording (the rail entry is « Traitements ») on `/treatment-plans`, `/treatment-plans/[id]`, `/a-cloturer` and the patient page (its tab « Plan de traitement » is « Traitements », « Dossiers médicaux » is « Fiches de soins », « Solde dû » is « Reste à payer », the band is one card per treatment that books its next séance directly). Rows below may quote the older strings; `features/treatment-flow-ux/notes.md` is current.
+
 ## Conventions
 
 - Pages are client-rendered; data is fetched in `useEffect` via `lib/api` modules, with loading/error local state and `toast` on failure. `app/error.tsx` / `app/global-error.tsx` catch render throws with a French fallback.

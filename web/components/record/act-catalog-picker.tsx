@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { formatDT } from "@/lib/format"
+import { formatDT, quoteFr } from "@/lib/format"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { COARSE_POINTER_QUERY } from "@/lib/hooks/use-media-query"
@@ -59,7 +59,7 @@ export function ActCatalogPicker({
   /**
    * Focus the search field — **on a mouse only**.
    *
-   * <p>On a finger this raised the on-screen keyboard the instant « Ajouter une fiche médicale » opened, over the
+   * <p>On a finger this raised the on-screen keyboard the instant the « Fiche de soins » opened, over the
    * very list the field filters, and the browser scrolled the sheet's own body to bring the focused field up.
    * `stock-table.tsx` states the rule for the rest of the app (`ui/dialog.tsx` sends the opening focus to the
    * title so a sheet does not raise a keyboard over its content); this picker had opted itself back out. Typing
@@ -240,7 +240,7 @@ export function ActCatalogPicker({
       {/*
         `scrollbar-thin` because this list scrolls *inside* a dialog body that is itself scrolling.
 
-        « Ajouter une fiche médicale » opens with no act picked, so the picker is what the slot renders (see
+        A new « Fiche de soins » opens with no act picked, so the picker is what the slot renders (see
         `act-slot.tsx`) and the modal lands in this state every single time. The body needs 965 px in 599 and the
         list 1156 px in 290, so both drew a full-width gutter and the dialog showed **two parallel scrollbars
         about 15 px apart** — nowhere else in the app does that, and it reads as a rendering fault rather than as
@@ -285,32 +285,15 @@ export function ActCatalogPicker({
         >
           <span className="shrink-0 text-muted-foreground">+</span>
           <span className="min-w-0 flex-1 truncate">
-            Enregistrer «&nbsp;<span className="font-medium">{trimmed}</span>&nbsp;» comme acte libre
+            Ajouter <span className="font-medium">{quoteFr(trimmed)}</span> (acte libre)
           </span>
-          <span className="shrink-0 text-2xs text-muted-foreground">sans tarif catalogue</span>
         </button>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card px-3 py-1.5 text-2xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <kbd className="rounded border border-b-2 px-1 text-2xs">↑</kbd>
-          <kbd className="rounded border border-b-2 px-1 text-2xs">↓</kbd>
-          parcourir
-          <span className="mx-0.5 opacity-50">·</span>
-          <kbd className="rounded border border-b-2 px-1 text-2xs">↵</kbd>
-          choisir
-          {onCancel && (
-            <>
-              <span className="mx-0.5 opacity-50">·</span>
-              <kbd className="rounded border border-b-2 px-1 text-2xs">esc</kbd>
-              annuler
-            </>
-          )}
-        </span>
-        {/* The only way back to a proposed act once the catalogue is open, and it was a bare `<button>` with no
-            padding — a ~16px target on the footer of the fiche's primary control. A real `Button` carries the
-            44px floor from `buttonVariants` and looks like something you can press. */}
-        {onCancel && (
+      {/* The only way back to a proposed act once the catalogue is open. A real `Button` carries the 44px floor
+          from `buttonVariants`. The ↑↓ / ↵ / esc keys still work; they are no longer spelled out. */}
+      {onCancel && (
+        <div className="flex justify-end border-t bg-card px-3 py-1.5">
           <Button
             type="button"
             variant="ghost"
@@ -321,8 +304,8 @@ export function ActCatalogPicker({
           >
             Garder l&apos;acte actuel
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

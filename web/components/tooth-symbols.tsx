@@ -816,7 +816,7 @@ export function ToothSymbolLegend({
       </span>
       <span className="flex items-center gap-1.5">
         <span className="h-1 w-5 rounded-full" style={{ background: DONE }} />
-        <span className="text-muted-foreground">Réalisé (acte)</span>
+        <span className="text-muted-foreground">Fait (acte)</span>
       </span>
       <span className="text-muted-foreground">Contour = prévu · plein = en place</span>
       {/* Only when the patient has one — the rule this legend already applies to every condition glyph: a key

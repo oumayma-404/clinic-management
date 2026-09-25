@@ -81,7 +81,7 @@ test.describe("HP-3 · un 409 a une sortie @mutating @t0", () => {
     expect(peer.status, `the peer save must succeed: ${peer.raw?.slice(0, 300)}`).toBe(200)
 
     // Change something in the stale form, then save — the version it holds is now behind.
-    await dialog.locator("button", { hasText: /^1h$/ }).first().click()
+    await dialog.locator("button", { hasText: /^1 h$/ }).first().click()
     await saveThroughPrompts(page, dialog)
 
     /*
@@ -106,7 +106,7 @@ test.describe("HP-3 · un 409 a une sortie @mutating @t0", () => {
     ).toBeVisible()
 
     // Re-apply the change deliberately, as the server's sentence asks, and save again.
-    await dialog.locator("button", { hasText: /^1h$/ }).first().click()
+    await dialog.locator("button", { hasText: /^1 h$/ }).first().click()
     await saveThroughPrompts(page, dialog)
 
     await expect(
@@ -153,7 +153,7 @@ test.describe("HP-3 · un 409 a une sortie @mutating @t0", () => {
     })
     expect(peer.status).toBe(200)
 
-    await dialog.locator("button", { hasText: /^1h$/ }).first().click()
+    await dialog.locator("button", { hasText: /^1 h$/ }).first().click()
     await saveThroughPrompts(page, dialog)
     await expect(page.locator("button", { hasText: /^Recharger$/ }).first()).toBeVisible({ timeout: 15_000 })
 
@@ -217,7 +217,7 @@ test.describe("HP-3 · un 409 a une sortie @mutating @t0", () => {
     const dialog = editDialog(page)
     await expect(dialog).toBeVisible()
 
-    await dialog.locator("button", { hasText: /^1h$/ }).first().click()
+    await dialog.locator("button", { hasText: /^1 h$/ }).first().click()
     await saveThroughPrompts(page, dialog)
 
     await expect(

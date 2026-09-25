@@ -54,7 +54,7 @@ export async function gotoApp(page: Page, route: string, context?: BrowserContex
 }
 
 /**
- * Snoozes the « Compte rendu de visite » prompt if it is up.
+ * Snoozes the post-visit prompt (« Séance terminée », formerly « Compte rendu de visite ») if it is up.
  *
  * ⚠️ **Without this, most browser tests fail on a click that never lands.** The popup is a modal with a
  * full-screen overlay, so Playwright reports « <div data-slot="dialog-overlay"> intercepts pointer events » and
@@ -65,9 +65,8 @@ export async function gotoApp(page: Page, route: string, context?: BrowserContex
  * Every dismissal path funnels into one `handleLater` which calls `snoozeAll()` — the whole queue, until the end
  * of the local day — so one click is enough and the harness needs to know nothing about the storage shape.
  *
- * ⚠️ Identified by that **button**, never by the dialog's title: the title is the notification's own text
- * (`active?.title`) and differs per visit. A broader « close any dialog » would also close the modal a deep
- * link just opened, which is the thing under test.
+ * ⚠️ Identified by that **button**, never by the dialog's title (the product has renamed it once already). A
+ * broader « close any dialog » would also close the modal a deep link just opened, which is the thing under test.
  */
 export async function dismissPostVisitPrompt(page: Page) {
   const later = page.getByRole("button", { name: /^Plus tard$/ })

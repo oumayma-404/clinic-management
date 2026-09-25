@@ -19,7 +19,7 @@ import { visitActsLine } from "@/components/appointment-labels"
 import type { PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto } from "@/lib/api/types"
 
 /**
- * The section's anchor, exported so the patient header's « Solde dû » can scroll to it.
+ * The section's anchor, exported so the patient header's « Reste à payer » chip can scroll to it.
  *
  * ⚠️ Shared rather than a literal at each end: the figure in the header is the only route to this section now
  * that it lives inside a tab, and two hand-written ids is how that route silently becomes a no-op.
@@ -86,7 +86,7 @@ interface PatientOutstandingStripProps {
  * whose refusal text reads « Vous pouvez encaisser un paiement depuis la fiche du patient » — a promise this
  * page could only keep through tab 7 of 7.</p>
  *
- * <p><b>Where it sits, and why it moved.</b> Under <i>l'historique des actes</i>, inside the « Actes dentaires »
+ * <p><b>Where it sits, and why it moved.</b> Under <i>l'historique des actes</i>, inside the « Fiches de soins »
  * tab. It was a `border-y` band above the tabs at first — which put a money surface between the odontogramme and
  * the whole record, and pushed the tabs down on every patient who owed anything. Here it reads as the second
  * half of the tab it is in: the table above says what was done and what each fiche took, this says what is
@@ -94,7 +94,7 @@ interface PatientOutstandingStripProps {
  * settled patient pays no height at all.</p>
  *
  * <p>⚠️ Because it lives inside a tab it cannot be seen from the top of the page, so
- * {@link PATIENT_OUTSTANDING_SECTION_ID} is the anchor the header's « Solde dû » scrolls to — that figure is
+ * {@link PATIENT_OUTSTANDING_SECTION_ID} is the anchor the header's « Reste à payer » chip scrolls to — that figure is
  * now the only route here, which is why it is a real control rather than a `<span>`.</p>
  *
  * <p><b>One bordered surface, both trees inside it</b> (`invoices-table`'s shape). A bare `Table` element paints
@@ -102,7 +102,7 @@ interface PatientOutstandingStripProps {
  * white slab beside lists that are all framed.</p>
  *
  * <p><b>Two groups, and only the first is money.</b> « Reste à payer » decomposes the served balance exactly.
- * « Travail non facturé » is séances that produced no document, which is <i>not</i> debt — no note, no échéance,
+ * « Non facturé » is séances that produced no document, which is <i>not</i> debt — no note, no échéance,
  * nothing in any money read — and is therefore kept out of the total and given « Facturer » rather than
  * « Encaisser ». Folding it in would make this band disagree with « Solde dû », la caisse, the dashboard and the
  * console, five reads `MoneyReadConsistencyTests` holds equal.</p>
@@ -193,12 +193,12 @@ export function PatientOutstandingStrip({
                   <TableHead>Document</TableHead>
                   <TableHead>Concerne</TableHead>
                   <TableHead>Depuis</TableHead>
-                  {/* ⚠️ « Encaissé » was a CARD field and not a column, so a desktop settled a partially-paid
+                  {/* ⚠️ « Payé » was a CARD field and not a column, so a desktop settled a partially-paid
                       note reading « Reste 120,000 DT » with nothing saying 380,000 had already been taken —
                       while the same row on a tablet said so. Five columns is inside the measured `lg:` budget
                       for this table. */}
-                  <TableHead className="text-right">Encaissé</TableHead>
-                  <TableHead className="text-right">Reste</TableHead>
+                  <TableHead className="text-right">Payé</TableHead>
+                  <TableHead className="text-right">Reste à payer</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -265,25 +265,24 @@ export function PatientOutstandingStrip({
               }
               fields={(line) => [
                 {
-                  label: "Reste",
+                  label: "Reste à payer",
                   value: (
                     <span className="font-semibold text-warning-ink">{formatDT(line.outstanding)}</span>
                   ),
                 },
-                line.collected > 0 ? { label: "Encaissé", value: formatDT(line.collected) } : null,
+                line.collected > 0 ? { label: "Payé", value: formatDT(line.collected) } : null,
                 shortSchedule(line)
                   ? {
                       label: "Échéancier",
                       value: (
                         <span className="text-warning-ink">
-                          {formatDT(line.payableRoom)} seulement — à compléter sur le devis
+                          {line.payableRoom > 0 ? `${formatDT(line.payableRoom)} seulement` : "aucune échéance ouverte"}
                         </span>
                       ),
                     }
                   : null,
-                line.since
-                  ? { label: line.kind === "Invoice" ? "Émise le" : "Échéance", value: formatDateFr(line.since) }
-                  : null,
+                // « Depuis », the table's own column name for the same date.
+                line.since ? { label: "Depuis", value: formatDateFr(line.since) } : null,
               ]}
               primaryAction={(line) => (
                 <RowAction
@@ -328,16 +327,16 @@ export function PatientOutstandingStrip({
             séances produced no document at all, so nothing about them is in « Solde dû », « Créances », la
             caisse or the dashboard — a fiche saved with « Payé » = 0 raises no note (`DentalRecordAutoBilling`).
             Calling it debt would put this band at odds with every other money read in the product; leaving it
-            out entirely is what the « Actes dentaires » tab already does, and it shows an amber « Reste » for
-            the same séance, which is the contradiction this group resolves by naming it.
+            out entirely is what the « Fiches de soins » tab already does, and it shows an amber « Reste à payer »
+            for the same séance, which is the contradiction this group resolves by naming it.
           */}
           <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h3 className="text-sm font-semibold">Travail non facturé</h3>
+            {/* « Non facturé » is the whole distinction: not in « Reste à payer », not a créance yet. */}
+            <h3 className="text-sm font-semibold">Non facturé</h3>
             <span className="text-xs text-muted-foreground">
               {unbilled.length === 1
                 ? "1 séance sans note d'honoraires"
                 : `${unbilled.length} séances sans note d'honoraires`}
-              {" — pas encore une créance"}
             </span>
           </div>
 
@@ -386,9 +385,9 @@ export function PatientOutstandingStrip({
   )
 }
 
-/** « Note d'honoraires 2026-0042 ». The number is what staff say out loud; the label is what it is. */
+/** « Note d'honoraires n° 2026-0042 » — « n° » as `planDevisLabel` writes it. The number is what staff say out loud. */
 function documentTitle(line: PatientDebtLineDto): string {
-  return line.number ? `${line.label} ${line.number}` : line.label
+  return line.number ? `${line.label} n° ${line.number}` : line.label
 }
 
 /**
@@ -502,10 +501,10 @@ function RowAction({
         variant="outline"
         className={full ? "w-full gap-1 coarse:h-11" : "gap-1 coarse:h-11"}
         onClick={() => onOpenDocument(line)}
-        aria-label={`Ouvrir le devis ${line.number ?? ""} — aucune échéance ne peut recevoir ce paiement`.trim()}
+        aria-label={`Voir le traitement du devis ${line.number ?? ""} — aucune échéance ouverte`.replace("  ", " ")}
       >
         <ClipboardList aria-hidden="true" className="size-4" />
-        Ouvrir le devis
+        Voir le traitement
       </Button>
     )
   }

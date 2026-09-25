@@ -174,7 +174,7 @@ export function Odontogram({
    * Which of the two charts is on screen.
    *
    * ⚠️ **Controlled, and the reason changed.** It was controlled so the Cases/Symboles switch could be withheld
-   * on « Actes réalisés », where that chart ignored `chartView` and the switch therefore lied. That chart draws
+   * on « Actes faits », where that chart ignored `chartView` and the switch therefore lied. That chart draws
    * the teeth now, so the switch is offered on both — and the state is still held here because « Actes
    * réalisés » sends the reader to the other tab from its own footer.
    */
@@ -228,7 +228,7 @@ export function Odontogram({
       }
       setByTooth(map)
 
-      // The fiches, for the act NAMES in the « Actes réalisés » tab: a tooth state carries the resulting
+      // The fiches, for the act NAMES in the « Actes faits » tab: a tooth state carries the resulting
       // condition but not the act that produced it. Fetched here rather than passed in so this component stays
       // self-loading (and so the realtime refetch below covers both halves). Best-effort — a failure leaves the
       // acts tab falling back to the condition label rather than breaking the diagnosis chart beside it.
@@ -277,7 +277,7 @@ export function Odontogram({
    *
    * ⚠️ A failure is **recorded**, not written back as `[]`. The empty write was a no-op (the state starts empty)
    * that produced a wrong *number*: with no catalogue every seed's `matchedCost` falls back to 0, so
-   * « Créer un plan depuis l'odontogramme » would quietly produce a devis of free treatment. Nothing on the chart
+   * « Créer un devis depuis l'odontogramme » would quietly produce a devis of free treatment. Nothing on the chart
    * said so, because a missing tarif and a tarif of zero are the same value.
    */
   const loadCatalog = useCallback(async () => {
@@ -625,7 +625,7 @@ export function Odontogram({
         </div>
       ) : (
         /* Two views over the same mouth. « Diagnostics » is the chart that has always been here and stays the
-           default — it is where charting happens. « Actes réalisés » is read-only and reflects what the fiches
+           default — it is where charting happens. « Actes faits » is read-only and reflects what the fiches
            recorded, which the server writes on its own. Both read the arch from **one** `dentitionView` above the
            tabs, so there is no per-tab setting that could disagree. */
         <Tabs value={tab} onValueChange={setTab} className="w-full">
@@ -635,7 +635,7 @@ export function Odontogram({
               naturally: both act on the whole odontogram, and putting them at opposite ends of one row reads as
               « which view » on the left and « what to do with it » on the right. */}
           {/*
-            ⚠️ **Which view, and which drawing — and nothing else.** This row used to carry « Créer un plan » too,
+            ⚠️ **Which view, and which drawing — and nothing else.** This row used to carry « Créer un devis » too,
             and at 390 px the four controls wrapped into FOUR stacked rows (measured: 127 px for the switches plus
             28 px for the button). The chart under them is 177 px, so the card was spending 516 px of chrome to
             show 177 px of teeth — a 3:1 ratio on the one card the patient page exists for, with the first tooth
@@ -657,7 +657,7 @@ export function Odontogram({
             */}
             <TabsList>
               <TabsTrigger value="diagnostics">État dentaire</TabsTrigger>
-              <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
+              <TabsTrigger value="acts">Actes faits</TabsTrigger>
             </TabsList>
             {/*
               ⚠️ `w-full sm:w-auto` + `flex-wrap` + `flex-1` on each switch, rather than trusting them to fit
@@ -683,7 +683,7 @@ export function Odontogram({
 
                 It was conditional on « Diagnostics », for a reason that was correct at the time and is
                 recorded because it will look like a regression: `OdontogramActsChart` drew its own thing and
-                did not read `chartView`, so on « Actes réalisés » the switch accepted the press, moved its own
+                did not read `chartView`, so on « Actes faits » the switch accepted the press, moved its own
                 pressed state, and left the chart byte-for-byte identical — a control that appears to work and
                 does not.
 
@@ -729,7 +729,7 @@ export function Odontogram({
             <LoadFailureNotice
               variant="inline"
               message="Les tarifs du catalogue n'ont pas pu être chargés."
-              detail="Un plan créé depuis l'odontogramme partira sans montants."
+              detail="Un devis créé depuis l'odontogramme partira sans montants."
               onRetry={() => void loadCatalog()}
               className="mt-2"
             />
@@ -743,14 +743,10 @@ export function Odontogram({
                 charted the same carie on three molars one at a time discovers there was a faster way without
                 being told — a ctrl-click or a long-press would have been cheaper to build and invisible to
                 everyone who did not already know it was there. It sits inside the Diagnostics tab because
-                « Actes réalisés » is read-only and has nothing to select teeth for.
+                « Actes faits » is read-only and has nothing to select teeth for.
 
-                ⚠️ **What did go is the paragraph beside it**, which was two lines at 390 px and on screen
-                permanently. Its « off » half (« Même diagnostic sur plusieurs dents ? Activez … ») restated the
-                button's own label back at the reader, and its « on » half ended « … sous l'arcade », which is
-                now false: the diagnostic is entered in a bar docked to the bottom of the screen. What survives
-                is the one thing the label cannot say — that you may drag — shown only while the mode is on,
-                which is the only time dragging does anything. */}
+                ⚠️ **What did go is the paragraph beside it**, and later the « Glissez… » hint too (owner's rule:
+                no caption under a control). The drag itself is unchanged. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {/*
                 ⚠️ **It is a READOUT and still a real toggle, and both halves are load-bearing.**
@@ -762,8 +758,7 @@ export function Odontogram({
                 · **Discoverability.** The comment that stood here argued that a permanent, labelled control is
                   the only thing that tells somebody who has just charted the same carie on three molars one at
                   a time that there was a faster way. That argument is still right — it is the *gate* the owner
-                  overrode, not the affordance — so the button stays, and the « glissez » hint beside it is now
-                  PERMANENT rather than shown only once the mode is on.
+                  overrode, not the affordance — so the button stays (its « glissez » caption did not).
                 · **Keyboard and AT.** A drag is pointer-only. With the button gone there is no route into
                   multi-select without a pointer at all, since Space on a tooth opens its editor.
               */}
@@ -781,7 +776,7 @@ export function Odontogram({
                   ? `${selectedTeeth.size} dent${selectedTeeth.size > 1 ? "s" : ""} sélectionnée${selectedTeeth.size > 1 ? "s" : ""}`
                   : "Plusieurs dents"}
               </Button>
-              {selectedTeeth.size > 0 ? (
+              {selectedTeeth.size > 0 && (
                 <Button
                   type="button"
                   size="sm"
@@ -791,10 +786,6 @@ export function Odontogram({
                 >
                   Vider
                 </Button>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Glissez sur plusieurs dents pour les sélectionner
-                </p>
               )}
             </div>
 
@@ -845,7 +836,7 @@ export function Odontogram({
             )}
 
             {/* The condition palette belongs to THIS chart. It used to sit outside the tabs, so all nine
-                conditions were also listed under « Actes réalisés » — a palette that view does not use. */}
+                conditions were also listed under « Actes faits » — a palette that view does not use. */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
               {/* One legend per drawing, because the two spend colour on different things: fifteen condition
                   hues under a chart whose colour means « à faire / réalisé » would teach the wrong key. */}
@@ -878,7 +869,8 @@ export function Odontogram({
               {treatments && treatments.size > 0 && (
                 <div className="flex items-center gap-1.5">
                   <span className="mx-0.5 h-3.5 w-3.5 rounded-sm border border-border outline-2 outline-dashed outline-primary outline-offset-2" />
-                  <span className="text-muted-foreground">Traitement en cours</span>
+                  {/* A treatment not started yet wears the ring too. */}
+                  <span className="text-muted-foreground">Traitement en cours ou prévu</span>
                 </div>
               )}
             </div>
@@ -890,12 +882,8 @@ export function Odontogram({
               anything on screen to press it about: with nothing charted it is disabled, which at the top of the
               card reads as a broken control and at the bottom reads as « rien à planifier », which is the truth.
 
-              ⚠️ The label shortens below `sm:` and the `aria-label` carries the full phrase at every width.
-              « Créer un plan depuis l'odontogramme » measures 253 px against the 223 px this row has at 320 px,
-              and `Button` is `whitespace-nowrap shrink-0` — so the wording, not the layout, was what pushed a
-              control out through the card's edge. Shortening the *visible* half loses nothing here: the button
-              sits directly under the odontogramme it acts on, so « depuis l'odontogramme » is the one part of
-              the sentence the context already supplies.
+              ⚠️ « Créer un devis » at every width; the `aria-label` carries the full phrase. The tail shown from
+              `sm:` read as a second label beside the first, and the button sits under the chart it acts on.
             */}
             {onCreatePlan && (
               <div className="flex justify-end pt-1">
@@ -905,12 +893,11 @@ export function Odontogram({
                   className="h-8 max-w-full gap-1.5 text-xs coarse:h-11"
                   disabled={planSeeds.length === 0}
                   onClick={() => onCreatePlan(planSeeds)}
-                  aria-label="Créer un plan depuis l'odontogramme"
+                  aria-label="Créer un devis depuis l'odontogramme"
                   title={planSeeds.length === 0 ? "Aucun diagnostic à planifier" : undefined}
                 >
                   <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-                  Créer un plan
-                  <span className="hidden sm:inline">&nbsp;depuis l&apos;odontogramme</span>
+                  Créer un devis
                 </Button>
               </div>
             )}
@@ -1286,7 +1273,7 @@ function ToothCell({
                   />
                   <span>{conditionStyle(e.condition).label}</span>
                   <span className="text-muted-foreground">
-                    — {isDiagnosis(e) ? "Diagnostic" : "Réalisé"} · {formatDateFr(e.treatmentDate)}
+                    — {isDiagnosis(e) ? "Diagnostic" : "Fait"} · {formatDateFr(e.treatmentDate)}
                   </span>
                 </li>
               ))}
@@ -1300,7 +1287,7 @@ function ToothCell({
                     style={{ backgroundColor: RECORDED_ACT_COLOR }}
                   />
                   <span>{a.name}</span>
-                  <span className="text-muted-foreground">— Réalisé · {formatDateFr(a.date)}</span>
+                  <span className="text-muted-foreground">— Fait · {formatDateFr(a.date)}</span>
                 </li>
               ))}
             </ul>
@@ -1442,7 +1429,7 @@ function ToothCell({
                             : "bg-muted text-muted-foreground",
                         )}
                       >
-                        {isDiagnosis(e) ? "Diagnostic" : "Réalisé"}
+                        {isDiagnosis(e) ? "Diagnostic" : "Fait"}
                       </span>
                       <span className="ml-auto text-muted-foreground">{formatDateFr(e.treatmentDate)}</span>
                     </div>
@@ -1468,7 +1455,7 @@ function ToothCell({
                          won't let me fix my mistake". */
                       <p className="mt-1.5 flex items-start gap-1.5 text-2xs text-muted-foreground">
                         <ClipboardList className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
-                        <span>Acte réalisé — se corrige via sa fiche de soins, pas ici.</span>
+                        <span>Acte fait — se corrige sur sa fiche de soins.</span>
                       </p>
                     )}
                   </li>
@@ -1548,7 +1535,7 @@ function ToothCell({
                 <>
                   {quoteFr(conditionStyle(pendingRemoval.condition).label)} sera retiré de la{" "}
                   <span className="font-medium text-foreground">dent {toothNum}</span>. Cette entrée disparaîtra de
-                  l&apos;odontogramme. Les actes réalisés ne sont pas affectés.
+                  l&apos;odontogramme. Les actes faits ne changent pas.
                 </>
               )}
             </AlertDialogDescription>
@@ -1828,7 +1815,7 @@ function MultiToothDiagnosisPanel({
                 })
               }
               className={cn(
-                "inline-flex min-h-6 items-center rounded border px-1.5 font-mono text-2xs tabular-nums transition-colors coarse:min-h-11 coarse:px-2.5",
+                "inline-flex min-h-6 items-center rounded border px-1.5 text-2xs tabular-nums transition-colors coarse:min-h-11 coarse:px-2.5",
                 ponticTeeth.has(tooth)
                   ? "border-primary/40 bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover-hover:hover:text-foreground",

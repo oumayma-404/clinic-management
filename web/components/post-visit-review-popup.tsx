@@ -33,6 +33,26 @@ const POLL_INTERVAL_MS = 60_000
 // then the whole queue again an hour later. Measured on the dev database, 2026-09-02.
 const SNOOZE_STORAGE_KEY = "clinic:pvr-snooze"
 
+/*
+ * ⚠️ The words are composed HERE, never the notification's own `title`/`message`: the server says « Compte rendu
+ * de visite · … Ajoutez son dossier médical. » next to a button reading « Remplir la fiche de soins » — two names
+ * for one thing. The bell keeps the server's text; this prompt states the fact and lets the button name the task.
+ */
+const PROMPT_TITLE = "Séance terminée"
+
+/** « Séance de Mme X terminée. » — or the bare fact while the patient's name is unknown. */
+function promptSentence(patientName: string | null | undefined): string {
+  const name = patientName?.trim()
+  return name ? `Séance de ${name} terminée.` : "Séance terminée."
+}
+
+/** The visit behind the active review, read once so the sentence can name the patient and the button can go. */
+interface ResolvedVisit {
+  appointmentId: string
+  patientId: string | null
+  patientName: string | null
+}
+
 /** Midnight tonight, local. The reminder is never urgent, so tomorrow is soon enough to ask again. */
 function endOfLocalDayMs(): number {
   const d = new Date()
@@ -63,7 +83,7 @@ function saveSnooze(map: SnoozeMap): void {
 
 /**
  * When a patient's appointment has ended, this modal prompts the responsible staff (the linked doctor, or
- * everyone) to record what happened. "Ajouter le dossier médical" deep-links to record creation for that
+ * everyone) to record what happened. « Remplir la fiche de soins » deep-links to record creation for that
  * visit; "Plus tard" snoozes it client-side without marking it read. Mounted once in the dashboard header,
  * so it is present on every authenticated page.
  *
@@ -228,6 +248,36 @@ export function PostVisitReviewPopup() {
     [reviews, snoozed, now],
   )
 
+  /*
+   * The patient's name for the sentence, read from the appointment — `PendingReviewDto` carries no name of its
+   * own. Only while the prompt could be shown, once per review; « Remplir » then reuses the `patientId`.
+   */
+  const [visit, setVisit] = useState<ResolvedVisit | null>(null)
+  const activeAppointmentId = active?.appointmentId ?? null
+  useEffect(() => {
+    if (!activeAppointmentId || isPhone || dismissed || onAPatientFile) return
+    if (visit?.appointmentId === activeAppointmentId) return
+    let cancelled = false
+    appointmentsApi
+      .get(activeAppointmentId)
+      .then((a) => {
+        if (cancelled || !mountedRef.current) return
+        setVisit({ appointmentId: activeAppointmentId, patientId: a.patientId ?? null, patientName: a.patientName ?? null })
+      })
+      .catch(() => {
+        // The bare fact stands in for the name; « Remplir » looks the appointment up again on press.
+        if (cancelled || !mountedRef.current) return
+        setVisit({ appointmentId: activeAppointmentId, patientId: null, patientName: null })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeAppointmentId, isPhone, dismissed, onAPatientFile, visit])
+  const activeVisit = visit && visit.appointmentId === activeAppointmentId ? visit : null
+  // Held back until the lookup settles, so the sentence never swaps under the reader.
+  const visitSettled = activeAppointmentId === null || activeVisit !== null
+  const sentence = promptSentence(activeVisit?.patientName)
+
   /**
    * Snoozes every review currently known to be pending, until the end of the local day.
    *
@@ -265,8 +315,11 @@ export function PostVisitReviewPopup() {
     setResolving(true)
     void (async () => {
       try {
-        const appointment = await appointmentsApi.get(appointmentId)
-        const patientId = appointment.patientId
+        // Already read for the sentence; looked up again only when that read failed.
+        const patientId =
+          activeVisit?.appointmentId === appointmentId && activeVisit.patientId
+            ? activeVisit.patientId
+            : (await appointmentsApi.get(appointmentId)).patientId
         // Snooze only once the destination is known to exist. Snoozing first — as this did — would hide the
         // prompt for an hour on a failed lookup, with the record still unwritten.
         if (!patientId) return
@@ -281,7 +334,7 @@ export function PostVisitReviewPopup() {
         setResolving(false)
       }
     })()
-  }, [active, resolving, snoozeAll, router])
+  }, [active, activeVisit, resolving, snoozeAll, router])
 
   /*
    * The latch. Closed → consult the body and open only if nothing else is on screen. Open → leave it alone.
@@ -335,18 +388,18 @@ export function PostVisitReviewPopup() {
     // `mayPrompt` is the same latch the dialog uses — one source for « nothing else was on screen when we
     // decided to speak », so the two paths cannot drift apart again. A toast sets no scroll lock, so it was
     // never at risk of the self-reference the dialog was; sharing the latch is for the drift, not the race.
-    if (isPhone || !isCoarse || active === null || dismissed || !mayPrompt || onAPatientFile) return
+    if (isPhone || !isCoarse || active === null || dismissed || !mayPrompt || onAPatientFile || !visitSettled) return
 
-    toast(active.title ?? "Compte rendu de visite", {
+    toast(PROMPT_TITLE, {
       id: `pvr-${active.id}`,
-      description: active.message ?? "La visite est terminée. Ajoutez le dossier médical du patient.",
+      description: sentence,
       duration: 30_000,
       icon: <ClipboardPlus className="h-5 w-5 text-primary" />,
-      action: { label: "Ajouter", onClick: handleAddRecord },
+      action: { label: "Remplir", onClick: handleAddRecord },
       onDismiss: handleLater,
       onAutoClose: handleLater,
     })
-  }, [isPhone, isCoarse, active, dismissed, mayPrompt, onAPatientFile, handleAddRecord, handleLater])
+  }, [isPhone, isCoarse, active, dismissed, mayPrompt, onAPatientFile, visitSettled, sentence, handleAddRecord, handleLater])
 
   // On a phone the header bell *is* the prompt; on a tablet the toast above is. Either way the dialog would be
   // a second copy of a reminder the user has already been given.
@@ -354,7 +407,7 @@ export function PostVisitReviewPopup() {
 
   return (
     <Dialog
-      open={active !== null && !dismissed && mayPrompt && !onAPatientFile}
+      open={active !== null && !dismissed && mayPrompt && !onAPatientFile && visitSettled}
       onOpenChange={(next) => {
         if (!next) handleLater()
       }}
@@ -364,17 +417,15 @@ export function PostVisitReviewPopup() {
           <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
             <ClipboardPlus className="h-5 w-5" />
           </div>
-          <DialogTitle>{active?.title ?? "Compte rendu de visite"}</DialogTitle>
-          <DialogDescription>
-            {active?.message ?? "La visite est terminée. Ajoutez le dossier médical du patient."}
-          </DialogDescription>
+          <DialogTitle>{PROMPT_TITLE}</DialogTitle>
+          <DialogDescription>{sentence}</DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={handleLater}>
             Plus tard
           </Button>
           <Button onClick={handleAddRecord} disabled={resolving}>
-            {resolving ? "Ouverture…" : "Ajouter le dossier médical"}
+            {resolving ? "Ouverture…" : "Remplir la fiche de soins"}
           </Button>
         </DialogFooter>
       </DialogContent>

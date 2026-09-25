@@ -64,7 +64,8 @@ export const baseSections: NavSection[] = [
       // reception is who telephones the patient and books the next séance. Both reads behind it are
       // `AnyClinicRole` — the one `AdminOrDoctor` thing on the page is the devis export, which the page hides
       // for that role rather than offering a button that answers 403.
-      { name: "Traitements et devis", href: "/treatment-plans", icon: ListOrdered },
+      // « Traitements », as the page title says — « et devis » named the paper, not a second place to go.
+      { name: "Traitements", href: "/treatment-plans", icon: ListOrdered },
       // « RDV récurrents » (/recurring-series) is gone — the screen was withdrawn. Its BACKEND and the screen
       // itself are deliberately intact (`app/recurring-series/page.tsx` keeps the component, unrouted).
       { name: "Liste d'attente", href: "/waiting-list", icon: Clock },
@@ -81,7 +82,7 @@ export const baseSections: NavSection[] = [
     title: "Clinique",
     items: [
       { name: "Documents", href: "/documents", icon: FileCheck },
-      // « Plans de traitement » was here. It is « Traitements et devis » in « Quotidien » now — same route,
+      // « Plans de traitement » was here. It is « Traitements » in « Quotidien » now — same route,
       // one entry: the devis list and the multi-séance worklist are two halves of one screen.
       { name: "Laboratoire", href: "/lab-orders", icon: FlaskConical },
     ],

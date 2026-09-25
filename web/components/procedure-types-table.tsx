@@ -421,7 +421,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
               fields={(p) => [
                 { label: "Durée", value: `${p.defaultDurationMinutes} min` },
                 {
-                  label: "Coût",
+                  label: "Prix",
                   // ⚠️ `!= null` only. `> 0` hid a real 0,000 DT behind the same « — » an UNPRICED act shows, so a
                   // free follow-up and an act nobody has priced were indistinguishable — and combined with the
                   // clear-the-cost defect that is exactly how an admin concluded a price had been cleared.
@@ -439,7 +439,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onSelect={() => onEdit(p)}>Modifier</DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => setStepsTarget(p)}>Étapes</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setStepsTarget(p)}>Séances</DropdownMenuItem>
                           {p.isActive ? (
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
@@ -465,11 +465,13 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
             <Table containerClassName={TABLE_ONLY_LG}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Couleur</TableHead>
+                  {/* `w-px` on every column but the name: each hugs its own content and the name column — the act
+                      and its séance strip — takes what is left, so the séances are as wide as the card allows. */}
+                  <TableHead className="w-px">Couleur</TableHead>
                   <TableHead>Nom de l'acte</TableHead>
-                  <TableHead>Catégorie</TableHead>
-                  <TableHead>Durée</TableHead>
-                  <TableHead>Coût par défaut</TableHead>
+                  <TableHead className="w-px">Catégorie</TableHead>
+                  <TableHead className="w-px">Durée</TableHead>
+                  <TableHead className="w-px">Prix par défaut</TableHead>
                   {/*
                     ⚠️ « Description » and « Consommables » were columns here and are not any more, on the
                     owner's call: both were empty on nearly every row (a dash), and together they cost 217 px of
@@ -487,7 +489,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                   {/* Dropped for a read-only role: the cells below are behind `isAdmin`, so a secretary got a
                       column headed « Actions » with 76 px of empty cell on every row. The card tree already
                       rendered no menu at all — the two trees simply disagreed. */}
-                  {isAdmin && <TableHead className="text-right">Actions</TableHead>}
+                  {isAdmin && <TableHead className="w-px text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -530,7 +532,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                         )}
                         {/*
                           The act's protocol, under its own name — the same place and the same reading as
-                          `PlanStepStrip` gives it on a devis, so the dentist recognises it in both. It stays
+                          `SeanceStrip` gives it everywhere else, so the dentist recognises it in both. It stays
                           HERE rather than taking a column of its own: this table is already eight wide at the
                           `lg:` hinge, and the ninth column is what starts pushing « Actions » out of the
                           scrollport (§ 1).
@@ -540,7 +542,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                           durations nor the order, and offered nothing to press. A dentist had no reason to think
                           the protocol was theirs, and the only way to it was « Modifier » then scrolling past
                           the cost and the category. `ProcedureStepsCell` is that fix: a count, the chair time,
-                          the first two séances numbered, and — for an admin — the whole thing is the button.
+                          every séance on the one strip, and — for an admin — « Modifier les séances ».
                         */}
                         <ProcedureStepsCell
                           procedureType={procedure}
@@ -560,13 +562,14 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
-                      <TableCell>
+                      {/* `whitespace-nowrap`: « 60 min » and « 200,000 DT » are one value each, never two lines. */}
+                      <TableCell className="whitespace-nowrap">
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Clock className="h-4 w-4" />
                           <span>{procedure.defaultDurationMinutes} min</span>
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         {/* `!= null` only — see the card field above. */}
                         {procedure.defaultCost != null ? (
                           <div className="flex items-center gap-2 text-muted-foreground">
@@ -581,8 +584,20 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                       {isAdmin && (
                       <TableCell className="text-right">
                         {(
-                          <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="sm" onClick={() => onEdit(procedure)} className="h-8 gap-1">
+                          /*
+                            ⚠️ Stacked, not side by side: the two labelled buttons were ~200 px of `shrink-0` in a
+                            row, which pushed « Supprimer » past the card's edge at 1440 px (a grey « S… » after each
+                            bin). Stacked they cost the width of one. `coarse:h-11` grows each box rather than
+                            leaning on `.touch-target`, whose overlays would overlap 4 px apart and let « Supprimer »
+                            steal a tap aimed at « Modifier ».
+                          */
+                          <div className="ms-auto flex w-fit flex-col items-stretch gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onEdit(procedure)}
+                              className="h-8 justify-start gap-1 coarse:h-11"
+                            >
                               <Pencil className="h-3 w-3" />
                               Modifier
                             </Button>
@@ -591,7 +606,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleDelete(procedure)}
-                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                                className="h-8 justify-start gap-1 text-destructive hover:text-destructive coarse:h-11"
                               >
                                 <Trash2 className="h-3 w-3" />
                                 Supprimer
@@ -602,7 +617,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
                                 size="sm"
                                 onClick={() => void reactivate(procedure)}
                                 disabled={reactivating === procedure.id}
-                                className="h-8 gap-1"
+                                className="h-8 justify-start gap-1 coarse:h-11"
                               >
                                 <RotateCcw className="h-3 w-3" />
                                 Réactiver
@@ -628,7 +643,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
         </CardContent>
       </Card>
 
-      {/* The act's protocol — « Étapes ». */}
+      {/* The act's protocol — « Séances ». */}
       <ProcedureTypeStepsDialog
         procedureType={stepsTarget}
         onOpenChange={(next) => { if (!next) setStepsTarget(null) }}

@@ -36,7 +36,7 @@ import { visitActsLine } from "@/components/appointment-labels"
  * to price. The cascade comes from the server (`VisitClosureRules`); re-deriving it here would be a second copy of
  * the rule, and the copy that drifts is the one that starts asking the wrong question.</p>
  *
- * <p><b>It rebuilds nothing.</b> « Ajouter la fiche » lands on the patient page's existing record modal through the
+ * <p><b>It rebuilds nothing.</b> « Remplir la fiche de soins » lands on the patient page's existing record modal through the
  * deep link the post-visit prompt already uses, and « Encaisser » lands on the same page's own billing action. The
  * two presence buttons are an ordinary status update.</p>
  *
@@ -77,12 +77,9 @@ export function VisitClosureList({
   onChanged,
   disregardedView = false,
   emptyTitle = "Rien à clôturer 🎉",
-  // ⚠️ Two sentences, and the second is the point. « Toutes les séances passées ont… » states a fact about the
-  // data; on the one screen whose whole job is to list what is *unfinished*, an empty list is an achievement,
-  // and saying so is the difference between « the software found nothing » and « you are up to date ».
-  emptyDescription =
-    "Toutes les séances passées ont leur présence, leur fiche et leur encaissement. " +
-    "Beau travail — le dossier du cabinet est à jour.",
+  // ⚠️ One line, and it says « à jour »: on the screen whose whole job is to list what is unfinished, an empty
+  // list is an achievement — « you are up to date », not « the software found nothing ».
+  emptyDescription = "Toutes les séances passées sont à jour.",
   footer,
 }: VisitClosureListProps) {
   const router = useRouter()
@@ -280,7 +277,7 @@ export function VisitClosureList({
                             <div className="text-xs">Rien à facturer : {visit.nothingToBillReason}</div>
                           )}
                           {/* ⚠️ The note that settled the money, NAMED. `invoiceId`/`invoiceNumber` were the only
-                              two fields of the DTO nothing read: the « Encaissement » tick said the money was done
+                              two fields of the DTO nothing read: the « Paiement » tick said the money was done
                               and not by what, on the screen whose whole job is « what is still owed ». A motif is
                               already explained here; a settled encaissement was not. */}
                           {visit.invoiceNumber && (
@@ -439,8 +436,8 @@ export function VisitClosureList({
  *
  * <p>A row asks one question, and there are only ever three of them — so the colour that carries the most is
  * <i>which</i> question this row is asking, not how it is going. That is a « where does this go? », which is
- * exactly what a zone hue answers: « Venue » is a status on the agenda, « Fiche » is the clinical record,
- * « Encaissement » is la caisse, and each action on the row navigates to that zone's own surface. The three hues
+ * exactly what a zone hue answers: « Venue » is a status on the agenda, « Fiche de soins » is the clinical record,
+ * « Paiement » is la caisse, and each action on the row navigates to that zone's own surface. The three hues
  * are also the only three in the palette that are legible against each other at chip size.</p>
  *
  * <p>Deliberately <b>not</b> `ui/status-tone.ts`: those six tones mean « nothing to do / booked / agreed /
@@ -457,8 +454,8 @@ const CLOSURE_STEPS: Record<VisitClosureStep, {
   answered: (visit: VisitToCloseDto) => boolean
 }> = {
   Presence: { label: "Venue", zone: "daily", answered: (v) => v.presenceAnswered },
-  Fiche: { label: "Fiche", zone: "clinical", answered: (v) => v.ficheRecorded },
-  Billing: { label: "Encaissement", zone: "money", answered: (v) => v.billingSettled },
+  Fiche: { label: "Fiche de soins", zone: "clinical", answered: (v) => v.ficheRecorded },
+  Billing: { label: "Paiement", zone: "money", answered: (v) => v.billingSettled },
 }
 
 /** The order the cascade asks them in. Server-derived per row (`nextStep`); this is only the drawing order. */
@@ -634,7 +631,6 @@ function RowActions({
       disabled={busy}
       onClick={() => onDisregard(visit)}
       aria-label={`Retirer la séance de ${visit.patientName} de la liste`}
-      title="Retirer de la liste sans rien affirmer sur cette séance"
     >
       <EyeOff aria-hidden="true" className="me-1.5 size-4" />
       Retirer
@@ -673,9 +669,14 @@ function RowActions({
   if (visit.nextStep === "Fiche") {
     return (
       <>
-        <Button size="sm" disabled={busy} onClick={() => onFiche(visit)}>
+        <Button
+          size="sm"
+          disabled={busy}
+          onClick={() => onFiche(visit)}
+          aria-label={visit.patientId ? `Remplir la fiche de soins de ${visit.patientName}` : undefined}
+        >
           <FileText aria-hidden="true" className="me-1.5 size-4" />
-          Ajouter la fiche
+          Remplir la fiche de soins
         </Button>
         {setAside}
       </>

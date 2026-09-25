@@ -239,7 +239,7 @@ phone.
 `whitespace-nowrap shrink-0`, so a long French label overflows its container rather than wrapping — wrapping
 the *row* does not help when there is only one child. Either let that one child break its label
 (`ui/empty-state.tsx`'s action row) or shorten the *visible* half and keep the full phrase in `aria-label`
-(`odontogram.tsx`'s « Créer un plan »). Never truncate: the label is the control's name.
+(`odontogram.tsx`'s « Créer un devis »). Never truncate: the label is the control's name.
 
 ## § 10.2 Inside a fixed-width panel, a viewport hinge measures the wrong box
 

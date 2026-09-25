@@ -34,7 +34,7 @@ export default function TreatmentPlanWorkspacePage() {
     if (!planId) {
       // No id in the URL at all — genuinely nothing to look up. Modelled as a 404 rather than a fault so the
       // screen below shows « Plan introuvable » without offering a retry that would re-run the same nothing.
-      setLoadError(new ApiError(404, "Le plan recherché n'existe pas."))
+      setLoadError(new ApiError(404, "Ce traitement n'existe pas."))
       setLoading(false)
       return
     }
@@ -81,7 +81,7 @@ export default function TreatmentPlanWorkspacePage() {
   if (loading) {
     return (
       <AppShell width="none" gutter={false} mainClassName="flex items-center justify-center">
-        <AppLoader label="Chargement du plan de traitement…" />
+        <AppLoader label="Chargement du traitement…" />
       </AppShell>
     )
   }
@@ -103,16 +103,16 @@ export default function TreatmentPlanWorkspacePage() {
     const offline = isNetworkError(loadError)
 
     const heading = notFound
-      ? "Plan introuvable"
+      ? "Traitement introuvable"
       : offline
         ? "Connexion au serveur impossible"
-        : "Le devis n'a pas pu être chargé"
+        : "Le traitement n'a pas pu être chargé"
 
     const body = notFound
-      ? getErrorMessage(loadError, "Le plan recherché n'existe pas.")
+      ? getErrorMessage(loadError, "Ce traitement n'existe pas.")
       : offline
-        ? "Le devis n'a pas pu être chargé. Vérifiez votre connexion, puis réessayez."
-        : getErrorMessage(loadError, "Une erreur est survenue lors du chargement du devis.")
+        ? "Vérifiez votre connexion, puis réessayez."
+        : getErrorMessage(loadError, "Une erreur est survenue lors du chargement du traitement.")
 
     return (
       <AppShell width="none" gutter={false} mainClassName="flex items-center justify-center">
@@ -137,7 +137,7 @@ export default function TreatmentPlanWorkspacePage() {
               variant={notFound ? "default" : "outline"}
               onClick={() => router.push("/treatment-plans")}
             >
-              Retour aux plans
+              ← Traitements
             </Button>
           </div>
         </div>

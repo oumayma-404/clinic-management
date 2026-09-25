@@ -41,8 +41,10 @@ import {
   planStatusLabel,
   planStatusBadgeClass,
   planHasRecordedWork,
-  planDisplayName,
+  planDevisLabel,
+  treatmentName,
 } from "./treatment-plan-labels"
+import { planSeanceCountLabel } from "./plan-act-pips"
 import {
   amendPlanRefusal,
   billPlanRefusal,
@@ -51,28 +53,25 @@ import {
   canCancelPlan,
   cancelPlanRefusal,
   canDeletePlan,
-  canUseDraftEditor,
   displayedOutstanding,
   isPlanBilled,
   isPlanLive,
   planItemState,
   planItemToPreset,
-  planSeanceProgress,
   schedulablePlanItems,
 } from "./plan-next-action"
 import { PatientNameLink } from "@/components/patient-name-link"
 
 /**
- * What « Reste » may honestly say about one devis, in both trees.
+ * What « Reste à payer » may honestly say about one devis, in both trees.
  *
  * <p>⚠️ It printed `plan.outstanding` on the card and again in the table cell, and on a devis a note
  * d'honoraires already collects that figure is the untouched auto-échéance — so both surfaces reported the whole
  * devis as unpaid about patients who owed nothing. The note's own balance is named instead, and the label says
- * which document it belongs to, because « reste sur la note 2026-0087 » is a different statement from « reste
- * sur le devis ».</p>
+ * which document it belongs to.</p>
  */
 function resteLabel(plan: TreatmentPlanDto): string {
-  return isPlanBilled(plan) ? "Reste sur la note" : "Reste"
+  return isPlanBilled(plan) ? "Reste à payer (note)" : "Reste à payer"
 }
 
 function resteValue(plan: TreatmentPlanDto): string | null {
@@ -81,13 +80,12 @@ function resteValue(plan: TreatmentPlanDto): string | null {
 }
 
 /**
- * Progress in **séances**, because a stepped act is only Done when every step is: a bridge with two of three
- * carried out read « 0/2 actes » here, and a six-visit implant read « 0/1 actes » from its first appointment to
- * its last — on the list a dentist scans daily.
+ * Progress in **séances**, in words (« 2 séances sur 5 faites »): a stepped act is only Done when every step is,
+ * so an act count read « 0/1 actes » for a six-visit implant's whole life — and a bare « 2 / 5 » is read as
+ * progress by some and as « the next one » by others.
  */
 function avancement(plan: TreatmentPlanDto): string | null {
-  const seances = planSeanceProgress(plan)
-  return seances.total > 0 ? seances.label : null
+  return planSeanceCountLabel(plan)
 }
 
 /**
@@ -116,7 +114,7 @@ interface TreatmentPlansTableProps {
    * matching », not « nothing yet ».
    *
    * <p>Load-bearing since the plans page opens on the current week: without it, a clinic with three hundred devis
-   * and a quiet Monday gets the first-run invite (« Aucun plan de traitement » + « Nouveau plan »), which asserts
+   * and a quiet Monday gets the first-run invite (« Aucun traitement » + « Nouveau devis »), which asserts
    * something false about its records and invites a duplicate.</p>
    */
   filtered?: boolean
@@ -148,7 +146,7 @@ interface TreatmentPlansTableProps {
    */
   hideToolbar?: boolean
   /**
-   * Bumped by the host when its own « Nouveau plan » is pressed. A counter, not a boolean: two presses in a
+   * Bumped by the host when its own create button is pressed. A counter, not a boolean: two presses in a
    * row must both arrive. `suppliers-table.tsx` is the template.
    */
   createRequest?: number
@@ -316,7 +314,7 @@ export function TreatmentPlansTable({
     setDeleteError(null)
     try {
       await treatmentPlansApi.remove(deleteTarget.id)
-      toast.success("Brouillon supprimé")
+      toast.success("Traitement supprimé")
       setDeleteTarget(null)
       afterMutation()
     } catch (err) {
@@ -345,7 +343,7 @@ export function TreatmentPlansTable({
    * un-numbered drafts carrying real séances and links to the fiches evidencing them, and `SetItems` now
    * refuses any act with steps or delivered work, naming « Modifier les actes et les prix ». So the list's
    * own button led to a refusal, and every non-draft devis had no edit route here at all: the amend door
-   * existed only inside the workspace. `canUseDraftEditor` is the one test both trees read.</p>
+   * existed only inside the workspace. The amend door is now the only one, for every devis.</p>
    */
   const openEdit = (plan: TreatmentPlanDto) => {
     setEditing(plan)
@@ -386,7 +384,7 @@ export function TreatmentPlansTable({
       await invoicesApi.createFromPlan(billTarget.id)
       toast.success(
         billTarget.amountPaid > 0
-          ? `Facture brouillon créée — ${formatDT(billTarget.amountPaid)} déjà encaissé sera reporté à l'émission`
+          ? `Facture brouillon créée — ${formatDT(billTarget.amountPaid)} payés, reportés à l'émission`
           : "Facture brouillon créée depuis le devis",
       )
       setBillTarget(null)
@@ -407,15 +405,13 @@ export function TreatmentPlansTable({
    * care which tree renders.</p>
    */
   const planMenuItems = (p: TreatmentPlanDto) => {
-    const draftEditor = canUseDraftEditor(p)
     return (
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuItem onSelect={() => openWorkspace(p)}>Ouvrir le plan</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => openWorkspace(p)}>Voir le traitement</DropdownMenuItem>
         {/*
-          ⚠️ The action immediately after accepting a devis, and the page did not offer it. A freshly accepted
-          plan whose treatment has not started is absent from « Traitements en cours » — that list holds acts
-          *begun and unfinished* — and appeared here as « 0/1 actes » with no next-séance link and no scheduling
-          action at all, so booking visit 1 meant going back through the agenda.
+          ⚠️ The action immediately after accepting a devis, and the page did not offer it: a treatment whose
+          first séance is not booked had no scheduling action here at all, so booking visit 1 meant going back
+          through the agenda.
         */}
         {bookableItemOf(p) ? (
           <DropdownMenuItem onSelect={() => startBooking(p)}>
@@ -430,14 +426,11 @@ export function TreatmentPlansTable({
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
+        {/* One door, one word: every edit goes through the amend editor (see `openEdit`). */}
         {canAmendPlan(p) ? (
-          <DropdownMenuItem onSelect={() => openEdit(p)}>
-            {/* One label source — the workspace's own wording. « Modifier le brouillon » is kept for the one
-                case where the draft editor really is what opens: a devis nobody has worked on yet. */}
-            {draftEditor ? "Modifier le brouillon" : "Modifier les actes et les prix"}
-          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openEdit(p)}>Tout modifier</DropdownMenuItem>
         ) : (
-          <RefusedMenuItem label="Modifier les actes et les prix" reason={amendPlanRefusal(p)} />
+          <RefusedMenuItem label="Tout modifier" reason={amendPlanRefusal(p)} />
         )}
         {/*
           ⚠️ « Facturer le devis » existed on no list surface at all: a devis whose work is finished could only
@@ -469,7 +462,7 @@ export function TreatmentPlansTable({
             className="text-destructive focus:text-destructive"
             onSelect={() => openDelete(p)}
           >
-            Supprimer le brouillon
+            Supprimer le traitement
           </DropdownMenuItem>
         )}
         {cancelPlanRefusal(p) && <RefusedMenuItem label="Annuler le devis" reason={cancelPlanRefusal(p)} />}
@@ -482,9 +475,9 @@ export function TreatmentPlansTable({
   const SKELETON_ROWS = 6
 
   /*
-   * Whose brouillon is being deleted. The row's own `patientName` first; the `patientName` prop is the fallback
+   * Whose treatment is being deleted. The row's own `patientName` first; the `patientName` prop is the fallback
    * for the patient page, where the column is hidden and the DTO's copy may not be populated. Null when neither
-   * is known, and the title then stays generic rather than printing « le brouillon de undefined ».
+   * is known, and the title then stays generic rather than printing « de undefined ».
    */
   const deleteTargetPatient = deleteTarget?.patientName ?? patientName ?? null
 
@@ -493,9 +486,9 @@ export function TreatmentPlansTable({
    * so the two can never drift into saying different things about the same nothing.
    *
    * The three cases stay distinct, which is the whole point of the primitive: « rien pour cette recherche » and
-   * « rien sur cette période » both offer a way to widen and **never** « Nouveau plan » — the devis may well
+   * « rien sur cette période » both offer a way to widen and **never** « Nouveau devis » — the devis may well
    * exist and the user simply mistyped or is looking at the wrong week, and a create button there is an
-   * invitation to type a duplicate. « Aucun plan » is the genuine first-run state, and that is where the
+   * invitation to type a duplicate. « Aucun traitement » is the genuine first-run state, and that is where the
    * invitation belongs. The plans list is a Finances screen, so the icon chip takes the money zone's hue — the
    * same colour the rail and the page eyebrow already use for it.
    *
@@ -506,14 +499,13 @@ export function TreatmentPlansTable({
   const searchTerm = search.trim()
   const emptyState = error ? (
     /*
-     * Band C — a FAILED read, which is none of the three emptinesses below. « Aucun plan de traitement » with a
-     * « Nouveau plan » button on top of a 500 invites a practice with three hundred devis to type a duplicate;
+     * Band C — a FAILED read, which is none of the three emptinesses below. « Aucun traitement » with a
+     * « Nouveau devis » button on top of a 500 invites a practice with three hundred devis to type a duplicate;
      * « 0 devis » beside it is a figure invented out of a network error.
      */
     <div className="p-4">
       <LoadFailureNotice
         message="Les devis n'ont pas pu être chargés."
-        detail="Aucun total et aucune absence ne peuvent être affirmés tant que la liste n'est pas lue."
         onRetry={load}
       />
     </div>
@@ -523,7 +515,6 @@ export function TreatmentPlansTable({
       size="compact"
       chipClassName={zoneChipClass(ZONES.money)}
       title={searchTerm ? `Aucun devis pour ${quoteFr(searchTerm)}` : "Aucun devis ne correspond à votre recherche"}
-      description="Vérifiez l'orthographe, ou effacez la recherche pour revoir tous les devis."
       action={
         // Clearing has to reach whoever OWNS the term: our own state when the box is ours, and the parent's
         // « voir tous les devis » when the page owns it — otherwise the button appears to work and the list
@@ -543,7 +534,6 @@ export function TreatmentPlansTable({
       size="compact"
       chipClassName={zoneChipClass(ZONES.money)}
       title="Aucun devis pour ces filtres"
-      description="Aucun devis n'a été créé sur la période ou avec le statut sélectionné. Élargissez la période pour revoir les autres."
       action={
         onClearFilters ? (
           <Button variant="outline" size="sm" onClick={onClearFilters}>
@@ -557,11 +547,10 @@ export function TreatmentPlansTable({
       icon={ClipboardList}
       size="compact"
       chipClassName={zoneChipClass(ZONES.money)}
-      title="Aucun plan de traitement"
-      description="Un devis chiffre les actes à venir, fixe l'échéancier de paiement et suit chaque acte jusqu'à sa fiche de soins."
+      title="Aucun traitement"
       action={
         <Button size="sm" onClick={openCreate} className="gap-2">
-          <Plus className="h-4 w-4" /> Nouveau plan
+          <Plus className="h-4 w-4" /> Nouveau devis
         </Button>
       }
     />
@@ -596,7 +585,7 @@ export function TreatmentPlansTable({
           {/* `ms-auto` only when the search has gone: without it the lone button would sit at the start of the
               row, where nothing else on the page puts a primary action. */}
           <Button onClick={openCreate} className={cn("gap-2", controlled && "ms-auto")}>
-            <Plus className="h-4 w-4" /> Nouveau plan
+            <Plus className="h-4 w-4" /> Nouveau devis
           </Button>
         </div>
       )}
@@ -610,11 +599,12 @@ export function TreatmentPlansTable({
             it is the template the other conversions followed rather than the other way round. */}
         <CardList
           className={CARDS_ONLY_LG}
-          ariaLabel="Plans de traitement et devis"
+          ariaLabel="Traitements"
           items={plans}
           getKey={(p) => p.id}
-          title={(p) => planDisplayName(p)}
-          subtitle={(p) => (showPatientColumn ? p.patientName : null)}
+          title={(p) => treatmentName(p)}
+          // The devis is the paper: named under the treatment, never as its title.
+          subtitle={(p) => [showPatientColumn ? p.patientName : null, planDevisLabel(p)].filter(Boolean).join(" · ")}
           onSelect={(p) => openWorkspace(p)}
           loading={loading}
           status={(p) => (
@@ -630,10 +620,10 @@ export function TreatmentPlansTable({
             </>
           )}
           fields={(p) => [
-            { label: "Total", value: formatDT(p.totalPlanned) },
-            { label: "Encaissé", value: formatDT(p.amountPaid) },
+            { label: "Prix du traitement", value: formatDT(p.totalPlanned) },
+            { label: "Payé", value: formatDT(p.amountPaid) },
             { label: resteLabel(p), value: resteValue(p) },
-            { label: "Avancement", value: avancement(p) },
+            { label: "Séances", value: avancement(p) },
             {
               label: "Prochaine séance",
               value: p.nextAppointmentAt ? formatDateFr(p.nextAppointmentAt) : null,
@@ -646,7 +636,7 @@ export function TreatmentPlansTable({
                   {/* ⚠️ The spinner is the table tree's, brought over: the card tree only *disabled* the
                       trigger while a devis PDF downloaded, so on a phone the press produced no visible change
                       at all for the length of the request. */}
-                  <Button variant="ghost" size="icon" disabled={busyId === p.id} aria-label="Actions du plan">
+                  <Button variant="ghost" size="icon" disabled={busyId === p.id} aria-label={`Actions — ${treatmentName(p)}`}>
                     {busyId === p.id ? (
                       <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                     ) : (
@@ -665,13 +655,13 @@ export function TreatmentPlansTable({
               and a devis list is long enough to lose its column heads. */}
           <TableHeader sticky>
             <TableRow>
-              <TableHead>Numéro</TableHead>
+              <TableHead>Traitement</TableHead>
               {showPatientColumn && <TableHead>Patient</TableHead>}
               <TableHead>Statut</TableHead>
-              <TableHead>Avancement</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead className="text-right">Encaissé</TableHead>
-              <TableHead className="text-right">Reste</TableHead>
+              <TableHead>Séances</TableHead>
+              <TableHead className="text-right">Prix du traitement</TableHead>
+              <TableHead className="text-right">Payé</TableHead>
+              <TableHead className="text-right">Reste à payer</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -704,7 +694,7 @@ export function TreatmentPlansTable({
                   /*
                     ⚠️ The row is the primary way into the workspace and it was **mouse-only**: `onClick` on a
                     `<tr>` with no role, no tabindex and no key handler. The chevron in the first cell is
-                    decorative, so a keyboard user's only route was the « ⋯ » menu's « Ouvrir le plan ».
+                    decorative, so a keyboard user's only route was the « ⋯ » menu's « Voir le traitement ».
                     `role="button"` + `tabIndex` + Enter/Space is the minimum that makes it operable; the cells
                     stay plain so the table is still announced as a table.
                   */
@@ -712,7 +702,7 @@ export function TreatmentPlansTable({
                     key={plan.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`Ouvrir ${planDisplayName(plan)}`}
+                    aria-label={`Voir ${treatmentName(plan)}`}
                     className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                     onClick={() => openWorkspace(plan)}
                     onKeyDown={(event) => {
@@ -725,12 +715,13 @@ export function TreatmentPlansTable({
                     }}
                   >
                     <TableCell className="font-medium">
+                      {/* The treatment's name; the number is the devis, the paper, on its own line. */}
                       <span className="inline-flex items-center gap-1">
-                        {/* The column is headed « Numéro », so a numbered devis shows its number bare; only an
-                            un-numbered treatment falls back to the shared name, which never renders empty the
-                            way `plan.title` did on a devis whose title was blank. */}
-                        {plan.number ?? planDisplayName(plan)}
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        {treatmentName(plan)}
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      </span>
+                      <span className="block whitespace-nowrap text-2xs font-normal text-muted-foreground">
+                        {planDevisLabel(plan)}
                       </span>
                     </TableCell>
                     {showPatientColumn && (
@@ -754,11 +745,11 @@ export function TreatmentPlansTable({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    <TableCell className="text-sm text-muted-foreground">
                       {avancement(plan) ?? "—"}
                       {plan.nextAppointmentAt && (
-                        <span className="block text-xs">
-                          Prochaine séance : {formatDateFr(plan.nextAppointmentAt)}
+                        <span className="block whitespace-nowrap text-xs">
+                          Prochaine séance le {formatDateFr(plan.nextAppointmentAt)}
                         </span>
                       )}
                     </TableCell>
@@ -781,7 +772,7 @@ export function TreatmentPlansTable({
                         {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" disabled={isBusy} aria-label="Actions du plan">
+                            <Button variant="ghost" size="icon" disabled={isBusy} aria-label={`Actions — ${treatmentName(plan)}`}>
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -848,21 +839,23 @@ export function TreatmentPlansTable({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {billTarget ? `Facturer ${planDisplayName(billTarget)} ?` : "Facturer ce devis ?"}
+              {billTarget ? `Facturer ${treatmentName(billTarget)} ?` : "Facturer ce devis ?"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {billTarget && (
-                <>
-                  Une note d&apos;honoraires en brouillon de {formatDT(billTarget.totalPlanned)} sera créée et
-                  vous serez redirigé vers Factures.
+            <AlertDialogDescription asChild>
+              {billTarget ? (
+                <ul className="list-disc space-y-1 ps-5 text-start">
+                  <li>
+                    Note d&apos;honoraires brouillon : <b>{formatDT(billTarget.totalPlanned)}</b>
+                  </li>
                   {billTarget.amountPaid > 0 && (
-                    <>
-                      {" "}
-                      Les {formatDT(billTarget.amountPaid)} déjà encaissés sur ce devis seront reportés sur la
-                      facture à son émission, pas sur le brouillon.
-                    </>
+                    <li>
+                      <b>{formatDT(billTarget.amountPaid)} payés</b> reportés à l&apos;émission
+                    </li>
                   )}
-                </>
+                  <li>Ouverture de Factures</li>
+                </ul>
+              ) : (
+                <span />
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -899,10 +892,14 @@ export function TreatmentPlansTable({
             <AlertDialogTitle>
               {cancelTarget?.number ? `Annuler le devis ${cancelTarget.number} ?` : "Annuler ce devis ?"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              Le devis sort de tous les soldes et de la caisse. Son numéro reste consommé — c&apos;est ce qui
-              garde la série sans trou — et le motif est conservé avec lui. Les séances déjà réalisées et leurs
-              fiches de soins ne sont pas touchées.
+            <AlertDialogDescription asChild>
+              <ul className="list-disc space-y-1 ps-5 text-start">
+                <li>
+                  <b>Sort de tous les soldes</b> et de la caisse
+                </li>
+                <li>Numéro conservé, avec le motif</li>
+                <li>Séances faites et fiches de soins intactes</li>
+              </ul>
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -917,11 +914,7 @@ export function TreatmentPlansTable({
               placeholder="Ex. : devis édité pour le mauvais patient"
               rows={3}
               disabled={busyId === cancelTarget?.id}
-              aria-describedby="plan-list-cancel-hint"
             />
-            <p id="plan-list-cancel-hint" className="text-2xs text-muted-foreground">
-              « Annuler le devis » reste inactif tant qu&apos;aucun motif n&apos;est saisi.
-            </p>
           </div>
 
           <FormErrorBanner message={cancelError} />
@@ -966,16 +959,24 @@ export function TreatmentPlansTable({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {deleteTargetPatient
-                ? `Supprimer le brouillon de ${deleteTargetPatient} ?`
-                : "Supprimer ce brouillon ?"}
+              {deleteTarget && deleteTargetPatient
+                ? `Supprimer ${treatmentName(deleteTarget)} de ${deleteTargetPatient} ?`
+                : "Supprimer ce traitement ?"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget && (
-                <>
-                  Le devis du {formatDateFr(deleteTarget.createdAt)} — {formatDT(deleteTarget.totalPlanned)} sera
-                  supprimé. Aucun numéro n&apos;a été consommé ; cette action est irréversible.
-                </>
+            <AlertDialogDescription asChild>
+              {deleteTarget ? (
+                <ul className="list-disc space-y-1 ps-5 text-start">
+                  <li>
+                    Créé le <b>{formatDateFr(deleteTarget.createdAt)}</b> —{" "}
+                    <b>{formatDT(deleteTarget.totalPlanned)}</b>
+                  </li>
+                  <li>Aucun numéro de devis consommé</li>
+                  <li>
+                    <b>Irréversible</b>
+                  </li>
+                </ul>
+              ) : (
+                <span />
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>

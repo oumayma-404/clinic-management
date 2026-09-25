@@ -1,7 +1,7 @@
 "use client"
 
 import {
-  CalendarPlus, CheckCircle2, ClipboardCheck, FilePlus2, ReceiptText, Ban, Wallet, History,
+  CalendarPlus, CheckCircle2, ClipboardCheck, FilePen, FilePlus2, ReceiptText, Ban, Wallet, History,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import type { TreatmentPlanDto } from "@/lib/api/types"
@@ -37,20 +37,8 @@ export function PlanTimeline({ plan }: { plan: TreatmentPlanDto }) {
   const entries = buildEntries(plan)
 
   if (entries.length === 0) {
-    /*
-     * Practically unreachable — « Devis créé » is unconditional, so this needs `createdAt` to be missing — but a
-     * bare « Aucun événement. » would have been the wrong answer if it ever showed. The feed is derived from the
-     * plan's own fields, so nothing here is missing because it has not loaded; it is missing because nothing has
-     * happened, and the empty state should say which.
-     */
-    return (
-      <EmptyState
-        icon={History}
-        size="compact"
-        title="Aucun événement"
-        description="Le parcours se remplit tout seul : acceptation, séances planifiées, actes réalisés et paiements encaissés."
-      />
-    )
+    // Practically unreachable — the creation entry is unconditional — and derived, never « not loaded ».
+    return <EmptyState icon={History} size="compact" title="Aucun événement" />
   }
 
   return (
@@ -83,7 +71,7 @@ export function PlanTimeline({ plan }: { plan: TreatmentPlanDto }) {
 
 function buildEntries(plan: TreatmentPlanDto): TimelineEntry[] {
   const entries: TimelineEntry[] = [
-    { key: "created", at: plan.createdAt, icon: FilePlus2, title: "Devis créé", detail: plan.title },
+    { key: "created", at: plan.createdAt, icon: FilePlus2, title: "Traitement créé", detail: plan.title },
   ]
 
   if (plan.acceptedDate) {
@@ -91,8 +79,22 @@ function buildEntries(plan: TreatmentPlanDto): TimelineEntry[] {
       key: "accepted",
       at: plan.acceptedDate,
       icon: ClipboardCheck,
-      title: "Devis accepté",
-      detail: plan.number ? `Numéro ${plan.number}` : undefined,
+      title: "Devis créé",
+      detail: plan.number ? `Devis n° ${plan.number}` : undefined,
+    })
+  }
+
+  /*
+   * « rév. N » — moved here from the header. The devis PDF re-renders live under the same number, so this counter
+   * is how a patient's earlier printout is identified. Undated: the DTO carries no revision timestamp.
+   */
+  if (plan.revisionNumber > 0) {
+    entries.push({
+      key: "revision",
+      at: null,
+      icon: FilePen,
+      title: `Devis révisé — révision ${plan.revisionNumber}`,
+      detail: plan.number ? `Devis n° ${plan.number}` : undefined,
     })
   }
 
@@ -113,7 +115,7 @@ function buildEntries(plan: TreatmentPlanDto): TimelineEntry[] {
         key: `done-${item.id}`,
         at: item.doneDate,
         icon: CheckCircle2,
-        title: "Acte réalisé",
+        title: "Acte fait",
         detail: item.designationFr,
       })
     }
@@ -131,7 +133,7 @@ function buildEntries(plan: TreatmentPlanDto): TimelineEntry[] {
         key: `paid-${installment.id}`,
         at: installment.lastPaidOn,
         icon: Wallet,
-        title: `Paiement encaissé — ${formatDT(installment.amountPaid)}`,
+        title: `Payé — ${formatDT(installment.amountPaid)}`,
         // ⚠️ Through the owner: 159 of the 184 rows on the dev database are auto-raised, and this feed
         // printed the acceptance instant for every one of them as « Échéance du … ».
         detail: method ? `${installmentDueTitle(installment)} · ${method}` : installmentDueTitle(installment),

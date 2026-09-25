@@ -38,7 +38,7 @@ export function PlanProgressBar({ done, total, fraction, className }: PlanProgre
       aria-valuenow={done}
       aria-valuemin={0}
       aria-valuemax={total}
-      aria-label="Actes réalisés"
+      aria-label="Actes faits"
     >
       <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
     </div>

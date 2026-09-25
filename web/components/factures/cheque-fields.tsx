@@ -1,7 +1,11 @@
 "use client"
 
+import { useRef, useState } from "react"
+import { ChevronRight } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { formatDate } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 /**
  * The three fields that identify a cheque — number, bank, due date (L8) — shared by every surface that records a
@@ -60,20 +64,79 @@ interface ChequeFieldsProps {
   value: ChequeFieldsValue
   onChange: (value: ChequeFieldsValue) => void
   disabled?: boolean
+  /**
+   * Behind one summary row (« Chèque : n° · banque · date »), opened by a tap. The fiche's footer only: there the
+   * three fields took a phone's acts area. The fields stay mounted while folded, so ids and payload are the same.
+   */
+  fold?: boolean
 }
 
 /**
  * Renders the three inputs. The caller decides *whether* to render it (only for a cheque) — this component does not
  * self-hide, so a caller cannot mount it and silently show nothing.
  */
-export function ChequeFields({ idPrefix, value, onChange, disabled }: ChequeFieldsProps) {
-  return (
-    <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
-      <p className="text-sm font-medium">Détails du chèque</p>
+export function ChequeFields({ idPrefix, value, onChange, disabled, fold = false }: ChequeFieldsProps) {
+  const [open, setOpen] = useState(false)
+  const fieldsRef = useRef<HTMLDivElement>(null)
+  const fieldsId = `${idPrefix}-cheque-fields`
+  const folded = fold && !open
+  // What is typed, else the field's name — so the closed row still says what the cheque is.
+  const summary: [string, string][] = [
+    [value.number.trim(), "n°"],
+    [value.bankName.trim(), "banque"],
+    [value.dueDate ? formatDate(value.dueDate, "") : "", "date"],
+  ]
 
-      {/* `sm:grid-cols-2` — never an ungated `grid-cols-2`, which is two columns at 320 px. */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
+  return (
+    /*
+     * No heading, no caption: the three labels say what they are. The columns follow the BOX, not the viewport
+     * (§ 10.2) — the fiche's footer is ~700 px wide and takes one row, a 448 px payment dialog takes 2 + 1.
+     */
+    <div
+      role="group"
+      aria-label="Chèque"
+      className={cn("@container rounded-lg border bg-muted/40", fold ? "p-1.5" : "p-3")}
+    >
+      {fold && (
+        <button
+          type="button"
+          onClick={() => {
+            const next = !open
+            setOpen(next)
+            // The footer band scrolls on a phone: bring the opened fields into it.
+            if (next) requestAnimationFrame(() => fieldsRef.current?.scrollIntoView({ block: "nearest" }))
+          }}
+          aria-expanded={open}
+          aria-controls={fieldsId}
+          disabled={disabled}
+          className="flex min-h-9 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-start text-sm hover:bg-muted disabled:opacity-50 coarse:min-h-11"
+        >
+          <span className="shrink-0 font-medium">Chèque&nbsp;:</span>
+          <span className="min-w-0 flex-1 truncate">
+            {summary.map(([typed, name], i) => (
+              <span key={name}>
+                {i > 0 && <span className="text-muted-foreground"> · </span>}
+                {typed ? (
+                  <span className="tabular-nums">{typed}</span>
+                ) : (
+                  <span className="text-muted-foreground">{name}</span>
+                )}
+              </span>
+            ))}
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+          />
+        </button>
+      )}
+      <div
+        ref={fieldsRef}
+        id={fold ? fieldsId : undefined}
+        hidden={folded}
+        className={cn("grid gap-3 @2xs:grid-cols-2 @md:grid-cols-3", fold && "px-1.5 pb-1.5 pt-2")}
+      >
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor={`${idPrefix}-cheque-number`}>N° de chèque</Label>
           <Input
             id={`${idPrefix}-cheque-number`}
@@ -88,7 +151,7 @@ export function ChequeFields({ idPrefix, value, onChange, disabled }: ChequeFiel
           />
         </div>
 
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor={`${idPrefix}-cheque-bank`}>Banque</Label>
           <Input
             id={`${idPrefix}-cheque-bank`}
@@ -99,24 +162,17 @@ export function ChequeFields({ idPrefix, value, onChange, disabled }: ChequeFiel
             autoComplete="off"
           />
         </div>
-      </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor={`${idPrefix}-cheque-due`}>Encaissable le</Label>
-        <Input
-          id={`${idPrefix}-cheque-due`}
-          type="date"
-          value={value.dueDate}
-          onChange={(e) => onChange({ ...value, dueDate: e.target.value })}
-          disabled={disabled}
-          className="w-auto"
-        />
-        {/* States the one thing a user cannot infer: the money is in the till today, the cheque clears later. That
-            distinction is the entire reason the field exists. */}
-        <p className="text-sm text-muted-foreground">
-          Pour un chèque post-daté. Le paiement est enregistré à sa date ci-dessus ; cette date sert à suivre les
-          chèques à encaisser.
-        </p>
+        <div className="min-w-0 space-y-1.5">
+          <Label htmlFor={`${idPrefix}-cheque-due`}>Encaissable le</Label>
+          <Input
+            id={`${idPrefix}-cheque-due`}
+            type="date"
+            value={value.dueDate}
+            onChange={(e) => onChange({ ...value, dueDate: e.target.value })}
+            disabled={disabled}
+          />
+        </div>
       </div>
     </div>
   )

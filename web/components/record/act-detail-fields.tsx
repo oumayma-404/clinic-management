@@ -23,7 +23,7 @@ interface ActDetailFieldsProps {
  * odontogram, the MODVL faces, and a free note. Folded inside the act's own card, and summarised in the fold's
  * header so collapsing makes a value read-only rather than hidden.
  *
- * <p>⚠️ Two fields deliberately do NOT live here. The tarif and the `/dent ↔ forfait` switch sit on the card
+ * <p>⚠️ Two fields deliberately do NOT live here. The tarif and the « par dent ↔ pour tout » switch sit on the card
  * face — folding the price away was a reported defect, because the dentist saw the figure they wanted to change
  * and could not reach it, so they lowered « Payé » instead, which means the patient still owes the difference.
  * The free-text désignation followed it out for the same reason: it is the act's *name*, the one thing the card
@@ -97,11 +97,13 @@ export function ActDetailFields({ act, dispatch, disabled }: ActDetailFieldsProp
             Corriger
           </Button>
         )}
-        <span className="ml-auto text-2xs text-muted-foreground">alimente l&apos;odontogramme</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 text-2xs text-muted-foreground">Faces</span>
+        {/* The count says the faces (and the note) apply to every tooth of the act — no sentence needed. */}
+        <span className="shrink-0 text-2xs text-muted-foreground">
+          Faces{toothCount > 1 ? ` (${toothCount} dents)` : ""}
+        </span>
         {/*
           ⚠️ `gap-2` + `coarse:size-11`, not `gap-1` + `h-8 w-8`.
           Five 32px buttons at `gap-1` sit on a 36px pitch, and `buttonVariants` already centres a 44px
@@ -134,19 +136,12 @@ export function ActDetailFields({ act, dispatch, disabled }: ActDetailFieldsProp
         <Input
           value={act.note}
           onChange={(e) => patch({ note: e.target.value })}
-          placeholder="Note sur l'acte (facultative)"
+          placeholder="Note sur l'acte"
           className="h-8 min-w-[8rem] flex-1 text-xs"
           disabled={disabled}
           aria-label={`Note sur ${act.procedureName}`}
         />
       </div>
-
-      {toothCount > 1 && (act.surfaces.size > 0 || act.note.trim() !== "") && (
-        <p className="text-2xs text-muted-foreground">
-          Les faces et la note s&apos;appliquent aux {toothCount} dents. Pour des faces différentes, ajoutez
-          un acte par dent.
-        </p>
-      )}
     </>
   )
 }

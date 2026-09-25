@@ -127,7 +127,7 @@ export function ToothMultiSelect({ value, onChange, disabled, isAdult }: ToothMu
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-9 justify-start font-normal" disabled={disabled}>
-          {value.length > 0 ? `Dents : ${value.join(", ")}` : "Dents…"}
+          {value.length > 0 ? `Dents : ${value.join(", ")}` : "Choisir les dents"}
         </Button>
       </PopoverTrigger>
       {/* Wider on a finger, because the cells inside grew — `ui/popover.tsx` already caps every popover at

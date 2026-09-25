@@ -229,7 +229,7 @@ Route `/appointments` → `button[data-size="sm"]:has-text('Nouveau')`.
 | BOOK-46 | 0 | a plan whose **first** act is `Done` (a priced continuation) | Book from « Actes du devis » | The **bookable** act is offered, not `items[0]`; the save is **not** refused | `schedulablePlanItems` / `planIdByItem` — never `plan.items[0]` |
 | BOOK-47 | 1 | a plan step suggestion applies | Open the dialog | **At most one** notice renders (plan suggestion wins) | AC-5 of the continuation spec |
 | BOOK-48 | 1 | ∅ | Edit an act's price inside « Actes du devis » | It saves to the **treatment**; the échéancier re-spreads server-side | the act is priced once |
-| BOOK-49 | 0 | a fiche billed on a note, partly paid | « c'est la suite d'une séance précédente » → pick → price the remaining work → **Annuler** the booking | **No devis**, no appointment, and the séance is still offered as continuable | the devis is minted by the SAVE (`materialiseTreatments`), never by the dialog's own press |
+| BOOK-49 | 0 | a fiche billed on a note, partly paid | « Continuer un traitement » → the past séance's « Continuer » card (or « Suite d'une séance précédente… ») → « Prix du reste » → **Annuler** the booking | **No devis**, no appointment, and the séance is still offered as continuable | the devis is minted by the SAVE (`materialiseTreatments`), never by the dialog's own press |
 | BOOK-50 | 0 | BOOK-49's arrange | Same, but **save** the booking | Exactly one devis, numbered + `Accepted`, and the appointment carries its id | `planIdByItem` merged from the materialiser, else « Le plan de traitement est requis pour lier l'acte. » |
 
 ---

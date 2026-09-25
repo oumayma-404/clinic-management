@@ -151,39 +151,33 @@ test.describe("HP-5 · la fiche de soins, dans un navigateur @mutating @t0", () 
     await gotoApp(page, `/patients/${p.id}?addRecord=1&appointmentId=${appt.id}`, sharedContext)
 
     /*
-     * The booked act is prefilled and the séance knows its rank — out of however many the act actually has.
+     * The booked act is prefilled and the fiche says WHICH séance of the treatment it records.
      *
-     * ⚠️ **The sentence is « Cette séance : étape 1 sur N · <nom de l'étape> », and it moved onto the ACT
-     * CARD.** It used to read « SÉANCE 1 SUR N » and to float above the act stack; `06a47cb0` moved it, and
-     * `N31` is why it is a whole sentence rather than a bare rank — « étape 1 sur 3 » alone is read as
-     * progress, i.e. as a claim that the séance has already happened. `patient-record-modal.tsx` composes it
-     * (`seanceStepLine`) because it is the only thing that can.
-     *
-     * Matched loosely on « étape N sur M » so a later re-wording of the step's own name does not fail this,
-     * but the rank must be there and it must be **1**.
+     * ⚠️ **It is the treatment band's séance strip now, not a sentence.** « Cette séance : étape 1 sur N » was
+     * replaced by `SeanceStrip`, which names every séance and marks the one this fiche records with
+     * `aria-current="step"`. The booked step is step 1, so the marked séance must be the protocol's FIRST
+     * step, by name — never a rank (`N31`), never the next pending one by accident.
      */
     await expect(page.getByText(crown.name).first()).toBeVisible()
+    const strip = page.getByRole("list", { name: "Séances du traitement" })
+    await expect(strip, "the fiche must draw the treatment's séances").toBeVisible()
+    await expect(strip.locator("li")).toHaveCount(steps)
     await expect(
-      page.getByText(new RegExp(`étape\\s*1\\s*sur\\s*${steps}`, "i")).first(),
-      "the fiche must say WHICH séance of the treatment it is",
-    ).toBeVisible()
+      strip.locator('[aria-current="step"]'),
+      "the fiche must mark WHICH séance of the treatment it records — the one the visit booked",
+    ).toContainText(item.steps[0].label)
 
     /*
-     * ⚠️ **The price field is WITHHELD, not rendered read-only** — `act-card.tsx` replaces it with
-     * « Aucun honoraire sur cette séance. Cet acte est chiffré une fois, sur le traitement. » The card's own
-     * comment says why, and it is the better design: « a collapsed card reading 0,000 DT beside the act's name
-     * is the third of the séance's zeros and it says nothing — the act has no price *here*, which is different
-     * from costing nothing. »
-     *
-     * ⚠️ CLAUDE.md still says « `act-card` renders its price `readOnly` », which is stale. This test asserts
-     * the code.
+     * ⚠️ **The price field is WITHHELD, not rendered read-only** — `act-card.tsx` puts the tag « Payé sur le
+     * traitement » where the price would be. A card reading « 0,000 DT » beside the act's name says nothing:
+     * the act has no price *here*, which is different from costing nothing.
      */
     await expect(
-      page.getByText(/Aucun honoraire sur cette séance/),
+      page.getByText(/Inclus dans le traitement/),
       "an act the treatment prices states so in words, instead of showing a zero",
     ).toBeVisible()
     await expect(
-      page.getByLabel(/Montant forfaitaire \(DT\)|Prix par dent \(DT\)/),
+      page.getByLabel(/Prix pour tout \(DT\)|Prix par dent \(DT\)/),
       "no price input at all on a wholly-carried séance",
     ).toHaveCount(0)
 
@@ -198,7 +192,7 @@ test.describe("HP-5 · la fiche de soins, dans un navigateur @mutating @t0", () 
     // …and the second money field, which is what this séance actually collects, IS offered.
     await expect(
       page.locator("#collected-on-plan"),
-      "« Encaissé sur le traitement » is a second money field, never folded into « Payé »",
+      "« Payé aujourd'hui » (the treatment's field) is a second money field, never folded into « Payé »",
     ).toBeVisible()
 
     expect(errors.filter((e) => /before initialization|Cannot access/i.test(e))).toHaveLength(0)
@@ -251,14 +245,14 @@ test.describe("HP-5 · la fiche de soins, dans un navigateur @mutating @t0", () 
     await expect(page.locator("#paid")).toBeVisible()
 
     /*
-     * The display rule is **per act**: the carried crown states « Aucun honoraire sur cette séance » and shows
-     * no field; the détartrage keeps its own money.
+     * The display rule is **per act**: the carried crown wears « Inclus dans le traitement » and shows no field;
+     * the détartrage keeps its own money.
      *
      * ⚠️ **Only the ARMED card renders a price input.** A collapsed card shows a figure, not a field — so
      * counting inputs across the modal measures « how many cards are open », which is a different question and
      * reads as 0. The first draft of this test failed on exactly that while the screen was entirely correct.
      */
-    await expect(page.getByText(/Aucun honoraire sur cette séance/)).toHaveCount(1)
+    await expect(page.getByText(/Inclus dans le traitement/)).toHaveCount(1)
     await expect(page.getByText(/2\s*actes/)).toBeVisible()
 
     // The collapsed act carries its own money — the figure the carried act deliberately does NOT show.
@@ -267,7 +261,7 @@ test.describe("HP-5 · la fiche de soins, dans un navigateur @mutating @t0", () 
 
     // Arm it, and only then is its price a field — and an editable one.
     await detartrageCard.click()
-    const price = page.getByLabel(/Montant forfaitaire \(DT\)|Prix par dent \(DT\)/).first()
+    const price = page.getByLabel(/Prix pour tout \(DT\)|Prix par dent \(DT\)/).first()
     await expect(
       price,
       "the détartrage must stay priceable — hiding on « this séance touches a devis » would make it unbillable",
@@ -300,7 +294,7 @@ test.describe("HP-5 · la fiche de soins, dans un navigateur @mutating @t0", () 
 
     await gotoApp(page, `/patients/${p.id}?addRecord=1&appointmentId=${appt.id}`, sharedContext)
 
-    const price = page.getByLabel(/Montant forfaitaire \(DT\)|Prix par dent \(DT\)/).first()
+    const price = page.getByLabel(/Prix pour tout \(DT\)|Prix par dent \(DT\)/).first()
     await expect(price).toBeVisible()
     const value = await price.inputValue()
 
@@ -407,36 +401,27 @@ test.describe("HP-2 · le dialogue de réservation, dans un navigateur @mutating
     await expect(dialog).toBeVisible()
 
     /*
-     * ⚠️ **Match on the dialog's TEXT CONTENT, with `\s` for the space, not on a phrase.** The picker renders
-     * « Traitement en {n}&nbsp;séances » as three nodes with a **non-breaking space** between the count and the
-     * word, so `getByText(/Traitement en \d+ séances/)` — an ordinary U+0020 — finds nothing and reports the
-     * control as missing. That is a false defect report on the exact screen this scenario exists to defend, and
-     * the first draft of this test produced it.
+     * ⚠️ **Match on the dialog's TEXT CONTENT, not on a phrase.** The picker renders its labels across several
+     * nodes, and a `getByText` on a phrase split between them finds nothing and reports the control as missing —
+     * a false defect report on the exact screen this scenario exists to defend.
      */
     const dialogText = async () => ((await dialog.textContent()) ?? "").replace(/\u00a0/g, " ")
 
     /*
      * ⚠️ **A stored act opens UNSPLIT — `ecd8f131`.** Split-by-default on reopen turned merely moving an implant
-     * visit into a new treatment and a zeroed price. So the card states the protocol and offers the split; the
-     * reported field defect (the sentence with **no control** under it) is what must never come back.
+     * visit into a new treatment and a zeroed price. So the card offers the split (« Répartir en N séances »); an
+     * offer with **no control** is what must never come back.
      */
     const opened = await dialogText()
-    expect(
-      /Cet acte se fait normalement en \d+ séances/.test(opened),
-      `the edit dialog must state the crown's catalogue protocol. Dialog text began: ${opened.slice(0, 200)}`,
-    ).toBeTruthy()
-    expect(/Traitement en \d+\s*séances?/.test(opened), "opening a booked visit must not split it").toBeFalsy()
+    expect(/Tout en 1 séance/.test(opened), "opening a booked visit must not split it").toBeFalsy()
 
-    const split = dialog.getByRole("button", { name: /Répartir en \d+ séances/ })
-    await expect(split, "the sentence without a control is the reported defect").toBeVisible()
+    const split = dialog.getByRole("button", { name: /^Répartir en \d+ séances$/ })
+    await expect(split, "the crown's catalogue protocol must be offered as a control").toBeVisible()
     await split.click()
 
     const text = await dialogText()
-    expect(/Traitement en \d+\s*séances?/.test(text), "the split must render the séance editor").toBeTruthy()
-    // It names what is being done TODAY, which is the one fact a dentist needs from the card…
-    expect(/Ce rendez-vous est la 1re/.test(text), "the card must name this séance").toBeTruthy()
-    // …and the séances that follow it.
-    expect(/Ensuite/.test(text), "and the ones after it").toBeTruthy()
+    // The strip names what is being done TODAY, which is the one fact a dentist needs from the card.
+    expect(/ce RDV/.test(text), "the split must render the séance strip, naming this séance").toBeTruthy()
 
     /*
      * The séance list must be an editable frise, and the way out of it must be reachable. Both live below
@@ -447,16 +432,14 @@ test.describe("HP-2 · le dialogue de réservation, dans un navigateur @mutating
       if (body) body.scrollTop = body.scrollHeight
     })
 
-    // « Tout faire en une **seule** séance » — the word « seule » is in the label and a matcher without it
-    // finds nothing. Kept loose so a rewording does not read as a missing control.
-    const escape = dialog.getByRole("button", { name: /Tout faire en une\s+(seule\s+)?séance/ })
+    const escape = dialog.getByRole("button", { name: /^Tout en 1 séance$/ })
     await expect(
       escape,
       "a split needs a way back, or the dentist cannot say « une seule séance »",
     ).toBeVisible()
 
     /*
-     * Every séance of the protocol is on screen as its own row — a readable frise, never a disclosure mode.
+     * Every séance of the protocol is on screen on the strip — the editor behind « Séances » is a fold.
      * The labels come from the CATALOGUE, not from literals: an act's protocol differs between databases, and
      * the first draft of this test named « Empreinte » and failed on a freshly seeded catalogue that has no
      * such step.

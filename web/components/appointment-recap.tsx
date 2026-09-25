@@ -1,10 +1,11 @@
 "use client"
 
-import { useMemo, type ReactNode } from "react"
+import { useMemo, type ComponentProps, type ReactNode } from "react"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { cn } from "@/lib/utils"
 import { formatDT } from "@/lib/format"
+import { Consequences } from "@/components/treatment-plans/plan-consequences"
 
 /**
  * The advisory clash the booking dialogs compute, in the one shape this panel renders it.
@@ -47,7 +48,7 @@ export interface AppointmentRecapModel {
   /** The séance's acts, in the dentist's order. Empty is a real state (a visit booked with no act). */
   actNames: string[]
   /**
-   * What the séance's acts add up to at the prices typed into « Prix pour ce rendez-vous », or **null** when no
+   * What the séance's acts add up to at the prices typed into their price fields, or **null** when no
    * act carries a negotiated price and only the catalogue tarifs are in play.
    *
    * <p>Null rather than the tarif total, deliberately: the pane exists to be checked before committing, and a
@@ -90,6 +91,48 @@ export function formatDurationFr(minutes: number): string {
   return `${m} min`
 }
 
+/** « jeudi 24 septembre · 20:16 → 21:16 » — the slot as the rail states it, for a confirmation's body. */
+export function bookingSlotLabel(
+  slot: Pick<AppointmentRecapModel, "date" | "startHour" | "startMinute" | "durationMinutes">,
+): string {
+  const span = formatTimeSpan(slot.startHour, slot.startMinute, slot.durationMinutes)
+  return slot.date ? `${format(slot.date, "EEEE d MMMM", { locale: fr })} · ${span}` : span
+}
+
+/** Times and dates of a sentence in bold — « de <b>09:00</b> à <b>17:00</b> ». Figures only, never words. */
+function boldFigures(text: string): ReactNode {
+  const parts = text.split(/(\d{1,2}\/\d{2}(?:\/\d{2,4})?(?: \d{1,2}:\d{2})?|\d{1,2}:\d{2})/)
+  return parts.map((part, i) =>
+    i % 2 === 1 ? <b key={i} className="text-foreground">{part}</b> : part,
+  )
+}
+
+/**
+ * A booking confirmation's body as short bullets: the server's refusal one sentence per bullet, its figures in
+ * bold, then the dialog's own facts. Display only — nothing branches on the wording, so a reworded refusal still
+ * renders whole. Forwards its props, so it can sit under a Radix `Description asChild`.
+ */
+export function BookingPromptFacts({
+  message,
+  extra = [],
+  ...props
+}: { message?: string | null; extra?: ReactNode[] } & ComponentProps<"ul">) {
+  return <Consequences items={[...sentencesOf(message ?? "").map(boldFigures), ...extra]} {...props} />
+}
+
+/** A sentence ends on . ! ? after anything but a lone capital (an initial), before a capital. No lookbehind. */
+function sentencesOf(text: string): string[] {
+  const out: string[] = []
+  let start = 0
+  for (const m of text.matchAll(/[^\sA-Z][.!?](\s+)(?=[A-ZÀ-Ý«])/g)) {
+    const at = m.index ?? 0
+    out.push(text.slice(start, at + m[0].length - m[1].length).trim())
+    start = at + m[0].length
+  }
+  out.push(text.slice(start).trim())
+  return out.filter(Boolean)
+}
+
 function useRecapText(model: AppointmentRecapModel) {
   return useMemo(() => {
     const name = model.patientName?.trim() || null
@@ -107,9 +150,9 @@ function useRecapText(model: AppointmentRecapModel) {
 
 /**
  * The clash, in whichever of the two tones the hook asked for. Shared by both variants so a warning cannot read
- * one way in the rail and another in the strip.
+ * one way in the rail and another in the strip. The fact alone: the save's own confirmation asks the question.
  */
-function RecapWarning({ warning, compact = false }: { warning: AppointmentRecapWarning; compact?: boolean }) {
+function RecapWarning({ warning }: { warning: AppointmentRecapWarning }) {
   return (
     <div
       className={cn(
@@ -120,9 +163,6 @@ function RecapWarning({ warning, compact = false }: { warning: AppointmentRecapW
       )}
     >
       <p>⚠ {warning.message}</p>
-      {warning.samePractitioner && !compact && (
-        <p className="mt-1 text-2xs">Vous pouvez continuer : une confirmation vous sera demandée.</p>
-      )}
     </div>
   )
 }
@@ -145,8 +185,13 @@ function RecapBlock({ model, dayLabel, span, who }: {
       <p className="mt-1 text-xs text-muted-foreground tabular-nums">
         {dayLabel ? `${dayLabel} · ${span}` : span}
       </p>
+      {/* One line per act: a name already carries « · dent 26 », so a « · »-joined list could not say where one act ends. */}
       {model.actNames.length > 0 && (
-        <p className="mt-1 text-xs text-muted-foreground">{model.actNames.join(" · ")}</p>
+        <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+          {model.actNames.map((name, i) => (
+            <li key={`${i}-${name}`}>{name}</li>
+          ))}
+        </ul>
       )}
     </div>
   )
@@ -170,7 +215,7 @@ interface AppointmentRecapProps {
   variant: "rail" | "bar"
   className?: string
   /**
-   * Extra read-only sections for the rail — the edit dialog's statut and facturation.
+   * Extra read-only content for the rail.
    *
    * ⚠️ **Read-only on purpose.** Anything actionable belongs in the form column, which is the half that survives
    * the collapse below `lg:`; an action living only here would disappear on every tablet and phone.
@@ -222,7 +267,7 @@ export function AppointmentRecap({ model, variant, className, children }: Appoin
             </p>
           </div>
         </div>
-        {model.warning && <RecapWarning warning={model.warning} compact />}
+        {model.warning && <RecapWarning warning={model.warning} />}
       </div>
     )
   }
@@ -238,17 +283,11 @@ export function AppointmentRecap({ model, variant, className, children }: Appoin
       <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Récapitulatif</p>
       <RecapBlock model={model} dayLabel={dayLabel} span={span} who={who} />
       {model.warning && <RecapWarning warning={model.warning} />}
+      {/* No « Actes » count: the block above names every act, and the picker beside it counts them. */}
       <div className="flex flex-col gap-1.5">
         <RecapRow label="Durée" value={formatDurationFr(model.durationMinutes)} />
-        <RecapRow
-          label="Actes"
-          value={model.actNames.length > 0 ? model.actNames.length : <span className="text-muted-foreground">Aucun</span>}
-        />
         {model.negotiatedTotal != null && (
-          <RecapRow
-            label="Prix convenu"
-            value={<span className="tabular-nums">{formatDT(model.negotiatedTotal)}</span>}
-          />
+          <RecapRow label="Prix" value={<span className="tabular-nums">{formatDT(model.negotiatedTotal)}</span>} />
         )}
         <RecapRow
           label="Praticien"
@@ -257,15 +296,5 @@ export function AppointmentRecap({ model, variant, className, children }: Appoin
       </div>
       {children}
     </aside>
-  )
-}
-
-/** A titled read-only block inside the rail — the edit dialog's statut and facturation sections. */
-export function AppointmentRecapSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5 border-t pt-3">
-      <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-      {children}
-    </div>
   )
 }

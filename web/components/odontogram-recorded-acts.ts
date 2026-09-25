@@ -39,13 +39,13 @@ export interface RecordedAct {
 }
 
 /** How the mark is named wherever it is written — legend, tooltip, aria. */
-export const RECORDED_ACT_LABEL = "Acte réalisé"
+export const RECORDED_ACT_LABEL = "Acte fait"
 
 /**
  * What the legend says under the glyph. It has to be read next to « Réalisé », which means « the state this act
  * left the tooth in » — so this one names the difference rather than repeating the word.
  */
-export const RECORDED_ACT_LEGEND = "Acte réalisé, sans changement d'état de la dent"
+export const RECORDED_ACT_LEGEND = "Acte fait, sans changement d'état de la dent"
 
 /**
  * The « Cases » fill for a tooth whose only record is an act of this kind.

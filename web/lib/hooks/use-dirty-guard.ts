@@ -42,11 +42,24 @@ export interface DirtyGuard {
   markClean: () => void
 }
 
+/**
+ * The guards open right now, oldest first. Only the TOP one counts a keystroke and answers a back gesture: with a
+ * window opened over a guarded dialog (the treatment's séances over a booking), both used to see every event — the
+ * first back did nothing (each read the other's history entry as its own teardown), the second closed both at once,
+ * and typing in the upper window made the lower one ask to discard too. A single open guard is always the top one,
+ * so nothing changes for it.
+ */
+const openGuards: number[] = []
+let guardSeq = 0
+const isTopGuard = (id: number) => openGuards[openGuards.length - 1] === id
+
 export function useDirtyGuard(
   open: boolean,
   onOpenChange: (open: boolean) => void,
 ): DirtyGuard {
   const dirty = useRef(false)
+  // This open session's place in `openGuards` (0 = not open yet).
+  const guardId = useRef(0)
   const [confirmOpen, setConfirmOpen] = useState(false)
   // Read through a ref by the history effect below, which must not re-subscribe when the caller re-renders.
   const onOpenChangeRef = useRef(onOpenChange)
@@ -69,6 +82,8 @@ export function useDirtyGuard(
     if (!open) return
     const mark = (event: Event) => {
       const target = event.target as HTMLElement | null
+      // A guarded window open above this one owns the keystroke.
+      if (!isTopGuard(guardId.current)) return
       if (target?.closest('[data-slot="dialog-content"],[data-slot="sheet-content"]')) {
         dirty.current = true
       }
@@ -111,7 +126,10 @@ export function useDirtyGuard(
    */
   useEffect(() => {
     if (!open) return
-    const marker = { dialogGuard: true }
+    const id = ++guardSeq
+    guardId.current = id
+    openGuards.push(id)
+    const marker = { dialogGuard: true, dialogGuardId: id }
     let pushed = false
     const pushTimer = window.setTimeout(() => {
       window.history.pushState(marker, "")
@@ -119,8 +137,10 @@ export function useDirtyGuard(
     }, 0)
 
     const onPop = () => {
-      // Still on a marker ⇒ our own teardown popped it, not the user. A real back lands on the page entry.
-      if (window.history.state?.dialogGuard) return
+      // A guarded window above this one answers the back gesture.
+      if (!isTopGuard(id)) return
+      // Still on OUR marker ⇒ an entry above it was popped by its own teardown, not by the user.
+      if (window.history.state?.dialogGuardId === id) return
       if (dirty.current) {
         // Re-arm: the browser already consumed our entry, so without this a second back would leave the page.
         window.history.pushState(marker, "")
@@ -134,8 +154,11 @@ export function useDirtyGuard(
     return () => {
       window.clearTimeout(pushTimer)
       window.removeEventListener("popstate", onPop)
-      // Only undo an entry we actually got as far as pushing.
-      if (pushed && window.history.state?.dialogGuard) window.history.back()
+      const at = openGuards.indexOf(id)
+      if (at >= 0) openGuards.splice(at, 1)
+      // Only undo an entry we pushed and that is still current — after a user's back it is already gone, and
+      // backing again would pop the entry of the dialog underneath.
+      if (pushed && window.history.state?.dialogGuardId === id) window.history.back()
     }
   }, [open])
 

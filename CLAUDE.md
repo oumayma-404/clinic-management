@@ -197,6 +197,9 @@ how it was built, `notes.md` is what shipped.
 
 **The clinical loop**
 
+- [`treatment-flow-ux`](features/treatment-flow-ux/notes.md) — Le parcours traitement se lit d'un coup d'œil :
+  un mot par idée, des faits en gras, une frise des séances partout · le badge dit le travail, le filtre dit le
+  devis · un seul constructeur d'avenant pour le formulaire et l'édition en ligne
 - [`time-24h-clock`](features/time-24h-clock/notes.md) — L'heure se saisit et se lit sur 24 heures, partout — et `lang="fr"` n'y était pour rien
 - [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
@@ -763,8 +766,8 @@ touching the area.
   `h-dvh` — a third scrollbar onto blank space (1168 px on the dashboard at 1440×900, 2611 px at 390×844).
   `check:responsive`'s `page-scroller-contains-its-absolutes` holds it.
 - **An act the TREATMENT prices takes no share of the séance total, and « Total » wrote straight past the
-  lock.** Such an act is 0 by rule — `act-card` **withholds the price field altogether**, printing « Aucun
-  honoraire sur cette séance » in its place (a card reading « 0,000 DT » « is the third of the séance's zeros
+  lock.** Such an act is 0 by rule — `act-card` **withholds the price field altogether**, printing the tag « Payé
+  sur le traitement » in its place (a card reading « 0,000 DT » « is the third of the séance's zeros
   and it says nothing »), and `PlanCarriedActPricing` imposes the same 0 server-side — but `distributeSessionTotal` filtered on `isActNamed` alone, so typing 150
   into « Total » moved the locked field to « 150,000 » on screen and the save silently put it back. On a
   **mixed** séance it is quieter and worse: the typed total is split between a carried couronne and a real
