@@ -43,15 +43,7 @@
       <ul class="trust rise d4">
         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>30 jours, sans carte bancaire</li>
         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Sans engagement</li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Vos données s’exportent quand vous voulez</li>
       </ul>
-
-      <div class="hero-aside rise d5">
-        <p>Vous utilisez déjà un logiciel ?</p>
-        <a class="link-arrow" href="#faq">Reprendre vos données en CSV
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </a>
-      </div>
     </div>
 
     <div class="hero-film rise d2">
@@ -61,9 +53,34 @@
               loading="eager" scrolling="no" tabindex="-1" aria-hidden="true"></iframe>
     </div>
     <p class="sr-only">Une animation en quatre temps&nbsp;: la journée s’organise dans l’agenda, le dossier du patient s’ouvre, la note d’honoraires se crée, puis la caisse se met à jour et le rappel de contrôle part.</p>
-    </div>
-
   </div>
+
+</section>
+
+<!-- ══ 1b · CE QUI COMPTE AU CABINET ════════════════════════════════════════════
+     Where a larger vendor puts its client logos. There are none to show, so the
+     slot carries four facts a foreign product cannot claim, each one true of the
+     shipped product (BRIEF « True and usable »). ⚠️ No figure, no client count,
+     no « sans internet »: see the claims list in site/BRIEF.md before adding one. -->
+<section class="facts" aria-label="Ce qui compte au cabinet">
+  <ul class="wrap facts-list">
+    <li class="rise d1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h6M7 14h3M16 14h1"/></svg>
+      <p><b>Chèques postdatés</b><span>suivis échéance par échéance</span></p>
+    </li>
+    <li class="rise d2">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 11h6M9 15h6M9 7h3"/></svg>
+      <p><b>Numérotation sans trou</b><span>une série de notes par année</span></p>
+    </li>
+    <li class="rise d3">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.4 3.1 8.2 7.5 9.5 4.4-1.3 7.5-5.1 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/></svg>
+      <p><b>Sauvegarde toutes les heures</b><span>vérifiée, et restaurable</span></p>
+    </li>
+    <li class="rise d4">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h11M11 8l4 4-4 4"/><path d="M15 5h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3"/></svg>
+      <p><b>Vos données en CSV</b><span>reprises à l’entrée, rendues à la sortie</span></p>
+    </li>
+  </ul>
 </section>
 
 <!-- ══ 2 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════
@@ -74,10 +91,10 @@
 <section data-reveal class="s5" id="dossier" aria-labelledby="s5-titre">
   <div class="wrap">
 
-    <header class="s5-head">
-      <p class="s5-eyebrow" style="--i: 0">Le dossier patient</p>
-      <h2 class="s5-h2" id="s5-titre" style="--i: 1">Retrouvez n’importe quel patient en trois secondes.</h2>
-      <p class="s5-lede" style="--i: 2">Fiche, radios, actes, paiements&nbsp;: un seul dossier, à son nom.</p>
+    <header class="head rise">
+      <p class="eyebrow">Le dossier patient</p>
+      <h2 id="s5-titre">Retrouvez n’importe quel patient en trois secondes.</h2>
+      <p class="lede">Fiche, radios, actes, paiements&nbsp;: un seul dossier, à son nom.</p>
     </header>
 
     <!-- ── Le dossier : une seule pièce de papier, qui s'assemble ────────── -->
@@ -198,7 +215,7 @@
           <div class="s5-panes">
 
           <!-- Onglet 1 · Dossiers médicaux -->
-          <div class="s5-pane" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+          <div class="s5-pane surface-light" style="--zc: var(--azure); --zcl: var(--azure-lit)">
             <i class="s5-mark" aria-hidden="true"></i>
             <header class="s5-ph">
               <i aria-hidden="true"></i>
@@ -231,7 +248,7 @@
           </div>
 
           <!-- Onglet 2 · Fichiers -->
-          <div class="s5-pane" style="--zc: var(--green); --zcl: var(--green-lit)">
+          <div class="s5-pane surface-light" style="--zc: var(--green); --zcl: var(--green-lit)">
             <i class="s5-mark" aria-hidden="true"></i>
             <header class="s5-ph">
               <i aria-hidden="true"></i>
@@ -261,7 +278,7 @@
                  Le deuxième acte de la fiche est « Radiographie panoramique »,
                  et ce fichier porte la date de la séance. C'est le même
                  événement, dans le même dossier, sous deux onglets. -->
-            <i class="s5-open" aria-hidden="true">
+            <i class="s5-open surface-ink" aria-hidden="true">
               <i class="s5-lightbox">
               <i class="s5-obar">
                 <i class="s5-odot"></i>
@@ -294,13 +311,13 @@
 </section>
 
 <!-- ══ 3 · L'ARGENT ═════════════════════════════════════════════════════════════ -->
-<section data-reveal class="s3" id="argent">
+<section data-reveal class="s3 surface-light" id="argent" aria-labelledby="s3-titre">
   <div class="wrap">
 
-    <div class="s3-head">
-      <p class="s3-eyebrow s3-up" style="--d:0ms">L’argent</p>
-      <h2 class="s3-h2 s3-up" style="--d:70ms">Votre chiffre du mois s’écrit tout seul.</h2>
-      <p class="s3-lede s3-up" style="--d:140ms">Vous ne saisissez que les dépenses.</p>
+    <div class="head rise">
+      <p class="eyebrow">L’argent</p>
+      <h2 id="s3-titre">Votre chiffre du mois s’écrit tout seul.</h2>
+      <p class="lede">Vous ne saisissez que les dépenses.</p>
     </div>
 
     <div class="s3-sheet">
@@ -427,7 +444,7 @@
      six cards in normal flow wherever the sticky version cannot run: below
      62rem, under reduced motion, and with the script blocked. Nothing is ever
      hidden behind a control that is not rendered. ══════════════════════════ -->
-<section class="sec" id="avant-avec">
+<section class="sec sec--page" id="avant-avec">
   <div class="wrap">
     <div class="head rise">
       <p class="eyebrow">Le quotidien</p>
@@ -627,13 +644,13 @@
 </section>
 
 <!-- ══ 5 · SUR LE TÉLÉPHONE ═════════════════════════════════════════════════════ -->
-<section class="s4 rise" id="mobile" aria-labelledby="s4-t">
+<section class="s4 rise surface-light" id="mobile" aria-labelledby="s4-t">
   <div class="wrap">
 
-    <div class="s4-head">
-      <p class="s4-eyebrow s4-in" style="--i: 0">Mobile</p>
-      <h2 class="s4-title s4-in" id="s4-t" style="--i: 1">Votre cabinet tient dans votre poche</h2>
-      <p class="s4-lede s4-in" style="--i: 2">Les mêmes données qu’au cabinet, entre deux fauteuils.</p>
+    <div class="head s4-in" style="--i: 0">
+      <p class="eyebrow">Mobile</p>
+      <h2 id="s4-t">Votre cabinet tient dans votre poche</h2>
+      <p class="lede">Les mêmes données qu’au cabinet, entre deux fauteuils.</p>
     </div>
 
     <!-- ── L’éventail ────────────────────────────────────────────────────────
@@ -650,7 +667,7 @@
             <i class="s4-notch" aria-hidden="true"><i></i></i>
             <div class="s4-screen">
               <img class="s4-shot" src="assets/img/m-dashboard.webp" width="390" height="844" loading="lazy" decoding="async"
-                   alt="L’accueil du logiciel sur un téléphone&nbsp;: la séance à clôturer, la frise de la journée et les actes prévus.">
+                   alt="L’accueil du logiciel sur un téléphone&nbsp;: le patient au fauteuil, la frise de la journée et les actes prévus.">
               <i class="s4-veil" aria-hidden="true"></i>
             </div>
             <i class="s4-glass" aria-hidden="true"></i>
@@ -679,8 +696,8 @@
           <div class="s4-phone">
             <i class="s4-notch" aria-hidden="true"><i></i></i>
             <div class="s4-screen">
-              <img class="s4-shot" src="assets/img/m-caisse.webp" width="390" height="844" loading="lazy" decoding="async"
-                   alt="La caisse sur un téléphone&nbsp;: encaissements, avoirs remboursés, dépenses et net du jour, puis le détail par mode de paiement.">
+              <img class="s4-shot" src="assets/img/m-semaine.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="L’agenda de la semaine sur un téléphone&nbsp;: sept jours côte à côte, chaque rendez-vous coloré par acte.">
               <i class="s4-veil" aria-hidden="true"></i>
             </div>
             <i class="s4-glass" aria-hidden="true"></i>
@@ -695,11 +712,11 @@
             <i class="s4-notch" aria-hidden="true"><i></i></i>
             <div class="s4-screen">
               <img class="s4-shot s4-slide" style="--n: 0" src="assets/img/m-odonto.webp" width="390" height="844" loading="lazy" decoding="async"
-                   alt="L’odontogramme sur un téléphone&nbsp;: les dents du maxillaire colorées par diagnostic, la légende des états et les onglets Diagnostics et Actes réalisés.">
+                   alt="L’odontogramme sur un téléphone&nbsp;: les dents du maxillaire colorées par état, la légende des états et les onglets État dentaire et Actes faits.">
               <img class="s4-shot s4-slide" style="--n: 1" src="assets/img/m-agenda.webp" width="390" height="844" loading="lazy" decoding="async"
-                   alt="L’agenda du jour sur un téléphone&nbsp;: la semaine, les rendez-vous de la matinée avec le motif de chacun et le rappel des séances à clôturer.">
-              <img class="s4-shot s4-slide" style="--n: 2" src="assets/img/m-argent.webp" width="390" height="844" loading="lazy" decoding="async"
-                   alt="Les chiffres du mois sur un téléphone&nbsp;: le net, l’encaissé, les dépenses et la courbe des six derniers mois.">
+                   alt="L’agenda du jour sur un téléphone&nbsp;: les rendez-vous de la matinée, chacun avec son patient et son acte.">
+              <img class="s4-shot s4-slide" style="--n: 2" src="assets/img/m-caisse.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="La caisse du mois sur un téléphone&nbsp;: encaissements, avoirs remboursés, dépenses et net, puis le détail par mode de paiement.">
             </div>
             <i class="s4-glass" aria-hidden="true"></i>
           </div>
@@ -742,9 +759,9 @@
 <section data-reveal class="s6" id="faq" aria-labelledby="s6-titre">
   <div class="wrap">
 
-    <div class="s6-head">
-      <p class="s6-eyebrow s6-rise" style="--i: 0">FAQ</p>
-      <h2 class="s6-h2 s6-rise" id="s6-titre" style="--i: 1">Les questions qu’on nous pose</h2>
+    <div class="head rise">
+      <p class="eyebrow">FAQ</p>
+      <h2 id="s6-titre">Les questions qu’on nous pose</h2>
     </div>
 
     <ol class="s6-list">
@@ -829,7 +846,7 @@
 
 <!-- ══ 7 · INSTALLER ════════════════════════════════════════════════════════
      Occupe la place de « L'essai et le prix », parquée intacte dans
-     src/_parked/essai.html (son CSS `.s7-*` est toujours là) : le tarif n'est
+     src/_parked/essai.html (son CSS `.s7-*` dans _parked/essai.css) : le tarif n'est
      pas arrêté, donc la section ne pouvait pas être publiée.
 
      ⚠️ Le bouton Windows tape une route ANONYME de l'API
@@ -841,13 +858,13 @@
      ⚠️ Ne JAMAIS envoyer l'exécutable en pièce jointe : Gmail bloque les .exe,
      y compris dans un .zip. L'email porte un lien vers #telecharger.
      Voir site/EMAIL-TELECHARGEMENT.md. -->
-<section data-reveal class="dl" id="telecharger" aria-labelledby="dl-titre">
+<section data-reveal class="dl surface-light" id="telecharger" aria-labelledby="dl-titre">
   <div class="wrap">
 
-    <div class="dl-hero">
-      <p class="dl-eyebrow dl-rise" style="--i: 0">L’installation</p>
-      <h2 class="dl-h dl-rise" id="dl-titre" style="--i: 1">Installez APEXA</h2>
-      <p class="dl-p dl-rise" style="--i: 2">Trente jours d’essai, sans carte bancaire.</p>
+    <div class="head rise">
+      <p class="eyebrow">L’installation</p>
+      <h2 id="dl-titre">Installez APEXA</h2>
+      <p class="lede">Trente jours d’essai, sans carte bancaire.</p>
     </div>
 
     <div class="dl-cols">
@@ -890,10 +907,6 @@
 
     </div>
 
-    <div class="dl-act dl-rise" style="--i: 3">
-      <a class="dl-demo" href="#demande">Demander une démo<i aria-hidden="true">→</i></a>
-    </div>
-
   </div>
 </section>
 
@@ -908,13 +921,15 @@
      delivered until somebody clicks it. `action` is the plain endpoint so the
      form still works with JS blocked (it redirects to `_next`); site.js posts
      to the `/ajax/` twin instead and keeps the reader on the page. -->
-<section data-reveal class="s8" id="demande" aria-labelledby="s8-titre">
+<section data-reveal class="s8 on-ink" id="demande" aria-labelledby="s8-titre">
   <div class="wrap s8-in">
 
     <div class="s8-lead">
-      <p class="s8-eyebrow s8-rise" style="--i: 0">Parlons-en</p>
-      <h2 class="s8-h s8-rise" id="s8-titre" style="--i: 1">Voyons le logiciel sur votre cabinet</h2>
-      <p class="s8-p s8-rise" style="--i: 2">Une démonstration de trente minutes, en français, avec vos actes et vos tarifs à l’écran. À distance ou au cabinet.</p>
+      <div class="head s8-rise" style="--i: 0">
+        <p class="eyebrow">Parlons-en</p>
+        <h2 id="s8-titre">Voyons le logiciel sur votre cabinet</h2>
+        <p class="lede">Une démonstration de trente minutes, en français, avec vos actes et vos tarifs à l’écran. À distance ou au cabinet.</p>
+      </div>
 
       <ol class="s8-steps">
         <li class="s8-rise" style="--i: 3">

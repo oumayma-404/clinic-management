@@ -1172,6 +1172,49 @@
   .still .rap { display: none }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   WHITE SURFACES — the clean-up pass.
+
+   Acts 2 and 3 were always white cards on the ink; acts 1 and 4 were blue
+   panels on the same blue, and at a glance they read as a skeleton loading.
+   Every act now shows the product the way the product looks: a white surface.
+   Only colours change here — no size, no timing, no keyframe.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root { --accent-ink: #0C6E85; --text-faint: #71717a; }
+
+/* ACT 1 · each agenda block is a white card, tinted by its zone the way the
+   app's agenda tints a séance, with the zone's bar down its left edge. */
+.blk {
+  background: var(--paper);
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgb(9 9 11 / .14), 0 12px 26px -16px rgb(0 0 0 / .6);
+  color: var(--text);
+}
+.blk::before {
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--zc) 12%, #ffffff),
+    #ffffff 72%);
+}
+.blk-t s { color: var(--text-muted); }
+.blk-f { color: var(--text-muted); border-color: var(--rule); }
+.pick  { border-color: var(--violet); }
+
+/* ACT 4 · the till is a white window, like the fiche and the note before it. */
+.till {
+  background: var(--paper);
+  border-color: transparent;
+  color: var(--text);
+  box-shadow: 0 2px 8px rgb(9 9 11 / .18), 0 30px 70px -30px rgb(0 0 0 / .75);
+}
+.th s { color: var(--accent-ink); }
+.th em, .th u { color: var(--text-muted); }
+.sum .dt { color: var(--text-muted); }
+.mv { border-top-color: var(--rule); }
+.mv-h { color: var(--text-muted); }
+.mv-r em { color: var(--text-faint); }
+.mv-r.hot { background: color-mix(in oklab, var(--amber) 9%, #ffffff); }
+.mv-r.hot::before { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amber) 38%, transparent); }
+
 /* ── PREVIEW ONLY — delete these two rules when the figure is dropped into
    the hero. They only stand in for the slot the scene will live in. ───── */
 html, body { margin: 0; background: #295AA8; }
@@ -1292,13 +1335,13 @@ body { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
           <div class="sum anim"><b>4</b> <span class="od"><span style="--from:2;--to:5;--d:90"><b>0</b><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b></span></span><span class="od"><span style="--from:7;--to:11;--d:0"><b>0</b><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><b>6</b><b>7</b><b>8</b><b>9</b><b>0</b><b>1</b></span></span><b>0</b><b>,000</b><span class="dt">DT</span></div>
           <div class="mv">
             <div class="mv-h">Derniers mouvements</div>
-            <div class="mv-r anim" style="--zc:var(--azure-lit); --d:220">
+            <div class="mv-r anim" style="--zc:var(--azure); --d:220">
               <i></i><s>Chèque n° 4471</s><em>échéance 30 sept.</em><b>1 400,000 DT</b>
             </div>
-            <div class="mv-r anim" style="--zc:var(--green-lit); --d:110">
+            <div class="mv-r anim" style="--zc:var(--green); --d:110">
               <i></i><s>Espèces · comptoir</s><em>11:20</em><b>620,000 DT</b>
             </div>
-            <div class="mv-r anim hot" style="--zc:var(--amber-lit); --d:0">
+            <div class="mv-r anim hot" style="--zc:var(--amber); --d:0">
               <i></i><s>Sonia Ben Amor</s><em>note 2026-0184</em><b>240,000 DT</b><span class="enc">encaissé</span>
             </div>
           </div>

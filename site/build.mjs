@@ -62,6 +62,17 @@ function walk (dir, acc = []) {
   return acc
 }
 
+/* ── 0 · The style guard ─────────────────────────────────────────────────────
+   Before anything is written: a size, a radius, a shadow or a colour outside
+   tokens.css, or a claim the site may not make, stops the build here rather
+   than reaching the live page. See check-tokens.mjs. */
+try {
+  execFileSync(process.execPath, [join(HERE, 'check-tokens.mjs')], { stdio: 'inherit' })
+} catch {
+  console.error('build stopped: fix the check-tokens findings above')
+  process.exit(1)
+}
+
 /* ── Go ──────────────────────────────────────────────────────────────────── */
 // Everything but the encoded images, which are expensive and rebuilt on mtime.
 for (const name of existsSync(OUT) ? readdirSync(OUT) : []) {
