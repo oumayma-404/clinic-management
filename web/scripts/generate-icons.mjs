@@ -384,3 +384,51 @@ const emailLockup = await sharp(
 writeFileSync(join(EMAIL_LOCKUP_DIR, "apexa-email-lockup.png"), emailLockup);
 console.log(
   `  ✓ ${"api/…/Email/apexa-email-lockup".padEnd(26)} ${EMAIL_LOCKUP_WIDTH}px wide, 3× of 140`);
+
+/**
+ * The marketing site's icons — `site/src/icons/`, which `site/build.mjs` copies to the root of apexa.tn.
+ *
+ * ⚠️ WHY THESE EXIST: Google's search results showed a blank globe beside apexa.tn. The site's only icon was a
+ * `data:` URI inside `<link rel="icon">`, which every browser accepts and Google's favicon crawler does not — it
+ * wants a crawlable FILE whose side is a multiple of 48 px, and `/favicon.ico` answered 404.
+ *
+ * ⚠️ PLATED, unlike the app's own favicons: the site's tab icon has always been the mark on its gradient plate
+ * (the lockup in its top bar is the plate too), and a search result sits the icon in a small circle on white or
+ * grey, where a bare gradient chevron loses its edge. `icon-512.png` is also the Organization logo in the site's
+ * structured data — a SQUARE logo, which is what Google asks for, where it used to point at a dashboard capture.
+ */
+const SITE_ICONS = join(REPO_ROOT, "site", "src", "icons");
+mkdirSync(SITE_ICONS, { recursive: true });
+/*
+ * ⚠️ Not `platedPng`: that helper passes a radius in PIXELS (`112 / 512 * size`) to `variantSvg`, whose `rx` is in
+ * the 512-unit viewBox — so at 48 px the corner is 11 of 512 units and the plate renders nearly square. The site's
+ * tab icon has always been the 112-unit corner of `favicon.svg`, so every size here passes 112 in viewBox units.
+ */
+const sitePlated = (size) =>
+  sharp(
+    Buffer.from(
+      variantSvg({ size, background: BRAND, radius: 112, ink: INK_ON_BRAND, scale: size <= 32 ? 1.15 : 1 }),
+    ),
+    { density: 72 },
+  )
+    .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
+    .toBuffer();
+const SITE_ICO_SIZES = [16, 32, 48];
+const siteIcoImages = [];
+for (const size of SITE_ICO_SIZES) siteIcoImages.push({ size, buffer: await sitePlated(size) });
+writeFileSync(join(SITE_ICONS, "favicon.ico"), packIco(siteIcoImages));
+for (const size of [96, 192, 512]) writeFileSync(join(SITE_ICONS, `icon-${size}.png`), await sitePlated(size));
+const siteTouch = await sharp(
+  Buffer.from(variantSvg({ size: 180, background: BRAND, radius: 0, ink: INK_ON_BRAND, scale: 0.82 })),
+  { density: 72 },
+)
+  .flatten({ background: BRAND_STOPS[1] }) // iOS composites over black: see apple-icon.png above
+  .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
+  .toBuffer();
+writeFileSync(join(SITE_ICONS, "apple-touch-icon.png"), siteTouch);
+writeFileSync(
+  join(SITE_ICONS, "favicon.svg"),
+  variantSvg({ size: 512, background: BRAND, radius: 112, ink: INK_ON_BRAND, scale: 1 }) + "\n",
+  "utf8",
+);
+console.log(`  ✓ ${"site/src/icons/*".padEnd(26)} favicon.ico ${SITE_ICO_SIZES.join(", ")} · 96 · 192 · 512 · 180 · svg`);

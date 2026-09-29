@@ -65,8 +65,28 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                         && n.EffectiveFeedTime <= nowUtc
                         && (n.ActorUserId == null || n.ActorUserId != userId)
                         && (n.TargetUserId == null || n.TargetUserId == userId)
-                        && !_context.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId));
+                        && !_context.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId))
+            .Where(NotAReviewOfAVisitThatDidNotHappen());
     }
+
+    /// <summary>
+    /// Hides a post-visit review whose séance was supprimée (« créé par erreur »), annulée or marked absent.
+    ///
+    /// <para>⚠️ A read rule, not only a write one: « Supprimer » (<c>DisregardVisitsCommand</c>) and the series
+    /// cancel never removed the review, so the popup asked for a fiche on a visit nobody sat in, every day, with
+    /// no row left on « À clôturer » to answer it. Filtering here covers every writer and the rows already
+    /// stranded, and « remettre dans la liste » brings the prompt back with no extra write.</para>
+    ///
+    /// <para>Phrased as « no such dead appointment exists » so an unscoped read fails open (shows the review)
+    /// instead of hiding them all.</para>
+    /// </summary>
+    private System.Linq.Expressions.Expression<Func<StaffNotification, bool>> NotAReviewOfAVisitThatDidNotHappen() =>
+        n => n.Category != NotificationCategory.PostVisitReview
+             || n.AppointmentId == null
+             || !_context.Appointments.Any(a => a.Id == n.AppointmentId
+                                                && (a.DisregardedAtUtc != null
+                                                    || a.Status == AppointmentStatus.Cancelled
+                                                    || a.Status == AppointmentStatus.NoShow));
 
     public async Task<int> CountUnreadAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
@@ -107,7 +127,8 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                         && (n.ActorUserId == null || n.ActorUserId != userId)
                         && (n.TargetUserId == null || n.TargetUserId == userId)
                         && !_context.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId)
-                        && !_context.NotificationReads.Any(r => r.NotificationId == n.Id && r.UserId == userId));
+                        && !_context.NotificationReads.Any(r => r.NotificationId == n.Id && r.UserId == userId))
+            .Where(NotAReviewOfAVisitThatDidNotHappen());
     }
 
     public async Task<IReadOnlyCollection<Guid>> GetReadNotificationIdsAsync(

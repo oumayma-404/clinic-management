@@ -56,6 +56,9 @@ Struck from the old site after verification, and not to be reintroduced:
   « Aucune TVA ni timbre fiscal n'est ajouté ». *A schema that still has the column is not a product
   that still has the feature.*
 - Any client count, testimonial, award or logo.
+- **Rappels SMS / WhatsApp** — pas encore en service (propriétaire, 29/09/2026). Retirés de la page, de la
+  scène du hero, de la page hors-ligne et du JSON-LD ; `check-tokens.mjs` refuse le mot. Seule la page
+  Confidentialité les nomme encore, comme sous-traitants : c'est une déclaration, pas une promesse.
 
 True and usable: numérotation sans trou par année · le prix de l'acte est ce que le patient paie ·
 chèques postdatés par échéance · dinars, +216, gouvernorats · sauvegarde automatique, vérifiée,
@@ -906,3 +909,67 @@ lien entrant depuis un site tunisien.
 ⚠️ Un TXT `google-site-verification=zuSC9Mt6uj…` est **déjà** dans la zone DNS d'apexa.tn, à côté du
 SPF OVH et du code Brevo. La propriété est donc déjà validée, ou à un clic de l'être — et ces deux
 autres lignes ne doivent pas être écrasées en en ajoutant une.
+
+## Passe 15 — le nettoyage (28 septembre 2026)
+
+La propriétaire : « good, but not great… a little not clean, like amateur work ». Le constat, mesuré
+et non ressenti : **77 tailles de texte, 41 rayons, 30 ombres et ~106 couleurs** dans
+`components.css`, parce que chaque section s'était stylée seule ; et cinq sections sur huit en bleu,
+avec l'interface dessinée en bleu sur ce bleu, qui se lisait comme un squelette de chargement.
+Plan complet : `features/landing-website/cleanup-blueprint.md`.
+
+### Ce qui a changé
+
+| | Avant | Après |
+|---|---|---|
+| Code mort | 7 243 lignes de CSS, 1 117 de JS (dont 3 copies de 5 blocs morts) | 4 600 et 637 ; **pixel-identique** sur 5 pages × 4 largeurs avant toute retouche visuelle |
+| Échelles | libres | **fermées** dans `tokens.css` ; `check-tokens.mjs` arrête `build.mjs` sur toute valeur hors échelle ou toute affirmation interdite |
+| Fonds | bleu ×5 | bleu pour le hero et la bande de fin (§9 démo) seulement ; `--page` et `--white` alternent |
+| Écrans dessinés | bleu sur bleu | fenêtres blanches, via `.surface-light` (tokens.css) qui re-pointe les `--on-ink*` sans réécrire une règle ; `.surface-ink` rend l'encre à une île sombre (la visionneuse de radio) |
+| En-têtes | un par section (`.s3-head`, `.s4-title`, `.dl-hero`…) | un seul, `.head` (base.css) |
+| Barre | deux boutons de même poids | un bouton ; « Demander une démo » est un lien. Le lien démo de §7 est retiré : la démo est la section juste dessous |
+| Hero | 5 lignes sous les boutons, coches décalées de 40 px (padding UA du `<ul>`) | 2 coches alignées ; « reprendre vos données en CSV » passe dans la bande de faits |
+| Sous le hero | rien | **bande de 4 faits** (chèques postdatés, numérotation sans trou, sauvegarde horaire vérifiée, CSV) — tous sur la liste « True and usable » |
+| Scène du hero | actes 1 et 4 en panneaux bleus | cartes blanches comme les actes 2 et 3 ; couleurs seulement, aucun minutage touché |
+| Téléphones | cadres bleus, captures 1×, barres de défilement de bureau, badge « N » de Next dev, cloche « 13 », « Dr QA Auditeur », `dd/mm/yyyy` | cadres graphite, captures 2× propres (`capture-phones.mjs`) ; `m-argent` retiré (chiffres gonflés par les fixtures), la caisse passe au premier plan, `m-semaine` au second |
+| Pied de page | paragraphe dans une demi-colonne sur téléphone, liens sur deux lignes collés | paragraphe pleine largeur, liens espacés |
+
+### Décisions à ne pas défaire
+
+- ⚠️ **Bleu deux fois, pas plus.** Remettre une section intermédiaire sur l'encre, c'est remettre une
+  interface dessinée en bleu sur du bleu.
+- ⚠️ **Une valeur hors échelle ne se contourne pas, elle s'ajoute à `tokens.css`** — ou elle porte un
+  `/* token-exempt: raison */` sur sa ligne (un seul cas : l'em de la marque, qui est une proportion du
+  logo). La garde lit les déclarations sur plusieurs lignes et les propriétés personnalisées.
+- ⚠️ **Le lien « Sans internet » du pied de page reste.** Il mène à la page hors-ligne du 14 septembre,
+  qui dit ce qui est vrai de l'installation locale ; ce n'est pas l'affirmation interdite sur le
+  produit. La garde ne scanne donc que `index.html`.
+- ⚠️ **Les captures ne se refont pas « au jour » sur la base de dev** : à partir du 8 septembre elle est
+  remplie de fixtures QA/E2E. `capture-phones.mjs` filtre dans le navigateur, sans rien écrire, et fige
+  l'horloge au 3–4 septembre. Regarder chaque capture avant de la publier.
+- Aucune ligne « Nouveau » ajoutée : la phrase proposée (« construit avec des cabinets tunisiens »)
+  n'a pas été confirmée, et « 30 jours » est déjà dans le hero.
+
+### Vérifié
+
+70 combinaisons (5 pages × 14 tailles, de 320×568 à 1920×1080, paysage téléphone 844×390 et
+932×430, tablettes 768/820/1024/1180/1366) : aucun débordement horizontal. Relecture à l'œil à 320,
+390, 820×1180, 1024×768, 1440 et 1536×730, animé et en mouvement réduit.
+
+## Passe 16 — ce que la propriétaire a repris (29 septembre 2026)
+
+- **La bande de 4 faits est remplacée** par « Tout le cabinet » : six capacités dans une carte à filets
+  (agenda, dossier et odontogramme, plans de traitement, argent, suivi, données). « Ce sont des détails,
+  ça ne dit rien de ce que le logiciel fait » — automatisation, argent, intégrité, odontogramme.
+- **Pas de « fauteuil » dans la carte agenda** : l'agenda n'a pas de colonne par fauteuil.
+- **« Mobile » revient sur l'encre**, avec ses trois halos. Les téléphones restent graphite et les
+  captures restent les nouvelles : c'est le fond qui revient, pas les téléphones.
+- **« Le quotidien » passe à deux moments** : le moment 02 (les rappels) est retiré avec les rappels.
+- ⚠️ **Rien n'est poussé ni publié sans l'accord explicite de la propriétaire**, changement par changement.
+
+- **Le logo dans Google** (29/09) : Google affichait un globe vide à côté d'apexa.tn. La seule icône était un
+  `data:` URI, que son robot ignore ; il faut un fichier. Les icônes sont maintenant générées par
+  `web/scripts/generate-icons.mjs` dans `src/icons/` et copiées à la racine par `build.mjs`
+  (`/favicon.ico` compris). Le logo du JSON-LD pointe sur `icon-512.png` et non plus sur une capture du
+  tableau de bord. Google met à jour l'icône quand il repasse sur l'accueil : quelques jours, plus vite avec
+  « Demander une indexation » dans la Search Console.

@@ -31,7 +31,7 @@ a { color: inherit; }
 :where(a, button, summary, input, select, textarea):focus-visible {
   outline: 2px solid var(--accent-ink);
   outline-offset: 3px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
 }
 .on-ink :where(a, button):focus-visible { outline-color: var(--accent-lit); }
 
@@ -68,36 +68,33 @@ p { text-wrap: pretty; }
 .lede { font-size: var(--t-body); line-height: 1.6; color: var(--text-muted); max-width: 40ch; }
 .on-ink .lede { color: var(--on-ink-muted); }
 
-.muted { color: var(--text-muted); }
-.on-ink .muted { color: var(--on-ink-muted); }
-.faint { color: var(--text-faint); font-size: var(--t-small); }
-.on-ink .faint { color: var(--on-ink-faint); }
-
 /* ── Layout primitives ────────────────────────────────────────────────── */
 
 .wrap { width: 100%; max-width: var(--wrap); margin-inline: auto; padding-inline: var(--gutter); }
 .sec  { padding-block: var(--sec-y); }
-.sec-tight { padding-block: calc(var(--sec-y) * 0.55); }
 
 .on-ink { background: var(--ink); color: var(--on-ink); }
 
+/* The page is light, in TWO values that alternate, so a section boundary is
+   visible without a rule drawn across it: --page and --white. Blue is kept
+   for the hero and the closing band — two dark surfaces on the page, no more. */
+.sec--white { background: var(--white); }
+.sec--page  { background: var(--page); }
+
 /* ── The section header ───────────────────────────────────────────────────
    Three parts on the reference, every single time: a muted eyebrow, a large
-   light headline, a two-line paragraph — and a right-aligned link sitting on
-   the paragraph's last line. */
+   light headline, a two-line paragraph.
 
-.head { display: grid; gap: 1.125rem; margin-bottom: clamp(2rem, 1.2rem + 2.6vw, 3.25rem); }
+   ⚠️ ONE header for every section. Each section used to style its own —
+   .s3-head, .s4-title, .s5-lede, .dl-hero… — each with a gap, a colour or a
+   max-width of its own, and the page read as eight documents stitched
+   together. Every section now carries this block and nothing else. */
+
+.head { display: grid; gap: 0.875rem; margin-bottom: clamp(2rem, 1.2rem + 2.6vw, 3.25rem); }
 .head > * { margin: 0; }
 .head .eyebrow { margin: 0; }
-.head h2 { max-width: 20ch; }
-.head .lede { max-width: 44ch; }
-
-@media (min-width: 56rem) {
-  .head-split { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
-  .head-split .eyebrow, .head-split h2 { grid-column: 1; }
-  .head-split .lede { grid-column: 1; }
-  .head-split .head-link { grid-column: 2; grid-row: 3; justify-self: end; }
-}
+.head h2 { max-width: 22ch; }
+.head .lede { max-width: 46ch; }
 
 /* ── Buttons ──────────────────────────────────────────────────────────── */
 
@@ -142,17 +139,15 @@ p { text-wrap: pretty; }
   55%, 100% { transform: translateX(420%)  skewX(-20deg); }
 }
 
-.btn-ghost { background: transparent; color: var(--text); border: 1px solid #d4d4d1; }
-.on-ink .btn-ghost { color: var(--on-ink); border-color: #5B7FC0; }
-.btn-dark { background: var(--ink); color: var(--on-ink); }
+.btn-ghost { background: var(--white); color: var(--text); border: 1px solid var(--rule-strong); }
+.on-ink .btn-ghost { background: transparent; color: var(--on-ink); border-color: var(--rule-ink); }
 
 /* Hover is gated: a touch device fires :hover on tap, and a state that sticks
    after a tap reads as a bug. */
 @media (hover: hover) and (pointer: fine) {
-  .btn-primary:hover { background: var(--accent-hi); box-shadow: 0 6px 20px -6px rgb(47 198 224 / 0.5); }
-  .btn-ghost:hover { background: var(--paper); border-color: #bcbcb8; }
-  .on-ink .btn-ghost:hover { background: #1F4A8C; border-color: #7A9AD4; }
-  .btn-dark:hover { background: var(--ink-2); }
+  .btn-primary:hover { background: var(--accent-hi); box-shadow: var(--glow-accent); }
+  .btn-ghost:hover { background: var(--page); border-color: var(--text-faint); }
+  .on-ink .btn-ghost:hover { background: var(--ink-deep); border-color: var(--rule-ink-hi); }
 }
 
 /* The quiet third action. The arrow does not merely slide: it leaves to the
@@ -162,7 +157,7 @@ p { text-wrap: pretty; }
   display: inline-flex; align-items: center; gap: 0.5rem;
   min-height: 2.75rem;
   font-size: var(--t-small); font-weight: 500;
-  color: var(--text); text-decoration: none;
+  color: var(--accent-ink); text-decoration: none;
   white-space: nowrap;
 }
 .on-ink .link-arrow { color: var(--accent-lit); }
@@ -175,8 +170,7 @@ p { text-wrap: pretty; }
   100% { opacity: 1; transform: translateX(0); }
 }
 @media (hover: hover) and (pointer: fine) {
-  .link-arrow:hover svg,
-  .arrow-cross:hover svg { animation: arrow-cross 460ms var(--ease-out); }
+  .link-arrow:hover svg { animation: arrow-cross 460ms var(--ease-out); }
 }
 
 /* ── Reveal on scroll ─────────────────────────────────────────────────── */
@@ -205,18 +199,11 @@ p { text-wrap: pretty; }
 .d5 { transition-delay: 300ms; }
 .no-js .rise { opacity: 1; transform: none; filter: none; }
 
-/* An image does not fade in, it is uncovered — the clip travels bottom-up and
-   the picture is never shown at partial opacity. */
-.reveal-clip { clip-path: inset(0 0 100% 0); transition: clip-path 900ms var(--ease-out); }
-.in .reveal-clip, .reveal-clip.in { clip-path: inset(0 0 0 0); }
-.no-js .reveal-clip { clip-path: none; }
-
 /* Reduced motion means fewer and gentler, not none: opacity still carries the
    reveal, everything that MOVES is dropped. */
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .rise { opacity: 1; transform: none; filter: none; transition: none; }
-  .reveal-clip, .in .reveal-clip { clip-path: none; transition: none; }
   .btn-primary::after { display: none; }
   *, *::before, *::after {
     animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;

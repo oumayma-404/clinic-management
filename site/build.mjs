@@ -62,6 +62,17 @@ function walk (dir, acc = []) {
   return acc
 }
 
+/* ── 0 · The style guard ─────────────────────────────────────────────────────
+   Before anything is written: a size, a radius, a shadow or a colour outside
+   tokens.css, or a claim the site may not make, stops the build here rather
+   than reaching the live page. See check-tokens.mjs. */
+try {
+  execFileSync(process.execPath, [join(HERE, 'check-tokens.mjs')], { stdio: 'inherit' })
+} catch {
+  console.error('build stopped: fix the check-tokens findings above')
+  process.exit(1)
+}
+
 /* ── Go ──────────────────────────────────────────────────────────────────── */
 // Everything but the encoded images, which are expensive and rebuilt on mtime.
 for (const name of existsSync(OUT) ? readdirSync(OUT) : []) {
@@ -119,6 +130,13 @@ if (existsSync(join(SRC, 'scenes'))) {
     if (!name.endsWith('.html')) continue
     copyFileSync(join(SRC, 'scenes', name), join(OUT, 'assets', 'scenes', name))
   }
+}
+
+// 3c · Site icons, at the ROOT: /favicon.ico is the path Google and browsers request unprompted, and
+//      Google's result favicon needs a crawlable file (a data: URI shows a blank globe). Generated
+//      from the one logo master by web/scripts/generate-icons.mjs — never hand-edited here.
+if (existsSync(join(SRC, 'icons'))) {
+  for (const name of readdirSync(join(SRC, 'icons'))) copyFileSync(join(SRC, 'icons', name), join(OUT, name))
 }
 
 // 4 · Pages

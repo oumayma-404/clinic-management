@@ -59,16 +59,20 @@
    applies in the viewer's un-stamped default state.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-:root {
+:root, .surface-ink {
   color-scheme: light;
 
   /* ── Ground ──────────────────────────────────────────────────────────── */
+  --white:    #ffffff;   /* app windows, and every other light section        */
   --page:     #f4f8fd;
   --paper:    #e9f0f8;   /* the warm-grey card, CareStack's signature surface */
   --paper-2:  #dde8f3;
   --ink:      #295AA8;   /* the dark hero, the dark bands, the links panel   */
   --ink-2:    #3067BC;   /* panels and stages sitting ON the ink             */
   --ink-3:    #3672CB;   /* cards sitting on those panels                    */
+  --ink-deep: #1F4A8C;   /* a pressed / hovered control on the ink           */
+  --device:   #1b1e24;   /* a phone's bezel: graphite, as the hardware is    */
+  --device-2: #2c3039;
 
   /* ── The ink, lit. ───────────────────────────────────────────────────────
      A flat --ink-2 panel sitting on --ink is a 1.2:1 step, which is correct
@@ -98,6 +102,8 @@
   --rule:      #d7e2ee;
   --rule-soft: #e6eef7;
   --rule-ink:  #5382CA;
+  --rule-ink-hi: #7A9AD4;   /* the same edge, hovered                         */
+  --rule-strong: #c9d6e5;   /* a control's own edge on a light ground         */
 
   /* ── The LOGO, which is not the palette. ─────────────────────────────────
      APEXA's mark is a blue→cyan gradient, and it is the same three stops as
@@ -130,13 +136,50 @@
   --amber:  #b45309;  --amber-lit:  #fbc76a;
   --green:  #047857;  --green-lit:  #6ee7b7;
 
+  /* ── The paper world (« Le quotidien », the paper half) ────────────────
+     Card stock, pencil and a folder's tab, warm on purpose: it is the one
+     place on the page that draws paper, and paper is not blue. */
+  --sketch-edge:    #dcdcd4;
+  --sketch-edge-2:  #cfcfc7;
+  --sketch-ink:     #a2560f;   /* a pencilled « pas de réponse »               */
+  --sketch-label:   #9a6a3a;
+  --sketch-hi:      #d99a4e;   /* the folder pulled out of the pile            */
+  --sketch-hi-bg:   #fffaf2;
+  --sketch-lens:    #b98a52;
+
+  /* ── The odontogramme's clinical palette ─────────────────────────────────
+     ⚠️ THE COLOURS COME FROM THE PRODUCT: web/components/odontogram-conditions.ts.
+     The -ink variants are the only ones allowed on text. Moved here from the
+     patient-file section so every palette lives in one file. */
+  --c-sain:        #e5e7eb;
+  --c-carie:       #ef4444;
+  --c-obturation:  #3b82f6;  --c-obturation-ink: #1d4ed8;
+  --c-couronne:    #f59e0b;
+  --c-canal:       #a855f7;  --c-canal-ink:      #7e22ce;
+  --c-bridge:      #14b8a6;  --c-bridge-ink:     #0f766e;
+  --c-implant:     #475569;
+  --c-absent:      #9ca3af;
+  --c-atraiter:    #fb923c;  --c-atraiter-ink:   #c2410c;
+
+  --film:    #05090e;   /* the radiograph viewer's black                   */
+  --danger:  #b42318;   /* 5.9:1 on white. The palette has no red.          */
+
   /* ── Type ────────────────────────────────────────────────────────────── */
   --sans: "Geist", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
 
+  /* THE SCALE IS CLOSED. Every font-size on the site is one of these, and
+     `site/check-tokens.mjs` fails the build on anything else. The three small
+     steps exist for the drawn app screens only; running text starts at --t-sm. */
+  --t-2xs:     0.6875rem;                                     /* 11 px       */
+  --t-xs:      0.75rem;                                       /* 12 px       */
+  --t-sm:      0.875rem;                                      /* 14 px       */
+  --t-md:      0.9375rem;                                     /* 15 px       */
   --t-eyebrow: 0.8125rem;                                     /* 13 px       */
   --t-body:    1.125rem;                                      /* 18 px       */
   --t-small:   1rem;
   --t-h4:      1.125rem;
+  --t-lg:      1.25rem;                                       /* 20 px       */
+  --t-xl:      1.75rem;                                       /* 28 px       */
   --t-h3:      clamp(1.375rem, 1.2rem + 0.7vw, 1.75rem);      /* card titles */
   --t-h2:      clamp(1.75rem, 1.35rem + 1.7vw, 2.25rem);      /* 36 px       */
   --t-h1:      clamp(2.125rem, 1.4rem + 3.1vw, 3.375rem);     /* hero        */
@@ -146,9 +189,12 @@
   --gutter: clamp(1.25rem, 0.6rem + 3.2vw, 2.5rem);
   --wrap:   79.5rem;                                          /* 1272 px     */
   --sec-y:  clamp(3.5rem, 2.3rem + 4.6vw, 6rem);              /* 96 px       */
+  /* Radii, closed like the type: a card, a panel, a control, a chip, a pill. */
   --r-card: 20px;
   --r-med:  12px;
   --r-btn:  8px;
+  --r-xs:   4px;
+  --r-pill: 999px;
 
   /* ── Motion ──────────────────────────────────────────────────────────────
      The built-in CSS easings are too weak to read as deliberate. These are the
@@ -172,5 +218,31 @@
   --shadow-card: 0 1px 3px rgb(9 9 11 / 0.07), 0 12px 32px -14px rgb(9 9 11 / 0.20);
   --shadow-lift: 0 2px 6px rgb(9 9 11 / 0.09), 0 28px 60px -26px rgb(9 9 11 / 0.32);
   --shadow-chip: 0 2px 6px rgb(9 9 11 / 0.10), 0 16px 36px -16px rgb(9 9 11 / 0.34);
+  /* A phone on the ink: a tight contact shadow, a long soft one, a hairline rim. */
+  --shadow-device: 0 2px 6px rgb(0 0 0 / 0.42), 0 44px 82px -34px rgb(0 0 0 / 0.85), inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  --glow-ring:   0 0 12px color-mix(in oklab, var(--accent-lit) 45%, transparent);
+  --glow-accent: 0 6px 20px -6px rgb(47 198 224 / 0.5);
   --shadow-shot: 0 2px 8px rgb(9 9 11 / 0.10), 0 30px 70px -30px rgb(9 9 11 / 0.45);
+}
+
+/* ── Surfaces ───────────────────────────────────────────────────────────────
+   The drawn app screens were first built on the ink, so their rules speak in
+   `--on-ink*`, `--rule-ink`, `--accent-lit` and the `-lit` zones. A light
+   section does not rewrite those rules: it re-points the same names at their
+   light-ground twins, once, here. `.surface-ink` (declared with :root above)
+   puts them back for a dark island inside a light one, like the radiograph
+   viewer in the patient file. */
+.surface-light {
+  --on-ink:       var(--text);
+  --on-ink-muted: var(--text-muted);
+  --on-ink-faint: var(--text-faint);
+  --rule-ink:     var(--rule);
+  --accent-lit:   var(--accent-ink);
+  --azure-lit:    var(--azure);
+  --violet-lit:   var(--violet);
+  --amber-lit:    var(--amber);
+  --green-lit:    var(--green);
+  --ink-2:        var(--white);
+  --ink-3:        var(--page);
+  --ink-lift:     var(--white);
 }
