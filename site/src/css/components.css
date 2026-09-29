@@ -198,36 +198,47 @@
 .trust li { list-style: none; display: flex; align-items: center; gap: 0.5rem; font-size: var(--t-md); color: var(--on-ink-muted); }
 .trust svg { width: 1rem; height: 1rem; color: var(--accent); flex: none; }
 
-/* ── 18b · Ce qui compte au cabinet ────────────────────────────────────────
-   The strip right under the hero, where a bigger vendor shows client logos:
-   four true facts, an icon each, on a white band between the ink and the page.
-   Two columns on a phone, four across from 56rem, hairlines between them. */
-.facts {
+/* ── 18b · Tout le cabinet ─────────────────────────────────────────────────
+   The product at a glance, right under the hero: six capabilities in one card
+   whose hairline grid is a 1px gap showing the rule through — the chassis's own
+   signature (BRIEF, 21 Aug). One column on a phone, two from 40rem, three from
+   62rem. Each capability wears the app's zone hue for its part of the product.
+
+   ⚠️ The reveal is on the GRID, never on a cell: a cell fading in over a 1px-gap
+   grid shows the grid's grey ground through it first, as a grey block. */
+.ov { padding-block: var(--sec-y); }
+.ov-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule); border-radius: var(--r-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+@media (min-width: 40rem) { .ov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 62rem) { .ov-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.ov-cell {
+  display: grid; align-content: start; gap: 0.5rem; min-width: 0;
+  padding: clamp(1.25rem, 0.9rem + 1.4vw, 2rem);
   background: var(--white);
-  border-bottom: 1px solid var(--rule);
 }
-.facts-list {
-  list-style: none; margin-block: 0;
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding-block: clamp(1.25rem, 0.9rem + 1.4vw, 2rem);
-  gap: 1.25rem clamp(1rem, 0.6rem + 1.6vw, 2rem);
+.ov-ico {
+  display: grid; place-items: center;
+  width: 2.5rem; height: 2.5rem; margin-bottom: 0.5rem;
+  border-radius: var(--r-med);
+  background: color-mix(in oklab, var(--zc) 10%, var(--white));
+  color: var(--zc);
 }
-@media (min-width: 56rem) { .facts-list { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.facts-list li { display: flex; align-items: flex-start; gap: 0.75rem; min-width: 0; }
-.facts-list svg {
-  flex: none; width: 1.5rem; height: 1.5rem; margin-top: 0.0625rem;
-  color: var(--accent-ink);
+.ov-ico svg { width: 1.375rem; height: 1.375rem; }
+/* One column on a phone: the icon sits beside the title instead of above it,
+   or six stacked cells cost the page 1 350px before its first real section. */
+@media (max-width: 39.99rem) {
+  .ov-cell { grid-template-columns: auto minmax(0, 1fr); column-gap: 0.875rem; row-gap: 0.25rem; padding: 1.125rem 1.25rem; }
+  .ov-ico { grid-row: 1 / span 2; margin-bottom: 0; }
+  .ov-t, .ov-p { grid-column: 2; }
 }
-.facts-list p { display: grid; gap: 0.125rem; min-width: 0; margin: 0; line-height: 1.35; }
-.facts-list b { font-size: var(--t-md); font-weight: 500; color: var(--text); }
-.facts-list span { font-size: var(--t-sm); color: var(--text-muted); }
-@media (min-width: 56rem) {
-  .facts-list li + li { border-inline-start: 1px solid var(--rule); padding-inline-start: clamp(1rem, 0.6rem + 1.6vw, 2rem); }
-}
-/* At 320 a two-column cell is ~130px and the icon costs a fifth of it. */
-@media (max-width: 23rem) {
-  .facts-list li { flex-direction: column; gap: 0.5rem; }
-}
+.ov-t { font-size: var(--t-lg); font-weight: 500; line-height: 1.25; letter-spacing: -0.01em; }
+.ov-p { margin: 0; font-size: var(--t-md); line-height: 1.55; color: var(--text-muted); max-width: 38ch; }
 
 /* ── 19 · « Le quotidien » — six moments, six diptychs ─────────────
    The selling section. Each moment is one card: the words on one side, and on
@@ -1621,18 +1632,20 @@
   isolation: isolate;
   overflow: clip;                  /* the deck bleeds past the wrap on purpose */
   padding-block: var(--sec-y);
-  /* ⚠️ LIGHT SINCE THE CLEAN-UP PASS, with `.surface-light` in the markup: real
-     phones are graphite, and four graphite frames on white read as hardware
-     where four blue frames on a blue band read as a drawing of one. */
-  background: var(--white);
-  color: var(--text);
+  /* ⚠️ ON THE INK, BY THE OWNER'S CHOICE (29/09). The clean-up pass turned this
+     band white with graphite phones, and the owner asked for it back as it was:
+     it is the page's one blue band between the hero and the closing band. */
+  background: var(--ink);
+  color: var(--on-ink);
 }
-/* One pool of light under the deck. The two cold corners of the ink version
-   are gone: on white they were two pastel stains. */
+/* Three washes: the teal pool the deck stands in, and two cold corners so the
+   band is not a flat rectangle behind a photograph. */
 .s4::before {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(56% 44% at 50% 62%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 72%);
+    radial-gradient(56% 44% at 50% 62%, color-mix(in oklab, var(--accent) 20%, transparent), transparent 72%),
+    radial-gradient(44% 34% at 94% 0%,  color-mix(in oklab, var(--azure)  22%, transparent), transparent 74%),
+    radial-gradient(40% 30% at 2% 10%,  color-mix(in oklab, var(--violet) 18%, transparent), transparent 76%);
 }
 
 /* ⚠️ The page's observer only ever lights `.rise`, so the section carries that
@@ -1688,7 +1701,7 @@
   left: 50%; bottom: -8%; width: min(58rem, 190%); aspect-ratio: 16 / 9;
   transform: translateX(-50%);
   border-radius: 50%;
-  background: radial-gradient(closest-side, color-mix(in oklab, var(--accent) 14%, transparent), transparent 76%);
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--accent) 24%, transparent), transparent 76%);
   opacity: 0;
   transition: opacity 900ms var(--ease-out);
   transition-delay: 1150ms;
@@ -1741,10 +1754,10 @@
   position: relative;
   padding: var(--s4-bz);
   border-radius: var(--s4-r);
-  /* A machined graphite edge. It was drawn from the ink family while the band
-     was blue; on white, a blue bezel read as a drawing of a phone. */
+  /* Graphite, as the hardware is — kept when the band went back to the ink
+     (owner, 29/09: « the background, not the phones, I like them now »). */
   background: linear-gradient(148deg, var(--device-2) 0%, var(--device) 22%, var(--device) 74%, var(--device-2) 100%);
-  box-shadow: var(--shadow-shot);
+  box-shadow: var(--shadow-device);
 }
 :is(.s4.in, .in .s4) .s4-phone {
   animation: s4-drift var(--fl, 11s) var(--ease-in-out) 1400ms infinite;
@@ -1813,7 +1826,7 @@
    the front one without touching their colour or costing a filter pass. */
 .s4-veil {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  background: var(--white); opacity: var(--veil, 0);
+  background: var(--ink); opacity: var(--veil, 0);
 }
 /* The glass: a hairline inside the bezel and one diagonal sheen. Kept low, or
    it stops reading as glass and starts reading as a wash over the UI. */
@@ -1872,7 +1885,7 @@
 .s4-line {
   position: relative; list-style: none;
   padding-top: 1.125rem;
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid rgb(255 255 255 / 0.14);
 }
 .s4-bar {
   position: absolute; top: -1px; left: 0; right: 0; height: 2px;
@@ -1922,7 +1935,7 @@
 @media (min-width: 48rem) {
   .s4-lines { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
   .s4-line { padding: 1.25rem clamp(1.25rem, 0.7rem + 1.6vw, 2.25rem) 0; }
-  .s4-line + .s4-line { border-left: 1px solid var(--rule); }
+  .s4-line + .s4-line { border-left: 1px solid rgb(255 255 255 / 0.14); }
   .s4-line:first-child { padding-inline-start: 0; }
   .s4-line:last-child  { padding-inline-end: 0; }
   /* The travelling rule has to cover the cell's left hairline too, or three
@@ -1938,7 +1951,7 @@
 }
 .s4-rule {
   position: absolute; top: 0; left: 0; right: 0; height: 1px;
-  background: var(--rule);
+  background: rgb(255 255 255 / 0.16);
   transform: scaleX(0); transform-origin: center;
   transition: transform 900ms var(--ease-in-out);
   transition-delay: 1250ms;
@@ -1963,8 +1976,8 @@
 .s4-os {
   display: inline-flex; align-items: center; gap: 0.5rem;
   min-height: 2.75rem; padding: 0.375rem 0.9375rem;
-  border: 1px solid var(--rule-strong); border-radius: var(--r-pill);
-  background: var(--white);
+  border: 1px solid rgb(255 255 255 / 0.2); border-radius: var(--r-pill);
+  background: rgb(255 255 255 / 0.05);
   font-size: var(--t-md); color: var(--on-ink); white-space: nowrap;
 }
 .s4-os svg { width: 1.125rem; height: 1.125rem; color: var(--accent-lit); flex: none; }

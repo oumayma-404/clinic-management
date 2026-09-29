@@ -108,8 +108,19 @@ const BANNED = [
   [/\bCNAM\b/, 'CNAM is not on any screen (BRIEF « Claims »)'],
   [/\bTVA\b|timbre fiscal/i, 'no TVA nor timbre on a note (BRIEF « Claims »)'],
 ]
-const index = readFileSync(join(SRC, 'pages/index.html'), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+const read = (rel) => readFileSync(join(SRC, rel), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+const index = read('pages/index.html')
 for (const [re, why] of BANNED) if (re.test(index)) findings.push({ file: 'pages/index.html', line: 0, prop: 'claim', value: index.match(re)[0], why })
+
+// Reminders are not live (owner, 29/09): no page may sell them, and neither may the hero film or
+// Google's structured data. The privacy page is exempt — it lists the processors, which is a
+// disclosure and not a claim.
+const REMINDERS = /rappels?\s+(SMS|WhatsApp|de contrôle|automatique)|\bSMS\b|WhatsApp|les rappels partent/i
+for (const rel of ['pages/index.html', 'pages/odontogramme.html', 'pages/logiciel-dentaire-hors-ligne.html',
+                   'pages/guide-choisir-logiciel-cabinet-dentaire.html', 'scenes/hero-quatre-temps.html', 'jsonld/index.json']) {
+  const m = read(rel).match(REMINDERS)
+  if (m) findings.push({ file: rel, line: 0, prop: 'claim', value: m[0], why: 'reminders are not live yet (BRIEF « Claims »)' })
+}
 
 /* ── Report ─────────────────────────────────────────────────────────────── */
 if (!findings.length) { console.log('check-tokens: clean'); process.exit(0) }

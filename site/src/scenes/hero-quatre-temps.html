@@ -527,22 +527,6 @@
   animation: encIn var(--T) var(--ease-out) infinite;
 }
 
-/* the rappel, which leaves on its own */
-.rap {
-  position: absolute; right: 1.6em; bottom: -1.5em;
-  display: flex; align-items: center; gap: .6em;
-  padding: .7em .95em;
-  border: 1px solid color-mix(in oklab, var(--azure-lit) 34%, transparent);
-  border-radius: 999px;
-  background: #12293f;
-  box-shadow: 0 14px 34px -14px rgb(0 0 0 / .8);
-  font-size: 1.1em; white-space: nowrap;
-  opacity: 0;
-  animation-name: rapFly; animation-timing-function: var(--ease-in-out);
-}
-.rap svg { width: 1.15em; height: 1.15em; flex: none; }
-.rap svg path { fill: var(--azure-lit); }
-.rap em { font-style: normal; color: var(--on-ink-muted); }
 
 .thesis {
   margin-top: 2.1em;
@@ -854,13 +838,6 @@
   89.712%,95.432% {opacity: 1; transform: scale(1)}
   97.144%,100% {opacity: 0; transform: scale(.9)}
 }
-@keyframes rapFly {
-  0% {opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92)}
-  20%,89.144% {opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92)}
-  91.432%,93.712% {opacity: 1; transform: translate(0em, 0em) rotate(0deg) scale(1)}
-  98% {opacity: 0; transform: translate(9em, -7.5em) rotate(-7deg) scale(.84)}
-  99.92%,100% {opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92)}
-}
 @keyframes thesisIn {
   0% {opacity: 0; transform: translateY(.9em)}
   20%,92.568% {opacity: 0; transform: translateY(.9em)}
@@ -1073,7 +1050,6 @@
   .sum { font-size: 2.6em }
   .mv { margin-top: 1.1em; padding-top: .9em }
   .mv-r em { display: none }
-  .rap { font-size: .98em; right: .9em; bottom: -1.3em; padding: .55em .8em }
   .thesis { margin-top: 1.5em }
 
   .fly { --fx0: 8.35em; --fy0: 4.8em; --fxm: 3.5em; --fym: 6.2em; --fx1: -2.5em; --fy1: -5.05em }
@@ -1098,7 +1074,6 @@
   .mv-h           { font-size: max(11px, 1.02em) }
   .mv-r           { font-size: max(11px, 1.05em); margin-top: .6em; padding: .5em .6em }
   .enc            { font-size: max(11px, .8em) }
-  .rap            { font-size: max(11px, .98em) }
   .fstats b       { font-size: max(11px, 1.15em) }
   .blk-t b        { font-size: max(11px, 1.3em) }
   .li             { font-size: max(11px, 1.15em) }
@@ -1130,7 +1105,7 @@
   .glow-4 { opacity: .5 !important }
 
   .still { display: grid !important }
-  .still .blk, .still .arch-r i, .still .mv-r, .still .rap,
+  .still .blk, .still .arch-r i, .still .mv-r,
   .still .card, .still .enc, .still .fline, .still .fstats div,
   .still .day, .still .hh { opacity: 1 !important; transform: none !important }
   .still .blk::before { transform: scaleX(1) !important }
@@ -1158,7 +1133,6 @@
 }
 .still .note-strip i { flex: none; width: .7em; height: .7em; border-radius: 50%; background: var(--amber) }
 .still .note-strip b { font-weight: 400; margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap }
-.still .rap { position: static; margin-top: 1.1em; align-self: start; width: fit-content }
 
 @container stage (max-width: 30rem) {
   .still { grid-template-columns: 1fr; align-content: center; gap: .85em; padding: 1.4em }
@@ -1169,7 +1143,6 @@
   .still .note-strip { margin-top: 1em; padding-top: .9em; font-size: 1.1em }
   .still .arch-r:nth-child(2) { display: none }
   .still .fstats { display: none }
-  .still .rap { display: none }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1345,7 +1318,6 @@ body { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
               <i></i><s>Sonia Ben Amor</s><em>note 2026-0184</em><b>240,000 DT</b><span class="enc">encaissé</span>
             </div>
           </div>
-          <div class="rap anim"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.6 21 12 3.4 3.4v6.8L15.6 12 3.4 13.8z"/></svg> Rappel · contrôle dans 6 mois <em>· SMS</em></div>
         </div>
         <div class="thesis anim">Une seule saisie, <b>tout le reste suit.</b></div>
       </div>
@@ -1379,7 +1351,6 @@ body { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
               </div>
             </div>
           </div>
-          <div class="rap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.6 21 12 3.4 3.4v6.8L15.6 12 3.4 13.8z"/></svg> Rappel · contrôle dans 6 mois <em>· SMS</em></div>
         </div>
         <div class="card">
           <div class="fh">
@@ -1464,7 +1435,7 @@ body { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
   </div>
 </figure>
 
-<p class="sr">Animation : une séance notée au fauteuil colore l’agenda de la journée, ouvre la fiche du patient et son odontogramme, crée la note d’honoraires de 240,000 DT, alimente la caisse du jour et fait partir le rappel de contrôle.</p>
+<p class="sr">Animation : une séance notée au fauteuil colore l’agenda de la journée, ouvre la fiche du patient et son odontogramme, crée la note d’honoraires de 240,000 DT et alimente la caisse du jour.</p>
 
 </div>
 </body>

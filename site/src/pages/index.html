@@ -52,35 +52,67 @@
               title="Le logiciel en quatre temps"
               loading="eager" scrolling="no" tabindex="-1" aria-hidden="true"></iframe>
     </div>
-    <p class="sr-only">Une animation en quatre temps&nbsp;: la journée s’organise dans l’agenda, le dossier du patient s’ouvre, la note d’honoraires se crée, puis la caisse se met à jour et le rappel de contrôle part.</p>
+    <p class="sr-only">Une animation en quatre temps&nbsp;: la journée s’organise dans l’agenda, le dossier du patient s’ouvre, la note d’honoraires se crée, puis la caisse se met à jour.</p>
   </div>
 
 </section>
 
-<!-- ══ 1b · CE QUI COMPTE AU CABINET ════════════════════════════════════════════
-     Where a larger vendor puts its client logos. There are none to show, so the
-     slot carries four facts a foreign product cannot claim, each one true of the
-     shipped product (BRIEF « True and usable »). ⚠️ No figure, no client count,
-     no « sans internet »: see the claims list in site/BRIEF.md before adding one. -->
-<section class="facts" aria-label="Ce qui compte au cabinet">
-  <ul class="wrap facts-list">
-    <li class="rise d1">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h6M7 14h3M16 14h1"/></svg>
-      <p><b>Chèques postdatés</b><span>suivis échéance par échéance</span></p>
-    </li>
-    <li class="rise d2">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 11h6M9 15h6M9 7h3"/></svg>
-      <p><b>Numérotation sans trou</b><span>une série de notes par année</span></p>
-    </li>
-    <li class="rise d3">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.4 3.1 8.2 7.5 9.5 4.4-1.3 7.5-5.1 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/></svg>
-      <p><b>Sauvegarde toutes les heures</b><span>vérifiée, et restaurable</span></p>
-    </li>
-    <li class="rise d4">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h11M11 8l4 4-4 4"/><path d="M15 5h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3"/></svg>
-      <p><b>Vos données en CSV</b><span>reprises à l’entrée, rendues à la sortie</span></p>
-    </li>
-  </ul>
+<!-- ══ 1b · TOUT LE CABINET ══════════════════════════════════════════════════════
+     The product at a glance, before the sections that each show one part of it.
+     It replaced a strip of four small facts (« chèques postdatés », « numérotation
+     sans trou »…) that the owner rejected on 29/09: they were details, and they
+     said nothing about what the software DOES — automation, money, the chart,
+     the integrity of the data.
+
+     ⚠️ Every line is a shipped capability, checked against the product:
+     the agenda's day / week / month views, « plages libres à combler » (dashboard) and
+     la liste d'attente (/waiting-list), the
+     odontogramme and the patient's files, treatment plans with séances, steps and
+     an échéancier, la caisse / chèques / créances / notes d'honoraires, « à
+     clôturer » + « suites à planifier » + the recall worklist, gapless numbering,
+     voided-not-erased money with who and why, the hourly verified backup.
+     ⚠️ No CNAM, no TVA, no « sans internet », no time saved (BRIEF « Claims »), and NO
+     REMINDERS: SMS / WhatsApp rappels are not live yet (owner, 29/09). No « fauteuil » either:
+     the agenda has no chair columns. -->
+<section class="ov sec--white" aria-labelledby="ov-titre">
+  <div class="wrap">
+    <div class="head rise">
+      <p class="eyebrow">Tout le cabinet</p>
+      <h2 id="ov-titre">Un seul logiciel, du&nbsp;fauteuil à la caisse.</h2>
+    </div>
+    <ul class="ov-grid rise d1">
+      <li class="ov-cell" style="--zc: var(--azure)">
+        <i class="ov-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/><path d="m9 15 2 2 4-4"/></svg></i>
+        <h3 class="ov-t">L’agenda de tout le cabinet</h3>
+        <p class="ov-p">Jour, semaine ou mois, les plages libres repérées, et une liste d’attente pour les remplir.</p>
+      </li>
+      <li class="ov-cell" style="--zc: var(--violet)">
+        <i class="ov-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3c-2.5 0-4 2-4 4.5 0 2 .8 3.4 1.3 5.3.5 2 .7 4.2 1.4 6.2.4 1.2 1.8 1.2 2.2 0l1-3.3c.3-1 1.8-1 2.1 0l1 3.3c.4 1.2 1.8 1.2 2.2 0 .7-2 .9-4.2 1.4-6.2.5-1.9 1.3-3.3 1.3-5.3C20 5 18.5 3 16 3c-1.6 0-2.4.8-4 .8S9.6 3 8 3z"/></svg></i>
+        <h3 class="ov-t">Le dossier et l’odontogramme</h3>
+        <p class="ov-p">Chaque dent avec son état et ses actes, les radios et les documents au nom du patient.</p>
+      </li>
+      <li class="ov-cell" style="--zc: var(--violet)">
+        <i class="ov-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6M9 18h3"/></svg></i>
+        <h3 class="ov-t">Les plans de traitement</h3>
+        <p class="ov-p">Du devis à la dernière séance, étape par étape, avec son échéancier.</p>
+      </li>
+      <li class="ov-cell" style="--zc: var(--amber)">
+        <i class="ov-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/></svg></i>
+        <h3 class="ov-t">L’argent, au millime</h3>
+        <p class="ov-p">La caisse du jour, les chèques postdatés, les créances et les notes d’honoraires.</p>
+      </li>
+      <li class="ov-cell" style="--zc: var(--green)">
+        <i class="ov-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h10M10 12h10M10 18h10"/><path d="m3.5 6 1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5"/><circle cx="5.5" cy="18" r="1.5"/></svg></i>
+        <h3 class="ov-t">Rien n’est oublié</h3>
+        <p class="ov-p">Séances à clôturer, suites à planifier, traitements en cours&nbsp;: la liste se tient seule.</p>
+      </li>
+      <li class="ov-cell" style="--zc: var(--accent-ink)">
+        <i class="ov-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.4 3.1 8.2 7.5 9.5 4.4-1.3 7.5-5.1 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/></svg></i>
+        <h3 class="ov-t">Des données qui tiennent</h3>
+        <p class="ov-p">Numérotation sans trou, chaque correction tracée, une sauvegarde vérifiée toutes les heures.</p>
+      </li>
+    </ul>
+  </div>
 </section>
 
 <!-- ══ 2 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════
@@ -449,16 +481,16 @@
     <div class="head rise">
       <p class="eyebrow">Le quotidien</p>
       <h2>Tournez la page, gardez tout ce qu’il y a dessus.</h2>
-      <p class="lede">Trois moments de votre semaine, avant et après.</p>
+      <p class="lede">Deux moments de votre semaine, avant et après.</p>
     </div>
 
     <div class="jour" data-jour>
       <div class="jour-stage">
-      <div class="jour-track" tabindex="0" role="group" aria-label="Six situations du quotidien : faites défiler pour les parcourir">
+      <div class="jour-track" tabindex="0" role="group" aria-label="Deux situations du quotidien : faites défiler pour les parcourir">
 
           <article class="jour-item" style="--zc: var(--azure); --zcl: var(--azure-lit)">
             <div class="jour-copy">
-              <p class="jour-n"><b>01</b><span>/ 03</span></p>
+              <p class="jour-n"><b>01</b><span>/ 02</span></p>
               <div class="jour-when">
                 <p class="jour-state">Avant</p>
                 <p class="jour-k">Aujourd’hui</p>
@@ -513,66 +545,9 @@
             </figure>
           </article>
 
-                                        <article class="jour-item" style="--zc: var(--green); --zcl: var(--green-lit)">
-            <div class="jour-copy">
-              <p class="jour-n"><b>02</b><span>/ 03</span></p>
-              <div class="jour-when">
-                <p class="jour-state">Avant</p>
-                <p class="jour-k">La veille</p>
-              <h3 class="jour-t"><s>Les rappels, un par un</s></h3>
-              <p class="jour-p">Une matinée au téléphone pour confirmer demain.</p>
-              </div>
-              <div class="jour-then">
-                <p class="jour-state">Après</p>
-                <p class="jour-a">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
-                <b>Les rappels partent tout seuls</b>
-              </p>
-              </div>
-            </div>
-
-            <figure class="jour-shot jour-shot--jd" data-flip="0">
-              <div class="jd-switch">
-                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
-                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
-              </div>
-              <div class="jd-half jd-sans">
-                <p class="jd-lab">Sur le papier</p>
-                <div class="jd-art jd-cahier" aria-hidden="true">
-                  <span class="jd-ru jd-in" style="--i: 0"><b>Demain</b><s>6 rendez-vous à confirmer</s></span>
-                  <span class="jd-prow jd-in" style="--i: 1"><b>Trabelsi</b><em>appelée</em></span>
-                  <span class="jd-prow jd-in" style="--i: 2"><b>Ben Amor</b><em class="no">pas de réponse</em></span>
-                  <span class="jd-prow jd-in" style="--i: 3"><b>Gharbi</b><em>appelé</em></span>
-                  <span class="jd-prow jd-in" style="--i: 4"><b>Khelifi</b><em class="no">pas de réponse</em></span>
-                  <span class="jd-prow jd-in" style="--i: 5"><b>Mansour</b><em class="no">à rappeler</em></span>
-                  <span class="jd-prow jd-in" style="--i: 6"><b>Sassi</b><em class="no">à rappeler</em></span>
-                  <span class="jd-x jd-tot jd-in" style="--i: 8"><s>Confirmés</s><em>2 / 6</em></span>
-                </div>
-                <p class="jd-note">Une matinée, et la liste est à refaire.</p>
-              </div>
-
-              <div class="jd-half jd-avec">
-                <p class="jd-lab">Avec le logiciel</p>
-                <div class="jd-art" aria-hidden="true">
-                  <span class="jd-hdr jd-in" style="--i: 0"><b>Demain</b><s>6 rendez-vous</s></span>
-                  <ul class="jd-ln">
-                    <li class="jd-row jd-fly" style="--i: 1"><i class="jd-tick"></i><b>Trabelsi</b><s>08:00</s><em>SMS</em></li>
-                    <li class="jd-row jd-fly" style="--i: 2"><i class="jd-tick"></i><b>Ben Amor</b><s>08:45</s><em>WhatsApp</em></li>
-                    <li class="jd-row jd-fly" style="--i: 3"><i class="jd-tick"></i><b>Gharbi</b><s>09:30</s><em>SMS</em></li>
-                    <li class="jd-row jd-fly" style="--i: 4"><i class="jd-tick"></i><b>Khelifi</b><s>10:15</s><em>WhatsApp</em></li>
-                    <li class="jd-row jd-fly" style="--i: 5"><i class="jd-tick"></i><b>Mansour</b><s>11:00</s><em>SMS</em></li>
-                    <li class="jd-row jd-fly" style="--i: 6"><i class="jd-tick"></i><b>Sassi</b><s>11:45</s><em>WhatsApp</em></li>
-                  </ul>
-                  <span class="jd-x jd-all jd-in" style="--i: 8">Partis à la date prévue</span>
-                </div>
-                <p class="jd-note">Le téléphone ne sert plus qu’aux exceptions.</p>
-              </div>
-            </figure>
-          </article>
-
           <article class="jour-item" style="--zc: var(--amber); --zcl: var(--amber-lit)">
             <div class="jour-copy">
-              <p class="jour-n"><b>03</b><span>/ 03</span></p>
+              <p class="jour-n"><b>02</b><span>/ 02</span></p>
               <div class="jour-when">
                 <p class="jour-state">Avant</p>
                 <p class="jour-k">Le soir</p>
@@ -634,9 +609,8 @@
 
       <div class="jour-ctl">
         <ol class="jour-dots">
-<li><button type="button" data-go="0" aria-label="Situation 1 sur 6"><b>01</b></button></li>
-<li><button type="button" data-go="4" aria-label="Situation 5 sur 6"><b>02</b></button></li>
-<li><button type="button" data-go="5" aria-label="Situation 6 sur 6"><b>03</b></button></li>
+<li><button type="button" data-go="0" aria-label="Situation 1 sur 2"><b>01</b></button></li>
+<li><button type="button" data-go="1" aria-label="Situation 2 sur 2"><b>02</b></button></li>
 </ol>
       </div>
     </div>
@@ -644,7 +618,7 @@
 </section>
 
 <!-- ══ 5 · SUR LE TÉLÉPHONE ═════════════════════════════════════════════════════ -->
-<section class="s4 rise surface-light" id="mobile" aria-labelledby="s4-t">
+<section class="s4 rise on-ink" id="mobile" aria-labelledby="s4-t">
   <div class="wrap">
 
     <div class="head s4-in" style="--i: 0">

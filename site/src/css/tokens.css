@@ -218,6 +218,8 @@
   --shadow-card: 0 1px 3px rgb(9 9 11 / 0.07), 0 12px 32px -14px rgb(9 9 11 / 0.20);
   --shadow-lift: 0 2px 6px rgb(9 9 11 / 0.09), 0 28px 60px -26px rgb(9 9 11 / 0.32);
   --shadow-chip: 0 2px 6px rgb(9 9 11 / 0.10), 0 16px 36px -16px rgb(9 9 11 / 0.34);
+  /* A phone on the ink: a tight contact shadow, a long soft one, a hairline rim. */
+  --shadow-device: 0 2px 6px rgb(0 0 0 / 0.42), 0 44px 82px -34px rgb(0 0 0 / 0.85), inset 0 0 0 1px rgb(255 255 255 / 0.08);
   --glow-ring:   0 0 12px color-mix(in oklab, var(--accent-lit) 45%, transparent);
   --glow-accent: 0 6px 20px -6px rgb(47 198 224 / 0.5);
   --shadow-shot: 0 2px 8px rgb(9 9 11 / 0.10), 0 30px 70px -30px rgb(9 9 11 / 0.45);

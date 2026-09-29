@@ -56,6 +56,9 @@ Struck from the old site after verification, and not to be reintroduced:
   « Aucune TVA ni timbre fiscal n'est ajouté ». *A schema that still has the column is not a product
   that still has the feature.*
 - Any client count, testimonial, award or logo.
+- **Rappels SMS / WhatsApp** — pas encore en service (propriétaire, 29/09/2026). Retirés de la page, de la
+  scène du hero, de la page hors-ligne et du JSON-LD ; `check-tokens.mjs` refuse le mot. Seule la page
+  Confidentialité les nomme encore, comme sous-traitants : c'est une déclaration, pas une promesse.
 
 True and usable: numérotation sans trou par année · le prix de l'acte est ce que le patient paie ·
 chèques postdatés par échéance · dinars, +216, gouvernorats · sauvegarde automatique, vérifiée,
@@ -952,3 +955,14 @@ Plan complet : `features/landing-website/cleanup-blueprint.md`.
 70 combinaisons (5 pages × 14 tailles, de 320×568 à 1920×1080, paysage téléphone 844×390 et
 932×430, tablettes 768/820/1024/1180/1366) : aucun débordement horizontal. Relecture à l'œil à 320,
 390, 820×1180, 1024×768, 1440 et 1536×730, animé et en mouvement réduit.
+
+## Passe 16 — ce que la propriétaire a repris (29 septembre 2026)
+
+- **La bande de 4 faits est remplacée** par « Tout le cabinet » : six capacités dans une carte à filets
+  (agenda, dossier et odontogramme, plans de traitement, argent, suivi, données). « Ce sont des détails,
+  ça ne dit rien de ce que le logiciel fait » — automatisation, argent, intégrité, odontogramme.
+- **Pas de « fauteuil » dans la carte agenda** : l'agenda n'a pas de colonne par fauteuil.
+- **« Mobile » revient sur l'encre**, avec ses trois halos. Les téléphones restent graphite et les
+  captures restent les nouvelles : c'est le fond qui revient, pas les téléphones.
+- **« Le quotidien » passe à deux moments** : le moment 02 (les rappels) est retiré avec les rappels.
+- ⚠️ **Rien n'est poussé ni publié sans l'accord explicite de la propriétaire**, changement par changement.

@@ -39,7 +39,7 @@
       "name": "APEXA",
       "alternateName": "APEXA — logiciel de gestion de cabinet dentaire",
       "url": "https://apexa.tn/",
-      "description": "Logiciel de gestion de cabinet dentaire conçu en Tunisie : agenda, dossier patient, odontogramme, fiche de soins, devis, caisse, rappels et sauvegardes vérifiées, dans un seul logiciel. Essai de 30 jours sans carte bancaire.",
+      "description": "Logiciel de gestion de cabinet dentaire conçu en Tunisie : agenda, dossier patient, odontogramme, fiche de soins, devis, caisse et sauvegardes vérifiées, dans un seul logiciel. Essai de 30 jours sans carte bancaire.",
       "applicationCategory": "HealthApplication",
       "applicationSubCategory": "Logiciel de gestion de cabinet dentaire",
       "operatingSystem": "Windows 10, Windows 11, Android, iOS",
@@ -65,7 +65,6 @@
         "Fiche de soins et ordonnances",
         "Devis et plans de traitement",
         "Caisse, encaissements et chèques postdatés",
-        "Rappels SMS et WhatsApp",
         "Sauvegardes horaires vérifiées et restaurables",
         "Export des données en CSV",
         "Applications Android et iPhone"
