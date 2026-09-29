@@ -79,8 +79,8 @@ public class SignUpClinicCommandHandler
     /// <summary>Lets the controller answer 503 rather than 400 — nothing about the request was malformed.</summary>
     public const string UnavailableCode = "signup_unavailable";
 
-    /// <summary>How long a spent row is kept before the opportunistic purge drops it (AC-7).</summary>
-    private static readonly TimeSpan ConsumedRetention = TimeSpan.FromDays(30);
+    /// <summary>How long a spent row is kept (AC-7). Also read by <c>SessionFamilyPurgeJob</c>'s daily trim.</summary>
+    public static readonly TimeSpan ConsumedRetention = TimeSpan.FromDays(30);
 
     /// <summary>
     /// The minimum gap between two verification emails to one address. Without it a caller can re-send on every

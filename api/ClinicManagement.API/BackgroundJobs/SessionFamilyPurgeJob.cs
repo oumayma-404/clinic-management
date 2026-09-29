@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Domain.Repositories;
 using Hangfire;
 using Microsoft.Extensions.Logging;
@@ -28,21 +29,32 @@ namespace ClinicManagement.API.BackgroundJobs;
 ///
 /// <para>Not connectivity-gated, and registered on every deployment kind: it touches one local table and its
 /// absence is a table that grows without bound on an offline LAN install exactly as on a hosted one.</para>
+///
+/// <para>⚠️ <b>It also trims spent clinic signups and password-reset requests.</b> Both were trimmed only on their
+/// own request path, which bounds the tables' size but not their age: with no new signup, a consumed row (email,
+/// clinic name, password hash) outlived its 30-day retention indefinitely and <c>verify-schema</c>'s
+/// <c>clinic-signup-has-no-orphans</c> reported it. Same repositories, same retention, same bounded batches.</para>
 /// </summary>
 public class SessionFamilyPurgeJob
 {
     private readonly ISessionFamilyRepository _sessionFamilies;
+    private readonly IClinicSignupRepository _signups;
+    private readonly IPasswordResetRequestRepository _passwordResets;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<SessionFamilyPurgeJob> _logger;
 
     public SessionFamilyPurgeJob(
         ISessionFamilyRepository sessionFamilies,
+        IClinicSignupRepository signups,
+        IPasswordResetRequestRepository passwordResets,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         ILogger<SessionFamilyPurgeJob> logger)
     {
         _sessionFamilies = sessionFamilies;
+        _signups = signups;
+        _passwordResets = passwordResets;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -68,5 +80,25 @@ public class SessionFamilyPurgeJob
         // never moves means the job is running and finding nothing, which is a different fault from silence.
         _logger.LogInformation(
             "Purge des sessions expirées : {Removed} ligne(s) supprimée(s).", removed);
+
+        var nowUtc = DateTime.UtcNow;
+        var signups = await DrainAsync(() => _signups.PurgeSpentAsync(nowUtc, SignUpClinicCommandHandler.ConsumedRetention));
+        var resets = await DrainAsync(() => _passwordResets.PurgeSpentAsync(nowUtc, RequestPasswordResetCommandHandler.ConsumedRetention));
+        _logger.LogInformation(
+            "Purge des inscriptions et réinitialisations périmées : {Signups} inscription(s), {Resets} demande(s).",
+            signups, resets);
+    }
+
+    /// <summary>Repeats a bounded purge until a pass removes nothing; capped so a fault cannot spin forever.</summary>
+    private static async Task<int> DrainAsync(Func<Task<int>> purgeBatch)
+    {
+        var total = 0;
+        for (var pass = 0; pass < 50; pass++)
+        {
+            var removed = await purgeBatch();
+            total += removed;
+            if (removed == 0) break;
+        }
+        return total;
     }
 }
