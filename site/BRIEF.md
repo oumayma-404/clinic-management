@@ -966,3 +966,10 @@ Plan complet : `features/landing-website/cleanup-blueprint.md`.
   captures restent les nouvelles : c'est le fond qui revient, pas les téléphones.
 - **« Le quotidien » passe à deux moments** : le moment 02 (les rappels) est retiré avec les rappels.
 - ⚠️ **Rien n'est poussé ni publié sans l'accord explicite de la propriétaire**, changement par changement.
+
+- **Le logo dans Google** (29/09) : Google affichait un globe vide à côté d'apexa.tn. La seule icône était un
+  `data:` URI, que son robot ignore ; il faut un fichier. Les icônes sont maintenant générées par
+  `web/scripts/generate-icons.mjs` dans `src/icons/` et copiées à la racine par `build.mjs`
+  (`/favicon.ico` compris). Le logo du JSON-LD pointe sur `icon-512.png` et non plus sur une capture du
+  tableau de bord. Google met à jour l'icône quand il repasse sur l'accueil : quelques jours, plus vite avec
+  « Demander une indexation » dans la Search Console.

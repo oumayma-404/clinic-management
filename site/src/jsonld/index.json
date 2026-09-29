@@ -9,9 +9,9 @@
       "email": "contact@apexa.tn",
       "logo": {
         "@type": "ImageObject",
-        "url": "https://apexa.tn/assets/img/og-card.jpg",
-        "width": 1200,
-        "height": 630
+        "url": "https://apexa.tn/icon-512.png",
+        "width": 512,
+        "height": 512
       },
       "areaServed": {
         "@type": "Country",

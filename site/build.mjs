@@ -132,6 +132,13 @@ if (existsSync(join(SRC, 'scenes'))) {
   }
 }
 
+// 3c · Site icons, at the ROOT: /favicon.ico is the path Google and browsers request unprompted, and
+//      Google's result favicon needs a crawlable file (a data: URI shows a blank globe). Generated
+//      from the one logo master by web/scripts/generate-icons.mjs — never hand-edited here.
+if (existsSync(join(SRC, 'icons'))) {
+  for (const name of readdirSync(join(SRC, 'icons'))) copyFileSync(join(SRC, 'icons', name), join(OUT, name))
+}
+
 // 4 · Pages
 const layout = readFileSync(join(SRC, 'layout.html'), 'utf8')
 const navSrc = readFileSync(join(SRC, 'partials', 'nav.html'), 'utf8')
