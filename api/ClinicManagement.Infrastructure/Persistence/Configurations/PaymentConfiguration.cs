@@ -51,6 +51,12 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         // Soft link to the installment payment this was carried over from (devis→facture bridge).
         builder.Property(p => p.SourceInstallmentPaymentId);
 
+        // Soft link to the fiche that collected this onto a note it did not raise (a treatment's later séance).
+        // No FK, `InstallmentPayment.DentalRecordId`'s shape: deleting the fiche voids the payment instead.
+        builder.Property(p => p.DentalRecordId);
+        builder.HasIndex(p => p.DentalRecordId)
+            .HasFilter("\"DentalRecordId\" IS NOT NULL");
+
         // Cheque identity (L8). Null for every method but Cheque — the invariant lives in `ChequeDetails.For`,
         // not here: a CHECK constraint could express it, but it would then be a second copy of a rule the domain
         // already enforces, and the one that fires would produce a 500 rather than the French refusal.

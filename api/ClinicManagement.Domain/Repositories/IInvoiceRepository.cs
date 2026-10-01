@@ -183,6 +183,14 @@ public interface IInvoiceRepository
         Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The notes this fiche collected on WITHOUT having raised them — a later séance of a treatment billed on
+    /// another séance's note (<c>Payment.DentalRecordId</c>). Loaded with lines and payments, for
+    /// <see cref="GetByDentalRecordAsync"/>'s reason: the deletion voids those payments.
+    /// </summary>
+    Task<IReadOnlyList<Invoice>> GetCollectedOnByDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The money of specific invoices, by id — number, status, total, collected and outstanding, and nothing
     /// else. The fourth light projection of this repository, for callers holding invoice ids that no link table
     /// keys: <c>TreatmentPlanItem.BilledOnInvoiceId</c>, the note that collects a continuation's first act

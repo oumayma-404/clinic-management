@@ -35,6 +35,8 @@ public class DentalRecordDeletionReversalTests
             .ReturnsAsync(Array.Empty<TreatmentPlan>());
         _invoices.Setup(r => r.GetByDentalRecordAsync(ClinicId, RecordId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Invoice>());
+        _invoices.Setup(r => r.GetCollectedOnByDentalRecordAsync(ClinicId, RecordId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Invoice>());
         _creditNotes.Setup(r => r.GetTotalForInvoiceAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
     }
@@ -297,6 +299,8 @@ public class DentalRecordDeletionReversalTests
 
             // Soft links the reversal owns — the three that cost a patient 160 DT.
             ["InstallmentPayment.DentalRecordId"] = "VoidInstallmentPayment",
+            // A later séance's collection on another séance's note (2026-09-30) — voided, the note kept.
+            ["Payment.DentalRecordId"] = "VoidPayment — the note SURVIVES",
             ["Invoice.DentalRecordId"] = "Cancel or delete the note",
             ["MedicalDocument.DentalRecordId"] = "ReleaseFromDentalRecord — the document SURVIVES",
         };

@@ -43,6 +43,9 @@ public class DentalRecordDeletionPreviewDto
     /// <summary>The note d'honoraires this fiche raised, when it has one.</summary>
     public DentalRecordDeletionNoteDto? Note { get; set; }
 
+    /// <summary>What this séance collected on another séance's note — voided, the note itself kept.</summary>
+    public List<DentalRecordDeletionNoteDto> NoteCollections { get; set; } = new();
+
     /// <summary>
     /// The days whose caisse figures move, oldest first, as ISO dates. A void lands on the day the money was
     /// <b>received</b>, not today — so a deletion silently rewrites an extrait somebody may already have read.
@@ -167,6 +170,13 @@ public class GetDentalRecordDeletionPreviewQueryHandler
                     Number = c.Plan.Number,
                     Title = c.Plan.Title,
                     Amount = c.Payments.Sum(p => p.Amount),
+                }).ToList(),
+                NoteCollections = reversal.NoteCollections.Select(c => new DentalRecordDeletionNoteDto
+                {
+                    Id = c.Invoice.Id,
+                    Number = c.Invoice.Number,
+                    Amount = c.Payments.Sum(p => p.Amount),
+                    IsDraft = c.Invoice.Number is null,
                 }).ToList(),
                 Note = note is null ? null : new DentalRecordDeletionNoteDto
                 {

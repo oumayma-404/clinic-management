@@ -313,8 +313,11 @@ public class DevisFicheRdvFlexibilityWave3Tests
         plans.Setup(r => r.GetByIdAsync(plan.Id, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
         var records = new Mock<IDentalRecordRepository>();
         records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
+        var invoices = new Mock<IInvoiceRepository>();
+        invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus, decimal, decimal)>());
         var handler = new CollectOnTreatmentCommandHandler(
-            plans.Object, new Mock<IProcedureTypeRepository>().Object, records.Object, Clinic().Object,
+            plans.Object, new Mock<IProcedureTypeRepository>().Object, records.Object, invoices.Object, Clinic().Object,
             new Mock<IUnitOfWork>().Object, NullLogger<CollectOnTreatmentCommandHandler>.Instance);
 
         var result = await handler.Handle(new CollectOnTreatmentCommand

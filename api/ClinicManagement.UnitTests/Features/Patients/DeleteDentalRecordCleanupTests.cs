@@ -61,6 +61,8 @@ public class DeleteDentalRecordCleanupTests
             .ReturnsAsync(Array.Empty<TreatmentPlan>());
         _invoices.Setup(r => r.GetByDentalRecordAsync(ClinicId, RecordId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Invoice>());
+        _invoices.Setup(r => r.GetCollectedOnByDentalRecordAsync(ClinicId, RecordId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Invoice>());
         _documents.Setup(r => r.GetFicheOrdonnancesForDentalRecordsAsync(
                 ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IReadOnlyCollection<Guid>>(),
                 It.IsAny<CancellationToken>()))

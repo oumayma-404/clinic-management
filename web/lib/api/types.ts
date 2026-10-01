@@ -1368,6 +1368,8 @@ export interface TreatmentCollectionDto {
    * consumed and can only be released by a cancellation carrying a motif.
    */
   devisIssued: boolean;
+  /** The note d'honoraires the money went onto, when the treatment is billed on one — `outstanding` is then its. */
+  noteNumber?: string | null;
   /** The French reason, for `Refused`. */
   message?: string | null;
 }

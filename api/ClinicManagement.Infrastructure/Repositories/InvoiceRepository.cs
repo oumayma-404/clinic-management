@@ -249,6 +249,18 @@ public class InvoiceRepository : IInvoiceRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Invoice>> GetCollectedOnByDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Invoices
+            .Include(i => i.Lines)
+            .Include(i => i.Payments)
+            .Where(i => i.ClinicId == clinicId
+                        && i.DentalRecordId != dentalRecordId
+                        && i.Payments.Any(p => p.DentalRecordId == dentalRecordId))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<(Guid DentalRecordId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
         GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {

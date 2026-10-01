@@ -31,14 +31,23 @@ public static class DentalRecordBillingGuard
     /// Σ of the invoice lines that bill <b>this</b> fiche — not the invoice's own total. Scoped to the record so
     /// the comparison stays true if a note ever carries more than one séance.
     /// </param>
+    /// <param name="CollectedForRecord">
+    /// What the note collected for <b>this</b> fiche's « Payé » — <see cref="AmountCollected"/> less what later
+    /// séances of the same treatment put on it (<c>Payment.DentalRecordId</c>). Null means « the same as
+    /// AmountCollected ».
+    /// </param>
     public sealed record Snapshot(
         Guid InvoiceId,
         string? Number,
         InvoiceStatus Status,
         decimal BilledTotalHt,
         decimal AmountCollected,
-        decimal CreditedTotal)
+        decimal CreditedTotal,
+        decimal? CollectedForRecord = null)
     {
+        /// <summary>The figure this fiche's cumulative « Payé » is compared with — never another séance's money.</summary>
+        public decimal FicheCollected => CollectedForRecord ?? AmountCollected;
+
         /// <summary>The note is void, or every dinar it collected has been handed back on paper.</summary>
         public bool IsSpent =>
             Status == InvoiceStatus.Cancelled
@@ -125,7 +134,8 @@ public static class DentalRecordBillingGuard
             InvoiceCalculator.RoundMoney(
                 invoice.Lines.Where(l => l.DentalRecordId == dentalRecordId).Sum(l => l.LineTotalHt)),
             invoice.AmountCollected,
-            InvoiceCalculator.RoundMoney(creditedTotal));
+            InvoiceCalculator.RoundMoney(creditedTotal),
+            invoice.CollectedExcludingOtherRecords(dentalRecordId));
     }
 
     /// <summary>
@@ -219,12 +229,19 @@ public static class DentalRecordBillingGuard
     /// question about the two sides of the save.
     /// </para>
     /// </param>
+    /// <param name="storedAmountPaid">
+    /// The fiche's « Payé » as stored before this save. « Lowering » means going below it — or below what the
+    /// note holds for this fiche, whichever is less. ⚠️ Money taken on the note at the desk (the devis'
+    /// « Encaisser », « Reste à payer ») never updates the fiche, so comparing with the note alone refused every
+    /// later re-save of an unchanged fiche and offered « Corriger la note », which would void that desk money.
+    /// </param>
     public static Result Check(
         Snapshot invoice,
         decimal proposedCost,
         decimal proposedAmountPaid,
         IReadOnlyList<DentalRecordInvoiceLines.Line>? actsBefore = null,
-        IReadOnlyList<DentalRecordInvoiceLines.Line>? actsAfter = null)
+        IReadOnlyList<DentalRecordInvoiceLines.Line>? actsAfter = null,
+        decimal? storedAmountPaid = null)
     {
         if (invoice.IsSpent)
         {
@@ -269,10 +286,13 @@ public static class DentalRecordBillingGuard
 
         // Lowering it would ask the till to un-receive money that is on a numbered document. Raising it is the
         // ordinary « le patient a fini de payer » edit and is handled as a top-up, not here.
-        if (InvoiceCalculator.RoundMoney(proposedAmountPaid) < invoice.AmountCollected)
+        var floor = storedAmountPaid is { } stored
+            ? Math.Min(InvoiceCalculator.RoundMoney(stored), invoice.FicheCollected)
+            : invoice.FicheCollected;
+        if (InvoiceCalculator.RoundMoney(proposedAmountPaid) < floor)
         {
             return Result.Failure(
-                DentalRecordBillingRefusals.PaymentLowered(invoice.Number, invoice.AmountCollected),
+                DentalRecordBillingRefusals.PaymentLowered(invoice.Number, floor),
                 DentalRecordBillingRefusals.PaymentLoweredCode);
         }
 

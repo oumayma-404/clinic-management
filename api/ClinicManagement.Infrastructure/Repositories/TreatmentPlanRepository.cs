@@ -735,6 +735,42 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                     })))
             .ToListAsync(cancellationToken);
 
+        /*
+         * ⚠️ The second half: a séance of a treatment BILLED ON A NOTE collects on that note, tagged with its fiche
+         * (`CollectOnTreatmentCommand.CollectOnNoteAsync`). Without it the reopened fiche reads 0 collected, so the
+         * next save — which sends the cumulative figure — would take the money a second time.
+         */
+        var noteRows = await _context.Invoices
+            .Where(inv => inv.ClinicId == clinicId && inv.TreatmentPlanId != null)
+            .SelectMany(inv => inv.Payments
+                .Where(pay => !pay.IsVoided
+                              && pay.DentalRecordId != null
+                              && ids.Contains(pay.DentalRecordId!.Value))
+                .Select(pay => new
+                {
+                    DentalRecordId = pay.DentalRecordId!.Value,
+                    TreatmentPlanId = inv.TreatmentPlanId!.Value,
+                    pay.Amount,
+                }))
+            .ToListAsync(cancellationToken);
+
+        if (noteRows.Count > 0)
+        {
+            var planIds = noteRows.Select(r => r.TreatmentPlanId).Distinct().ToList();
+            var numbers = await _context.TreatmentPlans
+                .Where(p => p.ClinicId == clinicId && planIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.Number })
+                .ToDictionaryAsync(p => p.Id, p => p.Number, cancellationToken);
+
+            rows.AddRange(noteRows.Select(r => new
+            {
+                r.DentalRecordId,
+                r.TreatmentPlanId,
+                PlanNumber = numbers.GetValueOrDefault(r.TreatmentPlanId),
+                r.Amount,
+            }));
+        }
+
         // Grouped in memory: the set is bounded by the page's fiches, and a `GROUP BY` over a projection with a
         // string carried along would have to re-state the key twice.
         return rows

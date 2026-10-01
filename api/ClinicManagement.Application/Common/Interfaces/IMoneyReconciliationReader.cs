@@ -110,4 +110,6 @@ public sealed record FicheOrphanFacts(
     decimal InstallmentPaymentAmount,
     int Invoices,
     decimal InvoiceAmountCollected,
-    int MedicalDocuments);
+    int MedicalDocuments,
+    int NotePayments = 0,
+    decimal NotePaymentAmount = 0m);

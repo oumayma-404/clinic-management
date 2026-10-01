@@ -87,6 +87,23 @@ public class Payment : Entity<Guid>, IAuditable
     /// <summary>Name snapshot of the actor, so reading the trail needs no user lookup.</summary>
     public string? ChequeBankedByName { get; private set; }
 
+    /// <summary>
+    /// The fiche de soins this money was handed over at, when a séance collected it onto a note d'honoraires it
+    /// did not raise itself — a soft reference, no FK, <c>InstallmentPayment.DentalRecordId</c>'s twin.
+    ///
+    /// <para>
+    /// ⚠️ <b>It exists for the séance of a treatment whose money lives on a note.</b> A continuation attaches the
+    /// first séance's note to the devis, so the second séance has nowhere else to collect — and a fiche is
+    /// re-saved routinely, so without a key its amount would be taken again on every save (the fiche sends its
+    /// cumulative figure). It is also what lets deleting that fiche find the payment it took.
+    /// </para>
+    /// <para>
+    /// Null for every payment taken at the desk or by the note's own fiche, and for every row written before the
+    /// column existed — null means « not collected by another séance », so nothing may backfill it.
+    /// </para>
+    /// </summary>
+    public Guid? DentalRecordId { get; private set; }
+
     private Payment() { } // For EF Core
 
     public Payment(
@@ -97,7 +114,8 @@ public class Payment : Entity<Guid>, IAuditable
         DateTime paidOn,
         Guid? sourceInstallmentPaymentId = null,
         ChequeDetails? cheque = null,
-        ChequeBankedStamp? banked = null)
+        ChequeBankedStamp? banked = null,
+        Guid? dentalRecordId = null)
     {
         if (amount <= 0)
             throw new ArgumentException("Le montant du paiement doit être supérieur à 0.", nameof(amount));
@@ -108,6 +126,7 @@ public class Payment : Entity<Guid>, IAuditable
         Method = method;
         PaidOn = paidOn;
         SourceInstallmentPaymentId = sourceInstallmentPaymentId;
+        DentalRecordId = dentalRecordId;
         // Flattened into three columns rather than kept as an owned type: the number is searched and the due date
         // is sorted on, both on their own. See `ChequeDetails` for why the rule still lives in exactly one place.
         ChequeNumber = cheque?.Number;

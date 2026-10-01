@@ -183,6 +183,8 @@ export interface DentalRecordDeletionPreview {
   totalReversed: number;
   plans: DentalRecordDeletionPlanLine[];
   note: DentalRecordDeletionNoteLine | null;
+  /** What this séance collected on another séance's note — voided, that note kept. */
+  noteCollections?: DentalRecordDeletionNoteLine[];
   /**
    * The caisse days whose figures move, oldest first. A void lands on the day the money was RECEIVED, not
    * today, so a deletion rewrites an extrait somebody may already have printed — which is why it is named.

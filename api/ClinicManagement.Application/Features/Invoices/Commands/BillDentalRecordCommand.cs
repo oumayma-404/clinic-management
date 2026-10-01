@@ -215,7 +215,11 @@ public class BillDentalRecordCommandHandler
 
         // The shared guard: cancelled / fully credited, acts moved, amount lowered. Its refusals carry the codes
         // the client branches on, and the wording is the same the pre-commit guard already showed the user.
-        var allowed = DentalRecordBillingGuard.Check(billed, record.Cost, requested);
+        // The automatic re-bill runs post-commit on a figure the update's own guard already accepted, so the
+        // stored « Payé » is the floor there; the manual door has no « before » and keeps the note's figure.
+        var allowed = DentalRecordBillingGuard.Check(
+            billed, record.Cost, requested,
+            storedAmountPaid: request.IsAutomatic ? record.AmountPaid : null);
         if (allowed.IsFailure)
         {
             return Result<DentalRecordBillingResult>.FailureFrom(allowed);
@@ -227,7 +231,9 @@ public class BillDentalRecordCommandHandler
             return Result<DentalRecordBillingResult>.Failure("Note d'honoraires introuvable.");
         }
 
-        var delta = InvoiceCalculator.RoundMoney(requested - invoice.AmountCollected);
+        // Against what the note holds for THIS fiche: a later séance's collection on the same note is not this
+        // fiche's money, and counting it would swallow this fiche's own top-up.
+        var delta = InvoiceCalculator.RoundMoney(requested - invoice.CollectedExcludingOtherRecords(record.Id));
         if (delta <= 0m)
         {
             // Nothing to add — the ordinary outcome of re-saving a fiche whose money is already in the till. It is

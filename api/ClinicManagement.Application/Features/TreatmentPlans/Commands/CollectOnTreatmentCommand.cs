@@ -54,6 +54,15 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 /// must not take the money twice. The difference is derived from
 /// <see cref="TreatmentPlan.CollectedOnRecord"/> — the shape <c>BillDentalRecordCommand.TopUpAsync</c> uses.
 /// </para>
+///
+/// <para>
+/// ⚠️ <b>A treatment whose money lives on a note d'honoraires collects ON THAT NOTE.</b> A continuation attaches
+/// the first séance's note to the devis (the note keeps the money), and from then on the échéancier is refused
+/// money (<c>PlanBridgeLookup</c>) — so the later séance had no route at all: the fiche refused « 60 » and the
+/// dentist had to leave it for the devis' « Encaisser » (production, devis 2026-0011, 30/09/2026). The payment is
+/// tagged with this fiche (<c>Payment.DentalRecordId</c>), which keeps a re-save idempotent and lets a deletion
+/// find it.
+/// </para>
 /// </summary>
 public class CollectOnTreatmentCommand : IRequest<Result<TreatmentCollectionResult>>
 {
@@ -102,6 +111,12 @@ public class TreatmentCollectionResult
     /// <summary>True when this call is what gave the treatment its number.</summary>
     public bool DevisIssued { get; set; }
 
+    /// <summary>
+    /// The note d'honoraires the money went onto, when the treatment is billed on one — null when it went onto
+    /// the devis' own échéancier. <see cref="Outstanding"/> is then that note's.
+    /// </summary>
+    public string? NoteNumber { get; set; }
+
     public string? Message { get; set; }
 }
 
@@ -126,6 +141,7 @@ public class CollectOnTreatmentCommandHandler
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IDentalRecordRepository _recordRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CollectOnTreatmentCommandHandler> _logger;
@@ -134,6 +150,7 @@ public class CollectOnTreatmentCommandHandler
         ITreatmentPlanRepository planRepository,
         IProcedureTypeRepository procedureTypeRepository,
         IDentalRecordRepository recordRepository,
+        IInvoiceRepository invoiceRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<CollectOnTreatmentCommandHandler> logger)
@@ -141,6 +158,7 @@ public class CollectOnTreatmentCommandHandler
         _planRepository = planRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _recordRepository = recordRepository;
+        _invoiceRepository = invoiceRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -173,6 +191,16 @@ public class CollectOnTreatmentCommandHandler
             // The increment, from what THIS fiche has already put on the treatment. See the type remarks: the
             // request carries the séance's cumulative figure, so a re-save must add the difference or nothing.
             var requested = InvoiceCalculator.RoundMoney(request.Amount);
+
+            // A note that represents the devis holds its money: collect there, never on the échéancier.
+            var bridge = (await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken))
+                .FirstOrDefault(l => l.TreatmentPlanId == plan.Id && PlanBillingRules.RepresentsItsPlan(l.Status));
+            if (bridge.InvoiceId != Guid.Empty)
+            {
+                return await CollectOnNoteAsync(
+                    request, plan, record, bridge.InvoiceId, clinicId, requested, cancellationToken);
+            }
+
             var already = plan.CollectedOnRecord(record.Id);
             var delta = InvoiceCalculator.RoundMoney(requested - already);
 
@@ -289,6 +317,93 @@ public class CollectOnTreatmentCommandHandler
             return Result<TreatmentCollectionResult>.Failure("Erreur lors de l'encaissement sur le traitement.");
         }
     }
+
+    /// <summary>
+    /// The bridged branch — the same cumulative-figure rule, on the note that represents the devis. The note's
+    /// own fiche is left alone: its « Payé » already is its collection (<c>BillDentalRecordCommand</c>).
+    /// </summary>
+    private async Task<Result<TreatmentCollectionResult>> CollectOnNoteAsync(
+        CollectOnTreatmentCommand request,
+        TreatmentPlan plan,
+        DentalRecord record,
+        Guid invoiceId,
+        Guid clinicId,
+        decimal requested,
+        CancellationToken cancellationToken)
+    {
+        var note = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
+        if (note == null || note.ClinicId != clinicId)
+        {
+            return Result<TreatmentCollectionResult>.Failure("Note d'honoraires introuvable.");
+        }
+
+        var noteLabel = note.Number is null ? "la note d'honoraires" : $"la note n° {note.Number}";
+
+        if (note.DentalRecordId == record.Id)
+        {
+            return Result<TreatmentCollectionResult>.Success(Outcome(TreatmentCollectionOutcome.NotCollected, plan, note));
+        }
+
+        var already = note.CollectedOnRecord(record.Id);
+        if (requested < already)
+        {
+            return Result<TreatmentCollectionResult>.Failure(
+                $"{already:0.000} DT ont déjà été encaissés sur {noteLabel} pour cette séance. "
+                + $"Un encaissement ne se diminue pas ici : annulez le paiement sur {noteLabel}.",
+                TreatmentCollectionRefusals.CollectionLoweredCode);
+        }
+
+        var delta = InvoiceCalculator.RoundMoney(requested - already);
+        if (delta <= 0m)
+        {
+            return Result<TreatmentCollectionResult>.Success(Outcome(
+                requested <= 0m ? TreatmentCollectionOutcome.NotCollected : TreatmentCollectionOutcome.AlreadyCollected,
+                plan, note));
+        }
+
+        if (!Enum.TryParse<PaymentMethod>(request.Method, ignoreCase: true, out var method))
+        {
+            return Result<TreatmentCollectionResult>.Failure("Mode de paiement invalide.");
+        }
+
+        // `ArgumentException` on a non-cheque method carrying cheque details — caught by the caller's handler.
+        var cheque = ChequeDetails.For(method, request.ChequeNumber, request.ChequeBankName, request.ChequeDueDate);
+
+        var paidOn = request.PaidOn ?? record.InterventionDate;
+        var dateError = PaymentDateRules.Validate(paidOn, "La date du paiement");
+        if (dateError != null)
+        {
+            return Result<TreatmentCollectionResult>.Failure(dateError);
+        }
+
+        if (delta > note.Outstanding)
+        {
+            return Result<TreatmentCollectionResult>.Failure(
+                $"Le montant encaissé dépasse ce qui reste dû sur {noteLabel} ({note.Outstanding:0.000} DT).",
+                TreatmentCollectionRefusals.ExceedsOutstandingCode);
+        }
+
+        note.RecordPayment(delta, method, paidOn, cheque: cheque, dentalRecordId: record.Id);
+        await _invoiceRepository.UpdateAsync(note, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Collected {Amount} on note {Number} (treatment {PlanId}) from fiche {RecordId}",
+            delta, note.Number, plan.Id, record.Id);
+
+        var collected = Outcome(TreatmentCollectionOutcome.Collected, plan, note);
+        collected.AmountCollected = delta;
+        return Result<TreatmentCollectionResult>.Success(collected);
+    }
+
+    private static TreatmentCollectionResult Outcome(
+        TreatmentCollectionOutcome outcome, TreatmentPlan plan, Invoice note) => new()
+    {
+        Outcome = outcome,
+        PlanNumber = plan.Number,
+        NoteNumber = note.Number,
+        Outstanding = note.Outstanding,
+    };
 
     /// <summary>
     /// Number the treatment so it can hold the money — <see cref="IssueDevisCommand"/>'s body, called directly

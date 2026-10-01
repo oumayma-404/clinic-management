@@ -142,6 +142,15 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             .Select(i => i.AmountCollected)
             .ToListAsync(cancellationToken);
 
+        // A séance's collection on another séance's note (`Payment.DentalRecordId`), its fiche since deleted.
+        var orphanNotePayments = await _context.Invoices
+            .SelectMany(i => i.Payments)
+            .Where(p => p.DentalRecordId != null
+                && !p.IsVoided
+                && !_context.DentalRecords.Any(r => r.Id == p.DentalRecordId))
+            .Select(p => p.Amount)
+            .ToListAsync(cancellationToken);
+
         var ficheOrphans = new FicheOrphanFacts(
             InstallmentPayments: orphanInstallmentPayments.Count,
             InstallmentPaymentAmount: orphanInstallmentPayments.Sum(),
@@ -149,7 +158,9 @@ public class MoneyReconciliationReader : IMoneyReconciliationReader
             InvoiceAmountCollected: orphanInvoices.Sum(),
             MedicalDocuments: await _context.MedicalDocuments
                 .CountAsync(d => d.DentalRecordId != null
-                    && !_context.DentalRecords.Any(r => r.Id == d.DentalRecordId), cancellationToken));
+                    && !_context.DentalRecords.Any(r => r.Id == d.DentalRecordId), cancellationToken),
+            NotePayments: orphanNotePayments.Count,
+            NotePaymentAmount: orphanNotePayments.Sum());
 
         // Invoices that already hold at least one carried-over payment.
         var carriedInvoiceIds = (await _context.Invoices
