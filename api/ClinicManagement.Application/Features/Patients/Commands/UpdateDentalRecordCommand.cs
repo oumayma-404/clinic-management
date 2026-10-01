@@ -11,6 +11,7 @@ using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
 
@@ -216,9 +217,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // « Un acte porté par un devis est à 0 », imposed here rather than trusted from the client — the same
             // rule `PriceForPlanLinkedAct` already imposes when the séance is booked. Overtyping that 0 on the
             // fiche is what raised a note d'honoraires for work the treatment already prices.
+            // The continuation's first séance: its own note represents the devis and bills this act.
+            var ownNoteRepresentsThePlan = request.TreatmentPlanId is { } namedPlan
+                && (await _invoiceRepository.GetByDentalRecordAsync(clinicResult.Value, dentalRecord.Id, cancellationToken))
+                    .Any(n => n.TreatmentPlanId == namedPlan && PlanBillingRules.RepresentsItsPlan(n.Status));
             var imposed = await PlanCarriedActPricing.ImposeAsync(
                 _treatmentPlanRepository, parsed.Value!, request.TreatmentPlanId, request.TreatmentPlanItemId,
-                clinicResult.Value, _logger, cancellationToken);
+                clinicResult.Value, _logger, cancellationToken, ownNoteRepresentsThePlan);
             // ⚠️ The refusal is read, not just the acts: a fiche claiming a devis act it does not hold makes the
             // devis mark the WRONG act done. See `PlanCarriedAct.NamesAnActTheFicheDoesNotHold`.
             if (imposed.Refusal is not null)
@@ -272,6 +277,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // Read BEFORE the update overwrites it: moving a séance's date has to carry its money along, and
             // afterwards there is nothing left to compare against.
             var previousDate = dentalRecord.InterventionDate;
+            var amountPaidBefore = dentalRecord.AmountPaid;
 
             dentalRecord.Update(request.InterventionDate, request.AmountPaid, request.Notes, request.ImportantNotes);
             dentalRecord.SetActs(acts);
@@ -315,7 +321,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 // compared is exactly what a re-billing would print, before and after.
                 var allowed = DentalRecordBillingGuard.Check(
                     note, dentalRecord.Cost, request.AmountPaid,
-                    actsBefore, DentalRecordInvoiceLines.For(dentalRecord));
+                    actsBefore, DentalRecordInvoiceLines.For(dentalRecord),
+                    storedAmountPaid: amountPaidBefore);
                 if (allowed.IsFailure)
                 {
                     if (string.IsNullOrWhiteSpace(request.CorrectionReason))

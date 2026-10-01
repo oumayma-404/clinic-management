@@ -216,7 +216,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
 
             replacement.RecordPayment(
                 carried, payment.Method, payment.PaidOn, payment.SourceInstallmentPaymentId,
-                payment.ToChequeDetails(), payment.ToBankedStamp());
+                payment.ToChequeDetails(), payment.ToBankedStamp(), payment.DentalRecordId);
             remaining = InvoiceCalculator.RoundMoney(remaining - carried);
         }
 

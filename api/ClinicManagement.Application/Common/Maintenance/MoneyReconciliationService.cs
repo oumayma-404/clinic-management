@@ -379,13 +379,14 @@ public class MoneyReconciliationService
     /// </summary>
     private static IEnumerable<MoneyReconciliationFinding> CheckFicheOrphans(FicheOrphanFacts orphans)
     {
-        var total = orphans.InstallmentPayments + orphans.Invoices + orphans.MedicalDocuments;
+        var total = orphans.InstallmentPayments + orphans.Invoices + orphans.MedicalDocuments + orphans.NotePayments;
 
         yield return new MoneyReconciliationFinding(
             "(all clinics)",
             "no-money-without-a-fiche",
             $"{orphans.InstallmentPayments} encaissement(s) de devis ({Money(orphans.InstallmentPaymentAmount)}), "
-            + $"{orphans.Invoices} note(s) d'honoraires ({Money(orphans.InvoiceAmountCollected)} encaissés) "
+            + $"{orphans.Invoices} note(s) d'honoraires ({Money(orphans.InvoiceAmountCollected)} encaissés), "
+            + $"{orphans.NotePayments} encaissement(s) de séance sur une note ({Money(orphans.NotePaymentAmount)}) "
             + $"et {orphans.MedicalDocuments} document(s) pointing at a fiche de soins that no longer exists",
             total > 0 ? MoneyReconciliationSeverity.Drift : MoneyReconciliationSeverity.Info);
     }

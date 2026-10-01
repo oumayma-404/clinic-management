@@ -27,10 +27,9 @@ public interface IClinicSignupRepository
 
     /// <summary>
     /// Deletes rows that can no longer do anything — expired and unconsumed, or consumed longer ago than
-    /// <paramref name="consumedRetention"/> — and returns how many. Called opportunistically from the signup path
-    /// (AC-7) rather than from a background job: the table only grows when somebody signs up, so the write that
-    /// grows it is exactly the moment to trim it, and a whole recurring job for one small table is machinery
-    /// nobody needs.
+    /// <paramref name="consumedRetention"/> — and returns how many. Called from the signup path (AC-7) **and** from
+    /// the daily <c>SessionFamilyPurgeJob</c>: the signup path alone bounds the table's size but not its age, so on
+    /// a quiet deployment a consumed row outlived its retention until the next signup.
     ///
     /// <para>⚠️ It commits on its own and is <b>bounded per call</b>, deliberately — see the implementation for
     /// the 409 that staging these deletes on the caller's <c>SaveChangesAsync</c> produced.</para>

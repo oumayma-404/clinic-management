@@ -1744,6 +1744,8 @@ export default function PatientDetailsPage() {
     // The note is what suppresses the devis' own « reste »: a bridged plan's échéance never sees a payment.
     planNumber: p.number,
     billedOnInvoiceNumber: p.linkedInvoiceNumber ?? null,
+    billedOnInvoiceTotal: p.linkedInvoiceTotal ?? null,
+    billedOnInvoiceOutstanding: p.linkedInvoiceOutstanding ?? null,
     planOutstanding: p.outstanding,
     // « Prix » in the fiche's footer: the devis' own total, net of remises.
     planTotal: p.totalPlanned,
@@ -4162,6 +4164,12 @@ procedureTypeId: it.procedureTypeId ?? null,
                         <li key={plan.id}>
                           {formatDT(plan.amount)} encaissés sur{" "}
                           {plan.number ? `le devis ${plan.number}` : `le traitement ${quoteFr(plan.title)}`}
+                        </li>
+                      ))}
+                      {(deletionPreview.noteCollections ?? []).map((note) => (
+                        <li key={note.id}>
+                          {formatDT(note.amount)} encaissés à cette séance sur la note{" "}
+                          {note.number ? `n° ${note.number}` : "en brouillon"} (la note est conservée)
                         </li>
                       ))}
                       {deletionPreview.note && deletionPreview.note.amount > 0 && (

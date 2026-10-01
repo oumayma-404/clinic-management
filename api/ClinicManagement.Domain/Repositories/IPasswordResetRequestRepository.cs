@@ -30,10 +30,8 @@ public interface IPasswordResetRequestRepository
 
     /// <summary>
     /// Deletes rows that can no longer do anything — expired and unconsumed, or consumed longer ago than
-    /// <paramref name="consumedRetention"/> — and returns how many. Called opportunistically from the request path
-    /// rather than from a background job, for the reason <see cref="IClinicSignupRepository.PurgeSpentAsync"/>
-    /// states: the table only grows when somebody asks for a reset, so the write that grows it is the moment to
-    /// trim it.
+    /// <paramref name="consumedRetention"/> — and returns how many. Called from the request path and from the daily
+    /// <c>SessionFamilyPurgeJob</c>, for the reason <see cref="IClinicSignupRepository.PurgeSpentAsync"/> states.
     ///
     /// <para>⚠️ It commits on its own and is <b>bounded per call</b> — staging these deletes on the caller's
     /// <c>SaveChangesAsync</c> turns a concurrent purge of the same rows into a 409 on a request that was

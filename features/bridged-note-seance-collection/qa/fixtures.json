@@ -1,0 +1,37 @@
+{
+  "ts": "179870",
+  "today": "2026-10-01",
+  "main": {
+    "patient": "f0f8db36-b701-438b-90eb-31ec6d0292b7",
+    "record1": "5a11347c-f932-460f-959d-9ffc5e0f84f4",
+    "record1Date": "2026-09-27",
+    "billing1": "Billed",
+    "note": null,
+    "noteNumber": null,
+    "plan": "546fd06f-df0d-428f-9d89-134048ab85c4",
+    "planNumber": "2026-0952",
+    "linkedInvoice": "2026-0780",
+    "item": "711f440f-93eb-4539-b431-1f982da617a9",
+    "step": "9dd1c53e-af17-45c1-a97e-83683966ca45",
+    "visit2": "50de9c81-074c-465e-85a1-9a023d0c3215"
+  },
+  "over": {
+    "patient": "25ab0934-ccb9-4bd9-88f9-59d97e2614b1",
+    "record1": "3ae0d912-1204-43ba-a040-69a90bf95bfe",
+    "record1Date": "2026-09-27",
+    "billing1": "Billed",
+    "note": null,
+    "noteNumber": null,
+    "plan": "f8e66390-646f-44cc-873c-ebcffae0f99a",
+    "planNumber": "2026-0953",
+    "linkedInvoice": "2026-0781",
+    "item": "7ca19790-ac9d-4e4a-8c87-6a3ef8e41c38",
+    "step": "9974a4d4-ecc7-4368-870f-830b12b4835e",
+    "visit2": "00ef0df4-78d5-4fd7-81fd-1f948e7cfab1"
+  },
+  "plain": {
+    "patient": "8a8e47c1-2606-4811-8cd7-a99ca3588a3f",
+    "plan": "c657da46-bf5d-486c-adcc-6e8a84775e86",
+    "visit2": "4310a8d6-465c-4a92-b5be-6d3c2935b8f5"
+  }
+}

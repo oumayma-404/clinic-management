@@ -230,6 +230,9 @@ public class TreatmentCollectionDto
     /// </summary>
     public bool DevisIssued { get; set; }
 
+    /// <summary>The note d'honoraires the money went onto, when the treatment is billed on one.</summary>
+    public string? NoteNumber { get; set; }
+
     /// <summary>The French reason, for <c>Refused</c>.</summary>
     public string? Message { get; set; }
 }

@@ -125,6 +125,9 @@ export interface PlanItemOption {
   planNumber?: string | null
   /** The note d'honoraires that holds this devis' money, when one does. */
   billedOnInvoiceNumber?: string | null
+  /** That note's TTC and what it still awaits — the figures a later séance collects against. */
+  billedOnInvoiceTotal?: number | null
+  billedOnInvoiceOutstanding?: number | null
   /**
    * The note that already collects **this act** while the devis stays live — what a continuation leaves behind,
    * and the reason such an act sits on the devis at 0.
@@ -1248,10 +1251,16 @@ export function PatientRecordModal({
    * and the server then saved 0. Whoever says so — the booking, the record, or the dentist — the séance
    * carries this devis act, so its card is marked.
    */
+  /*
+   * ⚠️ Not on the continuation's FIRST séance: its own note represents the devis and bills this act at its real
+   * fee, so marking it zeroed the séance's total and refused its own « Payé » on every re-save
+   * (`PlanCarriedActPricing`'s `billedOnANoteRepresentingThePlan` is the server half).
+   */
+  const ownNoteRepresentsThePlan = isInvoiced && billedPlanItem?.billedOnInvoiceNumber != null
   useEffect(() => {
-    if (!open || !billedPlanItem) return
+    if (!open || !billedPlanItem || ownNoteRepresentsThePlan) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
-  }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, dispatch])
+  }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, ownNoteRepresentsThePlan, dispatch])
 
   /*
    * C4b — the séance's OTHER acts of the same devis. Read from the saved fiche on a reopen (the DTO names every
@@ -1350,7 +1359,15 @@ export function PatientRecordModal({
    * collect against that figure would quote a balance the patient has already paid down elsewhere, so the field
    * is withdrawn and the banner's « Encaissement sur la note … » stands alone.</p>
    */
-  const collectsOnTreatment = carriedByDevis && !billedPlanItem?.billedOnInvoiceNumber
+  /*
+   * ⚠️ **Except on a LATER séance, which collects on that note.** A continuation attaches the first séance's
+   * note to the devis, and the séance after it had no way to take the rest: « Payé » refused anything above its
+   * 0 total, and the dentist had to leave for the devis' « Encaisser » (devis 2026-0011, 30/09/2026). The note's
+   * own fiche (`isInvoiced`) keeps its « Payé » — that already is its collection.
+   */
+  const bridgeNote = billedPlanItem?.billedOnInvoiceNumber ?? null
+  const collectsOnNote = carriedByDevis && bridgeNote !== null && !isInvoiced
+  const collectsOnTreatment = carriedByDevis && (bridgeNote === null || collectsOnNote)
 
   /**
    * How « Ajouter au devis » names the treatment it will amend, or null when the choice is not offered.
@@ -1373,7 +1390,7 @@ export function PatientRecordModal({
    * be added to a followed treatment too.</p>
    */
   const addToPlanTarget =
-    collectsOnTreatment && billedPlanItem?.planNumber ? billedPlanItem.planNumber : null
+    collectsOnTreatment && !bridgeNote && billedPlanItem?.planNumber ? billedPlanItem.planNumber : null
 
   /*
    * Every act this séance ADDS goes on the devis it is carrying out — no tick, no way out (owner's decision,
@@ -1401,8 +1418,13 @@ export function PatientRecordModal({
    */
   const seanceScope = collectsOnTreatment ? " (séance)" : ""
 
+  // On a bridged devis the NOTE's figures: the devis' own outstanding is an échéance that never sees a payment.
   const treatmentOutstandingBefore = billedPlanItem
-    ? roundMillimes(billedPlanItem.planOutstanding ?? billedPlanItem.netCost ?? 0)
+    ? roundMillimes(
+        collectsOnNote
+          ? billedPlanItem.billedOnInvoiceOutstanding ?? 0
+          : billedPlanItem.planOutstanding ?? billedPlanItem.netCost ?? 0,
+      )
     : 0
   const collectedOnPlanAmount = parseAmountInput(collectedOnPlan) || 0
   /**
@@ -1442,7 +1464,12 @@ export function PatientRecordModal({
    * total was served.
    */
   const treatmentPriceBefore = billedPlanItem
-    ? roundMillimes(billedPlanItem.planTotal ?? billedPlanItem.netCost ?? 0)
+    ? roundMillimes(
+        (collectsOnNote ? billedPlanItem.billedOnInvoiceTotal : null) ??
+          billedPlanItem.planTotal ??
+          billedPlanItem.netCost ??
+          0,
+      )
     : 0
   const treatmentPrice = roundMillimes(treatmentPriceBefore + planAdditionTotal)
   /**
@@ -1874,7 +1901,11 @@ export function PatientRecordModal({
       switch (saved.treatmentCollection?.outcome) {
         case "Collected": {
           const collection = saved.treatmentCollection
-          const devis = collection.planNumber ? ` (devis n° ${collection.planNumber})` : ""
+          const devis = collection.noteNumber
+            ? ` (note n° ${collection.noteNumber})`
+            : collection.planNumber
+              ? ` (devis n° ${collection.planNumber})`
+              : ""
           toast.success(base, {
             description:
               `${formatDT(collection.amountCollected ?? 0)} payés sur le traitement${devis}` +
@@ -2838,7 +2869,9 @@ export function PatientRecordModal({
                     {formatDT(alreadyCollectedOnPlan)} déjà payés à cette séance · un encaissement ne se diminue pas
                     ici : annulez-le sur{" "}
                     {/* H8: the remedy is one click away — in a new tab, so this fiche and its edits stay open. */}
-                    {billedPlanItem?.planId ? (
+                    {collectsOnNote ? (
+                      `la note n° ${bridgeNote}`
+                    ) : billedPlanItem?.planId ? (
                       <Link
                         href={`/treatment-plans/${billedPlanItem.planId}`}
                         target="_blank"

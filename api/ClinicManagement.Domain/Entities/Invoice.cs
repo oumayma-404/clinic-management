@@ -373,7 +373,8 @@ public class Invoice : AggregateRoot<Guid>
         DateTime paidOn,
         Guid? sourceInstallmentPaymentId = null,
         ChequeDetails? cheque = null,
-        ChequeBankedStamp? banked = null)
+        ChequeBankedStamp? banked = null,
+        Guid? dentalRecordId = null)
     {
         if (Status != InvoiceStatus.Issued && Status != InvoiceStatus.PartiallyPaid)
             throw new InvalidOperationException("Un paiement ne peut être enregistré que sur une facture émise.");
@@ -389,10 +390,26 @@ public class Invoice : AggregateRoot<Guid>
             throw new InvalidOperationException("Le paiement dépasse le montant restant dû.");
 
         _payments.Add(new Payment(
-            Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId, cheque, banked));
+            Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId, cheque, banked, dentalRecordId));
         RecomputeCollected();
         Touch();
     }
+
+    /// <summary>
+    /// What <paramref name="dentalRecordId"/> has collected on this note as ANOTHER séance — the idempotence key a
+    /// re-saved fiche compares its cumulative figure with. <see cref="TreatmentPlan.CollectedOnRecord"/>'s twin.
+    /// </summary>
+    public decimal CollectedOnRecord(Guid dentalRecordId) => InvoiceCalculator.RoundMoney(
+        _payments.Where(p => !p.IsVoided && p.DentalRecordId == dentalRecordId).Sum(p => p.Amount));
+
+    /// <summary>
+    /// What this note collected that belongs to <paramref name="dentalRecordId"/>'s own « Payé » — everything
+    /// except what OTHER séances put on it. The note's own fiche compares against this, never against
+    /// <see cref="AmountCollected"/>, or a later séance's money would read as the first séance being lowered.
+    /// </summary>
+    public decimal CollectedExcludingOtherRecords(Guid dentalRecordId) => InvoiceCalculator.RoundMoney(
+        _payments.Where(p => !p.IsVoided && (p.DentalRecordId == null || p.DentalRecordId == dentalRecordId))
+            .Sum(p => p.Amount));
 
     /// <summary>
     /// Void a recorded payment — "this was never received". The row is kept and marked, never deleted, so the

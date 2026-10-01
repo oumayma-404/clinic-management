@@ -54,6 +54,11 @@ public static class PlanCarriedActPricing
     /// </summary>
     /// <param name="treatmentPlanId">The devis named by the request; null leaves everything alone.</param>
     /// <param name="treatmentPlanItemId">The devis act named by the request; null leaves everything alone.</param>
+    /// <param name="billedOnANoteRepresentingThePlan">
+    /// True when this fiche is billed on its own note and that note represents the devis — the first séance of a
+    /// continuation (« the note keeps the money »). Its act is priced on the NOTE, so the 0 is not imposed: zeroing
+    /// it made the unchanged fiche unsaveable (« Payé 100 dépasse le total 0 ») for the life of the treatment.
+    /// </param>
     public static async Task<Imposed> ImposeAsync(
         ITreatmentPlanRepository planRepository,
         List<DentalRecordActInput> acts,
@@ -61,7 +66,8 @@ public static class PlanCarriedActPricing
         Guid? treatmentPlanItemId,
         Guid clinicId,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool billedOnANoteRepresentingThePlan = false)
     {
         if (treatmentPlanId is not { } planId || treatmentPlanItemId is not { } itemId || acts.Count == 0)
         {
@@ -119,7 +125,7 @@ public static class PlanCarriedActPricing
         // act, and two copies of « which act does the devis carry » would price the implant and chart the filling.
         var index = PlanCarriedAct.IndexIn(acts, item);
 
-        if (index < 0 || (acts[index].Cost == 0m && acts[index].UnitCost is null or 0m))
+        if (billedOnANoteRepresentingThePlan || index < 0 || (acts[index].Cost == 0m && acts[index].UnitCost is null or 0m))
         {
             return new Imposed(acts);
         }

@@ -112,6 +112,7 @@ public static class DentalRecordTreatmentCollection
                     AmountCollected = collection.AmountCollected,
                     Outstanding = collection.Outstanding,
                     DevisIssued = collection.DevisIssued,
+                    NoteNumber = collection.NoteNumber,
                     Message = collection.Message,
                 };
             }

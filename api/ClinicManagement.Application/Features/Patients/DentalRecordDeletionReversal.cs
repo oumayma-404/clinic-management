@@ -106,6 +106,41 @@ public static class DentalRecordDeletionReversal
                 + "en supprimant celle-ci. Établissez un avoir sur la ligne concernée.");
         }
 
+        /*
+         * The money this fiche took on a note it did NOT raise — a later séance of a treatment billed on another
+         * séance's note. Only those payments go; the note is the first séance's document and stays standing.
+         */
+        var noteCollections = new List<NoteCollectionReversal>();
+        foreach (var note in await invoiceRepository.GetCollectedOnByDentalRecordAsync(clinicId, record.Id, cancellationToken))
+        {
+            var taken = note.Payments.Where(p => !p.IsVoided && p.DentalRecordId == record.Id).ToList();
+            if (taken.Count == 0 || note.Status == InvoiceStatus.Cancelled)
+            {
+                continue;
+            }
+
+            var banked = taken.FirstOrDefault(p => p.ChequeBankedOn.HasValue);
+            if (banked is not null)
+            {
+                return DentalRecordReversal.Refused(
+                    $"Cette séance a encaissé un chèque déjà marqué encaissé en banque "
+                    + $"({banked.Amount:0.000} DT sur la note {NoteLabel(note)}). "
+                    + "Corrigez-le sur la note, puis supprimez la fiche.");
+            }
+
+            var credited = await creditNoteRepository.GetTotalForInvoiceAsync(note.Id, cancellationToken);
+            if (InvoiceCalculator.RoundMoney(note.AmountCollected - taken.Sum(p => p.Amount))
+                < InvoiceCalculator.RoundMoney(credited))
+            {
+                return DentalRecordReversal.Refused(
+                    $"Un avoir de {credited:0.000} DT a déjà été établi sur la note {NoteLabel(note)} : "
+                    + "l'encaissement de cette séance ne peut plus être annulé. Complétez l'avoir, puis supprimez la fiche.");
+            }
+
+            noteCollections.Add(new NoteCollectionReversal(
+                note, taken.Select(p => (p.Id, p.Amount, p.PaidOn)).ToList(), credited));
+        }
+
         var noteReversals = new List<NoteReversal>();
         foreach (var note in notes)
         {
@@ -147,7 +182,7 @@ public static class DentalRecordDeletionReversal
                 credited));
         }
 
-        return new DentalRecordReversal(collections, noteReversals, null);
+        return new DentalRecordReversal(collections, noteReversals, null, noteCollections);
     }
 
     /// <summary>
@@ -179,6 +214,16 @@ public static class DentalRecordDeletionReversal
             }
 
             await planRepository.UpdateAsync(collection.Plan, cancellationToken);
+        }
+
+        foreach (var collection in reversal.NoteCollections)
+        {
+            foreach (var (paymentId, _, _) in collection.Payments)
+            {
+                collection.Invoice.VoidPayment(paymentId, reason, collection.CreditedTotal, actorUserId, actorName);
+            }
+
+            await invoiceRepository.UpdateAsync(collection.Invoice, cancellationToken);
         }
 
         foreach (var note in reversal.Notes)
@@ -262,22 +307,27 @@ public static class DentalRecordDeletionReversal
 /// Non-null when the deletion must be refused, already phrased for the user. A refusal is always preferred to a
 /// partial reversal: money half-undone is the one outcome nobody can read.
 /// </param>
+/// <param name="NoteCollections">What this fiche collected on notes it did not raise — voided, the notes kept.</param>
 public sealed record DentalRecordReversal(
     IReadOnlyList<PlanCollectionReversal> PlanCollections,
     IReadOnlyList<NoteReversal> Notes,
-    string? Refusal)
+    string? Refusal,
+    IReadOnlyList<NoteCollectionReversal> NoteCollections)
 {
     public static DentalRecordReversal Refused(string message) =>
-        new(Array.Empty<PlanCollectionReversal>(), Array.Empty<NoteReversal>(), message);
+        new(Array.Empty<PlanCollectionReversal>(), Array.Empty<NoteReversal>(), message,
+            Array.Empty<NoteCollectionReversal>());
 
     public bool IsRefused => Refusal is not null;
 
     /// <summary>True when this deletion moves money — what makes the confirmation a warning rather than a nicety.</summary>
-    public bool TouchesMoney => PlanCollections.Count > 0 || Notes.Any(n => n.Payments.Count > 0);
+    public bool TouchesMoney =>
+        PlanCollections.Count > 0 || NoteCollections.Count > 0 || Notes.Any(n => n.Payments.Count > 0);
 
     /// <summary>Everything that will leave la caisse, devis and note together.</summary>
     public decimal TotalReversed => InvoiceCalculator.RoundMoney(
         PlanCollections.Sum(c => c.Payments.Sum(p => p.Amount))
+        + NoteCollections.Sum(c => c.Payments.Sum(p => p.Amount))
         + Notes.Sum(n => n.Payments.Sum(p => p.Amount)));
 
     /// <summary>
@@ -287,6 +337,7 @@ public sealed record DentalRecordReversal(
     /// </summary>
     public IReadOnlyList<DateTime> AffectedCaisseDays => PlanCollections
         .SelectMany(c => c.Payments.Select(p => p.PaidOn.Date))
+        .Concat(NoteCollections.SelectMany(c => c.Payments.Select(p => p.PaidOn.Date)))
         .Concat(Notes.SelectMany(n => n.Payments.Select(p => p.PaidOn.Date)))
         .Distinct()
         .OrderBy(d => d)
@@ -297,6 +348,13 @@ public sealed record DentalRecordReversal(
 public sealed record PlanCollectionReversal(
     TreatmentPlan Plan,
     IReadOnlyList<(Guid InstallmentId, Guid PaymentId, decimal Amount, DateTime PaidOn)> Payments);
+
+/// <summary>A note another séance raised, and the live payments THIS fiche put on it.</summary>
+/// <param name="CreditedTotal">Σ avoirs already issued — <c>Invoice.VoidPayment</c> requires it (R2).</param>
+public sealed record NoteCollectionReversal(
+    Invoice Invoice,
+    IReadOnlyList<(Guid PaymentId, decimal Amount, DateTime PaidOn)> Payments,
+    decimal CreditedTotal);
 
 /// <summary>One note d'honoraires raised from this fiche, and the live payments on it.</summary>
 /// <param name="CreditedTotal">Σ avoirs already issued — <c>Invoice.VoidPayment</c> requires it (R2).</param>
