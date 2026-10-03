@@ -26,6 +26,7 @@ import { AppointmentList } from "@/components/appointment-list"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { useSession } from "@/lib/auth/session"
 import { hidesClinicWideMoney } from "@/lib/nav"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
@@ -176,6 +177,7 @@ function DashboardContent() {
   )
   const { isVisible, hidden, toggle, resetToDefaults, showAll, loading: prefsLoading, saving } =
     useDashboardPreferences()
+  const { moneyShown } = useMoneyVisibility()
 
   /*
    * Today's appointments, fetched ONCE for the whole day board.
@@ -658,7 +660,8 @@ function DashboardContent() {
           </DashboardSection>
         )}
 
-        {!error && (hasVisible("money", "figure") || isVisible("trend")) && (
+        {/* « Mode discret »: drawn only once the cabinet is known to show its money, so a reload never flashes it. */}
+        {!error && moneyShown && (hasVisible("money", "figure") || isVisible("trend")) && (
           <DashboardSection
             title={SECTION_LABELS.money}
             hint={comparedToLabel(period)}
@@ -695,7 +698,7 @@ function DashboardContent() {
             }
           >
             <div className="space-y-3">
-              {data?.money.clinicWideOutgoings && (
+              {data?.money?.clinicWideOutgoings && (
                 <p role="note" className="rounded-md bg-warning-wash p-2.5 text-xs text-warning-ink">
                   Filtré par praticien&nbsp;: «&nbsp;Encaissé&nbsp;» ne compte que les paiements de factures
                   {data.money.collectedInvoicesOnly ? " (hors échéances de devis)" : ""}, et
@@ -711,24 +714,24 @@ function DashboardContent() {
                 {/* Same fill as l'activité above — see the note there. The trend chart is the taller half here. */}
                 <div className="flex flex-col gap-3">
                   <KpiGrid columns={1}>
-                    {kpi("net", money(data?.money.net.current), Scale, {
-                      comparison: data?.money.net,
+                    {kpi("net", money(data?.money?.net.current), Scale, {
+                      comparison: data?.money?.net,
                       emphasis: "lead",
                     })}
                   </KpiGrid>
                   <KpiGrid columns={2} className="auto-rows-fr xl:flex-1">
-                    {kpi("collected", money(data?.money.collected.current), Wallet, {
-                      comparison: data?.money.collected,
+                    {kpi("collected", money(data?.money?.collected.current), Wallet, {
+                      comparison: data?.money?.collected,
                     })}
-                    {kpi("invoiced", money(data?.money.invoiced.current), Receipt, {
-                      comparison: data?.money.invoiced,
+                    {kpi("invoiced", money(data?.money?.invoiced.current), Receipt, {
+                      comparison: data?.money?.invoiced,
                     })}
-                    {kpi("expenses", money(data?.money.expenses.current), PackageMinus, {
-                      comparison: data?.money.expenses,
+                    {kpi("expenses", money(data?.money?.expenses.current), PackageMinus, {
+                      comparison: data?.money?.expenses,
                       sense: "up-is-bad",
                     })}
-                    {kpi("refunds", money(data?.money.refunds.current), Undo2, {
-                      comparison: data?.money.refunds,
+                    {kpi("refunds", money(data?.money?.refunds.current), Undo2, {
+                      comparison: data?.money?.refunds,
                       sense: "up-is-bad",
                     })}
                   </KpiGrid>

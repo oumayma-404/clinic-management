@@ -153,6 +153,9 @@ public class Clinic : AggregateRoot<Guid>
     /// </summary>
     public DateTime? LastVaultCopyAtUtc { get; private set; }
 
+    /// <summary>« Mode discret »: the clinic-wide money screens are hidden. Display only — no money row is touched.</summary>
+    public bool IsMoneyHidden { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -259,6 +262,18 @@ public class Clinic : AggregateRoot<Guid>
         VatRate = vatApplicable ? vatRate : 0m;
         StampDutyEnabled = stampDutyEnabled;
         StampDutyAmount = stampDutyEnabled ? stampDutyAmount : 0m;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void HideMoney()
+    {
+        IsMoneyHidden = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void ShowMoney()
+    {
+        IsMoneyHidden = false;
         UpdatedAt = DateTime.UtcNow;
     }
 

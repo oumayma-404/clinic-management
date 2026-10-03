@@ -37,6 +37,9 @@ import type { LucideIcon } from "lucide-react"
 export type NavItem = { name: string; href: string; icon: LucideIcon }
 export type NavSection = { title: string; items: NavItem[] }
 
+/** The « Finances » group's title — also what `MONEY_HIDDEN_HREFS` is derived from. */
+const FINANCES_SECTION_TITLE = "Finances"
+
 // Daily-use sections. Config/catalog screens live in a separate "Configuration" group (built below with
 // role gating) so the everyday rail stays short. Mon profil moved to the header user menu, and the read-only
 // /records shortcut was removed (the patient page owns that data).
@@ -88,7 +91,7 @@ export const baseSections: NavSection[] = [
     ],
   },
   {
-    title: "Finances",
+    title: FINANCES_SECTION_TITLE,
     items: [
       { name: "Factures", href: "/factures", icon: Receipt },
       { name: "Caisse", href: "/caisse", icon: Wallet },
@@ -211,8 +214,17 @@ export function isAdminOrDoctor(role: string | null | undefined): boolean {
   return role === "admin" || role === "doctor"
 }
 
+/**
+ * The destinations « Mode discret » withdraws: every row of the « Finances » group, derived from it so a fourth
+ * Finances screen is hidden the day it is added. The dashboard stays — only its « L'argent » block goes.
+ */
+export const MONEY_HIDDEN_HREFS: ReadonlySet<string> = new Set(
+  baseSections.find((s) => s.title === FINANCES_SECTION_TITLE)?.items.map((i) => i.href) ?? [],
+)
+
 /** Is this destination reachable by that role? Shared by the rail, the drawer and the phone's bottom bar. */
-export function isNavItemVisible(href: string, role: string | null | undefined): boolean {
+export function isNavItemVisible(href: string, role: string | null | undefined, moneyHidden = false): boolean {
+  if (moneyHidden && MONEY_HIDDEN_HREFS.has(href)) return false
   return !hidesClinicWideMoney(role) || !SECRETARY_HIDDEN_HREFS.has(href)
 }
 
@@ -228,9 +240,14 @@ export function buildNavSections(
   role: string | null | undefined,
   /** Whether this deployment works by subscription — see {@link buildConfigItems}. Defaults to showing the row. */
   showSubscription = true,
+  /** « Mode discret » is on — see {@link MONEY_HIDDEN_HREFS}. Defaults to shown, so `zones.ts`' icon map stays complete. */
+  moneyHidden = false,
 ): NavSection[] {
   const visible = baseSections
-    .map((section) => ({ ...section, items: section.items.filter((i) => isNavItemVisible(i.href, role)) }))
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((i) => isNavItemVisible(i.href, role, moneyHidden)),
+    }))
     .filter((section) => section.items.length > 0)
 
   return [

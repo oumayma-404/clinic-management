@@ -386,8 +386,9 @@ export interface AppointmentStatusMixDto {
 export interface DashboardDto {
   period: DashboardPeriodDto;
   activity: DashboardActivityDto;
-  money: DashboardMoneyDto;
-  receivables: DashboardReceivablesDto;
+  /** Null while « Mode discret » is on: the server reads no money figure at all. */
+  money: DashboardMoneyDto | null;
+  receivables: DashboardReceivablesDto | null;
   alerts: DashboardAlertsDto;
   trend: MonthlyCollectedPointDto[];
   /** Busiest act types of the period, already ordered and capped server-side. */

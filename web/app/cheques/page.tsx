@@ -8,6 +8,8 @@ import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { ChequesTable } from "@/components/caisse/cheques-table"
 import { useSession } from "@/lib/auth/session"
 import { hidesClinicWideMoney } from "@/lib/nav"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
+import { MoneyHiddenCard } from "@/components/money-hidden-card"
 import { quoteFr } from "@/lib/format"
 
 /**
@@ -19,14 +21,17 @@ import { quoteFr } from "@/lib/format"
  */
 export default function ChequesPage() {
   const { user, isLoading } = useSession()
-  const denied = hidesClinicWideMoney(user?.role)
+  const { visibility } = useMoneyVisibility()
+  const denied = hidesClinicWideMoney(user?.role) || visibility === "hidden"
 
   return (
     <ClinicGuard>
       {/* `7xl`, the default — the table is eight columns wide and the `5xl` /creances uses would crush it. */}
       <AppShell width={denied ? "none" : "7xl"} gutter={!denied} contentClassName={denied ? undefined : "space-y-6"}>
-        {isLoading ? (
+        {isLoading || visibility === "unknown" ? (
           <AppLoader />
+        ) : visibility === "hidden" ? (
+          <MoneyHiddenCard />
         ) : denied ? (
           <AccessDeniedCard description="Les chèques détenus par le cabinet sont réservés au praticien et à l'administrateur. Un paiement par chèque reste enregistrable depuis la facture ou l'échéancier du patient." />
         ) : (

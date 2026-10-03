@@ -40,6 +40,7 @@ import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
+import { MoneyDiscreetCard } from "@/components/money-discreet-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
@@ -1525,6 +1526,9 @@ export default function ClinicSettings() {
             </div>
           </CardContent>
         </Card>
+
+        {/* « Mode discret » — last on the page, on the owner's call. */}
+        {isClinicAdmin && <MoneyDiscreetCard />}
       </div>
 
       {/* AC-P2.30 — set another practitioner's CNOMDT number and cachet (PUT /api/doctors/{id}). */}

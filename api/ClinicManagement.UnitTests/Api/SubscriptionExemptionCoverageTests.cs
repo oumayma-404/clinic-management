@@ -102,6 +102,8 @@ public class SubscriptionExemptionCoverageTests
         "PushDevices.Deregister",
         "PatientFiles.InitializeDefaultFolders",         // fired on the first visit to the Files tab; a READ fails
         "Dashboard.UpdatePreferences",                   // personal interface state, not clinic work
+        "Clinics.HideMoney",                             // « Mode discret » changes what is displayed, records no work
+        "Clinics.ShowMoney",
 
         // --- Getting your data out, and getting a colleague out (FR-3).
         "Backup.BackupNow",                              // the AC-4.2 argument; the scheduled one already keeps going

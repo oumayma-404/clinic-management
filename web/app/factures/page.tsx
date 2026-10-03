@@ -6,6 +6,8 @@ import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { AppLoader } from "@/components/ui/app-loader"
 import { useSession } from "@/lib/auth/session"
 import { hidesClinicWideMoney } from "@/lib/nav"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
+import { MoneyHiddenCard } from "@/components/money-hidden-card"
 import { PageHeader } from "@/components/ui/page-header"
 import { ExportButton } from "@/components/ui/export-button"
 import { AppShell } from "@/components/app-shell"
@@ -63,8 +65,10 @@ function RevenueValue({ loading, failed, value }: { loading: boolean; failed: bo
  */
 export default function FacturesPage() {
   const { user, isLoading } = useSession()
+  const { visibility } = useMoneyVisibility()
 
-  if (isLoading) {
+  // « Mode discret » unknown: wait, so no figure is painted before the answer.
+  if (isLoading || visibility === "unknown") {
     return (
       <ClinicGuard>
         <AppShell width="none" gutter={false}>
@@ -79,6 +83,16 @@ export default function FacturesPage() {
       <ClinicGuard>
         <AppShell width="none" gutter={false}>
           <AccessDeniedCard description="Les factures et le chiffre d'affaires du cabinet sont réservés au praticien et à l'administrateur. Vous pouvez encaisser un paiement depuis la fiche du patient." />
+        </AppShell>
+      </ClinicGuard>
+    )
+  }
+
+  if (visibility === "hidden") {
+    return (
+      <ClinicGuard>
+        <AppShell width="none" gutter={false}>
+          <MoneyHiddenCard />
         </AppShell>
       </ClinicGuard>
     )

@@ -57,6 +57,10 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
         builder.Property(c => c.StampDutyAmount)
             .HasDefaultValue(1.000m);
 
+        builder.Property(c => c.IsMoneyHidden)
+            .IsRequired()
+            .HasDefaultValue(false);
+
         // Working hours JSON array (reliability-and-polish AC-7) — opaque, variable length.
         builder.Property(c => c.WorkingHoursJson)
             .HasColumnType("text");

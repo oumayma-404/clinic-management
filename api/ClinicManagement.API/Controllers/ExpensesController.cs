@@ -46,6 +46,7 @@ public class ExpensesController : ApiControllerBase
     /// cannot see a page to accidentally export.</para>
     /// </summary>
     [HttpGet("export")]
+    [HiddenWhenMoneyMasked]
     public async Task<ActionResult> ExportExpenses(
         [FromQuery] string? fromDay = null,
         [FromQuery] string? toDay = null,
@@ -65,6 +66,7 @@ public class ExpensesController : ApiControllerBase
     }
 
     [HttpGet]
+    [HiddenWhenMoneyMasked]
     /// <param name="fromDay">
     /// Bare <c>YYYY-MM-DD</c> clinic-local days, the form la caisse sends so its dépenses table covers the same
     /// Tunisian window as the totals and the extrait above it (AC-6). Omit every date for the whole list — unlike
@@ -108,6 +110,7 @@ public class ExpensesController : ApiControllerBase
     /// instruction rather than period data. Active only — a stopped series is off the list.</para>
     /// </summary>
     [HttpGet("recurring")]
+    [HiddenWhenMoneyMasked]
     public async Task<ActionResult<IReadOnlyList<RecurringExpenseDto>>> GetRecurringExpenses()
     {
         var result = await _mediator.Send(new GetRecurringExpensesQuery());

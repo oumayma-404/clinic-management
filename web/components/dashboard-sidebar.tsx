@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { USER_ROLE_LABELS_FR, type UserRole } from "@/lib/api/users"
 import { buildNavSections, type NavItem, type NavSection } from "@/lib/nav"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { zoneForSectionTitle, type Zone } from "@/lib/zones"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
@@ -65,7 +66,8 @@ export function DashboardSidebar() {
 
   // The ROLE, not `isAdmin`: a secretary sees fewer destinations than a doctor (I1 — « Tableau de bord » and the
   // whole « Finances » group are `AdminOrDoctor` server-side), and an admin/not-admin boolean cannot say that.
-  const sections: NavSection[] = buildNavSections(user?.role, subscriptionEnforced)
+  const { moneyHidden } = useMoneyVisibility()
+  const sections: NavSection[] = buildNavSections(user?.role, subscriptionEnforced, moneyHidden)
 
   // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always
   // expanded (there is room, and a phone has no hover for the collapsed tooltips), while the desktop rail

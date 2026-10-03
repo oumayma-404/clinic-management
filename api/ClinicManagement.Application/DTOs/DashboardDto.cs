@@ -15,8 +15,9 @@ public class DashboardDto
 {
     public DashboardPeriodDto Period { get; set; } = new();
     public DashboardActivityDto Activity { get; set; } = new();
-    public DashboardMoneyDto Money { get; set; } = new();
-    public DashboardReceivablesDto Receivables { get; set; } = new();
+    /// <summary>Null while the cabinet's « Mode discret » is on — the figures are not read at all, not zeroed.</summary>
+    public DashboardMoneyDto? Money { get; set; } = new();
+    public DashboardReceivablesDto? Receivables { get; set; } = new();
     public DashboardAlertsDto Alerts { get; set; } = new();
 
     /// <summary>Six months of collected cash, oldest first, gaps filled with zero.</summary>

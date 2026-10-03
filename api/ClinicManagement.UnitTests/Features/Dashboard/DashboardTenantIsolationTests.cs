@@ -5,6 +5,7 @@ using ClinicManagement.Application.Features.Dashboard;
 using ClinicManagement.Application.Features.Dashboard.Queries;
 using ClinicManagement.Application.Features.Dashboard.Readers;
 using Microsoft.Extensions.Logging.Abstractions;
+using ClinicManagement.Domain.Repositories;
 using Moq;
 using Xunit;
 
@@ -34,7 +35,8 @@ public class DashboardTenantIsolationTests
 
     private GetDashboardQueryHandler Handler() => new(
         _activity.Object, _money.Object, _alerts.Object, _trend.Object, _procedureMix.Object,
-        _appointmentTrend.Object, _clinicResolver.Object, NullLogger<GetDashboardQueryHandler>.Instance);
+        _appointmentTrend.Object, _clinicResolver.Object, Mock.Of<IClinicRepository>(),
+        NullLogger<GetDashboardQueryHandler>.Instance);
 
     private void WireResolved(Guid clinicId)
     {

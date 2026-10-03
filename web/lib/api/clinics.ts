@@ -45,6 +45,8 @@ export interface ClinicDto {
   email?: string;
   code?: string;
   logoUrl?: string;
+  /** « Mode discret »: the clinic-wide money screens are hidden on every device. Read through `useMoneyVisibility`. */
+  isMoneyHidden?: boolean;
   // Billing / note-d'honoraires settings.
   matriculeFiscal?: string | null;
   vatApplicable?: boolean;
@@ -60,6 +62,13 @@ export interface ClinicDto {
    */
   version: number;
 }
+
+export interface ClinicMoneyMaskDto {
+  isMoneyHidden: boolean;
+}
+
+/** The step-up action « Afficher l'argent » spends. Mirrors `ClinicMoneyMask.ShowStepUpAction`. */
+export const SHOW_MONEY_STEP_UP_ACTION = 'show-money';
 
 export interface DoctorPersonalInfo {
   firstName: string;
@@ -196,6 +205,14 @@ export const clinicsApi = {
     }
     return result.value;
   },
+
+  /** « Masquer l'argent » — one click. Refused with `totp_not_enrolled` to an admin with no authenticator. */
+  hideMoney: async (): Promise<ClinicMoneyMaskDto> =>
+    apiPost<ClinicMoneyMaskDto>('/clinics/money/hide', {}),
+
+  /** « Afficher l'argent » — spends a `show-money` step-up confirmation, which only an authenticator code mints. */
+  showMoney: async (confirmationToken: string): Promise<ClinicMoneyMaskDto> =>
+    apiPost<ClinicMoneyMaskDto>('/clinics/money/show', { confirmationToken }),
 
   updateDoctors: async (doctors: DoctorDto[]): Promise<DoctorDto[]> => {
     // Send doctors array directly, backend expects UpdateDoctorsRequest with Doctors property
