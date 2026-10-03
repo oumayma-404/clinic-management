@@ -257,7 +257,7 @@ export default function VisitsToClosePage() {
             lets a row hold what fits and move the rest down, which also survives a fourth tab and a
             longer label without being re-measured.
           */}
-          <TabsList className="flex h-auto w-full flex-wrap items-stretch gap-1 p-1 sm:w-auto sm:flex-nowrap sm:justify-start">
+          <TabsList className="flex h-auto w-full flex-wrap items-stretch gap-1 p-1 sm:justify-start">
             {/* ⚠️ The labels are SHORTENED below `sm:`, with the full phrase kept as the accessible name.
                 `TabsTrigger` is `whitespace-nowrap`, so at 320 px the two labels plus their badges measured wider
                 than the 288 px content box and « Séances » was clipped to « s 32 » — the strip overflowed and the

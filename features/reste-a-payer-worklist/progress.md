@@ -9,7 +9,7 @@
 - [x] Quality checks — `dotnet build` 0 errors / 0 new warnings in changed files · `dotnet test` **4877 passed / 0 failed** (unfiltered) · `tsc` 0 · `check:responsive` 72/72 · ⏳ `npm run build` NOT run: :3000 is a peer's Next server and a build rewrites `web/.next` under it
 - [x] Blast radius closed (10 rows: 6 changed, 3 to re-test, 1 unaffected)
 - [ ] Tests (handled by /test-small-feature)
-- [ ] Browser QA
+- [x] Browser QA — 3 cycles: run-1 RED (2) → run-2 RED (1, tab strip at 820) → run-3 GREEN (28 ✅, 1 ⏭). Widths 320/390/820/1440/1536×730. `npm run build` still not run (peer's `next dev` on `web/.next`)
 
 ## Blast Radius
 | # | Touching | What it is | Other consumers | Verdict |
