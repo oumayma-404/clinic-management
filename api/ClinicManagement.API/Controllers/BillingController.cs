@@ -132,6 +132,25 @@ public class BillingController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>« Reste à payer » (À clôturer): patients who owe, split into due now and not due yet.</summary>
+    [HttpGet("billing/reste-a-payer")]
+    [HiddenWhenMoneyMasked]
+    // Every role, on the owner's decision: reception chases and collects this money, unlike « Créances ».
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<ActionResult<ResteAPayerPageDto>> GetResteAPayer(
+        [FromQuery] ResteAPayerList list = ResteAPayerList.Due,
+        [FromQuery] ResteAPayerSort sort = ResteAPayerSort.Age,
+        [FromQuery] string? search = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new GetResteAPayerQuery { List = list, Sort = sort, SearchTerm = search, Page = page, PageSize = pageSize },
+            cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     /// <summary>
     /// The caisse (daily cash) summary — encaissements (collected payments) minus dépenses (expenses)
     /// and the net, over [from, to). Both default to the current day when omitted.

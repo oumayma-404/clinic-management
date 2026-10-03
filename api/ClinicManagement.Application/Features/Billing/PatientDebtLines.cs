@@ -1,3 +1,4 @@
+using System.Globalization;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -89,6 +90,8 @@ public static class PatientDebtLines
                 continue;
             }
 
+            var invoiceOutstanding = InvoiceCalculator.RoundMoney(invoice.Outstanding);
+
             lines.Add(new PatientDebtLineDto(
                 Kind: InvoiceKind,
                 DocumentId: invoice.Id,
@@ -97,7 +100,7 @@ public static class PatientDebtLines
                 Covers: Covers(invoice.Lines.Select(l => l.Designation)),
                 Total: invoice.TotalTtc,
                 Collected: invoice.AmountCollected,
-                Outstanding: InvoiceCalculator.RoundMoney(invoice.Outstanding),
+                Outstanding: invoiceOutstanding,
                 // A legacy note with no issue date states no age rather than inventing one.
                 Since: invoice.IssueDate,
                 // ⚠️ Never true for a note, and the omission is the point. A note d'honoraires is payable on
@@ -106,7 +109,17 @@ public static class PatientDebtLines
                 // `InstallmentLateness` existed. The row carries `Since` and lets the reader judge.
                 IsOverdue: false,
                 PayableInstallmentId: null,
-                PayableRoom: InvoiceCalculator.RoundMoney(invoice.Outstanding),
+                PayableRoom: invoiceOutstanding,
+                // Payable on issue: the whole note is due now (not « late » — `IsOverdue` stays false above).
+                DueNow: invoiceOutstanding,
+                DueReason: invoice.IssueDate is { } issued ? $"Note du {DayMonth(issued)} non soldée" : "Note non soldée",
+                DueSince: invoice.IssueDate,
+                RunningReason: null,
+                NextInstallmentDue: null,
+                Acts: invoice.Lines
+                    .Select(l => new PatientDebtActDto(
+                        invoice.IssueDate ?? invoice.CreatedAt, l.Designation, Array.Empty<int>(), l.LineTotalHt, Done: true, Progress: null))
+                    .ToList(),
                 PartOfTreatment: Pairing(
                     planNumbersByInvoiceId.TryGetValue(invoice.Id, out var devis) ? devis : null)));
         }
@@ -138,6 +151,22 @@ public static class PatientDebtLines
 
             var target = unpaid.FirstOrDefault(i => i.Outstanding > 0m);
 
+            var planOutstanding = InvoiceCalculator.RoundMoney(plan.Outstanding);
+            var late = unpaid
+                .Where(i => InstallmentLateness.IsLate(
+                    i.IsPaid, i.IsAutoRaised, i.DueDate, plan.Status, planIsBilled: false, planHasUnrealisedWork, clinicToday))
+                .ToList();
+
+            // Capped at the devis's own reste, so « À relancer » + « En cours » always equals `Outstanding`
+            // even when the échéancier no longer sums to the plan (reconcile-money's plan-schedule-balances).
+            var dueNow = Math.Min(planOutstanding, InvoiceCalculator.RoundMoney(late.Sum(i => i.Outstanding)));
+            var running = planOutstanding - dueNow;
+            var agreedLate = late.FirstOrDefault(i => !i.IsAutoRaised);
+            var workFinishedOn = plan.ActiveItems.Select(LastDoneDate).Where(d => d.HasValue).Max();
+            var nextAgreed = unpaid.FirstOrDefault(i => !i.IsAutoRaised && i.Outstanding > 0m && !late.Contains(i));
+            var activeItems = plan.ActiveItems.ToList();
+            var actsDone = activeItems.Count(i => i.Status == TreatmentPlanItemStatus.Done);
+
             lines.Add(new PatientDebtLineDto(
                 Kind: TreatmentPlanKind,
                 DocumentId: plan.Id,
@@ -160,6 +189,19 @@ public static class PatientDebtLines
                     clinicToday)),
                 PayableInstallmentId: target?.Id,
                 PayableRoom: payableRoom,
+                DueNow: dueNow,
+                DueReason: dueNow <= 0m ? null
+                    : agreedLate is not null ? $"Échéance du {DayMonth(agreedLate.DueDate)} dépassée"
+                    : plan.Status == TreatmentPlanStatus.Stopped ? "Traitement arrêté, non soldé"
+                    : workFinishedOn is { } finished ? $"Traitement terminé le {DayMonth(finished)}"
+                    : "Traitement terminé, non soldé",
+                DueSince: dueNow <= 0m ? null : agreedLate?.DueDate ?? workFinishedOn ?? late.FirstOrDefault()?.DueDate,
+                RunningReason: running <= 0m ? null
+                    : planHasUnrealisedWork ? ActsDoneSentence(actsDone, activeItems.Count)
+                    : nextAgreed is not null ? $"Prochaine échéance le {DayMonth(nextAgreed.DueDate)}"
+                    : "Reste hors échéancier",
+                NextInstallmentDue: nextAgreed?.DueDate,
+                Acts: PlanActs(activeItems),
                 PartOfTreatment: Pairing(
                     invoiceNumbersByPlanId.TryGetValue(plan.Id, out var notes) ? notes : null)));
         }
@@ -173,6 +215,42 @@ public static class PatientDebtLines
             .ThenBy(l => l.DocumentId)
             .ToList();
     }
+
+    /// <summary>« 14/08 » on the clinic's calendar — an issue date is a UTC instant, a due date a stored midnight.</summary>
+    private static string DayMonth(DateTime value) =>
+        ClinicClock.ToClinicLocal(value).ToString("dd/MM", CultureInfo.InvariantCulture);
+
+    /// <summary>When an act was last worked on: its own done date, else its latest done séance.</summary>
+    private static DateTime? LastDoneDate(TreatmentPlanItem item) =>
+        item.DoneDate ?? item.Steps.Where(s => s.DoneDate.HasValue).Select(s => s.DoneDate).Max();
+
+    /// <summary>« 2 actes faits sur 3 » — a count phrased as a count, never the next step.</summary>
+    private static string ActsDoneSentence(int done, int total) =>
+        done <= 1 ? $"{done} acte fait sur {total}" : $"{done} actes faits sur {total}";
+
+    /// <summary>A devis's acts, dated ones oldest first, then the ones not started in devis order.</summary>
+    private static List<PatientDebtActDto> PlanActs(IEnumerable<TreatmentPlanItem> items) =>
+        items
+            .Select(i =>
+            {
+                var stepsDone = i.Steps.Count(s => s.DoneDate.HasValue);
+                var done = i.Status == TreatmentPlanItemStatus.Done;
+                return (Item: i, Act: new PatientDebtActDto(
+                    LastDoneDate(i),
+                    i.DesignationFr,
+                    i.ToothNumbers.ToList(),
+                    i.NetCost,
+                    done,
+                    !done && stepsDone > 0
+                        ? $"{stepsDone} {(stepsDone > 1 ? "étapes faites" : "étape faite")} sur {i.Steps.Count}"
+                        : null));
+            })
+            .OrderBy(x => x.Act.Date.HasValue ? 0 : 1)
+            .ThenBy(x => x.Act.Date ?? DateTime.MaxValue)
+            .ThenBy(x => x.Item.SequenceNumber)
+            .ThenBy(x => x.Item.Id)
+            .Select(x => x.Act)
+            .ToList();
 
     /// <summary>
     /// « suite de la note n° 2026-0019 », or null when this row is not half of a continuation.

@@ -15,8 +15,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VisitClosureList } from "@/components/visits/visit-closure-list"
 import { PendingReviewBlock } from "@/components/patients/pending-review-block"
 import { UnfinishedActsList } from "@/components/visits/unfinished-acts-list"
+import { ResteAPayerList } from "@/components/visits/reste-a-payer-list"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { cn } from "@/lib/utils"
-import { ClipboardCheck, CircleDashed, UserPlus } from "lucide-react"
+import { ClipboardCheck, CircleDashed, UserPlus, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CalendarImportUndoBanner } from "@/components/visits/calendar-import-undo-banner"
 import { appointmentsApi, type VisitsToCloseResponse } from "@/lib/api/appointments"
@@ -130,6 +132,14 @@ export default function VisitsToClosePage() {
    */
   const [unfinishedCount, setUnfinishedCount] = useState<number | null>(0)
 
+  // « Reste à payer »: every role sees it, and it hides with the rest of the money under « Mode discret ».
+  const { moneyShown } = useMoneyVisibility()
+  const [tab, setTab] = useState("visits")
+  const [resteDueCount, setResteDueCount] = useState<number | null>(0)
+  useEffect(() => {
+    if (!moneyShown && tab === "reste") setTab("visits")
+  }, [moneyShown, tab])
+
   /**
    * Bumped whenever something outside the patients tab has changed what is in it.
    *
@@ -236,7 +246,7 @@ export default function VisitsToClosePage() {
           }}
         />
 
-        <Tabs defaultValue="visits" className="space-y-4">
+        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
           {/*
             ⚠️ **`flex-wrap` + a real `basis`, because a THIRD tab made the two that shipped clip.**
             `TabsTrigger` is `whitespace-nowrap`, and `flex-1` is `flex: 1 1 0%` — a zero basis, so the
@@ -307,6 +317,23 @@ export default function VisitsToClosePage() {
                 {unfinishedCount === null ? "—" : unfinishedCount.toLocaleString("fr-TN")}
               </Badge>
             </TabsTrigger>
+            {moneyShown && (
+              <TabsTrigger
+                value="reste"
+                aria-label="Reste à payer"
+                className={cn(
+                  "h-auto min-h-9 min-w-0 grow basis-28 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:basis-auto sm:gap-2",
+                  "data-[state=active]:bg-zone-money/12 data-[state=active]:text-zone-money",
+                )}
+              >
+                <Wallet className="hidden h-4 w-4 shrink-0 sm:block" />
+                <span className="sm:hidden">À payer</span>
+                <span className="hidden sm:inline">Reste à payer</span>
+                <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
+                  {resteDueCount === null ? "—" : resteDueCount.toLocaleString("fr-TN")}
+                </Badge>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ⚠️ `forceMount`: Radix unmounts an inactive panel, so the block's read — and therefore the count on
@@ -323,6 +350,12 @@ export default function VisitsToClosePage() {
           <TabsContent value="unfinished" forceMount className="data-[state=inactive]:hidden">
             <UnfinishedActsList onTotalChange={setUnfinishedCount} />
           </TabsContent>
+
+          {moneyShown && (
+            <TabsContent value="reste" forceMount className="data-[state=inactive]:hidden">
+              <ResteAPayerList onDueCountChange={setResteDueCount} />
+            </TabsContent>
+          )}
 
           <TabsContent value="visits">
         {error ? (

@@ -108,6 +108,18 @@ public sealed record PatientDebtLineDto(
     bool IsOverdue,
     Guid? PayableInstallmentId,
     decimal PayableRoom,
+    /// <summary>The part of <paramref name="Outstanding"/> due now (« À relancer »): a whole note, a devis's late échéances.</summary>
+    decimal DueNow,
+    /// <summary>Why <paramref name="DueNow"/> is due — « Note du 14/08 non soldée ». Null when nothing is due.</summary>
+    string? DueReason,
+    /// <summary>Since when <paramref name="DueNow"/> has been owed. Null when nothing is due or no date says it.</summary>
+    DateTime? DueSince,
+    /// <summary>Why the rest is not due yet — « 2 actes faits sur 3 ». Null when nothing is left once <paramref name="DueNow"/> is paid.</summary>
+    string? RunningReason,
+    /// <summary>A devis's next agreed échéance that is not late yet, or null.</summary>
+    DateTime? NextInstallmentDue,
+    /// <summary>The acts this document covers, oldest first; undated (not started) acts last.</summary>
+    IReadOnlyList<PatientDebtActDto> Acts,
     /// <summary>
     /// The other document of the same treatment, when this row is one half of a continuation — « suite de la
     /// note n° 2026-0019 » on the devis, « suite sur le devis n° 2026-0012 » on the note.
@@ -122,3 +134,12 @@ public sealed record PatientDebtLineDto(
     /// <para>Null on every ordinary row, so the table is unchanged for every patient who has no continuation.</para>
     /// </summary>
     string? PartOfTreatment = null);
+
+/// <summary>One act under a <see cref="PatientDebtLineDto"/>. <c>Progress</c> counts a stepped act's done séances, never the next one.</summary>
+public sealed record PatientDebtActDto(
+    DateTime? Date,
+    string Designation,
+    IReadOnlyList<int> Teeth,
+    decimal Amount,
+    bool Done,
+    string? Progress);

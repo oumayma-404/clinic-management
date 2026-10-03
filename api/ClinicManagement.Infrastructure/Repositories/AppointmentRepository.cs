@@ -222,6 +222,27 @@ public class AppointmentRepository : IAppointmentRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, DateTime>> GetNextBookingByPatientAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> patientIds, DateTime fromUtc, CancellationToken cancellationToken = default)
+    {
+        if (patientIds.Count == 0)
+        {
+            return new Dictionary<Guid, DateTime>();
+        }
+
+        var rows = await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                        && a.PatientId != null
+                        && patientIds.Contains(a.PatientId.Value)
+                        && a.AppointmentDateTime >= fromUtc
+                        && (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed))
+            .GroupBy(a => a.PatientId!.Value)
+            .Select(g => new { PatientId = g.Key, Next = g.Min(a => a.AppointmentDateTime) })
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(r => r.PatientId, r => r.Next);
+    }
+
     /// <summary>
     /// The bounded candidate set behind <see cref="GetRunningNotStartedAsync"/>, exposed so
     /// <c>AppointmentProgressQueryTranslationTests</c> compiles the <b>production</b> expression tree rather than

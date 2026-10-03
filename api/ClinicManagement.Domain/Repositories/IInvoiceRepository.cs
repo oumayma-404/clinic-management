@@ -112,6 +112,10 @@ public interface IInvoiceRepository
     Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestUnpaidIssueDate)>> GetOutstandingByPatientAsync(
         Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>Every note (lines + payments) of these patients, any status — « Reste à payer » selects per patient.</summary>
+    Task<IReadOnlyList<Invoice>> GetByPatientIdsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> patientIds, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Which patient each of these invoices belongs to, batched and clinic-filtered.
     ///

@@ -70,21 +70,10 @@ public class GetPatientBillingSummaryQueryHandler
             // yesterday, and an échéance due today would be reported « en retard ».
             var clinicToday = ClinicClock.ClinicToday();
 
-            // Invoices — only issued, non-cancelled ones carry a balance.
-            var invoices = (await _invoiceRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items
-                .Where(i => i.Status != InvoiceStatus.Draft && i.Status != InvoiceStatus.Cancelled)
-                .ToList();
-
-            // Plans already billed into an issued invoice (devis→facture bridge) are represented by that
-            // invoice — count the invoice, not the plan, so the same acts aren't counted twice.
-            var billedPlanIds = PlanBillingRules.BilledPlanIds(invoices);
-
-            // Treatment plans — count only committed plans (a Draft devis is an unaccepted quote, not debt),
-            // and skip any already billed to an invoice above. Both rules live in PlanBillingRules, shared
-            // with « Créances », la caisse and the dashboard so the four reads report the same figure.
-            var plans = (await _planRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items
-                .Where(p => PlanBillingRules.CarriesDebt(p.Status) && !billedPlanIds.Contains(p.Id))
-                .ToList();
+            // Live notes + debt-bearing, non-bridged devis — shared with « Reste à payer » (PatientDebtSelection).
+            var (invoices, plans) = PatientDebtSelection.Select(
+                (await _invoiceRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items,
+                (await _planRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items);
 
             var invoiceOutstanding = InvoiceCalculator.RoundMoney(invoices.Sum(i => i.Outstanding));
             var installmentOutstanding = InvoiceCalculator.RoundMoney(plans.Sum(p => p.Outstanding));

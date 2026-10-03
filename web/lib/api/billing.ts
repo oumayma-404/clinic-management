@@ -1,5 +1,5 @@
 import { apiGet, apiGetBlob } from './client';
-import type { ChequesDueDto, PatientBillingSummaryDto, ReceivableDto, ReceivablesPageDto } from './types';
+import type { ChequesDueDto, PatientBillingSummaryDto, ReceivableDto, ReceivablesPageDto, ResteAPayerPageDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const billingApi = {
@@ -23,6 +23,11 @@ export const billingApi = {
    */
   getReceivablesPaged: async (params: PageParams): Promise<ReceivablesPageDto> =>
     apiGet<ReceivablesPageDto>('/billing/receivables', params),
+
+  /** « Reste à payer » (À clôturer) — every role; both cards' totals cover every matching patient. */
+  getResteAPayer: async (
+    params: PageParams & { list: 'due' | 'running'; sort?: 'age' | 'amount' },
+  ): Promise<ResteAPayerPageDto> => apiGet<ResteAPayerPageDto>('/billing/reste-a-payer', params),
 
   /**
    * « Chèques à encaisser » (L8 slice B) — every cheque held, across both payment ledgers, soonest-due first,

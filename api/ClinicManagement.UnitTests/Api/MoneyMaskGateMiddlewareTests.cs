@@ -143,6 +143,7 @@ public class MoneyMaskGateMiddlewareTests
         "Billing.ExportReceivables",
         "Billing.ExportCaisseLedger",
         "Billing.GetReceivables",
+        "Billing.GetResteAPayer",
         "Billing.GetCaisseSummary",
         "Billing.GetCaisseLedger",
         "Billing.GetChequesDue",

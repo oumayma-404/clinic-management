@@ -502,6 +502,62 @@ export interface PatientDebtLineDto {
    * settlement surface with its own « Encaisser », reaching la caisse by a different ledger.
    */
   partOfTreatment?: string | null;
+  /** The part of `outstanding` due now (« À relancer ») — a whole note, a devis's late échéances. Served, never derived. */
+  dueNow: number;
+  /** « Note du 14/08 non soldée » / « Échéance du 15/09 dépassée ». Null when nothing is due. */
+  dueReason: string | null;
+  dueSince: string | null;
+  /** « 2 actes faits sur 3 » / « Prochaine échéance le 15/10 ». Null when nothing is left once `dueNow` is paid. */
+  runningReason: string | null;
+  nextInstallmentDue: string | null;
+  /** The acts this document covers, dated ones oldest first, not-started ones last. */
+  acts: PatientDebtActDto[];
+}
+
+/** One act under a debt line. `progress` counts a stepped act's done séances, never the next one. */
+export interface PatientDebtActDto {
+  date: string | null;
+  designation: string;
+  teeth: number[];
+  amount: number;
+  done: boolean;
+  progress: string | null;
+}
+
+/** « Reste à payer » (À clôturer) — one page of patients who owe, with both lists' totals over every match. */
+export interface ResteAPayerPageDto {
+  items: ResteAPayerRowDto[];
+  dueTotal: number;
+  dueCount: number;
+  runningTotal: number;
+  runningCount: number;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+/** One patient who owes. `dueAmount + runningAmount` equals their « Solde dû ». */
+export interface ResteAPayerRowDto {
+  patientId: string;
+  patientName: string;
+  phoneNumber: string | null;
+  /** The stored dialable form; null hides « Appeler » and « WhatsApp ». */
+  phoneE164: string | null;
+  dueAmount: number;
+  runningAmount: number;
+  dueReason: string | null;
+  dueDocument: string | null;
+  dueDocumentCount: number;
+  dueSince: string | null;
+  dueDays: number | null;
+  runningReason: string | null;
+  runningDocument: string | null;
+  runningDocumentCount: number;
+  runningActsDone: number | null;
+  runningActsTotal: number | null;
+  nextVisit: string | null;
+  nextInstallmentDue: string | null;
 }
 
 /** One row of the clinic-wide « Créances » (accounts-receivable) list. */
