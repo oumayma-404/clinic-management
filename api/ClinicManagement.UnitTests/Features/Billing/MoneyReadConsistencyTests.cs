@@ -221,6 +221,27 @@ public class MoneyReadConsistencyTests
                     .Where(r => r.Outstanding > 0m)
                     .ToList());
 
+        // « Reste à payer » loads the candidates' documents whole (any status) and their next booking.
+        _invoices.Setup(r => r.GetByPatientIdsAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                (IReadOnlyList<Invoice>)invoices.Where(i => ids.Contains(i.PatientId)).ToList());
+        _plans.Setup(r => r.GetByPatientIdsAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                (IReadOnlyList<TreatmentPlan>)plans.Where(p => ids.Contains(p.PatientId)).ToList());
+        // Mirrors TreatmentPlanRepository.PlanOutstandingPatientQuery: debt-bearing, not excluded, total above collected.
+        _plans.Setup(r => r.GetPatientIdsWithPlanOutstandingAsync(
+                ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, IReadOnlyCollection<Guid> excluded, CancellationToken _) =>
+                (IReadOnlyList<Guid>)plans
+                    .Where(p => PlanBillingRules.CarriesDebt(p.Status) && !excluded.Contains(p.Id)
+                                && p.TotalPlanned > p.Installments.Sum(i => i.AmountPaid))
+                    .Select(p => p.PatientId)
+                    .Distinct()
+                    .ToList());
+        _appointments.Setup(r => r.GetNextBookingByPatientAsync(
+                ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, DateTime>());
+
         // CNAM is indicative only and irrelevant to the balance — everything out of pocket.
         _cnam.Setup(c => c.ComputeAsync(
                 It.IsAny<IReadOnlyCollection<CnamBillingLine>>(), It.IsAny<decimal>(),
@@ -260,7 +281,31 @@ public class MoneyReadConsistencyTests
         // Nothing settled is ever listed — a « reste 0,000 DT » row is a line that trains the eye to skip lines.
         Assert.All(summary.Lines, l => Assert.True(l.Outstanding > 0m));
 
+        await AssertResteAPayerAddsUpToAsync(summary);
+
         return summary.TotalOutstanding;
+    }
+
+    /// <summary>« À relancer » + « En cours » equals the « Solde dû » of the patient file, for every fixture here.</summary>
+    private async Task AssertResteAPayerAddsUpToAsync(PatientBillingSummaryDto summary)
+    {
+        Assert.All(summary.Lines, l => Assert.InRange(l.DueNow, 0m, l.Outstanding));
+
+        var handler = new GetResteAPayerQueryHandler(
+            _invoices.Object, _plans.Object, _patients.Object, _appointments.Object, _clinicResolver.Object,
+            NullLogger<GetResteAPayerQueryHandler>.Instance);
+        var due = await handler.Handle(new GetResteAPayerQuery { List = ResteAPayerList.Due }, CancellationToken.None);
+        var running = await handler.Handle(new GetResteAPayerQuery { List = ResteAPayerList.Running }, CancellationToken.None);
+        Assert.True(due.IsSuccess, due.Error);
+        Assert.True(running.IsSuccess, running.Error);
+
+        var dueRow = due.Value!.Items.SingleOrDefault(r => r.PatientId == PatientId);
+        var runningRow = running.Value!.Items.SingleOrDefault(r => r.PatientId == PatientId);
+        Assert.Equal(
+            InvoiceCalculator.RoundMoney(summary.Lines.Sum(l => l.DueNow)),
+            dueRow?.DueAmount ?? 0m);
+        Assert.Equal(summary.TotalOutstanding, (dueRow?.DueAmount ?? 0m) + (runningRow?.RunningAmount ?? 0m));
+        Assert.Equal(summary.TotalOutstanding, due.Value.DueTotal + due.Value.RunningTotal);
     }
 
     private async Task<decimal> CreancesAsync()
@@ -394,6 +439,58 @@ public class MoneyReadConsistencyTests
         Assert.Equal(1000m, solde);
         Assert.Equal(solde, await CreancesAsync());
         Assert.Equal(solde, await DashboardOutstandingAsync());
+    }
+
+    [Fact]
+    public async Task A_Note_Beside_A_Devis_With_A_Late_And_A_Future_Echeance_Splits_Across_Both_Lists()
+    {
+        var note = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
+        note.SetLines(new[] { ("Détartrage", 1, 150m) });
+        note.Issue("2026-0042");
+        var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
+        plan.SetItems(new[] { ("Couronne", 1000m, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetInstallments(new[]
+        {
+            (new DateTime(2020, 1, 15, 0, 0, 0, DateTimeKind.Utc), 400m),
+            (new DateTime(2099, 6, 1, 0, 0, 0, DateTimeKind.Utc), 600m),
+        });
+        plan.Accept("2026-0014");
+        Wire(new[] { note }, new[] { plan });
+
+        Assert.Equal(1150m, await SoldePatientAsync());
+    }
+
+    // ⚠️ An act removed from the devis left the échéancier larger than what is owed: « À relancer » stops at the reste.
+    [Fact]
+    public async Task A_Devis_Whose_Echeancier_Outgrew_It_Still_Adds_Up()
+    {
+        var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
+        plan.SetItems(new[]
+        {
+            ("Couronne", 700m, (IReadOnlyList<int>)new[] { 11 }),
+            ("Greffe osseuse", 300m, (IReadOnlyList<int>)new[] { 12 }),
+        });
+        plan.SetInstallments(new[] { (new DateTime(2020, 1, 15, 0, 0, 0, DateTimeKind.Utc), 1000m) });
+        plan.Accept("2026-0014");
+        plan.RemoveItem(plan.Items.Single(i => i.DesignationFr == "Greffe osseuse").Id);
+        Wire(Array.Empty<Invoice>(), new[] { plan });
+
+        Assert.Equal(700m, await SoldePatientAsync());
+    }
+
+    // Every échéance paid, then an act added: owed on « Solde dû » with nothing left on the échéancier.
+    [Fact]
+    public async Task A_Devis_Owing_Outside_Its_Echeancier_Still_Adds_Up()
+    {
+        var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
+        plan.SetItems(new[] { ("Couronne", 1000m, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetInstallments(new[] { (new DateTime(2099, 6, 1, 0, 0, 0, DateTimeKind.Utc), 1000m) });
+        plan.Accept("2026-0014");
+        plan.RecordInstallmentPayment(plan.Installments.Single().Id, 1000m, PaymentMethod.Cash, FixedNow);
+        plan.AddItems(new[] { ("Greffe osseuse", 200m, (IReadOnlyList<int>)new[] { 12 }) });
+        Wire(Array.Empty<Invoice>(), new[] { plan });
+
+        Assert.Equal(200m, await SoldePatientAsync());
     }
 
     // [AC-12c] The clinic-wide reads must actually feed the shared rule's output to the repository — this is

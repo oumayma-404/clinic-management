@@ -8,7 +8,7 @@
 - [x] Implementation
 - [x] Quality checks — `dotnet build` 0 errors / 0 new warnings in changed files · `dotnet test` **4877 passed / 0 failed** (unfiltered) · `tsc` 0 · `check:responsive` 72/72 · ⏳ `npm run build` NOT run: :3000 is a peer's Next server and a build rewrites `web/.next` under it
 - [x] Blast radius closed (10 rows: 6 changed, 3 to re-test, 1 unaffected)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests — 37 added, 0 modified (see Test Plan) · unfiltered suite **4914 passed / 0 failed** / 6 skipped (pre-existing)
 - [x] Browser QA — 3 cycles: run-1 RED (2) → run-2 RED (1, tab strip at 820) → run-3 GREEN (28 ✅, 1 ⏭). Widths 320/390/820/1440/1536×730. `npm run build` still not run (peer's `next dev` on `web/.next`)
 
 ## Blast Radius
@@ -43,9 +43,37 @@
 | Panel title is sr-only; the visible name is the fiche link | same guard, and the dialog keeps a real accessible name |
 
 ## Deferred to /test-small-feature
-- `PatientDebtLinesTests`: `DueNow` per case — unpaid note = whole; devis agreed late échéance = that part only; auto-raised on finished / stopped / ongoing work; drift cap; reasons + acts order
-- `MoneyReadConsistencyTests`: Σ row (due + running) == « Solde patient » total over every fixture (spec AC-3)
-- `GetResteAPayerQuery`: list split, both totals over the whole set, search, the four sort branches end on `PatientId`, past-the-end paging
-- `PatientDebtSelection`: equals the summary handler's old inline filter
+All four done — see Test Plan below.
+
+## Test Plan
+| AC | Action | Target file | Notes |
+|----|--------|-------------|-------|
+| AC-1 | Add scenarios | `GetResteAPayerQueryTests` | badge source = `DueCount` (`Both_Cards_Count_…`); policy held by existing `ControllerAuthorizationCoverageTests` + `MoneyMaskGateMiddlewareTests` row |
+| AC-2 | Add scenarios | `PatientDebtLinesTests` (+9) | note due in full · only late agreed échéance due · partly-paid late échéance · auto-raised: unfinished = running, finished = due, stopped = due · agreed future échéance on finished work = running · « Reste hors échéancier » |
+| AC-2 | New test class | `PatientDebtSelectionTests` (4) | live notes only · Draft devis not debt · bridged devis on the note · draft/cancelled bridge keeps the devis |
+| AC-2 | Add scenarios | `GetResteAPayerQueryTests` | Draft devis adds nothing · bridged devis counts once on the note |
+| AC-3 | Add scenarios | `MoneyReadConsistencyTests` | `SoldePatientAsync` now also runs « Reste à payer » → every fixture asserts due + running == Solde dû and `0 ≤ DueNow ≤ Outstanding`; +2 fixtures (split note + devis · échéancier outgrew the devis) |
+| AC-4 | New test class | `GetResteAPayerQueryTests` (16) | cards over every patient at `pageSize: 1` · search narrows list + both cards |
+| AC-5 | New test class | `GetResteAPayerQueryTests` | due oldest first · running next séance/échéance first · both by amount · ties end on `PatientId` · past-the-end page empty, totals kept |
+| AC-6 | Add scenarios | `GetResteAPayerQueryTests` | row carries `PhoneE164`, null when no phone |
+| AC-7 | Add scenarios | `PatientDebtLinesTests` | devis acts dated oldest first, undated in devis order, teeth/price/done/« 1 étape faite sur 2 » · note acts = its lines, done, issue day |
+| AC-8 | Add scenarios | `GetResteAPayerQueryTests` | 200 paid on 450 → row + card 250 · settled note → patient leaves the list |
+
+### Coverage notes (no unit surface)
+- AC-1 tab visible to all roles, AC-6 buttons absent (not disabled), AC-7 panel = row, AC-8 no-reload refresh, AC-9 320 px cards + full-screen panel + 44 px, AC-10 empty state: `.tsx` only, no FE test runner — covered by browser QA `qa/run-3.md` (GREEN, 28 ✅) + `tsc` / `check:responsive`.
+
+## Bug found & fixed by the tests
+- **What:** a devis with every échéance paid and an act added afterwards owed money on « Solde dû » but was absent from « Reste à payer » (AC-3 broken for that patient).
+- **Cause:** candidates came from « Créances »' échéance-row sum (Σ Amount − AmountPaid), which is 0 there.
+- **Fix:** new `ITreatmentPlanRepository.GetPatientIdsWithPlanOutstandingAsync` (`TotalPlanned > Σ AmountPaid`, debt-bearing, non-bridged — the projector's own test) replaces that read in `GetResteAPayerQuery`. « Créances » unchanged (out of scope).
+- **Tests:** `GetResteAPayerQueryTests.A_Devis_Owing_An_Act_Added_After_…` · `MoneyReadConsistencyTests.A_Devis_Owing_Outside_Its_Echeancier_Still_Adds_Up` · new `PlanOutstandingQueryTranslationTests` (2 — the read compiles to SQL, exclusion included).
+- **Dev DB check (read-only SQL):** old and new reads find the same 607 patients — nobody lost, none in the gap today.
+- ⚠️ The running API serves the old code until restarted — not restarted here (shared stack).
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit (whole suite, `-c Release`, scratch `BaseOutputPath`) | none | 4914 passed, 0 failed, 6 skipped (pre-existing) |
+| New-warning scan on changed files | — | 0 |
 
 ## Significant Deviations

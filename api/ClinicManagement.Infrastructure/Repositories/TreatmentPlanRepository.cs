@@ -377,6 +377,29 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .ToPagedResultAsync(paging, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Guid>> GetPatientIdsWithPlanOutstandingAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> excludedPlanIds, CancellationToken cancellationToken = default) =>
+        await PlanOutstandingPatientQuery(_context, clinicId, excludedPlanIds).ToListAsync(cancellationToken);
+
+    /// <summary>The SQL behind <see cref="GetPatientIdsWithPlanOutstandingAsync"/>; public so a test can compile it without a database.</summary>
+    public static IQueryable<Guid> PlanOutstandingPatientQuery(
+        ApplicationDbContext context, Guid clinicId, IReadOnlyCollection<Guid> excludedPlanIds)
+    {
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var plans = context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId && debtStatuses.Contains(p.Status));
+        if (excludedPlanIds.Count > 0)
+        {
+            plans = plans.Where(p => !excludedPlanIds.Contains(p.Id));
+        }
+
+        // `TreatmentPlan.Outstanding > 0`, in SQL: a devis whose échéances are all paid can still owe an act added after.
+        return plans
+            .Where(p => p.TotalPlanned > p.Installments.Sum(i => i.AmountPaid))
+            .Select(p => p.PatientId)
+            .Distinct();
+    }
+
     public async Task<IReadOnlyList<TreatmentPlan>> GetByPatientIdsAsync(
         Guid clinicId, IReadOnlyCollection<Guid> patientIds, CancellationToken cancellationToken = default)
     {

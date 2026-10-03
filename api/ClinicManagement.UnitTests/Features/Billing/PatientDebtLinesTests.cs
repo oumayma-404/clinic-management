@@ -1,3 +1,6 @@
+using System.Globalization;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Billing;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -323,5 +326,211 @@ public class PatientDebtLinesTests
         plan.MarkItemBilledOnInvoice(plan.Items.First().Id, noteId, 90m);
         plan.Accept(number);
         return plan;
+    }
+
+    private static readonly DateTime Sept5 = new(2026, 9, 5, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime Sept10 = new(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc);
+
+    private static string DayMonth(DateTime value) =>
+        ClinicClock.ToClinicLocal(value).ToString("dd/MM", CultureInfo.InvariantCulture);
+
+    private static decimal Running(PatientDebtLineDto line) => line.Outstanding - line.DueNow;
+
+    [Fact]
+    public void An_Unpaid_Note_Is_Due_Now_In_Full()
+    {
+        var note = IssuedNote(450m);
+        note.RecordPayment(200m, PaymentMethod.Cash, ClinicToday.AddDays(-1));
+
+        var line = Assert.Single(PatientDebtLines.Project(new[] { note }, NoDevis(), ClinicToday));
+
+        Assert.Equal(line.Outstanding, line.DueNow);
+        Assert.Equal(0m, Running(line));
+        Assert.Equal($"Note du {DayMonth(note.IssueDate!.Value)} non soldée", line.DueReason);
+        Assert.Equal(note.IssueDate, line.DueSince);
+        Assert.Null(line.RunningReason);
+        Assert.Null(line.NextInstallmentDue);
+    }
+
+    [Fact]
+    public void Only_The_Late_Agreed_Echeance_Of_A_Devis_Is_Due_Now()
+    {
+        var devis = AcceptedDevis(1000m, "2026-0014", (Sept1, 400m), (Oct1, 600m));
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(400m, line.DueNow);
+        Assert.Equal(600m, Running(line));
+        Assert.Equal("Échéance du 01/09 dépassée", line.DueReason);
+        Assert.Equal(Sept1, line.DueSince);
+        Assert.Equal("0 acte fait sur 1", line.RunningReason);
+        Assert.Equal(Oct1, line.NextInstallmentDue);
+    }
+
+    [Fact]
+    public void A_Late_Echeance_Partly_Paid_Is_Due_For_What_Is_Left()
+    {
+        var devis = AcceptedDevis(1000m, "2026-0014", (Sept1, 400m), (Oct1, 600m));
+        devis.RecordInstallmentPayment(
+            devis.Installments.Single(i => i.DueDate == Sept1).Id, 150m, PaymentMethod.Cash, ClinicToday.AddDays(-2));
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(250m, line.DueNow);
+        Assert.Equal(600m, Running(line));
+    }
+
+    [Fact]
+    public void The_Auto_Raised_Echeance_Of_Unfinished_Work_Is_Running_Not_Due()
+    {
+        var devis = AcceptedDevis(1000m);
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(0m, line.DueNow);
+        Assert.Equal(1000m, Running(line));
+        Assert.Null(line.DueReason);
+        Assert.Null(line.DueSince);
+        Assert.Equal("0 acte fait sur 1", line.RunningReason);
+        Assert.Null(line.NextInstallmentDue);
+    }
+
+    [Fact]
+    public void A_Finished_Treatment_Is_Due_In_Full_From_Its_Last_Act()
+    {
+        var devis = AcceptedDevis(1000m);
+        devis.MarkItemDone(devis.Items.Single().Id, Sept10, null);
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(TreatmentPlanStatus.Completed, devis.Status);
+        Assert.Equal(1000m, line.DueNow);
+        Assert.Equal("Traitement terminé le 10/09", line.DueReason);
+        Assert.Equal(Sept10, line.DueSince);
+        Assert.Null(line.RunningReason);
+    }
+
+    [Fact]
+    public void A_Stopped_Treatment_Is_Due_For_The_Work_It_Kept()
+    {
+        var devis = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
+        devis.SetItems(new[]
+        {
+            ("Couronne", 600m, (IReadOnlyList<int>)new[] { 11 }),
+            ("Implant", 400m, (IReadOnlyList<int>)new[] { 21 }),
+        });
+        devis.Accept("2026-0014");
+        devis.MarkItemDone(devis.Items.First().Id, Sept5, null);
+        devis.StopTreatment(ClinicToday);
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(TreatmentPlanStatus.Stopped, devis.Status);
+        Assert.Equal(600m, line.Outstanding);
+        Assert.Equal(600m, line.DueNow);
+        Assert.Equal("Traitement arrêté, non soldé", line.DueReason);
+        Assert.Equal(Sept5, line.DueSince);
+    }
+
+    [Fact]
+    public void Finished_Work_With_An_Agreed_Echeance_To_Come_Is_Running_Until_That_Day()
+    {
+        var devis = AcceptedDevis(1000m, "2026-0014", (Oct1, 1000m));
+        devis.MarkItemDone(devis.Items.Single().Id, Sept10, null);
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(0m, line.DueNow);
+        Assert.Equal("Prochaine échéance le 01/10", line.RunningReason);
+        Assert.Equal(Oct1, line.NextInstallmentDue);
+    }
+
+    // ⚠️ The schedule outgrew the devis (an act removed, schedule untouched): « À relancer » stops at what is owed.
+    [Fact]
+    public void A_Devis_Whose_Echeancier_Outgrew_It_Is_Due_No_More_Than_It_Owes()
+    {
+        var devis = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
+        devis.SetItems(new[]
+        {
+            ("Couronne", 700m, (IReadOnlyList<int>)new[] { 11 }),
+            ("Greffe osseuse", 300m, (IReadOnlyList<int>)new[] { 12 }),
+        });
+        devis.SetInstallments(new[] { (Sept1, 1000m) });
+        devis.Accept("2026-0014");
+        devis.RemoveItem(devis.Items.Single(i => i.DesignationFr == "Greffe osseuse").Id);
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(700m, line.Outstanding);
+        Assert.Equal(700m, line.DueNow);
+        Assert.Null(line.RunningReason);
+    }
+
+    // Every échéance paid and an act added after: owed, not due, and no échéance to point at.
+    [Fact]
+    public void Finished_Work_Owed_Outside_The_Echeancier_Says_So()
+    {
+        var devis = AcceptedDevis(1000m, "2026-0014", (Oct1, 1000m));
+        devis.RecordInstallmentPayment(
+            devis.Installments.Single().Id, 1000m, PaymentMethod.Cash, ClinicToday.AddDays(-2));
+        devis.AddItems(new[] { ("Greffe osseuse", 200m, (IReadOnlyList<int>)new[] { 12 }) });
+        foreach (var item in devis.Items.ToList())
+        {
+            devis.MarkItemDone(item.Id, Sept10, null);
+        }
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+
+        Assert.Equal(0m, line.DueNow);
+        Assert.Equal(200m, Running(line));
+        Assert.Equal("Reste hors échéancier", line.RunningReason);
+        Assert.Null(line.NextInstallmentDue);
+    }
+
+    [Fact]
+    public void A_Devis_Acts_Are_Dated_Oldest_First_Then_Not_Started_In_Devis_Order()
+    {
+        var devis = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
+        devis.SetItems(new[]
+        {
+            ("Couronne", 300m, (IReadOnlyList<int>)new[] { 11 }),
+            ("Bridge", 900m, (IReadOnlyList<int>)new[] { 14, 15, 16 }),
+            ("Détartrage", 50m, (IReadOnlyList<int>)Array.Empty<int>()),
+            ("Composite", 80m, (IReadOnlyList<int>)new[] { 36 }),
+        });
+        devis.Accept("2026-0014");
+        var bridge = devis.Items.Single(i => i.DesignationFr == "Bridge");
+        devis.SetItemSteps(bridge.Id, new[]
+        {
+            new TreatmentPlanItemStepInput(null, "Préparation", null),
+            new TreatmentPlanItemStepInput(null, "Pose", null),
+        });
+        devis.MarkItemStepDone(bridge.Id, bridge.Steps.OrderBy(s => s.SequenceNumber).First().Id, Sept5, null);
+        devis.MarkItemDone(devis.Items.Single(i => i.DesignationFr == "Couronne").Id, Sept10, null);
+
+        var line = Assert.Single(PatientDebtLines.Project(NoNotes(), new[] { devis }, ClinicToday));
+        var acts = line.Acts;
+
+        Assert.Equal(new[] { "Bridge", "Couronne", "Détartrage", "Composite" }, acts.Select(a => a.Designation).ToArray());
+        Assert.Equal(new DateTime?[] { Sept5, Sept10, null, null }, acts.Select(a => a.Date).ToArray());
+        Assert.Equal(new[] { false, true, false, false }, acts.Select(a => a.Done).ToArray());
+        Assert.Equal("1 étape faite sur 2", acts[0].Progress);
+        Assert.Null(acts[1].Progress);
+        Assert.Equal(new[] { 14, 15, 16 }, acts[0].Teeth);
+        Assert.Equal(900m, acts[0].Amount);
+        Assert.Equal("1 acte fait sur 4", line.RunningReason);
+    }
+
+    [Fact]
+    public void A_Notes_Acts_Are_Its_Lines_All_Done_On_Its_Issue_Day()
+    {
+        var note = IssuedNote(300m, "2026-0050", "Composite", "Détartrage");
+
+        var acts = Assert.Single(PatientDebtLines.Project(new[] { note }, NoDevis(), ClinicToday)).Acts;
+
+        Assert.Equal(new[] { "Composite", "Détartrage" }, acts.Select(a => a.Designation).ToArray());
+        Assert.All(acts, a => Assert.True(a.Done));
+        Assert.All(acts, a => Assert.Equal(note.IssueDate, a.Date));
+        Assert.Equal(300m, acts.Sum(a => a.Amount));
     }
 }

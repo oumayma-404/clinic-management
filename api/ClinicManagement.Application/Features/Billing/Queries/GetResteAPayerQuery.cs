@@ -83,13 +83,13 @@ public class GetResteAPayerQueryHandler : IRequestHandler<GetResteAPayerQuery, R
             var now = DateTime.UtcNow;
             var clinicToday = ClinicClock.ClinicToday(now);
 
-            // Who owes anything — « Créances »' two light reads — then the full documents of those patients only.
+            // Who owes anything — the same per-document test as the projector — then the full documents of those patients only.
             var billedPlanIds = PlanBillingRules.BilledPlanIds(
                 await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
             var candidates = (await _invoiceRepository.GetOutstandingByPatientAsync(clinicId, cancellationToken))
                 .Select(r => r.PatientId)
-                .Concat((await _planRepository.GetInstallmentOutstandingByPatientAsync(
-                    clinicId, now, billedPlanIds, cancellationToken)).Select(r => r.PatientId))
+                .Concat(await _planRepository.GetPatientIdsWithPlanOutstandingAsync(
+                    clinicId, billedPlanIds, cancellationToken))
                 .Distinct()
                 .ToList();
 

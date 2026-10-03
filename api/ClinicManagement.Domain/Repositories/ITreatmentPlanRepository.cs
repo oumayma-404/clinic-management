@@ -477,6 +477,10 @@ public interface ITreatmentPlanRepository
     Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(
         Guid clinicId, DateTime asOfUtc, IReadOnlyCollection<Guid> excludedPlanIds, CancellationToken cancellationToken = default);
 
+    /// <summary>Patients with a debt-bearing devis (not in <paramref name="excludedPlanIds"/>) still owing on its TOTAL — « Solde dû »'s test, not Σ échéances.</summary>
+    Task<IReadOnlyList<Guid>> GetPatientIdsWithPlanOutstandingAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> excludedPlanIds, CancellationToken cancellationToken = default);
+
     /// <summary>Every devis (acts + steps, échéances + payments) of these patients, any status — « Reste à payer » selects per patient.</summary>
     Task<IReadOnlyList<TreatmentPlan>> GetByPatientIdsAsync(
         Guid clinicId, IReadOnlyCollection<Guid> patientIds, CancellationToken cancellationToken = default);

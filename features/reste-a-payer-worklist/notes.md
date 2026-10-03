@@ -15,9 +15,12 @@ A 4th tab in « À clôturer » listing every patient who owes, split into **À 
 - **One selection rule, two readers.** `PatientDebtSelection.Select` (live notes + debt-bearing, non-bridged
   devis) was extracted from « Solde patient »; the worklist calls the same two functions per patient, so a row
   equals that patient's « Solde dû » by construction, not by two reads agreeing.
-- **Candidates come from « Créances »' two light reads**, then only those patients' documents are loaded
-  (`GetByPatientIdsAsync` ×2). A patient whose plan outstanding is positive while its échéancier sums to 0 (the
-  `plan-schedule-balances` drift) is missed — the same blind spot « Créances » has.
+- **Candidates are found by the projector's own per-document test**, then only those patients' documents are
+  loaded (`GetByPatientIdsAsync` ×2): notes with `TotalTtc > AmountCollected`, and devis with
+  `TotalPlanned > Σ échéance AmountPaid` (`ITreatmentPlanRepository.GetPatientIdsWithPlanOutstandingAsync`). ⚠️ It
+  used « Créances »' échéance-row sum at first, which missed a devis whose échéances are all paid but which still
+  owes an act added afterwards (the `plan-schedule-balances` drift) — « Solde dû » showed the debt, this list did
+  not. « Créances » still has that blind spot; it was out of scope.
 - **Open to every role**, unlike « Créances » (`AdminOrDoctor`): reception chases and collects this money.
   The Créances screen and its CSV stay as they were.
 - **Hidden under « Mode discret »**: `[HiddenWhenMoneyMasked]` on the endpoint, and the tab is withheld while
