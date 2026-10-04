@@ -95,6 +95,23 @@ public class InvoiceRepository : IInvoiceRepository
             .ToPagedResultAsync(paging, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Invoice>> GetByPatientIdsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> patientIds, CancellationToken cancellationToken = default)
+    {
+        if (patientIds.Count == 0)
+        {
+            return Array.Empty<Invoice>();
+        }
+
+        return await _context.Invoices
+            .Include(i => i.Lines)
+            .Include(i => i.Payments)
+            .Where(i => i.ClinicId == clinicId && patientIds.Contains(i.PatientId))
+            .OrderBy(i => i.PatientId)
+            .ThenBy(i => i.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<int> GetMaxSequenceForYearAsync(Guid clinicId, int year, CancellationToken cancellationToken = default)
     {
         var prefix = $"{year}-";

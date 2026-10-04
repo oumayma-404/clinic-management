@@ -1032,6 +1032,9 @@ try
     // set, the account is cached, and routing has already run. Inert where RequiresSubscription is false.
     app.UseMiddleware<ClinicManagement.API.Middleware.SubscriptionGateMiddleware>();
 
+    // « Mode discret »: refuses the reads marked [HiddenWhenMoneyMasked] while a cabinet has hidden its money.
+    app.UseMiddleware<ClinicManagement.API.Middleware.MoneyMaskGateMiddleware>();
+
     app.MapControllers();
 
     // Anonymous and un-rate-limited, both deliberately — see HealthChecks.Register. Mapped before the YARP

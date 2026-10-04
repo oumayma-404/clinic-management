@@ -98,6 +98,7 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                     Phone = clinic.Phone,
                     Email = clinic.Email,
                     Code = clinic.Code,
+                    IsMoneyHidden = clinic.IsMoneyHidden,
                     LogoUrl = clinic.LogoUrl,
                     MatriculeFiscal = clinic.MatriculeFiscal,
                     VatApplicable = clinic.VatApplicable,

@@ -14,6 +14,8 @@ import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { AppLoader } from "@/components/ui/app-loader"
 import { useSession } from "@/lib/auth/session"
 import { hidesClinicWideMoney } from "@/lib/nav"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
+import { MoneyHiddenCard } from "@/components/money-hidden-card"
 import { PageHeader } from "@/components/ui/page-header"
 import { ExportButton } from "@/components/ui/export-button"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
@@ -98,8 +100,10 @@ const MONEY_HEADER_CHIP = `flex size-8 shrink-0 items-center justify-center roun
  */
 export default function CaissePage() {
   const { user, isLoading } = useSession()
+  const { visibility } = useMoneyVisibility()
 
-  if (isLoading) {
+  // « Mode discret » unknown: wait, so no figure is painted before the answer.
+  if (isLoading || visibility === "unknown") {
     return (
       <ClinicGuard>
         <AppShell width="none" gutter={false}>
@@ -114,6 +118,16 @@ export default function CaissePage() {
       <ClinicGuard>
         <AppShell width="none" gutter={false}>
           <AccessDeniedCard description="La caisse et son extrait sont réservés au praticien et à l'administrateur. Vous pouvez encaisser un paiement depuis la fiche du patient." />
+        </AppShell>
+      </ClinicGuard>
+    )
+  }
+
+  if (visibility === "hidden") {
+    return (
+      <ClinicGuard>
+        <AppShell width="none" gutter={false}>
+          <MoneyHiddenCard />
         </AppShell>
       </ClinicGuard>
     )

@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
 using ClinicManagement.API.Controllers;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Messaging.Queries;
@@ -89,7 +91,8 @@ public class MessagingCapabilityRegistrationTests
     {
         var mediator = new Mock<IMediator>(MockBehavior.Strict);
         var controller = new ClinicsController(
-            mediator.Object, new ConfigurationBuilder().Build(), DeploymentProfile.For(kind));
+            mediator.Object, new ConfigurationBuilder().Build(), DeploymentProfile.For(kind),
+            Mock.Of<IStepUpConfirmations>(), Mock.Of<IClinicContext>());
 
         Assert.IsType<NotFoundResult>(await controller.GetReminderAllowance());
         Assert.IsType<NotFoundResult>(await controller.GetReminderAllowanceHistory());
@@ -117,7 +120,9 @@ public class MessagingCapabilityRegistrationTests
         var controller = new ClinicsController(
             mediator.Object,
             new ConfigurationBuilder().Build(),
-            DeploymentProfile.For(DeploymentKind.HostedMultiTenant));
+            DeploymentProfile.For(DeploymentKind.HostedMultiTenant),
+            Mock.Of<IStepUpConfirmations>(),
+            Mock.Of<IClinicContext>());
 
         await controller.GetReminderAllowance();
         await controller.GetReminderAllowanceHistory();

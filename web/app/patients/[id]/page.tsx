@@ -72,7 +72,7 @@ import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import { dentalRecordsApi, type DentalRecordDeletionPreview } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
-import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto, InvoiceDto, InstallmentDto } from "@/lib/api/types"
+import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto, PatientBillingSummaryDto, PatientDebtLineDto, VisitToCloseDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { ExportButton, useCsvExport } from "@/components/ui/export-button"
@@ -104,8 +104,7 @@ import {
   PATIENT_OUTSTANDING_TAB,
   PATIENT_COLLECT_PARAM,
 } from "@/components/patient/patient-outstanding-strip"
-import { PaymentModal } from "@/components/factures/payment-modal"
-import { InstallmentPaymentModal } from "@/components/treatment-plans/installment-payment-modal"
+import { useDebtLineCollection } from "@/components/patient/use-debt-line-collection"
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
@@ -992,17 +991,6 @@ export default function PatientDetailsPage() {
    * is not a clinic's first worklist, and a séance nobody billed is not less open for being three months old.
    */
   const [unbilledVisits, setUnbilledVisits] = useState<VisitToCloseDto[]>([])
-  /*
-   * The document a payment dialog is open on. ⚠️ Both are **re-read on open** rather than taken from this
-   * page's snapshot: the band's figures are minutes old at best, and a colleague settling the note in the
-   * meantime would otherwise prefill the dialog with a stale « reste » and produce a refusal for it. The page
-   * already live-refreshes on `invoices`/`treatmentplans`, so this only covers the gap between the last
-   * broadcast and the press.
-   */
-  const [paymentInvoice, setPaymentInvoice] = useState<InvoiceDto | null>(null)
-  const [paymentInstallment, setPaymentInstallment] =
-    useState<{ planId: string; installment: InstallmentDto } | null>(null)
-  const [openingDocumentId, setOpeningDocumentId] = useState<string | null>(null)
   const [unarchiving, setUnarchiving] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
@@ -1121,6 +1109,8 @@ export default function PatientDetailsPage() {
   const { vault } = useVault()
   const preview = useFilePreview(patientId, filesPolicy, { files: filesPage.items }, vault)
   const [refreshKey, setRefreshKey] = useState(0)
+  // « Encaisser » on a « Reste à payer » row — shared with the worklist, so one payment path (see the hook).
+  const debtCollection = useDebtLineCollection(() => setRefreshKey((k) => k + 1))
   /** Band C — the identity read answered 404 (the patient really is gone), as opposed to failing. */
   const [identityMissing, setIdentityMissing] = useState(false)
   const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
@@ -1499,10 +1489,10 @@ export default function PatientDetailsPage() {
     }
     // The same two handlers the band's own rows call, so this route records money through no new writer.
     if (line.kind === "TreatmentPlan") {
-      if (line.payableInstallmentId) void openInstallmentPayment(line)
+      if (line.payableInstallmentId) void debtCollection.collectInstallment(line)
       return
     }
-    void openInvoicePayment(line)
+    void debtCollection.collectInvoice(line)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingCollectId, billingSummary, detailsLoading, patientId])
 
@@ -1860,59 +1850,6 @@ procedureTypeId: it.procedureTypeId ?? null,
    *  would be three code paths for one gesture. */
   const retrySections = () => setRefreshKey((k) => k + 1)
 
-  /*
-   * « Encaisser » on a « Reste à payer » row.
-   *
-   * ⚠️ **The document is re-read before the dialog opens**, never taken from `billingSummary`'s snapshot. Both
-   * dialogs prefill and bound themselves on the document's live « reste », and a colleague who settled the note
-   * in the meantime would otherwise leave the field prefilled with a figure the server now refuses — a refusal
-   * for a number this page itself printed. It also spares the band from having to carry a whole `InvoiceDto`
-   * per row. On failure the band is refreshed rather than left asserting the old figure.
-   *
-   * ⚠️ **No new money writer.** Both dialogs are the ones `/factures` and the devis workspace already use, so
-   * a payment recorded here goes through `RecordPaymentCommand` / `RecordInstallmentPaymentCommand` like any
-   * other — cash lives in exactly two ledgers and this adds neither a third nor a second route into them.
-   */
-  const openInvoicePayment = async (line: PatientDebtLineDto) => {
-    setOpeningDocumentId(line.documentId)
-    try {
-      setPaymentInvoice(await invoicesApi.get(line.documentId))
-    } catch (err) {
-      showErrorToast(err, "La note d'honoraires n'a pas pu être ouverte.")
-      setRefreshKey((k) => k + 1)
-    } finally {
-      setOpeningDocumentId(null)
-    }
-  }
-
-  const openInstallmentPayment = async (line: PatientDebtLineDto) => {
-    setOpeningDocumentId(line.documentId)
-    try {
-      const plan = await treatmentPlansApi.get(line.documentId)
-      /*
-       * The oldest échéance that can still take money, re-picked from the FRESH aggregate rather than trusting
-       * `line.payableInstallmentId`: between the read and the press that échéance may have been settled, and
-       * `Installment.RecordPayment` would refuse the payment against it. Ordered exactly as the server's own
-       * projection is — due date, then id — so the two pick the same row.
-       */
-      const target = [...plan.installments]
-        .filter((i) => !i.isPaid && i.outstanding > 0)
-        .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.id.localeCompare(b.id))[0]
-      if (!target) {
-        // The band offered « Encaisser » on a devis whose échéancier has since closed. Say so and re-read,
-        // rather than opening a dialog with nothing to pay into.
-        toast.info("Cet échéancier ne peut plus recevoir de paiement. Ouvrez le devis pour le compléter.")
-        setRefreshKey((k) => k + 1)
-        return
-      }
-      setPaymentInstallment({ planId: plan.id, installment: target })
-    } catch (err) {
-      showErrorToast(err, "Le devis n'a pas pu être ouvert.")
-      setRefreshKey((k) => k + 1)
-    } finally {
-      setOpeningDocumentId(null)
-    }
-  }
 
   /**
    * « Solde dû » in the header → the breakdown, wherever it is.
@@ -3003,9 +2940,9 @@ procedureTypeId: it.procedureTypeId ?? null,
             <PatientOutstandingStrip
               summary={billingSummary}
               unbilled={unbilledVisits}
-              busyDocumentId={openingDocumentId}
-              onCollectInvoice={openInvoicePayment}
-              onCollectInstallment={openInstallmentPayment}
+              busyDocumentId={debtCollection.busyDocumentId}
+              onCollectInvoice={debtCollection.collectInvoice}
+              onCollectInstallment={debtCollection.collectInstallment}
               onOpenDocument={openOutstandingDocument}
               onBillVisit={billUnbilledVisit}
             />
@@ -4090,19 +4027,7 @@ procedureTypeId: it.procedureTypeId ?? null,
         ⚠️ Mounted at page level and **never inside the band**: `PatientOutstandingStrip` is a plain section, and
         putting a `Dialog` inside a list row is how a focus trap ends up nested in whatever the row is sitting in.
       */}
-      <PaymentModal
-        open={paymentInvoice !== null}
-        onOpenChange={(open) => { if (!open) setPaymentInvoice(null) }}
-        invoice={paymentInvoice}
-        onSuccess={() => setRefreshKey((k) => k + 1)}
-      />
-      <InstallmentPaymentModal
-        open={paymentInstallment !== null}
-        onOpenChange={(open) => { if (!open) setPaymentInstallment(null) }}
-        planId={paymentInstallment?.planId ?? null}
-        installment={paymentInstallment?.installment ?? null}
-        onSuccess={() => setRefreshKey((k) => k + 1)}
-      />
+      {debtCollection.dialogs}
 
       {/*
         Supprimer une fiche de soins (AC-P2.16). The copy is built from what the page already knows, because

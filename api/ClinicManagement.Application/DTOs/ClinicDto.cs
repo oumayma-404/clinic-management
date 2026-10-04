@@ -11,6 +11,9 @@ public class ClinicDto
     public string? Code { get; set; }
     public string? LogoUrl { get; set; }
 
+    /// <summary>« Mode discret »: the clinic-wide money screens are hidden on every device of the cabinet.</summary>
+    public bool IsMoneyHidden { get; set; }
+
     // Billing / note-d'honoraires settings.
     public string? MatriculeFiscal { get; set; }
     public bool VatApplicable { get; set; }

@@ -1,8 +1,11 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Application.Common.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using MediatR;
+using ClinicManagement.Application.Features.Clinics;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Application.Features.Clinics.Queries;
 using ClinicManagement.Application.Features.Messaging.Queries;
@@ -23,12 +26,21 @@ public class ClinicsController : ApiControllerBase
     private readonly IConfiguration _configuration;
 
     private readonly DeploymentProfile _deployment;
+    private readonly IStepUpConfirmations _stepUp;
+    private readonly IClinicContext _clinicContext;
 
-    public ClinicsController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
+    public ClinicsController(
+        IMediator mediator,
+        IConfiguration configuration,
+        DeploymentProfile deployment,
+        IStepUpConfirmations stepUp,
+        IClinicContext clinicContext)
     {
         _mediator = mediator;
         _configuration = configuration;
         _deployment = deployment;
+        _stepUp = stepUp;
+        _clinicContext = clinicContext;
     }
 
     /// <summary>
@@ -275,6 +287,42 @@ public class ClinicsController : ApiControllerBase
         }
 
         return Ok(result);
+    }
+
+    /// <summary>« Masquer l'argent » — one click, no code. Refused (400 <c>totp_not_enrolled</c>) to an admin who could not show it again.</summary>
+    [HttpPost("money/hide")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [AllowsWithoutSubscription(
+        "« Mode discret » records no clinical work, and a read-only cabinet facing a visitor must still be able to hide its figures.")]
+    public async Task<IActionResult> HideMoney()
+    {
+        var result = await _mediator.Send(new HideMoneyCommand());
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// « Afficher l'argent ». Spends a <see cref="ClinicMoneyMask.ShowStepUpAction"/> confirmation here, before the
+    /// mediator, so a request without one touches no row — and that confirmation is minted from an authenticator code only.
+    /// </summary>
+    [HttpPost("money/show")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [AllowsWithoutSubscription(
+        "Showing the cabinet's own figures again records no clinical work; an expired cabinet keeps every read by right.")]
+    public async Task<IActionResult> ShowMoney([FromBody] StepUpConfirmationRequest request)
+    {
+        var callerId = _clinicContext.GetUserId();
+        if (string.IsNullOrWhiteSpace(callerId)
+            || !_stepUp.Consume(callerId, ClinicMoneyMask.ShowStepUpAction, request.ConfirmationToken ?? string.Empty))
+        {
+            return Failure(
+                "Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        var result = await _mediator.Send(new ShowMoneyCommand());
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
     /// <summary>

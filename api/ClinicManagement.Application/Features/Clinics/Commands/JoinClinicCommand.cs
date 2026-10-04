@@ -153,6 +153,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
                 Phone = clinic.Phone,
                 Email = clinic.Email,
                 Code = clinic.Code,
+                IsMoneyHidden = clinic.IsMoneyHidden,
                 CreatedAt = clinic.CreatedAt,
                 Version = clinic.Version,
             };
@@ -249,6 +250,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
             Phone = clinic.Phone,
             Email = clinic.Email,
             Code = clinic.Code,
+            IsMoneyHidden = clinic.IsMoneyHidden,
             LogoUrl = clinic.LogoUrl,
             CreatedAt = clinic.CreatedAt,
             Version = clinic.Version,

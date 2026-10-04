@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { ClipboardPlus } from "lucide-react"
+import { ClipboardPlus, UserCheck, UserX } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -18,8 +18,10 @@ import { useSession } from "@/lib/auth/session"
 import { notificationsApi } from "@/lib/api/notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
 import type { PendingReviewDto } from "@/lib/api/types"
+import { showErrorToast } from "@/lib/errors"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { normalizeStatus } from "@/components/appointment-labels"
 
 // How often to poll for due reviews (deferred-visibility means one can become due while the app is open).
 const POLL_INTERVAL_MS = 60_000
@@ -46,11 +48,20 @@ function promptSentence(patientName: string | null | undefined): string {
   return name ? `Séance de ${name} terminée.` : "Séance terminée."
 }
 
+const PRESENCE_QUESTION = "Le patient est-il venu ?"
+
+/** Step 1 asks whether the patient came; step 2 offers the fiche. A visit already « Terminé » starts on step 2. */
+type PromptStep = "presence" | "fiche"
+
+// sonner's buttons are 24 px; the toast only renders on a coarse pointer, so they take the 44 px floor here.
+const TOAST_BUTTON_CLASS = "h-11! px-4! text-sm!"
+
 /** The visit behind the active review, read once so the sentence can name the patient and the button can go. */
 interface ResolvedVisit {
   appointmentId: string
   patientId: string | null
   patientName: string | null
+  status: string | null
 }
 
 /** Midnight tonight, local. The reminder is never urgent, so tomorrow is soon enough to ask again. */
@@ -83,8 +94,9 @@ function saveSnooze(map: SnoozeMap): void {
 
 /**
  * When a patient's appointment has ended, this modal prompts the responsible staff (the linked doctor, or
- * everyone) to record what happened. « Remplir la fiche de soins » deep-links to record creation for that
- * visit; "Plus tard" snoozes it client-side without marking it read. Mounted once in the dashboard header,
+ * everyone) to record what happened. It asks « venu ? » first: « Absent » marks the visit `NoShow` and closes,
+ * « Venu » moves to « Remplir la fiche de soins », which deep-links to record creation for that visit;
+ * "Plus tard" snoozes it client-side without marking it read. Mounted once in the dashboard header,
  * so it is present on every authenticated page.
  *
  * Three surfaces by device, not one scaled three ways: a **dialog** with a mouse, a **toast** on a tablet, and on
@@ -262,12 +274,17 @@ export function PostVisitReviewPopup() {
       .get(activeAppointmentId)
       .then((a) => {
         if (cancelled || !mountedRef.current) return
-        setVisit({ appointmentId: activeAppointmentId, patientId: a.patientId ?? null, patientName: a.patientName ?? null })
+        setVisit({
+          appointmentId: activeAppointmentId,
+          patientId: a.patientId ?? null,
+          patientName: a.patientName ?? null,
+          status: a.status ?? null,
+        })
       })
       .catch(() => {
         // The bare fact stands in for the name; « Remplir » looks the appointment up again on press.
         if (cancelled || !mountedRef.current) return
-        setVisit({ appointmentId: activeAppointmentId, patientId: null, patientName: null })
+        setVisit({ appointmentId: activeAppointmentId, patientId: null, patientName: null, status: null })
       })
     return () => {
       cancelled = true
@@ -276,7 +293,17 @@ export function PostVisitReviewPopup() {
   const activeVisit = visit && visit.appointmentId === activeAppointmentId ? visit : null
   // Held back until the lookup settles, so the sentence never swaps under the reader.
   const visitSettled = activeAppointmentId === null || activeVisit !== null
-  const sentence = promptSentence(activeVisit?.patientName)
+
+  // The appointment « Venu » was answered for — no write, so it lives only here until the fiche is saved.
+  const [cameFor, setCameFor] = useState<string | null>(null)
+  const [markingAbsent, setMarkingAbsent] = useState(false)
+  const alreadyCompleted = activeVisit?.status != null && normalizeStatus(activeVisit.status) === "Completed"
+  const step: PromptStep =
+    activeAppointmentId !== null && (cameFor === activeAppointmentId || alreadyCompleted) ? "fiche" : "presence"
+  const sentence =
+    step === "presence"
+      ? `${promptSentence(activeVisit?.patientName)} ${PRESENCE_QUESTION}`
+      : promptSentence(activeVisit?.patientName)
 
   /**
    * Snoozes every review currently known to be pending, until the end of the local day.
@@ -336,6 +363,34 @@ export function PostVisitReviewPopup() {
     })()
   }, [active, activeVisit, resolving, snoozeAll, router])
 
+  /** « Venu » — moves to the fiche step and writes nothing: saving the fiche is what marks the visit « Terminé ». */
+  const handleCame = useCallback(() => {
+    if (activeAppointmentId) setCameFor(activeAppointmentId)
+  }, [activeAppointmentId])
+
+  /**
+   * « Absent » — the closure worklist's own status write; the server drops the review with it.
+   * Closes without snoozing the queue: the rest of the waiting séances were not answered « not now ».
+   */
+  const handleAbsent = useCallback(() => {
+    if (!active?.appointmentId || markingAbsent) return
+    const appointmentId = active.appointmentId
+    setMarkingAbsent(true)
+    void (async () => {
+      try {
+        await appointmentsApi.update(appointmentId, { status: "NoShow" })
+        toast.success("Patient marqué comme absent.")
+        setDismissed(true)
+      } catch (err) {
+        showErrorToast(err)
+        // A refusal usually means the visit moved on (a fiche was saved): re-read so the prompt follows it.
+        void refetch()
+      } finally {
+        if (mountedRef.current) setMarkingAbsent(false)
+      }
+    })()
+  }, [active, markingAbsent, refetch])
+
   /*
    * The latch. Closed → consult the body and open only if nothing else is on screen. Open → leave it alone.
    * Reset whenever there is nothing to prompt about, so the next due review gets a fresh decision.
@@ -390,16 +445,30 @@ export function PostVisitReviewPopup() {
     // never at risk of the self-reference the dialog was; sharing the latch is for the drift, not the race.
     if (isPhone || !isCoarse || active === null || dismissed || !mayPrompt || onAPatientFile || !visitSettled) return
 
+    // Same id on both steps, so « Venu » turns this toast into the « Remplir » one in place.
     toast(PROMPT_TITLE, {
       id: `pvr-${active.id}`,
       description: sentence,
       duration: 30_000,
       icon: <ClipboardPlus className="h-5 w-5 text-primary" />,
-      action: { label: "Remplir", onClick: handleAddRecord },
+      classNames: { actionButton: TOAST_BUTTON_CLASS, cancelButton: TOAST_BUTTON_CLASS },
+      action:
+        step === "presence"
+          ? {
+              label: "Venu",
+              onClick: (event) => {
+                // Keeps the toast up: sonner closes it after an action unless the event is prevented.
+                event.preventDefault()
+                handleCame()
+              },
+            }
+          : { label: "Remplir", onClick: handleAddRecord },
+      // Explicit `undefined` on step 2: sonner merges an update into the live toast, so omitting it keeps « Absent ».
+      cancel: step === "presence" ? { label: "Absent", onClick: handleAbsent } : undefined,
       onDismiss: handleLater,
       onAutoClose: handleLater,
     })
-  }, [isPhone, isCoarse, active, dismissed, mayPrompt, onAPatientFile, visitSettled, sentence, handleAddRecord, handleLater])
+  }, [isPhone, isCoarse, active, dismissed, mayPrompt, onAPatientFile, visitSettled, sentence, step, handleAddRecord, handleCame, handleAbsent, handleLater])
 
   // On a phone the header bell *is* the prompt; on a tablet the toast above is. Either way the dialog would be
   // a second copy of a reminder the user has already been given.
@@ -420,14 +489,31 @@ export function PostVisitReviewPopup() {
           <DialogTitle>{PROMPT_TITLE}</DialogTitle>
           <DialogDescription>{sentence}</DialogDescription>
         </DialogHeader>
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={handleLater}>
-            Plus tard
-          </Button>
-          <Button onClick={handleAddRecord} disabled={resolving}>
-            {resolving ? "Ouverture…" : "Remplir la fiche de soins"}
-          </Button>
-        </DialogFooter>
+        {step === "presence" ? (
+          <DialogFooter className="gap-2 sm:gap-2">
+            {/* « Plus tard » stays a button on this step: `e2e/lib/goto.ts` dismisses the prompt by its name. */}
+            <Button variant="ghost" onClick={handleLater} className="sm:me-auto">
+              Plus tard
+            </Button>
+            <Button variant="outline" onClick={handleAbsent} disabled={markingAbsent}>
+              <UserX aria-hidden="true" className="me-1.5 size-4" />
+              {markingAbsent ? "Enregistrement…" : "Absent"}
+            </Button>
+            <Button onClick={handleCame} disabled={markingAbsent}>
+              <UserCheck aria-hidden="true" className="me-1.5 size-4" />
+              Venu
+            </Button>
+          </DialogFooter>
+        ) : (
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={handleLater}>
+              Plus tard
+            </Button>
+            <Button onClick={handleAddRecord} disabled={resolving}>
+              {resolving ? "Ouverture…" : "Remplir la fiche de soins"}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )

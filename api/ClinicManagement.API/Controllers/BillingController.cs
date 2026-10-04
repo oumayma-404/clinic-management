@@ -67,6 +67,7 @@ public class BillingController : ApiControllerBase
     /// so it cannot be laxer than the screen.
     /// </remarks>
     [HttpGet("billing/receivables/export")]
+    [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> ExportReceivables(
         [FromQuery] string? search = null, CancellationToken cancellationToken = default)
@@ -90,6 +91,7 @@ public class BillingController : ApiControllerBase
     /// période » column that sums to nothing — the same reason the screen computes the balance before filtering.</para>
     /// </summary>
     [HttpGet("billing/caisse/ledger/export")]
+    [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> ExportCaisseLedger(
         [FromQuery] string? fromDay = null,
@@ -111,6 +113,7 @@ public class BillingController : ApiControllerBase
 
     /// <summary>The clinic-wide receivables list — patients with a positive balance, sorted by amount owed.</summary>
     [HttpGet("billing/receivables")]
+    [HiddenWhenMoneyMasked]
     // Clinic-wide debt: the practice's exposure in one figure. This is the fork the class policy exists for —
     // the sibling read above (« Solde patient ») stays open because reception cannot collect without it.
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
@@ -129,11 +132,31 @@ public class BillingController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>« Reste à payer » (À clôturer): patients who owe, split into due now and not due yet.</summary>
+    [HttpGet("billing/reste-a-payer")]
+    [HiddenWhenMoneyMasked]
+    // Every role, on the owner's decision: reception chases and collects this money, unlike « Créances ».
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<ActionResult<ResteAPayerPageDto>> GetResteAPayer(
+        [FromQuery] ResteAPayerList list = ResteAPayerList.Due,
+        [FromQuery] ResteAPayerSort sort = ResteAPayerSort.Age,
+        [FromQuery] string? search = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new GetResteAPayerQuery { List = list, Sort = sort, SearchTerm = search, Page = page, PageSize = pageSize },
+            cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     /// <summary>
     /// The caisse (daily cash) summary — encaissements (collected payments) minus dépenses (expenses)
     /// and the net, over [from, to). Both default to the current day when omitted.
     /// </summary>
     [HttpGet("billing/caisse")]
+    [HiddenWhenMoneyMasked]
     // The till's totals for a whole window — clinic-wide money.
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     /// <param name="fromDay">
@@ -163,6 +186,7 @@ public class BillingController : ApiControllerBase
     /// the totals always describe the same period.
     /// </summary>
     [HttpGet("billing/caisse/ledger")]
+    [HiddenWhenMoneyMasked]
     // Every movement behind those totals — strictly more than the totals, so it cannot be laxer.
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     /// <param name="page">1-based page over the movements. Omit both paging parameters for the whole window.</param>
@@ -224,6 +248,7 @@ public class BillingController : ApiControllerBase
     /// those already taken to the bank. The bucket counts always describe the outstanding set.
     /// </param>
     [HttpGet("billing/cheques")]
+    [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<ChequesDueDto>> GetChequesDue(
         [FromQuery] DateTime? dueFrom = null,
@@ -253,6 +278,7 @@ public class BillingController : ApiControllerBase
     /// <para>Honours the same filters as the screen, over the whole filtered set (`paging: null`), per L5.</para>
     /// </summary>
     [HttpGet("billing/cheques/export")]
+    [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> ExportChequesDue(
         [FromQuery] DateTime? dueFrom = null,

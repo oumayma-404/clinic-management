@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Dashboard.Readers;
+using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Dashboard.Queries;
 
@@ -47,6 +48,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
     private readonly IDashboardProcedureMixReader _procedureMixReader;
     private readonly IDashboardAppointmentTrendReader _appointmentTrendReader;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IClinicRepository _clinicRepository;
     private readonly ILogger<GetDashboardQueryHandler> _logger;
 
     public GetDashboardQueryHandler(
@@ -57,6 +59,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         IDashboardProcedureMixReader procedureMixReader,
         IDashboardAppointmentTrendReader appointmentTrendReader,
         ICurrentClinicResolver clinicResolver,
+        IClinicRepository clinicRepository,
         ILogger<GetDashboardQueryHandler> logger)
     {
         _activityReader = activityReader;
@@ -66,6 +69,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         _procedureMixReader = procedureMixReader;
         _appointmentTrendReader = appointmentTrendReader;
         _clinicResolver = clinicResolver;
+        _clinicRepository = clinicRepository;
         _logger = logger;
     }
 
@@ -85,11 +89,21 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
             var nowUtc = DateTime.UtcNow;
             var period = DashboardPeriod.Resolve(request.Period, nowUtc);
 
+            // « Mode discret »: the money readers are not called at all, so nothing they compute can reach the wire.
+            var moneyHidden = await _clinicRepository.IsMoneyHiddenAsync(clinicId, cancellationToken);
+
             var activity = await _activityReader.ReadAsync(clinicId, period, cancellationToken);
-            var (money, receivables) = await _moneyReader.ReadAsync(
-                clinicId, period, nowUtc, request.DoctorId, cancellationToken);
+            DashboardMoneyDto? money = null;
+            DashboardReceivablesDto? receivables = null;
+            if (!moneyHidden)
+            {
+                (money, receivables) = await _moneyReader.ReadAsync(
+                    clinicId, period, nowUtc, request.DoctorId, cancellationToken);
+            }
             var alerts = await _alertsReader.ReadAsync(clinicId, nowUtc, cancellationToken);
-            var trend = await _trendReader.ReadAsync(clinicId, period, nowUtc, cancellationToken);
+            var trend = moneyHidden
+                ? new List<MonthlyCollectedPointDto>()
+                : await _trendReader.ReadAsync(clinicId, period, nowUtc, cancellationToken);
             // Narrowed by the practitioner filter, unlike Activité and À-traiter: « quels actes ai-je faits »
             // is a question about one dentist's own work, which is exactly what that filter asks.
             var procedureMix = await _procedureMixReader.ReadAsync(

@@ -53,6 +53,11 @@ export function CalendarImportUndoBanner({ onReverted }: { onReverted: () => voi
   const [reverting, setReverting] = useState(false)
 
   const load = useCallback(async () => {
+    // Admins only: the controller's class-level AdminOnly refuses every other role, whatever the action says.
+    if (!mayRevert) {
+      setRun(null)
+      return
+    }
     try {
       const page = await googleCalendarApi.listImports({ latestUndoable: true })
       setRun(page.items[0] ?? null)
@@ -61,7 +66,7 @@ export function CalendarImportUndoBanner({ onReverted }: { onReverted: () => voi
       // never connected Google would otherwise meet an error strip on a screen about something else entirely.
       setRun(null)
     }
-  }, [])
+  }, [mayRevert])
 
   useEffect(() => {
     void load()
@@ -136,23 +141,15 @@ export function CalendarImportUndoBanner({ onReverted }: { onReverted: () => voi
           </p>
         </div>
 
-        {mayRevert ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11 w-full shrink-0 border-amber-300 bg-white/70 hover:bg-white sm:w-auto dark:border-amber-800 dark:bg-transparent"
-            onClick={() => void openConfirmation()}
-          >
-            <Undo2 className="mr-2 size-4" aria-hidden />
-            Annuler cet import
-          </Button>
-        ) : (
-          // A secretary sees the explanation — which is the half that makes the page make sense — and is told
-          // who can act, rather than meeting a button that answers 403.
-          <p className="shrink-0 text-xs text-amber-900/80 dark:text-amber-200/80">
-            Un administrateur peut annuler cet import.
-          </p>
-        )}
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11 w-full shrink-0 border-amber-300 bg-white/70 hover:bg-white sm:w-auto dark:border-amber-800 dark:bg-transparent"
+          onClick={() => void openConfirmation()}
+        >
+          <Undo2 className="mr-2 size-4" aria-hidden />
+          Annuler cet import
+        </Button>
       </div>
 
       <AlertDialog open={open} onOpenChange={setOpen}>

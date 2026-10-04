@@ -5,10 +5,11 @@ import { usePathname } from "next/navigation"
 import { AlertTriangle, ShieldAlert, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { useSession } from "@/lib/auth/session"
 import { useSubscription } from "@/lib/subscription/subscription-context"
 import type { SubscriptionDto } from "@/lib/api/subscription"
 import { formatCalendarDay } from "@/lib/format"
-import { isChromeLessPath } from "@/lib/nav"
+import { isChromeLessPath, isNavItemVisible } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
 /**
@@ -34,6 +35,7 @@ import { cn } from "@/lib/utils"
  */
 export function SubscriptionBanner() {
   const { subscription, enforced, dismissed, dismiss } = useSubscription()
+  const { user } = useSession()
   const pathname = usePathname()
 
   if (!enforced || !subscription || dismissed || isChromeLessPath(pathname)) return null
@@ -41,8 +43,8 @@ export function SubscriptionBanner() {
   const state = bannerState(subscription)
   if (!state) return null
 
-  // Nothing to point at from the screen it points at.
-  const onSubscriptionScreen = pathname === "/abonnement"
+  // Nothing to point at from the screen it points at, nor for a role that may not open it.
+  const showLink = pathname !== "/abonnement" && isNavItemVisible("/abonnement", user?.role)
 
   return (
     /*
@@ -76,7 +78,7 @@ export function SubscriptionBanner() {
         <span className="hidden sm:inline">{state.detail}</span>
       </p>
 
-      {!onSubscriptionScreen && (
+      {showLink && (
         <Button asChild size="sm" variant="outline" className="coarse:min-h-11">
           <Link href="/abonnement">{state.cta}</Link>
         </Button>

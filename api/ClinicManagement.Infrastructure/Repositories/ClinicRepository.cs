@@ -75,6 +75,14 @@ public class ClinicRepository : IClinicRepository
             
         return await _context.Clinics.AnyAsync(c => c.Code == code, cancellationToken);
     }
+
+    public async Task<bool> IsMoneyHiddenAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Clinics
+            .Where(c => c.Id == clinicId)
+            .Select(c => c.IsMoneyHidden)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 }
 
 

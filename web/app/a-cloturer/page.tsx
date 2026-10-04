@@ -13,10 +13,11 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VisitClosureList } from "@/components/visits/visit-closure-list"
-import { PendingReviewBlock } from "@/components/patients/pending-review-block"
 import { UnfinishedActsList } from "@/components/visits/unfinished-acts-list"
+import { ResteAPayerList } from "@/components/visits/reste-a-payer-list"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { cn } from "@/lib/utils"
-import { ClipboardCheck, CircleDashed, UserPlus } from "lucide-react"
+import { ClipboardCheck, CircleDashed, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CalendarImportUndoBanner } from "@/components/visits/calendar-import-undo-banner"
 import { appointmentsApi, type VisitsToCloseResponse } from "@/lib/api/appointments"
@@ -118,10 +119,6 @@ export default function VisitsToClosePage() {
     load,
   )
 
-  // The count the « Patients à compléter » tab carries. Lifted out of the block because a tab with no figure on it
-  // is a door with nothing to say how much is behind it — and this half is hidden by default.
-  const [pendingCount, setPendingCount] = useState(0)
-
   /**
    * « Suites à planifier »'s own total, reported up by the list so its trigger can carry a figure.
    *
@@ -130,17 +127,13 @@ export default function VisitsToClosePage() {
    */
   const [unfinishedCount, setUnfinishedCount] = useState<number | null>(0)
 
-  /**
-   * Bumped whenever something outside the patients tab has changed what is in it.
-   *
-   * <p>⚠️ Undoing an import deletes placeholder <b>patients</b> as well as séances, and without this the tab's
-   * badge kept its old figure while the list behind it was empty — « 2 patients à compléter » over nothing,
-   * until somebody reloaded the page. Measured: the database read 0 while the badge still said 2.</p>
-   *
-   * <p>The block owns its own read (it is used on other screens too), so the page tells it to re-run rather than
-   * lifting the fetch up here.</p>
-   */
-  const [pendingReloadKey, setPendingReloadKey] = useState(0)
+  // « Reste à payer »: every role sees it, and it hides with the rest of the money under « Mode discret ».
+  const { moneyShown } = useMoneyVisibility()
+  const [tab, setTab] = useState("visits")
+  const [resteDueCount, setResteDueCount] = useState<number | null>(0)
+  useEffect(() => {
+    if (!moneyShown && tab === "reste") setTab("visits")
+  }, [moneyShown, tab])
 
   /** The page of séances, whichever half is being shown. */
   const visits = data?.visits ?? null
@@ -162,14 +155,11 @@ export default function VisitsToClosePage() {
       <AppShell contentClassName="space-y-6">
         <PageHeader
           title="À clôturer"
-          /* ⚠️ ONE figure, and it is the sum of both tabs: a tab hides its own half by definition, so the two
-             counts on the triggers answer « how much is behind this door » and neither answers « how much is
-             left ». That total is the question the page is opened with — and it is why the window now defaults
-             to every date, since a badge whose figure depends on a filter can be quietly wrong. */
+          /* The séances left to close, over every date — a badge whose figure depends on a filter can be quietly wrong. */
           titleBadge={
             visits && !showDisregarded ? (
               <Badge variant="secondary" className="tabular-nums">
-                {(visits.totalCount + pendingCount).toLocaleString("fr-TN")}
+                {visits.totalCount.toLocaleString("fr-TN")}
               </Badge>
             ) : undefined
           }
@@ -211,16 +201,8 @@ export default function VisitsToClosePage() {
         />
 
         {/*
-          Two tabs rather than two stacked blocks: an imported patient is not a séance (no visit date to group
-          under, not counted in « N séances »), and stacking them pushed the séances — the page's reason for
-          existing — below a card that is usually empty.
-
-          The active trigger carries its zone's wash: azure for the séances, answered on the agenda; violet for the
-          patients, answered in the clinical record. Entry 6 on `lib/zones.ts`' list, and the ACTIVE mark only, so
-          the hue stays a mark instead of becoming the panel's colour scheme.
-
-          ⚠️ Each trigger carries its count. A tab hides its half by definition, so without the figure the backlog
-          this page exists to surface would be behind an unremarkable door — and « 0 » is a statement worth making.
+          The active trigger carries its zone's wash (entry 6 on `lib/zones.ts`' list), the ACTIVE mark only.
+          ⚠️ Each trigger carries its count: a tab hides its half, and « 0 » is a statement worth making.
         */}
         {/*
           ⚠️ The undo is offered HERE, and that is the whole point of where it lives. A cabinet that regrets
@@ -228,15 +210,9 @@ export default function VisitsToClosePage() {
           go hunting through the settings for the way out. The banner withdraws itself once the run is undone or
           its rows are gone, so it never becomes furniture.
         */}
-        <CalendarImportUndoBanner
-          onReverted={() => {
-            // BOTH halves: the undo removes séances and placeholder fiches, and the two tabs read separately.
-            load()
-            setPendingReloadKey((key) => key + 1)
-          }}
-        />
+        <CalendarImportUndoBanner onReverted={() => void load()} />
 
-        <Tabs defaultValue="visits" className="space-y-4">
+        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
           {/*
             ⚠️ **`flex-wrap` + a real `basis`, because a THIRD tab made the two that shipped clip.**
             `TabsTrigger` is `whitespace-nowrap`, and `flex-1` is `flex: 1 1 0%` — a zero basis, so the
@@ -247,7 +223,7 @@ export default function VisitsToClosePage() {
             lets a row hold what fits and move the rest down, which also survives a fourth tab and a
             longer label without being re-measured.
           */}
-          <TabsList className="flex h-auto w-full flex-wrap items-stretch gap-1 p-1 sm:w-auto sm:flex-nowrap sm:justify-start">
+          <TabsList className="flex h-auto w-full flex-wrap items-stretch gap-1 p-1 sm:justify-start">
             {/* ⚠️ The labels are SHORTENED below `sm:`, with the full phrase kept as the accessible name.
                 `TabsTrigger` is `whitespace-nowrap`, so at 320 px the two labels plus their badges measured wider
                 than the 288 px content box and « Séances » was clipped to « s 32 » — the strip overflowed and the
@@ -265,21 +241,6 @@ export default function VisitsToClosePage() {
               Séances
               <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
                 {(visits?.totalCount ?? 0).toLocaleString("fr-TN")}
-              </Badge>
-            </TabsTrigger>
-            <TabsTrigger
-              value="patients"
-              aria-label="Patients à compléter"
-              className={cn(
-                "h-auto min-h-9 min-w-0 grow basis-28 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:basis-auto sm:gap-2",
-                "data-[state=active]:bg-zone-clinical/12 data-[state=active]:text-zone-clinical",
-              )}
-            >
-              <UserPlus className="hidden h-4 w-4 shrink-0 sm:block" />
-              <span className="sm:hidden">À compléter</span>
-              <span className="hidden sm:inline">Patients à compléter</span>
-              <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
-                {pendingCount.toLocaleString("fr-TN")}
               </Badge>
             </TabsTrigger>
             {/*
@@ -307,22 +268,35 @@ export default function VisitsToClosePage() {
                 {unfinishedCount === null ? "—" : unfinishedCount.toLocaleString("fr-TN")}
               </Badge>
             </TabsTrigger>
+            {moneyShown && (
+              <TabsTrigger
+                value="reste"
+                aria-label="Reste à payer"
+                className={cn(
+                  "h-auto min-h-9 min-w-0 grow basis-28 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:basis-auto sm:gap-2",
+                  "data-[state=active]:bg-zone-money/12 data-[state=active]:text-zone-money",
+                )}
+              >
+                <Wallet className="hidden h-4 w-4 shrink-0 sm:block" />
+                <span className="sm:hidden">À payer</span>
+                <span className="hidden sm:inline">Reste à payer</span>
+                <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
+                  {resteDueCount === null ? "—" : resteDueCount.toLocaleString("fr-TN")}
+                </Badge>
+              </TabsTrigger>
+            )}
           </TabsList>
 
-          {/* ⚠️ `forceMount`: Radix unmounts an inactive panel, so the block's read — and therefore the count on
-              its own trigger — would not run until somebody opened the tab, which is precisely the tab nobody
-              opens without a figure on it. Radix applies `hidden` while inactive, so it costs a hidden table of at
-              most 25 rows and no announcement. */}
-          <TabsContent value="patients" forceMount className="data-[state=inactive]:hidden">
-            <PendingReviewBlock reloadKey={pendingReloadKey} onLoaded={setPendingCount} />
-          </TabsContent>
-
-          {/* `forceMount` for the patients panel's reason: Radix unmounts an inactive panel, so without it the
-              list's read — and therefore the figure on its own trigger — would not run until somebody opened
-              the tab, which is precisely the tab nobody opens without a figure on it. */}
+          {/* `forceMount`: Radix unmounts an inactive panel, so its read — and the figure on its trigger — would wait for a click. */}
           <TabsContent value="unfinished" forceMount className="data-[state=inactive]:hidden">
             <UnfinishedActsList onTotalChange={setUnfinishedCount} />
           </TabsContent>
+
+          {moneyShown && (
+            <TabsContent value="reste" forceMount className="data-[state=inactive]:hidden">
+              <ResteAPayerList onDueCountChange={setResteDueCount} />
+            </TabsContent>
+          )}
 
           <TabsContent value="visits">
         {error ? (

@@ -12,6 +12,9 @@ public interface IClinicRepository
     Task UpdateAsync(Clinic clinic, CancellationToken cancellationToken = default);
     Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<bool> CodeExistsAsync(string code, CancellationToken cancellationToken = default);
+
+    /// <summary>Whether « Mode discret » is on. One column, no tracking — read on every guarded money request.</summary>
+    Task<bool> IsMoneyHiddenAsync(Guid clinicId, CancellationToken cancellationToken = default);
 }
 
 

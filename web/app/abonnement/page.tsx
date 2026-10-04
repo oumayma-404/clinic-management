@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { SubscriptionHistoryTable } from "@/components/subscription/subscription-history-table"
 import { Badge } from "@/components/ui/badge"
+import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,6 +23,7 @@ import {
   type SubscriptionHistoryPageDto,
 } from "@/lib/api/subscription"
 import { useSession } from "@/lib/auth/session"
+import { isNavItemVisible } from "@/lib/nav"
 import { useSubscription } from "@/lib/subscription/subscription-context"
 import { getErrorMessage } from "@/lib/errors"
 import { formatCalendarDay } from "@/lib/format"
@@ -39,16 +41,35 @@ type Availability = "unknown" | "available" | "unavailable"
  * bank details are given by the vendor over the channel the contact card names. The DTO still carries `plans` and
  * `paymentInstructions`; nothing server-side changed, so putting either card back is a render, not a feature.</p>
  *
- * <p><b>Reachable by every role, including a secretary</b> (AC-2.2): she is usually the one who meets
- * « Votre abonnement a expiré … » on a save, and pointing that refusal at a screen she cannot open would be worse
- * than not pointing it anywhere (EC-10). Only the payment **history** is admin-only (AC-2.3), and for a non-admin it
- * is replaced by a stated refusal rather than a fetch that 403s.</p>
+ * <p><b>Not for a secretary</b> (owner's call, 2026-10-04, reversing AC-2.2): the banner keeps telling her the cover
+ * has ended, without a link here. For a doctor the payment **history** is replaced by a stated refusal (AC-2.3).</p>
  *
  * <p><b>A failed read is a retryable state, never « aucun abonnement »</b> (EC-13). The one exception is an explicit
  * **404**, which is the server saying this deployment does not work by subscription (AC-7.1/7.2) — that renders as an
  * explanation, not as an error.</p>
  */
 export default function AbonnementPage() {
+  const { user, isLoading } = useSession()
+
+  // A wrapper, so the history read below never fires for a role that may not open the page.
+  if (isLoading || !isNavItemVisible("/abonnement", user?.role)) {
+    return (
+      <ClinicGuard>
+        <AppShell width="none" gutter={false}>
+          {isLoading ? (
+            <AppLoader />
+          ) : (
+            <AccessDeniedCard description="L'abonnement du cabinet est réservé au praticien et à l'administrateur." />
+          )}
+        </AppShell>
+      </ClinicGuard>
+    )
+  }
+
+  return <AbonnementContent />
+}
+
+function AbonnementContent() {
   const { user, isLoading: sessionLoading } = useSession()
   const isAdmin = user?.role === "admin"
 

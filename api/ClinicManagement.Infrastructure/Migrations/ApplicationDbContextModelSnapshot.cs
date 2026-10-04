@@ -428,6 +428,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("GoogleRefreshTokenProtected")
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsMoneyHidden")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<DateTime?>("LastArchiveDownloadedAtUtc")
                         .HasColumnType("timestamp with time zone");
 

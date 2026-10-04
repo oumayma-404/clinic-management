@@ -50,6 +50,7 @@ public class InvoicesController : ApiControllerBase
     /// money read in a file, and leaving it on the class policy would reopen spec I's hole from a different door.
     /// </remarks>
     [HttpGet("export")]
+    [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> ExportInvoices(
         [FromQuery] DateTime? from = null,
@@ -83,6 +84,7 @@ public class InvoicesController : ApiControllerBase
     /// <c>?patientId=</c> is reception's per-patient read and stays <c>AnyClinicRole</c>.
     /// </remarks>
     [HttpGet]
+    [HiddenWhenMoneyMasked(UnlessQuery = "patientId")]
     public async Task<ActionResult<PagedResult<InvoiceDto>>> GetInvoices(
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
@@ -124,6 +126,7 @@ public class InvoicesController : ApiControllerBase
 
     /// <summary>Aggregate revenue over a period: invoiced / collected / outstanding.</summary>
     [HttpGet("revenue")]
+    [HiddenWhenMoneyMasked]
     // Le chiffre d'affaires. Every other action on this controller is per-invoice — reception raises the note
     // and takes the payment — and this is the only one that is a clinic-wide aggregate.
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]

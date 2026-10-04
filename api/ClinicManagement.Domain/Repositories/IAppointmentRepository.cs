@@ -73,6 +73,10 @@ public interface IAppointmentRepository
         CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetUpcomingAppointmentsAsync(DateTime fromDate, CancellationToken cancellationToken = default);
+
+    /// <summary>Each patient's next booked (Scheduled/Confirmed) start from <paramref name="fromUtc"/>; a patient with none is absent.</summary>
+    Task<IReadOnlyDictionary<Guid, DateTime>> GetNextBookingByPatientAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> patientIds, DateTime fromUtc, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetAppointmentsForDateAsync(DateTime date, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetByProcedureTypeIdAsync(Guid procedureTypeId, CancellationToken cancellationToken = default);
 

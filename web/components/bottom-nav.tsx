@@ -6,6 +6,7 @@ import { MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { baseSections, isNavItemVisible, type NavItem } from "@/lib/nav"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { useSession } from "@/lib/auth/session"
 
 /**
@@ -77,7 +78,8 @@ export function BottomNav() {
    * href, and narrowing the source first would turn a real breakage into a silently shorter bar.
    */
   const { user } = useSession()
-  const items = barItems.filter((item) => isNavItemVisible(item.href, user?.role))
+  const { moneyHidden } = useMoneyVisibility()
+  const items = barItems.filter((item) => isNavItemVisible(item.href, user?.role, moneyHidden))
   // Reuses the drawer's own state — no third piece of sidebar state, so AC-P3.18 still holds: nothing a phone
   // session does can overwrite the persisted desktop rail preference.
   const { setMobileOpen } = useSidebar()

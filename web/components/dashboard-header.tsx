@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@/lib/auth/session'
+import { isNavItemVisible } from '@/lib/nav'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -231,15 +232,14 @@ export function DashboardHeader() {
     } else if (notification.targetKind === "BackupSettings") {
       // L4d — the staleness alert carries no id: it is about the clinic, and everything it asks for (the last
       // successful backup, the schedule, « Sauvegarder maintenant », the restore command) is on one screen.
-      router.push("/settings")
+      if (isNavItemVisible("/settings", user?.role)) router.push("/settings")
     } else if (notification.targetKind === "Patient" && notification.patientId) {
       // calendar-import-review — the first targeted kind since Appointment/StockItem to carry an id: the record to
       // finish is a specific fiche, not a clinic-wide screen.
       router.push(`/patients/${notification.patientId}`)
     } else if (notification.targetKind === "Subscription") {
-      // clinic-subscription AC-3.4 — like the two above it carries no id, and « Abonnement » is where the end
-      // date, the tarif, how to pay and who to contact all are. Open to every role, secretaries included.
-      router.push("/abonnement")
+      // clinic-subscription AC-3.4 — like the two above it carries no id; a secretary may not open « Abonnement ».
+      if (isNavItemVisible("/abonnement", user?.role)) router.push("/abonnement")
     }
   }
 
@@ -484,9 +484,11 @@ export function DashboardHeader() {
                 <UserCircle className="mr-2 h-4 w-4" />
                 Mon profil
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
-                Paramètres
-              </DropdownMenuItem>
+              {isNavItemVisible("/settings", user?.role) && (
+                <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                  Paramètres
+                </DropdownMenuItem>
+              )}
 
               {/*
                 Thème (AC-38). In the user menu rather than /settings because it is a per-device preference,

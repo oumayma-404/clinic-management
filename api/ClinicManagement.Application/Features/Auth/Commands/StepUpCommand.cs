@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Clinics;
 using ClinicManagement.Domain.Repositories;
 using MediatR;
 
@@ -40,6 +41,14 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
 
     private const string WrongProof =
         "Mot de passe ou code de vérification incorrect.";
+
+    private const string WrongCode = "Code de vérification incorrect.";
+
+    /// <summary>Actions a password cannot confirm: they exist to prove the authenticator is in hand.</summary>
+    private static readonly HashSet<string> CodeOnlyActions = new(StringComparer.Ordinal)
+    {
+        ClinicMoneyMask.ShowStepUpAction,
+    };
 
     private readonly IClinicContext _clinicContext;
     private readonly IUserRepository _userRepository;
@@ -88,10 +97,16 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
                 return Result<StepUpDto>.Failure(ErrorMessages.Generic);
             }
 
+            var codeOnly = CodeOnlyActions.Contains(request.Action.Trim());
+            if (codeOnly && !user.IsTotpEnrolled)
+            {
+                return Result<StepUpDto>.Failure(ClinicMoneyMask.NotEnrolled, ClinicAuthRefusals.TotpNotEnrolled);
+            }
+
             // Either proof will do. Checked in this order because a password is the one every account has.
             var proved = false;
 
-            if (!string.IsNullOrWhiteSpace(request.Password) && user.IsLocalAccount())
+            if (!codeOnly && !string.IsNullOrWhiteSpace(request.Password) && user.IsLocalAccount())
             {
                 proved = _localAuthService.VerifyPassword(user.PasswordHash!, request.Password)
                          != PasswordVerificationOutcome.Failed;
@@ -116,7 +131,7 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
                 var exhausted = _confirmations.RecordFailureAndCheckExhausted(user.Id);
                 // Note what does NOT happen here: no RecordFailedLogin, no attempt tracker, no TokenVersion.
                 // The session is deliberately untouched.
-                return Result<StepUpDto>.Failure(exhausted ? TooManyAttempts : WrongProof);
+                return Result<StepUpDto>.Failure(exhausted ? TooManyAttempts : codeOnly ? WrongCode : WrongProof);
             }
 
             _confirmations.ClearFailures(user.Id);

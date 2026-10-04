@@ -193,6 +193,7 @@ how it was built, `notes.md` is what shipped.
 - [`caisse-extrait`](features/caisse-extrait/notes.md) — La caisse has a statement, and it is a read · A session's payment reaches the till
 - [`bridged-note-seance-collection`](features/bridged-note-seance-collection/notes.md) — A later séance of a treatment billed on a note collects on that note (`Payment.DentalRecordId`) · a desk payment no longer makes the first séance's fiche un-re-savable
 - [`patient-outstanding-breakdown`](features/patient-outstanding-breakdown/notes.md) — « Solde dû » says what it is made of, and each row is settled where it is read
+- [`reste-a-payer-worklist`](features/reste-a-payer-worklist/notes.md) — « À clôturer » lists who owes, split « À relancer » (due now) / « En cours », open to every role
 - [`adoption-gaps-remediation`](features/adoption-gaps-remediation/notes.md) — Re-saving a fiche tops its note up, and la caisse's day is Tunisian (Part 2)
 - [`audit-sections-3-to-10`](features/audit-sections-3-to-10/notes.md) — `verify-schema` (Local-mode console verb) · Tunisia is UTC+1, and `ClinicClock` is the only thing that knows it (P6) · A visit knows whether it was billed (P6) · One CNAM calculator (P6)
 
@@ -240,6 +241,7 @@ how it was built, `notes.md` is what shipped.
 **Who may do what, and whose data it is**
 
 - [`adoption-qa-i-access-control-and-audit`](features/adoption-qa-i-access-control-and-audit/notes.md) — Who may do what, and who did it · The patient AI summary is gone, and the claim that used to be here was false on both halves (I4)
+- [`money-discreet-mode`](features/money-discreet-mode/notes.md) — « Mode discret » : un clic masque l'argent du cabinet sur tous les postes, seul un code d'authentificateur le réaffiche
 - [`multi-tenant-cloud`](features/multi-tenant-cloud/notes.md) — Three deployment topologies, one capability per question (US-1 / Part A) · The hosted runtime can be watched, and it cannot race itself (US-6 / Part F) · Every blob knows whose it is (US-5 / Part E)
 - [`windows-desktop-app`](features/windows-desktop-app/notes.md) — Local-disk file storage (Phase 2) · Connectivity awareness (Phase 3, Local mode) · LAN hosting & security gates (Phase 4, Local mode) · Packaging, installers & manual backup (Phase 5, Local mode)
 

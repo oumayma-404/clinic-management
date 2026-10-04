@@ -122,6 +122,14 @@ export const ApiErrorCode = {
    * dentist confirmed giving the difference back today. Emitted by `PlanRefund.Code`.
    */
   PlanTotalBelowCollected: 'plan-total-below-collected',
+  /**
+   * The cabinet's « Mode discret » is on, so this clinic-wide money read is refused. The message travels on; only
+   * {@link onMoneyHidden} is told, so `MoneyVisibilityProvider` re-reads and the page swaps for its card.
+   * Emitted by `ClinicMoneyMask.HiddenCode`.
+   */
+  MoneyHidden: 'money_hidden',
+  /** This action needs an authenticator and the account has none. Emitted by `ClinicAuthRefusals.TotpNotEnrolled`. */
+  TotpNotEnrolled: 'totp_not_enrolled',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */
@@ -221,6 +229,17 @@ export function onSecondFactorRequired(listener: SecondFactorRequiredListener): 
   secondFactorRequiredListeners.add(listener);
   return () => {
     secondFactorRequiredListeners.delete(listener);
+  };
+}
+
+type MoneyHiddenListener = () => void;
+const moneyHiddenListeners = new Set<MoneyHiddenListener>();
+
+/** Subscribe to « this money read was refused because the cabinet hid its money » (403 + `money_hidden`). */
+export function onMoneyHidden(listener: MoneyHiddenListener): () => void {
+  moneyHiddenListeners.add(listener);
+  return () => {
+    moneyHiddenListeners.delete(listener);
   };
 }
 
@@ -519,6 +538,11 @@ async function throwIfNotOk(response: Response): Promise<void> {
     // gate cannot trigger a re-read — and the message travels on untouched.
     if (errorCode && SUBSCRIPTION_CODES.has(errorCode)) {
       subscriptionRequiredListeners.forEach((listener) => listener());
+    }
+
+    // A screen still open when the cabinet was hidden from another PC: re-read, and the page swaps for its card.
+    if (errorCode === ApiErrorCode.MoneyHidden) {
+      moneyHiddenListeners.forEach((listener) => listener());
     }
 
     // The one refusal every screen can act on, in exactly one way: go and change the password.
