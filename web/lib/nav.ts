@@ -146,23 +146,15 @@ export function buildConfigItems(isAdmin: boolean, showSubscription = true): Nav
         ]
       : []),
     { name: "Paramètres", href: "/settings", icon: Settings },
-    // `clinic-subscription` AC-2.2 — **outside the `isAdmin` branch above, deliberately.** The person who meets
-    // « Votre abonnement a expiré … » on a save is usually reception, not whoever pays, and she has to be able to
-    // read why; hiding this row would point the refusal at a screen she cannot see (EC-10). It sits with the other
-    // clinic-administration destinations but outside their admin-only grouping, exactly as the spec words it.
-    // What stays admin-only is the payment *history* inside the page, not the page.
+    // Open to a doctor; a secretary is filtered out by `SECRETARY_HIDDEN_HREFS` (owner's call, 2026-10-04).
     //
     // ⚠️ Gated on the **deployment**, not on a role (AC-7.1/7.2, Part D): where nothing expires there is no
     // subscription to show, and the page itself says so. `showSubscription` defaults to `true` because the one
     // caller that must never lose the row is `lib/zones.ts`, which builds the route→icon map and needs every
     // destination that can render — including this one, on the deployments where it does.
     ...(showSubscription ? [{ name: "Abonnement", href: "/abonnement", icon: CreditCard }] : []),
-    // `hosted-security-hardening` FR-1.5 — **outside the `isAdmin` branch, and unconditional across
-    // deployments.** A doctor or a secretary may enrol a second factor voluntarily anywhere, and this is the
-    // only screen where they can; gating it on the role would leave the two people most likely to want it with
-    // no way to reach it, and gating it on the deployment would do the same on the two profiles that require
-    // nothing of administrators. What the *deployment* decides is whether an admin may switch theirs off,
-    // which the page states in words.
+    // `hosted-security-hardening` FR-1.5 — a doctor may enrol a second factor here on any deployment; a secretary
+    // is filtered out by `SECRETARY_HIDDEN_HREFS` (owner's call, 2026-10-04) and an admin resets hers from /users.
     { name: "Sécurité", href: "/securite", icon: ShieldCheck },
   ]
 }
@@ -191,6 +183,10 @@ const SECRETARY_HIDDEN_HREFS: ReadonlySet<string> = new Set([
   "/cheques",
   // No "/creances": that row no longer exists, and an href this set can never be asked about is dead weight that
   // reads as a live gate.
+  // Clinic administration: the owner's call (2026-10-04), not an API refusal — only the settings writes are AdminOnly.
+  "/settings",
+  "/abonnement",
+  "/securite",
 ])
 
 /** True when this role must not see the clinic-wide money screens. The one place the comparison is written. */
@@ -229,7 +225,7 @@ export function isNavItemVisible(href: string, role: string | null | undefined, 
 }
 
 /**
- * Every destination this role can reach, grouped — 13 for a practitioner, 17 for an admin, 10 for a secretary.
+ * Every destination this role can reach, grouped.
  *
  * <p>Takes the **role**, not an `isAdmin` boolean: the admin/not-admin split alone cannot express « a secretary
  * sees less than a doctor », which is the whole distinction I1 turns on. A section whose every item is hidden is
@@ -250,10 +246,12 @@ export function buildNavSections(
     }))
     .filter((section) => section.items.length > 0)
 
-  return [
-    ...visible,
-    { title: "Configuration", items: buildConfigItems(role === "admin", showSubscription) },
-  ]
+  // Through the same filter as the sections above, or a hidden Configuration row would still render.
+  const config = buildConfigItems(role === "admin", showSubscription).filter((i) =>
+    isNavItemVisible(i.href, role, moneyHidden),
+  )
+
+  return [...visible, ...(config.length > 0 ? [{ title: "Configuration", items: config }] : [])]
 }
 
 /**

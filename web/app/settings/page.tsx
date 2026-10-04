@@ -3,9 +3,30 @@
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
+import { AccessDeniedCard } from "@/components/ui/access-denied-card"
+import { AppLoader } from "@/components/ui/app-loader"
 import ClinicSettings from "@/components/clinic-settings"
+import { useSession } from "@/lib/auth/session"
+import { isNavItemVisible } from "@/lib/nav"
 
 export default function SettingsPage() {
+  const { user, isLoading } = useSession()
+
+  // A wrapper, not a branch inside `ClinicSettings`: its reads fire on mount.
+  if (isLoading || !isNavItemVisible("/settings", user?.role)) {
+    return (
+      <ClinicGuard>
+        <AppShell width="none" gutter={false}>
+          {isLoading ? (
+            <AppLoader />
+          ) : (
+            <AccessDeniedCard description="Les paramètres du cabinet sont réservés au praticien et à l'administrateur." />
+          )}
+        </AppShell>
+      </ClinicGuard>
+    )
+  }
+
   return (
     <ClinicGuard>
       {/*

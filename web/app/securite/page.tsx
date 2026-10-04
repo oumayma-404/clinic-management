@@ -5,6 +5,9 @@ import { AppShell } from '@/components/app-shell'
 import { ClinicGuard } from '@/components/clinic-guard'
 import { PageHeader } from '@/components/ui/page-header'
 import { AppLoader } from '@/components/ui/app-loader'
+import { AccessDeniedCard } from '@/components/ui/access-denied-card'
+import { useSession } from '@/lib/auth/session'
+import { isNavItemVisible } from '@/lib/nav'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -21,19 +24,26 @@ import { toast } from 'sonner'
 /**
  * « Sécurité » — this account's own second factor (`hosted-security-hardening` FR-1.5).
  *
- * ⚠️ **Reachable by every role**, and that is the point: a doctor or a secretary may enrol voluntarily on any
- * deployment, and this is the only screen where they can. It is deliberately not « Mon profil » (a
- * practitioner's *document* identity, which a secretary does not have) and not « Paramètres » (clinic-wide and
- * admin-shaped) — this is about one person's own credential.
+ * ⚠️ **Not for a secretary** (owner's call, 2026-10-04): an admin resets her second factor from « Utilisateurs ».
+ * A doctor may enrol voluntarily on any deployment, and this is the only screen where they can.
  *
  * ⚠️ **An administrator who cannot disable theirs is told so in words**, with the control absent rather than
  * present-and-refusing. A disabled button with no explanation reads as a bug.
  */
 export default function SecuritePage() {
+  const { user, isLoading } = useSession()
+  const allowed = !isLoading && isNavItemVisible('/securite', user?.role)
+
   return (
     <ClinicGuard>
-      <AppShell>
-        <SecurityContent />
+      <AppShell width={allowed ? undefined : 'none'} gutter={allowed ? undefined : false}>
+        {isLoading ? (
+          <AppLoader />
+        ) : allowed ? (
+          <SecurityContent />
+        ) : (
+          <AccessDeniedCard description="La sécurité du compte est gérée par l'administrateur du cabinet." />
+        )}
       </AppShell>
     </ClinicGuard>
   )
