@@ -239,6 +239,11 @@ export default function AppointmentsPage() {
 
   // Check Google Calendar status on mount and after authorization
   const checkGoogleCalendarStatus = useCallback(async () => {
+    // Admins only: the controller's class-level AdminOnly refuses every other role, so asking only logs a 403.
+    if (!isAdmin) {
+      setIsGoogleCalendarAuthorized(false)
+      return
+    }
     try {
       const status = await googleCalendarApi.getStatus()
       setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
@@ -264,7 +269,7 @@ export default function AppointmentsPage() {
       }
       console.error("Failed to check Google Calendar status:", error)
     }
-  }, [])
+  }, [isAdmin])
 
   useEffect(() => {
     checkGoogleCalendarStatus()

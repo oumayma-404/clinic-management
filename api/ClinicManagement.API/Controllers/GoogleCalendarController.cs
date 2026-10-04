@@ -71,11 +71,8 @@ public class GoogleCalendarController : ApiControllerBase
     /// <summary>
     /// « Imports Google » — what the calendar import has done to this cabinet, and which pass can still be undone.
     ///
-    /// <para>⚠️ <b><c>AnyClinicRole</c>, loosening the class policy</b>, and that is deliberate: the « Annuler cet
-    /// import » banner lives on « À clôturer », which reception reads and which is exactly where an unwanted
-    /// import is felt. A banner nobody at the desk can see would be a banner nobody sees. The <b>undo itself</b>
-    /// stays <c>AdminOnly</c> below — reading what happened and deleting patient records are different
-    /// permissions.</para>
+    /// <para>⚠️ <b>Effectively <c>AdminOnly</c></b>: ASP.NET ANDs this with the class policy, it cannot loosen it.
+    /// The banner on « À clôturer » therefore asks only for an admin (2026-10-04).</para>
     /// </summary>
     [HttpGet("imports")]
     [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
@@ -185,9 +182,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// Get sync status for the caller's clinic (is Google Calendar connected + is its token valid).
     /// </summary>
     [HttpGet("status")]
-    // The one action here that is not integration *administration*. Every role's agenda reads it on mount to
-    // decide whether to render the « non synchronisé » badge, so gating it with its admin-only siblings would
-    // put a 403 on every reception page load and silently switch the badge off for the people who watch it.
+    // ⚠️ Effectively AdminOnly: ASP.NET ANDs this with the class policy, so the agenda asks only for an admin.
     // It returns whether the secrets are *present*, never their values.
     [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
     public async Task<IActionResult> GetSyncStatus(CancellationToken cancellationToken)
