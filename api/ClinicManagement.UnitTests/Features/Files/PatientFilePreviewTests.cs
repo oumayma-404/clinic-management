@@ -307,4 +307,73 @@ public class PatientFilePreviewTests
 
         Assert.Equal(file.ToDto().HasPreview, served.IsSuccess);
     }
+
+    // ── Revalidation (features/performance-caching 1.3) ────────────────────────────────────────────────────
+
+    private async Task<string> TagOf(PatientFile file) => (await ServePreview(file)).Value!.ETag!;
+
+    private Task<Result<FileDownloadDto>> Revalidate(PatientFile file, string tag) =>
+        PreviewHandler().Handle(
+            new DownloadPatientFilePreviewQuery { PatientId = PatientId, FileId = file.Id, IfNoneMatch = [tag] },
+            CancellationToken.None);
+
+    [Fact]
+    public async Task A_Served_Preview_Carries_A_Strong_Tag()
+    {
+        var tag = await TagOf(AHostedFile(previewKey: PreviewKey));
+
+        Assert.Matches("^\"[0-9a-f]{32}\"$", tag);
+    }
+
+    [Fact]
+    public async Task A_Preview_The_Browser_Already_Holds_Is_Not_Read_From_Storage_Again()
+    {
+        var file = AHostedFile(previewKey: PreviewKey);
+        var tag = await TagOf(file);
+
+        var result = await Revalidate(file, tag);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.True(result.Value!.NotModified);
+        Assert.Equal(tag, result.Value.ETag);
+        _storage.Verify(s => s.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_Stale_Tag_Gets_The_Bytes_And_The_Current_Tag()
+    {
+        var file = AHostedFile(previewKey: PreviewKey);
+        var tag = await TagOf(file);
+
+        var result = await Revalidate(file, "\"0123456789abcdef0123456789abcdef\"");
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(result.Value!.NotModified);
+        Assert.NotNull(result.Value.FileStream);
+        Assert.Equal(tag, result.Value.ETag);
+    }
+
+    [Fact]
+    public async Task The_Stand_In_And_The_Small_Original_Carry_Different_Tags()
+    {
+        var standIn = await TagOf(AHostedFile(previewKey: PreviewKey));
+        var original = await TagOf(AHostedFile());
+
+        Assert.NotEqual(standIn, original);
+    }
+
+    [Fact]
+    public async Task A_Matching_Tag_Never_Confirms_Another_Cabinets_File()
+    {
+        var file = AHostedFile(previewKey: PreviewKey);
+        var tag = await TagOf(file);
+        _patients.Setup(r => r.GetByIdAsync(PatientId, It.IsAny<CancellationToken>())).ReturnsAsync(new Patient(
+            PatientId, Guid.NewGuid(), "Amine", "Trabelsi", new DateTime(1990, 1, 1), "M",
+            new Email("a@t.tn"), new PhoneNumber("+21620000000")));
+
+        var result = await Revalidate(file, tag);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Fichier introuvable.", result.Error);
+    }
 }

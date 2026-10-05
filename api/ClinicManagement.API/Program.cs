@@ -981,6 +981,9 @@ try
     // address as a second and looser ceiling.
     app.UseRateLimiter();
 
+    // Outside ExceptionMiddleware so it logs the final status code; route template only, never the path.
+    app.UseMiddleware<ClinicManagement.API.Middleware.RequestTimingMiddleware>();
+
     app.UseMiddleware<ExceptionMiddleware>();
 
     // A shell below the operator's floor is refused here, BEFORE authentication, so its login 426s rather than

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Files;
@@ -19,6 +21,9 @@ public class DownloadPatientFilePreviewQuery : IRequest<Result<FileDownloadDto>>
 {
     public Guid PatientId { get; set; }
     public Guid FileId { get; set; }
+
+    /// <summary>The <c>If-None-Match</c> tags the browser sent back, quotes included.</summary>
+    public IReadOnlyList<string> IfNoneMatch { get; set; } = [];
 }
 
 public class DownloadPatientFilePreviewQueryHandler
@@ -111,13 +116,27 @@ public class DownloadPatientFilePreviewQueryHandler
             // preview is a downscaled stand-in served inside the application to somebody who already has the
             // patient's file open. `PatientFileAccessCoverageTests` carries this as a named exemption, so the
             // decision is stated rather than inferred from an absence.
+            // Checked after the tenant check above, so a 304 can never confirm another cabinet's file exists.
+            var etag = ETagFor(servedKey!);
+            if (request.IfNoneMatch.Contains(etag))
+            {
+                return Result<FileDownloadDto>.Success(new FileDownloadDto
+                {
+                    FileName = file.FileName,
+                    ContentType = servedContentType,
+                    ETag = etag,
+                    NotModified = true
+                });
+            }
+
             var stream = await _fileStorage.DownloadAsync(servedKey!, cancellationToken);
 
             var dto = new FileDownloadDto
             {
                 FileStream = stream,
                 FileName = file.FileName,
-                ContentType = servedContentType
+                ContentType = servedContentType,
+                ETag = etag
             };
 
             return Result<FileDownloadDto>.Success(dto);
@@ -127,6 +146,10 @@ public class DownloadPatientFilePreviewQueryHandler
             return Result<FileDownloadDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
+
+    // Both keys are written once per file (PatientFile's constructor), so the key is the version of its bytes.
+    private static string ETagFor(string servedKey) =>
+        $"\"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(servedKey)), 0, 16).ToLowerInvariant()}\"";
 
     // Derived from the key the registration composed rather than stored beside it: the extension is already the
     // record of what was written, and a second column could only ever disagree with it.

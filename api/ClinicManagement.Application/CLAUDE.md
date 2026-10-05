@@ -27,7 +27,7 @@ AddApplication():
 `Send(command/query)` → **ValidationBehavior** → **LoggingBehavior** → **RealtimeBroadcastBehavior** → **Handler** (registration order). Behaviors in `Common/Behaviors/`:
 
 - **`ValidationBehavior<,>`** — resolves `IValidator<TRequest>`, throws `FluentValidation.ValidationException` on failure. **No validators exist**, so it is a no-op today; handlers validate inline and return `Result.Failure(...)`. (If one were added, `ExceptionMiddleware` maps the exception → 400.)
-- **`LoggingBehavior<,>`** — logs "Handling/Handled {RequestName}".
+- **`LoggingBehavior<,>`** — logs "Handling {RequestName}" and "Handled {RequestName} in {ElapsedMs} ms". The « Handling » line stays: with no « Handled » after it, it names the request in flight at a hang.
 - **`RealtimeBroadcastBehavior<,>`** — the single wiring point for "any edit is live". After the handler returns (post-commit), if the request is a mutating command **and** the response is a successful `Result`, it resolves the caller's clinic (`IClinicContext`→`IUserRepository`) and calls `IRealtimeNotifier.NotifyEntityChangedAsync(clinicId, "<area>")`; clients of that clinic refetch. Purely structural — the resource key is derived by **`RealtimeResourceResolver`** from the namespace (`...Features.<Area>.Commands` → `<area>` lowercased), so new commands broadcast automatically. Excluded (no broadcast): `Auth`, `AI`, `Backup`, `Connectivity`, all queries. Fail-safe: swallows any resolution/transport error so a broadcast never fails the committed command. `IRealtimeNotifier` is implemented in the API layer (SignalR `ClinicHub`); the key contract with `web/lib/realtime/clinic-hub.ts` is pinned by `RealtimeResourceResolverTests`.
 
 ## Result pattern — `Common/Models/Result.cs`
