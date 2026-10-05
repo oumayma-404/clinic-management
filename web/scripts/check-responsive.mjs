@@ -4073,6 +4073,56 @@ check(
 );
 
 
+check(
+  "one-hub-connection",
+  "N45",
+  "A tab opens ONE SignalR connection, and `ClinicRealtimeProvider` is the only thing that opens it",
+  "Every `useClinicRealtime` call used to open its own socket — 35 call sites, so three to five connections " +
+    "per screen, each rebuilt on every sidebar click, and two in one component on the files directory. The " +
+    "provider now owns the tab's one connection and the hook only adds a listener. A component calling " +
+    "`createClinicHubConnection` itself, or building a `HubConnectionBuilder` outside `clinic-hub.ts`, " +
+    "quietly brings the old cost back and also escapes the provider's rule that the socket closes when the " +
+    "signed-in user changes (features/performance-caching 2a).",
+  () => {
+    const owner = "lib/realtime/clinic-realtime-provider.tsx";
+    const builder = "lib/realtime/clinic-hub.ts";
+    const offenders = [];
+    let ownerCalls = 0;
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      for (const m of code.matchAll(/(?<!function\s)\bcreateClinicHubConnection\s*\(/g)) {
+        if (name === owner) {
+          ownerCalls++;
+          continue;
+        }
+        offenders.push({
+          file: name,
+          line: lineAt(code, m.index),
+          text: "opens its own hub connection — subscribe through `useClinicRealtime`, which listens on the shared one",
+        });
+      }
+
+      if (name === builder) continue;
+      const at = code.search(/\bnew\s+HubConnectionBuilder\s*\(/);
+      if (at >= 0) {
+        offenders.push({ file: name, line: lineAt(code, at), text: "builds a SignalR connection outside `clinic-hub.ts`" });
+      }
+    }
+
+    // Non-vacuity: a renamed provider would otherwise leave this check passing while it guards nothing.
+    if (ownerCalls !== 1) {
+      offenders.push({ file: owner, text: `calls createClinicHubConnection ${ownerCalls} time(s) — expected exactly one` });
+    }
+
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

@@ -78,7 +78,8 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 ## lib/realtime/ — SignalR clinic bus
 
 - `clinic-hub.ts` — builds a `HubConnection` to `/hub/clinic` (resolved against the API origin; browser-only). `RealtimeResource` maps feature areas → lowercase keys (`appointments`, `patients`, `stock`, `notifications`, `invoices`, `treatmentplans`, `medications`, `dentalacts`, `users`, …); server emits a single `entityChanged` event carrying the changed key. Mode-aware bearer token via `/bff/auth/token`.
-- `use-clinic-realtime.ts` (`useClinicRealtime(resources, onChanged)`) — subscribes once per resource set, filters to the watched keys, refetches on reconnect (catch-up), retries the first connect until unmount. **Additive**: connection failures are never surfaced; pages keep working via manual refresh.
+- `clinic-realtime-provider.tsx` (`ClinicRealtimeProvider`, mounted in `app/layout.tsx` inside the session) — **the tab's ONE connection** (`features/performance-caching` 2a). It connects only while a user is signed in, restarts when the user changes, fans each event out to its listeners, tells every listener to catch up after a reconnect, and retries the first connect every 5 s. ⚠️ It replaced one socket **per hook call** — 35 call sites, 3–5 sockets per screen, rebuilt on every sidebar click. `check:responsive`'s **N45 `one-hub-connection`** fails on any other caller of `createClinicHubConnection` or any `HubConnectionBuilder` outside `clinic-hub.ts`.
+- `use-clinic-realtime.ts` (`useClinicRealtime(resources, onChanged)`) — adds a **listener** on that connection (never a socket), filters to the watched keys, and passes `undefined` on a reconnect (catch-up). Outside the provider it is a no-op. **Additive**: connection failures are never surfaced; pages keep working via manual refresh.
 
 ## Other lib files
 

@@ -115,3 +115,29 @@ Run with `dotnet build … -p:OutDir=<scratch>/utbuild/` + `dotnet vstest`, the 
 - Baseline numbers (blueprint § 1.1): restart the API on this branch with `Diagnostics__SlowRequestMs=0`.
 - Blast-radius row 4: second-factor paths (recovery code consume / regenerate) on a real database.
 - Blast-radius row 9: a thumbnail still paints after reload, and a second load answers 304 (`curl -I -H "If-None-Match: …"`).
+
+---
+
+# Part 2a — one shared live connection per tab (2026-10-05)
+
+## Status
+- [x] Implementation — `lib/realtime/clinic-realtime-provider.tsx` (new), `use-clinic-realtime.ts` (listener only), `app/layout.tsx` (mounted inside the session), N45 guard
+- [x] Gate — `check:responsive` 73/73 (N45 red-proofed with a throwaway violation), `tsc --noEmit` clean, `npm run build` clean
+- [x] Browser QA — `qa/run-2a-1.md` GREEN: 1 socket per page load (old code: 4 on the agenda, 7 on a patient page), 0 on sidebar navigation, live update across users, none after sign-out; reconnect catch-up not exercised
+- [ ] Commit
+- [ ] Part 2b — the shared query cache (TanStack Query) for reference data
+
+## Blast Radius
+| # | Touching | Other consumers | Verdict |
+|---|---|---|---|
+| 1 | `useClinicRealtime` internals | 35 call sites | unaffected — same signature, filter and reconnect catch-up; re-tested on agenda, patient page, waiting list (RT-1..4) |
+| 2 | `createClinicHubConnection` | the hook (now the provider) | changed — the provider is its only caller, held by N45 |
+| 3 | `app/layout.tsx` provider tree | `SubscriptionProvider`, `MoneyVisibilityProvider` call the hook | changed — the provider sits above both |
+| 4 | signed-out pages | the old hook connected anyway and retried every 5 s | improved — no connection without a session (RT-5) |
+| 5 | `web/CLAUDE.md`, `web/lib/CLAUDE.md` | docs | changed |
+
+## Auto-Approved Deviations
+| Deviation | Reason |
+|-----------|--------|
+| 2a ships without TanStack Query (blueprint 2.1 bundled it with 2.2) | The shared connection needs no cache; the dependency lands with its first consumer in 2b |
+| The provider keys on `user.email` | `SessionUser` carries no id; email is the identity the session exposes |
