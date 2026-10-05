@@ -747,6 +747,8 @@ export default function PatientDetailsPage() {
    */
   const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | null>(null)
   const [editingRecord, setEditingRecord] = useState<DentalRecordDto | null>(null)
+  // Set by the notes strip's per-line pencil only; cleared when the fiche closes.
+  const [recordFocusNotes, setRecordFocusNotes] = useState(false)
   // Appointment carried by the post-visit "record the visit" deep-link, threaded into the record modal so
   // saving the dental record closes that appointment's post-visit prompt (findings #4 + #10).
   const [reviewAppointmentId, setReviewAppointmentId] = useState<string | null>(null)
@@ -2338,6 +2340,7 @@ procedureTypeId: it.procedureTypeId ?? null,
             const record = dentalRecords.find((r) => r.id === recordId)
             if (!record) return
             setEditingRecord(record)
+            setRecordFocusNotes(true)
             setRecordModalOpen(true)
           }}
         />
@@ -3973,8 +3976,10 @@ procedureTypeId: it.procedureTypeId ?? null,
           if (!open) {
             setEditingRecord(null)
             setReviewAppointmentId(null)
+            setRecordFocusNotes(false)
           }
         }}
+        focusNotes={recordFocusNotes}
         patientName={patientName}
         patientId={patient.id}
         record={editingRecord}

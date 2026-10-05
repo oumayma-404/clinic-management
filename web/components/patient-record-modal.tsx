@@ -271,8 +271,12 @@ interface PatientRecordModalProps {
    * common visit is "tap the teeth, confirm". Nothing is committed from it — see `ActSlot`.
    */
   appointment?: AppointmentDto | null
+  /** Opens with « Notes de séance » unfolded and scrolled into view — the notes strip's per-line pencil. */
+  focusNotes?: boolean
   onSuccess?: () => void
 }
+
+const NOTES_SECTION_ANCHOR = "record-notes-section"
 
 /**
  * Confirm-first dental-record entry. The act comes first — proposed from the appointment when there is one,
@@ -298,6 +302,7 @@ export function PatientRecordModal({
   planItems = [],
   appointmentId,
   appointment,
+  focusNotes = false,
   onSuccess,
 }: PatientRecordModalProps) {
   const [patientName, setPatientName] = useState(initialPatientName)
@@ -757,6 +762,22 @@ export function PatientRecordModal({
       setPreviewTarget(null)
     }
   }, [open, initialPatientName, record, dispatch])
+
+  // Declared after the hydration above so it wins; two frames so the dialog has laid out before scrolling.
+  useEffect(() => {
+    if (!open || !focusNotes) return
+    setNotesOpen(true)
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        document.getElementById(NOTES_SECTION_ANCHOR)?.scrollIntoView({ block: "start", behavior: "auto" })
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [open, focusNotes, record])
 
   // AC-9: an appointment booked FROM a plan step already knows which act this visit is for, so opening the
   // record from it pre-selects that step — the dentist no longer has to find it in the dropdown to close the
@@ -2495,6 +2516,7 @@ export function PatientRecordModal({
 
         <RecordSection
           title="Notes de séance"
+          anchorId={NOTES_SECTION_ANCHOR}
           summary={notesSummary}
           open={notesOpen}
           onToggle={() => setNotesOpen((v) => !v)}
