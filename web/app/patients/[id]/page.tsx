@@ -2334,6 +2334,12 @@ procedureTypeId: it.procedureTypeId ?? null,
           recordsFailed={sectionFailed("dentalRecords")}
           onRetryRecords={retrySections}
           onEdit={() => setEditDialogOpen(true)}
+          onEditRecord={(recordId) => {
+            const record = dentalRecords.find((r) => r.id === recordId)
+            if (!record) return
+            setEditingRecord(record)
+            setRecordModalOpen(true)
+          }}
         />
 
         {/* An archived patient is hidden from every list and search but still reachable by direct URL —

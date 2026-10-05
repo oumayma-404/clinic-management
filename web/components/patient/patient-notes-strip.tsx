@@ -24,7 +24,10 @@ interface PatientNotesStripProps {
   recordsFailed?: boolean
   /** Re-run the page's reads. Required for the failure notice to be actionable rather than merely honest. */
   onRetryRecords?: () => void
+  /** Edits the PATIENT's own notes (the edit-patient dialog) — never a séance's. */
   onEdit: () => void
+  /** Opens the fiche a séance note was written on; a séance note lives there, not on the patient. */
+  onEditRecord?: (recordId: string) => void
 }
 
 /**
@@ -63,6 +66,7 @@ function splitPatientWarnings(importantNotes: string): string[] | null {
 /** One note from one séance, carrying what identifies the visit it came from. */
 interface SessionNote {
   key: string
+  recordId: string
   date: string
   /** The séance's derived act summary — « Traitement de canal (dévitalisation) ». */
   procedure: string
@@ -78,6 +82,7 @@ function sessionNotesOf(records: DentalRecordDto[], kind: "importantNotes" | "no
     .flatMap((record) =>
       (record[kind] ?? []).map((text, i) => ({
         key: `${record.id}-${i}`,
+        recordId: record.id,
         date: formatDate(record.interventionDate),
         procedure: record.procedureType,
         text,
@@ -206,6 +211,7 @@ export function PatientNotesStrip({
   recordsFailed,
   onRetryRecords,
   onEdit,
+  onEditRecord,
 }: PatientNotesStripProps) {
   const importantNotes = patient.importantNotes?.trim() || ""
   const notes = patient.notes?.trim() || ""
@@ -220,40 +226,59 @@ export function PatientNotesStrip({
   const noteCount = (notes ? 1 : 0) + sessionNotes.length
 
   const datedLine = (item: SessionNote, alert: boolean) => (
-    <p
-      key={item.key}
-      className={cn(
-        "text-sm leading-snug",
-        alert ? "text-amber-950 dark:text-amber-50" : "text-foreground",
-      )}
-    >
-      <span
+    <div key={item.key} className="flex items-start gap-1">
+      <p
         className={cn(
-          "mr-1.5 whitespace-nowrap text-2xs font-medium tabular-nums",
-          alert ? "text-amber-800/90 dark:text-amber-300/90" : "text-muted-foreground",
+          "min-w-0 flex-1 text-sm leading-snug",
+          alert ? "text-amber-950 dark:text-amber-50" : "text-foreground",
         )}
       >
-        {item.date}
-      </span>
-      {item.procedure && (
         <span
           className={cn(
-            "mr-1.5 text-2xs",
-            alert ? "text-amber-800/75 dark:text-amber-300/70" : "text-muted-foreground/80",
+            "mr-1.5 whitespace-nowrap text-2xs font-medium tabular-nums",
+            alert ? "text-amber-800/90 dark:text-amber-300/90" : "text-muted-foreground",
           )}
         >
-          {item.procedure}
+          {item.date}
         </span>
+        {item.procedure && (
+          <span
+            className={cn(
+              "mr-1.5 text-2xs",
+              alert ? "text-amber-800/75 dark:text-amber-300/70" : "text-muted-foreground/80",
+            )}
+          >
+            {item.procedure}
+          </span>
+        )}
+        <span className={alert ? "font-medium" : undefined}>{item.text}</span>
+      </p>
+      {/* Grows its own box on a coarse pointer: lines are stacked 4 px apart, so an overlay would open the wrong fiche. */}
+      {onEditRecord && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onEditRecord(item.recordId)}
+          aria-label={`Modifier la note de la fiche du ${item.date}`}
+          className={cn(
+            "size-6 shrink-0 coarse:size-11",
+            alert
+              ? "text-amber-800 hover:bg-amber-100 hover:text-amber-900 dark:text-amber-300 dark:hover:bg-amber-900/50"
+              : "text-muted-foreground",
+          )}
+        >
+          <Pencil className="size-3.5" />
+        </Button>
       )}
-      <span className={alert ? "font-medium" : undefined}>{item.text}</span>
-    </p>
+    </div>
   )
 
   /**
    * The « Modifier » control, now on **both** halves.
    *
    * One callback serves the two because both kinds are written in the same place: `edit-patient-dialog`'s
-   * « Notes du patient » section holds `importantNotes` and `notes` together. Previously only the Notes half
+   * « Notes du patient » section holds `importantNotes` and `notes` together. A séance's dated line carries its own
+   * pencil instead, opening the fiche it was written on. Previously only the Notes half
    * carried it, which made the amber half look read-only — the alerts are just as editable, and the one people
    * most often need to correct.
    *
