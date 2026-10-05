@@ -52,7 +52,7 @@ import {
   type AppointmentRecapModel,
 } from "@/components/appointment-recap"
 import { appointmentsApi } from "@/lib/api/appointments"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useAddProcedureTypeToCache, useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import {
   AppointmentActsPicker, actLabelsOf, continuationToSelectedAct, hasInvalidAgreedCost, negotiatedTotalOf,
   presetToSelectedAct,
@@ -167,7 +167,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const { allDoctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
 
   // Procedure type state
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  // The tab's shared act catalogue — cached, so a reopened dialog no longer re-reads it.
+  const catalogue = useProcedureTypes()
+  const procedureTypes = catalogue.items
+  const addProcedureTypeToCache = useAddProcedureTypeToCache()
   /** The acts of this séance — several are the normal case, not the exception. */
   const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
   /**
@@ -177,7 +180,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * length of every appointment merely opened for a look.
    */
   const [durationTouched, setDurationTouched] = useState(true)
-  const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+  const loadingProcedureTypes = catalogue.loading
 
   /**
    * The patient's outstanding devis acts, offered in the acts picker so a visit booked from the agenda can be
@@ -191,8 +194,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * several live devis: the id has to be derived from whatever the user attached, and two devis in one séance
    * has to be refused *here*, in French, rather than reaching the server as a validation error.
    */
-  // AC-P3.31 — why the acte list is empty (C-4: this dialog swallowed the failure without even a comment).
-  const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
+  // AC-P3.31 / C-4 — why the acte list is empty: « Aucun type d'acte disponible » on a failed read is a different fact.
+  const procedureTypesError = catalogue.failed
+    ? getErrorMessage(catalogue.error, "La liste des actes n'a pas pu être chargée.")
+    : null
 
   // Time state
   const [startHour, setStartHour] = useState("09")
@@ -536,29 +541,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     const dt = new Date(date)
     dt.setHours(Number.parseInt(startHour), Number.parseInt(startMinute), 0, 0)
     return dt
-  }
-
-  // Load procedure types when dialog opens
-  useEffect(() => {
-    if (open) {
-      loadProcedureTypes()
-    }
-  }, [open])
-
-  const loadProcedureTypes = async () => {
-    try {
-      setLoadingProcedureTypes(true)
-      setProcedureTypesError(null)
-      const data = await procedureTypesApi.list(false) // Only active procedure types
-      setProcedureTypes(data || [])
-    } catch (err) {
-      // AC-P3.31 / C-4 — the audit's missing sixth swallow. This one had not even a comment: the list
-      // silently rendered « Aucun type d'acte disponible » on a failed call, which is a different fact.
-      setProcedureTypesError(getErrorMessage(err, "La liste des actes n'a pas pu être chargée."))
-      setProcedureTypes([]) // Ensure it's always an array
-    } finally {
-      setLoadingProcedureTypes(false)
-    }
   }
 
   /**
@@ -1302,7 +1284,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 procedureTypes={procedureTypes}
                 loading={loadingProcedureTypes}
                 error={procedureTypesError}
-                onRetry={() => void loadProcedureTypes()}
+                onRetry={catalogue.retry}
                 value={selectedActs}
                 onChange={(acts) => {
                   // Only a change of ACTS re-proposes the summed length — a typed price or a ticked séance is
@@ -1311,7 +1293,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   setSelectedActs(acts)
                 }}
                 disabled={loading}
-                onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
+                onProcedureCreated={addProcedureTypeToCache}
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="edit-appt"
                 planActs={planActs}

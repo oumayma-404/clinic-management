@@ -187,8 +187,9 @@ how it was built, `notes.md` is what shipped.
 
 - [`performance-caching`](features/performance-caching/notes.md) — Every `/api` request logs its time and SQL
   count (`Diagnostics:SlowRequestMs`) · the caller's account is read once per request · an unchanged thumbnail
-  answers 304 · **no server data cache, by decision** · the before/after numbers and why the dashboard rewrite
-  and the agenda index stayed undone
+  answers 304 · one live connection per tab · one browser cache for the **reference reads only** (clinic status,
+  catalogues, the bell) · **no server data cache, by decision** · the before/after numbers, and why the dashboard
+  rewrite and the agenda index stayed undone
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — There is a CI gate now, and before it there was none for `api/` or `web/` · Multi-tenancy · Pluggable auth (`Auth:Mode` = `Cloud` | `Local`) · Google Calendar sync is asymmetric + per-clinic · Background jobs · Billing / CNAM / treatment plans (deep, fully-wired subsystems) · Clinical-workflow-depth operational features (built) · Dead-code cleanup · Clinic-scoped SignalR realtime (built) · In-app staff notification center (built) · Real outbound SMS/WhatsApp reminders · Security posture (mostly hardened by `cloud-security-and-tenant-isolation`, PR #11)
 

@@ -34,7 +34,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { cn } from "@/lib/utils"
 import { odontogramApi } from "@/lib/api/odontogram"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { patientsApi } from "@/lib/api/patients"
 import { showErrorToast } from "@/lib/errors"
 import {
@@ -45,7 +45,7 @@ import {
   dentitionViewForTeeth,
   type DentitionView,
 } from "@/lib/dentition"
-import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
+import type { ToothStateDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
 import { isPerToothAct, seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
@@ -205,9 +205,9 @@ export function Odontogram({
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
   // The patient's fiches, joined to the treatment-sourced states for the act names.
   const [records, setRecords] = useState<DentalRecordDto[]>([])
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  /** The act catalogue read failed — so a seeded plan would carry no tarifs. Distinct from "no acts configured". */
-  const [catalogFailed, setCatalogFailed] = useState(false)
+  // The shared act catalogue, used to prefill a seeded line's tarif. A failed read is `catalogFailed`, never `[]`:
+  // with no catalogue every seed costs 0, a devis of free treatment that nothing on the chart would flag.
+  const { items: procedureTypes, failed: catalogFailed, retry: loadCatalog } = useProcedureTypes()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -271,27 +271,6 @@ export function Odontogram({
       /* the switch still works for this session */
     }
   }
-
-  /*
-   * Procedure catalog — used only to prefill a seeded plan line's cost (by resulting condition).
-   *
-   * ⚠️ A failure is **recorded**, not written back as `[]`. The empty write was a no-op (the state starts empty)
-   * that produced a wrong *number*: with no catalogue every seed's `matchedCost` falls back to 0, so
-   * « Créer un devis depuis l'odontogramme » would quietly produce a devis of free treatment. Nothing on the chart
-   * said so, because a missing tarif and a tarif of zero are the same value.
-   */
-  const loadCatalog = useCallback(async () => {
-    try {
-      setProcedureTypes(await procedureTypesApi.list(false))
-      setCatalogFailed(false)
-    } catch {
-      setCatalogFailed(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadCatalog()
-  }, [loadCatalog])
 
   /*
    * The odontogram changes through the dental-record flow (broadcasts "patients"), so refresh live.

@@ -124,8 +124,8 @@ Run with `dotnet build … -p:OutDir=<scratch>/utbuild/` + `dotnet vstest`, the 
 - [x] Implementation — `lib/realtime/clinic-realtime-provider.tsx` (new), `use-clinic-realtime.ts` (listener only), `app/layout.tsx` (mounted inside the session), N45 guard
 - [x] Gate — `check:responsive` 73/73 (N45 red-proofed with a throwaway violation), `tsc --noEmit` clean, `npm run build` clean
 - [x] Browser QA — `qa/run-2a-1.md` GREEN: 1 socket per page load (old code: 4 on the agenda, 7 on a patient page), 0 on sidebar navigation, live update across users, none after sign-out; reconnect catch-up not exercised
-- [ ] Commit
-- [ ] Part 2b — the shared query cache (TanStack Query) for reference data
+- [x] Commit — `0b0dd4a8`
+- [x] Part 2b — see below
 
 ## Blast Radius
 | # | Touching | Other consumers | Verdict |
@@ -141,3 +141,39 @@ Run with `dotnet build … -p:OutDir=<scratch>/utbuild/` + `dotnet vstest`, the 
 |-----------|--------|
 | 2a ships without TanStack Query (blueprint 2.1 bundled it with 2.2) | The shared connection needs no cache; the dependency lands with its first consumer in 2b |
 | The provider keys on `user.email` | `SessionUser` carries no id; email is the identity the session exposes |
+
+
+---
+
+# Part 2b — the shared reference cache (2026-10-05)
+
+## Status
+- [x] Implementation — `lib/query/` (provider + keys), `use-user-status.ts`, `use-catalogues.ts`; `use-clinic-access`, `use-doctors`, `use-notifications`, money visibility moved onto it; 14 call sites migrated; patient-page file list fix (2.4); N46–N48
+- [x] Gate — `check:responsive` 76/76 (N46–N48 red-proofed with a throwaway violation and a temporary edit), `tsc --noEmit` clean, `npm run build` clean
+- [x] Browser QA — `qa/run-2b-1.md` GREEN: `user-status` 8 → 1 on the agenda, `procedure-types` 2 → ≤ 1 over two dialog opens, 0 re-reads on sidebar navigation, live act + live file reach another user's open screen, cache not reused across users; « Mode discret » and the post-setup path not exercised
+- [ ] Commit
+
+## Blast Radius
+| # | Touching | Other consumers | Verdict |
+|---|---|---|---|
+| 1 | `useClinicAccess` (now over the shared query) | `ClinicGuard`, `DashboardSidebar`, `useDoctors` | unaffected — same return shape, same « failed read is an error, never a redirect » rule; re-tested C-1/C-6/C-7 |
+| 2 | `useDoctors` | 8 consumers (agenda, dialogs, editor, dashboard, factures, workspace) | unaffected — same fields; `refresh` now really re-reads; arrays keep identity (structural sharing) |
+| 3 | `MoneyVisibilityProvider` read | rail, bottom bar, Finances, dashboard | unaffected — state machine untouched; the fetch is a forced fresh read shared into the cache. **Not re-tested in a browser** (C-8) |
+| 4 | the six direct `getUserStatus` sites | clinic settings, users, document editor, agenda, join/setup | changed — forced fresh read (settings/users/editor/join/setup), live shared read (agenda hours) |
+| 5 | the eleven catalogue sites | both booking dialogs, fiche modal, odontogram, workspace, devis form, invoice form, editor, recurring screen | changed — `{ items, failed, error, retry }`, the shape they had; inline « acte personnalisé » writes into the cache |
+| 6 | `procedure-type-form-modal` fresh version | its save | changed — `get(id)` instead of the whole catalogue |
+| 7 | the bell's unread count | header on every page | changed — cached; refreshed by `notifications` |
+| 8 | `app/patients/[id]` file list | the « Fichiers » tab | changed — re-reads on the page's refresh; its failure flag is never erased by the main loader (C-5) |
+| 9 | `package.json` | CI's `npm audit --audit-level=high` | unaffected by this change — the 3 findings (next, sharp, browserslist) are already on HEAD |
+| 10 | `web/CLAUDE.md`, `web/lib/CLAUDE.md` | docs | changed |
+
+## Deviations
+| Deviation | Reason |
+|-----------|--------|
+| Settings, users, the document editor and join/setup use `useFetchUserStatus` (fresh) rather than the cached read | They copy the status into editable form state once; a live cached read would re-seed a form under the user's typing |
+| The fiche modal and the devis form read their catalogues with `enabled: open` | Keeps the old « only when opened » laziness; cached after the first open |
+| `medication-form-modal`'s version read stays a direct `medicationsApi.list(brandName, true)` | It is a search for one row's version with no single-row endpoint, not a catalogue read; N46 targets whole-catalogue reads only |
+
+## Found, not fixed (outside this change)
+- `clinic-settings.tsx:507` — after « Médecins » is saved, the rows are rebuilt from the response, which drops `ordreNumberCnomdt` and `hasCachet` until the next reload.
+- CI's web audit is red on HEAD: `next` (critical — RCE on Windows-hosted servers, i.e. the LAN install), `sharp`, `browserslist`.

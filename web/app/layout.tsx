@@ -6,6 +6,7 @@ import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
 import { SubscriptionProvider } from "@/lib/subscription/subscription-context"
 import { MoneyVisibilityProvider } from "@/lib/money-visibility/money-visibility-context"
 import { ClinicRealtimeProvider } from "@/lib/realtime/clinic-realtime-provider"
+import { QueryProvider } from "@/lib/query/query-provider"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { AppToaster } from "@/components/app-toaster"
 import { ClientVersionGate } from "@/components/client-version-gate"
@@ -116,24 +117,27 @@ export default function RootLayout({
             including the toaster, which follows `resolvedTheme`. */}
         <ThemeProvider>
           <SessionProvider>
-            {/* The tab's one SignalR connection — inside the session (it connects only for a signed-in user) and
-                above every provider and page that calls useClinicRealtime. */}
-            <ClinicRealtimeProvider>
-              {/* Inside the session provider: every read it makes is authenticated, and it fetches nothing until a
-                  user exists. It renders no UI of its own — `AppShell` mounts the banner, because a strip above a
-                  `h-dvh` shell would make the document taller than the viewport. Where `requiresSubscription` is not
-                  `true` it never fetches at all, which is what keeps the other deployment kind unchanged. */}
-              <SubscriptionProvider>
-                {/* « Mode discret »: one answer for the rail, the bottom bar, the Finances pages and the dashboard. */}
-                <MoneyVisibilityProvider>
-                  <ConnectivityProvider>
-                    <SidebarProvider>
-                      {children}
-                    </SidebarProvider>
-                  </ConnectivityProvider>
-                </MoneyVisibilityProvider>
-              </SubscriptionProvider>
-            </ClinicRealtimeProvider>
+            {/* The tab's query cache, emptied when the user changes — above the connection, which invalidates it. */}
+            <QueryProvider>
+              {/* The tab's one SignalR connection — inside the session (it connects only for a signed-in user) and
+                  above every provider and page that calls useClinicRealtime. */}
+              <ClinicRealtimeProvider>
+                {/* Inside the session provider: every read it makes is authenticated, and it fetches nothing until a
+                    user exists. It renders no UI of its own — `AppShell` mounts the banner, because a strip above a
+                    `h-dvh` shell would make the document taller than the viewport. Where `requiresSubscription` is not
+                    `true` it never fetches at all, which is what keeps the other deployment kind unchanged. */}
+                <SubscriptionProvider>
+                  {/* « Mode discret »: one answer for the rail, the bottom bar, the Finances pages and the dashboard. */}
+                  <MoneyVisibilityProvider>
+                    <ConnectivityProvider>
+                      <SidebarProvider>
+                        {children}
+                      </SidebarProvider>
+                    </ConnectivityProvider>
+                  </MoneyVisibilityProvider>
+                </SubscriptionProvider>
+              </ClinicRealtimeProvider>
+            </QueryProvider>
           </SessionProvider>
           {/* Anchors bottom-centre and caps at 3 on a coarse pointer, clearing the bottom bar (AC-9). The
               rationale, and the toast duration, live in the component. */}

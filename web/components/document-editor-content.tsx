@@ -49,11 +49,10 @@ import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { patientsApi } from "@/lib/api/patients"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
-import { clinicsApi } from "@/lib/api/clinics"
+import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import type { BillableActLine } from "@/lib/api/dental-records"
-import { medicationsApi } from "@/lib/api/medications"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
-import type { PatientDto, MedicationDto, ProcedureTypeDto } from "@/lib/api/types"
+import { useMedications, useProcedureTypes } from "@/lib/hooks/use-catalogues"
+import type { PatientDto, MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { getErrorMessage } from "@/lib/errors"
 import { useDoctors } from "@/lib/hooks/use-doctors"
@@ -500,10 +499,8 @@ export function DocumentEditorContent() {
     honorairesNote: "",
   })
 
-  const [medicationCatalog, setMedicationCatalog] = useState<MedicationDto[]>([])
-
   /*
-   * ── Why each of the reads below carries a `…Failed` flag AND a reload counter (defect #1) ─────────────────
+   * ── Why each catalogue read below carries a `…Failed` flag and a retry (defect #1) ────────────────────────
    *
    * They used to swallow their error into an empty array. On a clinical picker that is not a graceful
    * degradation, it is a **wrong answer**: an empty list asserts « ce catalogue est vide », the practitioner
@@ -511,19 +508,19 @@ export function DocumentEditorContent() {
    * discards the dosage defaults and the DCI snapshot the catalogue entry exists to supply. The document is
    * then saved and printed with less data than the software had.
    *
-   * The reload counter rather than a `useCallback` loader: the reads already live in effects with a `cancelled`
-   * guard, and bumping a dependency reuses that guard for the retry instead of writing a second code path that
-   * can race the first one.
+   * Both are the tab's shared catalogues, read only for the document type that needs them.
    */
-  const [medicationCatalogFailed, setMedicationCatalogFailed] = useState(false)
-  const [medicationCatalogReload, setMedicationCatalogReload] = useState(0)
-  /*
-   * The clinic's OWN act catalogue, for the note d'honoraires' lines — `procedureTypesApi`: what a fee note
-   * bills is the practice's own act at the practice's own tarif.
-   */
-  const [procedureCatalog, setProcedureCatalog] = useState<ProcedureTypeDto[]>([])
-  const [procedureCatalogFailed, setProcedureCatalogFailed] = useState(false)
-  const [procedureCatalogReload, setProcedureCatalogReload] = useState(0)
+  const {
+    items: medicationCatalog,
+    failed: medicationCatalogFailed,
+    retry: retryMedicationCatalog,
+  } = useMedications({ enabled: documentType === "prescription" })
+  // The clinic's OWN acts, for the note d'honoraires' lines: what a fee note bills is the practice's own tarif.
+  const {
+    items: procedureCatalog,
+    failed: procedureCatalogFailed,
+    retry: retryProcedureCatalog,
+  } = useProcedureTypes({ enabled: documentType === "honoraires" })
   const [actPickerOpenIndex, setActPickerOpenIndex] = useState<number | null>(null)
   /** « Reprendre des actes réalisés » — the note d'honoraires' second act source. */
   const [billableActsOpen, setBillableActsOpen] = useState(false)
@@ -551,12 +548,15 @@ export function DocumentEditorContent() {
   } | null>(null)
   const [loadingClinicInfo, setLoadingClinicInfo] = useState(true)
 
+  // A fresh read that also refreshes the tab's shared status, so the rail and the pickers see the same answer.
+  const fetchUserStatus = useFetchUserStatus()
+
   // Load clinic information
   useEffect(() => {
     const loadClinicInfo = async () => {
       try {
         setLoadingClinicInfo(true)
-        const status = await clinicsApi.getUserStatus()
+        const status = await fetchUserStatus()
         if (status.hasClinic && status.clinic) {
           setClinicInfo({
             name: status.clinic.name || "",
@@ -867,48 +867,6 @@ export function DocumentEditorContent() {
       loadDocument()
     }
   }, [urlDocumentId, documentId, doctors, documentReload])
-
-  // Load the medication catalog once when editing a prescription (searched client-side in the picker).
-  useEffect(() => {
-    if (documentType !== "prescription") return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const meds = await medicationsApi.list()
-        if (!cancelled) {
-          setMedicationCatalog(meds)
-          setMedicationCatalogFailed(false)
-        }
-      } catch {
-        if (!cancelled) {
-          setMedicationCatalog([])
-          setMedicationCatalogFailed(true)
-        }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [documentType, medicationCatalogReload])
-
-  // The clinic's own acts, for the note d'honoraires' line picker.
-  useEffect(() => {
-    if (documentType !== "honoraires") return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const acts = await procedureTypesApi.list()
-        if (!cancelled) {
-          setProcedureCatalog(acts)
-          setProcedureCatalogFailed(false)
-        }
-      } catch {
-        if (!cancelled) {
-          setProcedureCatalog([])
-          setProcedureCatalogFailed(true)
-        }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [documentType, procedureCatalogReload])
 
   const resetForm = () => {
     setSelectedPatient("")
@@ -2004,7 +1962,7 @@ export function DocumentEditorContent() {
                         medication={med}
                         catalog={medicationCatalog}
                         catalogFailed={medicationCatalogFailed}
-                        onRetryCatalog={() => setMedicationCatalogReload((n) => n + 1)}
+                        onRetryCatalog={retryMedicationCatalog}
                         onUpdate={(updated) => {
                           const newMedications = [...formFields.medications]
                           newMedications[index] = updated
@@ -2114,7 +2072,7 @@ export function DocumentEditorContent() {
                                 <div className="p-3">
                                   <CatalogLoadFailed
                                     label="Le catalogue des actes"
-                                    onRetry={() => setProcedureCatalogReload((n) => n + 1)}
+                                    onRetry={retryProcedureCatalog}
                                   />
                                 </div>
                               ) : (

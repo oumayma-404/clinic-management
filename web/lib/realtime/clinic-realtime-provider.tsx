@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef } from "react"
 import type { HubConnection } from "@microsoft/signalr"
+import { useQueryClient } from "@tanstack/react-query"
 import { useSession } from "@/lib/auth/session"
 import { ENTITY_CHANGED_EVENT, createClinicHubConnection, type RealtimeResourceKey } from "./clinic-hub"
 
@@ -21,6 +22,7 @@ const ClinicRealtimeContext = createContext<Subscribe | null>(null)
 export function ClinicRealtimeProvider({ children }: { children: React.ReactNode }) {
   const { user } = useSession()
   const identity = user?.email ?? null
+  const queryClient = useQueryClient()
   const listeners = useRef(new Set<RealtimeListener>())
 
   const subscribe = useCallback<Subscribe>((listener) => {
@@ -38,8 +40,15 @@ export function ClinicRealtimeProvider({ children }: { children: React.ReactNode
 
     let disposed = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
-    // A copy, so a listener that unsubscribes while being called cannot skip its neighbour.
-    const emit = (resource?: RealtimeResourceKey) => [...listeners.current].forEach((listener) => listener(resource))
+    const emit = (resource?: RealtimeResourceKey) => {
+      // cancelRefetch: false — the echo of our own save joins the refetch its success handler already started.
+      void queryClient.invalidateQueries(
+        resource ? { predicate: (query) => query.meta?.realtime?.includes(resource) ?? false } : undefined,
+        { cancelRefetch: false },
+      )
+      // A copy, so a listener that unsubscribes while being called cannot skip its neighbour.
+      for (const listener of [...listeners.current]) listener(resource)
+    }
 
     connection.on(ENTITY_CHANGED_EVENT, (resource: string) => emit(resource as RealtimeResourceKey))
     // The server sends no backlog, so a reconnect tells every listener to catch up.
@@ -61,7 +70,7 @@ export function ClinicRealtimeProvider({ children }: { children: React.ReactNode
       connection?.stop().catch(() => {})
       connection = null
     }
-  }, [identity])
+  }, [identity, queryClient])
 
   return <ClinicRealtimeContext.Provider value={subscribe}>{children}</ClinicRealtimeContext.Provider>
 }

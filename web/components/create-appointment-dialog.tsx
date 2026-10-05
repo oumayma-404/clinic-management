@@ -47,7 +47,7 @@ import {
 import { ModeSegmented } from "@/components/ui/mode-segmented"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useAddProcedureTypeToCache, useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import {
   AppointmentActsPicker, actLabelsOf, continuationToSelectedAct, hasInvalidAgreedCost, negotiatedTotalOf,
   presetToSelectedAct, protocolError, toProcedurePayloads, totalActsDuration,
@@ -258,7 +258,10 @@ export function CreateAppointmentDialog({
   const [loadingPatients, setLoadingPatients] = useState(false)
 
   // Procedure type state
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  // The tab's shared act catalogue — cached, so a reopened dialog no longer re-reads it.
+  const catalogue = useProcedureTypes()
+  const procedureTypes = catalogue.items
+  const addProcedureTypeToCache = useAddProcedureTypeToCache()
   /** The acts of this séance — several are the normal case, not the exception. */
   const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
 
@@ -409,11 +412,14 @@ export function CreateAppointmentDialog({
     })
     toast.success("Séance ajoutée — son devis sera créé à l'enregistrement du RDV.")
   }
-  const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
-  /** Has the catalog fetch SETTLED — loaded or failed? See the plan-act seeding effect. */
-  const [procedureTypesLoaded, setProcedureTypesLoaded] = useState(false)
-  // AC-P3.31 — why the acte list is empty, so an unreachable server is not mistaken for an empty catalogue.
-  const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
+  const loadingProcedureTypes = catalogue.loading
+  /** Has the catalog read SETTLED — loaded or failed? See the plan-act seeding effect. */
+  const procedureTypesLoaded = !catalogue.loading
+  // AC-P3.31 — why the acte list is empty, so an unreachable server is not mistaken for an empty catalogue. Not
+  // blocking (the dialog still saves), so an inline explanation next to the list rather than a form-level error.
+  const procedureTypesError = catalogue.failed
+    ? getErrorMessage(catalogue.error, "La liste des actes n'a pas pu être chargée.")
+    : null
   /**
    * Has the user set the duration themselves? Until they do, it follows the **sum** of the chosen acts. After they
    * do it is left alone: auto-summing over a hand-typed 45 min would silently undo an explicit decision, and the
@@ -536,11 +542,10 @@ export function CreateAppointmentDialog({
   const patientAlreadyCreated = createdPatientName !== null
 
 
-  // Load patients and procedure types when dialog opens
+  // Load patients when the dialog opens (the act catalogue is the shared cached read above).
   useEffect(() => {
     if (open) {
       loadPatients()
-      loadProcedureTypes()
     }
   }, [open])
 
@@ -681,7 +686,6 @@ export function CreateAppointmentDialog({
       setNewPatientPhone("")
       setSelectedDoctorId("")
       setSelectedActs([])
-      setProcedureTypesLoaded(false)
       // Back to the caller's own defaults, not to the hardcoded pair: this dialog is a long-lived instance the
       // agenda re-opens with a different span each time, so resetting to « 30 · untouched » would discard the
       // duration the very next drag is about to supply.
@@ -735,24 +739,6 @@ export function CreateAppointmentDialog({
     }
   }
 
-  const loadProcedureTypes = async () => {
-    try {
-      setLoadingProcedureTypes(true)
-      setProcedureTypesError(null)
-      const data = await procedureTypesApi.list(false) // Only active procedure types
-      setProcedureTypes(data || [])
-    } catch (err) {
-      // AC-P3.31 — the old `// Don't show error to user` was wrong in the one way that matters: an empty
-      // list looks identical to a clinic that has no procedures configured, so the user retypes the act as
-      // a custom procedure instead of retrying. It is not blocking (the dialog still saves), so this is an
-      // inline explanation next to the empty list, not a form-level error.
-      setProcedureTypesError(getErrorMessage(err, "La liste des actes n'a pas pu être chargée."))
-      setProcedureTypes([]) // Ensure it's always an array
-    } finally {
-      setLoadingProcedureTypes(false)
-      setProcedureTypesLoaded(true)
-    }
-  }
 
   // Calculate duration from end time
   const calculatedDuration = useMemo(() => {
@@ -1617,11 +1603,11 @@ export function CreateAppointmentDialog({
                 procedureTypes={procedureTypes}
                 loading={loadingProcedureTypes}
                 error={procedureTypesError}
-                onRetry={() => void loadProcedureTypes()}
+                onRetry={catalogue.retry}
                 value={selectedActs}
                 onChange={setSelectedActs}
                 disabled={loading}
-                onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
+                onProcedureCreated={addProcedureTypeToCache}
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="create-appt"
                 // « Actes du devis » — the same group the edit dialog offers. It is the un-hurried half of the

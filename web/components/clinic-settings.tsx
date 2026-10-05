@@ -37,6 +37,7 @@ import { refusalFor } from "@/lib/api/upload-policy"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import Image from "next/image"
 import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
+import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
@@ -206,6 +207,9 @@ export default function ClinicSettings() {
     }
   }
 
+  // A fresh read that also refreshes the tab's shared status, so the rail and the pickers see the same answer.
+  const fetchUserStatus = useFetchUserStatus()
+
   // Load clinic data on mount
   useEffect(() => {
     loadClinicData()
@@ -214,7 +218,7 @@ export default function ClinicSettings() {
   const loadClinicData = async () => {
     setIsLoading(true)
     try {
-      const status = await clinicsApi.getUserStatus()
+      const status = await fetchUserStatus()
       if (status.hasClinic && status.clinic) {
         const clinic = status.clinic
         setClinicVersion(clinic.version)

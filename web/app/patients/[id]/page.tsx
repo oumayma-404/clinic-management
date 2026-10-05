@@ -1323,7 +1323,8 @@ export default function PatientDetailsPage() {
           attemptOne("billing", appointmentsApi.visitsToClose({ patientId })),
         ])
         if (cancelled) return
-        setFailedSections(failed)
+        // `"files"` belongs to the folder effect below, which re-runs on the same refresh — never erase its failure here.
+        setFailedSections((prev) => (prev.has("files") ? new Set(failed).add("files") : failed))
         setTreatmentPlans(plansData)
         setMedicalDocuments(documentsData)
         setAppointments(appointmentsData)
@@ -1543,7 +1544,8 @@ export default function PatientDetailsPage() {
       }
     }
     loadFilesForFolder()
-  }, [patientId, currentFolderId])
+    // `refreshKey`: a `files` broadcast and « Réessayer » both bump it, and used to reload the folders but not the list.
+  }, [patientId, currentFolderId, refreshKey])
 
   /**
    * Re-read after a save, via the page's single loader.

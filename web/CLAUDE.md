@@ -13,7 +13,7 @@ Next.js 16 (App Router) frontend for the dental/medical clinic management system
 - **shadcn/ui** (style "new-york", RSC enabled) on top of Radix UI primitives. See `components/ui/`.
 - **@microsoft/signalr** v8 — realtime client (`lib/realtime/`, hub at `/hub/clinic` on the API host root).
 - **sonner** toasts, **lucide-react** icons, **date-fns** dates (fr locale), **react-hook-form** + **zod** forms, **recharts** charts (first real usage is the dashboard's `collected-trend-chart.tsx`), **docx** + **file-saver** for client-side document export. ⚠️ **`@vercel/analytics` was removed** by `hosted-security-hardening` FR-4.5 and must not come back: it loads a script from a third-party **origin**, which breaks the now-enforcing `script-src 'self'` before any other work, and it sent page views from a medical-records application to a third party — and this app's URLs contain patient identifiers, which is what makes a page view here PHI.
-- Data layer is plain `fetch` wrapped in `lib/api/` — **no React Query / SWR / Redux**. State is local `useState` + custom hooks + React Contexts (session, connectivity, sidebar) + the SignalR realtime seam.
+- Data layer is plain `fetch` wrapped in `lib/api/`. **One TanStack Query cache (`lib/query/`) holds the shared reference reads only** — the clinic status, the act and medication catalogues, the bell's count (`features/performance-caching` 2b) — refreshed by the realtime broadcasts and emptied when the user changes. Everything else is still local `useState` + custom hooks + React Contexts (session, connectivity, sidebar) + the SignalR realtime seam. No SWR, no Redux.
 
 ## Run
 

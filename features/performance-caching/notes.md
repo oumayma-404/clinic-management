@@ -57,3 +57,37 @@ sides.
   cannot sign the admin in, and its startup backfill would encrypt Google tokens the main API cannot read.
 - **Disable the vendor console on a second instance** (`Console__Port=0`) — `Console:Port=5443` in the dev
   config is otherwise bound twice.
+
+## Part 2 — browser (measured 2026-10-05, interleaved against the old code on the same database)
+
+| What | Old code | New code |
+|---|---|---|
+| Live connections opened by loading `/appointments` | 4 | **1** |
+| Live connections opened by loading a patient page | 7 | **1** |
+| Live connections on a sidebar click | rebuilt | **0** |
+| Live connection attempts on `/login` | every 5 s | **0** |
+| `/clinics/user-status` reads on an `/appointments` load | 8 | **1** |
+| `/procedure-types` reads over two « Nouveau » dialog opens | 2 | **≤ 1** |
+| `user-status` + bell re-reads on a sidebar click | each | **0** |
+
+**What is cached, and what deliberately is not.** One TanStack Query cache, in memory, per tab: the clinic status,
+the act and medication catalogues, the bell's count. **Not** lists, records or money — a stale page there is a
+wrong figure, and the subscription read keeps its own once-a-minute re-read because `clinic-subscription/spec.md`
+forbids a cached refusal. Freshness is the broadcasts (`meta.realtime` → invalidate); the 5-minute stale time is a
+net for the writers that do not broadcast (console verbs, some jobs).
+
+**Decisions that are easy to undo by accident**
+- **`hasClinic: false` is never served from cache.** Right after `/setup` or `/join` it is the stale answer, and a
+  cached one would send a new cabinet straight back to `/setup`.
+- **The cache is cleared on every change of identity** (N47) — a shared reception PC.
+- **Forms that copy the status into editable state read it fresh** (`useFetchUserStatus`): a live cached read would
+  re-seed clinic settings under the user's typing when a colleague saves.
+- **Every cached query names its broadcasts** (N48), or a colleague's change is invisible for 5 minutes with no
+  error.
+
+**Measurement traps**
+- **Playwright disables the browser's HTTP cache as soon as any `route()` is registered**, so a walk that stubs a
+  request (the usual way past the post-visit pop-up) cannot test caching at all. These walks register none.
+- **CDP reports no `webSocketClosed` for a socket torn down by a full navigation**: count sockets *created per
+  load*, never an « open » set.
+- **At desktop width the agenda's button is « Nouveau »**; `aria-label="Nouveau rendez-vous"` is the phone's « + ».

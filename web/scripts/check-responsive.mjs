@@ -4123,6 +4123,125 @@ check(
   },
 );
 
+check(
+  "reference-reads-have-one-owner",
+  "N46",
+  "The clinic status and the two catalogues are read through their shared hook, never fetched by a component",
+  "`/clinics/user-status` was fetched 6× on `/appointments` and the act catalogue by ten call sites, most of them " +
+    "on every dialog open, because each screen fetched its own copy. They now live in the tab's query cache, read " +
+    "through `lib/hooks/use-user-status.ts` (`useUserStatus` / `useFetchUserStatus`) and " +
+    "`lib/hooks/use-catalogues.ts` (`useProcedureTypes` / `useMedications`), refreshed by the realtime broadcasts. A " +
+    "component calling the API directly brings one extra request per mount back AND keeps a copy no broadcast " +
+    "refreshes — the stale-hours agenda and the stale-header document editor were exactly that. A medication " +
+    "SEARCH (`medicationsApi.list(term, …)`) is not a catalogue read and is not covered (features/performance-caching 2b).",
+  () => {
+    const owners = [
+      { file: "lib/hooks/use-user-status.ts", pattern: /\bclinicsApi\.getUserStatus\s*\(/g, label: "clinicsApi.getUserStatus()" },
+      { file: "lib/hooks/use-catalogues.ts", pattern: /\bprocedureTypesApi\.list\s*\(/g, label: "procedureTypesApi.list()" },
+      { file: "lib/hooks/use-catalogues.ts", pattern: /\bmedicationsApi\.list\s*\(\s*(?:\)|undefined\b)/g, label: "medicationsApi.list() (whole catalogue)" },
+    ];
+    const offenders = [];
+    const ownerHits = new Map(owners.map((o) => [o.label, 0]));
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      for (const o of owners) {
+        for (const m of code.matchAll(o.pattern)) {
+          if (name === o.file) {
+            ownerHits.set(o.label, ownerHits.get(o.label) + 1);
+            continue;
+          }
+          offenders.push({
+            file: name,
+            line: lineAt(code, m.index),
+            text: `calls ${o.label} itself — read it through the shared hook in ${o.file}`,
+          });
+        }
+      }
+    }
+
+    // Non-vacuity: a renamed hook file would otherwise leave this check passing while it guards nothing.
+    for (const o of owners) {
+      if (ownerHits.get(o.label) === 0) {
+        offenders.push({ file: o.file, text: `no longer calls ${o.label} — retarget this check rather than letting it pass vacuously` });
+      }
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "query-cache-cleared-on-user-change",
+  "N47",
+  "The query cache is emptied when the signed-in user changes, and sits above the live connection that invalidates it",
+  "The cache holds the clinic status, the act and medication catalogues and the bell's count — another cabinet's, " +
+    "if the next person on a shared reception PC belongs to one. `QueryProvider` clears it on every change of " +
+    "identity. It must also wrap `ClinicRealtimeProvider`, which calls `useQueryClient()` to invalidate on a " +
+    "broadcast: mounted the other way round, the app throws on its first render (features/performance-caching 2b).",
+  () => {
+    const provider = "lib/query/query-provider.tsx";
+    const offenders = [];
+    const src = read(join(WEB_ROOT, provider));
+    const lines = src.split(/\r?\n/);
+    const masked = commentMask(lines);
+    const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+    if (!/\.clear\s*\(\s*\)/.test(code)) {
+      offenders.push({ file: provider, text: "never calls `client.clear()` — a user change would keep the previous user's cached data" });
+    }
+
+    const layout = read(join(WEB_ROOT, "app", "layout.tsx"));
+    const q = layout.indexOf("<QueryProvider>");
+    const r = layout.indexOf("<ClinicRealtimeProvider>");
+    if (q < 0) offenders.push({ file: "app/layout.tsx", text: "does not mount `<QueryProvider>`" });
+    else if (r >= 0 && r < q) offenders.push({ file: "app/layout.tsx", text: "mounts `<ClinicRealtimeProvider>` above `<QueryProvider>`" });
+
+    return offenders;
+  },
+);
+
+check(
+  "cached-read-names-its-broadcast",
+  "N48",
+  "Every cached query declares the realtime keys that make it stale (`meta: realtimeMeta.…`)",
+  "A cached read is only as fresh as what invalidates it. `ClinicRealtimeProvider` invalidates the queries whose " +
+    "`meta.realtime` names the broadcast it received; a query declared without it is refreshed by nothing but its " +
+    "5-minute stale time, so a colleague's change stays invisible on every other screen for that long, with no " +
+    "error anywhere (features/performance-caching 2b).",
+  () => {
+    const offenders = [];
+    let queries = 0;
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      for (const m of code.matchAll(/\b(?:useQuery|fetchQuery|ensureQueryData|prefetchQuery)\s*\(\s*\{/g)) {
+        queries++;
+        const end = code.indexOf("})", m.index);
+        const options = code.slice(m.index, end < 0 ? undefined : end);
+        if (/\bmeta\s*:\s*realtimeMeta\./.test(options)) continue;
+        offenders.push({
+          file: name,
+          line: lineAt(code, m.index),
+          text: "declares a cached query with no `meta: realtimeMeta.…` — no broadcast will ever refresh it",
+        });
+      }
+    }
+
+    // Non-vacuity: the shared hooks declare several; zero means this scan stopped matching them.
+    if (queries === 0) offenders.push({ file: "lib/hooks", text: "found no cached query at all — this check proves nothing" });
+
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

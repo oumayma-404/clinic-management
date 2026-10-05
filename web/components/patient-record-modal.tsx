@@ -26,7 +26,7 @@ import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Trash2, Plus, Stethoscope, ChevronDown, ChevronRight } from "lucide-react"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useMedications, useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { odontogramApi } from "@/lib/api/odontogram"
 import { useToothDragSelect } from "@/components/tooth-drag-select"
 import { showErrorToast } from "@/lib/errors"
@@ -59,7 +59,6 @@ import {
   DocumentPreviewDialog,
   type DocumentPreviewTarget,
 } from "@/components/documents/document-preview-dialog"
-import { medicationsApi } from "@/lib/api/medications"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { PRESCRIPTION_KINDS, prescriptionKind, type PrescriptionLine } from "@/lib/documents"
 import type { MedicationDto } from "@/lib/api/types"
@@ -367,9 +366,12 @@ export function PatientRecordModal({
   const [cheque, setCheque] = useState<ChequeFieldsValue>(EMPTY_CHEQUE_FIELDS)
   const [notes, setNotes] = useState<string[]>([])
   const [importantNotes, setImportantNotes] = useState<string[]>([])
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  /** The catalogue read failed — kept apart from a clinic that genuinely has no act configured. */
-  const [catalogFailed, setCatalogFailed] = useState(false)
+  /*
+   * The shared act catalogue, read on the first open and cached after. ⚠️ A failure is `catalogFailed`, never `[]`:
+   * an empty picker falls through to free text, and the fiche is then saved with no `procedureTypeId` — no tarif,
+   * no état résultant, nothing for the odontogram to paint or the note d'honoraires to price.
+   */
+  const { items: procedureTypes, failed: catalogFailed, retry: loadCatalog } = useProcedureTypes({ enabled: open })
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
   /** The devis act a card of this séance has carried since the fiche opened — see `planActNotice`. */
@@ -429,10 +431,13 @@ export function PatientRecordModal({
    * `PreviewFicheOrdonnanceQuery`). It works before the first save, which is when it is asked for.
    */
   const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | null>(null)
-  const [medicationCatalog, setMedicationCatalog] = useState<MedicationDto[]>([])
-  /** The catalogue READ failed. Kept apart from an empty catalogue, exactly as `catalogFailed` is for acts. */
-  const [medicationCatalogFailed, setMedicationCatalogFailed] = useState(false)
-  const [medicationCatalogReload, setMedicationCatalogReload] = useState(0)
+  // The shared medication catalogue, filtered in the browser like the ordonnance editor's; a failed read is
+  // `medicationCatalogFailed`, for `catalogFailed`'s reason — a free-texted drug loses its DCI snapshot.
+  const {
+    items: medicationCatalog,
+    failed: medicationCatalogFailed,
+    retry: retryMedicationCatalog,
+  } = useMedications({ enabled: open })
   /**
    * The ordonnance exists but could not be READ. Distinct from « nothing prescribed », which is what an empty
    * list would otherwise assert on the one screen where a wrong answer gets re-saved over the right one.
@@ -513,52 +518,6 @@ export function PatientRecordModal({
       return null
     })
   }, [dispatch])
-
-  /*
-   * Load the active procedure catalog (the picker's source) when the modal opens.
-   *
-   * ⚠️ A failure is **recorded**, not written back as `[]`. An empty catalogue is not a neutral state here: the act
-   * picker falls through to its free-text row, so the dentist names the act by hand and the fiche is saved with no
-   * `procedureTypeId` — no tarif, no état résultant, nothing for the odontogram to paint and nothing for the note
-   * d'honoraires to price. « Aucun acte au catalogue » and « le catalogue n'a pas répondu » look identical and only
-   * one of them means "type it yourself".
-   */
-  const loadCatalog = useCallback(async () => {
-    try {
-      setProcedureTypes((await procedureTypesApi.list(false)) || [])
-      setCatalogFailed(false)
-    } catch {
-      setCatalogFailed(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    void loadCatalog()
-  }, [open, loadCatalog])
-
-  /*
-   * The medication catalogue, for the prescription section's picker.
-   *
-   * ⚠️ Read WHOLE (`paging: null`) and filtered in the browser, exactly as the ordonnance editor does: it is a
-   * per-clinic list of a few dozen entries, and a server round trip per keystroke on a screen used at the chair
-   * would be worse than the bytes. ⚠️ A failure is recorded rather than written back as `[]`, for the reason
-   * `loadCatalog` above gives at length — an empty picker reads as « this clinic never configured one », so the
-   * dentist free-texts the drug and the line loses its DCI snapshot.
-   */
-  const loadMedicationCatalog = useCallback(async () => {
-    try {
-      setMedicationCatalog((await medicationsApi.list()) || [])
-      setMedicationCatalogFailed(false)
-    } catch {
-      setMedicationCatalogFailed(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    void loadMedicationCatalog()
-  }, [open, medicationCatalogReload, loadMedicationCatalog])
 
   /*
    * The ordonnance this fiche already issued, read from the DOCUMENT.
@@ -2619,7 +2578,7 @@ export function PatientRecordModal({
           onArmedIndexChange={setArmedPrescriptionIndex}
           catalog={medicationCatalog}
           catalogFailed={medicationCatalogFailed}
-          onRetryCatalog={() => setMedicationCatalogReload((n) => n + 1)}
+          onRetryCatalog={retryMedicationCatalog}
           existingDocumentId={prescriptionDocumentId}
           existingExamensDocumentId={examensDocumentId}
           // The allergy, the maladies and the médicaments, beside the box that acts on them — the banner at the

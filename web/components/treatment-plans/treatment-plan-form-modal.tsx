@@ -28,7 +28,7 @@ import {
   type UpdateTreatmentPlanRequest,
 } from "@/lib/api/treatment-plans"
 import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { patientsApi } from "@/lib/api/patients"
 import type { TreatmentPlanDto, PatientDto, ProcedureTypeDto } from "@/lib/api/types"
@@ -131,9 +131,12 @@ export function TreatmentPlanFormModal({
   onSuccess,
 }: TreatmentPlanFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  /** At least one of the three picker reads failed — never conflated with "the catalogue is empty". */
-  const [pickersFailed, setPickersFailed] = useState(false)
+  // The shared act catalogue, read on the first open and cached after.
+  const catalogue = useProcedureTypes({ enabled: open })
+  const procedureTypes = catalogue.items
+  const [patientsFailed, setPatientsFailed] = useState(false)
+  /** One of the picker reads failed — never conflated with "the catalogue is empty". */
+  const pickersFailed = patientsFailed || catalogue.failed
   const [patientId, setPatientId] = useState("")
   const [title, setTitle] = useState("")
   const [notes, setNotes] = useState("")
@@ -240,15 +243,16 @@ export function TreatmentPlanFormModal({
    * with three hundred reads as the software having lost them.
    */
   const loadPickers = useCallback(async () => {
-    const [proceduresResult, patientsResult] = await Promise.allSettled([
-      procedureTypesApi.list(false),
-      presetPatientId ? Promise.resolve(null) : patientsApi.list({ limit: 500 }),
-    ])
-
-    if (proceduresResult.status === "fulfilled") setProcedureTypes(proceduresResult.value)
-    if (patientsResult.status === "fulfilled" && patientsResult.value) setPatients(patientsResult.value)
-
-    setPickersFailed(proceduresResult.status === "rejected" || patientsResult.status === "rejected")
+    if (presetPatientId) {
+      setPatientsFailed(false)
+      return
+    }
+    try {
+      setPatients(await patientsApi.list({ limit: 500 }))
+      setPatientsFailed(false)
+    } catch {
+      setPatientsFailed(true)
+    }
   }, [presetPatientId])
 
   /** Whether the échéancier was edited by hand — only then is it sent (F9). */
@@ -845,7 +849,10 @@ export function TreatmentPlanFormModal({
             <LoadFailureNotice
               message="Les listes de sélection n'ont pas pu être chargées."
               detail="Patients et actes peut-être incomplets."
-              onRetry={() => void loadPickers()}
+              onRetry={() => {
+                void loadPickers()
+                catalogue.retry()
+              }}
             />
           )}
 
