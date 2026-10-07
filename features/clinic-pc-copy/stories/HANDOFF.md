@@ -1,6 +1,6 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-07 (after session 3) · **Overall:** ~17 % · **Part 1 (La copie):** ~55 %
+**Date:** 2026-10-07 (after session 4) · **Overall:** ~18 % · **Part 1 (La copie):** ~60 %
 
 ## Where the work is
 
@@ -64,7 +64,7 @@ pending migrations) over `Infrastructure/Relay/`: `RelayCloudClient` (token cach
 rules), `RelayFollowerState` (`.local/relay-state.json`), `RelayHostFacts`, `AtomicFile`. 46 new tests; wiring guard
 red-proofed. Deviations 13–16 in progress.md.
 
-1. **End-to-end rehearsal on two scratch databases** — the row store's SQL (`json_populate_recordset`, owned lists,
+1. ✅ **End-to-end rehearsal done (session 4)** — see progress.md « Verification log » and deviations 17–19. Remaining from it: turn it into the CI `relay-copy` job (`.github/workflows/ci.yml`, beside `local-mode`): two scratch DBs, cloud + PC APIs, pairing via a console stub instead of TOTP, assert per-table digests equal, a cloud save seen on the PC, a rewound cursor stops the PC.
    deferred FK columns, `ReplaceAsync`'s delete-the-rest) has **never run against PostgreSQL**; no unit test can reach
    it. Pattern: `isolated-test-stack` memory. `pg_dump` the dev DB into `clinic_relay_cloud` (read-only on the shared
    one), hosted API on :5099 against it; a second API with `Deployment__Profile=ClinicRelay` on another port against an
