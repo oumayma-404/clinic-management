@@ -32,7 +32,6 @@ import { useToothDragSelect } from "@/components/tooth-drag-select"
 import { showErrorToast } from "@/lib/errors"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
-import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { toast } from "sonner"
 import type {
   ProcedureTypeDto,
@@ -44,7 +43,7 @@ import type {
   AppointmentProcedureDto,
   TreatmentPlanItemStepDto,
 } from "@/lib/api/types"
-import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, toLocalIso, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, todayLocalIso } from "@/lib/format"
 import { conditionStyle, needsTreatment, serializeSurfaces } from "@/components/odontogram-conditions"
 import { ARCH_QUADRANTS_BY_VIEW, FDI_BY_VIEW, isAdultTooth } from "@/components/tooth-multiselect"
 import { dentitionViewFor, dentitionViewForTeeth, type DentitionView } from "@/lib/dentition"
@@ -73,6 +72,18 @@ import {
   chequePaymentFields,
   type ChequeFieldsValue,
 } from "@/components/factures/cheque-fields"
+import {
+  CASH_METHOD,
+  FICHE_SECTIONS,
+  ficheFormValuesOf,
+  ficheSnapshot,
+  mergeVerdict,
+  prescriptionSnapshot,
+  takenOverNotice,
+  type FicheFormValues,
+  type FicheSection,
+  type ReconciledPart,
+} from "@/components/record/fiche-merge"
 
 /**
  * The methods a séance can be settled with, and their French labels — the same four `PaymentMethod` storage keys
@@ -82,7 +93,6 @@ import {
  * <p>`Cash` is the default rather than an empty « choisir… »: it is overwhelmingly the common case in a Tunisian
  * cabinet, and a required extra tap on every fiche is how a field gets ignored.</p>
  */
-const CASH_METHOD = "Cash"
 const FICHE_PAYMENT_METHODS: { value: string; label: string }[] = [
   { value: CASH_METHOD, label: "Espèces" },
   { value: CHEQUE_METHOD, label: "Chèque" },
@@ -399,6 +409,11 @@ export function PatientRecordModal({
    */
   const [prescriptionOpen, setPrescriptionOpen] = useState(false)
   const [prescriptionLines, setPrescriptionLines] = useState<PrescriptionLine[]>([])
+  /** The lines as the documents held them when last read (`prescriptionSnapshot`), or null before the first read. */
+  const prescriptionBaseRef = useRef<string | null>(null)
+  // Read by the document effect when a re-read lands, which must compare against what is on screen THEN.
+  const prescriptionLinesRef = useRef(prescriptionLines)
+  prescriptionLinesRef.current = prescriptionLines
   /** Exactly one line is being typed. Null when every line is at rest — which is how a reopened fiche opens. */
   const [armedPrescriptionIndex, setArmedPrescriptionIndex] = useState<number | null>(null)
   /**
@@ -448,28 +463,59 @@ export function PatientRecordModal({
   // A save conflict stays in the form; everything else keeps the existing toast.
   const conflict = useConflict()
   /*
-   * The version this fiche saves with, kept equal to the row's current one — a fiche is re-saved more than
-   * anything else in the app (« re-saving tops the note up »), so a version that drifts is felt here first.
-   * ⚠️ The VERSION only: the read lands after hydration, so its field values would clobber what was typed.
-   * There is no GET-by-id for a fiche, so the patient's own list is the read.
+   * The server's copy of this fiche that the screen was last reconciled with — null until the first read lands,
+   * when the page's own list row stands in. Its version is the one the save sends, and it only ever moves together
+   * with the content merged against it: a version adopted WITHOUT its content is how « Recharger » used to let the
+   * next save overwrite a colleague's work (see `fiche-merge.ts`). It is also what every stored figure below is
+   * read from (« déjà encaissé », the devis link), so a merge cannot leave those quoting the older copy.
    */
-  const { source: freshRecord, resync } = useFreshVersion(
-    open,
-    patientId && record ? record.id : null,
-    record,
-    async () => (await dentalRecordsApi.list(patientId!)).find((r) => r.id === record!.id) ?? null,
-  )
+  const [baseRecord, setBaseRecord] = useState<DentalRecordDto | null>(null)
+  // Only ever this fiche's copy: one modal instance serves every fiche of the page.
+  const stored = baseRecord && record && baseRecord.id === record.id ? baseRecord : record
+  const storedPrescriptionId = stored?.prescriptionDocumentId
+  const storedExamensId = stored?.examensDocumentId
+  // Dropped on close, so a reopened fiche never starts from the copy an earlier session merged against.
+  useEffect(() => {
+    if (!open) setBaseRecord(null)
+  }, [open])
+  /** What a colleague's save replaced over typing, named until the next save — see `takenOverNotice`. */
+  const [takenOver, setTakenOver] = useState<ReconciledPart[]>([])
+  const markTakenOver = useCallback((parts: readonly ReconciledPart[]) => {
+    if (parts.length > 0) setTakenOver((prev) => [...new Set([...prev, ...parts])])
+  }, [])
+  /** Bumped whenever the acts are (re)loaded, so the devis-link mark below runs again on the new cards. */
+  const [hydrationEpoch, setHydrationEpoch] = useState(0)
+
+  /** The server's copy now. There is no GET-by-id for a fiche, so the patient's own list is the read. */
+  const readStored = useCallback(async (): Promise<DentalRecordDto | null> => {
+    if (!patientId || !record) return null
+    return (await dentalRecordsApi.list(patientId)).find((r) => r.id === record.id) ?? null
+  }, [patientId, record])
+
+  /** Assigned once every piece of form state exists, below — a read lands after hydration and needs all of it. */
+  const reconcileRef = useRef<(server: DentalRecordDto) => void>(() => {})
 
   /**
-   * What « Recharger » does: take the server's current copy of the record's version and of both ordonnances,
-   * then take the banner down. `clearMessage` rather than `setError(null)` on purpose - it keeps the
-   * consecutive-conflict count, so a second 409 still escalates to « coordonnez-vous ».
+   * What « Recharger » does: read the server's copy, reconcile every section with it, re-read both ordonnances
+   * (reconciled the same way, by their own effect), then take the banner down. `clearMessage` rather than
+   * `setError(null)` on purpose - it keeps the consecutive-conflict count, so a second 409 still escalates.
    */
   const reloadFromServer = useCallback(async () => {
-    await resync()
+    let server: DentalRecordDto | null
+    try {
+      server = await readStored()
+    } catch (err) {
+      showErrorToast(err, "Impossible de recharger la fiche.")
+      return
+    }
+    if (!server) {
+      toast.error("Cette fiche a été supprimée entre-temps.")
+      return
+    }
+    reconcileRef.current(server)
     setPrescriptionReload((n) => n + 1)
     conflict.clearMessage()
-  }, [resync, conflict])
+  }, [readStored, conflict])
 
   /**
    * The refusal that blocked the last save, **anchored to the act that caused it**.
@@ -507,6 +553,72 @@ export function PatientRecordModal({
   const [totalDraft, setTotalDraft] = useState<string | null>(null)
 
   /**
+   * How each reconciled section is loaded from a stored copy — on open, and when a colleague's version is taken
+   * (`fiche-merge.ts`). The ONE loader per section, so opening a fiche and taking over a section cannot fill a
+   * field two different ways.
+   */
+  const applySection = useMemo<Record<FicheSection, (values: FicheFormValues, from: DentalRecordDto) => void>>(
+    () => ({
+      date: (v) => setInterventionDate(v.interventionDate),
+      acts: (v, from) => {
+        dispatch({ type: "reset", record: from })
+        setTotalDraft(null)
+        // A link the « Changer » menu can offer is set here; any other is left to the plan-link effect, which
+        // waits for the plan acts to arrive and reads `stored`.
+        setLinkedPlanItemId(v.planItemId ?? NO_PLAN_ITEM)
+        hydratedPlanLinkRef.current = v.planItemId ? from.id : null
+        setHydrationEpoch((n) => n + 1)
+      },
+      payment: (v) => {
+        setAmountPaid(v.amountPaid)
+        setCollectedOnPlan(v.collectedOnPlan)
+        setPaidDirty(true) // a saved amount is the user's, never re-mirrored from the total
+        setPaymentMethod(v.paymentMethod)
+        setCheque(v.cheque)
+      },
+      notes: (v) => {
+        setNotes(v.notes)
+        setImportantNotes(v.importantNotes)
+        // A section holding a value opens itself, so editing can never look like it lost data.
+        if (v.notes.length > 0 || v.importantNotes.length > 0) setNotesOpen(true)
+      },
+    }),
+    [dispatch],
+  )
+
+  /** The reconciled sections as the screen holds them right now — the « mine » of the three-way comparison. */
+  const onScreen: FicheFormValues = {
+    interventionDate,
+    acts,
+    planItemId: linkedPlanItemId === NO_PLAN_ITEM ? null : linkedPlanItemId,
+    amountPaid,
+    paymentMethod,
+    cheque,
+    collectedOnPlan,
+    notes,
+    importantNotes,
+  }
+  reconcileRef.current = (server) => {
+    const opened = stored
+    if (!opened) return
+    // Both stored copies are read against the acts the menu can offer NOW, so neither looks edited for it.
+    const offered = new Set(planItems.map((p) => p.itemId))
+    const theirs = ficheFormValuesOf(server, offered)
+    const before = ficheSnapshot(ficheFormValuesOf(opened, offered))
+    const after = ficheSnapshot(theirs)
+    const mine = ficheSnapshot(onScreen)
+    const named: FicheSection[] = []
+    for (const section of FICHE_SECTIONS) {
+      const verdict = mergeVerdict(before[section], mine[section], after[section])
+      if (verdict === "keep") continue
+      applySection[section](theirs, server)
+      if (verdict === "takeOver") named.push(section)
+    }
+    setBaseRecord(server)
+    markTakenOver(named)
+  }
+
+  /**
    * Commit the typed total onto the acts. An unusable or negative entry is dropped and the field snaps back to
    * the real total — the number visibly returning is the refusal, and there is nothing to report beyond it.
    */
@@ -530,8 +642,10 @@ export function PatientRecordModal({
    */
   useEffect(() => {
     if (!open) return
-    const documentId = record?.prescriptionDocumentId ?? null
-    const examensId = record?.examensDocumentId ?? null
+    // From the reconciled copy, so an ordonnance a colleague's save created while this was open is read too —
+    // left unread, this save would write its lines over that document with no version to refuse it.
+    const documentId = storedPrescriptionId ?? null
+    const examensId = storedExamensId ?? null
     if (!documentId && !examensId) {
       setPrescriptionDocumentId(null)
       setExamensDocumentId(null)
@@ -601,12 +715,21 @@ export function PatientRecordModal({
         const lines = [...medicationLines, ...examenLines]
         setPrescriptionDocumentId(documentId)
         setExamensDocumentId(examensId)
+        // The tokens are adopted with the lines reconciled against them, never alone — see `fiche-merge.ts`.
         setPrescriptionDocumentVersion(doc?.version ?? 0)
         setExamensDocumentVersion(examensDoc?.version ?? 0)
-        setPrescriptionLines(lines)
-        // A section holding a value opens itself — « Notes de séance »' rule, one section over.
-        setPrescriptionOpen(lines.length > 0)
-        setArmedPrescriptionIndex(null)
+        const opened = prescriptionBaseRef.current
+        const server = prescriptionSnapshot(lines)
+        prescriptionBaseRef.current = server
+        const verdict =
+          opened === null ? "take" : mergeVerdict(opened, prescriptionSnapshot(prescriptionLinesRef.current), server)
+        if (verdict !== "keep") {
+          setPrescriptionLines(lines)
+          // A section holding a value opens itself — « Notes de séance »' rule, one section over.
+          setPrescriptionOpen((wasOpen) => (opened === null ? lines.length > 0 : wasOpen || lines.length > 0))
+          setArmedPrescriptionIndex(null)
+        }
+        if (verdict === "takeOver") markTakenOver(["prescription"])
       } catch {
         if (cancelled) return
         // Both ids are kept: the fiche still HAS these documents, and forgetting that would let the next save
@@ -620,7 +743,7 @@ export function PatientRecordModal({
     return () => {
       cancelled = true
     }
-  }, [open, record, prescriptionReload])
+  }, [open, record?.id, storedPrescriptionId, storedExamensId, prescriptionReload, markTakenOver])
 
   // Load the patient's odontogram so the chart shows what is already on record (incl. « à traiter »
   // diagnoses) while the dentist charts today's work. Failure is silent — it is an overlay, not a gate.
@@ -652,47 +775,21 @@ export function PatientRecordModal({
     hydratedPlanLinkRef.current = null
     // Back to the seed: an arch the user picked for the *previous* fiche must not decide this one's.
     setChosenView(null)
-    dispatch({ type: "reset", record })
+    // A fresh open reconciles against the page's row until the server's own copy lands (the read below).
+    setBaseRecord(null)
+    setTakenOver([])
+    setNotesOpen(false)
 
     if (record) {
-      // The read-back half of the same defect: the stored instant was round-tripped through UTC, so a fiche
-      // saved late in the evening reopened showing the previous calendar day — and re-saving wrote that day back.
-      setInterventionDate(toLocalIso(new Date(record.interventionDate)))
-      // `formatAmount`, never `String(...)` (J8) — the field accepts the comma form the product prints with.
-      setAmountPaid(formatAmount(record.amountPaid))
-      /*
-       * ⚠️ **Hydrated, and the note that used to say « deliberately NOT hydrated » was reasoning from a premise
-       * that has since become false.** It argued that what a fiche collected onto a treatment lives on the
-       * plan's échéancier (`InstallmentPayment.DentalRecordId`) and that this modal does not read the plan's
-       * payments — true when it was written, and `DentalRecordDto.CollectedOnTreatment` has carried exactly that
-       * figure on every read since (`GetDentalRecordsQuery` derives it from the ledger), so the value is in hand.
-       *
-       * It also called an empty field « safe rather than lossy », and that is the half that was wrong. This field
-       * is **cumulative for the séance** — the server collects `typed − already` — so showing 0 on a séance that
-       * took 200 DT makes every reading of it false and every edit of it wrong: type the real 200 and the delta
-       * is 0, so nothing happens and the fiche appears not to save; type anything lower and the save is refused
-       * with « 200,000 DT ont déjà été encaissés … ». Reported in exactly those words. Hydrating it is what makes
-       * the figure readable, the « reste après cette séance » line true, and a top-up an ordinary edit.
-       */
-      setCollectedOnPlan(
-        record.collectedOnTreatment ? formatAmount(record.collectedOnTreatment) : "",
-      )
-      setPaidDirty(true) // a saved amount is the user's, never re-mirrored from the total
-      // A fiche with no method recorded is cash — that is what every row written before the field existed is,
-      // and the server reads a null the same way.
-      setPaymentMethod(record.paymentMethod ?? CASH_METHOD)
-      setCheque({
-        number: record.chequeNumber ?? "",
-        bankName: record.chequeBankName ?? "",
-        // The stored value is a calendar day; slice rather than re-parse, so no timezone touches it.
-        dueDate: record.chequeDueDate ? record.chequeDueDate.slice(0, 10) : "",
-      })
-      setNotes([...record.notes])
-      setImportantNotes([...record.importantNotes])
-      // A section holding a value opens itself, so editing can never look like it lost data.
-      setNotesOpen(record.notes.length > 0 || record.importantNotes.length > 0)
+      // Every reconciled section goes through its one loader — the same one that takes a colleague's version.
+      // No plan act is offered yet: the devis link is hydrated by its own effect once they arrive.
+      const values = ficheFormValuesOf(record, new Set())
+      for (const section of FICHE_SECTIONS) applySection[section](values, record)
       // The prescription is hydrated by its own effect (it needs a second read); this only clears what a
       // previous opening left behind, so a fiche with no ordonnance never shows the last one's lines.
+      // With no document there is nothing to read, so the empty section IS what the fiche was opened with.
+      prescriptionBaseRef.current =
+        record.prescriptionDocumentId || record.examensDocumentId ? null : prescriptionSnapshot([])
       setPrescriptionLines([])
       setPrescriptionOpen(false)
       setArmedPrescriptionIndex(null)
@@ -701,6 +798,9 @@ export function PatientRecordModal({
       setExamensDocumentVersion(0)
       setPreviewTarget(null)
     } else {
+      dispatch({ type: "reset", record })
+      setHydrationEpoch((n) => n + 1)
+      prescriptionBaseRef.current = prescriptionSnapshot([])
       setInterventionDate(todayLocalIso())
       setAmountPaid("")
       setCollectedOnPlan("")
@@ -720,7 +820,26 @@ export function PatientRecordModal({
       setPrescriptionReadFailed(false)
       setPreviewTarget(null)
     }
-  }, [open, initialPatientName, record, dispatch])
+  }, [open, initialPatientName, record, dispatch, applySection])
+
+  // The page's row can be older than the server's copy (a colleague saved after the list was read), so the
+  // server's copy is reconciled in as soon as it lands — through the same merge as « Recharger », never by
+  // adopting its version alone.
+  useEffect(() => {
+    if (!open || !record) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const server = await readStored()
+        if (!cancelled && server) reconcileRef.current(server)
+      } catch {
+        // Nothing renders empty: the row in hand stays on screen and still saves, with its own 409 as backstop.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, record, readStored])
 
   // Declared after the hydration above so it wins; two frames so the dialog has laid out before scrolling.
   useEffect(() => {
@@ -800,14 +919,15 @@ export function PatientRecordModal({
    * the modal opens and an early bail must not count as « hydrated ».
    */
   useEffect(() => {
-    if (!open || !record?.treatmentPlanItemId) return
-    if (hydratedPlanLinkRef.current === record.id) return
-    const linked = planItems.find((p) => p.itemId === record.treatmentPlanItemId)
+    // `stored`, not `record`: after a colleague's acts are taken over, their link is the one to hydrate.
+    if (!open || !stored?.treatmentPlanItemId) return
+    if (hydratedPlanLinkRef.current === stored.id) return
+    const linked = planItems.find((p) => p.itemId === stored.treatmentPlanItemId)
     if (!linked) return
 
-    hydratedPlanLinkRef.current = record.id
+    hydratedPlanLinkRef.current = stored.id
     setLinkedPlanItemId(linked.itemId)
-  }, [open, record, planItems])
+  }, [open, stored, planItems])
 
   /**
    * Every act booked into this séance, in the dentist's order, resolved against the catalogue.
@@ -1129,11 +1249,11 @@ export function PatientRecordModal({
      * fiche that recorded the préparation. The step this record evidences is the server's own link
      * (`linkedDentalRecordId`), then its read-back rank; with neither, nothing is marked rather than a guess.
      */
-    if (record) {
-      const own = steps.filter((s) => s.linkedDentalRecordId === record.id)
+    if (stored) {
+      const own = steps.filter((s) => s.linkedDentalRecordId === stored.id)
       if (own.length > 0) return own.map((s) => s.id)
-      const byRank = record.treatmentStepNumber
-        ? steps.find((s) => s.sequenceNumber === (record.treatmentStepNumber as number) - 1)
+      const byRank = stored.treatmentStepNumber
+        ? steps.find((s) => s.sequenceNumber === (stored.treatmentStepNumber as number) - 1)
         : undefined
       return byRank ? [byRank.id] : []
     }
@@ -1149,15 +1269,15 @@ export function PatientRecordModal({
     const target =
       named.length > 0 ? named : chosen.length > 0 ? chosen : steps.filter((s) => !s.doneDate).slice(0, 1)
     return target.map((s) => s.id)
-  }, [record, billedPlanItem, appointment?.procedures, chosenStepId])
+  }, [stored, billedPlanItem, appointment?.procedures, chosenStepId])
 
   /**
    * « Séance 2 · Empreinte » — a reopened fiche's own step when the band cannot draw it (its act is not among
    * the patient's plan acts). The server's read-back, so it cannot disagree with the patient's history.
    */
   const recordStepFallback =
-    !billedPlanItem && record?.treatmentStepLabel && record.treatmentStepNumber
-      ? `Séance ${record.treatmentStepNumber} · ${record.treatmentStepLabel}`
+    !billedPlanItem && stored?.treatmentStepLabel && stored.treatmentStepNumber
+      ? `Séance ${stored.treatmentStepNumber} · ${stored.treatmentStepLabel}`
       : null
 
   /**
@@ -1223,7 +1343,7 @@ export function PatientRecordModal({
    * marked).
    */
   const recordCarriesPlanItem =
-    billedPlanItem != null && record?.treatmentPlanItemId === billedPlanItem.itemId
+    billedPlanItem != null && stored?.treatmentPlanItemId === billedPlanItem.itemId
 
   /*
    * ⚠️ The dentist's own pick is a third source, and it was missing: linking an act by hand to a card that
@@ -1240,7 +1360,8 @@ export function PatientRecordModal({
   useEffect(() => {
     if (!open || !billedPlanItem || ownNoteRepresentsThePlan) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
-  }, [open, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, ownNoteRepresentsThePlan, dispatch])
+    // `hydrationEpoch`: reloaded acts read `billedOnPlan` back as false (`actFromDto`), so the mark is re-applied.
+  }, [open, hydrationEpoch, carriedByAppointment, recordCarriesPlanItem, billedPlanItem, ownNoteRepresentsThePlan, dispatch])
 
   /*
    * C4b — the séance's OTHER acts of the same devis. Read from the saved fiche on a reopen (the DTO names every
@@ -1250,13 +1371,13 @@ export function PatientRecordModal({
    */
   const carriedProcedureIds = useMemo(() => {
     if (!billedPlanItem) return [] as string[]
-    const itemIds = record
-      ? (record.treatmentPlanItemIds ?? [])
+    const itemIds = stored
+      ? (stored.treatmentPlanItemIds ?? [])
       : (appointment?.procedures ?? []).map((row) => row.treatmentPlanItemId).filter((id): id is string => !!id)
     return [...new Set(itemIds)]
       .map((id) => planItems.find((p) => p.itemId === id && p.planId === billedPlanItem.planId)?.procedureTypeId)
       .filter((id): id is string => !!id)
-  }, [billedPlanItem, record, appointment?.procedures, planItems])
+  }, [billedPlanItem, stored, appointment?.procedures, planItems])
 
   useEffect(() => {
     if (!open || carriedProcedureIds.length < 2) return
@@ -1303,7 +1424,7 @@ export function PatientRecordModal({
    */
   const restorePlanAct = () => {
     if (!billedPlanItem) return
-    const saved = record?.acts?.find((a) => a.procedureTypeId === billedPlanItem.procedureTypeId)
+    const saved = stored?.acts?.find((a) => a.procedureTypeId === billedPlanItem.procedureTypeId)
     if (saved) {
       dispatch({ type: "reinsertAct", act: saved })
       // Read back unlocked, like every reopened act; the devis still carries it.
@@ -1417,7 +1538,7 @@ export function PatientRecordModal({
    * always 0 and the distinction cost nothing; with a real figure in the box, every one of these three
    * quantities is wrong without it.</p>
    */
-  const alreadyCollectedOnPlan = roundMillimes(record?.collectedOnTreatment ?? 0)
+  const alreadyCollectedOnPlan = roundMillimes(stored?.collectedOnTreatment ?? 0)
   /** What this save will actually add to the treatment. Negative means somebody is lowering it — see below. */
   const collectionDelta = roundMillimes(collectedOnPlanAmount - alreadyCollectedOnPlan)
   /**
@@ -1523,7 +1644,7 @@ export function PatientRecordModal({
    * would make the field un-hide itself as soon as a digit was typed into it, i.e. exactly when the rule wants
    * it gone. Typing 0 over it and saving therefore removes it from the next reopen, which is the correction.</p>
    */
-  const hasStoredSeancePayment = (record?.amountPaid ?? 0) > 0
+  const hasStoredSeancePayment = (stored?.amountPaid ?? 0) > 0
   /**
    * A figure sitting in « Payé » right now, on a séance that has just become wholly the treatment's — so the
    * field is **shown anyway**, exactly as a stored one is.
@@ -1567,7 +1688,7 @@ export function PatientRecordModal({
    * recorded on a numbered document is corrected by an avoir, never by retyping a field — so the field says so
    * before the round trip rather than after it.
    */
-  const alreadyCollected = isInvoiced ? roundMillimes(record?.amountPaid ?? 0) : 0
+  const alreadyCollected = isInvoiced ? roundMillimes(stored?.amountPaid ?? 0) : 0
   const lowersBilledAmount = isInvoiced && roundMillimes(paidAmount) < alreadyCollected
 
   /**
@@ -1621,6 +1742,8 @@ export function PatientRecordModal({
   }, [acts, linkedPlanItemId])
 
   const handleSave = async (correctionReason?: string) => {
+    // Pressing Enregistrer is the answer to « refaites votre modification ».
+    setTakenOver([])
     if (!patientId) {
       toast.error("Identifiant du patient requis")
       return
@@ -1809,7 +1932,8 @@ export function PatientRecordModal({
             ...recordData,
             // Only ever set by « Corriger la note » below — an ordinary save never retires a numbered document.
             ...(correctionReason ? { correctionReason } : {}),
-            version: freshRecord?.version ?? record.version,
+            // The reconciled copy's version — it only ever moves together with the content merged against it.
+            version: (stored ?? record).version,
           })
         : await dentalRecordsApi.create(patientId, recordData)
 
@@ -1943,7 +2067,7 @@ export function PatientRecordModal({
       // money handed back, and a mis-keyed amount handed nothing back. So the refusal now opens the way out it
       // was describing. Branched on the CODE, never the sentence: rewording a refusal must not change behaviour.
       if (!correctionReason && err instanceof ApiError && CORRECTABLE_CODES.has(err.code ?? "")) {
-        setCorrection({ previousTotal: record?.cost ?? 0, nextTotal: grandTotal })
+        setCorrection({ previousTotal: stored?.cost ?? 0, nextTotal: grandTotal })
         setLoading(false)
         return
       }
@@ -1952,8 +2076,10 @@ export function PatientRecordModal({
       // in the form rather than flashing past in a toast.
       if (!conflict.capture(err, "L'enregistrement de la fiche a échoué.")) {
         // The fiche may have saved and only the billing failed, which leaves the row a version ahead of this
-        // form. Not on the conflict branch: resyncing a real 409 would overwrite the colleague who caused it.
-        await resync()
+        // form. Reconciled rather than adopted: the user's own saved sections now match the screen, so they are
+        // kept and only the version moves. Not on the conflict branch, which waits for « Recharger ».
+        const server = await readStored().catch(() => null)
+        if (server) reconcileRef.current(server)
         showErrorToast(err, "L'enregistrement de la fiche a échoué.")
       }
     } finally {
@@ -2069,10 +2195,11 @@ export function PatientRecordModal({
           from the fiche's own row, and matters now that a colleague editing the ordonnance through
           `/documents/prescription` raises one too.
 
-          It re-reads the record's version AND both documents, which is exactly what the server's own sentence
-          promises (« Rechargez pour voir la version a jour, puis appliquez a nouveau votre modification ») - so
-          the prescription section is repopulated from the server and the user re-applies. Nothing else typed in
-          the fiche is touched.
+          It re-reads the record AND both documents and reconciles each section three ways (`fiche-merge.ts`):
+          what only the colleague changed is taken, what only this screen changed is kept, and a section both
+          changed shows the colleague's version and is named below - which is what the server's own sentence
+          asks for (« Rechargez pour voir la version a jour, puis appliquez a nouveau votre modification »).
+          It used to take the VERSION alone, so the next save wrote this screen over the colleague's work.
         */}
         <FormErrorBanner
           message={conflict.error}
@@ -2082,6 +2209,11 @@ export function PatientRecordModal({
               : undefined
           }
         />
+        {takenOver.length > 0 && (
+          <p role="status" className="rounded-md bg-warning-wash px-3 py-2 text-sm text-warning-ink">
+            {takenOverNotice(takenOver)}
+          </p>
+        )}
 
         {/* Point-of-care medical alerts — surfaced before treatment (safety). */}
         {/* Extracted to `patient/patient-alert-panel.tsx` — it lived here, inline, which is why the document editor
@@ -2594,7 +2726,7 @@ export function PatientRecordModal({
                     // Served on the DTO precisely so the aperçu is issued in the same practitioner's name as
                     // the document the save will emit. Absent on a new fiche, where the server attributes it
                     // to the caller — which is what it will do on the save too.
-                    doctorId: record?.doctorId ?? undefined,
+                    doctorId: stored?.doctorId ?? undefined,
                     interventionDate,
                     lines: prescriptionLines,
                   })

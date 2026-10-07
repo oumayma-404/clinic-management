@@ -4242,6 +4242,99 @@ check(
   },
 );
 
+check(
+  "fiche-field-is-reconciled",
+  "N49",
+  "Every key the fiche de soins saves is reconciled when a colleague's save lands (`FICHE_PAYLOAD_SECTION`)",
+  "« Recharger » after a 409 used to take the server's VERSION and keep the screen, so the next « Enregistrer » " +
+    "wrote the old acts, prices and notes over a colleague's save — green toast, no refusal. `fiche-merge.ts` " +
+    "now reconciles the fiche section by section, and it can only reconcile what it knows about: a field added " +
+    "to the save but not to a section is written from the screen under the new version, which is the original " +
+    "defect for that one field. So the payload's keys are derived from the modal's own `recordData` literal and " +
+    "each must be classified in `FICHE_PAYLOAD_SECTION` — and every entry there must still be sent, so a removed " +
+    "field leaves no stale classification. The fiche must also not use `useFreshVersion`, whose whole contract is " +
+    "to adopt a version without its content.",
+  () => {
+    const MODAL = "components/patient-record-modal.tsx";
+    const MERGE = "components/record/fiche-merge.ts";
+    const find = (p) => ALL_FILES.find((f) => rel(f).replace(/\\/g, "/") === p);
+    const offenders = [];
+    for (const p of [MODAL, MERGE]) {
+      if (!find(p)) {
+        offenders.push({
+          file: p,
+          text: "missing — a file this check guards is gone; retarget or retire the check rather than deleting it",
+        });
+      }
+    }
+    if (offenders.length > 0) return offenders;
+
+    const codeOf = (p) => {
+      const lines = read(find(p)).split(/\r?\n/);
+      const masked = commentMask(lines);
+      return lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+    };
+
+    // ── the classification, from the map's own declaration ─────────────────────────────────────────────
+    const merge = codeOf(MERGE);
+    const decl = merge.match(/export const FICHE_PAYLOAD_SECTION = \{([\s\S]*?)\n\}/);
+    if (!decl) return [{ file: MERGE, text: "`FICHE_PAYLOAD_SECTION` no longer parses — this check is blind, fix it" }];
+    const classified = new Set([...decl[1].matchAll(/^\s*(?:"([^"]+)"|(\w+))\s*:/gm)].map((m) => m[1] ?? m[2]));
+
+    // ── the payload: the TOP-LEVEL keys of the modal's `recordData` literal ─────────────────────────────
+    const modal = codeOf(MODAL);
+    const at = modal.indexOf("const recordData = {");
+    if (at < 0) return [{ file: MODAL, text: "`const recordData = {` not found — this check is blind, fix it" }];
+    const sent = new Set();
+    let depth = 0;
+    for (let i = modal.indexOf("{", at); i < modal.length; i++) {
+      const ch = modal[i];
+      if (ch === "{" || ch === "(" || ch === "[") depth++;
+      else if (ch === "}" || ch === ")" || ch === "]") {
+        if (--depth === 0) break;
+      } else if (ch === "\n" && depth === 1) {
+        // A key starts a line one level in: `name:`, a shorthand `name,`, or a spread `...builder(`.
+        const line = modal.slice(i + 1, modal.indexOf("\n", i + 1));
+        const m = line.match(/^\s*(?:\.\.\.(\w+)|(\w+)\s*(?::|,|$))/);
+        if (m) sent.add(m[1] ? `...${m[1]}` : m[2]);
+      }
+    }
+    if (sent.size < 10) {
+      return [
+        {
+          file: MODAL,
+          text:
+            `derived only ${sent.size} key(s) from \`recordData\` — its shape changed and this check is ` +
+            "measuring nothing; fix the parse rather than trusting a green run",
+        },
+      ];
+    }
+
+    for (const key of sent) {
+      if (classified.has(key)) continue;
+      offenders.push({
+        file: MERGE,
+        text:
+          `the fiche saves \`${key}\` and \`FICHE_PAYLOAD_SECTION\` does not classify it — after « Recharger » ` +
+          "it would be written from the screen over a colleague's save",
+      });
+    }
+    for (const key of classified) {
+      if (sent.has(key)) continue;
+      offenders.push({ file: MERGE, text: `classifies \`${key}\`, which the fiche no longer sends — remove the entry` });
+    }
+
+    if (/\buseFreshVersion\b/.test(modal)) {
+      offenders.push({
+        file: MODAL,
+        text: "uses `useFreshVersion` — it adopts a version without its content; reconcile through `fiche-merge.ts`",
+      });
+    }
+
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();
