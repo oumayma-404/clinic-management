@@ -343,6 +343,12 @@ public sealed class RelayFollower
 
     private RelayFollowerState Save(RelayFollowerState state)
     {
+        // The moment the cloud released this PC, whichever call said so — « Copie arrêtée le 06/10 » (AC-8.1).
+        if (state.Released && state.ReleasedAtUtc is null)
+        {
+            state = state with { ReleasedAtUtc = _utcNow() };
+        }
+
         _stateStore.Save(state);
         return state;
     }

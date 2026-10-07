@@ -36,6 +36,9 @@ public sealed record RelayFollowerState
     /// <summary>The cloud no longer knows or wants this PC (retired, lost, unknown).</summary>
     public bool Released { get; init; }
 
+    /// <summary>When this PC learned it was released; null on a file written before the field existed.</summary>
+    public DateTime? ReleasedAtUtc { get; init; }
+
     public DateTime? LastDigestAtUtc { get; init; }
     public IReadOnlyList<string> MismatchTables { get; init; } = Array.Empty<string>();
     public int FilesTotal { get; init; }

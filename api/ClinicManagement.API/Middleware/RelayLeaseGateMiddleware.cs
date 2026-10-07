@@ -1,4 +1,6 @@
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Infrastructure.Deployment;
 
@@ -28,8 +30,24 @@ public class RelayLeaseGateMiddleware
         _next = next;
     }
 
-    public async Task InvokeAsync(HttpContext context, DeploymentProfile deployment)
+    public async Task InvokeAsync(HttpContext context, DeploymentProfile deployment, IRelayLocalStatus relayLocal)
     {
+        // AC-8.1: a retired PC opens for administrators only. A colleague still signed in when the cloud retired it is
+        // signed out (401) — reads included — and the sign-in form then gives the reason.
+        if (deployment.MirrorsCloudClinic
+            && context.Request.Path.StartsWithSegments(ApiPrefix)
+            && relayLocal.IsRetired
+            && IsSignedInNonAdmin(context))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = ClinicAuthRefusals.MessageFor(ClinicAuthRefusals.RetiredRelayAdminsOnly),
+                code = ClinicAuthRefusals.RetiredRelayAdminsOnly,
+            });
+            return;
+        }
+
         if (!Applies(context, deployment))
         {
             await _next(context);
@@ -50,6 +68,13 @@ public class RelayLeaseGateMiddleware
         && !IsRead(context.Request.Method)
         && context.GetEndpoint() is { } endpoint
         && endpoint.Metadata.GetMetadata<AllowedOnStandbyRelayAttribute>() is null;
+
+    /// <summary>The account's role as <c>AccountStateMiddleware</c> read it from the database, never the token's claim.</summary>
+    private static bool IsSignedInNonAdmin(HttpContext context) =>
+        context.User.Identity?.IsAuthenticated == true
+        && context.Items.TryGetValue(EffectiveRole.HttpContextItemKey, out var role)
+        && role is string r
+        && !string.Equals(r, Domain.Entities.User.RoleAdmin, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsRead(string method) =>
         HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);

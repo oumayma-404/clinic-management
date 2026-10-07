@@ -34,6 +34,9 @@ public sealed record RelayHeartbeatAck(
     string CloudBuild);
 
 /// <summary>« Paramètres → PC de secours » (AC-2.1).</summary>
+/// <summary>The PC de secours's own view of itself (AC-8.1), read on the PC.</summary>
+public sealed record RelayLocalStatusDto(bool Retired, DateTime? RetiredAtUtc, string Sentence);
+
 public sealed record RelayStatusDto(
     bool Exists,
     Guid? RelayId,

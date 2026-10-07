@@ -24,6 +24,7 @@ public static class ClinicAuthRefusals
     public const string AccountDisabled = "account_disabled";
     public const string TooManyAttempts = "too_many_attempts";
     public const string PasswordPolicy = "password_policy";
+    public const string RetiredRelayAdminsOnly = "relay_retired_admins_only";
 
     /// <summary>
     /// The French sentence for a code, or null when the code is not one of ours.
@@ -43,6 +44,8 @@ public static class ClinicAuthRefusals
         AccountDisabled => "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre cabinet.",
         TooManyAttempts => "Trop de tentatives. Réessayez dans quelques minutes.",
         PasswordPolicy => $"Le mot de passe doit contenir au moins {Common.PasswordPolicy.MinLength} caractères.",
+        RetiredRelayAdminsOnly =>
+            "Ce PC de secours a été retiré : seuls les administrateurs du cabinet peuvent encore l'ouvrir.",
         _ => null
     };
 

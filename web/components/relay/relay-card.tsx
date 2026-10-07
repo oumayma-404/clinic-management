@@ -18,7 +18,9 @@ import { StepUpDialog } from "@/components/security/step-up-dialog"
 import { useSession } from "@/lib/auth/session"
 import { STATUS_TONE_CLASS, type StatusTone } from "@/components/ui/status-tone"
 import { ApiError } from "@/lib/api/client"
-import { RELAY_CARD_ID, RELAY_LOST_STEP_UP, relayApi, type RelayStateKey, type RelayStatusDto } from "@/lib/api/relay"
+import {
+  RELAY_CARD_ID, RELAY_LOST_STEP_UP, relayApi, type RelayLocalStatusDto, type RelayStateKey, type RelayStatusDto,
+} from "@/lib/api/relay"
 import { showErrorToast } from "@/lib/errors"
 import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -47,6 +49,8 @@ type Load =
   | { kind: "absent" }
   | { kind: "failed" }
   | { kind: "loaded"; status: RelayStatusDto }
+  /** Opened on the PC de secours itself (AC-8.1): the cloud's status does not exist there, its own does. */
+  | { kind: "local"; local: RelayLocalStatusDto }
 
 /**
  * « Paramètres → PC de secours » (`clinic-pc-copy` AC-2.1, AC-2.4, AC-8.1) — the cabinet's copy on one of its own PCs:
@@ -70,7 +74,16 @@ export function RelayCard() {
       setLoad({ kind: "loaded", status })
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
-        setLoad({ kind: "absent" })
+        // No change feed here: either this IS a PC de secours (it has its own status), or there is none at all.
+        try {
+          setLoad({ kind: "local", local: await relayApi.local() })
+        } catch (localErr) {
+          if (localErr instanceof ApiError && localErr.status === 404) {
+            setLoad({ kind: "absent" })
+          } else if (initial) {
+            setLoad({ kind: "failed" })
+          }
+        }
       } else if (initial) {
         setLoad({ kind: "failed" })
       }
@@ -165,6 +178,18 @@ export function RelayCard() {
             onDeclareLost={() => setLostConfirmOpen(true)}
             retiring={retiring || declaring}
           />
+        )}
+
+        {load.kind === "local" && (
+          <p
+            role="status"
+            className={`inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${STATUS_TONE_CLASS[load.local.retired ? "neutral" : "positive"]}`}
+          >
+            {load.local.retired
+              ? <Archive aria-hidden="true" className="size-3.5 shrink-0" />
+              : <CheckCircle2 aria-hidden="true" className="size-3.5 shrink-0" />}
+            <span className="min-w-0">{load.local.sentence}</span>
+          </p>
         )}
       </CardContent>
 

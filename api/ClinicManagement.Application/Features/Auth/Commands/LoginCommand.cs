@@ -65,6 +65,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private readonly ISecondFactorPolicy _secondFactorPolicy;
     private readonly ISessionFamilyRepository _sessionFamilies;
     private readonly IAuditActorProvider _auditActor;
+    private readonly IRelayLocalStatus _relayLocal;
 
     public LoginCommandHandler(
         IUserRepository userRepository,
@@ -76,8 +77,10 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         IUserSecretProtector secretProtector,
         ISecondFactorPolicy secondFactorPolicy,
         ISessionFamilyRepository sessionFamilies,
-        IAuditActorProvider auditActor)
+        IAuditActorProvider auditActor,
+        IRelayLocalStatus relayLocal)
     {
+        _relayLocal = relayLocal;
         _userRepository = userRepository;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
@@ -170,6 +173,13 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                         ? "Votre compte a bien été créé mais doit encore être activé par un administrateur du cabinet. Vous pourrez vous connecter dès qu'il l'aura fait."
                         : "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre cabinet.",
                     ClinicAuthRefusals.AccountDisabled);
+            }
+
+            // clinic-pc-copy AC-8.1: a retired PC de secours opens for the cabinet's administrators only — they are
+            // the ones who decide what happens to the copy on it. After the password, for the oracle reason below.
+            if (_relayLocal.IsRetired && !user.IsAdmin())
+            {
+                return Refuse(ClinicAuthRefusals.RetiredRelayAdminsOnly);
             }
 
             // ── The second factor (hosted-security-hardening FR-1.1 – FR-1.2) ──────────────────────────────

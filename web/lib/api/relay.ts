@@ -43,12 +43,23 @@ export type RelayStateKey =
   /** The cloud went back to an older state; the PC stopped copying to lose nothing (AC-9.4). */
   | 'stopped';
 
+/** The PC de secours's own view of itself, read on that PC (`RelayLocalStatusDto`). */
+export interface RelayLocalStatusDto {
+  retired: boolean;
+  retiredAtUtc?: string | null;
+  /** Built server-side in the clinic's clock: shown verbatim. */
+  sentence: string;
+}
+
 /** The card's anchor on « Paramètres », shared with the bell's deep link so the two cannot drift. */
 export const RELAY_CARD_ID = "pc-de-secours";
 
 export const relayApi = {
   /** ⚠️ A 404 means this deployment has no PC de secours at all; any other failure is a retryable read (AC-2.4). */
   status: () => apiGet<RelayStatusDto>('/relay/status'),
+
+  /** On the PC de secours itself (AC-8.1): still following, or retired since a day. 404 on every other install. */
+  local: () => apiGet<RelayLocalStatusDto>('/relay/local'),
 
   /** « Retirer ce PC » (AC-8.1): the copy stops and the clinic may set up another. Returns the new state. */
   retire: () => apiDelete<RelayStatusDto>('/relay'),

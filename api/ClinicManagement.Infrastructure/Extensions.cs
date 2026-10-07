@@ -11,6 +11,7 @@ using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
+using ClinicManagement.Infrastructure.Relay;
 using ClinicManagement.Infrastructure.Repositories;
 using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.Infrastructure.Services;
@@ -173,6 +174,8 @@ public static class Extensions
         services.AddScoped<IClinicRecoveryPointRepository, ClinicRecoveryPointRepository>();
         services.AddScoped<IClinicArchiveGrantRepository, ClinicArchiveGrantRepository>();
         services.AddScoped<IClinicRelayRepository, ClinicRelayRepository>();
+        // Every profile: « not retired » off a PC de secours, without touching the disk (clinic-pc-copy AC-8.1).
+        services.AddSingleton<IRelayLocalStatus>(sp => new RelayLocalStatus(sp.GetRequiredService<DeploymentProfile>()));
         services.AddScoped<IRelayIncidentRepository, RelayIncidentRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();

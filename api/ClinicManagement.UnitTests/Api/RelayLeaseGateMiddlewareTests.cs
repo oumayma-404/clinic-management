@@ -24,11 +24,19 @@ public class RelayLeaseGateMiddlewareTests
         string path = WritePath,
         string method = "POST",
         bool allowed = false,
-        bool routed = true)
+        bool routed = true,
+        bool retired = false,
+        string? role = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Path = path;
         context.Request.Method = method;
+        if (role is not null)
+        {
+            context.User = new System.Security.Claims.ClaimsPrincipal(
+                new System.Security.Claims.ClaimsIdentity(new[] { new System.Security.Claims.Claim("sub", "local|x") }, "test"));
+            context.Items[EffectiveRole.HttpContextItemKey] = role;
+        }
 
         if (routed)
         {
@@ -50,10 +58,44 @@ public class RelayLeaseGateMiddlewareTests
             return Task.CompletedTask;
         });
 
-        await middleware.InvokeAsync(context, DeploymentProfile.For(kind));
+        await middleware.InvokeAsync(context, DeploymentProfile.For(kind), new FixedRelayLocalStatus(retired));
 
         body.Position = 0;
         return new Outcome(context.Response.StatusCode, await new StreamReader(body).ReadToEndAsync(), reachedNext);
+    }
+
+    private sealed class FixedRelayLocalStatus(bool retired) : ClinicManagement.Application.Common.Interfaces.IRelayLocalStatus
+    {
+        public bool IsRetired => retired;
+        public DateTime? RetiredAtUtc => retired ? new DateTime(2026, 10, 6, 9, 0, 0, DateTimeKind.Utc) : null;
+    }
+
+    // [AC-8.1] A retired PC opens for administrators only: a colleague still signed in is signed out — reads included —
+    // with the reason, while an administrator keeps the read-only copy.
+    [Theory]
+    [InlineData("secretary", "GET")]
+    [InlineData("doctor", "POST")]
+    public async Task A_Retired_Pc_Signs_Out_Everyone_But_The_Admins(string role, string method)
+    {
+        var outcome = await InvokeAsync(method: method, retired: true, role: role);
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, outcome.Status);
+        Assert.Contains("relay_retired_admins_only", outcome.Body);
+        Assert.False(outcome.ReachedNext);
+    }
+
+    [Fact]
+    public async Task An_Admin_Still_Reads_A_Retired_Pc_And_A_Following_Pc_Is_Untouched()
+    {
+        var admin = await InvokeAsync(method: "GET", retired: true, role: "admin");
+        Assert.True(admin.ReachedNext);
+
+        var stillFollowing = await InvokeAsync(method: "GET", retired: false, role: "secretary");
+        Assert.True(stillFollowing.ReachedNext);
+
+        // Off a PC de secours the rule does not exist, whatever the status says.
+        var cloud = await InvokeAsync(kind: DeploymentKind.HostedMultiTenant, method: "GET", retired: true, role: "secretary");
+        Assert.True(cloud.ReachedNext);
     }
 
     // [Part 1] A staff write on the copy is refused with the sentence and the code the client branches on.

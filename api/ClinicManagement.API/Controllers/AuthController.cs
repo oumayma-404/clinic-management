@@ -471,6 +471,8 @@ public class AuthController : ApiControllerBase
         ClinicAuthRefusals.TotpAlreadyEnrolled => StatusCodes.Status409Conflict,
         ClinicAuthRefusals.TooManyAttempts => StatusCodes.Status429TooManyRequests,
         ClinicAuthRefusals.PasswordPolicy => StatusCodes.Status400BadRequest,
+        // 403: the password was right, this PC simply no longer opens for this role (clinic-pc-copy AC-8.1).
+        ClinicAuthRefusals.RetiredRelayAdminsOnly => StatusCodes.Status403Forbidden,
         _ => StatusCodes.Status401Unauthorized
     };
 

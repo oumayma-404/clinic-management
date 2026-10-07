@@ -54,6 +54,15 @@ public static class RelayLabels
         };
     }
 
+    /// <summary>What the PC de secours says about itself on its own « Paramètres » (AC-8.1).</summary>
+    public static string Local(bool retired, DateTime? retiredAtUtc) =>
+        !retired
+            ? "Ce PC est le PC de secours du cabinet : sa copie suit le cloud, et l'on n'y enregistre rien."
+            : retiredAtUtc is { } at
+                ? $"Copie arrêtée le {ClinicClock.ToClinicLocal(at).ToString("dd/MM", French)} : ce PC ne suit plus le cabinet. "
+                  + "Seuls les administrateurs peuvent encore l'ouvrir."
+                : "Copie arrêtée : ce PC ne suit plus le cabinet. Seuls les administrateurs peuvent encore l'ouvrir.";
+
     /// <summary>
     /// The vendor console's column (AC-9.1): short, and without the PC's name — a cabinet's machine names are not
     /// the console's business, and the column is read down a list of every cabinet.
