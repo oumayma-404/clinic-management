@@ -245,6 +245,37 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public int UnusedRecoveryCodeCount => _recoveryCodes.Count(c => !c.IsUsed);
 
     /// <summary>
+    /// The account had an authenticator taken away by « Déclarer perdu ou volé » (<c>clinic-pc-copy</c> AC-8.4) and
+    /// must set up a new one at its next sign-in. Cleared by <see cref="CompleteTotpEnrolment"/>.
+    ///
+    /// <para>⚠️ Needed for the accounts the deployment does not otherwise oblige to hold a factor: without it, a
+    /// doctor who had chosen to protect their account would come back from the reset with less protection than they
+    /// chose.</para>
+    /// </summary>
+    public bool TotpReenrolmentRequired { get; private set; }
+
+    /// <summary>
+    /// « Déclarer perdu ou volé » (<c>clinic-pc-copy</c> AC-8.4): a stolen PC de secours held this account's password
+    /// hash and its sealed authenticator secret. The authenticator stops working <b>now</b> (it is replaced at the next
+    /// sign-in), a new password is chosen at the next sign-in, and every session ends so that next sign-in is now.
+    ///
+    /// <para>⚠️ The caller must have loaded <see cref="RecoveryCodes"/> — an unloaded collection is empty, and
+    /// <see cref="DisableTotp"/> would leave every recovery code spendable.</para>
+    /// </summary>
+    public void RequireNewCredentials()
+    {
+        if (IsTotpEnrolled)
+        {
+            DisableTotp();
+            TotpReenrolmentRequired = true;
+        }
+
+        MustChangePassword = true;
+        TokenVersion++;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
     /// Until when this account may <b>replace</b> its own second factor without presenting a code from it — the
     /// short grant a redeemed recovery code earns. Null, or in the past, means no.
     ///
@@ -370,6 +401,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         }
 
         TotpEnrolledAt = DateTime.UtcNow;
+        TotpReenrolmentRequired = false;
 
         // The grant is spent by the thing it existed to allow. Leaving it open would let the next caller holding
         // the password alone replace the factor that was just established.

@@ -50,4 +50,5 @@ public sealed record RelayStatusDto(
     DateTime? RetiredAtUtc,
     int FilesTotal,
     int FilesCopied,
-    long? DiskFreeBytes);
+    long? DiskFreeBytes,
+    bool LostOrStolen = false);

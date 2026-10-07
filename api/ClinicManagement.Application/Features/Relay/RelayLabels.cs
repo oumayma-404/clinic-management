@@ -1,6 +1,7 @@
 using System.Globalization;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Relay;
@@ -43,6 +44,8 @@ public static class RelayLabels
             ClinicRelayState.DiskNearlyFull =>
                 $"Il reste {Math.Max(0, (relay?.DiskFreeBytes ?? 0) / (1024L * 1024 * 1024))} Go sur {label}",
             ClinicRelayState.Mismatch => "La copie ne correspond pas au cloud — réparation en cours",
+            ClinicRelayState.Retired when relay?.RetiredReason == ClinicRelayRetirement.LostOrStolen =>
+                $"Déclaré perdu ou volé le {ClinicClock.ToClinicLocal(reading.Since ?? nowUtc).ToString("dd/MM", French)}",
             ClinicRelayState.Retired =>
                 $"Copie arrêtée le {ClinicClock.ToClinicLocal(reading.Since ?? nowUtc).ToString("dd/MM", French)}",
             ClinicRelayState.Stopped =>

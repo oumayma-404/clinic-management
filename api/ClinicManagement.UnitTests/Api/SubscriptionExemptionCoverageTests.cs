@@ -53,6 +53,8 @@ public class SubscriptionExemptionCoverageTests
         "RelayPeer.Token",
         "RelayPeer.Heartbeat",
         "Relay.Retire",
+        // AC-8.4: securing the accounts a stolen PC held — an unpaid cabinet must be able to, and it records nothing new.
+        "Relay.DeclareLost",
         // Signing out is not recording clinic work, and it must keep working on an expired cabinet — a practice
         // that cannot sign out of a shared reception PC is a worse outcome than one that cannot bill.
         "Auth.Logout",

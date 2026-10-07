@@ -123,6 +123,21 @@ public class ClinicTotpAuthTests
         Assert.Null(result.Value);
     }
 
+    // [clinic-pc-copy AC-8.4] An authenticator removed by « Déclarer perdu ou volé » is replaced, not dropped — even
+    // for a doctor, whom this deployment does not otherwise ask for a code.
+    [Fact]
+    public async Task An_Account_Whose_Authenticator_A_Stolen_Pc_Held_Must_Set_Up_A_New_One()
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(false);
+        var user = Enrolled(Account(User.RoleDoctor));
+        user.RequireNewCredentials();
+
+        var result = await LoginHandler().Handle(Login(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ClinicAuthRefusals.TotpEnrolmentRequired, result.Code);
+    }
+
     // [FR-1.2] Enrolled, no code offered yet — the ordinary first half of a two-step sign-in, and NOT a failed
     // attempt: the password was right and nobody has asked for the code yet.
     [Fact]

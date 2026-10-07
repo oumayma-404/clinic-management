@@ -78,6 +78,32 @@ public class RelayController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// « Déclarer perdu ou volé » (AC-8.4) — admin + a fresh confirmation of identity, like pairing: it resets every
+    /// account of the cabinet, so a stolen session alone must not be able to do it.
+    /// </summary>
+    [HttpPost("lost")]
+    [AllowsWithoutSubscription("Securing the accounts a stolen PC held is never new work, and an unpaid cabinet must be able to.")]
+    public async Task<ActionResult<RelayStatusDto>> DeclareLost(
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var callerId = _clinicContext.GetUserId();
+        if (string.IsNullOrWhiteSpace(callerId) || !_stepUp.Consume(callerId, RelayStepUpActions.Lost, confirmation ?? string.Empty))
+        {
+            return Failure("Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        var result = await _mediator.Send(new DeclareRelayLostCommand(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
     internal static int StatusFor(string? code) => code switch
     {
         RelayRefusals.AlreadyPairedCode => StatusCodes.Status409Conflict,

@@ -259,6 +259,16 @@ public class ClinicRelay : AggregateRoot<Guid>
         PairingCodeExpiresAtUtc = null;
     }
 
+    /// <summary>
+    /// « Déclarer perdu ou volé » (AC-8.4): retires the PC if it is not already, and records the reason even on a PC
+    /// retired earlier — a PC put in a cupboard and then stolen is exactly the case.
+    /// </summary>
+    public void DeclareLost(string? byUserId, DateTime nowUtc)
+    {
+        Retire(ClinicRelayRetirement.LostOrStolen, byUserId, nowUtc);
+        RetiredReason = ClinicRelayRetirement.LostOrStolen;
+    }
+
     public IReadOnlyList<string> LanAddressList =>
         string.IsNullOrWhiteSpace(LanAddresses)
             ? Array.Empty<string>()

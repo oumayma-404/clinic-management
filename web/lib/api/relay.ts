@@ -1,4 +1,4 @@
-import { apiDelete, apiGet } from './client';
+import { apiDelete, apiGet, apiPost } from './client';
 
 /**
  * The PC de secours's state as « Paramètres → PC de secours » reads it (`clinic-pc-copy` AC-2.1). Mirrors the backend
@@ -23,6 +23,8 @@ export interface RelayStatusDto {
   filesTotal: number;
   filesCopied: number;
   diskFreeBytes?: number | null;
+  /** Retired by « Déclarer perdu ou volé » (AC-8.4) — there is nothing left to declare. */
+  lostOrStolen: boolean;
 }
 
 /** `RelayLabels.Key` on the server — the state names the card branches on, never the sentence. */
@@ -50,4 +52,13 @@ export const relayApi = {
 
   /** « Retirer ce PC » (AC-8.1): the copy stops and the clinic may set up another. Returns the new state. */
   retire: () => apiDelete<RelayStatusDto>('/relay'),
+
+  /**
+   * « Déclarer perdu ou volé » (AC-8.4) — needs a step-up token for {@link RELAY_LOST_STEP_UP}. Every account of the
+   * cabinet, the caller's included, must then choose a new password: the caller's session ends with the answer.
+   */
+  declareLost: (stepUpToken: string) => apiPost<RelayStatusDto>('/relay/lost', {}, undefined, stepUpToken),
 };
+
+/** The step-up action « Déclarer perdu ou volé » is confirmed with — an authenticator code, never a password. */
+export const RELAY_LOST_STEP_UP = "relay-lost";

@@ -14,9 +14,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
+import { StepUpDialog } from "@/components/security/step-up-dialog"
+import { useSession } from "@/lib/auth/session"
 import { STATUS_TONE_CLASS, type StatusTone } from "@/components/ui/status-tone"
 import { ApiError } from "@/lib/api/client"
-import { RELAY_CARD_ID, relayApi, type RelayStateKey, type RelayStatusDto } from "@/lib/api/relay"
+import { RELAY_CARD_ID, RELAY_LOST_STEP_UP, relayApi, type RelayStateKey, type RelayStatusDto } from "@/lib/api/relay"
 import { showErrorToast } from "@/lib/errors"
 import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -91,6 +93,25 @@ export function RelayCard() {
     document.getElementById(RELAY_CARD_ID)?.scrollIntoView({ block: "start" })
   }, [load.kind])
 
+  // « Déclarer perdu ou volé » (AC-8.4): explained first, then confirmed with an authenticator code.
+  const { logout } = useSession()
+  const [lostConfirmOpen, setLostConfirmOpen] = useState(false)
+  const [lostStepUpOpen, setLostStepUpOpen] = useState(false)
+  const [declaring, setDeclaring] = useState(false)
+
+  const declareLost = async (stepUpToken: string) => {
+    setDeclaring(true)
+    try {
+      await relayApi.declareLost(stepUpToken)
+      // Every session of the cabinet ended with it, this one included — say so, then go to the sign-in screen.
+      toast.success("PC déclaré perdu ou volé. Reconnectez-vous : un nouveau mot de passe vous sera demandé.")
+      window.setTimeout(() => logout(), 2500)
+    } catch (err) {
+      showErrorToast(err, "Le PC n'a pas pu être déclaré perdu ou volé.")
+      setDeclaring(false)
+    }
+  }
+
   const retire = async () => {
     setRetiring(true)
     try {
@@ -141,7 +162,8 @@ export function RelayCard() {
           <RelayState
             status={load.status}
             onRetire={() => setConfirmOpen(true)}
-            retiring={retiring}
+            onDeclareLost={() => setLostConfirmOpen(true)}
+            retiring={retiring || declaring}
           />
         )}
       </CardContent>
@@ -166,13 +188,50 @@ export function RelayCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={lostConfirmOpen} onOpenChange={setLostConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Déclarer {load.kind === "loaded" && load.status.label ? quoteFr(load.status.label) : "le PC de secours"} perdu
+              ou volé ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Le PC est retiré. Comme il contenait les comptes du cabinet, chaque compte devra choisir un nouveau mot de
+              passe, et un nouvel authentificateur s&apos;il en avait un. Tout le monde, vous compris, sera déconnecté.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="coarse:min-h-11">Annuler</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              className="coarse:min-h-11"
+              onClick={() => {
+                setLostConfirmOpen(false)
+                setLostStepUpOpen(true)
+              }}
+            >
+              Continuer
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <StepUpDialog
+        open={lostStepUpOpen}
+        onOpenChange={setLostStepUpOpen}
+        action={RELAY_LOST_STEP_UP}
+        purpose="Vous allez déclarer ce PC perdu ou volé : chaque compte du cabinet devra choisir un nouveau mot de passe."
+        hasTotp
+        onConfirmed={(token) => void declareLost(token)}
+      />
     </Card>
   )
 }
 
 function RelayState({
-  status, onRetire, retiring,
-}: { status: RelayStatusDto; onRetire: () => void; retiring: boolean }) {
+  status, onRetire, onDeclareLost, retiring,
+}: { status: RelayStatusDto; onRetire: () => void; onDeclareLost: () => void; retiring: boolean }) {
   const look = STATE_LOOK[status.state] ?? STATE_LOOK.none
   const Icon = look.icon
 
@@ -215,17 +274,31 @@ function RelayState({
           </p>
         </div>
 
-        {live && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full coarse:min-h-11 sm:w-auto"
-            disabled={retiring}
-            onClick={onRetire}
-          >
-            Retirer ce PC
-          </Button>
-        )}
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          {live && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="grow basis-36 coarse:min-h-11 sm:grow-0"
+              disabled={retiring}
+              onClick={onRetire}
+            >
+              Retirer ce PC
+            </Button>
+          )}
+          {/* A PC that was ever installed held the cabinet's accounts — retired already or not (EC-14). */}
+          {status.pairedAtUtc && !status.lostOrStolen && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="grow basis-36 text-destructive coarse:min-h-11 sm:grow-0"
+              disabled={retiring}
+              onClick={onDeclareLost}
+            >
+              Déclarer perdu ou volé
+            </Button>
+          )}
+        </div>
       </div>
 
       {status.state === "installing" && (

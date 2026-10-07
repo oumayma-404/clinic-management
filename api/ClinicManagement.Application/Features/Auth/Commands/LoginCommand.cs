@@ -97,9 +97,14 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     /// deployment requires it <b>of administrators</b>, or the account has enrolled one of its own accord. A
     /// doctor who enrolled voluntarily is asked for their code on every deployment — offering it and then not
     /// checking it would be worse than never offering it.</para>
+    ///
+    /// <para>A third ground, <c>TotpReenrolmentRequired</c>: an authenticator removed by « Déclarer perdu ou volé » is
+    /// replaced, not dropped (<c>clinic-pc-copy</c> AC-8.4).</para>
     /// </summary>
     private bool SecondFactorApplies(Domain.Entities.User user) =>
-        user.IsTotpEnrolled || (_secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin());
+        user.IsTotpEnrolled
+        || user.TotpReenrolmentRequired
+        || (_secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin());
 
     private static Result<LoginResultDto> Refuse(string code) =>
         Result<LoginResultDto>.Failure(ClinicAuthRefusals.MessageFor(code)!, code);

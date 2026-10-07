@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 using MediatR;
@@ -54,6 +55,7 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
             relay?.RetiredAtUtc,
             relay?.FilesTotal ?? 0,
             relay?.FilesCopied ?? 0,
-            relay?.DiskFreeBytes);
+            relay?.DiskFreeBytes,
+            relay?.RetiredReason == ClinicRelayRetirement.LostOrStolen);
     }
 }
