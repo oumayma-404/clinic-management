@@ -69,7 +69,7 @@ namespace ClinicManagement.Infrastructure.Migrations
                     PublicKey = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: true),
                     CertificateFingerprint = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     LanAddresses = table.Column<string>(type: "character varying(600)", maxLength: 600, nullable: true),
-                    Build = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    Build = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
                     PairedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     SeededAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     SeedPercent = table.Column<int>(type: "integer", nullable: false),

@@ -92,6 +92,10 @@ public sealed class GetRelaySnapshotQueryHandler : IRequestHandler<GetRelaySnaps
             return Result<Stream>.FailureFrom(relay);
         }
 
+        // The change log must be open before the snapshot reads its high-water, or saves made after the snapshot are
+        // never sent. Pairing opens it; opening it again here (idempotent) covers a pairing whose last step failed.
+        await _rows.EnsureCursorAsync(relay.Value!.ClinicId, cancellationToken);
+
         // Written to a temp file first, so the snapshot's transaction is not held open for the length of a cabinet download.
         var path = Path.Combine(Path.GetTempPath(), $"relay-snapshot-{Guid.NewGuid():N}.json.gz");
         await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))

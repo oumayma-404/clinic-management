@@ -168,6 +168,48 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Empty(_rows.Applied);
     }
 
+    // [D12] Found on the first end-to-end run: a cloud restored to an earlier state answers the heartbeat with a
+    // high-water BELOW this copy's, and may not overtake it for days. The copy stops on that first answer.
+    [Fact]
+    public async Task A_Heartbeat_From_Behind_This_Copy_Stops_It_At_Once()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 12;
+
+        var state = await TickAsync();
+
+        Assert.Equal(RelayFeedDecisions.WentBackReason, state.StoppedReason);
+        Assert.Equal(40, state.AppliedSeq);
+        Assert.Empty(_cloud.ChangesAsked);
+        Assert.Equal(0, _cloud.SnapshotCalls);
+    }
+
+    [Fact]
+    public async Task A_Heartbeat_From_Another_History_Stops_The_Copy_At_Once()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.AckEpoch = "e2";
+
+        var state = await TickAsync();
+
+        Assert.NotNull(state.StoppedReason);
+        Assert.Empty(_cloud.ChangesAsked);
+    }
+
+    // Before the first copy there is nothing to protect: a fresh PC follows whatever cloud answers.
+    [Fact]
+    public async Task A_Fresh_Pc_Is_Not_Stopped_By_A_Low_High_Water()
+    {
+        _cloud.HighWater = 0;
+        _cloud.Snapshot = ("e1", 0, null);
+
+        var state = await TickAsync();
+
+        Assert.Null(state.StoppedReason);
+        Assert.True(state.RowsSeeded);
+    }
+
     // [D6b] Too far behind for one batch: the whole copy is taken again, in the same tick.
     [Fact]
     public async Task A_Backlog_Too_Long_Is_Taken_As_A_Whole_Copy()
@@ -189,6 +231,7 @@ public sealed class RelayFollowerTests : IDisposable
     public async Task A_Reseed_From_A_Cloud_Behind_This_Copy_Replaces_Nothing()
     {
         _store.Save(new RelayFollowerState { Epoch = "e1", AppliedSeq = 40, RowsSeededAtUtc = T0, ReseedNeeded = true });
+        _cloud.HighWater = 40; // the heartbeat is in step; only the snapshot is behind
         _cloud.Snapshot = ("e1", 12, "h12");
 
         var state = await TickAsync();
@@ -413,6 +456,7 @@ public sealed class RelayFollowerTests : IDisposable
         public RelayCallStatus HeartbeatStatus { get; set; } = RelayCallStatus.Ok;
         public long HighWater { get; set; }
         public bool UpdateNeeded { get; set; }
+        public string AckEpoch { get; set; } = "e1";
         public Queue<RelayFeedBatch> Batches { get; } = new();
         public (string Epoch, long HighWater, string? Head) Snapshot { get; set; } = ("e1", 0, null);
         public IReadOnlyList<RelayTableDigest> Digest { get; set; } = Array.Empty<RelayTableDigest>();
@@ -428,7 +472,7 @@ public sealed class RelayFollowerTests : IDisposable
             Reports.Add(report);
             return Task.FromResult(HeartbeatStatus == RelayCallStatus.Ok
                 ? new RelayCall<RelayHeartbeatAck>(RelayCallStatus.Ok,
-                    new RelayHeartbeatAck(T0, HighWater, "e1", false, UpdateNeeded, "build-1"))
+                    new RelayHeartbeatAck(T0, HighWater, AckEpoch, false, UpdateNeeded, "build-1"))
                 : new RelayCall<RelayHeartbeatAck>(HeartbeatStatus));
         }
 

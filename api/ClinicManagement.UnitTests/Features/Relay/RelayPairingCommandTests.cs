@@ -174,6 +174,22 @@ public class RelayPairingCommandTests
         Assert.Contains(RelayJournal.Setup, Assert.Single(harness.Journal).ChangedFields);
     }
 
+    // Found by the first end-to-end run: the change log was opened before the save, so a refused pairing left the
+    // clinic logging every change for a PC that did not exist.
+    [Fact]
+    public async Task A_Pairing_Whose_Save_Fails_Opens_No_Change_Log()
+    {
+        var (relay, code) = ClinicRelay.BeginPairing(ClinicId, "PC", "local|admin", DateTime.UtcNow);
+        var harness = new PairHarness(relay);
+        harness.UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateException("value too long"));
+
+        var result = await harness.Handler().Handle(Pair(code), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        harness.Rows.Verify(r => r.EnsureCursorAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Fact]
     public async Task An_Unknown_Code_Is_Refused_As_Expired()
     {

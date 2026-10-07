@@ -213,6 +213,24 @@ public class ClinicRelayTests
         Assert.True(relay.SecretMatches(secret));
     }
 
+    // Found by the first end-to-end run: a 76-character build string failed the pairing save. What the PC reports is
+    // capped where it is written, so a long report updates the row instead of refusing it.
+    [Fact]
+    public void Long_Reports_From_The_Pc_Are_Capped_To_Their_Columns()
+    {
+        var (relay, _) = Begin();
+        relay.Pair("PC", PublicKey, null, null, new string('b', 500), T0);
+
+        Assert.Equal(ClinicRelay.MaxBuildLength, relay.Build!.Length);
+
+        relay.RecordHeartbeat(new RelayHeartbeat(0, 0, false, 0, 0, null, false, new string('b', 500), null, null,
+            Enumerable.Range(0, 400).Select(i => "Table" + i).ToList(), new string('e', 5000)), 0, T0.AddMinutes(1));
+
+        Assert.Equal(ClinicRelay.MaxErrorLength, relay.LastError!.Length);
+        Assert.Equal(ClinicRelay.MaxMismatchLength, relay.MismatchTables!.Length);
+        Assert.Equal(ClinicRelay.MaxBuildLength, relay.Build!.Length);
+    }
+
     [Fact]
     public void A_Relay_Belongs_To_A_Clinic()
     {

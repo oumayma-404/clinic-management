@@ -30,9 +30,9 @@ public class ClinicRelayConfiguration : IEntityTypeConfiguration<ClinicRelay>
         builder.Property(r => r.PublicKey).HasMaxLength(2048);
         builder.Property(r => r.CertificateFingerprint).HasMaxLength(64);
         builder.Property(r => r.LanAddresses).HasMaxLength(600);
-        builder.Property(r => r.Build).HasMaxLength(64);
-        builder.Property(r => r.MismatchTables).HasMaxLength(2000);
-        builder.Property(r => r.LastError).HasMaxLength(1000);
+        builder.Property(r => r.Build).HasMaxLength(ClinicRelay.MaxBuildLength);
+        builder.Property(r => r.MismatchTables).HasMaxLength(ClinicRelay.MaxMismatchLength);
+        builder.Property(r => r.LastError).HasMaxLength(ClinicRelay.MaxErrorLength);
 
         // One PC de secours per clinic (AC-1.10, EC-8): a second concurrent setup collides here.
         builder.HasIndex(r => r.ClinicId)

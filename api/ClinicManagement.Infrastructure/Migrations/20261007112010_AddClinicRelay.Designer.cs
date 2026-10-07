@@ -799,8 +799,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<string>("Build")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("CertificateFingerprint")
                         .HasMaxLength(64)

@@ -71,13 +71,14 @@ public sealed class PairRelayCommandHandler : IRequestHandler<PairRelayCommand, 
             var secret = relay.Pair(request.Label, request.PublicKey, request.CertificateFingerprint,
                 request.LanAddresses, request.Build, now);
 
-            // Capture opens before the first snapshot is read, so the snapshot's high-water covers every later save.
-            await _rows.EnsureCursorAsync(relay.ClinicId, cancellationToken);
-
             var issuer = await _users.GetByAuth0SubAsync(relay.CreatedByUserId, cancellationToken);
             await RelayJournal.StageAsync(_auditEntries, new AuditActor(relay.CreatedByUserId, issuer?.Email), relay,
                 AuditAction.Insert, RelayJournal.Setup, now, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Capture opens only once the pairing is saved — a refused save must not leave a clinic logging changes
+            // for a PC that does not exist — and before the first snapshot, whose handler opens it again (idempotent).
+            await _rows.EnsureCursorAsync(relay.ClinicId, cancellationToken);
 
             return Result<RelayPairingDto>.Success(
                 new RelayPairingDto(relay.Id, relay.ClinicId, clinic?.Name ?? string.Empty, secret));

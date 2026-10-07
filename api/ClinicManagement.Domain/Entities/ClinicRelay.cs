@@ -22,6 +22,13 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// <summary>A setup that never finishes its first copy is released after this (EC-9).</summary>
     public static readonly TimeSpan AbandonedAfter = TimeSpan.FromHours(24);
 
+    // Column widths, declared here so the PC's free-text reports are capped where they are written: a heartbeat
+    // carrying a long error must update the row, not fail the save (a 76-character build string did, on the first
+    // end-to-end run). The EF configuration reads the same constants.
+    public const int MaxBuildLength = 200;
+    public const int MaxErrorLength = 1000;
+    public const int MaxMismatchLength = 2000;
+
     public Guid ClinicId { get; private set; }
 
     /// <summary>The PC's Windows name, shown everywhere the PC is named (« PC-ACCUEIL »).</summary>
@@ -157,7 +164,7 @@ public class ClinicRelay : AggregateRoot<Guid>
         PublicKey = publicKey.Trim();
         CertificateFingerprint = NormalizeFingerprint(certificateFingerprint);
         LanAddresses = NormalizeAddresses(lanAddresses);
-        Build = build?.Trim();
+        Build = Cap(build, MaxBuildLength);
         SecretHash = Hash(secret);
         PairingCodeHash = null;
         PairingCodeExpiresAtUtc = null;
@@ -188,8 +195,8 @@ public class ClinicRelay : AggregateRoot<Guid>
         FilesCopied = Math.Clamp(heartbeat.FilesCopied, 0, FilesTotal);
         DiskFreeBytes = heartbeat.DiskFreeBytes;
         IsUpdating = heartbeat.IsUpdating;
-        LastError = string.IsNullOrWhiteSpace(heartbeat.LastError) ? null : heartbeat.LastError.Trim();
-        Build = heartbeat.Build?.Trim() ?? Build;
+        LastError = Cap(heartbeat.LastError, MaxErrorLength);
+        Build = Cap(heartbeat.Build, MaxBuildLength) ?? Build;
         ClockSkewSeconds = heartbeat.PcClockUtc is { } pc ? (int)Math.Round((pc - nowUtc).TotalSeconds) : null;
 
         if (!string.IsNullOrWhiteSpace(heartbeat.LanAddresses))
@@ -210,7 +217,7 @@ public class ClinicRelay : AggregateRoot<Guid>
         if (heartbeat.MismatchTables is { Count: > 0 } tables)
         {
             MismatchSinceUtc ??= nowUtc;
-            MismatchTables = string.Join(",", tables.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+            MismatchTables = Cap(string.Join(",", tables.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)), MaxMismatchLength);
         }
         else
         {
@@ -256,6 +263,17 @@ public class ClinicRelay : AggregateRoot<Guid>
     private static string NewToken() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(SecretBytes))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static string? Cap(string? value, int max)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length > max ? trimmed[..max] : trimmed;
+    }
 
     private static string NormalizeLabel(string label)
     {

@@ -83,6 +83,18 @@ public sealed class RelayFollower
         }
 
         state = state with { UpdateNeeded = ack.Value!.UpdateNeeded };
+
+        // [D12] Every heartbeat says which history the cloud is and how far it has got. A copy that already holds
+        // rows stops here, on the first answer that is behind it or from another history — not only when the cloud
+        // later overtakes it, which a restored cloud may not do for days (found on the first end-to-end run).
+        if (state.StoppedReason is null && state.RowsSeeded
+            && RelayFeedDecisions.WentBack(state, ack.Value.Epoch, ack.Value.HighWater))
+        {
+            _logger.LogError("The cloud answered from behind this copy (epoch {Epoch}, high-water {HighWater}, applied "
+                             + "{Applied}); the copy stops.", ack.Value.Epoch, ack.Value.HighWater, state.AppliedSeq);
+            return Save(RelayFeedDecisions.Stopped(state, RelayFeedDecisions.WentBackReason));
+        }
+
         if (state.StoppedReason is not null || state.UpdateNeeded)
         {
             return Save(state);

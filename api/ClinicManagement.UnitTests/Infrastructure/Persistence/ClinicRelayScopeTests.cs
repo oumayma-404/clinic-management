@@ -220,6 +220,22 @@ public class ClinicRelayScopeTests
         Assert.Contains(nameof(User.ProtectedTotpSecret), ClinicRelayScope.PerSideColumns[nameof(User)]);
     }
 
+    // The build string is « newest migration id + '+' + informational version », and a version carries a commit hash
+    // (1.0.0+<40 hex>). The column must hold the longest migration id this assembly has plus a generous version.
+    [Fact]
+    public void The_Build_Column_Holds_A_Real_Build_String()
+    {
+        using var db = Context();
+        var longestMigration = typeof(ApplicationDbContext).Assembly.GetTypes()
+            .Select(t => t.GetCustomAttribute<Microsoft.EntityFrameworkCore.Migrations.MigrationAttribute>()?.Id ?? string.Empty)
+            .Max(id => id.Length);
+        var column = db.Model.FindEntityType(typeof(ClinicRelay))!.FindProperty(nameof(ClinicRelay.Build))!.GetMaxLength();
+
+        Assert.Equal(ClinicRelay.MaxBuildLength, column);
+        Assert.True(longestMigration + 1 + 100 <= ClinicRelay.MaxBuildLength,
+            $"A build string can reach {longestMigration + 1 + 100} characters; the column holds {ClinicRelay.MaxBuildLength}.");
+    }
+
     [Fact]
     public void The_Plan_Is_Resolved_Once_Per_Model()
     {
