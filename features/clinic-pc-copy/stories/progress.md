@@ -76,6 +76,7 @@ _(rows for later bullets are added before their first edit)_
 | 17 | `ClinicRelays.Build` 64 chars | 200, and every free-text field the PC reports is capped in the aggregate (`MaxBuildLength` / `MaxErrorLength` / `MaxMismatchLength`, read by the EF config) | the real build string is 76 chars (migration id + `1.0.0+<commit>`): every pairing failed. Migration edited in place — it has never shipped |
 | 18 | pairing opens the change log before its save | after the save, and again (idempotent) before every snapshot | a refused pairing left the clinic logging every change for a PC that did not exist |
 | 19 | D12 checked on pulls and snapshots | also on every heartbeat: an answer behind the copy or from another history stops it at once | a restored cloud may not overtake the PC for days, so the pull never ran and the copy was not stopped |
+| 20 | report every LAN address | only addresses of adapters that reach a gateway (`RelayHostFacts.PreferNetworkAddresses`), all of them when none does | a Hyper-V/WSL switch (172.23.128.1) came first on the dev PC — an address no device in the cabinet can reach, and the one Part 3 would tell devices to switch to |
 
 ## Verification log
 
@@ -85,6 +86,7 @@ _(rows for later bullets are added before their first edit)_
 | 2026-10-07 | `verify-schema` on a scratch DB, before → after `AddClinicRelay` | 7 relay DRIFT → ok; only remaining drift `key-ring-protection` (dev env, pre-existing); no `xmin` column |
 | 2026-10-07 | full unit suite after `RelayFeedJob` | 5 094 pass · 6 skip · 0 fail; wiring guard red-proofed (gate swapped → red, restored) |
 | 2026-10-07 | **end-to-end rehearsal** — scratch cloud (`clinic_relay_cloud`, copy of dev) + scratch PC (`clinic_relay_pc`), real pairing (login + step-up + code), two visible Chrome windows | first copy in ~20 s: patients 2 231 · RDV 984 · factures 800 · fiches 1 423 · devis 1 421 · comptes 11 identical, 41/41 files, hourly check 0 differing tables, PC holds 1 cabinet of 8; PC sign-in with the re-sealed TOTP works; a patient created on the cloud reached the PC DB in 4 s; a save on the PC → 423 with the sentence, nothing written; cloud cursor rewound 4 → 1 → PC stopped in 7 s, position and data kept, reason reported to the cloud. Found 3 defects (deviations 17–19), all fixed and re-run |
+| 2026-10-07 | « Paramètres → PC de secours » card, live in the cloud window | « Copie à jour il y a 2 s », 43/43 files, address 192.168.1.35 (after deviation 20); no sideways scroll at 320/390/820/1180/1440; the confirm names the PC; « Annuler » retires nothing (relay still Ready). Gate: unit suite 5 103 pass · 6 skip · 0 fail; `check:responsive` 77/77, `tsc`, `build` green |
 
 ## Learnings
 

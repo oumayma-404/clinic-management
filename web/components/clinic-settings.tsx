@@ -42,6 +42,7 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
+import { RelayCard } from "@/components/relay/relay-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
@@ -1506,6 +1507,9 @@ export default function ClinicSettings() {
 
         {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
         {mode === "local" && user?.role === "admin" && <BackupSettings />}
+
+        {/* clinic-pc-copy: « PC de secours ». The card renders nothing where the deployment has none (its read 404s). */}
+        {isClinicAdmin && <RelayCard />}
 
         {/* OS notifications, per platform (Part 6, AC-51/AC-52). Not mode-gated: the card's whole job is to say
             whether this installation can push, and hiding it where it cannot would leave the owner of a

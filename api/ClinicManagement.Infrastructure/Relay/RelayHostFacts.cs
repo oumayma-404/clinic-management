@@ -11,17 +11,37 @@ namespace ClinicManagement.Infrastructure.Relay;
 /// <summary>What a PC de secours reports about the machine it runs on — read by pairing and by every heartbeat alike.</summary>
 public static class RelayHostFacts
 {
-    /// <summary>This PC's IPv4 LAN addresses, up to eight.</summary>
+    /// <summary>This PC's IPv4 addresses on the cabinet's network, up to eight.</summary>
     public static IReadOnlyList<string> LanAddresses() =>
-        NetworkInterface.GetAllNetworkInterfaces()
+        PreferNetworkAddresses(NetworkInterface.GetAllNetworkInterfaces()
             .Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .SelectMany(n => n.GetIPProperties().UnicastAddresses)
-            .Select(a => a.Address)
-            .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a))
-            .Select(a => a.ToString())
-            .Distinct()
-            .Take(8)
-            .ToList();
+            .Select(n =>
+            {
+                var ip = n.GetIPProperties();
+                return new HostAdapter(
+                    ip.GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork
+                                                 && !g.Address.Equals(IPAddress.Any)),
+                    ip.UnicastAddresses.Select(a => a.Address)
+                        .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a))
+                        .Select(a => a.ToString())
+                        .ToList());
+            }));
+
+    /// <summary>One network adapter as the address choice sees it.</summary>
+    public sealed record HostAdapter(bool HasGateway, IReadOnlyList<string> Ipv4Addresses);
+
+    /// <summary>
+    /// The addresses of adapters that reach a gateway — the cabinet's real network — before any other. A Hyper-V or
+    /// WSL switch has no gateway, and its address is one no phone or PC in the cabinet can reach (found on the first
+    /// end-to-end run, where it came first). Adapters with no gateway are kept only when there is nothing else.
+    /// </summary>
+    public static IReadOnlyList<string> PreferNetworkAddresses(IEnumerable<HostAdapter> adapters)
+    {
+        var list = adapters.ToList();
+        var withGateway = list.Where(a => a.HasGateway).SelectMany(a => a.Ipv4Addresses).Distinct().ToList();
+        var chosen = withGateway.Count > 0 ? withGateway : list.SelectMany(a => a.Ipv4Addresses).Distinct().ToList();
+        return chosen.Take(8).ToList();
+    }
 
     /// <summary>SHA-256 of this PC's server certificate, hex — what the clinic's devices will pin (D21). Null if unreadable.</summary>
     public static string? CertificateFingerprint(string? localDir = null)
