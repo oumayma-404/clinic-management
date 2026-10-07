@@ -18,8 +18,8 @@
 | Part | Bullet | Status | Commit |
 |------|--------|--------|--------|
 | 1 · La copie | Kind and pairing | done — standby gate, guards, tests, migration verified (installer role still in « One click ») | see git log |
-| 1 | Copy (snapshot, capture, feed, apply, files) | in-progress — cloud side written and tested; PC agent not started | see git log |
-| 1 | Watching (heartbeat, health, card, bell, digest, console) | pending | |
+| 1 | Copy (snapshot, capture, feed, apply, files) | done — cloud side + PC agent (`RelayFollower` / `RelayFeedJob`), rehearsed end to end | see git log |
+| 1 | Watching (heartbeat, health, card, bell, digest, console) | in-progress — heartbeat, health, hourly check and the settings card done; admin bell, console column, vendor emails left | see git log |
 | 1 | Lifecycle (users + TOTP re-wrap, retire, lost, erase) | pending | |
 | 1 | One click and lockstep (installer, bridge, offer, CI, self-update, promotion) | pending | |
 | 2 · La relève | Lease · device reports · integrity · return · screens | pending | |
