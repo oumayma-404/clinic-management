@@ -51,6 +51,27 @@ public static class RelayLabels
         };
     }
 
+    /// <summary>
+    /// The vendor console's column (AC-9.1): short, and without the PC's name — a cabinet's machine names are not
+    /// the console's business, and the column is read down a list of every cabinet.
+    /// </summary>
+    public static string Short(ClinicRelayHealthReading reading, DateTime nowUtc) => reading.State switch
+    {
+        ClinicRelayState.None => "Aucun",
+        ClinicRelayState.Installing => $"Installation ({reading.SeedPercent ?? 0} %)",
+        ClinicRelayState.InstallFailed => "Échec de l'installation",
+        ClinicRelayState.Abandoned => "Installation abandonnée",
+        ClinicRelayState.Ready => "Prêt",
+        ClinicRelayState.Late => $"En retard de {Duration(nowUtc - (reading.Since ?? nowUtc))}",
+        ClinicRelayState.Off => $"Éteint depuis {Moment(reading.Since, nowUtc)}",
+        ClinicRelayState.Updating => "Mise à jour",
+        ClinicRelayState.DiskNearlyFull => "Disque presque plein",
+        ClinicRelayState.Mismatch => "Ne correspond pas",
+        ClinicRelayState.Retired => "Retiré",
+        ClinicRelayState.Stopped => $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)}",
+        _ => throw new ArgumentOutOfRangeException(nameof(reading), reading.State, null),
+    };
+
     /// <summary>Under a minute: « il y a 3 s »; otherwise the time (FR-2, the spec's freshness call).</summary>
     private static string Fresh(DateTime? since, DateTime nowUtc)
     {

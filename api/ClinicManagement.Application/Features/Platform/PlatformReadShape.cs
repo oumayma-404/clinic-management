@@ -292,6 +292,10 @@ public static class PlatformReadShape
         "AddressRowsCleared",
         "FreedEmails",
         // Which of two words the panel must ask for — `Address` or `Name`. A fixed pair, about a form field.
-        "ConfirmationKind"
+        "ConfirmationKind",
+        // ── PC de secours (clinic-pc-copy AC-9.1). A state key and its short French label, derived from a
+        // heartbeat — never the PC's machine name, its addresses or anything it holds.
+        "RelayState",
+        "RelayLabel"
     };
 }

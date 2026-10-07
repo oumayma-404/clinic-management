@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Application.Features.Platform;
 using ClinicManagement.Application.Features.Platform.Queries;
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -46,8 +47,9 @@ public class PlatformPortfolioQueryTests
         return scope;
     }
 
-    private ListPlatformClinicsQueryHandler ListHandler() =>
-        new(_activity.Object, _users.Object, _scope, NullLogger<ListPlatformClinicsQueryHandler>.Instance);
+    private ListPlatformClinicsQueryHandler ListHandler(IClinicRelayRepository? relays = null) =>
+        new(_activity.Object, _users.Object, relays ?? PlatformRelayReadStubs.NoRelays(), _scope,
+            NullLogger<ListPlatformClinicsQueryHandler>.Instance);
 
     private GetPlatformSummaryQueryHandler SummaryHandler() =>
         new(_activity.Object, _subscriptions.Object, _scope,
@@ -76,6 +78,36 @@ public class PlatformPortfolioQueryTests
         _activity.Setup(r => r.GetPortfolioAsync(
                 It.IsAny<PlatformPortfolioFilter>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PagedResult<PlatformClinicRow>(rows, page: 1, pageSize: 25, totalCount: rows.Length));
+
+    // [clinic-pc-copy AC-9.1] The « PC de secours » column comes from the same predicate as the card and the bell,
+    // read once for the page; a cabinet with no PC says « Aucun », and the PC's machine name never reaches the console.
+    [Fact]
+    public async Task The_Pc_De_Secours_Column_Is_Read_Once_For_The_Page()
+    {
+        var covered = Row("Cabinet Ben Ali");
+        var bare = Row("Cabinet Trabelsi");
+        WirePage(covered, bare);
+
+        var now = DateTime.UtcNow;
+        var (relay, _) = ClinicRelay.BeginPairing(covered.ClinicId, "PC-ACCUEIL", "local|admin", now.AddDays(-1));
+        relay.Pair("PC-ACCUEIL", "key", null, null, null, now.AddDays(-1));
+        relay.RecordHeartbeat(new RelayHeartbeat(5, 100, true, 0, 0, null, false, null, null, null, null, null), 5,
+            now.AddSeconds(-5));
+
+        var relays = new Mock<IClinicRelayRepository>();
+        relays.Setup(r => r.GetLatestForClinicsAsync(It.IsAny<IEnumerable<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ClinicRelay> { [covered.ClinicId] = relay });
+
+        var result = await ListHandler(relays.Object).Handle(new ListPlatformClinicsQuery(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var rows = result.Value!.Items;
+        Assert.Equal(("ready", "Prêt"), (rows[0].RelayState, rows[0].RelayLabel));
+        Assert.Equal(("none", "Aucun"), (rows[1].RelayState, rows[1].RelayLabel));
+        Assert.DoesNotContain(rows, r => r.RelayLabel.Contains("PC-ACCUEIL"));
+        relays.Verify(r => r.GetLatestForClinicsAsync(
+            It.Is<IEnumerable<Guid>>(ids => ids.Count() == 2), It.IsAny<CancellationToken>()), Times.Once);
+    }
 
     // [AC-2.3][AC-2.5] Every filter reaches the repository verbatim — including an UNTRIMMED term, because
     // normalisation belongs to SearchTerm inside the read and a handler that « helpfully » trims is a second
@@ -417,7 +449,7 @@ public class PlatformPortfolioQueryTests
     public async Task A_Read_Without_A_Declared_Scope_Refuses_Instead_Of_Reading_Nothing()
     {
         var handler = new ListPlatformClinicsQueryHandler(
-            _activity.Object, _users.Object, new TenantScope(NullLogger<TenantScope>.Instance),
+            _activity.Object, _users.Object, PlatformRelayReadStubs.NoRelays(), new TenantScope(NullLogger<TenantScope>.Instance),
             NullLogger<ListPlatformClinicsQueryHandler>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(

@@ -591,7 +591,8 @@ no consent flag and no audit of which patient was sent.
 - **Watching (cloud)**: the API's `RelayWatchJob` (minutely, `PublishesChangeFeed` only) syncs each cabinet's admin
   bell rows to `Application/Features/Relay/RelayAlertRules`. ⚠️ `StaffNotificationRepository.AddressedTo` is the one
   audience clause for the list **and** the unread count, and `TargetRole` is checked against the viewer's account row,
-  never the token.
+  never the token. The vendor console's « PC de secours » column reads `ClinicRelayRepository.GetLatestForClinicsAsync`
+  (one read per page, same « newest row » order as the card) through `PlatformClinicRowMapper`.
 
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live

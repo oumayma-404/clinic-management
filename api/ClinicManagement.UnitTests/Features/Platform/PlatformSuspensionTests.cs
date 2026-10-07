@@ -435,6 +435,7 @@ public class PlatformSuspensionTests
             PlatformMessagingReadStubs.NoAllowances(),
             PlatformMessagingReadStubs.NoReminderSettings(),
             PlatformMessagingReadStubs.NotSold(),
+            PlatformRelayReadStubs.NoRelays(),
             NullLogger<GetPlatformClinicDetailQueryHandler>.Instance);
 
     private void WireCabinet(bool isSuspended = false)

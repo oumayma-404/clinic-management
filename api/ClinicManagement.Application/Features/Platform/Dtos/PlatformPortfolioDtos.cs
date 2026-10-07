@@ -42,6 +42,12 @@ namespace ClinicManagement.Application.Features.Platform.Dtos;
 /// </param>
 /// <param name="MessagingRemaining">Floored at zero. A cancelled allocation can put consumption above the forfait, and
 /// « −17 rappels » is not a quantity anybody can act on.</param>
+/// <param name="RelayState">
+/// The cabinet's PC de secours (<c>clinic-pc-copy</c> AC-9.1), one of <c>RelayLabels.Key</c>'s values — from
+/// <c>ClinicRelayHealth</c>, the predicate « Paramètres » and the admins' bell read, so the vendor and the cabinet cannot
+/// be told two different things. Branch on this, never on <see cref="RelayLabel"/>.
+/// </param>
+/// <param name="RelayLabel">« Prêt », « Éteint depuis 08:12 », « Copie arrêtée depuis … » — never the PC's own name.</param>
 public record PlatformClinicRowDto(
     Guid ClinicId,
     string Name,
@@ -67,7 +73,9 @@ public record PlatformClinicRowDto(
     int? MessagingAllowance = null,
     int? MessagingConsumed = null,
     int? MessagingRemaining = null,
-    bool MessagingExhausted = false);
+    bool MessagingExhausted = false,
+    string RelayState = "none",
+    string RelayLabel = "Aucun");
 
 /// <summary>
 /// One page of the portfolio.

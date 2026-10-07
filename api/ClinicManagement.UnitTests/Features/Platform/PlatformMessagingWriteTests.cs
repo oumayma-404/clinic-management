@@ -426,6 +426,7 @@ public class PlatformMessagingWriteTests
             activity.Object, users.Object, subscriptions.Object, _ledger, SignedIn(),
             _harness.UnitOfWork.Object, SystemWideScope(),
             _harness.Allowances, PlatformMessagingReadStubs.NoReminderSettings(), availability.Object,
+            PlatformRelayReadStubs.NoRelays(),
             NullLogger<GetPlatformClinicDetailQueryHandler>.Instance);
     }
 

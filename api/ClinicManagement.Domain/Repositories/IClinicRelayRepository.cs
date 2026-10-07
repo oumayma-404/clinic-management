@@ -10,6 +10,13 @@ public interface IClinicRelayRepository
     /// <summary>The clinic's newest row, retired included — what « Paramètres » shows after a retirement.</summary>
     Task<ClinicRelay?> GetLatestForClinicAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <see cref="GetLatestForClinicAsync"/> for a page of cabinets, in one read — the vendor console's column
+    /// (AC-9.1). A cabinet with no row is absent from the answer.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, ClinicRelay>> GetLatestForClinicsAsync(
+        IEnumerable<Guid> clinicIds, CancellationToken cancellationToken = default);
+
     /// <summary>By id, ignoring the clinic filter: the relay's own token carries no session clinic.</summary>
     Task<ClinicRelay?> GetByIdAcrossClinicsAsync(Guid relayId, CancellationToken cancellationToken = default);
 

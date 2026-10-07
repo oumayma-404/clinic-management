@@ -30,6 +30,28 @@ public class ClinicRelayRepository : IClinicRelayRepository
             .ThenByDescending(r => r.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyDictionary<Guid, ClinicRelay>> GetLatestForClinicsAsync(
+        IEnumerable<Guid> clinicIds, CancellationToken cancellationToken = default)
+    {
+        var ids = clinicIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, ClinicRelay>();
+        }
+
+        // A cabinet holds a handful of rows (one per setup attempt), so the choice of the newest is made here rather
+        // than in SQL — in the same order GetLatestForClinicAsync uses, so the console and the card name the same PC.
+        var rows = await _context.ClinicRelays
+            .Where(r => ids.Contains(r.ClinicId))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(r => r.ClinicId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.Id).First());
+    }
+
     public Task<ClinicRelay?> GetByIdAcrossClinicsAsync(Guid relayId, CancellationToken cancellationToken = default) =>
         _context.ClinicRelays.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == relayId, cancellationToken);
 
