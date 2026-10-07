@@ -1,6 +1,6 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-07 · **Overall:** ~10–12 % · **Part 1 (La copie):** ~35 %
+**Date:** 2026-10-07 (updated after session 2) · **Overall:** ~15 % · **Part 1 (La copie):** ~48 %
 
 ## Where the work is
 
@@ -8,8 +8,8 @@
 |---|---|
 | Worktree | `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy` |
 | Branch | `feature/clinic-pc-copy` (from `b618a1d8`, `feature/security-remediation`'s HEAD) |
-| Commits | `ee88ed66` docs only (spec, challenged plan, blueprint) |
-| Code | **all uncommitted** in the worktree (`git status` lists it) |
+| Commits | `ee88ed66` docs · **`11470cfe`** kind, pairing, change log, cloud feed, standby gate, `pair-relay` verb, migration (local, **not pushed**) |
+| Code | committed; tree clean except this file |
 | Plan | `features/clinic-pc-copy/plan.md` (challenged, 11 fixes applied) |
 | Pointers to the codebase | `features/clinic-pc-copy/stories/context.md` |
 | Progress log | `features/clinic-pc-copy/stories/progress.md` |
@@ -19,12 +19,12 @@ Start the new session **in the worktree** (`EnterWorktree` with that path, or `c
 
 ## State of the build
 
-- ✅ Infrastructure compiled clean (0 new warnings) **before** the Application/API relay code was added.
-- ❌ Application, API and UnitTests **not compiled since**. First job: build and fix.
-- Baseline before any change: **4 935 pass / 6 skip / 0 fail**.
+- ✅ Whole solution builds, 0 new warnings. Full suite **5 049 pass / 6 skip / 0 fail** (baseline 4 935).
+- ✅ Web: `check:responsive` (77) + `tsc` + `npm run build` green (worktree has its own `node_modules` now).
+- ✅ `verify-schema` before/after `AddClinicRelay` on a throwaway DB: only the 7 relay lines moved DRIFT → ok.
 - Gate: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/bo/` (cold build ~6 min, tests ~2 min, never `--filter`).
 
-## Done (uncommitted)
+## Done (committed in `11470cfe`; session 2 added the standby gate, the guards, the tests, the migration, `pair-relay` + `RelayCredentialStore`)
 
 | Area | Files | What |
 |---|---|---|
@@ -58,24 +58,15 @@ Start the new session **in the worktree** (`EnterWorktree` with that path, or `c
 
 ## Next steps, in order
 
-1. **Compile** Application + API + tests; fix errors.
-2. **Standby gate (Part 1 « Kind »)**: `API/Middleware/RelayLeaseGateMiddleware.cs` — on `MirrorsCloudClinic`, non-GET `/api` → **423 `{error, code: "relay_standby"}`** except endpoints marked allowed (sign-in: `auth/login`, `refresh`, `logout`, `recovery`, `step-up`; future `relay-local/*`). Use an attribute + derived coverage test, `AllowsWithoutSubscription`'s shape. Place it **before** `SubscriptionGateMiddleware` (AC-4.3). Mirror `relay_standby` and the other relay codes in `web/lib/api/client.ts` `ApiErrorCode`.
-3. **Run the full suite** and fix the derived guards this work will trip (expected):
-   - `ControllerAuthorizationCoverageTests` — 2 new anonymous: `RelayPeer.Pair`, `RelayPeer.Token`;
-   - `ScopedTokenCoverageTests` — new scope `clinic-relay`;
-   - `SubscriptionExemptionCoverageTests` — 4 new `[AllowsWithoutSubscription]` (pair, token, heartbeat, retire);
-   - `AuthorizationPoliciesTests` — new `ClinicRelayPeer`;
-   - `RealtimeResourceResolverTests` — `Relay` excluded;
-   - `ClinicArchiveScopeTests`, `TenantScopeFilterTests`, `AdminSurfaceCoverageTests`, kind-pinning tests (`KeyRingProtectionTests`, `TransportAssuranceTests`, `DataResidencyAssuranceTests`, `SelfRegistrationGateTests`…).
-4. **New unit tests**: relay scope coverage (every model table is in the plan or `Excluded`, no `Unplaced`; every FK from a relay table points into the plan or is nullable), capture (add/modify/delete, child→clinic, owned → owner, no cursor ⇒ nothing), `ClinicRelayHealth` table, pairing (expired code, double setup, abandoned release), envelope round trip, raw-write guard (`Execute*` on a relay-scoped table — today only `NotificationRepository.PurgeTerminalOlderThanAsync` hits one: decide mitigation).
-5. **Migration** `AddClinicRelay` (3 tables) — strip scaffolded `xmin` columns; `verify-schema` before/after.
-6. **Commit** « Kind and pairing » + « Copy (cloud side) ».
-7. **PC side** (still Part 1 « Copy »):
-   - console verb `pair-relay --code-file <f> --cloud <url>`: RSA key pair, cert fingerprint from `.local`, LAN addresses, `POST /api/relay/pair`, store relay id + secret + private key protected (IDataProtector, purpose `ClinicManagement.Relay.Credentials.v1`) in `.local/relay.json`, write `Deployment:Profile=ClinicRelay`;
-   - `API/BackgroundJobs/RelayFeedJob.cs` (`BackgroundService`, registered only on `MirrorsCloudClinic`, declares `UseClinic`/`RunAs`): token → seed via `/snapshot` + `ReplaceAsync` → pull `/changes` (`after`, `fingerprint`) → `ApplyBatchAsync`; stop and alert on `WentBack` (D12); reseed on `ReseedRequired` or apply failure; heartbeat every 10 s; self-update flag on `UpdateNeeded`;
-   - files: `IRelayBlobIndex.ListKeysAsync` on the PC's own DB → download missing via `/api/relay/blob?key=` → write at the **same storage key** on local disk (needs a writer that bypasses `IFileStorage.UploadAsync`'s key composition — check `LocalDiskFileStorage`'s key→path), temp file then move (resumable);
-   - hourly digest compare (`/digest` vs local `DigestAsync`) → per-table `ReplaceAsync`, never toward a changed epoch.
-8. Then « Watching » (`StaffNotification.TargetRole`, watch job, web card, console column), « Lifecycle » (lost, erase, uninstall), « One click » (installer `/RELAY /PAIRFILE=`, bridge `installRelay`, offer, CI `relay-package.yml`, promotion verbs) — as listed in `plan.md` Part 1.
+1. **`RelayFeedJob`** (`API/BackgroundJobs/`, `BackgroundService`, registered only where `MirrorsCloudClinic`; `RunAs` + `UseClinic(creds.ClinicId)`): load `RelayCredentialStore` (none → idle, log once) → `POST relay/token` with `X-Relay-Secret` → seed via `GET relay/snapshot` + `ReplaceAsync` → loop `GET relay/changes?after=&fingerprint=` → `ApplyBatchAsync`; `WentBack` → stop + alert (D12); `ReseedRequired` or apply failure → reseed; heartbeat every 10 s (`POST relay/heartbeat`), `UpdateNeeded` → flag. The ack carries `HighWater`: pull when behind (deviation 2). Send `X-Relay-Build` from `IRelayBuildInfo`.
+   - The local apply cursor (last applied seq + head fingerprint + epoch) must persist on the PC — decide where (a `.local/relay-state.json` beside the credentials is simplest; not a DB table, which the snapshot would overwrite).
+   - The TOTP unwrap: `RelayInboundUnwrap` = open with `creds.PrivateKey` (`RelaySecretEnvelope.Open`) → re-protect with this install's `UserSecretProtector`.
+2. **Files**: `IRelayBlobIndex.ListKeysAsync` on the PC's DB → `GET relay/blob?key=` → write at the **same key** on local disk (a writer that bypasses `UploadAsync`'s key composition — check `LocalDiskFileStorage` key→path), temp then move.
+3. **Hourly digest** (`GET relay/digest` vs local `DigestAsync`) → per-table `ReplaceAsync`, never toward a changed epoch; report unrepaired tables in the heartbeat's `MismatchTables`.
+4. Unit tests for the job's decision logic (extract it as a pure state machine so it is testable without HTTP/DB); the end-to-end proof is CI `relay-copy` (two instances, per-table hash equal) — plan Part 1 « Check ».
+5. Then « Watching » (`StaffNotification.TargetRole`, watch job, web card « Paramètres → PC de secours », console column, vendor alert email — message the `server-loss-recovery` session first), « Lifecycle » (users + TOTP re-wrap, retire → PC read-only, lost, erase, uninstall), « One click » (installer `/RELAY /PAIRFILE=` writing `Deployment:Profile=ClinicRelay` into `appsettings.Install.json` **then** running `pair-relay`, bridge `installRelay`, offer, CI `relay-package.yml`, promotion verbs).
+
+⚠️ Decision (deviation 12, add to progress.md): `pair-relay` does **not** write `Deployment:Profile`; it refuses unless the profile is already `ClinicRelay`. The installer's relay role writes it into the layer it owns.
 
 ## Gotchas met this session
 

@@ -68,6 +68,7 @@ _(rows for later bullets are added before their first edit)_
 | 9 | per-side columns = TOTP secret | + `User.LastLoginAt`, `FailedLoginAttempts`, `LockoutEnd` | a sign-in on the PC is allowed, so these legitimately differ; D18 merges them at the return |
 | 10 | raw-write guard: « decide mitigation » | `NotificationRepository` purge reviewed, repaired by the hourly digest | terminal reminders past 90 days; a late delete of history costs nothing |
 | 11 | — | releasing an expired/abandoned setup is saved before the new row is inserted | in one save EF may send the INSERT first and the filtered unique index refuses it |
+| 12 | `pair-relay` writes `Deployment:Profile=ClinicRelay` | it refuses unless the profile already is `ClinicRelay`; the installer's relay role writes it into `appsettings.Install.json` | a verb that rewrote the kind would turn a LAN server into a copy of another clinic with one mistyped command; the installer owns that layer |
 
 ## Verification log
 
