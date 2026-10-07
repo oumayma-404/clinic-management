@@ -1399,6 +1399,20 @@ try
         RecurringJob.RemoveIfExists("review-messaging-allowances");
     }
 
+    // The PC de secours watch (clinic-pc-copy AC-2.2, EC-9, EC-10) — minutely, on the cloud only: it reads the
+    // heartbeats the cloud receives and keeps each cabinet's admin bell rows in step. A PC has no heartbeats to read.
+    if (profile.PublishesChangeFeed)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.RelayWatchJob>(
+            "watch-relays",
+            job => job.WatchRelays(),
+            Cron.Minutely());
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("watch-relays");
+    }
+
     // Google→App calendar sync does not exist any more, on a schedule or otherwise. App→Google runs inline on
     // appointment create/update; the pull direction was retired wholesale. Defensively drop any stale recurring
     // registration a previous deploy may have left in Hangfire storage so it can't fire a deleted job type.

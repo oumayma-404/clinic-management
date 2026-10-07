@@ -22,7 +22,8 @@ public sealed record RelayHeartbeatRequest(
     string? LanAddresses,
     IReadOnlyList<string>? MismatchTables,
     string? LastError,
-    string? CertificateFingerprint);
+    string? CertificateFingerprint,
+    bool CopyStopped = false);
 
 public sealed record RelayHeartbeatAck(
     DateTime CloudTimeUtc,

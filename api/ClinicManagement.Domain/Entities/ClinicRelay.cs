@@ -87,6 +87,12 @@ public class ClinicRelay : AggregateRoot<Guid>
     public DateTime? MismatchSinceUtc { get; private set; }
     public string? MismatchTables { get; private set; }
 
+    /// <summary>
+    /// Set while the PC has stopped following because the cloud went back in time (D12, AC-9.4). Its copy is then
+    /// newer than the cloud, so « caught up » would read as « Prêt » — this is what keeps it from saying so.
+    /// </summary>
+    public DateTime? CopyStoppedSinceUtc { get; private set; }
+
     /// <summary>The PC is applying an update (FR-2 « Mise à jour »).</summary>
     public bool IsUpdating { get; private set; }
 
@@ -198,6 +204,7 @@ public class ClinicRelay : AggregateRoot<Guid>
         LastError = Cap(heartbeat.LastError, MaxErrorLength);
         Build = Cap(heartbeat.Build, MaxBuildLength) ?? Build;
         ClockSkewSeconds = heartbeat.PcClockUtc is { } pc ? (int)Math.Round((pc - nowUtc).TotalSeconds) : null;
+        CopyStoppedSinceUtc = heartbeat.CopyStopped ? CopyStoppedSinceUtc ?? nowUtc : null;
 
         if (!string.IsNullOrWhiteSpace(heartbeat.LanAddresses))
         {
@@ -328,4 +335,5 @@ public sealed record RelayHeartbeat(
     string? LanAddresses,
     IReadOnlyList<string>? MismatchTables,
     string? LastError,
-    string? CertificateFingerprint = null);
+    string? CertificateFingerprint = null,
+    bool CopyStopped = false);

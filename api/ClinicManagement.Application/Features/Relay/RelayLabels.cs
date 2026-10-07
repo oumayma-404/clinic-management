@@ -23,6 +23,7 @@ public static class RelayLabels
         ClinicRelayState.DiskNearlyFull => "disk-nearly-full",
         ClinicRelayState.Mismatch => "mismatch",
         ClinicRelayState.Retired => "retired",
+        ClinicRelayState.Stopped => "stopped",
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
     };
 
@@ -44,6 +45,8 @@ public static class RelayLabels
             ClinicRelayState.Mismatch => "La copie ne correspond pas au cloud — réparation en cours",
             ClinicRelayState.Retired =>
                 $"Copie arrêtée le {ClinicClock.ToClinicLocal(reading.Since ?? nowUtc).ToString("dd/MM", French)}",
+            ClinicRelayState.Stopped =>
+                $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)} : le cloud est revenu à un état antérieur, {label} garde les données les plus récentes",
             _ => throw new ArgumentOutOfRangeException(nameof(reading), reading.State, null),
         };
     }
@@ -62,7 +65,8 @@ public static class RelayLabels
             : $"Copie de {ClinicClock.ToClinicLocal(since.Value).ToString("HH:mm", French)}";
     }
 
-    private static string Moment(DateTime? since, DateTime nowUtc)
+    /// <summary>« 08:12 » today, « 06/10 à 08:12 » otherwise — the bell says the same as the card.</summary>
+    public static string Moment(DateTime? since, DateTime nowUtc)
     {
         if (since is null)
         {

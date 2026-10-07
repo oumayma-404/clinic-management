@@ -19,7 +19,7 @@
 |------|--------|--------|--------|
 | 1 · La copie | Kind and pairing | done — standby gate, guards, tests, migration verified (installer role still in « One click ») | see git log |
 | 1 | Copy (snapshot, capture, feed, apply, files) | done — cloud side + PC agent (`RelayFollower` / `RelayFeedJob`), rehearsed end to end | see git log |
-| 1 | Watching (heartbeat, health, card, bell, digest, console) | in-progress — heartbeat, health, hourly check and the settings card done; admin bell, console column, vendor emails left | see git log |
+| 1 | Watching (heartbeat, health, card, bell, digest, console) | in-progress — heartbeat, health, hourly check, settings card and admin bell done; console column, vendor emails left | see git log |
 | 1 | Lifecycle (users + TOTP re-wrap, retire, lost, erase) | pending | |
 | 1 | One click and lockstep (installer, bridge, offer, CI, self-update, promotion) | pending | |
 | 2 · La relève | Lease · device reports · integrity · return · screens | pending | |
@@ -45,6 +45,17 @@
 | 6 | `RealtimeResourceResolver.ExcludedAreas` | mirrored key set (C# ↔ `clinic-hub.ts`) | `RealtimeResourceResolverTests` both directions | must change — `Relay` excluded |
 | 7 | `ControllerAuthorizationCoverageTests` / `ScopedTokenCoverageTests` / `SystemWideCallerCoverageTests` | derived guards | new anonymous pair/token routes, new scope, new jobs | must change — allow-list rows with reasons, scope declared |
 | 8 | Migration (relays, codes, changes, cursors, `TargetRole`) | schema | `verify-schema`, model snapshot | must re-test — strip `xmin`, `verify-schema` before/after |
+
+### Part 1 · bullet « Watching » — admin bell (AC-2.2, EC-9, EC-10)
+
+| # | Touching | What it is | Other consumers | Verdict |
+|---|----------|------------|-----------------|---------|
+| 1 | `StaffNotificationRepository` feed + unread predicates | who sees a bell row | list, unread count, mark-all, dismiss-all, pending reviews (5 handlers) | must change — one `AddressedTo` for both, role read from the account |
+| 2 | `NotificationCategory` / `NotificationTargetKind` | appended int enums | `StaffNotificationRules` (throws on unclassified), bell icon/tone maps, header deep link | must change — `RelayAttention` in-app only, icon + tone + link |
+| 3 | `INotificationGenerator` / `IStaffNotificationRepository` | interfaces | decorator, two hand-written test fakes | must change — pass-through + throwing stubs |
+| 4 | `ClinicRelayHealth` | the one FR-2 predicate | card, bell, console (later) | must change — `Stopped`; lapsed unused code reads `None` |
+| 5 | `RelayHeartbeat` / request records | wire + domain record | follower, heartbeat command | unaffected — `CopyStopped` appended with a default |
+| 6 | Migration `AddRelayBellAlerts` | 3 nullable columns | `verify-schema`, snapshot | must re-test — no `xmin`, no default, applied to both scratch DBs |
 
 _(rows for later bullets are added before their first edit)_
 
@@ -77,6 +88,10 @@ _(rows for later bullets are added before their first edit)_
 | 18 | pairing opens the change log before its save | after the save, and again (idempotent) before every snapshot | a refused pairing left the clinic logging every change for a PC that did not exist |
 | 19 | D12 checked on pulls and snapshots | also on every heartbeat: an answer behind the copy or from another history stops it at once | a restored cloud may not overtake the PC for days, so the pull never ran and the copy was not stopped |
 | 20 | report every LAN address | only addresses of adapters that reach a gateway (`RelayHostFacts.PreferNetworkAddresses`), all of them when none does | a Hyper-V/WSL switch (172.23.128.1) came first on the dev PC — an address no device in the cabinet can reach, and the one Part 3 would tell devices to switch to |
+| 21 | admin-only bell = `TargetRole` | `TargetRole` checked against the viewer's **account** in one `AddressedTo` read by the list and the unread count; one row per `RelayAlert`, added when a problem starts, restated when reworded, removed when it ends, by a minutely `RelayWatchJob` on the cloud | a role from the token goes stale on demotion; a row left after the PC is fine is a false claim |
+| 22 | — | a new state **`Stopped`** (`ClinicRelay.CopyStoppedSinceUtc`, from a `CopyStopped` heartbeat flag) and its bell row, at any hour | a copy stopped by a cloud that went back holds more than the cloud, so it read « Prêt » on the card while copying nothing (AC-9.4); a flag, because the cloud must not recover the stop from the French reason |
+| 23 | « during opening hours » | off/late told after 15 min **counted from the opening** (or the end of the break); disk/mismatch at once; a row already shown stays after closing and may change kind without a new wait; stopped, abandoned and wrong clock at any hour; a cabinet with no readable hours is watched Mon–Sat 08:00–18:00 | a row every evening teaches admins to ignore it; « no hours » must not mean « never told » |
+| 24 | — | an unused pairing code that lapsed reads « Aucun PC de secours », not « Copie en cours (0 %) » | found while writing the watch's per-clinic choice |
 
 ## Verification log
 
@@ -87,6 +102,7 @@ _(rows for later bullets are added before their first edit)_
 | 2026-10-07 | full unit suite after `RelayFeedJob` | 5 094 pass · 6 skip · 0 fail; wiring guard red-proofed (gate swapped → red, restored) |
 | 2026-10-07 | **end-to-end rehearsal** — scratch cloud (`clinic_relay_cloud`, copy of dev) + scratch PC (`clinic_relay_pc`), real pairing (login + step-up + code), two visible Chrome windows | first copy in ~20 s: patients 2 231 · RDV 984 · factures 800 · fiches 1 423 · devis 1 421 · comptes 11 identical, 41/41 files, hourly check 0 differing tables, PC holds 1 cabinet of 8; PC sign-in with the re-sealed TOTP works; a patient created on the cloud reached the PC DB in 4 s; a save on the PC → 423 with the sentence, nothing written; cloud cursor rewound 4 → 1 → PC stopped in 7 s, position and data kept, reason reported to the cloud. Found 3 defects (deviations 17–19), all fixed and re-run |
 | 2026-10-07 | « Paramètres → PC de secours » card, live in the cloud window | « Copie à jour il y a 2 s », 43/43 files, address 192.168.1.35 (after deviation 20); no sideways scroll at 320/390/820/1180/1440; the confirm names the PC; « Annuler » retires nothing (relay still Ready). Gate: unit suite 5 103 pass · 6 skip · 0 fail; `check:responsive` 77/77, `tsc`, `build` green |
+| 2026-10-07 | admin bell (AC-2.2, EC-9, EC-10, AC-9.4) | unit suite 5 133 pass · 6 skip · 0 fail; audience SQL test red-proofed (role clause removed → both cases red, restored); `check:responsive` 77/77, `tsc`, `build` green. Live, scratch stack: PC stopped by a rewound cloud in 12 s → admin row « Copie du PC de secours arrêtée » (TargetRole admin) → bell click lands on `/settings#pc-de-secours` with the card scrolled into view and the stopped sentence, at 1440×730 and 390×844, no sideways scroll; stop cleared → PC caught up 13/13 and the row left the bell in 39 s; this cabinet's bell rows identical on cloud and PC (2 498). Not exercised: a secretary's bell (no scratch secretary session — covered by the SQL test), off/late after 15 min (it was 22:00, outside hours — covered by the rules tests). Test-setup slip, not a product defect: rewinding only the cursor (not its rows) made the cloud reuse a change number (PK violation) — a real restore rewinds both |
 
 ## Learnings
 

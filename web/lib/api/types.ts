@@ -117,7 +117,7 @@ export interface NotificationDto {
   /** Effective feed time (ISO) — creation time for immediate categories, due time for reminders. */
   createdAt: string;
   isRead: boolean;
-  /** Appointment | StockItem | Recall | BackupSettings | Subscription | MessagingAllowance | Security | Patient */
+  /** Appointment | StockItem | Recall | BackupSettings | Subscription | MessagingAllowance | Security | Patient | RelaySettings */
   targetKind: string;
   appointmentId?: string | null;
   stockItemId?: string | null;

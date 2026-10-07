@@ -17,6 +17,9 @@ public enum ClinicRelayState
     DiskNearlyFull = 8,
     Mismatch = 9,
     Retired = 10,
+
+    /// <summary>The PC stopped following a cloud that went back in time (D12, AC-9.4) — never repaired toward.</summary>
+    Stopped = 11,
 }
 
 /// <summary>The state plus the instant its sentence names (« depuis 08:12 », « Copie de 14:32 »).</summary>
@@ -24,7 +27,8 @@ public sealed record ClinicRelayHealthReading(ClinicRelayState State, DateTime? 
 {
     /// <summary>Whether this is a problem admins are told about (AC-2.2, AC-2.3).</summary>
     public bool IsProblem => State is ClinicRelayState.Late or ClinicRelayState.Off or ClinicRelayState.DiskNearlyFull
-        or ClinicRelayState.Mismatch or ClinicRelayState.InstallFailed or ClinicRelayState.Abandoned;
+        or ClinicRelayState.Mismatch or ClinicRelayState.InstallFailed or ClinicRelayState.Abandoned
+        or ClinicRelayState.Stopped;
 }
 
 /// <summary>The one FR-2 predicate, read by « Paramètres », the bell and the vendor console alike.</summary>
@@ -58,6 +62,12 @@ public static class ClinicRelayHealth
             return new(ClinicRelayState.Abandoned, relay.LastSeenAtUtc ?? relay.PairedAtUtc, null);
         }
 
+        // A code nobody typed in before it lapsed: no PC was ever installed, so there is nothing to call « en cours ».
+        if (relay.Status == ClinicRelayStatus.Pairing && !relay.OccupiesTheClinic(nowUtc))
+        {
+            return new(ClinicRelayState.None, null, null);
+        }
+
         if (relay.Status is ClinicRelayStatus.Pairing or ClinicRelayStatus.Seeding)
         {
             return relay.LastError is not null
@@ -69,6 +79,12 @@ public static class ClinicRelayHealth
         if (nowUtc - lastSeen > SilentAfter)
         {
             return new(ClinicRelayState.Off, lastSeen, null);
+        }
+
+        // Before « caught up » is asked: a stopped copy holds MORE than the cloud, so it would read as « Prêt ».
+        if (relay.CopyStoppedSinceUtc is { } stopped)
+        {
+            return new(ClinicRelayState.Stopped, stopped, null);
         }
 
         if (relay.IsUpdating)

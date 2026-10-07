@@ -39,7 +39,7 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
     {
         var reading = ClinicRelayHealth.Read(relay, nowUtc);
         return new RelayStatusDto(
-            relay is not null,
+            reading.State != ClinicRelayState.None,
             relay?.Id,
             relay?.Label,
             RelayLabels.Key(reading.State),

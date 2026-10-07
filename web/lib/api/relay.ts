@@ -37,7 +37,12 @@ export type RelayStateKey =
   | 'updating'
   | 'disk-nearly-full'
   | 'mismatch'
-  | 'retired';
+  | 'retired'
+  /** The cloud went back to an older state; the PC stopped copying to lose nothing (AC-9.4). */
+  | 'stopped';
+
+/** The card's anchor on « Paramètres », shared with the bell's deep link so the two cannot drift. */
+export const RELAY_CARD_ID = "pc-de-secours";
 
 export const relayApi = {
   /** ⚠️ A 404 means this deployment has no PC de secours at all; any other failure is a retryable read (AC-2.4). */

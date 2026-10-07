@@ -132,6 +132,34 @@ public class ClinicRelayHealthTests
         Assert.Equal(ClinicRelayState.InstallFailed, StateOf(relay, T0.AddMinutes(2)));
     }
 
+    // AC-9.4: a copy stopped by a cloud that went back holds MORE than the cloud, so « caught up » would say « Prêt ».
+    [Fact]
+    public void A_Copy_Stopped_By_A_Cloud_That_Went_Back_Is_Stopped_Not_Ready()
+    {
+        var now = T0.AddMinutes(10);
+        var relay = Active(now.AddSeconds(-20), applied: 40, highWater: 10,
+            beat: Beat(applied: 40) with { CopyStopped = true });
+        relay.RecordHeartbeat(Beat(applied: 40) with { CopyStopped = true }, 10, now.AddSeconds(-10));
+
+        var reading = ClinicRelayHealth.Read(relay, now);
+        Assert.Equal(ClinicRelayState.Stopped, reading.State);
+        Assert.Equal(now.AddSeconds(-20), reading.Since);
+        Assert.True(reading.IsProblem);
+
+        relay.RecordHeartbeat(Beat(applied: 40), 40, now);
+        Assert.Equal(ClinicRelayState.Ready, StateOf(relay, now));
+    }
+
+    // A lapsed, never-used code read « Copie en cours (0 %) » on the card for ever.
+    [Fact]
+    public void A_Code_That_Lapsed_Unused_Is_No_Pc_At_All()
+    {
+        var (relay, _) = ClinicRelay.BeginPairing(ClinicId, "PC", "local|admin", T0);
+
+        Assert.Equal(ClinicRelayState.Installing, StateOf(relay, T0.AddMinutes(1)));
+        Assert.Equal(ClinicRelayState.None, StateOf(relay, T0 + ClinicRelay.PairingCodeLifetime));
+    }
+
     [Fact]
     public void A_Setup_Silent_For_A_Day_Is_Abandoned()
     {

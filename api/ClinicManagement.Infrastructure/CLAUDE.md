@@ -586,6 +586,12 @@ no consent flag and no audit of which patient was sent.
   encrypted) and `RelayFollowerStateStore` (`.local/relay-state.json` — ⚠️ never in the DB, which a re-seed replaces;
   an unreadable file reads as stopped). Small files go through `AtomicFile`, which retries the move (Windows refuses
   replacing a just-written file). Driven by the API's `RelayFeedJob`. Reasoning: `features/clinic-pc-copy/`.
+  ⚠️ A stopped copy reports **`CopyStopped`** on every heartbeat — a flag, never the French reason — so the cloud
+  reads it as « Copie arrêtée » instead of « Prêt » (its copy holds *more* than the cloud).
+- **Watching (cloud)**: the API's `RelayWatchJob` (minutely, `PublishesChangeFeed` only) syncs each cabinet's admin
+  bell rows to `Application/Features/Relay/RelayAlertRules`. ⚠️ `StaffNotificationRepository.AddressedTo` is the one
+  audience clause for the list **and** the unread count, and `TargetRole` is checked against the viewer's account row,
+  never the token.
 
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live

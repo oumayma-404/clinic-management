@@ -153,6 +153,9 @@ public sealed class RelayFollowerTests : IDisposable
         await TickAsync();
         Assert.Single(_cloud.ChangesAsked);
         Assert.Equal(RelayFeedDecisions.WentBackReason, _cloud.Reports.Last().LastError);
+        // A flag, not the sentence: the cloud must never recover the stop by matching French prose.
+        Assert.True(_cloud.Reports.Last().CopyStopped);
+        Assert.False(_cloud.Reports.First().CopyStopped);
     }
 
     [Fact]

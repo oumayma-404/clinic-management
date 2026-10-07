@@ -143,7 +143,8 @@ public sealed class RelayFollower
             string.Join(",", host.LanAddresses),
             state.MismatchTables,
             state.StoppedReason ?? state.LastError,
-            host.CertificateFingerprint);
+            host.CertificateFingerprint,
+            CopyStopped: state.StoppedReason is not null);
     }
 
     private async Task<RelayFollowerState> CatchUpAsync(

@@ -1,10 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
-  Archive, CheckCircle2, CircleSlash, Clock, CloudDownload, HardDrive, PowerOff, RefreshCw, Server, TriangleAlert,
-  XCircle, type LucideIcon,
+  Archive, CheckCircle2, CircleSlash, Clock, CloudDownload, HardDrive, OctagonPause, PowerOff, RefreshCw, Server,
+  TriangleAlert, XCircle, type LucideIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -16,7 +16,7 @@ import {
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { STATUS_TONE_CLASS, type StatusTone } from "@/components/ui/status-tone"
 import { ApiError } from "@/lib/api/client"
-import { relayApi, type RelayStateKey, type RelayStatusDto } from "@/lib/api/relay"
+import { RELAY_CARD_ID, relayApi, type RelayStateKey, type RelayStatusDto } from "@/lib/api/relay"
 import { showErrorToast } from "@/lib/errors"
 import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -34,6 +34,7 @@ const STATE_LOOK: Record<RelayStateKey, { icon: LucideIcon; tone: StatusTone }> 
   "disk-nearly-full": { icon: HardDrive, tone: "active" },
   mismatch: { icon: TriangleAlert, tone: "negative" },
   retired: { icon: Archive, tone: "neutral" },
+  stopped: { icon: OctagonPause, tone: "negative" },
 }
 
 /** The sentence ages by the second (« il y a 3 s »), so the card re-reads while it is on screen. */
@@ -81,6 +82,15 @@ export function RelayCard() {
     return () => window.clearInterval(timer)
   }, [read])
 
+  // A bell row opens « /settings#pc-de-secours », but the page mounts this card only after its own read, so the
+  // browser's hash scroll has already happened by then — scroll once ourselves when the card first has its content.
+  const scrolled = useRef(false)
+  useEffect(() => {
+    if (scrolled.current || load.kind === "loading" || window.location.hash !== `#${RELAY_CARD_ID}`) return
+    scrolled.current = true
+    document.getElementById(RELAY_CARD_ID)?.scrollIntoView({ block: "start" })
+  }, [load.kind])
+
   const retire = async () => {
     setRetiring(true)
     try {
@@ -100,7 +110,8 @@ export function RelayCard() {
   }
 
   return (
-    <Card>
+    // The bell's « PC de secours » rows land here (`RELAY_CARD_ID`).
+    <Card id={RELAY_CARD_ID} className="scroll-mt-4">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center gap-2.5">
           <span
