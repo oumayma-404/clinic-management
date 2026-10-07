@@ -1,4 +1,4 @@
-import { apiGet, apiGetBlob, apiPost, apiPostFormData, apiPut, apiPutFormData } from './client';
+import { apiDelete, apiGet, apiGetBlob, apiPost, apiPostFormData, apiPostFormDataBlob, apiPut, apiPutFormData } from './client';
 import type { WorkingDay } from '@/lib/working-hours';
 
 export interface DoctorDto {
@@ -276,5 +276,50 @@ export const clinicsApi = {
   },
 
   getLogo: async (): Promise<Blob> => apiGetBlob('/clinics/logo'),
+
+  getLetterhead: (): Promise<ClinicLetterheadDto> => apiGet<ClinicLetterheadDto>('/clinics/letterhead'),
+
+  /** One band of the current letterhead. `revision` only busts the browser cache when the bands change. */
+  getLetterheadBand: (band: LetterheadBand, revision?: string | null): Promise<Blob> =>
+    apiGetBlob(`/clinics/letterhead/${band}`, revision ? { r: revision } : undefined),
+
+  saveLetterhead: (bands: LetterheadBands, version: number): Promise<ClinicLetterheadDto> =>
+    apiPutFormData<ClinicLetterheadDto>('/clinics/letterhead', letterheadForm(bands, version)),
+
+  removeLetterhead: (version: number): Promise<ClinicLetterheadDto> =>
+    apiDelete<ClinicLetterheadDto>(`/clinics/letterhead?version=${version}`),
+
+  /** A sample ordonnance printed on bands that are not saved yet — the server's own renderer. */
+  previewLetterhead: (bands: LetterheadBands): Promise<Blob> =>
+    apiPostFormDataBlob('/clinics/letterhead/preview', letterheadForm(bands, 0)),
 };
+
+export type LetterheadBand = 'header' | 'footer' | 'body';
+
+/** The cabinet's letterhead: whether it has one, and the clinic row's version to round-trip on a change. */
+export interface ClinicLetterheadDto {
+  hasHeader: boolean;
+  hasFooter: boolean;
+  /** « Page entière »: the strip between the bands is drawn behind the text. */
+  hasBody: boolean;
+  revision?: string | null;
+  version: number;
+}
+
+/** The PNG bands cut from the cabinet's paper; `footer` is null when it has none, `body` outside « Page entière ». */
+export interface LetterheadBands {
+  header: Blob;
+  footer: Blob | null;
+  body: Blob | null;
+}
+
+// The server keys a file's format on its extension, so each band is named `.png`.
+function letterheadForm(bands: LetterheadBands, version: number): FormData {
+  const form = new FormData();
+  form.append('header', bands.header, 'entete.png');
+  if (bands.footer) form.append('footer', bands.footer, 'pied-de-page.png');
+  if (bands.body) form.append('body', bands.body, 'page.png');
+  form.append('version', String(version));
+  return form;
+}
 

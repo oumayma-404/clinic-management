@@ -593,6 +593,11 @@ function initialState(record?: DentalRecordDto | null): SessionState {
   return { acts: [first], focusKey: first.key, nextKey: 1 }
 }
 
+/** A stored fiche's acts exactly as the store would load them — what `fiche-merge.ts` compares the screen with. */
+export function sessionActsOf(record?: DentalRecordDto | null): SessionAct[] {
+  return initialState(record).acts
+}
+
 const sorted = (teeth: number[]) => Array.from(new Set(teeth)).sort((a, b) => a - b)
 
 const mapAct = (state: SessionState, key: string, fn: (act: SessionAct) => SessionAct): SessionState => ({

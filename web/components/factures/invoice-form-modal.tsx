@@ -19,7 +19,7 @@ import { Check, ChevronsUpDown, Trash2, Plus, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi, type InvoiceLineInput, type CreateInvoiceRequest } from "@/lib/api/invoices"
 import { patientsApi } from "@/lib/api/patients"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto, PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, quoteFr } from "@/lib/format"
@@ -110,15 +110,11 @@ export function InvoiceFormModal({
   onSuccess,
 }: InvoiceFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
-  const [procedures, setProcedures] = useState<ProcedureTypeDto[]>([])
   /*
-   * A failed catalogue read must say so rather than render as an empty picker (the repo's standing rule, and
-   * `document-editor-content`'s `CatalogLoadFailed`). It matters more here than it did when this picker offered
-   * the CNAM nomenclature: the clinic's own acts are now the ONLY source, so « aucun acte trouvé » on a network
-   * blip reads as « ce cabinet n'a aucun tarif », and the answer to that is to retype a price from memory.
+   * The shared act catalogue. A failed read must say so rather than render as an empty picker: the clinic's own
+   * acts are the ONLY source, so « aucun acte trouvé » on a network blip reads as « ce cabinet n'a aucun tarif ».
    */
-  const [proceduresFailed, setProceduresFailed] = useState(false)
-  const [proceduresReload, setProceduresReload] = useState(0)
+  const { items: procedures, failed: proceduresFailed, retry: retryProcedures } = useProcedureTypes()
   /** Same rule for the patient list — « aucun patient » must never be how a network blip renders. */
   const [patientsFailed, setPatientsFailed] = useState(false)
   const [patientsReload, setPatientsReload] = useState(0)
@@ -159,40 +155,14 @@ export function InvoiceFormModal({
       : ""
 
   /*
-   * The clinic's own act catalogue, feeding the per-line picker. Its own effect, NOT the seeding one below:
-   * the retry bumps `proceduresReload`, and re-running the seed would discard every line the user has typed
-   * to reload a list.
-   */
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    procedureTypesApi
-      .list()
-      .then((list) => {
-        if (cancelled) return
-        setProcedures(list)
-        setProceduresFailed(false)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setProcedures([])
-        setProceduresFailed(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [open, proceduresReload])
-
-  /*
    * The patient list, in an effect **of its own** so « Réessayer » can re-run it.
    *
    * ⚠️ The failure is recorded, exactly like `proceduresFailed` above: `.catch(() => setPatients([]))` printed
    * « Aucun patient trouvé » on the trigger *and* inside the picker — in a clinic with three hundred files, on the
    * form that has to name one before a note d'honoraires can exist.
    *
-   * Split out rather than given a reload token in place, for the reason the procedures effect already documents:
-   * this used to sit inside the prefill effect, and adding a token to *that* one's deps would re-seed the lines and
-   * discard everything the user has typed.
+   * Split out rather than given a reload token in place: this used to sit inside the prefill effect, and adding a
+   * token to *that* one's deps would re-seed the lines and discard everything the user has typed.
    */
   useEffect(() => {
     if (!open || presetPatientId) return
@@ -528,7 +498,7 @@ export function InvoiceFormModal({
                                         type="button"
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => setProceduresReload((n) => n + 1)}
+                                        onClick={retryProcedures}
                                       >
                                         Réessayer
                                       </Button>

@@ -106,12 +106,17 @@ public static class Extensions
         services.AddScoped(provider => new AutomaticWriteInterceptor(
             provider.GetRequiredService<IAuditActorProvider>()));
 
+        // Per-request SQL count and time, read by the API's RequestTimingMiddleware (features/performance-caching).
+        services.AddScoped<RequestQueryMetrics>();
+        services.AddScoped<QueryCountingInterceptor>();
+
         services.AddDbContext<ApplicationDbContext>((provider, options) =>
             options
                 .UseNpgsql(connectionString)
                 .AddInterceptors(
                     provider.GetRequiredService<AuditSaveChangesInterceptor>(),
-                    provider.GetRequiredService<AutomaticWriteInterceptor>()));
+                    provider.GetRequiredService<AutomaticWriteInterceptor>(),
+                    provider.GetRequiredService<QueryCountingInterceptor>()));
 
         // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();

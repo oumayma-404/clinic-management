@@ -25,6 +25,11 @@ public class AvoirPdfData
     public string? ClinicPhone { get; set; }
     public string? MatriculeFiscal { get; set; }
 
+    // The cabinet's letterhead bands, read live like the rest of this identity block (money documents keep no snapshot).
+    public string? LetterheadHeaderKey { get; set; }
+    public string? LetterheadFooterKey { get; set; }
+    public string? LetterheadBodyKey { get; set; }
+
     public string PatientName { get; set; } = string.Empty;
 
     /// <summary>The avoir's own number, from its own per-clinic-per-year sequence.</summary>

@@ -48,7 +48,7 @@ import { toast } from "sonner"
 import { showErrorToast } from "@/lib/errors"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { invoicesApi } from "@/lib/api/invoices"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { patientsApi } from "@/lib/api/patients"
 import { Input } from "@/components/ui/input"
 import type {
@@ -338,9 +338,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [cancelReason, setCancelReason] = useState("")
   /** The plan-level state change awaiting confirmation; null = no dialog. See {@link PlanConfirm}. */
   const [confirmAction, setConfirmAction] = useState<PlanConfirm | null>(null)
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  /** The act catalogue read failed — not the same as a devis whose acts are legitimately all free text. */
-  const [catalogFailed, setCatalogFailed] = useState(false)
+  // The tab's shared act catalogue. `catalogFailed` is not the same as a devis whose acts are legitimately all free text.
+  const { items: procedureTypes, failed: catalogFailed, retry: loadCatalog } = useProcedureTypes()
   const [amendOpen, setAmendOpen] = useState(false)
   /**
    * Which act « Modifier le devis » should open on. Null when the header's « ⋯ » opened it, which is the
@@ -414,19 +413,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * Select that populates after it opens shows « Aucun médecin » for a beat and reads as an empty cabinet.
    */
   const { allDoctors, isLoading: loadingDoctors } = useDoctors()
-
-  const loadCatalog = useCallback(async () => {
-    try {
-      setProcedureTypes((await procedureTypesApi.list(false)) || [])
-      setCatalogFailed(false)
-    } catch {
-      setCatalogFailed(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadCatalog()
-  }, [loadCatalog])
 
   /*
    * The patient lookup behind « Changer de patient ». ⚠️ Server-side (`searchTerm`), never a filter over a page

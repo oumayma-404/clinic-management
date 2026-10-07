@@ -4073,6 +4073,268 @@ check(
 );
 
 
+check(
+  "one-hub-connection",
+  "N45",
+  "A tab opens ONE SignalR connection, and `ClinicRealtimeProvider` is the only thing that opens it",
+  "Every `useClinicRealtime` call used to open its own socket — 35 call sites, so three to five connections " +
+    "per screen, each rebuilt on every sidebar click, and two in one component on the files directory. The " +
+    "provider now owns the tab's one connection and the hook only adds a listener. A component calling " +
+    "`createClinicHubConnection` itself, or building a `HubConnectionBuilder` outside `clinic-hub.ts`, " +
+    "quietly brings the old cost back and also escapes the provider's rule that the socket closes when the " +
+    "signed-in user changes (features/performance-caching 2a).",
+  () => {
+    const owner = "lib/realtime/clinic-realtime-provider.tsx";
+    const builder = "lib/realtime/clinic-hub.ts";
+    const offenders = [];
+    let ownerCalls = 0;
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      for (const m of code.matchAll(/(?<!function\s)\bcreateClinicHubConnection\s*\(/g)) {
+        if (name === owner) {
+          ownerCalls++;
+          continue;
+        }
+        offenders.push({
+          file: name,
+          line: lineAt(code, m.index),
+          text: "opens its own hub connection — subscribe through `useClinicRealtime`, which listens on the shared one",
+        });
+      }
+
+      if (name === builder) continue;
+      const at = code.search(/\bnew\s+HubConnectionBuilder\s*\(/);
+      if (at >= 0) {
+        offenders.push({ file: name, line: lineAt(code, at), text: "builds a SignalR connection outside `clinic-hub.ts`" });
+      }
+    }
+
+    // Non-vacuity: a renamed provider would otherwise leave this check passing while it guards nothing.
+    if (ownerCalls !== 1) {
+      offenders.push({ file: owner, text: `calls createClinicHubConnection ${ownerCalls} time(s) — expected exactly one` });
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "reference-reads-have-one-owner",
+  "N46",
+  "The clinic status and the two catalogues are read through their shared hook, never fetched by a component",
+  "`/clinics/user-status` was fetched 6× on `/appointments` and the act catalogue by ten call sites, most of them " +
+    "on every dialog open, because each screen fetched its own copy. They now live in the tab's query cache, read " +
+    "through `lib/hooks/use-user-status.ts` (`useUserStatus` / `useFetchUserStatus`) and " +
+    "`lib/hooks/use-catalogues.ts` (`useProcedureTypes` / `useMedications`), refreshed by the realtime broadcasts. A " +
+    "component calling the API directly brings one extra request per mount back AND keeps a copy no broadcast " +
+    "refreshes — the stale-hours agenda and the stale-header document editor were exactly that. A medication " +
+    "SEARCH (`medicationsApi.list(term, …)`) is not a catalogue read and is not covered (features/performance-caching 2b).",
+  () => {
+    const owners = [
+      { file: "lib/hooks/use-user-status.ts", pattern: /\bclinicsApi\.getUserStatus\s*\(/g, label: "clinicsApi.getUserStatus()" },
+      { file: "lib/hooks/use-catalogues.ts", pattern: /\bprocedureTypesApi\.list\s*\(/g, label: "procedureTypesApi.list()" },
+      { file: "lib/hooks/use-catalogues.ts", pattern: /\bmedicationsApi\.list\s*\(\s*(?:\)|undefined\b)/g, label: "medicationsApi.list() (whole catalogue)" },
+    ];
+    const offenders = [];
+    const ownerHits = new Map(owners.map((o) => [o.label, 0]));
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      for (const o of owners) {
+        for (const m of code.matchAll(o.pattern)) {
+          if (name === o.file) {
+            ownerHits.set(o.label, ownerHits.get(o.label) + 1);
+            continue;
+          }
+          offenders.push({
+            file: name,
+            line: lineAt(code, m.index),
+            text: `calls ${o.label} itself — read it through the shared hook in ${o.file}`,
+          });
+        }
+      }
+    }
+
+    // Non-vacuity: a renamed hook file would otherwise leave this check passing while it guards nothing.
+    for (const o of owners) {
+      if (ownerHits.get(o.label) === 0) {
+        offenders.push({ file: o.file, text: `no longer calls ${o.label} — retarget this check rather than letting it pass vacuously` });
+      }
+    }
+
+    return offenders;
+  },
+);
+
+check(
+  "query-cache-cleared-on-user-change",
+  "N47",
+  "The query cache is emptied when the signed-in user changes, and sits above the live connection that invalidates it",
+  "The cache holds the clinic status, the act and medication catalogues and the bell's count — another cabinet's, " +
+    "if the next person on a shared reception PC belongs to one. `QueryProvider` clears it on every change of " +
+    "identity. It must also wrap `ClinicRealtimeProvider`, which calls `useQueryClient()` to invalidate on a " +
+    "broadcast: mounted the other way round, the app throws on its first render (features/performance-caching 2b).",
+  () => {
+    const provider = "lib/query/query-provider.tsx";
+    const offenders = [];
+    const src = read(join(WEB_ROOT, provider));
+    const lines = src.split(/\r?\n/);
+    const masked = commentMask(lines);
+    const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+    if (!/\.clear\s*\(\s*\)/.test(code)) {
+      offenders.push({ file: provider, text: "never calls `client.clear()` — a user change would keep the previous user's cached data" });
+    }
+
+    const layout = read(join(WEB_ROOT, "app", "layout.tsx"));
+    const q = layout.indexOf("<QueryProvider>");
+    const r = layout.indexOf("<ClinicRealtimeProvider>");
+    if (q < 0) offenders.push({ file: "app/layout.tsx", text: "does not mount `<QueryProvider>`" });
+    else if (r >= 0 && r < q) offenders.push({ file: "app/layout.tsx", text: "mounts `<ClinicRealtimeProvider>` above `<QueryProvider>`" });
+
+    return offenders;
+  },
+);
+
+check(
+  "cached-read-names-its-broadcast",
+  "N48",
+  "Every cached query declares the realtime keys that make it stale (`meta: realtimeMeta.…`)",
+  "A cached read is only as fresh as what invalidates it. `ClinicRealtimeProvider` invalidates the queries whose " +
+    "`meta.realtime` names the broadcast it received; a query declared without it is refreshed by nothing but its " +
+    "5-minute stale time, so a colleague's change stays invisible on every other screen for that long, with no " +
+    "error anywhere (features/performance-caching 2b).",
+  () => {
+    const offenders = [];
+    let queries = 0;
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+
+      for (const m of code.matchAll(/\b(?:useQuery|fetchQuery|ensureQueryData|prefetchQuery)\s*\(\s*\{/g)) {
+        queries++;
+        const end = code.indexOf("})", m.index);
+        const options = code.slice(m.index, end < 0 ? undefined : end);
+        if (/\bmeta\s*:\s*realtimeMeta\./.test(options)) continue;
+        offenders.push({
+          file: name,
+          line: lineAt(code, m.index),
+          text: "declares a cached query with no `meta: realtimeMeta.…` — no broadcast will ever refresh it",
+        });
+      }
+    }
+
+    // Non-vacuity: the shared hooks declare several; zero means this scan stopped matching them.
+    if (queries === 0) offenders.push({ file: "lib/hooks", text: "found no cached query at all — this check proves nothing" });
+
+    return offenders;
+  },
+);
+
+check(
+  "fiche-field-is-reconciled",
+  "N49",
+  "Every key the fiche de soins saves is reconciled when a colleague's save lands (`FICHE_PAYLOAD_SECTION`)",
+  "« Recharger » after a 409 used to take the server's VERSION and keep the screen, so the next « Enregistrer » " +
+    "wrote the old acts, prices and notes over a colleague's save — green toast, no refusal. `fiche-merge.ts` " +
+    "now reconciles the fiche section by section, and it can only reconcile what it knows about: a field added " +
+    "to the save but not to a section is written from the screen under the new version, which is the original " +
+    "defect for that one field. So the payload's keys are derived from the modal's own `recordData` literal and " +
+    "each must be classified in `FICHE_PAYLOAD_SECTION` — and every entry there must still be sent, so a removed " +
+    "field leaves no stale classification. The fiche must also not use `useFreshVersion`, whose whole contract is " +
+    "to adopt a version without its content.",
+  () => {
+    const MODAL = "components/patient-record-modal.tsx";
+    const MERGE = "components/record/fiche-merge.ts";
+    const find = (p) => ALL_FILES.find((f) => rel(f).replace(/\\/g, "/") === p);
+    const offenders = [];
+    for (const p of [MODAL, MERGE]) {
+      if (!find(p)) {
+        offenders.push({
+          file: p,
+          text: "missing — a file this check guards is gone; retarget or retire the check rather than deleting it",
+        });
+      }
+    }
+    if (offenders.length > 0) return offenders;
+
+    const codeOf = (p) => {
+      const lines = read(find(p)).split(/\r?\n/);
+      const masked = commentMask(lines);
+      return lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+    };
+
+    // ── the classification, from the map's own declaration ─────────────────────────────────────────────
+    const merge = codeOf(MERGE);
+    const decl = merge.match(/export const FICHE_PAYLOAD_SECTION = \{([\s\S]*?)\n\}/);
+    if (!decl) return [{ file: MERGE, text: "`FICHE_PAYLOAD_SECTION` no longer parses — this check is blind, fix it" }];
+    const classified = new Set([...decl[1].matchAll(/^\s*(?:"([^"]+)"|(\w+))\s*:/gm)].map((m) => m[1] ?? m[2]));
+
+    // ── the payload: the TOP-LEVEL keys of the modal's `recordData` literal ─────────────────────────────
+    const modal = codeOf(MODAL);
+    const at = modal.indexOf("const recordData = {");
+    if (at < 0) return [{ file: MODAL, text: "`const recordData = {` not found — this check is blind, fix it" }];
+    const sent = new Set();
+    let depth = 0;
+    for (let i = modal.indexOf("{", at); i < modal.length; i++) {
+      const ch = modal[i];
+      if (ch === "{" || ch === "(" || ch === "[") depth++;
+      else if (ch === "}" || ch === ")" || ch === "]") {
+        if (--depth === 0) break;
+      } else if (ch === "\n" && depth === 1) {
+        // A key starts a line one level in: `name:`, a shorthand `name,`, or a spread `...builder(`.
+        const line = modal.slice(i + 1, modal.indexOf("\n", i + 1));
+        const m = line.match(/^\s*(?:\.\.\.(\w+)|(\w+)\s*(?::|,|$))/);
+        if (m) sent.add(m[1] ? `...${m[1]}` : m[2]);
+      }
+    }
+    if (sent.size < 10) {
+      return [
+        {
+          file: MODAL,
+          text:
+            `derived only ${sent.size} key(s) from \`recordData\` — its shape changed and this check is ` +
+            "measuring nothing; fix the parse rather than trusting a green run",
+        },
+      ];
+    }
+
+    for (const key of sent) {
+      if (classified.has(key)) continue;
+      offenders.push({
+        file: MERGE,
+        text:
+          `the fiche saves \`${key}\` and \`FICHE_PAYLOAD_SECTION\` does not classify it — after « Recharger » ` +
+          "it would be written from the screen over a colleague's save",
+      });
+    }
+    for (const key of classified) {
+      if (sent.has(key)) continue;
+      offenders.push({ file: MERGE, text: `classifies \`${key}\`, which the fiche no longer sends — remove the entry` });
+    }
+
+    if (/\buseFreshVersion\b/.test(modal)) {
+      offenders.push({
+        file: MODAL,
+        text: "uses `useFreshVersion` — it adopts a version without its content; reconcile through `fiche-merge.ts`",
+      });
+    }
+
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

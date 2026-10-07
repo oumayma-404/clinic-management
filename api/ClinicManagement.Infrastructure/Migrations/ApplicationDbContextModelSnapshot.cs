@@ -439,6 +439,18 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("LastVaultCopyAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("LetterheadBodyStorageKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("LetterheadFooterStorageKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("LetterheadHeaderStorageKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
                     b.Property<string>("LogoContentType")
                         .HasColumnType("text");
 

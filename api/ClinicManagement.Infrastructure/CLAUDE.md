@@ -402,7 +402,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IPatientFolderRepository` | `PatientFolderRepository` |
 | `IPatientFileRepository` | `PatientFileRepository` |
 | `IMedicalDocumentRepository` | `MedicalDocumentRepository` |
-| `IUserRepository` | `UserRepository`. ⚠️ `GetByAuth0SubAsync` and `GetByEmailAsync` **include `RecoveryCodes`**, and every second-factor path depends on it. `User.RecoveryCodes` projects a private backing list, so an unloaded collection is not stale — it is **empty**, and every question asked of it answers as if the account held no codes: « Sécurité » reported « 0 code inutilisé » over eight live rows, `ReplaceRecoveryCodes`' `Clear()` revoked nothing so a regeneration *added* eight instead of replacing, `DisableTotp` left spendable rows behind an un-enrolled factor, and `ConsumeRecoveryCode` matched nothing — so the one way back a user can take alone refused every code they owned. Nothing threw in any of the four. `GetByIdAsync` deliberately does **not** include them (the per-request enforcement middleware reads it); `RecoveryCodeLoadingCoverageTests` derives which reads must, from which files touch the collection |
+| `IUserRepository` | `UserRepository`. ⚠️ `GetByAuth0SubAsync` and `GetByEmailAsync` **include `RecoveryCodes`**, and every second-factor path depends on it. `User.RecoveryCodes` projects a private backing list, so an unloaded collection is not stale — it is **empty**, and every question asked of it answers as if the account held no codes: « Sécurité » reported « 0 code inutilisé » over eight live rows, `ReplaceRecoveryCodes`' `Clear()` revoked nothing so a regeneration *added* eight instead of replacing, `DisableTotp` left spendable rows behind an un-enrolled factor, and `ConsumeRecoveryCode` matched nothing — so the one way back a user can take alone refused every code they owned. Nothing threw in any of the four. ⚠️ `GetByAuth0SubAsync` returns the **already-tracked** caller when both includes are `IsLoaded` — it is asked 2–3 times per request (middleware, clinic resolver, post-commit broadcast), and the tracked instance is what a re-query would return anyway. `GetByIdAsync` deliberately does **not** include them (the per-request enforcement middleware reads it); `RecoveryCodeLoadingCoverageTests` derives which reads must, from which files touch the collection |
 | `IClinicRepository` | `ClinicRepository` |
 | `IDoctorRepository` | `DoctorRepository` |
 | `IInvoiceRepository` | `InvoiceRepository` (billing) |
@@ -653,7 +653,11 @@ no consent flag and no audit of which patient was sent.
   documents: `prescription` (ORDONNANCE), `liaison`, `certificat` (+ optional practitioner-cachet image loaded
   from storage, falling back to a plain signature line). **`honoraires` is rejected** (retired — issue an Invoice
   instead). **`bulletin-cnam` branches out** to the BS1 overlay renderer. Helpers: `CertificatTextBuilder`,
-  `LiaisonContent`.
+  `LiaisonContent`. ⚠️ **Every page goes through `DocumentPage.Compose`** (`Services/DocumentPage.cs`) — the one
+  owner of size, margins and the cabinet's **letterhead bands** (true scale, every page; « Page entière » adds the strip
+  between them behind the text, the only part ever stretched); with no letterhead the page
+  is byte-for-byte the old A4 + 2 cm. The four money documents share `ClinicIdentityHeader`. A page that sets its
+  own margins ignores the letterhead — `LetterheadRenderTests` fails on it. See `features/document-letterhead/notes.md`.
 - **`CnamBs1BulletinRenderer`** (internal) — stamps `bulletin-cnam` data onto the genuine CNAM **BS1** form
   (`Assets/BS1.pdf`) at calibrated coordinates (2-page A4-landscape) using **PdfSharp**; fills only the
   dentist-relevant regions (IDU comb, régime/lien ticks, assuré/malade identity, the 6-row dental acts table incl.
@@ -749,7 +753,7 @@ an argument about which SIDs a token can hold; `ComposeGrantArguments` is public
 ubuntu runner, where `Harden` itself short-circuits.
 
 ## DI Registration (`Extensions.cs` — `AddInfrastructure(services, configuration)`)
-- `ApplicationDbContext` via `UseNpgsql("DefaultConnection")` **+ `AddInterceptors(AuditSaveChangesInterceptor)`**;
+- `ApplicationDbContext` via `UseNpgsql("DefaultConnection")` **+ `AddInterceptors(AuditSaveChangesInterceptor, AutomaticWriteInterceptor, QueryCountingInterceptor)`** — the last feeds the scoped `RequestQueryMetrics` the API's `RequestTimingMiddleware` logs (`features/performance-caching`);
   `IUnitOfWork` scoped; all repositories scoped.
   ⚠️ The interceptor is **scoped** and resolved through the `AddDbContext((provider, options) => …)` overload, not
   registered as an instance: it holds per-request state (the actor, and the rows collected between the two save

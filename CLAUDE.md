@@ -185,6 +185,12 @@ how it was built, `notes.md` is what shipped.
   `scenarios.md` is 268 hot-path scenarios (125 tier-0) plus an appendix of the **probe traps** that each
   produced a convincing false defect report; `findings.md` is what the 2026-09-08 pass found.
 
+- [`performance-caching`](features/performance-caching/notes.md) — Every `/api` request logs its time and SQL
+  count (`Diagnostics:SlowRequestMs`) · the caller's account is read once per request · an unchanged thumbnail
+  answers 304 · one live connection per tab · one browser cache for the **reference reads only** (clinic status,
+  catalogues, the bell) · **no server data cache, by decision** · the before/after numbers, and why the dashboard
+  rewrite and the agenda index stayed undone
+
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — There is a CI gate now, and before it there was none for `api/` or `web/` · Multi-tenancy · Pluggable auth (`Auth:Mode` = `Cloud` | `Local`) · Google Calendar sync is asymmetric + per-clinic · Background jobs · Billing / CNAM / treatment plans (deep, fully-wired subsystems) · Clinical-workflow-depth operational features (built) · Dead-code cleanup · Clinic-scoped SignalR realtime (built) · In-app staff notification center (built) · Real outbound SMS/WhatsApp reminders · Security posture (mostly hardened by `cloud-security-and-tenant-isolation`, PR #11)
 
 **Money, and the ledgers behind it**
@@ -214,6 +220,9 @@ how it was built, `notes.md` is what shipped.
 - [`treatment-plan-lifecycle`](features/treatment-plan-lifecycle/notes.md) — A stop has THREE outcomes, and the browser knew two · Two appended statuses (`Stopped`, `WrittenOff`), and why « appended » is load-bearing · One respread rule, and it is the only place the money invariant lives · The capabilities behind the driving complaint (S1–S7) · Two rules that look wrong and are not
 - [`booking-treatment-suggestions`](features/booking-treatment-suggestions/notes.md) — Le rappel ne nommait qu'un traitement, et se taisait pour 47 patients sur 318
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
+- [`document-letterhead`](features/document-letterhead/notes.md) — Le cabinet imprime sur son propre papier : en-tête
+  et pied de page en bandes à l'échelle réelle, sur chaque page de chaque document · sans papier importé, rien ne
+  change · la date de naissance n'est plus sur aucun document
 - [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
 - [`cnam-ui-withdrawal`](features/cnam-ui-withdrawal/notes.md) — La CNAM n'a plus d'interface, et tout le
   serveur est intact · **six choses ont délibérément survécu** (les deux entrées `DOCUMENT_TEMPLATES`, la clé

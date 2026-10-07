@@ -99,6 +99,120 @@ public class PractitionerRenderSnapshotTests
         Assert.Equal("Tunis", (string?)result["clinicCity"]);
     }
 
+    // ── The cabinet's letterhead: reserved like the cachet, and its two bands travel as one ────────────────────
+
+    [Fact]
+    public void ApplyTo_Writes_The_Servers_Letterhead_Over_A_Forged_One()
+    {
+        var snapshot = new PractitionerRenderSnapshot
+        {
+            LetterheadHeaderKey = "clinics/c/letterhead/a/header",
+            LetterheadFooterKey = "clinics/c/letterhead/a/footer"
+        };
+
+        var result = JsonNode.Parse(snapshot.ApplyTo(
+            "{\"letterheadHeaderKey\":\"clinics/OTHER/header\",\"letterheadFooterKey\":\"clinics/OTHER/footer\"}"))!.AsObject();
+
+        Assert.Equal("clinics/c/letterhead/a/header", (string?)result["letterheadHeaderKey"]);
+        Assert.Equal("clinics/c/letterhead/a/footer", (string?)result["letterheadFooterKey"]);
+    }
+
+    [Fact]
+    public void ApplyTo_Strips_A_Client_Supplied_Letterhead_When_The_Cabinet_Has_None()
+    {
+        var result = JsonNode.Parse(new PractitionerRenderSnapshot { ClinicCity = "Tunis" }.ApplyTo(
+            "{\"objet\":\"x\",\"letterheadHeaderKey\":\"clinics/OTHER/header\",\"letterheadFooterKey\":\"clinics/OTHER/footer\"}"))!.AsObject();
+
+        Assert.False(result.ContainsKey("letterheadHeaderKey"));
+        Assert.False(result.ContainsKey("letterheadFooterKey"));
+        Assert.Equal("x", (string?)result["objet"]);
+    }
+
+    [Fact]
+    public void ApplyTo_Writes_The_Page_Body_With_Its_Header_And_Strips_A_Forged_One()
+    {
+        var withBody = new PractitionerRenderSnapshot
+        {
+            LetterheadHeaderKey = "clinics/c/letterhead/a/header",
+            LetterheadBodyKey = "clinics/c/letterhead/a/body"
+        };
+        const string forged = "{\"letterheadBodyKey\":\"clinics/OTHER/body\"}";
+
+        var written = JsonNode.Parse(withBody.ApplyTo(forged))!.AsObject();
+        var stripped = JsonNode.Parse(new PractitionerRenderSnapshot().ApplyTo(forged))!.AsObject();
+        var orphan = JsonNode.Parse(
+            new PractitionerRenderSnapshot { LetterheadBodyKey = "clinics/c/letterhead/a/body" }.ApplyTo("{}"))!.AsObject();
+
+        Assert.Equal("clinics/c/letterhead/a/body", (string?)written["letterheadBodyKey"]);
+        Assert.False(stripped.ContainsKey("letterheadBodyKey"));
+        Assert.False(orphan.ContainsKey("letterheadBodyKey"));
+    }
+
+    [Fact]
+    public void OrElse_Never_Borrows_A_Page_Body_From_Another_Upload()
+    {
+        var live = new PractitionerRenderSnapshot { LetterheadHeaderKey = "clinics/c/letterhead/b/header" };
+        var stored = new PractitionerRenderSnapshot
+        {
+            LetterheadHeaderKey = "clinics/c/letterhead/a/header",
+            LetterheadBodyKey = "clinics/c/letterhead/a/body"
+        };
+
+        Assert.Null(live.OrElse(stored).LetterheadBodyKey);
+        Assert.Equal("clinics/c/letterhead/a/body", new PractitionerRenderSnapshot().OrElse(stored).LetterheadBodyKey);
+    }
+
+    [Fact]
+    public void ApplyTo_Never_Writes_A_Footer_Without_Its_Header()
+    {
+        var result = JsonNode.Parse(
+            new PractitionerRenderSnapshot { LetterheadFooterKey = "clinics/c/letterhead/a/footer" }.ApplyTo("{}"))!.AsObject();
+
+        Assert.False(result.ContainsKey("letterheadFooterKey"));
+    }
+
+    [Fact]
+    public void ReadFrom_Reads_The_Letterhead_A_Document_Was_Issued_With()
+    {
+        var snap = PractitionerRenderSnapshot.ReadFrom(
+            "{\"letterheadHeaderKey\":\"clinics/c/letterhead/a/header\",\"letterheadFooterKey\":\"clinics/c/letterhead/a/footer\"}");
+
+        Assert.True(snap.HasAny);
+        Assert.Equal("clinics/c/letterhead/a/header", snap.LetterheadHeaderKey);
+        Assert.Equal("clinics/c/letterhead/a/footer", snap.LetterheadFooterKey);
+    }
+
+    [Fact]
+    public void OrElse_Never_Pairs_A_Header_With_Another_Uploads_Footer()
+    {
+        var live = new PractitionerRenderSnapshot { LetterheadHeaderKey = "clinics/c/letterhead/b/header" };
+        var stored = new PractitionerRenderSnapshot
+        {
+            LetterheadHeaderKey = "clinics/c/letterhead/a/header",
+            LetterheadFooterKey = "clinics/c/letterhead/a/footer"
+        };
+
+        var effective = live.OrElse(stored);
+
+        Assert.Equal("clinics/c/letterhead/b/header", effective.LetterheadHeaderKey);
+        Assert.Null(effective.LetterheadFooterKey);
+    }
+
+    [Fact]
+    public void OrElse_Keeps_The_Stored_Letterhead_When_The_Cabinet_Has_Since_Withdrawn_It()
+    {
+        var stored = new PractitionerRenderSnapshot
+        {
+            LetterheadHeaderKey = "clinics/c/letterhead/a/header",
+            LetterheadFooterKey = "clinics/c/letterhead/a/footer"
+        };
+
+        var effective = new PractitionerRenderSnapshot { ClinicCity = "Tunis" }.OrElse(stored);
+
+        Assert.Equal("clinics/c/letterhead/a/header", effective.LetterheadHeaderKey);
+        Assert.Equal("clinics/c/letterhead/a/footer", effective.LetterheadFooterKey);
+    }
+
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
     // ResolveAsync: whose cachet a document carries.
     //

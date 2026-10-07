@@ -34,6 +34,16 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
         builder.Property(c => c.Code)
             .HasMaxLength(20);
 
+        // The letterhead bands — storage keys, the same width as Doctor.CachetStorageKey.
+        builder.Property(c => c.LetterheadHeaderStorageKey)
+            .HasMaxLength(400);
+
+        builder.Property(c => c.LetterheadFooterStorageKey)
+            .HasMaxLength(400);
+
+        builder.Property(c => c.LetterheadBodyStorageKey)
+            .HasMaxLength(400);
+
         // Billing / note-d'honoraires settings.
         builder.Property(c => c.MatriculeFiscal)
             .HasMaxLength(50);

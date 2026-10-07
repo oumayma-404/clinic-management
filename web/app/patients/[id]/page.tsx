@@ -747,6 +747,8 @@ export default function PatientDetailsPage() {
    */
   const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | null>(null)
   const [editingRecord, setEditingRecord] = useState<DentalRecordDto | null>(null)
+  // Set by the notes strip's per-line pencil only; cleared when the fiche closes.
+  const [recordFocusNotes, setRecordFocusNotes] = useState(false)
   // Appointment carried by the post-visit "record the visit" deep-link, threaded into the record modal so
   // saving the dental record closes that appointment's post-visit prompt (findings #4 + #10).
   const [reviewAppointmentId, setReviewAppointmentId] = useState<string | null>(null)
@@ -1321,7 +1323,8 @@ export default function PatientDetailsPage() {
           attemptOne("billing", appointmentsApi.visitsToClose({ patientId })),
         ])
         if (cancelled) return
-        setFailedSections(failed)
+        // `"files"` belongs to the folder effect below, which re-runs on the same refresh — never erase its failure here.
+        setFailedSections((prev) => (prev.has("files") ? new Set(failed).add("files") : failed))
         setTreatmentPlans(plansData)
         setMedicalDocuments(documentsData)
         setAppointments(appointmentsData)
@@ -1541,7 +1544,8 @@ export default function PatientDetailsPage() {
       }
     }
     loadFilesForFolder()
-  }, [patientId, currentFolderId])
+    // `refreshKey`: a `files` broadcast and « Réessayer » both bump it, and used to reload the folders but not the list.
+  }, [patientId, currentFolderId, refreshKey])
 
   /**
    * Re-read after a save, via the page's single loader.
@@ -2334,6 +2338,13 @@ procedureTypeId: it.procedureTypeId ?? null,
           recordsFailed={sectionFailed("dentalRecords")}
           onRetryRecords={retrySections}
           onEdit={() => setEditDialogOpen(true)}
+          onEditRecord={(recordId) => {
+            const record = dentalRecords.find((r) => r.id === recordId)
+            if (!record) return
+            setEditingRecord(record)
+            setRecordFocusNotes(true)
+            setRecordModalOpen(true)
+          }}
         />
 
         {/* An archived patient is hidden from every list and search but still reachable by direct URL —
@@ -3967,8 +3978,10 @@ procedureTypeId: it.procedureTypeId ?? null,
           if (!open) {
             setEditingRecord(null)
             setReviewAppointmentId(null)
+            setRecordFocusNotes(false)
           }
         }}
+        focusNotes={recordFocusNotes}
         patientName={patientName}
         patientId={patient.id}
         record={editingRecord}

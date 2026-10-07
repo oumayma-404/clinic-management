@@ -29,6 +29,9 @@ public class PractitionerRenderSnapshotDto
     public string? DoctorOrdreNumber { get; set; }
     public string? DoctorCachetKey { get; set; }
     public string? DoctorCachetContentType { get; set; }
+    public string? LetterheadHeaderKey { get; set; }
+    public string? LetterheadFooterKey { get; set; }
+    public string? LetterheadBodyKey { get; set; }
 }
 
 public class GetPractitionerRenderSnapshotQueryHandler
@@ -78,7 +81,10 @@ public class GetPractitionerRenderSnapshotQueryHandler
                 ClinicEmail = snapshot.ClinicEmail,
                 DoctorOrdreNumber = snapshot.DoctorOrdreNumber,
                 DoctorCachetKey = snapshot.DoctorCachetKey,
-                DoctorCachetContentType = snapshot.DoctorCachetContentType
+                DoctorCachetContentType = snapshot.DoctorCachetContentType,
+                LetterheadHeaderKey = snapshot.LetterheadHeaderKey,
+                LetterheadFooterKey = snapshot.LetterheadFooterKey,
+                LetterheadBodyKey = snapshot.LetterheadBodyKey
             });
         }
         catch (Exception)
