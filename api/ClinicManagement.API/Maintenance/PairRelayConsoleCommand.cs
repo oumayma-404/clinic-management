@@ -1,8 +1,4 @@
 using System.Net.Http.Json;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using ClinicManagement.API.Startup;
 using ClinicManagement.Application.Features.Relay;
@@ -11,7 +7,6 @@ using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Relay;
 using ClinicManagement.Infrastructure.Security;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ClinicManagement.API.Maintenance;
 
@@ -89,8 +84,8 @@ public static class PairRelayConsoleCommand
             code,
             label,
             publicKey,
-            certificateFingerprint = CertificateFingerprint(),
-            lanAddresses = string.Join(",", LanAddresses()),
+            certificateFingerprint = RelayHostFacts.CertificateFingerprint(),
+            lanAddresses = string.Join(",", RelayHostFacts.LanAddresses()),
             build = provider.GetRequiredService<IRelayBuildInfo>().Current,
         };
 
@@ -142,31 +137,6 @@ public static class PairRelayConsoleCommand
 
         return $"Le jumelage a été refusé par le cloud (HTTP {(int)response.StatusCode}).";
     }
-
-    /// <summary>SHA-256 of this PC's server certificate — what the clinic's devices will pin (D21).</summary>
-    private static string? CertificateFingerprint()
-    {
-        try
-        {
-            var cert = new CertificateProvisioner(NullLogger<CertificateProvisioner>.Instance).EnsureServerCertificate();
-            using var x509 = new X509Certificate2(cert.PfxPath, cert.Password, X509KeyStorageFlags.EphemeralKeySet);
-            return Convert.ToHexString(SHA256.HashData(x509.RawData));
-        }
-        catch (Exception ex) when (ex is CryptographicException or IOException)
-        {
-            return null;
-        }
-    }
-
-    private static IEnumerable<string> LanAddresses() =>
-        NetworkInterface.GetAllNetworkInterfaces()
-            .Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .SelectMany(n => n.GetIPProperties().UnicastAddresses)
-            .Select(a => a.Address)
-            .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a))
-            .Select(a => a.ToString())
-            .Distinct()
-            .Take(8);
 
     private static void TryDelete(string path)
     {

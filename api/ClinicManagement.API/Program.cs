@@ -642,6 +642,13 @@ try
         builder.Services.AddHostedService<ClinicManagement.API.Startup.DeferredStartupService>();
     }
 
+    // clinic-pc-copy: the PC de secours follows its cloud clinic — first copy, then every change, its files and the
+    // hourly check. Only on that kind: anywhere else there is no cloud to follow.
+    if (profile.MirrorsCloudClinic)
+    {
+        builder.Services.AddHostedService<ClinicManagement.API.BackgroundJobs.RelayFeedJob>();
+    }
+
     // Add CORS
     // Note: When using credentials (cookies), we cannot use AllowAnyOrigin()
     // We must specify the exact origin(s) and use AllowCredentials().

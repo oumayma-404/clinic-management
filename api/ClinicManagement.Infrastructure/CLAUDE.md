@@ -575,6 +575,18 @@ no consent flag and no audit of which patient was sent.
   lives on `HttpReminderChannelSender` and is overridden here only; the gateway's body still never reaches the
   persisted result (D-8).
 
+### PC de secours (`Relay/`, `clinic-pc-copy` — in progress)
+- **Cloud side**: `Persistence/ClinicChangeCapture` (one `ClinicChange` per touched key, inside the save's transaction,
+  only for clinics with a cursor), `Persistence/ClinicRelayRowStore` (rows out as `row_to_json`, back in as
+  `json_populate_recordset` — feed, snapshot, digest, apply, replace), `Persistence/ClinicRelayScope` (model-derived
+  table plan, `Excluded` / `Added` / `PerSideColumns`), `Security/RelaySecretEnvelope` (TOTP secrets sealed per PC).
+- **PC side**: `RelayFollower` (one tick: heartbeat → first copy or catch-up → files → hourly check), its pure rules in
+  `RelayFeedDecisions` (⚠️ D12: a changed epoch, a lower high-water or the cloud's own `WentBack` **stops** the copy for
+  good — it is never re-seeded toward), `RelayCloudClient`, `RelayCredentialStore` (`.local/relay.json`, key-ring
+  encrypted) and `RelayFollowerStateStore` (`.local/relay-state.json` — ⚠️ never in the DB, which a re-seed replaces;
+  an unreadable file reads as stopped). Small files go through `AtomicFile`, which retries the move (Windows refuses
+  replacing a just-written file). Driven by the API's `RelayFeedJob`. Reasoning: `features/clinic-pc-copy/`.
+
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live
   caller is `TrustController`, which puts the LAN trust page's URL on screen for a phone to scan. It is what

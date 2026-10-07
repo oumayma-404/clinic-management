@@ -69,6 +69,10 @@ _(rows for later bullets are added before their first edit)_
 | 10 | raw-write guard: « decide mitigation » | `NotificationRepository` purge reviewed, repaired by the hourly digest | terminal reminders past 90 days; a late delete of history costs nothing |
 | 11 | — | releasing an expired/abandoned setup is saved before the new row is inserted | in one save EF may send the INSERT first and the filtered unique index refuses it |
 | 12 | `pair-relay` writes `Deployment:Profile=ClinicRelay` | it refuses unless the profile already is `ClinicRelay`; the installer's relay role writes it into `appsettings.Install.json` | a verb that rewrote the kind would turn a LAN server into a copy of another clinic with one mistyped command; the installer owns that layer |
+| 13 | `RelayFeedJob` + `RelayDigestJob` (two files) | one `BackgroundService` loop; the hourly check runs inside it on its own clock | two loops would race on the position file; the check needs a caught-up copy, which only the follower knows |
+| 14 | position kept by the PC (unspecified) | `.local/relay-state.json` beside the credentials, never a DB table | a re-seed replaces the copied tables wholesale and would overwrite a position stored among them; an unreadable file reads as « stopped », never « fresh » |
+| 15 | — | `DeferredStartupService` skips the catalog / admin / Google backfills on a PC de secours | they would write rows the cloud never made into a copy (must-change consumer found while wiring) |
+| 16 | — | a file the cloud cannot serve is retried hourly and left out of « première copie » | one missing object would otherwise hold the copy « en cours » for ever |
 
 ## Verification log
 
@@ -76,5 +80,8 @@ _(rows for later bullets are added before their first edit)_
 |---|---|---|
 | 2026-10-07 | full unit suite (unfiltered) | 5 045 pass · 6 skip · 0 fail (baseline 4 935) |
 | 2026-10-07 | `verify-schema` on a scratch DB, before → after `AddClinicRelay` | 7 relay DRIFT → ok; only remaining drift `key-ring-protection` (dev env, pre-existing); no `xmin` column |
+| 2026-10-07 | full unit suite after `RelayFeedJob` | 5 094 pass · 6 skip · 0 fail; wiring guard red-proofed (gate swapped → red, restored) |
 
 ## Learnings
+
+- On Windows, `File.Move(tmp, path, overwrite: true)` over a file written milliseconds earlier is refused with « Access denied » (antivirus / indexer hold) — hit by 12 follower tests at once. `Relay/AtomicFile` retries the move; any repeated small-file write on the PC needs it.

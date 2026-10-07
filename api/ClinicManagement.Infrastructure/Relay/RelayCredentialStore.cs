@@ -44,11 +44,7 @@ public sealed class RelayCredentialStore
     /// <summary>Written to a temporary file and moved over, so a crash mid-write never leaves half a credential.</summary>
     public void Save(RelayCredentials credentials)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        var sealedPayload = _protector.Protect(JsonSerializer.Serialize(credentials));
-        var temporary = _path + ".tmp";
-        File.WriteAllText(temporary, sealedPayload);
-        File.Move(temporary, _path, overwrite: true);
+        AtomicFile.Write(_path, _protector.Protect(JsonSerializer.Serialize(credentials)));
     }
 
     /// <summary>The credentials, or null when the PC is not paired or the file cannot be opened by this ring.</summary>

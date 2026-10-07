@@ -1,6 +1,6 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-07 (updated after session 2) · **Overall:** ~15 % · **Part 1 (La copie):** ~48 %
+**Date:** 2026-10-07 (after session 3) · **Overall:** ~17 % · **Part 1 (La copie):** ~55 %
 
 ## Where the work is
 
@@ -58,15 +58,28 @@ Start the new session **in the worktree** (`EnterWorktree` with that path, or `c
 
 ## Next steps, in order
 
-1. **`RelayFeedJob`** (`API/BackgroundJobs/`, `BackgroundService`, registered only where `MirrorsCloudClinic`; `RunAs` + `UseClinic(creds.ClinicId)`): load `RelayCredentialStore` (none → idle, log once) → `POST relay/token` with `X-Relay-Secret` → seed via `GET relay/snapshot` + `ReplaceAsync` → loop `GET relay/changes?after=&fingerprint=` → `ApplyBatchAsync`; `WentBack` → stop + alert (D12); `ReseedRequired` or apply failure → reseed; heartbeat every 10 s (`POST relay/heartbeat`), `UpdateNeeded` → flag. The ack carries `HighWater`: pull when behind (deviation 2). Send `X-Relay-Build` from `IRelayBuildInfo`.
-   - The local apply cursor (last applied seq + head fingerprint + epoch) must persist on the PC — decide where (a `.local/relay-state.json` beside the credentials is simplest; not a DB table, which the snapshot would overwrite).
-   - The TOTP unwrap: `RelayInboundUnwrap` = open with `creds.PrivateKey` (`RelaySecretEnvelope.Open`) → re-protect with this install's `UserSecretProtector`.
-2. **Files**: `IRelayBlobIndex.ListKeysAsync` on the PC's DB → `GET relay/blob?key=` → write at the **same key** on local disk (a writer that bypasses `UploadAsync`'s key composition — check `LocalDiskFileStorage` key→path), temp then move.
-3. **Hourly digest** (`GET relay/digest` vs local `DigestAsync`) → per-table `ReplaceAsync`, never toward a changed epoch; report unrepaired tables in the heartbeat's `MismatchTables`.
-4. Unit tests for the job's decision logic (extract it as a pure state machine so it is testable without HTTP/DB); the end-to-end proof is CI `relay-copy` (two instances, per-table hash equal) — plan Part 1 « Check ».
-5. Then « Watching » (`StaffNotification.TargetRole`, watch job, web card « Paramètres → PC de secours », console column, vendor alert email — message the `server-loss-recovery` session first), « Lifecycle » (users + TOTP re-wrap, retire → PC read-only, lost, erase, uninstall), « One click » (installer `/RELAY /PAIRFILE=` writing `Deployment:Profile=ClinicRelay` into `appsettings.Install.json` **then** running `pair-relay`, bridge `installRelay`, offer, CI `relay-package.yml`, promotion verbs).
+✅ **Done in session 3:** `RelayFeedJob` (one `BackgroundService`, 10 s tick, only where `MirrorsCloudClinic`, waits for
+pending migrations) over `Infrastructure/Relay/`: `RelayCloudClient` (token cache + refresh on a bare 401),
+`RelayFollower` (heartbeat → first copy / catch-up → files → hourly check), `RelayFeedDecisions` (pure D12 / D6b / D25
+rules), `RelayFollowerState` (`.local/relay-state.json`), `RelayHostFacts`, `AtomicFile`. 46 new tests; wiring guard
+red-proofed. Deviations 13–16 in progress.md.
 
-⚠️ Decision (deviation 12, add to progress.md): `pair-relay` does **not** write `Deployment:Profile`; it refuses unless the profile is already `ClinicRelay`. The installer's relay role writes it into the layer it owns.
+1. **End-to-end rehearsal on two scratch databases** — the row store's SQL (`json_populate_recordset`, owned lists,
+   deferred FK columns, `ReplaceAsync`'s delete-the-rest) has **never run against PostgreSQL**; no unit test can reach
+   it. Pattern: `isolated-test-stack` memory. `pg_dump` the dev DB into `clinic_relay_cloud` (read-only on the shared
+   one), hosted API on :5099 against it; a second API with `Deployment__Profile=ClinicRelay` on another port against an
+   empty migrated `clinic_relay_pc`; issue a code (step-up needs TOTP — or call the handler from a console stub), run
+   `pair-relay`, watch `relay-state.json` reach `seq = high-water`, then compare `GET relay/digest` with the PC's
+   `DigestAsync` (all tables equal). Save on the cloud → seen on the PC within 10 s. This is the plan's CI
+   `relay-copy` job done by hand first; then write the CI job (`.github/workflows/ci.yml`, beside `local-mode`).
+2. « Watching »: `StaffNotification.TargetRole`, watch job on the cloud (`ClinicRelayHealth` → bell rows in opening
+   hours, EC-9/EC-10), web card « Paramètres → PC de secours » (`GET /api/relay/status`, issue code behind step-up,
+   retire), console column, vendor alert email (message the `server-loss-recovery` session first).
+3. « Lifecycle »: users + TOTP re-wrap check, retire → PC read-only for admins, « perdu ou volé », erase, uninstall;
+   un-stopping a copy stopped by D12 (today: delete `relay-state.json` + re-pair).
+4. « One click »: installer `/RELAY /PAIRFILE=` (writes `Deployment:Profile=ClinicRelay` into
+   `appsettings.Install.json`, then runs `pair-relay`), bridge `installRelay`, offer, CI `relay-package.yml`, self-update
+   on `UpdateNeeded` (D10b), promotion verbs.
 
 ## Gotchas met this session
 
