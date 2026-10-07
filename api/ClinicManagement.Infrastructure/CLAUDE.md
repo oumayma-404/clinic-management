@@ -593,6 +593,10 @@ no consent flag and no audit of which patient was sent.
   audience clause for the list **and** the unread count, and `TargetRole` is checked against the viewer's account row,
   never the token. The vendor console's « PC de secours » column reads `ClinicRelayRepository.GetLatestForClinicsAsync`
   (one read per page, same « newest row » order as the card) through `PlatformClinicRowMapper`.
+  The same job e-mails the **vendor** once per problem episode (`RelayIncidents`, `RelayVendorAlertRules`) through
+  `Application/Features/Platform/VendorAlertRecipients` — the channel shared with `server-loss-recovery`'s backup
+  alerts (`Backup:AlertEmail`, else every active console account). ⚠️ `RelayIncident` is on `ClinicArchiveScope.Excluded`
+  (hence the copy's too) and is deliberately not an aggregate root, so it never reaches the cabinet's journal.
 
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live

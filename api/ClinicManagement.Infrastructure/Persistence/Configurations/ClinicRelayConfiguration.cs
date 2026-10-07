@@ -68,6 +68,35 @@ public class ClinicChangeConfiguration : IEntityTypeConfiguration<ClinicChange>
     }
 }
 
+public class RelayIncidentConfiguration : IEntityTypeConfiguration<RelayIncident>
+{
+    public void Configure(EntityTypeBuilder<RelayIncident> builder)
+    {
+        builder.ToTable("RelayIncidents");
+
+        builder.HasKey(i => i.Id);
+        builder.Property(i => i.Id).ValueGeneratedNever();
+        builder.Property(i => i.Kind).HasConversion<int>();
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(i => i.ClinicId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<ClinicRelay>()
+            .WithMany()
+            .HasForeignKey(i => i.RelayId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // One open episode per (PC, problem): the database, not the watcher, is what makes « e-mailed once » hold.
+        builder.HasIndex(i => new { i.RelayId, i.Kind })
+            .IsUnique()
+            .HasFilter("\"EndedAtUtc\" IS NULL");
+
+        builder.HasIndex(i => new { i.ClinicId, i.StartedAtUtc });
+    }
+}
+
 public class ClinicChangeCursorConfiguration : IEntityTypeConfiguration<ClinicChangeCursor>
 {
     public void Configure(EntityTypeBuilder<ClinicChangeCursor> builder)

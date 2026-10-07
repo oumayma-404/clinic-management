@@ -98,7 +98,7 @@ public static class RelayAlertRules
         };
 
     /// <summary>Inside opening hours — and, for « éteint » / « en retard », for <see cref="Grace"/> of them already.</summary>
-    private static bool DueInOpeningHours(ClinicRelayHealthReading reading, string? clinicHoursJson, DateTime nowUtc)
+    public static bool DueInOpeningHours(ClinicRelayHealthReading reading, string? clinicHoursJson, DateTime nowUtc)
     {
         var opened = OpenedAtUtc(clinicHoursJson, nowUtc);
         if (opened is null)

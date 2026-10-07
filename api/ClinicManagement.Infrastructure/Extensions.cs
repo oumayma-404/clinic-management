@@ -173,6 +173,7 @@ public static class Extensions
         services.AddScoped<IClinicRecoveryPointRepository, ClinicRecoveryPointRepository>();
         services.AddScoped<IClinicArchiveGrantRepository, ClinicArchiveGrantRepository>();
         services.AddScoped<IClinicRelayRepository, ClinicRelayRepository>();
+        services.AddScoped<IRelayIncidentRepository, RelayIncidentRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();
