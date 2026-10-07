@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { Button } from "@/components/ui/button"
@@ -42,6 +42,7 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
+import { LetterheadCard } from "@/components/letterhead/letterhead-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
@@ -215,8 +216,10 @@ export default function ClinicSettings() {
     loadClinicData()
   }, [])
 
+  // The loader is for the FIRST read only: on a later one it unmounted every card and reopened them all closed.
+  const loadedOnce = useRef(false)
   const loadClinicData = async () => {
-    setIsLoading(true)
+    if (!loadedOnce.current) setIsLoading(true)
     try {
       const status = await fetchUserStatus()
       if (status.hasClinic && status.clinic) {
@@ -284,6 +287,7 @@ export default function ClinicSettings() {
     } catch (err: any) {
       toast.error("Échec du chargement des données du cabinet : " + (err.message || "Erreur inconnue"))
     } finally {
+      loadedOnce.current = true
       setIsLoading(false)
     }
   }
@@ -974,6 +978,8 @@ export default function ClinicSettings() {
             </CardContent>
           )}
         </Card>
+
+        <LetterheadCard chipClassName={CONFIG_CHIP} canEdit={isClinicAdmin} />
 
         {/* Doctors Card Collapsible */}
         <Card>

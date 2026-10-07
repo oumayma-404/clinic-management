@@ -97,65 +97,11 @@ public class PdfGenerationService : IPdfGenerationService
             // FR-3.2: load the practitioner cachet blob (if snapshotted) before entering the sync render.
             // A missing/deleted blob or any storage error falls back to the plain signature line — never fails.
             var cachetImage = await LoadCachetImageAsync(documentData, cancellationToken);
+            var letterhead = await LoadLetterheadAsync(
+                documentData.LetterheadHeaderKey, documentData.LetterheadFooterKey, documentData.LetterheadBodyKey, cancellationToken);
 
-            var pdfBytes = await Task.Run(() =>
-            {
-                return Document.Create(container =>
-                {
-                    container.Page(page =>
-                    {
-                        page.Size(PageSizes.A4);
-                        page.Margin(2, Unit.Centimetre);
-                        page.PageColor(Colors.White);
-                        // Standard font: 11pt for body text, consistent across all documents
-                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
-
-                        // Main content
-                        page.Content()
-                            .Column(column =>
-                            {
-                                column.Spacing(20);
-
-                                // Header - Clinic Info
-                                column.Item().Element(ComposeHeader(documentData));
-
-                                // Place + date (FR-6.1): the cabinet city (never a hardcoded "Paris"), with
-                                // French month names forced via fr-FR. Falls back to "Le …" when no city is set.
-                                var dateStr = documentData.DocumentDate.ToString("dd MMMM yyyy", FrCulture);
-                                var placeLine = !string.IsNullOrWhiteSpace(documentData.ClinicCity)
-                                    ? $"{documentData.ClinicCity}, le {dateStr}"
-                                    : $"Le {dateStr}";
-                                column.Item().PaddingBottom(10).AlignRight().Text(placeLine)
-                                    .FontSize(11).FontFamily("Helvetica");
-
-                                // Document Title
-                                column.Item().Element(ComposeTitle(documentData.DocumentType));
-
-                                // Patient Info — withheld on the two types that name their own patient in the
-                                // prose. A lettre de liaison is a blank letterhead the practitioner writes on
-                                // (entête, date, titre, texte libre) and a certificat is one sentence with the
-                                // name in bold inside it; on either, an identity block above made the paper
-                                // read as a form and printed the name twice.
-                                if (documentData.DocumentType != DocumentTypes.Liaison &&
-                                    documentData.DocumentType != DocumentTypes.Certificat)
-                                {
-                                    column.Item().Element(ComposePatientInfo(documentData));
-                                }
-
-                                // Document Content
-                                column.Item().Element(ComposeContent(documentData));
-
-                                // Spacer to push signature to bottom - fills remaining vertical space
-                                column.Item().ExtendVertical();
-                            });
-
-                        // Footer - Signature always at bottom of page
-                        page.Footer()
-                            .PaddingTop(40)
-                            .Element(ComposeSignature(documentData, cachetImage));
-                    });
-                }).GeneratePdf();
-            }, cancellationToken);
+            var pdfBytes = await Task.Run(
+                () => RenderMedicalDocument(documentData, cachetImage, letterhead), cancellationToken);
 
             _logger.LogInformation("PDF generated successfully, size: {Size} bytes", pdfBytes.Length);
             return pdfBytes;
@@ -167,11 +113,71 @@ public class PdfGenerationService : IPdfGenerationService
         }
     }
 
+    public async Task<byte[]> GeneratePdfWithLetterheadAsync(
+        MedicalDocumentPdfData documentData, LetterheadImages letterhead, CancellationToken cancellationToken = default)
+    {
+        var cachetImage = await LoadCachetImageAsync(documentData, cancellationToken);
+        return await Task.Run(() => RenderMedicalDocument(documentData, cachetImage, letterhead), cancellationToken);
+    }
+
+    // One renderer for the real documents and the letterhead preview, so the preview cannot differ from the paper.
+    private byte[] RenderMedicalDocument(MedicalDocumentPdfData documentData, byte[]? cachetImage, LetterheadImages? letterhead) =>
+        Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                DocumentPage.Compose(page, letterhead, content: c => c.Column(column =>
+                {
+                    column.Spacing(20);
+
+                    // On the cabinet's own letterhead the paper already says who issued the document.
+                    if (letterhead == null)
+                    {
+                        column.Item().Element(ComposeHeader(documentData));
+                    }
+
+                    // Place + date (FR-6.1): the cabinet city (never a hardcoded "Paris"), with
+                    // French month names forced via fr-FR. Falls back to "Le …" when no city is set.
+                    var dateStr = documentData.DocumentDate.ToString("dd MMMM yyyy", FrCulture);
+                    var placeLine = !string.IsNullOrWhiteSpace(documentData.ClinicCity)
+                        ? $"{documentData.ClinicCity}, le {dateStr}"
+                        : $"Le {dateStr}";
+                    column.Item().PaddingBottom(10).AlignRight().Text(placeLine)
+                        .FontSize(11).FontFamily("Helvetica");
+
+                    // Document Title
+                    column.Item().Element(ComposeTitle(documentData.DocumentType));
+
+                    // Patient Info — withheld on the two types that name their own patient in the
+                    // prose. A lettre de liaison is a blank letterhead the practitioner writes on
+                    // (entête, date, titre, texte libre) and a certificat is one sentence with the
+                    // name in bold inside it; on either, an identity block above made the paper
+                    // read as a form and printed the name twice.
+                    if (documentData.DocumentType != DocumentTypes.Liaison &&
+                        documentData.DocumentType != DocumentTypes.Certificat)
+                    {
+                        column.Item().Element(ComposePatientInfo(documentData));
+                    }
+
+                    // Document Content
+                    column.Item().Element(ComposeContent(documentData));
+
+                    // Spacer to push signature to bottom - fills remaining vertical space
+                    column.Item().ExtendVertical();
+                }),
+                // Signature always at the bottom of the page.
+                footer: f => f.PaddingTop(40).Element(ComposeSignature(documentData, cachetImage)));
+            });
+        }).GeneratePdf();
+
     public async Task<byte[]> GenerateInvoicePdfAsync(InvoicePdfData data, CancellationToken cancellationToken = default)
     {
         try
         {
             _logger.LogInformation("Generating invoice PDF for {Number}", data.Number);
+
+            var letterhead = await LoadLetterheadAsync(
+                data.LetterheadHeaderKey, data.LetterheadFooterKey, data.LetterheadBodyKey, cancellationToken);
 
             var pdfBytes = await Task.Run(() =>
             {
@@ -179,27 +185,12 @@ public class PdfGenerationService : IPdfGenerationService
                 {
                     container.Page(page =>
                     {
-                        page.Size(PageSizes.A4);
-                        page.Margin(2, Unit.Centimetre);
-                        page.PageColor(Colors.White);
-                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
-
-                        page.Content().Column(column =>
+                        DocumentPage.Compose(page, letterhead, content: c => c.Column(column =>
                         {
                             column.Spacing(16);
 
                             // Clinic identity header (incl. matricule fiscal)
-                            column.Item().Column(header =>
-                            {
-                                header.Spacing(3);
-                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
-                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
-                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
-                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
-                            });
+                            column.Item().Element(ClinicIdentityHeader.Compose(data.ClinicName, data.ClinicAddress, data.ClinicPhone, data.MatriculeFiscal, letterhead != null));
 
                             // Title
                             column.Item().PaddingTop(4).AlignCenter().Text("NOTE D'HONORAIRES").FontSize(16).Bold().FontFamily("Helvetica");
@@ -289,9 +280,8 @@ public class PdfGenerationService : IPdfGenerationService
                             });
 
                             column.Item().ExtendVertical();
-                        });
-
-                        page.Footer().PaddingTop(20).Column(footer =>
+                        }),
+                        footer: f => f.PaddingTop(20).Column(footer =>
                         {
                             footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
 
@@ -305,7 +295,7 @@ public class PdfGenerationService : IPdfGenerationService
                                 : "Montants exprimés en dinars tunisiens (DT).";
                             footer.Item().PaddingTop(6).Text(mention)
                                 .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
-                        });
+                        }));
                     });
                 }).GeneratePdf();
             }, cancellationToken);
@@ -326,33 +316,21 @@ public class PdfGenerationService : IPdfGenerationService
         {
             _logger.LogInformation("Generating devis PDF for plan {Number}", data.Number ?? "(brouillon)");
 
+            var letterhead = await LoadLetterheadAsync(
+                data.LetterheadHeaderKey, data.LetterheadFooterKey, data.LetterheadBodyKey, cancellationToken);
+
             var pdfBytes = await Task.Run(() =>
             {
                 return Document.Create(container =>
                 {
                     container.Page(page =>
                     {
-                        page.Size(PageSizes.A4);
-                        page.Margin(2, Unit.Centimetre);
-                        page.PageColor(Colors.White);
-                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
-
-                        page.Content().Column(column =>
+                        DocumentPage.Compose(page, letterhead, content: c => c.Column(column =>
                         {
                             column.Spacing(16);
 
                             // Clinic identity header
-                            column.Item().Column(header =>
-                            {
-                                header.Spacing(3);
-                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
-                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
-                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
-                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
-                            });
+                            column.Item().Element(ClinicIdentityHeader.Compose(data.ClinicName, data.ClinicAddress, data.ClinicPhone, data.MatriculeFiscal, letterhead != null));
 
                             column.Item().PaddingTop(4).AlignCenter().Text("DEVIS").FontSize(16).Bold().FontFamily("Helvetica");
 
@@ -474,14 +452,13 @@ public class PdfGenerationService : IPdfGenerationService
                             }
 
                             column.Item().ExtendVertical();
-                        });
-
-                        page.Footer().PaddingTop(20).Column(footer =>
+                        }),
+                        footer: f => f.PaddingTop(20).Column(footer =>
                         {
                             footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
                             footer.Item().PaddingTop(6).Text("Devis — estimation non contractuelle. Montants exprimés en dinars tunisiens (DT).")
                                 .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
-                        });
+                        }));
                     });
                 }).GeneratePdf();
             }, cancellationToken);
@@ -504,33 +481,21 @@ public class PdfGenerationService : IPdfGenerationService
             // échéance precisely, which is what a reader chasing a failed render actually needs.
             _logger.LogInformation("Generating payment receipt PDF for {Reference}", data.Reference ?? "(none)");
 
+            var letterhead = await LoadLetterheadAsync(
+                data.LetterheadHeaderKey, data.LetterheadFooterKey, data.LetterheadBodyKey, cancellationToken);
+
             var pdfBytes = await Task.Run(() =>
             {
                 return Document.Create(container =>
                 {
                     container.Page(page =>
                     {
-                        page.Size(PageSizes.A4);
-                        page.Margin(2, Unit.Centimetre);
-                        page.PageColor(Colors.White);
-                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
-
-                        page.Content().Column(column =>
+                        DocumentPage.Compose(page, letterhead, content: c => c.Column(column =>
                         {
                             column.Spacing(16);
 
                             // Clinic identity header
-                            column.Item().Column(header =>
-                            {
-                                header.Spacing(3);
-                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
-                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
-                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
-                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
-                            });
+                            column.Item().Element(ClinicIdentityHeader.Compose(data.ClinicName, data.ClinicAddress, data.ClinicPhone, data.MatriculeFiscal, letterhead != null));
 
                             column.Item().PaddingTop(4).AlignCenter().Text("REÇU DE PAIEMENT").FontSize(16).Bold().FontFamily("Helvetica");
 
@@ -587,14 +552,13 @@ public class PdfGenerationService : IPdfGenerationService
                             });
 
                             column.Item().ExtendVertical();
-                        });
-
-                        page.Footer().PaddingTop(20).Column(footer =>
+                        }),
+                        footer: f => f.PaddingTop(20).Column(footer =>
                         {
                             footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
                             footer.Item().PaddingTop(6).Text("Reçu de paiement — Montants exprimés en dinars tunisiens (DT).")
                                 .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
-                        });
+                        }));
                     });
                 }).GeneratePdf();
             }, cancellationToken);
@@ -617,34 +581,22 @@ public class PdfGenerationService : IPdfGenerationService
             // patient's name added here that the document number does not.
             _logger.LogInformation("Generating avoir PDF {Number}", data.Number);
 
+            var letterhead = await LoadLetterheadAsync(
+                data.LetterheadHeaderKey, data.LetterheadFooterKey, data.LetterheadBodyKey, cancellationToken);
+
             var pdfBytes = await Task.Run(() =>
             {
                 return Document.Create(container =>
                 {
                     container.Page(page =>
                     {
-                        page.Size(PageSizes.A4);
-                        page.Margin(2, Unit.Centimetre);
-                        page.PageColor(Colors.White);
-                        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
-
-                        page.Content().Column(column =>
+                        DocumentPage.Compose(page, letterhead, content: c => c.Column(column =>
                         {
                             column.Spacing(16);
 
                             // Same identity header as the note d'honoraires — an avoir is the fiscal
                             // counterpart of the invoice it corrects, not a lesser note.
-                            column.Item().Column(header =>
-                            {
-                                header.Spacing(3);
-                                header.Item().Text(data.ClinicName).FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicAddress))
-                                    header.Item().Text(data.ClinicAddress).FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.ClinicPhone))
-                                    header.Item().Text($"Tél : {data.ClinicPhone}").FontSize(10).FontFamily("Helvetica");
-                                if (!string.IsNullOrWhiteSpace(data.MatriculeFiscal))
-                                    header.Item().Text($"Matricule fiscal : {data.MatriculeFiscal}").FontSize(10).FontFamily("Helvetica");
-                            });
+                            column.Item().Element(ClinicIdentityHeader.Compose(data.ClinicName, data.ClinicAddress, data.ClinicPhone, data.MatriculeFiscal, letterhead != null));
 
                             column.Item().PaddingTop(4).AlignCenter().Text("AVOIR").FontSize(16).Bold().FontFamily("Helvetica");
                             column.Item().AlignCenter().Text($"N° {data.Number}").FontSize(12).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
@@ -711,14 +663,13 @@ public class PdfGenerationService : IPdfGenerationService
                             });
 
                             column.Item().ExtendVertical();
-                        });
-
-                        page.Footer().PaddingTop(20).Column(footer =>
+                        }),
+                        footer: f => f.PaddingTop(20).Column(footer =>
                         {
                             footer.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
                             footer.Item().PaddingTop(6).Text("Avoir — Montants exprimés en dinars tunisiens (DT).")
                                 .FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
-                        });
+                        }));
                     });
                 }).GeneratePdf();
             }, cancellationToken);
@@ -806,8 +757,8 @@ public class PdfGenerationService : IPdfGenerationService
             {
                 column.Spacing(6);
 
-                // DocumentIdentity owns which patient lines a document must carry and in what order (nom, date
-                // de naissance, sexe, poids, médecin traitant). Laid out two per row so the block stays compact
+                // DocumentIdentity owns which patient lines a document must carry and in what order (nom, médecin
+                // traitant). Laid out two per row so the block stays compact
                 // however many lines it yields; the patient's name is emphasised as the first one.
                 var lines = DocumentIdentity.PatientLines(data);
                 for (var index = 0; index < lines.Count; index += 2)
@@ -1101,6 +1052,43 @@ public class PdfGenerationService : IPdfGenerationService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Cachet blob {Key} could not be read; rendering the plain signature line", data.DoctorCachetKey);
+            return null;
+        }
+    }
+
+    // The letterhead bands for a render. Null (→ the text header) when there is none or the header blob cannot be
+    // read; a footer or body that cannot be read only drops that band. Never throws — the cachet's rule.
+    private async Task<LetterheadImages?> LoadLetterheadAsync(
+        string? headerKey, string? footerKey, string? bodyKey, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(headerKey))
+        {
+            return null;
+        }
+
+        var header = await LoadBlobAsync(headerKey, cancellationToken);
+        if (header == null)
+        {
+            return null;
+        }
+
+        var footer = string.IsNullOrWhiteSpace(footerKey) ? null : await LoadBlobAsync(footerKey, cancellationToken);
+        var body = string.IsNullOrWhiteSpace(bodyKey) ? null : await LoadBlobAsync(bodyKey, cancellationToken);
+        return new LetterheadImages(header, footer, body);
+    }
+
+    private async Task<byte[]?> LoadBlobAsync(string key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = await _fileStorage.DownloadAsync(key, cancellationToken);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory, cancellationToken);
+            return memory.Length > 0 ? memory.ToArray() : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Letterhead blob {Key} could not be read; rendering without it", key);
             return null;
         }
     }

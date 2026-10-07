@@ -42,6 +42,9 @@ public static class MedicalDocumentPdfMapping
             DoctorOrdreNumber = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorOrdreNumberKey),
             DoctorCachetKey = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetKeyKey),
             DoctorCachetContentType = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.DoctorCachetContentTypeKey),
+            LetterheadHeaderKey = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.LetterheadHeaderKeyKey),
+            LetterheadFooterKey = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.LetterheadFooterKeyKey),
+            LetterheadBodyKey = contentStrings.GetValueOrDefault(PractitionerRenderSnapshot.LetterheadBodyKeyKey),
             // `patientSex` / `patientWeightKg` were mapped here and are not any more — see the tombstone in
             // `DocumentIdentity.PatientLines`. The keys survive in legacy ContentJson and reach `Content`
             // below like every other unmapped key, so nothing throws; they simply no longer print.
