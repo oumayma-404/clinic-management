@@ -110,6 +110,17 @@ public static class Extensions
         services.AddScoped<RequestQueryMetrics>();
         services.AddScoped<QueryCountingInterceptor>();
 
+        // clinic-pc-copy: the relay's row access (cloud reads, PC applies) and the change log it follows.
+        services.AddScoped<ClinicRelayRowStore>();
+        services.AddScoped<IClinicRelayRowStore>(provider => provider.GetRequiredService<ClinicRelayRowStore>());
+        services.AddScoped<ClinicManagement.Application.Features.Relay.Queries.IRelayBlobIndex>(
+            provider => provider.GetRequiredService<ClinicRelayRowStore>());
+        services.AddSingleton<ClinicManagement.Application.Features.Relay.IRelayBuildInfo, Relay.RelayBuildInfo>();
+        services.AddSingleton<ClinicManagement.Application.Features.Relay.Commands.IRelayKeyValidator, Relay.RelayKeyValidator>();
+        services.AddScoped(provider => new ClinicChangeCapture(
+            provider.GetRequiredService<DeploymentProfile>(),
+            provider.GetService<IIdempotencyKeyAccessor>()));
+
         services.AddDbContext<ApplicationDbContext>((provider, options) =>
             options
                 .UseNpgsql(connectionString)
@@ -161,6 +172,7 @@ public static class Extensions
         services.AddScoped<ICalendarImportRunRepository, CalendarImportRunRepository>();
         services.AddScoped<IClinicRecoveryPointRepository, ClinicRecoveryPointRepository>();
         services.AddScoped<IClinicArchiveGrantRepository, ClinicArchiveGrantRepository>();
+        services.AddScoped<IClinicRelayRepository, ClinicRelayRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();

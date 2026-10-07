@@ -130,6 +130,11 @@ export const ApiErrorCode = {
   MoneyHidden: 'money_hidden',
   /** This action needs an authenticator and the account has none. Emitted by `ClinicAuthRefusals.TotpNotEnrolled`. */
   TotpNotEnrolled: 'totp_not_enrolled',
+  /**
+   * 423: this server is a PC de secours holding a copy, so it records nothing outside a cut. The server's French
+   * sentence travels verbatim. Emitted by `RelayRefusals.StandbyCode` (`RelayLeaseGateMiddleware`).
+   */
+  RelayStandby: 'relay_standby',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */

@@ -31,6 +31,7 @@ public class SystemWideCallerCoverageTests
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
         ["ProvisionCertCommand.cs"] = "mints certificates into .local/; never opens a DbContext",
+        ["PairRelayConsoleCommand.cs"] = "pairs over HTTPS and writes .local/relay.json; never opens a DbContext",
         ["HardenPermissionsCommand.cs"] = "sets filesystem ACLs; never opens a DbContext",
         ["CredentialProtectionCommand.cs"] = "encrypts a string through Data Protection; never opens a DbContext",
         ["RestoreBackupCommand.cs"] = "runs pg_restore and bumps TokenVersion over raw ADO (NpgsqlCommand) — there "

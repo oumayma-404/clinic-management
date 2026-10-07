@@ -648,6 +648,57 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("ClinicArchiveGrants", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChange", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("EntityKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Op")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Origin")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Table")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("ClinicId", "Seq");
+
+                    b.HasIndex("ClinicId", "Table", "EntityKey");
+
+                    b.ToTable("ClinicChanges", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChangeCursor", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("LastSeq")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("ClinicId");
+
+                    b.ToTable("ClinicChangeCursors", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicMessagingMonth", b =>
                 {
                     b.Property<Guid>("Id")
@@ -734,6 +785,136 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("ClinicId", "StartedAt");
 
                     b.ToTable("ClinicRecoveryPoints", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicRelay", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("AppliedSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Build")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CertificateFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("ClockSkewSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long?>("DiskFreeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("FilesCopied")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FilesTotal")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("HighWaterAtLastAck")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsUpdating")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("LanAddresses")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("LastReadyAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("MismatchSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MismatchTables")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("PairedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PairingCodeExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PairingCodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PublicKey")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime?>("RetiredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RetiredByUserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int?>("RetiredReason")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SecretHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("SeedPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SeededAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" <> 3");
+
+                    b.HasIndex("PairingCodeHash")
+                        .IsUnique()
+                        .HasFilter("\"PairingCodeHash\" IS NOT NULL");
+
+                    b.HasIndex("SecretHash")
+                        .IsUnique()
+                        .HasFilter("\"SecretHash\" IS NOT NULL");
+
+                    b.ToTable("ClinicRelays", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
@@ -4376,6 +4557,24 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChange", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChangeCursor", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicMessagingMonth", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -4386,6 +4585,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicRecoveryPoint", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicRelay", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()

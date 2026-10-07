@@ -46,6 +46,12 @@ public class ScopedTokenCoverageTests
         ["Backup.GetFileManifest"] = LocalAuthScopes.ClinicArchive,
         ["Backup.ReportVaultCopy"] = LocalAuthScopes.ClinicArchive,
         ["PatientFiles.DownloadFile"] = LocalAuthScopes.ClinicArchive,
+        // clinic-pc-copy: what the PC de secours calls with its own token — its report, the copy, the check, the files.
+        ["RelayPeer.Heartbeat"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Changes"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Snapshot"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Digest"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Blob"] = LocalAuthScopes.ClinicRelay,
     };
 
     [Fact]

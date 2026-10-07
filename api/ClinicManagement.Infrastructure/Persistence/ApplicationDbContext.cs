@@ -29,6 +29,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
     private readonly ICurrentClinicProvider? _clinicProvider;
     private readonly IAuditChainKeyProvider? _auditChainKey;
+    private readonly ClinicChangeCapture? _changeCapture;
 
     // The clinic provider is optional so the design-time factory and any manual construction still work (they
     // pass no provider → the filters return everything, as before). At runtime AddDbContext always injects it.
@@ -37,10 +38,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public ApplicationDbContext(
         DbContextOptions<ApplicationDbContext> options,
         ICurrentClinicProvider? clinicProvider = null,
-        IAuditChainKeyProvider? auditChainKey = null) : base(options)
+        IAuditChainKeyProvider? auditChainKey = null,
+        ClinicChangeCapture? changeCapture = null) : base(options)
     {
         _clinicProvider = clinicProvider;
         _auditChainKey = auditChainKey;
+        _changeCapture = changeCapture;
     }
 
     // Exposed for the global query filters below. Accessed through the context instance so EF Core treats them
@@ -200,6 +203,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // ClinicIds, so both are filtered; the three messaging-* verbs declare UseSystemWide to reach every cabinet.
     public DbSet<MessagingAllowanceEntry> MessagingAllowanceEntries { get; set; }
     public DbSet<ClinicMessagingMonth> ClinicMessagingMonths { get; set; }
+    // clinic-pc-copy: the PC de secours rows, and the per-clinic change log they follow.
+    public DbSet<ClinicRelay> ClinicRelays { get; set; }
+    public DbSet<ClinicChange> ClinicChanges { get; set; }
+    public DbSet<ClinicChangeCursor> ClinicChangeCursors { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -361,6 +368,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // filter is owning a clinic, not being a root.
         modelBuilder.Entity<MessagingAllowanceEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ClinicMessagingMonth>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+        // clinic-pc-copy. The relay's own token reads escape through IgnoreQueryFilters (it has no session clinic).
+        modelBuilder.Entity<ClinicRelay>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicChange>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicChangeCursor>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a
@@ -479,6 +490,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
         typeof(UserDashboardPreference),
         typeof(SessionFamily),
+        // clinic-pc-copy: written by the PC's heartbeat every few seconds; a lifecycle step must not 409 against it.
+        typeof(ClinicRelay),
     };
 
     /// <summary>
@@ -625,6 +638,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                 "Le journal d'audit ne peut être chaîné que sur le chemin asynchrone : utilisez SaveChangesAsync.");
         }
 
+        // clinic-pc-copy: a change the log never saw is a gap the PC de secours cannot detect.
+        if (_changeCapture?.HasCandidates(this) == true)
+        {
+            throw new InvalidOperationException(
+                "Les modifications d'un cabinet ne peuvent être enregistrées que sur le chemin asynchrone : utilisez SaveChangesAsync.");
+        }
+
         return base.SaveChanges();
     }
 
@@ -648,9 +668,15 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         ConvertDateTimesToUtc();
 
         var auditRows = PendingAuditRows();
-        if (auditRows.Count == 0)
+        var captures = _changeCapture?.HasCandidates(this) == true;
+        if (auditRows.Count == 0 && !captures)
         {
             return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        if (auditRows.Count == 0)
+        {
+            return await SaveCapturedAsync(cancellationToken);
         }
 
         if (_auditChainKey is null)
@@ -662,18 +688,42 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                 "Aucune clé de chaînage n'est disponible : ce contexte ne peut pas écrire au journal d'audit.");
         }
 
+        // Lock order is fixed — the change cursor, then the audit chain — so two writers cannot deadlock (R-9).
         if (Database.CurrentTransaction is not null)
         {
+            await CaptureAsync(captures, cancellationToken);
             await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
             return await base.SaveChangesAsync(cancellationToken);
         }
 
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await CaptureAsync(captures, cancellationToken);
         await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
         var written = await base.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return written;
     }
+
+    /// <summary>A save with no audit row that touches a relay-scoped row: the change log rides the save's transaction (D1).</summary>
+    private async Task<int> SaveCapturedAsync(CancellationToken cancellationToken)
+    {
+        if (Database.CurrentTransaction is not null)
+        {
+            await CaptureAsync(true, cancellationToken);
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await CaptureAsync(true, cancellationToken);
+        var written = await base.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return written;
+    }
+
+    private Task CaptureAsync(bool captures, CancellationToken cancellationToken) =>
+        captures && _changeCapture is not null
+            ? _changeCapture.AppendAsync(this, cancellationToken)
+            : Task.CompletedTask;
 
     private List<AuditEntry> PendingAuditRows() =>
         ChangeTracker.Entries<AuditEntry>()

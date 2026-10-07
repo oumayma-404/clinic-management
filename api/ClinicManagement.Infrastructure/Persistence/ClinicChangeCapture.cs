@@ -1,0 +1,304 @@
+using System.Data.Common;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
+using ClinicManagement.Infrastructure.Deployment;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Storage;
+
+namespace ClinicManagement.Infrastructure.Persistence;
+
+/// <summary>The request's <c>Idempotency-Key</c>, recorded on every change it makes (D17). Null outside a request.</summary>
+public interface IIdempotencyKeyAccessor
+{
+    string? Current { get; }
+}
+
+/// <summary>
+/// Appends a <see cref="ClinicChange"/> per key a save touches, inside the save's own transaction (D1, D2): the
+/// clinic's cursor row is advanced with <c>UPDATE … RETURNING</c>, whose row lock is what makes commit order seq order.
+/// A clinic with no cursor row (no PC de secours) changes nothing.
+/// </summary>
+public sealed class ClinicChangeCapture
+{
+    private readonly bool _enabled;
+    private readonly ClinicChangeOrigin _origin;
+    private readonly IIdempotencyKeyAccessor? _idempotency;
+
+    public ClinicChangeCapture(DeploymentProfile profile, IIdempotencyKeyAccessor? idempotency = null)
+    {
+        _enabled = profile.PublishesChangeFeed || profile.MirrorsCloudClinic;
+        _origin = profile.MirrorsCloudClinic ? ClinicChangeOrigin.Relay : ClinicChangeOrigin.Cloud;
+        _idempotency = idempotency;
+    }
+
+    /// <summary>Whether this save touches a relay-scoped row at all — the cheap test run before any SQL.</summary>
+    public bool HasCandidates(DbContext context)
+    {
+        if (!_enabled)
+        {
+            return false;
+        }
+
+        var plan = ClinicRelayScope.For(context.Model);
+        return context.ChangeTracker.Entries().Any(e => IsCandidate(plan, e));
+    }
+
+    /// <summary>Resolves each touched key's clinic and stages its change rows. Must run inside the save's transaction.</summary>
+    public async Task AppendAsync(DbContext context, CancellationToken cancellationToken)
+    {
+        if (!_enabled)
+        {
+            return;
+        }
+
+        var transaction = context.Database.CurrentTransaction
+                          ?? throw new InvalidOperationException("La capture des modifications exige une transaction.");
+
+        var plan = ClinicRelayScope.For(context.Model);
+        var tracked = new TrackedIndex(context.ChangeTracker.Entries().ToList());
+        var entries = tracked.All.Where(e => IsCandidate(plan, e)).ToList();
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        var resolver = new ClinicResolver(context, plan, transaction, tracked);
+        var touched = new Dictionary<(Guid Clinic, string Table, string Key), ClinicChangeOp>();
+
+        foreach (var entry in entries)
+        {
+            var (table, row) = OwnerRow(plan, entry, tracked);
+            if (table is null || row is null)
+            {
+                continue;
+            }
+
+            var clinicId = await resolver.ClinicOfAsync(table, row, cancellationToken);
+            if (clinicId is null)
+            {
+                continue;
+            }
+
+            var op = ReferenceEquals(row, entry) && entry.State == EntityState.Deleted
+                ? ClinicChangeOp.Delete
+                : ClinicChangeOp.Upsert;
+            var key = KeyOf(table, row);
+            var slot = (clinicId.Value, table.Name, key);
+            touched[slot] = touched.TryGetValue(slot, out var previous) && previous == ClinicChangeOp.Delete
+                ? ClinicChangeOp.Delete
+                : op;
+        }
+
+        var now = DateTime.UtcNow;
+        var idempotencyKey = _idempotency?.Current;
+
+        foreach (var clinic in touched.Keys.Select(k => k.Clinic).Distinct().Order())
+        {
+            var changes = touched.Where(t => t.Key.Clinic == clinic)
+                .OrderBy(t => t.Key.Table, StringComparer.Ordinal)
+                .ThenBy(t => t.Key.Key, StringComparer.Ordinal)
+                .ToList();
+
+            var last = await AdvanceCursorAsync(context, transaction, clinic, changes.Count, cancellationToken);
+            if (last is null)
+            {
+                continue;
+            }
+
+            var seq = last.Value - changes.Count;
+            foreach (var change in changes)
+            {
+                context.Add(new ClinicChange(
+                    clinic, ++seq, change.Key.Table, change.Key.Key, change.Value, _origin, idempotencyKey, now));
+            }
+        }
+    }
+
+    private static bool IsCandidate(ClinicRelayPlan plan, EntityEntry entry)
+    {
+        if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+        {
+            return false;
+        }
+
+        var type = entry.Metadata;
+        while (type.IsOwned())
+        {
+            type = type.FindOwnership()!.PrincipalEntityType;
+        }
+
+        return plan.Find(type.ClrType) is not null;
+    }
+
+    /// <summary>An owned row is a change to its owner's row (D5): the owner travels whole, its owned lists included.</summary>
+    private static (ClinicRelayTable? Table, EntityEntry? Row) OwnerRow(
+        ClinicRelayPlan plan, EntityEntry entry, TrackedIndex tracked)
+    {
+        var current = entry;
+        while (current.Metadata.IsOwned())
+        {
+            var ownership = current.Metadata.FindOwnership()!;
+            var owner = tracked.Find(ownership.PrincipalEntityType,
+                ownership.Properties.Select(p => Value(current, p)).ToArray());
+            if (owner is null)
+            {
+                return (null, null);
+            }
+
+            current = owner;
+        }
+
+        return (plan.Find(current.Metadata.ClrType), current);
+    }
+
+    internal static object? Value(EntityEntry entry, IProperty property) =>
+        entry.State == EntityState.Deleted
+            ? entry.Property(property.Name).OriginalValue
+            : entry.Property(property.Name).CurrentValue;
+
+    internal static string KeyOf(ClinicRelayTable table, EntityEntry entry) =>
+        string.Join(ClinicChange.KeySeparator,
+            table.EntityType.FindPrimaryKey()!.Properties.Select(p => FormatKey(Value(entry, p))));
+
+    internal static string FormatKey(object? value) => value switch
+    {
+        null => string.Empty,
+        Guid g => g.ToString("D"),
+        IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? string.Empty,
+    };
+
+    /// <summary>The save's tracked entries, read once (each <c>Entries()</c> call re-runs change detection).</summary>
+    private sealed class TrackedIndex
+    {
+        private readonly Dictionary<(IEntityType Type, string Key), EntityEntry> _byKey = new();
+
+        public TrackedIndex(IReadOnlyList<EntityEntry> all)
+        {
+            All = all;
+            foreach (var entry in all)
+            {
+                var key = entry.Metadata.FindPrimaryKey();
+                if (key is not null)
+                {
+                    _byKey.TryAdd((entry.Metadata, Join(key.Properties.Select(p => Value(entry, p)))), entry);
+                }
+            }
+        }
+
+        public IReadOnlyList<EntityEntry> All { get; }
+
+        public EntityEntry? Find(IEntityType type, IEnumerable<object?> key) =>
+            _byKey.GetValueOrDefault((type, Join(key)));
+
+        private static string Join(IEnumerable<object?> values) =>
+            string.Join(ClinicChange.KeySeparator, values.Select(FormatKey));
+    }
+
+    private static async Task<long?> AdvanceCursorAsync(
+        DbContext context, IDbContextTransaction transaction, Guid clinicId, int count, CancellationToken cancellationToken)
+    {
+        var connection = context.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction.GetDbTransaction();
+        command.CommandText =
+            "UPDATE \"ClinicChangeCursors\" SET \"LastSeq\" = \"LastSeq\" + @n WHERE \"ClinicId\" = @c RETURNING \"LastSeq\"";
+        AddParameter(command, "n", (long)count);
+        AddParameter(command, "c", clinicId);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is null or DBNull ? null : Convert.ToInt64(result, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    internal static void AddParameter(DbCommand command, string name, object? value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value ?? DBNull.Value;
+        command.Parameters.Add(parameter);
+    }
+
+    /// <summary>Finds a row's clinic: its own column, else its tracked parent, else one indexed lookup per level.</summary>
+    private sealed class ClinicResolver
+    {
+        private readonly DbContext _context;
+        private readonly ClinicRelayPlan _plan;
+        private readonly IDbContextTransaction _transaction;
+        private readonly TrackedIndex _tracked;
+        private readonly Dictionary<(string Table, string Key), Guid?> _cache = new();
+
+        public ClinicResolver(DbContext context, ClinicRelayPlan plan, IDbContextTransaction transaction, TrackedIndex tracked)
+        {
+            _context = context;
+            _plan = plan;
+            _transaction = transaction;
+            _tracked = tracked;
+        }
+
+        public async Task<Guid?> ClinicOfAsync(ClinicRelayTable table, EntityEntry row, CancellationToken ct)
+        {
+            switch (table.Scope)
+            {
+                case ClinicRelayTableScope.Self:
+                    return Value(row, table.EntityType.FindPrimaryKey()!.Properties[0]) as Guid?;
+                case ClinicRelayTableScope.Direct:
+                    return Value(row, table.EntityType.FindProperty(ClinicArchiveScope.ClinicIdProperty)!) as Guid?;
+                default:
+                    var fk = table.EntityType.GetForeignKeys().First(f =>
+                        f.Properties.Count == 1 && f.PrincipalEntityType.ClrType.Name == table.ParentTable && f.IsRequired);
+                    var parentKey = Value(row, fk.Properties[0]);
+                    if (parentKey is null)
+                    {
+                        return null;
+                    }
+
+                    var parent = _plan.Find(table.ParentTable!)!;
+                    var tracked = _tracked.Find(parent.EntityType, new[] { parentKey });
+                    return tracked is not null
+                        ? await ClinicOfAsync(parent, tracked, ct)
+                        : await LookUpAsync(parent, parentKey, ct);
+            }
+        }
+
+        private async Task<Guid?> LookUpAsync(ClinicRelayTable table, object key, CancellationToken ct)
+        {
+            var slot = (table.Name, FormatKey(key));
+            if (_cache.TryGetValue(slot, out var cached))
+            {
+                return cached;
+            }
+
+            Guid? clinic;
+            if (table.Scope == ClinicRelayTableScope.Self)
+            {
+                clinic = key as Guid?;
+            }
+            else
+            {
+                var column = table.Scope == ClinicRelayTableScope.Direct ? table.ClinicColumn! : table.ParentColumn!;
+                var value = await ScalarAsync(
+                    $"SELECT {ClinicRelaySql.Quote(column)} FROM {table.QualifiedName} WHERE {ClinicRelaySql.Quote(table.KeyColumns[0])} = @k",
+                    key, ct);
+                clinic = value is null
+                    ? null
+                    : table.Scope == ClinicRelayTableScope.Direct
+                        ? value as Guid?
+                        : await LookUpAsync(_plan.Find(table.ParentTable!)!, value, ct);
+            }
+
+            _cache[slot] = clinic;
+            return clinic;
+        }
+
+        private async Task<object?> ScalarAsync(string sql, object key, CancellationToken ct)
+        {
+            await using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.Transaction = _transaction.GetDbTransaction();
+            command.CommandText = sql;
+            AddParameter(command, "k", key);
+            var result = await command.ExecuteScalarAsync(ct);
+            return result is DBNull ? null : result;
+        }
+    }
+}

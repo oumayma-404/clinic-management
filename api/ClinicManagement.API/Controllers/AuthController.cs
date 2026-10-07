@@ -113,6 +113,9 @@ public class AuthController : ApiControllerBase
             // factor. Served so the login screen can say so before the first refusal rather than after it; the
             // server enforces it regardless, and no client reads this to decide whether to send the code.
             requiresSecondFactor = deployment.RequiresAdminSecondFactor,
+            // clinic-pc-copy: whether this server can have a PC de secours, and whether it IS one.
+            relayFeedEnabled = deployment.PublishesChangeFeed,
+            isClinicRelay = deployment.MirrorsCloudClinic,
         });
     }
 
@@ -267,6 +270,7 @@ public class AuthController : ApiControllerBase
     // The brute-force surface (US-4 / AC-4.1): a tight window per submitted account, plus a looser per-address
     // ceiling — a whole practice arrives through one NAT address, so the address alone cannot be the brake.
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [AllowedOnStandbyRelay("Reading the copy on a PC de secours needs a session; sign-in traces stay that side's own.")]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
@@ -391,6 +395,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowsWithoutSubscription(
         "The counterpart of the read above: a device must be revocable whatever the cabinet's entitlement says.")]
+    [AllowedOnStandbyRelay("Sessions are each install's own and never copied, so ending one changes nothing the cloud sends.")]
     [HttpDelete("sessions/{sessionId:guid}")]
     public async Task<IActionResult> EndMySession(Guid sessionId)
     {
@@ -425,6 +430,7 @@ public class AuthController : ApiControllerBase
     /// <para>⚠️ It spends its <b>own</b> failure counter, never the login lockout: three wrong attempts refuse
     /// this action with the session untouched, because the user is already signed in and doing ordinary work.</para>
     /// </summary>
+    [AllowedOnStandbyRelay("A step-up proof lives in this process's memory only and writes no row of the cabinet's.")]
     [HttpPost("step-up")]
     public async Task<IActionResult> StepUp([FromBody] StepUpRequest request)
     {
@@ -478,6 +484,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [AllowedOnStandbyRelay("Keeping a session on the PC alive; sessions are each install's own and never copied.")]
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
@@ -513,6 +520,7 @@ public class AuthController : ApiControllerBase
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [AllowsWithoutSubscription("Signing out is not recording clinic work, and a cabinet must always be able to.")]
+    [AllowedOnStandbyRelay("Signing out of a shared PC must always work, and sessions are never copied.")]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
     {

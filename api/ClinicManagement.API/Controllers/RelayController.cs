@@ -1,0 +1,95 @@
+using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Relay;
+using ClinicManagement.Application.Features.Relay.Commands;
+using ClinicManagement.Application.Features.Relay.Queries;
+using ClinicManagement.Infrastructure.Deployment;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace ClinicManagement.API.Controllers;
+
+/// <summary>« Paramètres → PC de secours »: the clinic admin's side (<c>clinic-pc-copy</c>). Absent where no change log is published.</summary>
+[ApiController]
+[Route("api/relay")]
+[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+public class RelayController : ApiControllerBase
+{
+    private readonly IMediator _mediator;
+    private readonly DeploymentProfile _deployment;
+    private readonly IStepUpConfirmations _stepUp;
+    private readonly IClinicContext _clinicContext;
+
+    public RelayController(
+        IMediator mediator, DeploymentProfile deployment, IStepUpConfirmations stepUp, IClinicContext clinicContext)
+    {
+        _mediator = mediator;
+        _deployment = deployment;
+        _stepUp = stepUp;
+        _clinicContext = clinicContext;
+    }
+
+    [HttpGet("status")]
+    public async Task<ActionResult<RelayStatusDto>> Status(CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new GetRelayStatusQuery(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    [HttpPost("pairing-codes")]
+    public async Task<ActionResult<RelayPairingCodeDto>> IssuePairingCode(
+        [FromBody] IssueRelayPairingCodeRequest request,
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var callerId = _clinicContext.GetUserId();
+        if (string.IsNullOrWhiteSpace(callerId) || !_stepUp.Consume(callerId, RelayStepUpActions.Pairing, confirmation ?? string.Empty))
+        {
+            return Failure("Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        var result = await _mediator.Send(new IssueRelayPairingCodeCommand(request.Label ?? string.Empty), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    [HttpDelete]
+    [AllowsWithoutSubscription("Retiring a PC that holds the clinic's records is offboarding, never new work.")]
+    public async Task<ActionResult<RelayStatusDto>> Retire(CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new RetireRelayCommand(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    internal static int StatusFor(string? code) => code switch
+    {
+        RelayRefusals.AlreadyPairedCode => StatusCodes.Status409Conflict,
+        RelayRefusals.PairingCodeExpiredCode => StatusCodes.Status410Gone,
+        RelayRefusals.NoRelayCode => StatusCodes.Status404NotFound,
+        RelayRefusals.NotAdminCode => StatusCodes.Status403Forbidden,
+        RelayRefusals.UnknownRelayCode => StatusCodes.Status401Unauthorized,
+        RelayRefusals.RetiredCode => StatusCodes.Status410Gone,
+        RelayRefusals.VersionMismatchCode => StatusCodes.Status409Conflict,
+        "relay_blob_not_found" => StatusCodes.Status404NotFound,
+        _ => StatusCodes.Status400BadRequest,
+    };
+}
+
+public sealed record IssueRelayPairingCodeRequest(string? Label);

@@ -59,7 +59,14 @@ public class ControllerAuthorizationCoverageTests
                                       // GET /api/backup/archive and, by ScopedTokenFilter's fail-closed rule,
                                       // nothing else. While it minted an ordinary clinic-admin token this
                                       // endpoint was a hole and this guard was right to be red about it.
-        "Auth.Logout",               // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
+        "RelayPeer.Pair",            // clinic-pc-copy: the installer on the PC de secours, before it has any
+                                     // credential. The one-time pairing code an admin issued behind step-up IS
+                                     // the credential (hashed, 10 min, single-use), rate-limited, 404 where the
+                                     // deployment publishes no change feed.
+        "RelayPeer.Token",           // the PC exchanging its own secret (header, hashed) for a SCOPED
+                                     // `clinic-relay` token that reaches the RelayPeer actions and nothing else —
+                                     // `Backup.ExchangeArchiveGrant`'s shape and reasoning.
+        "Auth.Logout",              // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
                                      // one more: the credential in the body IS the authentication, and demanding
                                      // a valid access token would refuse exactly the case that most needs
                                      // revoking — a browser signing out after its 30-minute token expired. It

@@ -73,4 +73,7 @@ public static class LocalAuthScopes
     /// unattended workstation from its device grant.
     /// </summary>
     public const string ClinicArchive = "clinic-archive";
+
+    /// <summary>« This token is a PC de secours following its clinic » (<c>clinic-pc-copy</c>); its subject is the relay, not a person.</summary>
+    public const string ClinicRelay = "clinic-relay";
 }

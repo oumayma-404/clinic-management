@@ -105,6 +105,10 @@ export interface AuthModeDto {
    * administrateur » sentence, which is true on every deployment, rather than a link that would 404.
    */
   passwordResetEnabled?: boolean;
+  /** clinic-pc-copy: this server publishes a change log, so its clinics can have a PC de secours (`=== true`). */
+  relayFeedEnabled?: boolean;
+  /** clinic-pc-copy: this server IS a PC de secours (`=== true`). */
+  isClinicRelay?: boolean;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */

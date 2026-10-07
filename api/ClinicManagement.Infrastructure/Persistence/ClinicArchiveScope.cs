@@ -96,6 +96,10 @@ public static class ClinicArchiveScope
         nameof(ClinicActivityDay),
         nameof(ClinicActivitySnapshot),
         nameof(ClinicSignup),
+        // clinic-pc-copy: the PC de secours's credential and the change log are deployment state, not the practice's record.
+        nameof(ClinicRelay),
+        nameof(ClinicChange),
+        nameof(ClinicChangeCursor),
         // The Data Protection key ring, where DataProtection:PersistToDatabase puts it. Deployment-wide key
         // material and the single most dangerous thing that could travel in a cabinet's zip: the archive is
         // deliberately UNENCRYPTED and kept on a practice's laptop, and these rows decrypt every administrator's

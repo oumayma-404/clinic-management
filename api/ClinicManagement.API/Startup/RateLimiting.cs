@@ -71,6 +71,9 @@ public static class RateLimiting
     /// </summary>
     public const string ArchiveGrantTokenPolicy = "clinic-archive-grant-token";
 
+    /// <summary>The PC de secours's anonymous pairing and token exchange (clinic-pc-copy), on the archive grant's terms.</summary>
+    public const string RelayTokenPolicy = "clinic-relay-token";
+
     /// <summary>
     /// « Exporter » on a list screen — the patient roster and the agenda, as CSV.
     ///
@@ -255,6 +258,17 @@ public static class RateLimiting
                     // The caller is anonymous by construction — the whole point is that it has no session — so
                     // this partitions on the address. `ArchivePartitionKey` would fall back to the same thing.
                     $"archive-grant-token:{ClientIp.Resolve(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = grantTokenPermitLimit,
+                        Window = grantTokenWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(RelayTokenPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"relay-token:{ClientIp.Resolve(httpContext, trustedProxies)}",
                     _ => new SlidingWindowRateLimiterOptions
                     {
                         PermitLimit = grantTokenPermitLimit,
