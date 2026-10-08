@@ -160,6 +160,56 @@ export async function fetchSummary(token: string): Promise<PlatformSummary> {
   return consoleFetch<PlatformSummary>("/platform/summary", { token });
 }
 
+// ── The host's off-site backups (server-loss-recovery Part 3) ──────────────────────────────────────────────
+
+/** `Ok` · `Stale` (nothing failed, nothing recent proven) · `Failing` (the last attempt failed). */
+export type BackupVerdict = "Ok" | "Stale" | "Failing";
+
+export interface PlatformNightlyBackup {
+  verdict: BackupVerdict;
+  verdictLabel: string;
+  /** `succeeded` / `failed` as the run wrote it; null when no run has been recorded. */
+  outcome: string | null;
+  /** The step a failed run stopped at (`remote`, `dump`, `upload`…). */
+  failedStage: string | null;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+}
+
+export interface PlatformWalArchive {
+  verdict: BackupVerdict;
+  verdictLabel: string;
+  lastArchivedAt: string | null;
+  failedCount: number;
+  lastFailedAt: string | null;
+}
+
+export interface PlatformBackupHealth {
+  verdict: BackupVerdict;
+  verdictLabel: string;
+  checkedAt: string;
+  nightly: PlatformNightlyBackup;
+  walArchive: PlatformWalArchive;
+}
+
+/**
+ * Whether the host's two off-site copies are healthy — the same verdict the morning alert e-mail sends.
+ *
+ * ⚠️ **`null` means « this deployment watches no backup sidecar »** (the API answers 404 there), never « healthy »:
+ * the caller renders nothing for it. Every other failure throws, so the page can say « illisible » rather than
+ * show nothing — a missing strip and a healthy one must not look alike.
+ */
+export async function fetchBackupHealth(token: string): Promise<PlatformBackupHealth | null> {
+  try {
+    return await consoleFetch<PlatformBackupHealth>("/platform/backup-health", { token });
+  } catch (error) {
+    if (error instanceof ConsoleApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 // ── The password policy (hosted-security-hardening FR-1.9) ──────────────────────────────────────────────────
 
 /** What the console needs before it asks anybody to **choose** a password. */

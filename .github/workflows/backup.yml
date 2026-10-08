@@ -1,0 +1,52 @@
+# The nightly backup's only gate — it had none.
+#
+# `deploy/backup/backup.sh` ran nowhere but the production VPS, and from 2026-09-03 it aborted there every night:
+# the call to mirror-objects.sh carried literal `\n` where line continuations belonged, so `sh` passed `n` as the
+# object store, the manifest was written over the mirror's directory, and the next `cp` killed the run before
+# encryption and upload. Thirty-three nights, no off-site copy of a single radiograph, and the only record a
+# `docker logs` line. Both steps below fail on exactly that commit (verified by re-breaking the line: 23 checks
+# red, against 0 with the fix).
+#
+# Path-filtered like ios-shell.yml, and for a similar reason: it builds four images and runs two MinIO and two
+# PostgreSQL, a few minutes nothing outside `deploy/` can change the answer of.
+name: Backup
+
+on:
+  push:
+    paths:
+      - "deploy/**"
+      - ".github/workflows/backup.yml"
+  pull_request:
+    paths:
+      - "deploy/**"
+      - ".github/workflows/backup.yml"
+  workflow_dispatch:
+
+# Checks out and runs local containers; nothing here writes to the repository or reaches a deployment.
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  backup:
+    name: Backup — shellcheck + backup/restore round trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # SC1012 (« \n is just literal 'n' here ») is the warning the broken call raised. `-S warning` keeps style
+      # notes out of the verdict; `-x -P deploy/backup` follows the scripts' `. keyring-id.sh`.
+      - name: Shellcheck the deploy scripts
+        run: >
+          shellcheck -x -P deploy/backup -S warning
+          deploy/backup/*.sh deploy/backup/test/*.sh deploy/postgres/*.sh deploy/certs/*.sh deploy/*.sh
+
+      # Fake data only: a TLS PostgreSQL and MinIO, a second MinIO as the off-site bucket, the production backup
+      # image. Backs up, restores into empty servers, compares rows, checksums and the key ring, then proves the
+      # failures stay loud. See the script's header.
+      - name: Backup → off-site → restore round trip
+        run: bash deploy/backup/test/roundtrip.sh

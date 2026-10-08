@@ -148,12 +148,18 @@ services:
       # nor writes those destinations, the `backup` and `pitr` sidecars do. They are here because a value no
       # process can check is a value nobody checks: the sidecars have no startup guard of their own, and the
       # one that shipped as a Backblaze-Oregon default was invisible at every layer until somebody read the
-      # template. `Backup__Remote` is still only *reported* — it names an rclone remote whose host lives in
-      # rclone.conf, which no container but `backup` can read.
+      # template. The nightly destination used to be only *reported* — an rclone remote whose host lived in an
+      # rclone.conf no container but `backup` could read. Its endpoint is configured from .env now
+      # (server-loss-recovery), so `Backup__RemoteEndpoint` is checked exactly like the PITR one.
       Residency__AllowedEgressHosts__0: ${RESIDENCY_ALLOWED_EGRESS_HOSTS_0:-}
       Residency__AllowedEgressHosts__1: ${RESIDENCY_ALLOWED_EGRESS_HOSTS_1:-}
       Backup__PitrEndpoint: ${WALG_S3_ENDPOINT:-}
       Backup__Remote: ${BACKUP_REMOTE:-}
+      Backup__RemoteEndpoint: ${BACKUP_S3_ENDPOINT:-}
+      # server-loss-recovery Part 3 — what the nightly backup last did, read from the `backup_status` volume below;
+      # and who is e-mailed every morning it is not healthy (empty = every active console account).
+      Backup__StatusFile: /backup-status/backup.status
+      Backup__AlertEmail: ${BACKUP_ALERT_EMAIL:-}
       # ── Abonnements (clinic-subscription) ────────────────────────────────────────────────────────
       # ⚠️ **This is the ONLY deployment kind where the subscription gate exists, and « Abonnement » is where a
       # refused save sends the cabinet.** Left unset, `appsettings.json` ships every price at 0 — which that file's
@@ -276,6 +282,8 @@ services:
       - internal_certs:/certs:ro
       # Read-WRITE — the API is the only writer of the FR-3.9 marker. Every other consumer mounts it `:ro`.
       - keyring_marker:/keyring-marker
+      # Read-ONLY — the backup sidecar writes each run's outcome here; the API only reads it (server-loss-recovery).
+      - backup_status:/backup-status:ro
       # FR-4.4 — logs survive the container. Until this they lived on the container's ephemeral layer plus
       # stdout, so every restart erased the record of what the deployment had just done, which is the opposite
       # of what an audit needs from the one file nobody can edit through the application.
@@ -492,6 +500,14 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+    # ⚠️ The key ring travels with the backup (FR-3.11) — read-only, archived and age-encrypted by backup.sh
+    # step 3b. Before this NOTHING backed it up, so a lost server lost every second factor, every reminder
+    # credential and every Google token at once. It is safe to archive because the ring is itself encrypted
+    # by the key-ring certificate since FR-3.1; the certificate (a Docker secret) is never mounted here.
+    environment:
+      KEYRING_DIR: /keyring
+    volumes:
+      - dataprotection_keys:/keyring:ro
 
   pitr:
     extends:
@@ -551,8 +567,13 @@ volumes:
   caddy_data:
   caddy_config:
   backups:
+  # The backup sidecar's last outcome (`backup.status`): written by `backup`, read-only to `api`
+  # (server-loss-recovery Part 3). Declared here as well as in prod.yml — `extends` brings a service, never the
+  # top-level volumes it names.
+  backup_status:
   # The Data Protection key ring. Everything encrypted at rest — each clinic's reminder credentials, and from US-4
-  # its TTN secrets — is unreadable without it, so it must be backed up.
+  # its TTN secrets — is unreadable without it, so it must be backed up — and the `backup` service above now does,
+  # every night, beside the dump (server-loss-recovery Part 2).
   #
   # ⚠️ Since Part 3 the ring is ENCRYPTED by DataProtection__CertificatePath, so it may travel with postgres_data —
   # and what must now travel apart is that CERTIFICATE (FR-3.11). This comment used to say the opposite, which was
@@ -569,6 +590,6 @@ volumes:
   # from the same place, so they move together. Recreating it while containers are already running against the
   # old root is not: those keep verifying against a CA that no longer signs anything they can reach.
   internal_certs:
-  # Which key-ring generations this deployment can read (FR-3.9) — key IDs only, no key material, which is what
-  # makes mounting it into the backup sidecar safe where dataprotection_keys must never go.
+  # Which key-ring generations this deployment can read (FR-3.9) — key IDs only, no key material. The backup
+  # stamps it beside each dump and checks the archived ring holds the active key it names.
   keyring_marker:

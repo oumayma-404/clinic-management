@@ -104,6 +104,10 @@ clinic-management/
 │                                   legacy plaintext Google token, asserts `verify-schema` REPORTS it (exit 2),
 │                                   restarts and asserts the deferred startup pass converged it (exit 0)
 │                                   ios-shell.yml = the iOS shell's only compiler, path-filtered (billed macOS runner)
+│                                   backup.yml = the nightly backup's only gate, path-filtered on `deploy/**`:
+│                                                       shellcheck + `deploy/backup/test/roundtrip.sh` (back up fake data,
+│                                                       restore it into empty servers, compare). The backup failed silently
+│                                                       on the VPS for 33 nights before this existed
 │                                   client-installer.yml = « Client release ». On a `desktop/**` change landing on main
 │                                                       (or a `client-v*` tag): builds the shell, packs a **Velopack**
 │                                                       feed with `vpk`, scp's it to the VPS's `deploy/updates/`, and
@@ -257,6 +261,9 @@ how it was built, `notes.md` is what shipped.
 - [`backup-works-everywhere`](features/backup-works-everywhere/notes.md) — Backup works out of the box, or says whose job it is
 - [`clinic-data-archive-and-restore`](features/clinic-data-archive-and-restore/notes.md) — A cabinet takes its whole record out, and can put it back
 - [`clinic-recovery-points`](features/clinic-recovery-points/notes.md) — Something now PRODUCES an archive, and the practice is told when none has left the building
+- [`server-loss-recovery`](features/server-loss-recovery/notes.md) — If the server dies, what survives: the nightly
+  copy failed silently for 33 nights and no file had an off-site copy · the key ring travels with the backup ·
+  a restore is proven on every `deploy/` change · the vendor is e-mailed every morning a copy is late
 
 **Reaching people, and the devices they use**
 

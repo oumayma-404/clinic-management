@@ -1308,6 +1308,21 @@ try
         RecurringJob.RemoveIfExists("warn-subscription-expiry");
     }
 
+    // The off-site backup alert (server-loss-recovery Part 3) — daily, and registered ONLY where the API watches
+    // the host's backup sidecars. The nightly copy failed silently for 33 nights before this existed. 06:00 UTC =
+    // 07:00 Tunis: after the 01:00/02:00 UTC backup runs, before the vendor's working day.
+    if (profile.MonitorsSidecarBackups)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.BackupHealthJob>(
+            "check-backup-health",
+            job => job.CheckBackupHealth(),
+            Cron.Daily(6));
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("check-backup-health");
+    }
+
     // The WhatsApp reminder forfait's daily pass (vendor-whatsapp-messaging-quota D-2) — provision each cabinet's
     // counting row for the current Tunisian month, then reconcile the three warnings. Registered ONLY where the
     // deployment sells vendor messaging (EC-16), on SubscriptionWarningJob's precedent: elsewhere there is no forfait

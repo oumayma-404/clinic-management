@@ -46,4 +46,12 @@ public class PlatformAccountRepository : IPlatformAccountRepository
 
     public async Task AddAsync(PlatformAccount account, CancellationToken cancellationToken = default) =>
         await _context.PlatformAccounts.AddAsync(account, cancellationToken);
+
+    public async Task<IReadOnlyList<string>> GetActiveEmailsAsync(CancellationToken cancellationToken = default) =>
+        await _context.PlatformAccounts
+            .AsNoTracking()
+            .Where(a => a.IsActive)
+            .OrderBy(a => a.Email)
+            .Select(a => a.Email)
+            .ToListAsync(cancellationToken);
 }

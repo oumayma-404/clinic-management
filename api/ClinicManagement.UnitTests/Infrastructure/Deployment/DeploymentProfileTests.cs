@@ -81,7 +81,10 @@ public class DeploymentProfileTests
             // hosted-security-hardening FR-1.1. The FIFTH hosted-only capability, so it joins the
             // `hostedOnlyCapabilities` set below. Both ✗ are decisions: a LAN admin locked out has nobody to
             // call (AC-7 is unsatisfiable there).
-            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true)
+            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true),
+            // server-loss-recovery Part 3. The SIXTH hosted-only capability: the topology whose backup sidecars
+            // the API watches. ✗ on the LAN because its in-app BackupJob already records and alerts on its own.
+            [nameof(DeploymentProfile.MonitorsSidecarBackups)] = (false, true)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -141,7 +144,8 @@ public class DeploymentProfileTests
             nameof(DeploymentProfile.ServesPlatformConsole),
             nameof(DeploymentProfile.RequiresSubscription),
             nameof(DeploymentProfile.SellsVendorMessaging),
-            nameof(DeploymentProfile.RequiresAdminSecondFactor)
+            nameof(DeploymentProfile.RequiresAdminSecondFactor),
+            nameof(DeploymentProfile.MonitorsSidecarBackups)
         };
 
         foreach (var capability in Capabilities())

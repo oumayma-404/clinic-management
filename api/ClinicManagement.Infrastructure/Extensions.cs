@@ -446,6 +446,11 @@ public static class Extensions
         // exists, so there is nothing for IReminderSettingsProvider to resolve against.
         services.AddScoped<ITransactionalEmailSender, SmtpTransactionalEmailSender>();
 
+        // server-loss-recovery Part 3 — what the host's backup sidecars last did. Registered on every kind: it reads
+        // a file that is simply absent elsewhere, and its two callers (the console endpoint and BackupHealthJob) are
+        // the ones gated on DeploymentProfile.MonitorsSidecarBackups.
+        services.AddScoped<IHostBackupStatusReader, HostBackupStatusReader>();
+
         // Where a link in that email has to point. Reads FrontendUrl, the key the Google OAuth redirect already
         // uses, so an emailed link and a redirected browser cannot arrive at different hosts.
         services.AddSingleton<IPublicAppUrlProvider, PublicAppUrlProvider>();

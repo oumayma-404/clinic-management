@@ -62,7 +62,8 @@ every one of them fails **quietly** if wrong. Each is commented in place; in sho
 
 ⚠️ **What is backed up together, and what is kept apart.** The Data Protection key ring
 (`dataprotection_keys`) is **encrypted** by the deployment's own certificate, so back it up **alongside**
-`postgres_data` — a restored database without it has credentials nobody can decrypt. What must travel
+`postgres_data` — a restored database without it has credentials nobody can decrypt. The nightly `backup` service
+does exactly that since server-loss-recovery (before it, nothing did). What must travel
 **separately, never in the same archive**, is the **certificate** that decrypts the ring, together with the
 backup key and the PITR key.
 
@@ -110,10 +111,12 @@ Then create the deployment's own identity **on the server**, once — these neve
 ```
 /opt/clinic-management/deploy/.env                  # from .env.hosted.example
 /opt/clinic-management/deploy/secrets/*             # per KEY-CUSTODY.md
-/opt/clinic-management/deploy/rclone/rclone.conf    # the off-site remote
 ```
 
-⚠️ **The workflow excludes all three from what it ships, by name.** They are also gitignored, so they are not in
+(The off-site remote for the nightly run is the `BACKUP_S3_*` values in `.env` — there is no `rclone.conf` any
+more. That file was the bring-up step the first server never had, and nothing noticed.)
+
+⚠️ **The workflow excludes both from what it ships, by name.** They are also gitignored, so they are not in
 the runner's checkout to begin with — the exclusion is the second statement of an invariant worth relying on.
 A deploy able to overwrite them could make every administrator's second factor and every clinic's reminder
 credentials undecryptable, with nothing in any log saying why.
@@ -301,7 +304,7 @@ off-server, and neither is visible from any screen in the product:
 | Variable | What leaves | How often |
 |---|---|---|
 | `WALG_S3_ENDPOINT` | every write to every patient record (WAL segments) | **continuously**, within seconds |
-| `BACKUP_REMOTE` | a full `pg_dump` of every clinic | nightly |
+| `BACKUP_S3_ENDPOINT` (`BACKUP_REMOTE`) | a full `pg_dump` of every clinic, every stored file, the key ring | nightly |
 
 ⚠️ **`WALG_S3_ENDPOINT` shipped as `https://s3.us-west-002.backblazeb2.com`** — Backblaze, Oregon. An operator
 who copied `.env.hosted.example` and changed only the credentials was continuously exporting every Tunisian
@@ -324,11 +327,10 @@ that residency is undeclared — *undecided* is not the same as *forbidden*, but
 ⚠️ **It is a declaration, never a geolocation lookup.** Resolving a host to a country at startup is one DNS
 hiccup away from a failed boot, and a CDN address answers honestly in a dozen jurisdictions at once.
 
-⚠️ **`BACKUP_REMOTE` is reported, not verified — and that distinction is the point.** It names an *rclone
-remote*; the real host lives in `rclone/rclone.conf`, a file the API never reads and which belongs to another
-container. It is logged as « non vérifiable » on every boot rather than passed over, because converting
-*unknown* into *checked* on a nightly dump of every clinic's records is worse than having no guard at all.
-**Verify that one by hand.**
+⚠️ **The nightly destination is now checked like the PITR one.** It used to be an *rclone remote* whose host lived
+in a `rclone.conf` the API never read, so it could only be reported as « non vérifiable ». The remote is configured
+from `BACKUP_S3_ENDPOINT` now, which the API is handed as `Backup__RemoteEndpoint` and checks against the list
+above. Only a deployment that sets `BACKUP_REMOTE` **without** an endpoint still gets the « non vérifiable » line.
 
 ⚠️ **A dotless host is not egress.** `minio:9000` is a container on the compose network and never needs
 allow-listing — otherwise operators would learn to paste in whatever the refusal names, and the list would
@@ -534,8 +536,16 @@ old key is exactly what is still needed.
 
 ### Backups leave encrypted, and are verified by being decrypted
 
-The nightly dump and every stored object are encrypted with `age` **before** rclone touches them, and the
-PITR stream with libsodium.
+The nightly dump, every stored object and the key ring are encrypted with `age` **before** rclone touches them,
+and the PITR stream with libsodium. `backup.sh` refuses to upload a run directory holding anything that is not
+`.age` (the key-ring stamp aside — key ids, no key material).
+
+⚠️ **The nightly run failed silently on this deployment for 33 nights** (2026-09-03 → 2026-10-06): the
+mirror call carried literal `\n` instead of line continuations, every run aborted before encrypting, and a
+plaintext dump was left on the disk each night. Since server-loss-recovery every run — success or failure —
+writes `/status/backup.status` (`outcome`, `stage`, `lastSuccess`), a failed run removes its directory whole,
+an absent or unreachable remote is a refusal (never « kept locally »), and `.github/workflows/backup.yml`
+backs up and restores fake data end to end on every change to `deploy/`.
 
 ⚠️ **The object store is an incremental mirror, not a nightly archive** (`large-file-transfer` Part 3). It
 used to be a full `tar czf` of the whole volume every night, encrypted — so nothing deduped between nights —

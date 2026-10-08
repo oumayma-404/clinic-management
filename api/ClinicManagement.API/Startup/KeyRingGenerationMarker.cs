@@ -14,10 +14,11 @@ namespace ClinicManagement.API.Startup;
 /// Nothing about the dump itself says which ring it belongs to, so the stamp has to be put there when it is
 /// taken.</para>
 ///
-/// <para>⚠️ <b>The ring is NEVER mounted into the sidecar</b> — that is what <c>exploration.md</c> § 3.1
-/// forbids, and it is the whole reason this is a file rather than the sidecar asking. One archive holding both
-/// the ciphertext and the key that opens it means the encryption protects nothing against the likeliest
-/// exposure. The sidecar mounts this marker <b>read-only</b> and it carries key <i>ids</i>, never key material.</para>
+/// <para>⚠️ <b>The sidecar now archives the ring too</b> (server-loss-recovery, KEY-CUSTODY.md FR-3.11). This said
+/// the ring was never mounted there — the rule from <c>exploration.md</c> § 3.1, written while the ring was
+/// cleartext. Since FR-3.1 the ring is encrypted by the key-ring certificate, which is what stays out of every
+/// archive. This marker carries key <i>ids</i>, never key material, and is how the backup proves the ring it
+/// archived holds the active key (<c>deploy/backup/keyring-id.sh</c> maps a key file's guid onto these ids).</para>
 ///
 /// <para>⚠️ <b>It lists EVERY key the ring holds, not only the active one, and that is the answer to the
 /// staleness the story flagged.</b> Written at startup, an « active key » marker goes stale the moment the

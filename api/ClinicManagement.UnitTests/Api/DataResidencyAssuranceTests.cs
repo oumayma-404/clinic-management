@@ -157,12 +157,12 @@ public class DataResidencyAssuranceTests
 
     // ── What it cannot check, and says so ─────────────────────────────────────────────────────────────
 
-    // ⚠️ The load-bearing distinction in this class. `offsite:clinic-backups` is an rclone REMOTE; the host
-    // behind it lives in deploy/rclone/rclone.conf, which this process never reads and which belongs to another
-    // container. Reporting it as satisfied would convert « unknown » into « checked » on a nightly full dump of
-    // every clinic's records — so it lands in `Unverified`, which does NOT block the boot but IS logged.
+    // ⚠️ The load-bearing distinction in this class. `offsite:clinic-backups` is an rclone REMOTE; with no
+    // endpoint beside it the host behind it is not something this process can see. Reporting it as satisfied
+    // would convert « unknown » into « checked » on a nightly full dump of every clinic's records — so it lands in
+    // `Unverified`, which does NOT block the boot but IS logged.
     [Fact]
-    public void An_Rclone_Remote_Is_Reported_As_Unverified_Rather_Than_Satisfied()
+    public void An_Rclone_Remote_Without_An_Endpoint_Is_Reported_As_Unverified_Rather_Than_Satisfied()
     {
         var result = Inspect(
             DeploymentKind.HostedMultiTenant,
@@ -172,10 +172,42 @@ public class DataResidencyAssuranceTests
         Assert.True(result.IsSatisfied);
         Assert.Empty(result.Problems);
 
-        // But it is never silent.
+        // But it is never silent, and it names the setting that would make it checkable.
         var note = Assert.Single(result.Unverified);
         Assert.Contains("offsite:clinic-backups", note);
-        Assert.Contains("rclone.conf", note);
+        Assert.Contains(DataResidencyAssurance.BackupRemoteEndpointKey, note);
+    }
+
+    // server-loss-recovery: the nightly remote is configured from BACKUP_S3_ENDPOINT now, so its host is checked
+    // like the PITR one — and a host off the list is a refusal naming the compose variable to change.
+    [Fact]
+    public void The_Nightly_Endpoint_Off_The_List_Is_Refused()
+    {
+        var result = Inspect(
+            DeploymentKind.HostedMultiTenant,
+            Declared(
+                with: (DataResidencyAssurance.BackupRemoteKey, "offsite:clinic-backups"),
+                and: (DataResidencyAssurance.BackupRemoteEndpointKey, "https://s3.us-east-005.backblazeb2.com")));
+
+        Assert.False(result.IsSatisfied);
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("s3.us-east-005.backblazeb2.com", problem);
+        Assert.Contains("BACKUP_S3_ENDPOINT", problem);
+        // Checked, so no longer « unverified » — one statement about the destination, not two.
+        Assert.Empty(result.Unverified);
+    }
+
+    [Fact]
+    public void The_Nightly_Endpoint_On_The_List_Is_Satisfied_And_Not_Reported_Unverified()
+    {
+        var result = Inspect(
+            DeploymentKind.HostedMultiTenant,
+            Declared(
+                with: (DataResidencyAssurance.BackupRemoteKey, "offsite:clinic-backups"),
+                and: (DataResidencyAssurance.BackupRemoteEndpointKey, $"https://{TunisianHost}")));
+
+        Assert.True(result.IsSatisfied);
+        Assert.Empty(result.Unverified);
     }
 
     [Fact]
