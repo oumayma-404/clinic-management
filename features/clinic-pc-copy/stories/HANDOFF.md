@@ -1,90 +1,89 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-07 (after session 4) · **Overall:** ~18 % · **Part 1 (La copie):** ~60 %
+**Date:** 2026-10-08 (session 5, paused for a laptop restart) · **Overall:** ~31 % · **Part 1 (La copie):** ~90 %
 
-## Where the work is
+## Pick up here
 
-| What | Where |
+1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
+   (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push without the owner's OK**).
+2. Read this file, then `progress.md` (Part status, deviations 1–35, verification log). Plan: `../plan.md`, spec: `../spec.md`.
+3. Next sub-step: **Windows app bridge `installRelay` + the offer (AC-1.1–1.13)** — see « Next steps » below.
+4. The owner works step by step: « next step » = one sub-step → build, gate, live check on the scratch rig, notes,
+   local commit, then a short report ending with a % table and the roadmap table (`.claude/rules/response-style.md`).
+
+## Commits on the branch (oldest → newest, all local)
+
+| Commit | What |
 |---|---|
-| Worktree | `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy` |
-| Branch | `feature/clinic-pc-copy` (from `b618a1d8`, `feature/security-remediation`'s HEAD) |
-| Commits | `ee88ed66` docs · **`11470cfe`** kind, pairing, change log, cloud feed, standby gate, `pair-relay` verb, migration (local, **not pushed**) |
-| Code | committed; tree clean except this file |
-| Plan | `features/clinic-pc-copy/plan.md` (challenged, 11 fixes applied) |
-| Pointers to the codebase | `features/clinic-pc-copy/stories/context.md` |
-| Progress log | `features/clinic-pc-copy/stories/progress.md` |
+| `ee88ed66` | spec, challenged plan, blueprint |
+| `11470cfe` | kind `ClinicRelay`, pairing, change log, cloud feed, standby gate, `pair-relay` verb |
+| `e32bfc21` · `95fddeb0` | PC follows the cloud (`RelayFeedJob`/`RelayFollower`) · 3 rehearsal defects |
+| `ff92fac8` | « Paramètres → PC de secours » card |
+| `9bfa9f94` | admin bell (`StaffNotification.TargetRole`, `RelayWatchJob`, `Stopped` state) |
+| `e484d4bb` | vendor console « PC de secours » column (**never looked at live yet**) |
+| `56307621` | vendor alert e-mails (`RelayIncidents`, `VendorAlertRecipients`) |
+| `3ef27d40` | « Déclarer perdu ou volé » (every account re-credentialed) |
+| `1d3ebb4f` | a retired PC opens for admins only (`RelayLocalStatus`, 403 `relay_retired_admins_only`) |
+| `2382c056` | « Effacer la copie » on a retired PC + shared code field no longer scrolls sideways (`pushPasswordManagerStrategy="none"`) |
+| `07d9b321` | uninstall verb `uninstall-relay [--erase]` (cloud told first, erase only once it answered) + `pair-relay` resets the follower state |
+| `b7336cb2` | installer `/RELAY` role + uninstall prompt « Effacer aussi la copie du cabinet ? » |
 
-Owner's calls: no `/break-plan`, **one story (US-1)** in three parts; take recommended options without asking.
-Start the new session **in the worktree** (`EnterWorktree` with that path, or `cd` into it).
+## Part 1 — what is done, what is left
 
-## State of the build
-
-- ✅ Whole solution builds, 0 new warnings. Full suite **5 049 pass / 6 skip / 0 fail** (baseline 4 935).
-- ✅ Web: `check:responsive` (77) + `tsc` + `npm run build` green (worktree has its own `node_modules` now).
-- ✅ `verify-schema` before/after `AddClinicRelay` on a throwaway DB: only the 7 relay lines moved DRIFT → ok.
-- Gate: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/bo/` (cold build ~6 min, tests ~2 min, never `--filter`).
-
-## Done (committed in `11470cfe`; session 2 added the standby gate, the guards, the tests, the migration, `pair-relay` + `RelayCredentialStore`)
-
-| Area | Files | What |
-|---|---|---|
-| Third kind | `Infrastructure/Deployment/DeploymentProfile.cs`, `Services/OutboundEndpointPolicy.cs`, `UnitTests/.../DeploymentProfileTests.cs` | `DeploymentKind.ClinicRelay` + 4 capabilities `PublishesChangeFeed`, `MirrorsCloudClinic`, `RunsClinicJobs`, `DispatchesOutboxes`; matrix widened to 3 columns; all-kinds test; push ✗ for relay |
-| Jobs | `API/Program.cs` | `process-notifications` gated on `DispatchesOutboxes`; `start-running-appointments`, `flag-expiring-stock`, `post-monthly-expenses`, `count-clinic-activity`, `take-recovery-points` gated on `RunsClinicJobs` (else `RemoveIfExists`); subscription warning `RequiresSubscription && RunsClinicJobs` |
-| Mode flags | `API/Controllers/AuthController.cs` (`GetMode`), `web/lib/api/auth.ts` | `relayFeedEnabled`, `isClinicRelay` |
-| Domain | `Domain/Entities/ClinicRelay.cs`, `ClinicChange.cs` (+ `ClinicChangeCursor`), `Enums/ClinicRelayStatus.cs`, `Repositories/IClinicRelayRepository.cs`, `Services/ClinicRelayHealth.cs` | relay aggregate (pairing code folded in, heartbeat, retire, subject `relay|{id}`); change-log row + cursor; FR-2 state predicate |
-| EF | `Persistence/Configurations/ClinicRelayConfiguration.cs`, `ApplicationDbContext.cs`, `Extensions.cs` | 3 tables, filtered unique « one non-retired relay per clinic », query filters, `ClinicRelay` skips the concurrency token, DbSets |
-| Exclusions | `AuditSaveChangesInterceptor.cs`, `ClinicArchiveScope.cs` | relay tables out of the audit ledger and the archive |
-| Relay scope | `Persistence/ClinicRelayScope.cs` | model-derived plan: archive scope − exclusions + `Added` (User, recovery codes, subscription, notifications, bell); FK order with deferred back-edge columns; owned collections; `WrappedSecrets`, `Redacted`, `PerSideColumns` |
-| Capture | `Persistence/ClinicChangeCapture.cs` + `SaveChangesAsync` hook | one `ClinicChange` per touched key inside the save's transaction, cursor `UPDATE … RETURNING`, lock order cursor → audit chain; sync `SaveChanges` refuses when capture applies |
-| Row store | `Persistence/ClinicRelayRowStore.cs` (+ `Application/Common/Interfaces/IClinicRelayRowStore.cs`) | all SQL: `row_to_json` out / `json_populate_recordset` in; feed batch to snapshot high-water (≤ 20 000 keys else reseed); snapshot; apply batch; replace (upsert + delete absent); digest; derived epoch (sysid-timeline-dboid); continuity fingerprint; blob index |
-| Secrets | `Security/RelaySecretEnvelope.cs` | RSA-2048 OAEP-SHA256 seal/open for TOTP secrets |
-| Token | `Auth/LocalAuthClaims.cs`, `Auth/LocalAuthService.cs`, `ILocalAuthService.cs`, `AuthorizationPolicies.cs` | scope `clinic-relay`; `GenerateRelayToken`; policy `ClinicRelayPeer` (subject starts `relay|`) |
-| Application | `Application/Features/Relay/**` | refusals + codes, step-up actions (code-only, added to `StepUpCommand`), journal rows, principal, labels (FR-2 sentences), DTOs; commands: issue pairing code, pair, token exchange, heartbeat, retire; queries: status, changes, snapshot, digest, blob |
-| Infra services | `Infrastructure/Relay/RelayServices.cs`, `Repositories/ClinicRelayRepository.cs` | build info (last migration + informational version), key validator |
-| API | `Controllers/RelayController.cs` (admin), `RelayPeerController.cs` (PC), `Startup/RateLimiting.cs` | endpoints under `/api/relay/*`; `relay-token` rate-limit policy |
-| Realtime | `RealtimeResourceResolver.cs` | `Relay` area excluded |
-
-## Decisions taken while implementing (log them in progress.md « Deviations »)
-
-| # | Plan said | Done instead | Why |
-|---|---|---|---|
-| 1 | `ClinicRelayPairingCode` entity | code hash on `ClinicRelay` | one setup attempt = one row; fewer tables |
-| 2 | Feed nudged by the clinic hub | heartbeat ack carries `HighWater`; PC pulls when behind | no SignalR client needed until Part 2 (number promises) |
-| 3 | Large backlog downloaded in parts | one response up to 20 000 keys, else `ReseedRequired` | simpler; same correctness (D6b) |
-| 4 | Reuse archive store's entity reader | rows moved as Postgres JSON | exact types, owned columns, shadow FKs, no EF materialisation |
-| 5 | `UserSecretProtector.RewrapForRelay` | static `RelaySecretEnvelope` + row-store transform | keeps the protector interface untouched |
-| 6 | — | `ClinicChange.KeySeparator = '\u001f'` | user ids are `local|{guid}` |
-| 7 | — | relay keeps its secret hash after retirement | so the PC learns « retiré » on token exchange (AC-8.1) |
+| Bullet | State |
+|---|---|
+| Kind and pairing | ✅ (installer role now ✅ too) |
+| Copy (snapshot, feed, apply, files) | ✅ rehearsed end to end; CI `relay-copy` job **not written** (push needs OK) |
+| Watching (heartbeat, card, bell, console, e-mails) | ✅ — console column never seen live |
+| Lifecycle (re-wrap, retire, lost, erase, uninstall) | ✅ — AC-8.6 waits for Part 2's lock |
+| One click and lockstep | 🔶 installer role ✅ (compiled, **not run**); bridge, offer, serving the installer/update, CI publish, self-update (D10b), promotion verbs (D11) left |
 
 ## Next steps, in order
 
-✅ **Done in session 3:** `RelayFeedJob` (one `BackgroundService`, 10 s tick, only where `MirrorsCloudClinic`, waits for
-pending migrations) over `Infrastructure/Relay/`: `RelayCloudClient` (token cache + refresh on a bare 401),
-`RelayFollower` (heartbeat → first copy / catch-up → files → hourly check), `RelayFeedDecisions` (pure D12 / D6b / D25
-rules), `RelayFollowerState` (`.local/relay-state.json`), `RelayHostFacts`, `AtomicFile`. 46 new tests; wiring guard
-red-proofed. Deviations 13–16 in progress.md.
+1. **Bridge + offer (AC-1.1–1.13)** — `desktop/` shell (`VaultBridge.cs`, `MainWindow.xaml.cs`, `ServerConfig.cs`),
+   `mobile/shared/bridge.md` (the `window.__clinicShell` contract; bump the shell version), `web/types/clinic-shell.d.ts`,
+   a web offer component gated on `window.__clinicShell?.installRelay` (so never in a browser/Android, AC-1.12).
+   Flow: admin at app start (once; « Plus tard » = 7 days, « Pas sur ce PC » = never, per PC) or the menu item
+   « Installer le PC de secours ici… » (email + password + code, AC-1.5) → step-up `relay-pairing` → `POST
+   /api/relay/pairing-codes` → bridge `installRelay({ code, cloudUrl, label, needBytes })` → the shell writes the code
+   to a file, downloads the server installer, runs it **elevated once** with
+   `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /RELAY /PAIRFILE= /CLOUD= /LABEL= /NEEDBYTES= /RESULTFILE=`, reads the
+   exit code (0 ok · 20 pairing refused · 21 stopped · 7 refused before copying) and the UTF-8 sentence in the result
+   file. Notices to add to the offer: battery (AC-1.6), unencrypted disk (AC-1.7), UPS (AC-1.13); free-space refusal
+   (AC-1.8) needs the clinic's footprint from the cloud (a read that does not exist yet). Card shows « Copie en cours
+   (40 %) » already (AC-1.9).
+2. **Serve the installer + slim update** from `deploy/updates/relay/` (D10) and the CI job building them — ⚠️ the
+   first VPS publish needs the owner's OK.
+3. **Self-update on « update needed »** in the heartbeat ack (D10b) — runs the installer with `/RELAY` and no
+   `/PAIRFILE` (an update in place keeps its pairing; the installer refuses `/RELAY` without a code only when no relay
+   is installed).
+4. **Promotion verbs** (D11, offline-signed code).
+5. **Windows rehearsal** of the one-click install on a real PC — owner's OK (UAC + three services).
+6. Owed checks: console column live; « perdu ou volé » confirmed for real (resets the test accounts → new password +
+   TOTP enrolment); A2 (a non-admin session opened before the retire → 401) is unit-tested only.
+7. Then Part 2 « La relève » and Part 3 « Les appareils suivent ».
 
-1. ✅ **End-to-end rehearsal done (session 4)** — see progress.md « Verification log » and deviations 17–19. Remaining from it: turn it into the CI `relay-copy` job (`.github/workflows/ci.yml`, beside `local-mode`): two scratch DBs, cloud + PC APIs, pairing via a console stub instead of TOTP, assert per-table digests equal, a cloud save seen on the PC, a rewound cursor stops the PC.
-   deferred FK columns, `ReplaceAsync`'s delete-the-rest) has **never run against PostgreSQL**; no unit test can reach
-   it. Pattern: `isolated-test-stack` memory. `pg_dump` the dev DB into `clinic_relay_cloud` (read-only on the shared
-   one), hosted API on :5099 against it; a second API with `Deployment__Profile=ClinicRelay` on another port against an
-   empty migrated `clinic_relay_pc`; issue a code (step-up needs TOTP — or call the handler from a console stub), run
-   `pair-relay`, watch `relay-state.json` reach `seq = high-water`, then compare `GET relay/digest` with the PC's
-   `DigestAsync` (all tables equal). Save on the cloud → seen on the PC within 10 s. This is the plan's CI
-   `relay-copy` job done by hand first; then write the CI job (`.github/workflows/ci.yml`, beside `local-mode`).
-2. « Watching »: `StaffNotification.TargetRole`, watch job on the cloud (`ClinicRelayHealth` → bell rows in opening
-   hours, EC-9/EC-10), web card « Paramètres → PC de secours » (`GET /api/relay/status`, issue code behind step-up,
-   retire), console column, vendor alert email (message the `server-loss-recovery` session first).
-3. « Lifecycle »: users + TOTP re-wrap check, retire → PC read-only for admins, « perdu ou volé », erase, uninstall;
-   un-stopping a copy stopped by D12 (today: delete `relay-state.json` + re-pair).
-4. « One click »: installer `/RELAY /PAIRFILE=` (writes `Deployment:Profile=ClinicRelay` into
-   `appsettings.Install.json`, then runs `pair-relay`), bridge `installRelay`, offer, CI `relay-package.yml`, self-update
-   on `UpdateNeeded` (D10b), promotion verbs.
+## Scratch test rig (survives the restart)
 
-## Gotchas met this session
+Scripts + how to bring it back: **`C:\Users\Oumayma Benkhalifa\clinic-pc-copy-rig\README.md`** (outside the repo on
+purpose: it holds the scratch dev account's test password + TOTP secret). Scratch DBs `clinic_relay_cloud` /
+`clinic_relay_pc` in the shared Docker Postgres — **ask before dropping**. The test PC is currently uninstalled +
+erased; re-pair it before the next live check. My test servers were stopped before the restart.
 
-- Repo files are **CRLF**, some have a **BOM**: a Python rewrite added a BOM to `Program.cs` once (removed). Prefer the `Edit` tool; if scripting, preserve BOM + line endings.
-- A quoted bash heredoc turns `\\u001f` into a raw control char — write the escape with the `Edit` tool.
-- `cd` inside a Bash call moves the session's cwd; use absolute paths.
-- Vendor alert email channel (AC-9.2) exists only **uncommitted** in sibling worktree `server-loss-recovery` — message that session before building a sender.
-- Peers live on this machine; stack checks via `.claude/skills/start-clinic/scripts/stack-lease.ps1 status` before starting anything.
+## Gate (run all, unfiltered, after the last edit)
+
+- API: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/build-bell/` — last run **5 193 pass · 6 skip · 0 fail**.
+- Web: `cd web && npm run check:responsive && npx tsc --noEmit && npm run build` — last run 77/77, green.
+- Installer: `node packaging/lint-iss.mjs`; `node packaging/ci-stub-payloads.mjs` then
+  `MSYS_NO_PATHCONV=1 "<LocalAppData>/Programs/Inno Setup 6/ISCC.exe" /Qp "/O<scratch-out>" 'packaging\setup\clinic-setup.iss'`.
+- Migrations: scaffold out of tree (`BaseOutputPath=<scratchpad>/build-ef/ dotnet ef migrations add …`) and check for a stray `xmin` column.
+
+## Gotchas met (still true)
+
+- Repo files are CRLF, some with a BOM: prefer the `Edit` tool; a Python heredoc ate `\a` in `'{app}\api'` once (became a bell char) — write such scripts to a file.
+- `sed -i` turns CRLF files into LF. Restore with `sed -i 's/\r$//; s/$/\r/'` or avoid it.
+- A `dotnet publish` copy has no `appsettings.Development.json` → the cloud copy boots `SelfHostedLan`; copy it in.
+- The PC's deferred startup migration wants `pg_dump` (not installed here) → migrate the PC DB with `dotnet ef database update --connection`.
+- Console verbs print French in the console's OEM code page (garbled accents): the installer never relays their text, it words each exit code itself.
+- Guard tests that need a reviewed entry for a new endpoint: `ControllerAuthorizationCoverageTests` (anonymous), `SubscriptionExemptionCoverageTests`, `RelayStandbyExemptionCoverageTests`, `PlatformReadShapeTests`.
+- Several Claude sessions share this machine: `stack-lease.ps1 status` before touching the shared stack (the scratch rig uses its own ports).
