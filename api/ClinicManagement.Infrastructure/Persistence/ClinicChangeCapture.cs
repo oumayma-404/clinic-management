@@ -1,7 +1,12 @@
 using System.Data.Common;
+using ClinicManagement.Application.Common.Exceptions;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Infrastructure.Deployment;
+using ClinicManagement.Infrastructure.Relay;
+using ClinicManagement.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -19,18 +24,49 @@ public interface IIdempotencyKeyAccessor
 /// Appends a <see cref="ClinicChange"/> per key a save touches, inside the save's own transaction (D1, D2): the
 /// clinic's cursor row is advanced with <c>UPDATE … RETURNING</c>, whose row lock is what makes commit order seq order.
 /// A clinic with no cursor row (no PC de secours) changes nothing.
+///
+/// <para><b>It is also the lease's net (D15)</b>, because it is the one place that sees every carried row a save
+/// touches and the cabinet each belongs to: on the cloud, a cabinet whose PC may hold its saves accepts only
+/// <see cref="RelayFence.AllowedOnFencedCloud"/>; on a PC de secours that does not hold them, only a sign-in's traces.
+/// Anything else throws <see cref="ClinicFencedException"/> before a row is written — a job, a backfill or any path the
+/// gate never sees.</para>
 /// </summary>
 public sealed class ClinicChangeCapture
 {
     private readonly bool _enabled;
+    private readonly bool _isRelay;
     private readonly ClinicChangeOrigin _origin;
     private readonly IIdempotencyKeyAccessor? _idempotency;
+    private readonly IRelayLocalStatus? _relayLocal;
 
-    public ClinicChangeCapture(DeploymentProfile profile, IIdempotencyKeyAccessor? idempotency = null)
+    public ClinicChangeCapture(
+        DeploymentProfile profile, IIdempotencyKeyAccessor? idempotency = null, IRelayLocalStatus? relayLocal = null)
     {
         _enabled = profile.PublishesChangeFeed || profile.MirrorsCloudClinic;
+        _isRelay = profile.MirrorsCloudClinic;
         _origin = profile.MirrorsCloudClinic ? ClinicChangeOrigin.Relay : ClinicChangeOrigin.Cloud;
         _idempotency = idempotency;
+        _relayLocal = relayLocal;
+    }
+
+    /// <summary>
+    /// The PC de secours's half of the net (D15), decided before any SQL: a PC that does not hold the cabinet's saves
+    /// writes a sign-in's traces and nothing else. ⚠️ No local status means « not holding » — a PC that cannot tell
+    /// must not write over the copy.
+    /// </summary>
+    public void EnsureThisSideMayWrite(DbContext context)
+    {
+        if (!_enabled || !_isRelay || _relayLocal?.IsHolding == true)
+        {
+            return;
+        }
+
+        var plan = ClinicRelayScope.For(context.Model);
+        if (context.ChangeTracker.Entries().Any(e => IsCandidate(plan, e) && !RelayFence.IsSignInTrace(e)))
+        {
+            var (error, code) = RelayRefusals.ForPcNotHolding(_relayLocal?.IsRetired == true);
+            throw new ClinicFencedException(error, code);
+        }
     }
 
     /// <summary>Whether this save touches a relay-scoped row at all — the cheap test run before any SQL.</summary>
@@ -66,6 +102,7 @@ public sealed class ClinicChangeCapture
 
         var resolver = new ClinicResolver(context, plan, transaction, tracked);
         var touched = new Dictionary<(Guid Clinic, string Table, string Key), ClinicChangeOp>();
+        var fenceable = new HashSet<Guid>();
 
         foreach (var entry in entries)
         {
@@ -81,6 +118,11 @@ public sealed class ClinicChangeCapture
                 continue;
             }
 
+            if (!RelayFence.AllowedOnFencedCloud.ContainsKey(OwnerTableName(plan, entry, table)))
+            {
+                fenceable.Add(clinicId.Value);
+            }
+
             var op = ReferenceEquals(row, entry) && entry.State == EntityState.Deleted
                 ? ClinicChangeOp.Delete
                 : ClinicChangeOp.Upsert;
@@ -92,6 +134,11 @@ public sealed class ClinicChangeCapture
         }
 
         var now = DateTime.UtcNow;
+        if (!_isRelay)
+        {
+            await EnsureCloudMayWriteAsync(context, fenceable, now, cancellationToken);
+        }
+
         var idempotencyKey = _idempotency?.Current;
 
         foreach (var clinic in touched.Keys.Select(k => k.Clinic).Distinct().Order())
@@ -114,6 +161,38 @@ public sealed class ClinicChangeCapture
                     clinic, ++seq, change.Key.Table, change.Key.Key, change.Value, _origin, idempotencyKey, now));
             }
         }
+    }
+
+    /// <summary>
+    /// The cloud's half of the net (D15): a cabinet whose PC may hold its saves accepts only FR-11's tables. One read
+    /// of the current relay per cabinet the save touches outside them — the gate's predicate, on this transaction.
+    /// </summary>
+    private static async Task EnsureCloudMayWriteAsync(
+        DbContext context, IEnumerable<Guid> clinics, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        foreach (var clinic in clinics)
+        {
+            var relay = await ClinicRelayRepository
+                .CurrentFor(context.Set<ClinicRelay>().IgnoreQueryFilters().AsNoTracking(), clinic)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (RelayFence.CloudRefuses(relay, nowUtc))
+            {
+                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, nowUtc);
+                throw new ClinicFencedException(error, code);
+            }
+        }
+    }
+
+    /// <summary>The entry's own table — an owned row is judged as its owner's table, a child row as its own.</summary>
+    private static string OwnerTableName(ClinicRelayPlan plan, EntityEntry entry, ClinicRelayTable ownerTable)
+    {
+        var type = entry.Metadata;
+        while (type.IsOwned())
+        {
+            type = type.FindOwnership()!.PrincipalEntityType;
+        }
+
+        return plan.Find(type.ClrType)?.Name ?? ownerTable.Name;
     }
 
     private static bool IsCandidate(ClinicRelayPlan plan, EntityEntry entry)

@@ -120,7 +120,9 @@ public static class Extensions
         services.AddSingleton<ClinicManagement.Application.Features.Relay.Commands.IRelayKeyValidator, Relay.RelayKeyValidator>();
         services.AddScoped(provider => new ClinicChangeCapture(
             provider.GetRequiredService<DeploymentProfile>(),
-            provider.GetService<IIdempotencyKeyAccessor>()));
+            provider.GetService<IIdempotencyKeyAccessor>(),
+            provider.GetRequiredService<IRelayLocalStatus>()));
+        services.AddScoped<IClinicWriteFence, ClinicWriteFence>();
 
         services.AddDbContext<ApplicationDbContext>((provider, options) =>
             options

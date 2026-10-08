@@ -46,6 +46,12 @@ public class ExceptionMiddleware
                 code = HttpStatusCode.NotFound;
                 result = JsonSerializer.Serialize(new { error = exception.Message });
                 break;
+            // clinic-pc-copy D15: the change capture's net refused a cabinet's write on the side that may not make it.
+            // Before ConflictException, which it derives from only to pass every handler catch-all.
+            case ClinicFencedException fenced:
+                code = HttpStatusCode.Locked;
+                result = JsonSerializer.Serialize(new { error = fenced.Message, code = fenced.Code });
+                break;
             // A concurrent edit is not a fault — it is a 409 the client can recover from by reloading. It
             // must not fall through to the generic 500 branch, or the user is told « une erreur est survenue »
             // for something that has a specific, actionable cause.

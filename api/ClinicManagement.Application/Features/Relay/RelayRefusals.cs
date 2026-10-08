@@ -98,6 +98,17 @@ public static class RelayRefusals
             : since.ToString("'le 'dd/MM' à 'HH:mm", System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// The cloud's refusal for a fenced cabinet — AC-4.2's once the PC said it holds the saves, AC-6.3's until then.
+    /// One mapping for the gate and the change capture's net, so a job and a request are refused in the same words.
+    /// </summary>
+    public static (string Error, string Code) ForFencedCloud(DateTime? pcHoldingSinceUtc, DateTime nowUtc) =>
+        pcHoldingSinceUtc is { } since ? (OnRelay(SinceClinicTime(since, nowUtc)), OnRelayCode) : (Silent, SilentCode);
+
+    /// <summary>A PC de secours that does not hold the saves: retired (never again) or following (only during a cut).</summary>
+    public static (string Error, string Code) ForPcNotHolding(bool retired) =>
+        retired ? (RetiredReadOnly, RetiredCode) : (Standby, StandbyCode);
+
     /// <summary>AC-4.2, with the cabinet's own time of the takeover (« depuis 10:42 »).</summary>
     public static string OnRelay(string sinceClinicTime) =>
         $"Le cabinet travaille sur le PC de secours depuis {sinceClinicTime}. Ici, vous pouvez consulter mais pas "

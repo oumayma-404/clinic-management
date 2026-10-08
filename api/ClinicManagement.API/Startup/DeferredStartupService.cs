@@ -104,6 +104,7 @@ public sealed class DeferredStartupService : IHostedService
                 context,
                 scope.ServiceProvider.GetRequiredService<IGoogleTokenProtector>(),
                 scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                scope.ServiceProvider.GetRequiredService<IClinicWriteFence>(),
                 cancellationToken);
             if (converted > 0)
             {

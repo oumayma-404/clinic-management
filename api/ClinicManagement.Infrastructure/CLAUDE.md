@@ -626,6 +626,14 @@ no consent flag and no audit of which patient was sent.
   erase and `pair-relay` refuse over it (`relay_cut_work_kept`). `RelayFeedJob` runs the copy loop (10 s) and the lease
   loop (5 s: the keeper, plus a **pulse** heartbeat when a copy tick has been busy 20 s). The two-phase disarm is
   `RelayFollower.StandDownAsync`, called by `RelayFeedJob.StopAsync` (AC-6.1) and before the self-update's launch.
+- **The lease's net (D15)** — `ClinicChangeCapture` refuses, with `ClinicFencedException` (423 + code), what the side
+  may not write: on a PC de secours not holding the saves, every carried row but a sign-in's traces
+  (`EnsureThisSideMayWrite`, before any SQL); on the cloud, for a cabinet whose PC may hold its saves, every carried
+  table outside `Relay/RelayFence.AllowedOnFencedCloud` (FR-11: accounts, recovery codes, `Doctor`, the entitlement,
+  bell rows), reading the current relay through `ClinicRelayRepository.CurrentFor` on the save's own transaction.
+  ⚠️ A path with no request behind it must ask **`IClinicWriteFence`** (`Relay/ClinicWriteFence`) before it acts — the
+  agenda job, the monthly dépenses, the reminder outbox (it sends before it saves), the catalogue and Google backfills
+  do; `RelayFenceCoverageTests` derives the rest.
 - **Promotion (PC side, D11)**: `RelayPromotionCode` (ECDSA P-256 over the exact bytes of
   `APEXA-PROMO-1.<payload>`, bound to the PC's `RelayId` + `ClinicId`, ≤ 30 days) verified against
   **`VendorPublicKey`, a compiled-in constant** — no configuration can make a PC trust another key; rotating means a new

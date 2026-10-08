@@ -17,11 +17,17 @@ public class ClinicRelayRepository : IClinicRelayRepository
     }
 
     public Task<ClinicRelay?> GetCurrentForClinicAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
-        _context.ClinicRelays
+        CurrentFor(_context.ClinicRelays, clinicId).FirstOrDefaultAsync(cancellationToken);
+
+    /// <summary>
+    /// The one definition of « the cabinet's current PC de secours » — read by the gate (through the method above) and
+    /// by the change capture's net (on the saving context itself), so the two can never fence on different rows.
+    /// </summary>
+    public static IQueryable<ClinicRelay> CurrentFor(IQueryable<ClinicRelay> relays, Guid clinicId) =>
+        relays
             .Where(r => r.ClinicId == clinicId && r.Status != ClinicRelayStatus.Retired)
             .OrderByDescending(r => r.CreatedAtUtc)
-            .ThenByDescending(r => r.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+            .ThenByDescending(r => r.Id);
 
     public Task<ClinicRelay?> GetLatestForClinicAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
         _context.ClinicRelays

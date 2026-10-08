@@ -1199,7 +1199,8 @@ try
                     var converted = await ClinicManagement.API.Startup.GoogleTokenProtectionBackfill.RunAsync(
                         context,
                         scope.ServiceProvider.GetRequiredService<IGoogleTokenProtector>(),
-                        scope.ServiceProvider.GetRequiredService<IUnitOfWork>());
+                        scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                        scope.ServiceProvider.GetRequiredService<IClinicWriteFence>());
                     if (converted > 0)
                     {
                         Log.Information(

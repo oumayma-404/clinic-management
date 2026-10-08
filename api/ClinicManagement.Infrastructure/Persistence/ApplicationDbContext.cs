@@ -671,6 +671,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
         var auditRows = PendingAuditRows();
         var captures = _changeCapture?.HasCandidates(this) == true;
+        if (captures)
+        {
+            // clinic-pc-copy D15: a PC de secours that does not hold the cabinet's saves refuses before anything opens.
+            _changeCapture!.EnsureThisSideMayWrite(this);
+        }
+
         if (auditRows.Count == 0 && !captures)
         {
             return await base.SaveChangesAsync(cancellationToken);
