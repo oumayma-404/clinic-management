@@ -63,9 +63,12 @@ public class NotificationJobTests
         IEnumerable<IReminderChannelSender> senders,
         int maxRetries = 3,
         Appointment? appointment = null,
-        ClinicManagement.Application.Common.Interfaces.IClinicWriteFence? fence = null)
+        ClinicManagement.Application.Common.Interfaces.IClinicWriteFence? fence = null,
+        bool closerReminderDue = false)
     {
         var notifications = new Mock<INotificationRepository>();
+        notifications.Setup(r => r.HasCloserDueReminderAsync(It.IsAny<Guid>(), It.IsAny<NotificationType>(),
+            It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(closerReminderDue);
         notifications.Setup(r => r.GetDueForDispatchAsync(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(pending.ToList());
         // L3a — the dispatcher reviews parked rows after the batch. Nothing here parks any, so an empty page
@@ -146,6 +149,27 @@ public class NotificationJobTests
         Assert.Equal(NotificationStatus.Pending, fenced.Status);
         Assert.Equal(0, fenced.RetryCount);
         Assert.Equal(NotificationStatus.Sent, other.Status);
+    }
+
+    // [clinic-pc-copy EC-16] The 24 h and the 6 h reminder both due at once (a cut handed back, an outage): the earlier
+    // tier gives way to the one closest to the visit — one reminder, not two — and says why.
+    [Fact]
+    public async Task An_Earlier_Tier_Gives_Way_When_A_Closer_One_Is_Due_Too()
+    {
+        var patientId = Guid.NewGuid();
+        var reminder = Reminder(NotificationType.SMS, patientId);
+        var patients = new Mock<IPatientRepository>();
+        patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientWithPhone(patientId, "20123456"));
+        var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
+        var job = BuildJob(true, new[] { reminder }, patients, new Mock<IUnitOfWork>(),
+            new IReminderChannelSender[] { sender }, closerReminderDue: true);
+
+        await job.ProcessPendingNotifications();
+
+        Assert.Equal(0, sender.Calls);
+        Assert.Equal(NotificationStatus.Failed, reminder.Status);
+        Assert.Contains("plus proche", reminder.ErrorMessage);
     }
 
     /// <summary>

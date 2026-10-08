@@ -64,6 +64,8 @@ public class SubscriptionExemptionCoverageTests
         "RelayPeer.HandbackFiles",
         "RelayPeer.HandbackFile",
         "Relay.Retire",
+        // D18 / AC-5.6: marking a line of the return's list as read records no new work.
+        "Relay.MarkReviewItemSeen",
         // AC-8.4: securing the accounts a stolen PC held — an unpaid cabinet must be able to, and it records nothing new.
         "Relay.DeclareLost",
         // US-7: taking a locked cabinet's saves back from a silent PC — records nothing new.

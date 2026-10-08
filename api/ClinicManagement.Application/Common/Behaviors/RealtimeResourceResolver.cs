@@ -57,6 +57,19 @@ public static class RealtimeResourceResolver
     /// <para>Two rules, in order: a command may veto its own broadcast with <see cref="IDoesNotBroadcast"/> — a
     /// step of a longer operation is not an edit — and otherwise the answer is its area's.</para>
     /// </summary>
+    /// <summary>
+    /// Every key a command of this assembly broadcasts — for the one moment a whole cabinet changed at once without a
+    /// command behind it: the PC de secours handing a cut back (D18, AC-5.8), whose rows arrive in SQL.
+    /// </summary>
+    public static IReadOnlyList<string> AllKeys() =>
+        typeof(RealtimeResourceResolver).Assembly.GetTypes()
+            .Where(t => !t.IsAbstract && typeof(MediatR.IBaseRequest).IsAssignableFrom(t))
+            .Select(Resolve)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .ToList();
+
     public static string? Resolve(Type requestType)
         => typeof(IDoesNotBroadcast).IsAssignableFrom(requestType) ? null : AreaKeyOf(requestType);
 

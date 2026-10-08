@@ -419,6 +419,15 @@ public class NotificationJob
                 await FailAsync(notification, "Rendez-vous déjà passé — rappel obsolète, non envoyé");
                 return;
             }
+
+            // EC-16 — and one reminder per visit when several tiers fell due at once (a cut handed back, an outage, a
+            // backlog): the scan is oldest first, so the earlier tier gives way to the one closest to the visit.
+            if (await _notificationRepository.HasCloserDueReminderAsync(
+                    appointment.Id, notification.Type, notification.ScheduledFor, nowUtc))
+            {
+                await FailAsync(notification, "Remplacé par un rappel plus proche du rendez-vous — non envoyé");
+                return;
+            }
         }
 
         var patient = notification.PatientId.HasValue

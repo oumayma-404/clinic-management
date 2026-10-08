@@ -47,12 +47,28 @@ public static class RelayAlertRules
             .ToList();
 
     public static IReadOnlyList<RelayAlertRow> Wanted(
-        ClinicRelay? relay, string? clinicHoursJson, IReadOnlyCollection<RelayAlert> shown, DateTime nowUtc)
+        ClinicRelay? relay, string? clinicHoursJson, IReadOnlyCollection<RelayAlert> shown, DateTime nowUtc,
+        int pendingReviews = 0)
     {
         if (relay is null)
         {
             return Array.Empty<RelayAlertRow>();
         }
+
+        var wanted = WantedForThePc(relay, clinicHoursJson, shown, nowUtc).ToList();
+
+        // AC-5.6: what the return listed stays on the bell, at any hour, until every line is « Vu ».
+        if (pendingReviews > 0)
+        {
+            wanted.Add(new(RelayAlert.ToReview, "Modifications à vérifier", Queries.RelayReviewLabels.BellMessage(pendingReviews)));
+        }
+
+        return wanted;
+    }
+
+    private static IReadOnlyList<RelayAlertRow> WantedForThePc(
+        ClinicRelay relay, string? clinicHoursJson, IReadOnlyCollection<RelayAlert> shown, DateTime nowUtc)
+    {
 
         var reading = ClinicRelayHealth.Read(relay, nowUtc);
         var label = relay.Label;

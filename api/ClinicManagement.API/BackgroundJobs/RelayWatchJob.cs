@@ -35,6 +35,7 @@ public class RelayWatchJob
     private readonly IConfiguration _configuration;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
+    private readonly IRelayReviewItemRepository? _reviews;
     private readonly ILogger<RelayWatchJob> _logger;
 
     public RelayWatchJob(
@@ -49,8 +50,10 @@ public class RelayWatchJob
         IConfiguration configuration,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
-        ILogger<RelayWatchJob> logger)
+        ILogger<RelayWatchJob> logger,
+        IRelayReviewItemRepository? reviews = null)
     {
+        _reviews = reviews;
         _relays = relays;
         _clinics = clinics;
         _notifications = notifications;
@@ -85,7 +88,8 @@ public class RelayWatchJob
                     .Select(n => n.RelayAlert)
                     .OfType<RelayAlert>()
                     .ToList();
-                var wanted = RelayAlertRules.Wanted(relay, clinic?.WorkingHoursJson, shown, now);
+                var pending = _reviews is null ? 0 : await _reviews.CountPendingAsync(relay.ClinicId);
+                var wanted = RelayAlertRules.Wanted(relay, clinic?.WorkingHoursJson, shown, now, pending);
                 await _generator.SyncRelayAlertsAsync(relay.ClinicId, wanted);
             }
             catch (Exception ex)

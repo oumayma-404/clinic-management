@@ -34,6 +34,10 @@ public interface IRelayHandbackStore
 
     // ---- the cloud, inside the caller's transaction --------------------------------------------------------------
 
+    /// <summary>The keys of <paramref name="table"/> a return wrote since <paramref name="sinceUtc"/> — its own transaction.</summary>
+    Task<IReadOnlyList<string>> KeysWrittenByReturnAsync(
+        Guid clinicId, string table, DateTime sinceUtc, CancellationToken cancellationToken);
+
     /// <summary>The cloud's changes after <paramref name="afterSeq"/> — what the PC never received.</summary>
     Task<IReadOnlyList<RelayCloudChange>> CloudChangesAfterAsync(Guid clinicId, long afterSeq, CancellationToken cancellationToken);
 

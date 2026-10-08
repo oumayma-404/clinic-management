@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Application.Features.Relay.Commands;
 using ClinicManagement.Application.Features.Relay.Queries;
@@ -160,8 +161,39 @@ public class RelayController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>« Modifications à vérifier » (D18, AC-5.6): what the return found the cloud had too, newest first.</summary>
+    [HttpGet("review-items")]
+    public async Task<ActionResult<PagedResult<RelayReviewItemDto>>> ReviewItems(
+        [FromQuery] bool includeReviewed, [FromQuery] int? page, [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new GetRelayReviewItemsQuery(includeReviewed, page, pageSize), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    /// <summary>« Vu »: an admin read both versions. Changes no record.</summary>
+    [OnlineOnly("The return's review list is the cloud's; a copy holds none.")]
+    [HttpPost("review-items/{id:guid}/seen")]
+    [AllowsWithoutSubscription("Marking a line of the return's list as read records no new work.")]
+    public async Task<ActionResult<RelayReviewItemDto>> MarkReviewItemSeen(Guid id, CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new MarkRelayReviewItemSeenCommand(id), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
     internal static int StatusFor(string? code) => code switch
     {
+        MarkRelayReviewItemSeenCommandHandler.NotFoundCode => StatusCodes.Status404NotFound,
         RelayRefusals.NotHoldingCode => StatusCodes.Status409Conflict,
         RelayRefusals.AlreadyPairedCode => StatusCodes.Status409Conflict,
         RelayRefusals.PairingCodeExpiredCode => StatusCodes.Status410Gone,

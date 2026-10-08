@@ -1044,6 +1044,9 @@ public sealed class RelayFollowerTests : IDisposable
         public Task<IReadOnlyList<RelayCloudChange>> CloudChangesAfterAsync(Guid clinicId, long afterSeq, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<string>> KeysWrittenByReturnAsync(Guid clinicId, string table, DateTime sinceUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyDictionary<RelayRowKey, string>> CurrentRowsAsync(Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

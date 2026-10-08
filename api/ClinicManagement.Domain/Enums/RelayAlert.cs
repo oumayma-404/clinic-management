@@ -20,4 +20,7 @@ public enum RelayAlert
 
     /// <summary>D18 / AC-5.9: the PC has failed to hand the cut back for 15 min; the cabinet keeps working on it.</summary>
     ReturnStuck = 9,
+
+    /// <summary>D18 / AC-5.6: lines of « Modifications à vérifier » nobody has marked « Vu » yet.</summary>
+    ToReview = 10,
 }

@@ -1,22 +1,26 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (session 11) · **Overall:** ~57 % · **Part 1 (La copie):** done in code (owed: the Windows
-rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~62 % (lease 1, 2, 2b, « Reprendre
-la main », device reports, D17, D16 and **the return, slice a** done) · **all scratch servers stopped**
+**Date:** 2026-10-08 (session 11) · **Overall:** ~59 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~65 % (lease 1, 2, 2b, « Reprendre
+la main », device reports, D17, D16, **the return slice a and the after-return step (b1)** done) · **all scratch servers stopped**
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–128, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–134, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next sub-step: Part 2 · the return, slice b (D18b)** — detailed below.
+3. **Next sub-step: Part 2 · the return, slice b2 (D18b2)** — the review list on the card and « À reprendre » (items 1 and 7 below); then b3 (items 5, 6, 8).
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
 ## The next sub-step — the return, slice b (D18b)
+
+**Done in b1 (session 11, deviations 129–133):** items 2, 3, 4 below and the review bell row + API of item 1
+(`GET relay/review-items`, `POST relay/review-items/{id}/seen`, `RelayAlert.ToReview`). **Left:** the screen of item 1
+(b2), item 7 (b2), items 5, 6, 8 (b3).
 
 What slice a left, each named in deviation 128 (and 121, 124, 88, 91):
 1. **« Modifications à vérifier »** — the rows are stored (`RelayReviewItems`, AC-5.6): the admins' bell row « N
@@ -162,7 +166,8 @@ the PC, readable by admins, until « À reprendre » / the return exist. Details
 | `56d3c8cd` | idempotency (D17): `IdempotencyMiddleware`, `IdempotencyRecords` (per side), `withWriteKey` in `client.ts`, N51 |
 | `020c8f09` | number promise (D16): `NumberedDocuments`, `NumberPromiseCoordinator` + transaction interceptor, `IRelayPromiseBroker`, `POST /api/relay/promises`, the PC's promise loop + `RelayNumberPromises` floor |
 | `54b8badd` | device reports (AC-6.2): `RelayDeviceController`, `relayProbe` (Windows 1.5, Android 1.2.0), the web loop, migration `AddRelayDeviceReports` |
-| (session 11) | the return, slice a (D18): the PC's own log, two-phase handback (`POST relay/handback`, files), `RelayHandbackPlanner`, FR-11 merge, `RelayReviewItems`, stuck alarms, migration `AddRelayHandback` |
+| `e60be0df` | the return, slice a (D18): the PC's own log, two-phase handback (`POST relay/handback`, files), `RelayHandbackPlanner`, FR-11 merge, `RelayReviewItems`, stuck alarms, migration `AddRelayHandback` |
+| (session 11) | after the return (D18b1): screens refresh + Google catch-up on phase 2 (`RelayReturnAftermath`), one reminder per visit (EC-16), 7-day grace on a holding PC (EC-15), review list API + bell row |
 
 ## Part 1 — done / left
 
@@ -183,7 +188,8 @@ scratch account's test password + TOTP secret). The working copies live in the O
 | Piece | State at the end of session 10 |
 |---|---|
 | Shared Docker (postgres, minio, mailpit) | started from cold this session (lease holder clinic-pc-copy) |
-| Scratch cloud API :5098 | last copy **`cloud-api-20`** (D18a, run bound to `127.0.0.1:5098`; PC **`pc-api-19`**, « essai 6 », stood down; both DBs carry `AddRelayHandback`; `e2eeturn-api.mjs seed|cloud-edit|pc-work|cloud-try|check` = the return pass — seed, edit on the cloud and Ctrl+Break it at once, wait the takeover, pc-work, restart the cloud, wait ~2 min, check). Before: last copy **`cloud-api-19`** (D16; PC **`pc-api-18`**, web **`web-cloud-12`** — all **stopped**; `e2e\promise-api.mjs armed|killed <pid>|floor|stood` = the D16 checks). Before: **`cloud-api-18`** (D17; `e2e\idem-api.mjs` + `pw\idem-browser.mjs` = the D17 passes), **`cloud-api-17`**, run **bound to `127.0.0.1`** (`Hosting__Urls=http://127.0.0.1:5098`) so the PC and a device arrive on one address family; web **`web-cloud-11`** (built with `NEXT_PUBLIC_API_URL=http://127.0.0.1:5098/api`). `pw\device-pass.mjs <outdir> <pcPid> <fingerprint>` = the device-report pass (22 checks, kills the PC); the shell probe harness is `scratchpad\probe-harness` (session-10 scratchpad). Before that: **`cloud-api-16`** (current code; web **`web-cloud-10`**); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
+| Scratch cloud API :5098 | last copy **`cloud-api-21`** / PC **`pc-api-20`** (D18b1, both stopped; `return-api.mjs` gained `pc-visit`, `review`, `seen`). Before: **`cloud-api-20`** (D18a, run bound to `127.0.0.1:5098`; PC **`pc-api-19`**, « essai 6 », stood down; both DBs carry `AddRelayHandback`; `e2e
+eturn-api.mjs seed|cloud-edit|pc-work|cloud-try|check` = the return pass — seed, edit on the cloud and Ctrl+Break it at once, wait the takeover, pc-work, restart the cloud, wait ~2 min, check). Before: last copy **`cloud-api-19`** (D16; PC **`pc-api-18`**, web **`web-cloud-12`** — all **stopped**; `e2e\promise-api.mjs armed|killed <pid>|floor|stood` = the D16 checks). Before: **`cloud-api-18`** (D17; `e2e\idem-api.mjs` + `pw\idem-browser.mjs` = the D17 passes), **`cloud-api-17`**, run **bound to `127.0.0.1`** (`Hosting__Urls=http://127.0.0.1:5098`) so the PC and a device arrive on one address family; web **`web-cloud-11`** (built with `NEXT_PUBLIC_API_URL=http://127.0.0.1:5098/api`). `pw\device-pass.mjs <outdir> <pcPid> <fingerprint>` = the device-report pass (22 checks, kills the PC); the shell probe harness is `scratchpad\probe-harness` (session-10 scratchpad). Before that: **`cloud-api-16`** (current code; web **`web-cloud-10`**); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
 | Scratch cloud web :3098 | **`web-cloud-9`** |
 | Test PC (:5097/:3097) | **`pc-api-16`** = current code (same « essai 6 », armed). Before that: **`pc-api-15`**, paired « PC-ACCUEIL (essai 6) » (essai 5 retired after the reclaim rehearsal; its lease kept as `.local/relay-lease.kept-cut-work-2.json`). Earlier: « PC-ACCUEIL (essai 5) » (essai 4 retired during the slice-2 cut; its lease file kept as `.local/relay-lease.kept-cut-work.json`), seeded, armed, stopped cleanly. `pc-api-11` is the PC **promoted** — never use it for Part 2. `e2e/lease2-run.mjs <pc|cloud> <label>` signs in and tries a save, two FR-5 actions (PC only — on the cloud FR-11 keeps them open and they WRITE) and a read; `e2e/lease2-retire.mjs` retires during a cut (mutates); `scratchpad/ctrlc-out/ctrlc.exe <pid> 1` (session-10 scratchpad) stops an API gracefully |
 | Browser pass for the offer | `node offer-run.mjs <outdir>` — run from the OLD scratchpad's `pw\` (has `node_modules`); 38/38 last run |

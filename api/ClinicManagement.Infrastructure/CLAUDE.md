@@ -656,6 +656,12 @@ no consent flag and no audit of which patient was sent.
   transaction** (`RelayScope` not owned): deletes, upserts with the cloud's own columns kept (AC-5.7), every key checked
   to be the PC's cabinet before and after, the sign-in merge, and one `ClinicChange` (`Origin = Relay`) per key so the
   PC's copy follows. ⚠️ A lost answer: same handback id for 30 s with saves refused, then saves again and a **new** id.
+- **After the return (D18b1)**: phase 2 runs `Application/Features/Relay/RelayReturnAftermath` after the commit —
+  every appointment the return wrote (`ClinicRelayRowStore.KeysWrittenByReturnAsync`, `Origin = Relay`) to Google
+  Agenda, and every realtime key (`RealtimeResourceResolver.AllKeys()`) sent once, since the cut's rows arrived in SQL.
+  The dispatcher sends one reminder per visit when tiers collide (`NotificationRepository.HasCloserDueReminderAsync`,
+  EC-16). « Modifications à vérifier » has its repository (`RelayReviewItemRepository`) and a bell row
+  (`RelayAlert.ToReview`, counted by `RelayWatchJob`).
 - **Idempotency (D17)**: `Persistence/IdempotencyStore` — the replay keys of a cabinet's saves in `IdempotencyRecords`,
   claimed with `INSERT … ON CONFLICT DO NOTHING` and completed / released in **raw SQL** on the request's own context, so a
   claim survives the save's rollback and touches no change log, audit row or fence. ⚠️ **Per side**: excluded from the

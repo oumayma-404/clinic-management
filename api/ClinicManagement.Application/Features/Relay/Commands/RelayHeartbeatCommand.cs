@@ -27,6 +27,7 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
     private readonly IAuditEntryRepository _auditEntries;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<RelayHeartbeatCommandHandler> _logger;
+    private readonly IRelayReturnAftermath? _aftermath;
 
     public RelayHeartbeatCommandHandler(
         IClinicContext clinicContext,
@@ -36,8 +37,10 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
         IRelayBuildInfo build,
         IAuditEntryRepository auditEntries,
         IUnitOfWork unitOfWork,
-        ILogger<RelayHeartbeatCommandHandler> logger)
+        ILogger<RelayHeartbeatCommandHandler> logger,
+        IRelayReturnAftermath? aftermath = null)
     {
+        _aftermath = aftermath;
         _clinicContext = clinicContext;
         _relays = relays;
         _tenantScope = tenantScope;
@@ -69,8 +72,11 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
 
             // D18 phase 2: the PC stopped holding after the cloud applied its handback — the cloud takes the saves back.
             // Never on a heartbeat that says it holds: that is a new cut, which its own return will release.
+            var returnAppliedAt = relay.HandbackAppliedAtUtc;
+            var released = false;
             if (!report.Holding && report.ReturnedHandbackId is { } returned && relay.ConfirmReturn(returned, now))
             {
+                released = true;
                 await RelayJournal.StageAsync(_auditEntries, new AuditActor(relay.Subject, null), relay,
                     AuditAction.Update, RelayJournal.Returned, now, cancellationToken);
             }
@@ -100,6 +106,12 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             var ackSeq = relay.IssueAck(armed, now);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (released && _aftermath is not null)
+            {
+                // After the commit, best-effort: the cabinet's saves are back here whatever the refresh does.
+                await _aftermath.AfterReturnAsync(relay.ClinicId, returnAppliedAt ?? now, cancellationToken);
+            }
 
             return Result<RelayHeartbeatAck>.Success(new RelayHeartbeatAck(
                 now, highWater, epoch, Retired: false, UpdateNeeded: !sameBuild, cloudBuild, ackSeq, armed, overruled,

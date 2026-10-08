@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
@@ -22,6 +23,20 @@ public class RelayReviewItemRepository : IRelayReviewItemRepository
             .OrderBy(i => i.CreatedAtUtc)
             .ThenBy(i => i.Id)
             .ToListAsync(cancellationToken);
+
+    public Task<PagedResult<RelayReviewItem>> GetPageAsync(
+        Guid clinicId, bool includeReviewed, PageRequest? paging, CancellationToken cancellationToken = default) =>
+        _context.RelayReviewItems
+            .Where(i => i.ClinicId == clinicId && (includeReviewed || i.ReviewedAtUtc == null))
+            .OrderByDescending(i => i.CreatedAtUtc)
+            .ThenBy(i => i.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
+
+    public Task<int> CountPendingAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        _context.RelayReviewItems.CountAsync(i => i.ClinicId == clinicId && i.ReviewedAtUtc == null, cancellationToken);
+
+    public Task<RelayReviewItem?> GetByIdAsync(Guid clinicId, Guid id, CancellationToken cancellationToken = default) =>
+        _context.RelayReviewItems.FirstOrDefaultAsync(i => i.ClinicId == clinicId && i.Id == id, cancellationToken);
 
     public async Task AddRangeAsync(IReadOnlyCollection<RelayReviewItem> items, CancellationToken cancellationToken = default) =>
         await _context.RelayReviewItems.AddRangeAsync(items, cancellationToken);

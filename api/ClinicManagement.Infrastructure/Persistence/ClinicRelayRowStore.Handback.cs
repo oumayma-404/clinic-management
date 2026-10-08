@@ -116,6 +116,28 @@ public sealed partial class ClinicRelayRowStore : IRelayHandbackStore
 
     // ---- the cloud, inside the caller's transaction --------------------------------------------------------------
 
+    public async Task<IReadOnlyList<string>> KeysWrittenByReturnAsync(
+        Guid clinicId, string table, DateTime sinceUtc, CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        var keys = new List<string>();
+        await using (var command = scope.Command(
+                         "SELECT DISTINCT \"EntityKey\" FROM \"ClinicChanges\" WHERE \"ClinicId\" = @clinic AND \"Table\" = @table "
+                         + "AND \"Origin\" = @origin AND \"Op\" = @op AND \"RecordedAtUtc\" >= @since",
+                         ("clinic", clinicId), ("table", table), ("origin", (int)ClinicChangeOrigin.Relay),
+                         ("op", (int)ClinicChangeOp.Upsert), ("since", DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc))))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                keys.Add(reader.GetString(0));
+            }
+        }
+
+        await scope.CommitAsync(cancellationToken);
+        return keys;
+    }
+
     public async Task<IReadOnlyList<RelayCloudChange>> CloudChangesAfterAsync(
         Guid clinicId, long afterSeq, CancellationToken cancellationToken)
     {
