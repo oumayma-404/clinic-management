@@ -129,6 +129,7 @@ public sealed class RelayFeedJob : BackgroundService
         if (_follower is null || _followerRelayId != credentials.RelayId)
         {
             var build = _build.Current;
+            var updates = Path.Combine(LocalInstallPaths.LocalDir, RelayUpdater.FolderName);
             _follower = new RelayFollower(
                 new RelayCloudClient(_http.CreateClient(nameof(RelayFeedJob)), credentials, build),
                 new RelayFollowerStateStore(),
@@ -136,6 +137,12 @@ public sealed class RelayFeedJob : BackgroundService
                 _secrets,
                 build,
                 HostFacts,
+                new RelayUpdater(
+                    new RelayInstallerDownloader(_http.CreateClient(nameof(RelayInstallerDownloader)), credentials.ApiBase),
+                    RelayUpdateLaunchers.For(_configuration["Relay:UpdateLauncher"], updates, _logger),
+                    updates,
+                    LocalInstallPaths.Resolve("logs"),
+                    _logger),
                 _logger);
             _followerRelayId = credentials.RelayId;
         }

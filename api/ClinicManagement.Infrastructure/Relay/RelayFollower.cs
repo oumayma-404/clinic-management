@@ -16,8 +16,9 @@ public sealed record RelayHostReport(IReadOnlyList<string> LanAddresses, string?
 
 /// <summary>
 /// The PC de secours's copy, one tick at a time (<c>clinic-pc-copy</c> Part 1 « Copy »): report → first copy or
-/// catch-up → files → hourly check. Every rule that can lose records is in <see cref="RelayFeedDecisions"/>; this class
-/// only carries them out and keeps the position on disk after each step that moved it.
+/// catch-up → files → hourly check — or, while the cloud runs another build, one step of <see cref="RelayUpdater"/>.
+/// Every rule that can lose records is in <see cref="RelayFeedDecisions"/>; this class only carries them out and keeps
+/// the position on disk after each step that moved it.
 /// </summary>
 public sealed class RelayFollower
 {
@@ -33,6 +34,7 @@ public sealed class RelayFollower
     private readonly IUserSecretProtector _secrets;
     private readonly string _build;
     private readonly Func<RelayHostReport> _host;
+    private readonly RelayUpdater _updater;
     private readonly Func<DateTime> _utcNow;
     private readonly ILogger _logger;
     private readonly Dictionary<string, DateTime> _fileRetryAfter = new(StringComparer.Ordinal);
@@ -44,6 +46,7 @@ public sealed class RelayFollower
         IUserSecretProtector secrets,
         string build,
         Func<RelayHostReport> host,
+        RelayUpdater updater,
         ILogger logger,
         Func<DateTime>? utcNow = null)
     {
@@ -53,6 +56,7 @@ public sealed class RelayFollower
         _secrets = secrets;
         _build = build;
         _host = host;
+        _updater = updater;
         _logger = logger;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
@@ -109,10 +113,19 @@ public sealed class RelayFollower
             return Save(RelayFeedDecisions.Stopped(state, RelayFeedDecisions.WentBackReason));
         }
 
-        if (state.StoppedReason is not null || state.UpdateNeeded)
+        // A stopped copy may hold more than the cloud: it is never updated toward that cloud either — a human decides.
+        if (state.StoppedReason is not null)
         {
             return Save(state);
         }
+
+        // [D10b] The cloud runs another build: the copy waits while this PC fetches and runs the cloud's own installer.
+        if (state.UpdateNeeded)
+        {
+            return Save(await _updater.StepAsync(state, ack.Value.CloudBuild, Save, AnnounceUpdatingAsync, cancellationToken));
+        }
+
+        state = await _updater.SettleAsync(state);
 
         if (!state.RowsSeeded || state.ReseedNeeded)
         {
@@ -141,7 +154,7 @@ public sealed class RelayFollower
         return Save(state);
     }
 
-    private RelayHeartbeatRequest Report(RelayFollowerState state)
+    private RelayHeartbeatRequest Report(RelayFollowerState state, bool? isUpdating = null)
     {
         var host = _host();
         return new RelayHeartbeatRequest(
@@ -151,15 +164,19 @@ public sealed class RelayFollower
             state.FilesTotal,
             state.FilesCopied,
             host.DiskFreeBytes,
-            IsUpdating: false,
+            isUpdating ?? RelayUpdater.ReportsUpdating(state, _build, _utcNow()),
             _build,
             _utcNow(),
             string.Join(",", host.LanAddresses),
             state.MismatchTables,
-            state.StoppedReason ?? state.LastError,
+            state.StoppedReason ?? state.UpdateError ?? state.LastError,
             host.CertificateFingerprint,
             CopyStopped: state.StoppedReason is not null);
     }
+
+    /// <summary>The heartbeat sent just before the installer stops this service: the cloud's last word is « Mise à jour ».</summary>
+    private async Task AnnounceUpdatingAsync(RelayFollowerState state, CancellationToken cancellationToken) =>
+        await _cloud.HeartbeatAsync(Report(state, isUpdating: true), cancellationToken);
 
     private async Task<RelayFollowerState> CatchUpAsync(
         RelayFollowerState state, RelayLocalSide local, long cloudHighWater, CancellationToken cancellationToken)

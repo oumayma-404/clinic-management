@@ -30,6 +30,8 @@ public sealed class RelayFollowerTests : IDisposable
     private DateTime _now = T0;
     private readonly RelayFollowerStateStore _store;
     private readonly (string Public, byte[] Private) _keys;
+    private readonly FakeInstaller _installer = new();
+    private readonly FakeLauncher _launcher = new();
 
     public RelayFollowerTests()
     {
@@ -42,14 +44,16 @@ public sealed class RelayFollowerTests : IDisposable
             .Returns(Task.CompletedTask);
     }
 
-    private RelayFollower Follower()
+    private RelayFollower Follower(string build = "build-1")
     {
         var secrets = new Mock<IUserSecretProtector>();
         secrets.Setup(s => s.Protect(It.IsAny<string>())).Returns((string plain) => "ring:" + plain);
         var credentials = new RelayCredentials(Guid.NewGuid(), ClinicId, "Cabinet", "https://cloud.example.tn", "secret",
             Convert.ToBase64String(_keys.Private), T0);
-        return new RelayFollower(_cloud, _store, credentials, secrets.Object, "build-1",
+        return new RelayFollower(_cloud, _store, credentials, secrets.Object, build,
             () => new RelayHostReport(new[] { "192.168.1.10" }, "FP", 100L * 1024 * 1024 * 1024),
+            new RelayUpdater(_installer, _launcher, Path.Combine(_dir, "updates"), Path.Combine(_dir, "logs"),
+                NullLogger.Instance, () => _now),
             NullLogger.Instance, () => _now);
     }
 
@@ -327,11 +331,115 @@ public sealed class RelayFollowerTests : IDisposable
         Seeded(seq: 40);
         _cloud.HighWater = 45;
         _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
 
         var state = await TickAsync();
 
         Assert.True(state.UpdateNeeded);
         Assert.Empty(_cloud.ChangesAsked);
+    }
+
+    // ---- the self-update (D10b) ----------------------------------------------------------------------------------
+
+    // The whole path in one tick: the cloud's installer is fetched, matches its hash, the cloud hears « Mise à jour »,
+    // and the installer runs once — an update in place, which keeps the pairing.
+    [Fact]
+    public async Task An_Update_Is_Fetched_Checked_Announced_And_Run_Once()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7, 7, 7 });
+
+        var follower = Follower();
+        var state = await TickAsync(follower);
+
+        var launch = Assert.Single(_launcher.Launches);
+        Assert.Contains("/RELAY", launch.Arguments);
+        Assert.DoesNotContain("/PAIRFILE", launch.Arguments);
+        Assert.Equal(new[] { false, true }, _cloud.Reports.Select(r => r.IsUpdating));
+        Assert.Equal(_now, state.UpdateLaunchedAtUtc);
+        Assert.Equal(_now, _store.Load().UpdateLaunchedAtUtc);
+
+        _now = T0.AddMinutes(1);
+        await TickAsync(follower);
+
+        Assert.Single(_launcher.Launches);
+        Assert.True(_cloud.Reports.Last().IsUpdating);
+        Assert.Empty(_cloud.ChangesAsked);
+    }
+
+    // The new build heartbeats, the cloud stops asking, the copy resumes at once; the leftovers go once the installer
+    // has had time to finish.
+    [Fact]
+    public async Task A_Landed_Update_Resumes_The_Copy_And_Is_Cleared_Afterwards()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7, 7, 7 });
+        await TickAsync();
+
+        // This process is now the new build: its first heartbeat still reads the old state file.
+        var newBuild = Follower("build-2");
+        _cloud.UpdateNeeded = false;
+        _cloud.HighWater = 42;
+        _now = T0.AddMinutes(5);
+        var landed = await TickAsync(newBuild);
+
+        Assert.Equal((40, "h40"), _cloud.ChangesAsked.First());
+        Assert.Equal("build-2", landed.UpdateBuild);
+        Assert.False(_cloud.Reports.Last().IsUpdating);
+        Assert.Equal(0, _launcher.Forgotten);
+
+        _now = T0 + RelayUpdater.CleanupAfterLanding + TimeSpan.FromSeconds(1);
+        var settled = await TickAsync(newBuild);
+
+        Assert.Null(settled.UpdateBuild);
+        Assert.Null(settled.UpdateLaunchedAtUtc);
+        Assert.Equal(1, _launcher.Forgotten);
+        Assert.Empty(Directory.GetFiles(Path.Combine(_dir, "updates")));
+    }
+
+    // A stopped copy may hold more than the cloud: it is never updated toward that cloud either.
+    [Fact]
+    public async Task A_Stopped_Copy_Is_Never_Updated()
+    {
+        Seeded(seq: 40);
+        _store.Save(_store.Load() with { StoppedReason = RelayFeedDecisions.WentBackReason });
+        _cloud.HighWater = 40;
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7 });
+
+        await TickAsync();
+
+        Assert.Equal(0, _installer.Fetches);
+        Assert.Empty(_launcher.Launches);
+    }
+
+    // A failed update is said on the heartbeat, in place of the copy's own last error.
+    [Fact]
+    public async Task A_Failed_Update_Is_What_The_Heartbeat_Reports()
+    {
+        Seeded(seq: 40);
+        _store.Save(_store.Load() with
+        {
+            UpdateNeeded = true, UpdateBuild = "build-2", UpdateStartedAtUtc = T0,
+            UpdateError = RelayUpdater.NotLandedSentence, LastError = "ancienne erreur",
+        });
+        _cloud.HighWater = 40;
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+
+        await TickAsync();
+
+        var report = _cloud.Reports.Single();
+        Assert.Equal(RelayUpdater.NotLandedSentence, report.LastError);
+        Assert.False(report.IsUpdating);
+        Assert.Empty(_launcher.Launches);
     }
 
     [Fact]
@@ -478,11 +586,71 @@ public sealed class RelayFollowerTests : IDisposable
 
     // ---- fakes ---------------------------------------------------------------------------------------------------
 
+    /// <summary>A cloud serving one build's installer (or nothing), answering at once so a step is one tick.</summary>
+    internal sealed class FakeInstaller : IRelayInstallerSource
+    {
+        private string? _build;
+        private byte[] _bytes = Array.Empty<byte>();
+
+        public string? Sha256Override { get; set; }
+        public RelayInstallerFetchStatus? Answer { get; set; }
+        public int Fetches { get; private set; }
+        public List<long> Offsets { get; } = new();
+
+        public void Serve(string build, byte[] bytes)
+        {
+            _build = build;
+            _bytes = bytes;
+        }
+
+        public Task<RelayInstallerFetch> FetchAsync(string partPath, string build, CancellationToken cancellationToken)
+        {
+            Fetches++;
+            Offsets.Add(File.Exists(partPath) ? new FileInfo(partPath).Length : 0);
+            if (Answer is { } answer)
+            {
+                return Task.FromResult(new RelayInstallerFetch(answer));
+            }
+
+            if (_build is null)
+            {
+                return Task.FromResult(new RelayInstallerFetch(RelayInstallerFetchStatus.NotPublished));
+            }
+
+            if (_build != build)
+            {
+                return Task.FromResult(new RelayInstallerFetch(RelayInstallerFetchStatus.OtherBuild, Error: _build));
+            }
+
+            File.WriteAllBytes(partPath, _bytes);
+            return Task.FromResult(new RelayInstallerFetch(RelayInstallerFetchStatus.Complete,
+                Sha256Override ?? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(_bytes))));
+        }
+    }
+
+    internal sealed class FakeLauncher : IRelayUpdateLauncher
+    {
+        public List<(string Installer, string Arguments, string WorkingDirectory)> Launches { get; } = new();
+        public bool Refuses { get; set; }
+        public Action? OnLaunch { get; set; }
+        public int Forgotten { get; private set; }
+
+        public RelayLaunch Launch(string installerPath, string arguments, string workingDirectory)
+        {
+            OnLaunch?.Invoke();
+            Launches.Add((installerPath, arguments, workingDirectory));
+            return Refuses ? new RelayLaunch(false, "Accès refusé.") : new RelayLaunch(true);
+        }
+
+        public void Forget() => Forgotten++;
+    }
+
     private sealed class FakeCloud : IRelayCloudClient
     {
         public RelayCallStatus HeartbeatStatus { get; set; } = RelayCallStatus.Ok;
         public long HighWater { get; set; }
         public bool UpdateNeeded { get; set; }
+        public string CloudBuild { get; set; } = "build-1";
         public string AckEpoch { get; set; } = "e1";
         public Queue<RelayFeedBatch> Batches { get; } = new();
         public (string Epoch, long HighWater, string? Head) Snapshot { get; set; } = ("e1", 0, null);
@@ -511,7 +679,7 @@ public sealed class RelayFollowerTests : IDisposable
             Reports.Add(report);
             return Task.FromResult(HeartbeatStatus == RelayCallStatus.Ok
                 ? new RelayCall<RelayHeartbeatAck>(RelayCallStatus.Ok,
-                    new RelayHeartbeatAck(T0, HighWater, AckEpoch, false, UpdateNeeded, "build-1"))
+                    new RelayHeartbeatAck(T0, HighWater, AckEpoch, false, UpdateNeeded, CloudBuild))
                 : new RelayCall<RelayHeartbeatAck>(HeartbeatStatus));
         }
 

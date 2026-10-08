@@ -88,6 +88,22 @@ public class ClinicRelayHealthTests
         Assert.Equal(ClinicRelayState.Updating, StateOf(relay, now));
     }
 
+    // [D10b] The installer stops the PC's services: « Mise à jour » stays its state through a bounded silence, and a
+    // PC that never comes back from it reads « Éteint » like any other.
+    [Fact]
+    public void An_Updating_Pc_Is_Updating_Through_Its_Restart_And_Off_After_It()
+    {
+        var now = T0.AddHours(1);
+        var silentTen = Active(now.AddMinutes(-10), beat: Beat(updating: true));
+        var silentTooLong = Active(now - ClinicRelayHealth.UpdateSilenceAllowed - TimeSpan.FromSeconds(1), beat: Beat(updating: true));
+        var notUpdating = Active(now.AddMinutes(-10));
+
+        Assert.Equal(ClinicRelayState.Updating, StateOf(silentTen, now));
+        Assert.False(ClinicRelayHealth.Read(silentTen, now).IsProblem);
+        Assert.Equal(ClinicRelayState.Off, StateOf(silentTooLong, now));
+        Assert.Equal(ClinicRelayState.Off, StateOf(notUpdating, now));
+    }
+
     [Fact]
     public void An_Unrepaired_Difference_Is_Mismatch()
     {

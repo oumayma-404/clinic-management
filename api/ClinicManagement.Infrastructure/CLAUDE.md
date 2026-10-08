@@ -602,6 +602,15 @@ no consent flag and no audit of which patient was sent.
   `RelayLocalEraser` (« Effacer la copie ») purges the cabinet through `IClinicPurge` **inside one transaction**, then
   saves `ErasedAtUtc`, then deletes the files; ⚠️ a failed purge rolls back and claims nothing. The follower then
   reports `relay/erased` with the PC's own secret until the cloud has heard (`ErasureReported`), and does nothing else.
+- **Self-update (PC side, D10b)**: when the heartbeat says « update needed » the follower hands each tick to
+  `RelayUpdater` — the cloud's own installer (`RelayInstallerDownloader`, `GET relay/installer`) is fetched **beside**
+  the ticks with `Range` resume (a ~200 MB wait inside a tick would stop the heartbeat), checked against
+  `X-Content-SHA256`, announced (`IsUpdating`), then run `/RELAY` with no code — an update in place — by a one-shot
+  **SYSTEM scheduled task** (`ScheduledTaskUpdateLauncher`, `schtasks /xml`): the installer stops the very service
+  that would otherwise be its parent. ⚠️ **One cloud build, one run** — the start is saved before it happens, a
+  refusal (the installer's result sentence, readable only if this build survived) or 30 min with no landing is
+  reported and never retried; the next cloud build starts afresh. A copy stopped by D12 is never updated.
+  `Relay:UpdateLauncher=direct` (child process) exists for a test rig only.
 - **Uninstall (PC side)**: `RelayUninstaller`, driven by the API's `uninstall-relay [--erase]` verb (the installer's
   uninstall step, service stopped). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
   silent cloud may be a lost one, and then this PC is the cabinet's last copy; a copy stopped by a cloud that went back

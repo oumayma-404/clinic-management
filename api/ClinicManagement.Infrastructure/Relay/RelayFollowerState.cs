@@ -53,6 +53,29 @@ public sealed record RelayFollowerState
     /// <summary>The last failure, in French, reported on the next heartbeat; cleared by the next success.</summary>
     public string? LastError { get; init; }
 
+    // ---- the self-update (D10b) — one cloud build, one series of attempts --------------------------------------
+
+    /// <summary>The cloud build this PC is updating to; null when no update is under way.</summary>
+    public string? UpdateBuild { get; init; }
+
+    /// <summary>When this PC first learned it must update to <see cref="UpdateBuild"/>.</summary>
+    public DateTime? UpdateStartedAtUtc { get; init; }
+
+    /// <summary>The cloud answered « pas encore » for its build: nothing to update to, so the PC does not claim to be updating.</summary>
+    public bool UpdateWaitingForInstaller { get; init; }
+
+    /// <summary>The installer's SHA-256 as the cloud sent it beside the bytes; nothing runs that does not match.</summary>
+    public string? UpdateSha256 { get; init; }
+
+    /// <summary>The next download attempt waits until then — a 404 or a failed download is never a loop.</summary>
+    public DateTime? UpdateRetryAfterUtc { get; init; }
+
+    /// <summary>The installer was started for <see cref="UpdateBuild"/>. Saved BEFORE the start, so one build is run once.</summary>
+    public DateTime? UpdateLaunchedAtUtc { get; init; }
+
+    /// <summary>Why the update did not land, in French; reported until the cloud's build changes.</summary>
+    public string? UpdateError { get; init; }
+
     public bool RowsSeeded => RowsSeededAtUtc is not null;
 }
 

@@ -172,4 +172,19 @@ public sealed class RelayInstallerEndpointTests : IDisposable
         Assert.Contains($"\"{RelayPeerController.InstallerSha256Header}\"", shell);
         Assert.Contains($"\"{RelayRefusals.InstallerUnavailable}\"", shell);
     }
+
+    // ⚠️ The PC de secours's own self-update (D10b) holds copies too — Infrastructure references no API assembly. A
+    // renamed header here would leave every PC refusing every installer as « no hash », i.e. never updating again.
+    [Fact]
+    public void The_Pc_De_Secours_Asks_For_This_Route_And_Reads_These_Headers()
+    {
+        var route = typeof(RelayPeerController).GetCustomAttributes(typeof(RouteAttribute), false)
+            .Cast<RouteAttribute>().Single().Template;
+        var action = typeof(RelayPeerController).GetMethod(nameof(RelayPeerController.Installer))!
+            .GetCustomAttributes(typeof(HttpGetAttribute), false).Cast<HttpGetAttribute>().Single().Template;
+
+        Assert.Equal("api/" + ClinicManagement.Infrastructure.Relay.RelayInstallerDownloader.Route, $"{route}/{action}");
+        Assert.Equal(RelayPeerController.InstallerSha256Header, ClinicManagement.Infrastructure.Relay.RelayInstallerDownloader.Sha256Header);
+        Assert.Equal(RelayPeerController.BuildHeader, ClinicManagement.Infrastructure.Relay.RelayInstallerDownloader.BuildHeader);
+    }
 }

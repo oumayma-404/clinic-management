@@ -37,6 +37,9 @@ public static class ClinicRelayHealth
     /// <summary>No heartbeat for this long and the PC is « Éteint ».</summary>
     public static readonly TimeSpan SilentAfter = TimeSpan.FromMinutes(2);
 
+    /// <summary>A PC that last said « Mise à jour » may be silent this long — its installer restarts it — before it is « Éteint ».</summary>
+    public static readonly TimeSpan UpdateSilenceAllowed = TimeSpan.FromMinutes(20);
+
     /// <summary>Not ready for longer than this and the PC is « En retard » (FR-2).</summary>
     public static readonly TimeSpan LateAfter = TimeSpan.FromMinutes(2);
 
@@ -83,7 +86,10 @@ public static class ClinicRelayHealth
         }
 
         var lastSeen = relay.LastSeenAtUtc ?? relay.PairedAtUtc ?? relay.CreatedAtUtc;
-        if (nowUtc - lastSeen > SilentAfter)
+        var silence = nowUtc - lastSeen;
+        // D10b: the installer stops the PC's services for several minutes, and « Mise à jour » is the last thing the PC
+        // said. It stays true for a bounded silence only — an update that never came back is a PC that is off.
+        if (silence > SilentAfter && !(relay.IsUpdating && silence <= UpdateSilenceAllowed))
         {
             return new(ClinicRelayState.Off, lastSeen, null);
         }
