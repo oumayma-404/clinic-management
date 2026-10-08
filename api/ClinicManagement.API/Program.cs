@@ -62,6 +62,22 @@ if (args.Length > 0 && string.Equals(args[0], UninstallRelayConsoleCommand.Comma
     return await UninstallRelayConsoleCommand.RunAsync(args);
 }
 
+// clinic-pc-copy D11 / AC-9.3: once the cloud is lost for good, a vendor-signed code turns this PC de secours into the
+// cabinet's local server. Run on the PC, by hand. Usage:
+//   ClinicManagement.API.exe promote-relay [--code-file <fichier>]
+if (args.Length > 0 && string.Equals(args[0], PromoteRelayConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await PromoteRelayConsoleCommand.RunAsync(args);
+}
+
+// clinic-pc-copy D11: the vendor signs that code on their own machine — never on a server, which dies with the cloud.
+//   ClinicManagement.API.exe sign-relay-promotion --new-key <fichier>
+//   ClinicManagement.API.exe sign-relay-promotion --key <fichier> --relay <id> --clinic <id> [--days <1-30>] --out <fichier>
+if (args.Length > 0 && string.Equals(args[0], SignRelayPromotionConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return SignRelayPromotionConsoleCommand.Run(args);
+}
+
 // Idempotent HTTPS-cert provisioning (Server Installer Reliability): a one-shot console command that
 // generates (or reuses) the CA + server cert into .local/ and exits, without starting the web server or
 // touching the DB. The installer runs this BEFORE starting the API service so the service's first boot

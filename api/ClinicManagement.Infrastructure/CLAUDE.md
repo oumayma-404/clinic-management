@@ -611,6 +611,14 @@ no consent flag and no audit of which patient was sent.
   refusal (the installer's result sentence, readable only if this build survived) or 30 min with no landing is
   reported and never retried; the next cloud build starts afresh. A copy stopped by D12 is never updated.
   `Relay:UpdateLauncher=direct` (child process) exists for a test rig only.
+- **Promotion (PC side, D11)**: `RelayPromotionCode` (ECDSA P-256 over the exact bytes of
+  `APEXA-PROMO-1.<payload>`, bound to the PC's `RelayId` + `ClinicId`, ≤ 30 days) verified against
+  **`VendorPublicKey`, a compiled-in constant** — no configuration can make a PC trust another key; rotating means a new
+  constant, and every private key that ever shipped must be kept, since a PC verifies with the key of its last build.
+  `RelayPromoter` refuses (wrong code · a layer that is not a relay's · `CloudServesAsync` = the cloud's own `/health`
+  healthy) **before** writing anything, then journal row → `RelayInstallLayer.SwitchToLocalServer` (⚠️ leaves no
+  `ClinicRelay` substring — the installer's `ExistingInstall` matches on it) → follower state released →
+  `.local/relay-promotion.json`.
 - **Uninstall (PC side)**: `RelayUninstaller`, driven by the API's `uninstall-relay [--erase]` verb (the installer's
   uninstall step, service stopped). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
   silent cloud may be a lost one, and then this PC is the cabinet's last copy; a copy stopped by a cloud that went back

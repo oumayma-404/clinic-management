@@ -625,6 +625,36 @@ therefore requires persisting the CA key and adding leaf-only renewal first.
 
 ---
 
+## PC de secours — making it the cabinet's server when the cloud is lost (vendor only)
+
+A cabinet's PC de secours is installed from the Windows app (`/RELAY`, see `features/clinic-pc-copy/`). If the hosted
+cloud is **lost for good**, only the vendor can turn that PC into the cabinet's own local server, with a one-time code
+signed **offline** — the console lives on the cloud's server and is gone with it.
+
+1. On the PC (an administrator console, in `C:\Program Files\APEXA\api`):
+   `ClinicManagement.API.exe promote-relay` → prints the PC's id and the cabinet's id.
+2. On the vendor's own machine (never a server), with the vendor key kept offline:
+   `ClinicManagement.API.exe sign-relay-promotion --key <relay-promotion-private.pem> --relay <PC id> --clinic <cabinet id> --out code.txt`
+   (valid 7 days by default, `--days` up to 30). The signer refuses any key but the one built into the PCs.
+3. Send `code.txt` to the cabinet; on the PC: `ClinicManagement.API.exe promote-relay --code-file code.txt`, then
+   restart the PC.
+
+Exit codes: 0 promoted · 1 cannot run · 2 code refused (another PC, expired, not the vendor's) · **3 the cloud still
+answers** — a promotion is refused while the cloud's own `/health` is healthy, whatever the code says, or the cabinet
+would work on two servers at once. Every refusal changes nothing.
+
+Afterwards the PC is an ordinary local server (`Deployment:Profile=SelfHostedLan`; the old `appsettings.Install.json`
+is kept as `.bak-…`; one row « PC de secours promu en serveur local » in the journal). To re-enter: SMS/WhatsApp
+reminders, the Google Agenda link and the cabinet code (Paramètres), the automatic archive copy; and point every poste
+at this PC. A later installer run sees the cabinet's server, as on any other.
+
+⚠️ **The vendor key.** Its private half lives only on the vendor's machine (`apexa-vendor-keys\relay-promotion-private.pem`)
+— keep a backup offline. It is minted once with `sign-relay-promotion --new-key <file>`, which prints the public half
+compiled into `RelayPromotionCode.VendorPublicKey`. A PC verifies with the key of the last build it ran, so rotating
+the key means a new constant **and** keeping every old private key.
+
+---
+
 ## Operator verification checklist (S5–S7)
 
 Run on a real build machine + target PC(s). Each item maps to a spec acceptance criterion.

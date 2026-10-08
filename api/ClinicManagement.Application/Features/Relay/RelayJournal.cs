@@ -19,6 +19,16 @@ public static class RelayJournal
                 $"{what} — {relay.Label}", occurredAtUtc),
         }, cancellationToken);
 
+    /// <summary>A row written on the PC itself, which holds no <see cref="ClinicRelay"/> (the cloud owns those).</summary>
+    public static Task StageOnPcAsync(
+        IAuditEntryRepository auditEntries, AuditActor actor, Guid clinicId, Guid relayId, string label, AuditAction action,
+        string what, DateTime occurredAtUtc, CancellationToken cancellationToken) =>
+        auditEntries.AddRangeAsync(new[]
+        {
+            new AuditEntry(clinicId, actor.UserId, actor.Email, EntityType, relayId.ToString(), action,
+                $"{what} — {label}", occurredAtUtc),
+        }, cancellationToken);
+
     public const string Setup = "PC de secours installé";
     public const string FirstCopy = "Première copie terminée";
     public const string Retire = "PC de secours retiré";
