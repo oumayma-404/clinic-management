@@ -52,6 +52,13 @@ public static class ClinicRelayHealth
 
         if (relay.Status == ClinicRelayStatus.Retired)
         {
+            // A code given back before any installer presented it (AC-1.11 — Windows' prompt refused, too little room):
+            // no PC ever existed, so it reads like a code that lapsed, never as a problem the admins are rung about.
+            if (relay.RetiredReason == ClinicRelayRetirement.Abandoned && relay.PairedAtUtc is null)
+            {
+                return new(ClinicRelayState.None, null, null);
+            }
+
             return relay.RetiredReason == ClinicRelayRetirement.Abandoned
                 ? new(ClinicRelayState.Abandoned, relay.RetiredAtUtc, null)
                 : new(ClinicRelayState.Retired, relay.RetiredAtUtc, null);

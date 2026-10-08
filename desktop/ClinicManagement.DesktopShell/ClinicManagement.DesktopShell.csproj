@@ -33,12 +33,14 @@
          1.3.0 adds `confirmIdentity` (Windows Hello), so the inactivity limit LOCKS this shell instead of
          signing it out.
 
+         1.4.0 adds `relayHostFacts` + `installRelay` (clinic-pc-copy): the PC de secours offer.
+
          ⚠️ Bumping this must NOT be accompanied by raising the server's minimum-client-version floor. The floor
          is what `ClientVersionMiddleware` answers 426 on, and every clinic PC that has not yet self-updated
          would be refused on every route — for a feature whose whole point is that its absence is harmless
          (the web bundle feature-detects the method and signs out exactly as before). Velopack delivers 1.3
          silently; nothing has to be forced. -->
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <!-- Shown in the title bar, the taskbar, alt-tab and Explorer, and picked up by the client installer as its
          own icon. Generated from `web/branding/icon.svg` by `web/scripts/generate-icons.mjs` — never hand-edited,
          or the shell's tile drifts from the browser tab it renders. -->

@@ -1,7 +1,10 @@
 namespace ClinicManagement.Application.Features.Relay;
 
-/// <summary>A pairing code, shown once, for the installer to present (D8).</summary>
-public sealed record RelayPairingCodeDto(Guid RelayId, string Code, DateTime ExpiresAtUtc);
+/// <summary>
+/// A pairing code, shown once, for the installer to present (D8). <paramref name="NeedBytes"/> is the free space the
+/// PC must have (AC-1.8), handed to the installer as <c>/NEEDBYTES=</c> so it refuses with the cloud's own figure.
+/// </summary>
+public sealed record RelayPairingCodeDto(Guid RelayId, string Code, DateTime ExpiresAtUtc, long NeedBytes = 0);
 
 /// <summary>What a paired PC receives once: its identity and secret.</summary>
 public sealed record RelayPairingDto(Guid RelayId, Guid ClinicId, string ClinicName, string Secret);
@@ -54,4 +57,7 @@ public sealed record RelayStatusDto(
     int FilesTotal,
     int FilesCopied,
     long? DiskFreeBytes,
-    bool LostOrStolen = false);
+    bool LostOrStolen = false,
+    // The Windows app's offer (AC-1.1, AC-1.10): whether a PC de secours may be set up now, and how much room it needs.
+    bool CanInstall = false,
+    long NeedBytes = 0);

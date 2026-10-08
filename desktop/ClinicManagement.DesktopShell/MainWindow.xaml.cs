@@ -247,6 +247,8 @@ public partial class MainWindow : Window
             ShowUpdateNoticeIfNewer(requirements.CurrentShellVersion);
         }
 
+        RefreshRelayOffer();
+
         // Navigate() (rather than setting Source) forces a fresh request even when the URL is unchanged,
         // so "Réessayer" and "Recharger" actually re-attempt the connection.
         WebView.CoreWebView2.Navigate(_config.BaseUrl);
@@ -492,11 +494,146 @@ public partial class MainWindow : Window
                 {
                     ConfirmIdentityAsync(message[IdentityRequestPrefix.Length..]);
                 }
+                // `relay-facts:<id>` / `relay-install:<id>:<json>` — the PC de secours offer (clinic-pc-copy).
+                else if (message.StartsWith(RelayFactsPrefix, StringComparison.Ordinal))
+                {
+                    AnswerRelayFactsAsync(e.Source, message[RelayFactsPrefix.Length..]);
+                }
+                else if (message.StartsWith(RelayInstallPrefix, StringComparison.Ordinal))
+                {
+                    RunRelayInstallAsync(e.Source, message[RelayInstallPrefix.Length..]);
+                }
                 break;
         }
     }
 
     private const string IdentityRequestPrefix = "identity:";
+    private const string RelayFactsPrefix = "relay-facts:";
+    private const string RelayInstallPrefix = "relay-install:";
+
+    // ---- The PC de secours (clinic-pc-copy AC-1.1–1.13) -----------------------------------------------
+
+    /// <summary>
+    /// Whether the configured server offers a PC de secours — read once per connection from <c>/api/auth/mode</c>, so
+    /// the menu item is absent on a clinic's own server, where it could only lead to « non disponible ».
+    /// </summary>
+    private bool _offersRelay;
+
+    /// <summary>
+    /// Answers <c>relayHostFacts()</c>. ⚠️ Only for the configured server's own page: these facts are about this
+    /// machine, and nothing else the WebView might hold has any business asking. Read off the UI thread — the
+    /// encryption fallback can take seconds.
+    /// </summary>
+    private async void AnswerRelayFactsAsync(string? source, string requestId)
+    {
+        if (!RelayInstaller.IsRequestId(requestId))
+        {
+            return;
+        }
+
+        object? answer = null;
+        try
+        {
+            if (VaultBridge.IsExpectedOrigin(source, _config))
+            {
+                var facts = await System.Threading.Tasks.Task.Run(RelayHost.Read);
+                answer = new
+                {
+                    machineName = facts.MachineName,
+                    hasBattery = facts.HasBattery,
+                    diskEncrypted = facts.DiskEncrypted,
+                    freeBytes = facts.FreeBytes,
+                };
+            }
+        }
+        catch
+        {
+            // Null facts: the page does not make the offer.
+        }
+
+        await DeliverRelayResultAsync(requestId, answer);
+    }
+
+    /// <summary>
+    /// Runs <c>installRelay()</c>: download, verify, one Windows permission prompt, then the installer alone. Deliberately
+    /// <c>async void</c> like <see cref="ConfirmIdentityAsync"/>, and wrapped for the same reason — it outlives the
+    /// message that started it by minutes.
+    /// </summary>
+    private async void RunRelayInstallAsync(string? source, string payload)
+    {
+        var separator = payload.IndexOf(':');
+        var requestId = separator > 0 ? payload[..separator] : payload;
+        if (!RelayInstaller.IsRequestId(requestId))
+        {
+            return;
+        }
+
+        RelayInstaller.Outcome outcome;
+        try
+        {
+            if (!VaultBridge.IsExpectedOrigin(source, _config) || separator < 0)
+            {
+                outcome = new RelayInstaller.Outcome(RelayInstaller.Failed, "Cette page ne peut pas installer le PC de secours.");
+            }
+            else
+            {
+                using var request = System.Text.Json.JsonDocument.Parse(payload[(separator + 1)..]);
+                var root = request.RootElement;
+                var code = root.TryGetProperty("code", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? c.GetString() ?? string.Empty
+                    : string.Empty;
+                var needBytes = root.TryGetProperty("needBytes", out var n) && n.TryGetInt64(out var bytes) ? bytes : 0;
+                outcome = await RelayInstaller.InstallAsync(_config, code, needBytes);
+            }
+        }
+        catch
+        {
+            outcome = new RelayInstaller.Outcome(
+                RelayInstaller.Failed, "L'installation du PC de secours n'a pas pu démarrer sur ce PC. Réessayez.");
+        }
+
+        await DeliverRelayResultAsync(requestId, new { outcome = outcome.Kind, sentence = outcome.Sentence });
+    }
+
+    /// <summary>
+    /// Hands an answer back by request id. ⚠️ The id is interpolated only after <see cref="RelayInstaller.IsRequestId"/>
+    /// accepted it, and the value is JSON this file serialised — valid JavaScript, nothing from the page.
+    /// </summary>
+    private async System.Threading.Tasks.Task DeliverRelayResultAsync(string requestId, object? value)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(value);
+            await WebView.CoreWebView2.ExecuteScriptAsync(
+                $"window.__clinicShellDeliverRelayResult && window.__clinicShellDeliverRelayResult('{requestId}', {json})");
+        }
+        catch
+        {
+            // The page navigated away, or the WebView is gone; the script's own timeout resolves the promise.
+        }
+    }
+
+    /// <summary>
+    /// « Installer le PC de secours ici… » (AC-1.5): the page that asks for an admin's email, password and code, so
+    /// the reception PC can be chosen while a secretary is signed in. Navigated by the page's own location, so an
+    /// open form's « quitter la page ? » guard still gets its say.
+    /// </summary>
+    private async void OpenRelayInstallPage()
+    {
+        try
+        {
+            await WebView.CoreWebView2.ExecuteScriptAsync("window.location.assign('/pc-de-secours')");
+        }
+        catch
+        {
+            WebView.CoreWebView2.Navigate(_config.BaseUrl + "/pc-de-secours");
+        }
+    }
+
+    private async void RefreshRelayOffer()
+    {
+        _offersRelay = await RelayInstaller.ServerOffersRelayAsync(_config.BaseUrl);
+    }
 
     /// <summary>
     /// Runs the Windows Hello prompt for one <c>confirmIdentity()</c> call and hands the outcome back.
@@ -575,10 +712,21 @@ public partial class MainWindow : Window
         var separator = environment.CreateContextMenuItem(
             string.Empty, iconStream: null, CoreWebView2ContextMenuItemKind.Separator);
 
-        e.MenuItems.Insert(0, reload);
-        e.MenuItems.Insert(1, changeServer);
-        e.MenuItems.Insert(2, archiveCopy);
-        e.MenuItems.Insert(3, separator);
+        var position = 0;
+        e.MenuItems.Insert(position++, reload);
+        e.MenuItems.Insert(position++, changeServer);
+        e.MenuItems.Insert(position++, archiveCopy);
+
+        // clinic-pc-copy AC-1.5 — on any PC, whoever is signed in; absent where the server offers no PC de secours.
+        if (_offersRelay)
+        {
+            var installRelay = environment.CreateContextMenuItem(
+                "Installer le PC de secours ici…", iconStream: null, CoreWebView2ContextMenuItemKind.Command);
+            installRelay.CustomItemSelected += (_, _) => OpenRelayInstallPage();
+            e.MenuItems.Insert(position++, installRelay);
+        }
+
+        e.MenuItems.Insert(position, separator);
     }
 
     // ---- Automatic archive copy (clinic-archive-auto-copy) --------------------------------------

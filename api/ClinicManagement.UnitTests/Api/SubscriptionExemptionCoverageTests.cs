@@ -50,6 +50,11 @@ public class SubscriptionExemptionCoverageTests
         // clinic-pc-copy: setting up, feeding and retiring the PC de secours. A copy of the cabinet's own records
         // is not new work, and a lapsed cabinet is the last one that should lose its spare copy (FR-1).
         "RelayPeer.Pair",
+        "Relay.IssuePairingCode",
+        // AC-1.5: the same setup from any PC with an admin's email, password and code (AuthController, class-level).
+        "Auth.RelayPairingCode",
+        // AC-1.11: giving back a code the installer never presented frees the clinic's place; nothing is recorded.
+        "Relay.ReleasePairingCode",
         "RelayPeer.Token",
         "RelayPeer.Heartbeat",
         "Relay.Retire",

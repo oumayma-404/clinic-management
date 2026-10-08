@@ -5,9 +5,11 @@ using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Application.Features.Relay.Commands;
 using ClinicManagement.Application.Features.Relay.Queries;
 using ClinicManagement.Infrastructure.Deployment;
+using ClinicManagement.API.Startup;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -44,6 +46,7 @@ public class RelayController : ApiControllerBase
     }
 
     [HttpPost("pairing-codes")]
+    [AllowsWithoutSubscription("A PC that will hold the clinic's own records may always be set up to copy them.")]
     public async Task<ActionResult<RelayPairingCodeDto>> IssuePairingCode(
         [FromBody] IssueRelayPairingCodeRequest request,
         [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
@@ -63,6 +66,27 @@ public class RelayController : ApiControllerBase
 
         var result = await _mediator.Send(new IssueRelayPairingCodeCommand(request.Label ?? string.Empty), cancellationToken);
         return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The Windows app gives back a code its installer never presented (AC-1.11): Windows' prompt refused, too little
+    /// room, a failed download. The code is the credential — the credentials door has no session to send — and every
+    /// outcome is the same 204, so it reveals nothing about any clinic.
+    /// </summary>
+    [HttpPost("pairing-codes/release")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.RelayTokenPolicy)]
+    [AllowsWithoutSubscription("Giving back an unused setup code frees the clinic's place; it records no new work.")]
+    public async Task<IActionResult> ReleasePairingCode(
+        [FromBody] ReleaseRelayPairingCodeRequest request, CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        await _mediator.Send(new ReleaseRelayPairingCodeCommand(request.Code ?? string.Empty), cancellationToken);
+        return NoContent();
     }
 
     [HttpDelete]
@@ -114,9 +138,14 @@ public class RelayController : ApiControllerBase
         RelayRefusals.RetiredCode => StatusCodes.Status410Gone,
         RelayRefusals.VersionMismatchCode => StatusCodes.Status409Conflict,
         RelayRefusals.NotRetiredCode => StatusCodes.Status409Conflict,
+        // The password and the code were right; something else is owed first (AC-1.5).
+        RelayRefusals.AuthenticatorRequiredCode => StatusCodes.Status403Forbidden,
+        RelayRefusals.PasswordChangeRequiredCode => StatusCodes.Status403Forbidden,
         "relay_blob_not_found" => StatusCodes.Status404NotFound,
         _ => StatusCodes.Status400BadRequest,
     };
 }
 
 public sealed record IssueRelayPairingCodeRequest(string? Label);
+
+public sealed record ReleaseRelayPairingCodeRequest(string? Code);

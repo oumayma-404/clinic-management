@@ -21,6 +21,28 @@
  */
 type ShellIdentityOutcome = "confirmed" | "rejected" | "cancelled" | "unavailable"
 
+/**
+ * What the Windows app knows about the PC it runs on, for the PC de secours offer (`clinic-pc-copy` AC-1.6–1.8).
+ * `diskEncrypted` is **three-valued**: `null` is « je ne sais pas », which is the common answer without elevation,
+ * and the offer must not turn it into « non chiffré ». `freeBytes` is the drive the server installs to.
+ */
+interface ShellRelayHostFacts {
+  machineName: string
+  hasBattery: boolean
+  diskEncrypted: boolean | null
+  freeBytes: number | null
+}
+
+/**
+ * How an `installRelay` ended (AC-1.4, AC-1.11). `declined` is Windows' permission prompt answered « Non » — nothing
+ * installed. `refused` is the installer refusing before copying (too little room, already the cabinet's server) or
+ * the code refused at pairing. `sentence` is always French and always set: the shell words what only it can know.
+ */
+interface ShellRelayInstallOutcome {
+  outcome: "installed" | "declined" | "refused" | "failed"
+  sentence: string
+}
+
 interface ClinicShell {
   /**
    * The shell's own version, injected before first paint.
@@ -68,6 +90,19 @@ interface ClinicShell {
    * lands on `/login` with their place remembered (AC-58).
    */
   confirmIdentity?(): Promise<ShellIdentityOutcome>
+
+  /**
+   * This PC's facts for the PC de secours offer — Windows app only (since 1.4). Never rejects: `null` when the shell
+   * cannot say, and then the offer is not made. Absent in every browser and on Android, which is AC-1.12.
+   */
+  relayHostFacts?(): Promise<ShellRelayHostFacts | null>
+
+  /**
+   * Turns this PC into the cabinet's PC de secours with a one-time code the cloud issued (AC-1.4): the shell fetches
+   * the server installer from the cloud it already uses, shows Windows' permission prompt once, and runs it. Never
+   * rejects; the code goes to a file the installer reads and deletes, never onto a command line.
+   */
+  installRelay?(request: { code: string; needBytes: number }): Promise<ShellRelayInstallOutcome>
 }
 
 interface Window {

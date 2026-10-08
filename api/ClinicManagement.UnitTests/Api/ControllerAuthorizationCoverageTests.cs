@@ -71,6 +71,13 @@ public class ControllerAuthorizationCoverageTests
                                      // that one PC and nothing else; rate-limited like the exchange.
         "RelayPeer.Uninstalled",     // the uninstaller saying this PC is going (AC-8.3): its own secret, for the same
                                      // reason — it retires that one PC and writes one journal row; rate-limited.
+        "Relay.ReleasePairingCode",  // the Windows app giving back a code its installer never presented (AC-1.11):
+                                     // the code IS the credential, it can only free that one unused setup, and every
+                                     // outcome is the same 204; rate-limited like the pairing.
+        "Auth.RelayPairingCode",     // « Installer le PC de secours ici… » on any PC (AC-1.5): an admin's email,
+                                     // password AND code, checked by running the sign-in itself (its lockout, its
+                                     // replay guard), whose session is ended before the answer leaves. Under
+                                     // /api/auth so the sign-in's per-account rate limit applies.
         "Auth.Logout",              // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
                                      // one more: the credential in the body IS the authentication, and demanding
                                      // a valid access token would refuse exactly the case that most needs

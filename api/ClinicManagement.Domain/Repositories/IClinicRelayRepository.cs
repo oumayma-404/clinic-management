@@ -26,5 +26,8 @@ public interface IClinicRelayRepository
     /// <summary>Every non-retired row of every clinic — the watcher's read (caller declares system-wide).</summary>
     Task<IReadOnlyList<ClinicRelay>> GetLiveAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>The bytes of the clinic's files the cloud holds — what a PC de secours copies besides the rows (AC-1.8).</summary>
+    Task<long> GetHostedFileBytesAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     Task AddAsync(ClinicRelay relay, CancellationToken cancellationToken = default);
 }

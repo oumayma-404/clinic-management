@@ -66,6 +66,12 @@ public class ClinicRelayRepository : IClinicRelayRepository
             .ThenBy(r => r.Id)
             .ToListAsync(cancellationToken);
 
+    // A coffre file never reached the cloud, so the PC cannot copy it: hosted rows only.
+    public async Task<long> GetHostedFileBytesAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        await _context.PatientFiles
+            .Where(f => f.ClinicId == clinicId && f.Residency == FileResidency.Hosted)
+            .SumAsync(f => (long?)f.FileSize, cancellationToken) ?? 0;
+
     public async Task AddAsync(ClinicRelay relay, CancellationToken cancellationToken = default) =>
         await _context.ClinicRelays.AddAsync(relay, cancellationToken);
 }

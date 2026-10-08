@@ -25,6 +25,8 @@ import {
 import { showErrorToast } from "@/lib/errors"
 import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
+import { relayInstallShell } from "./relay-install"
+import { RelayOfferDialog } from "./relay-install-offer"
 
 /** The state shows as words and an icon, never a colour alone (FR-2). Exhaustive, so a new state is a `tsc` error. */
 const STATE_LOOK: Record<RelayStateKey, { icon: LucideIcon; tone: StatusTone }> = {
@@ -61,13 +63,32 @@ type Load =
  * other failure is « Impossible de lire l'état du PC de secours » with « Réessayer », never « Aucun PC de secours »,
  * which would tell an admin the cabinet is unprotected when the truth is that nobody could look (AC-2.4).</p>
  *
- * <p>⚠️ <b>There is no setup button here, deliberately</b>: the spec puts the offer in the Windows app and never in a
- * browser (AC-1.12) — a browser cannot install a server on the PC it runs on.</p>
+ * <p>⚠️ <b>« Installer sur ce PC » appears in the Windows app only</b>, where the offer lives (AC-1.12) — a browser cannot
+ * install a server on the PC it runs on, so there the card says where to go instead.</p>
  */
 export function RelayCard() {
   const [load, setLoad] = useState<Load>({ kind: "loading" })
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [retiring, setRetiring] = useState(false)
+
+  // Read after mount: the bridge is a window global, so the server render has to assume a browser.
+  const [inWindowsApp, setInWindowsApp] = useState(false)
+  useEffect(() => setInWindowsApp(relayInstallShell() !== null), [])
+  const [installOffer, setInstallOffer] = useState<{ facts: ShellRelayHostFacts; needBytes: number } | null>(null)
+  const [installOpen, setInstallOpen] = useState(false)
+  const [readingPc, setReadingPc] = useState(false)
+
+  const openInstall = async (needBytes: number) => {
+    setReadingPc(true)
+    const facts = await relayInstallShell()?.relayHostFacts()
+    setReadingPc(false)
+    if (!facts) {
+      toast.error("L'application n'a pas pu lire ce PC. Fermez-la, rouvrez-la, puis recommencez.")
+      return
+    }
+    setInstallOffer({ facts, needBytes })
+    setInstallOpen(true)
+  }
 
   const read = useCallback(async (initial: boolean) => {
     try {
@@ -195,6 +216,8 @@ export function RelayCard() {
             status={load.status}
             onRetire={() => setConfirmOpen(true)}
             onDeclareLost={() => setLostConfirmOpen(true)}
+            onInstall={inWindowsApp && load.status.canInstall ? () => void openInstall(load.status.needBytes ?? 0) : undefined}
+            installing={readingPc}
             retiring={retiring || declaring}
           />
         )}
@@ -300,6 +323,18 @@ export function RelayCard() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {installOffer && (
+        <RelayOfferDialog
+          open={installOpen}
+          onOpenChange={(open) => {
+            setInstallOpen(open)
+            if (!open) void read(false)
+          }}
+          facts={installOffer.facts}
+          needBytes={installOffer.needBytes}
+        />
+      )}
+
       <StepUpDialog
         open={eraseStepUpOpen}
         onOpenChange={setEraseStepUpOpen}
@@ -322,13 +357,32 @@ export function RelayCard() {
 }
 
 function RelayState({
-  status, onRetire, onDeclareLost, retiring,
-}: { status: RelayStatusDto; onRetire: () => void; onDeclareLost: () => void; retiring: boolean }) {
+  status, onRetire, onDeclareLost, onInstall, installing, retiring,
+}: {
+  status: RelayStatusDto
+  onRetire: () => void
+  onDeclareLost: () => void
+  /** Present in the Windows app while a PC de secours may be set up (AC-1.10); absent everywhere else. */
+  onInstall?: () => void
+  installing: boolean
+  retiring: boolean
+}) {
   const look = STATE_LOOK[status.state] ?? STATE_LOOK.none
   const Icon = look.icon
 
+  const installButton = onInstall && (
+    <Button size="sm" className="grow basis-36 coarse:min-h-11 sm:grow-0" disabled={installing} onClick={onInstall}>
+      {installing ? "Lecture du PC…" : "Installer sur ce PC…"}
+    </Button>
+  )
+
   if (!status.exists) {
-    return (
+    return installButton ? (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 basis-48 grow text-sm text-muted-foreground">Aucun PC de secours.</p>
+        <div className="flex w-full sm:w-auto">{installButton}</div>
+      </div>
+    ) : (
       <p className="text-sm text-muted-foreground">
         Aucun PC de secours. Il s&apos;installe depuis l&apos;application Windows, sur un PC du cabinet.
       </p>
@@ -367,6 +421,8 @@ function RelayState({
         </div>
 
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          {/* A retired or abandoned PC leaves the place free: the next one can be set up from here. */}
+          {installButton}
           {live && (
             <Button
               variant="outline"

@@ -33,7 +33,16 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
         }
 
         var relay = await _relays.GetLatestForClinicAsync(admin.Value!.ClinicId, cancellationToken);
-        return Result<RelayStatusDto>.Success(ToDto(relay, DateTime.UtcNow));
+        var status = ToDto(relay, DateTime.UtcNow);
+
+        // The offer's room check (AC-1.8) needs the figure before « Oui », so only when a setup may start.
+        return Result<RelayStatusDto>.Success(status.CanInstall
+            ? status with
+            {
+                NeedBytes = RelayFootprint.NeedBytes(
+                    await _relays.GetHostedFileBytesAsync(admin.Value.ClinicId, cancellationToken)),
+            }
+            : status);
     }
 
     public static RelayStatusDto ToDto(ClinicRelay? relay, DateTime nowUtc)
@@ -56,6 +65,8 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
             relay?.FilesTotal ?? 0,
             relay?.FilesCopied ?? 0,
             relay?.DiskFreeBytes,
-            relay?.RetiredReason == ClinicRelayRetirement.LostOrStolen);
+            relay?.RetiredReason == ClinicRelayRetirement.LostOrStolen,
+            // The issuance's own test (AC-1.10): retired, expired-unused and abandoned rows leave the place free.
+            CanInstall: relay is null || !relay.OccupiesTheClinic(nowUtc));
     }
 }

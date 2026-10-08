@@ -24,6 +24,20 @@ public static class RelayRefusals
     public const string NotAdminCode = "relay_admin_only";
     public const string InvalidRequestCode = "relay_invalid";
     public const string NotRetiredCode = "relay_not_retired";
+    public const string AuthenticatorRequiredCode = "relay_authenticator_required";
+
+    /// <summary>
+    /// ⚠️ Not <c>must_change_password</c>: the browser routes that code to « /change-password » with a session this door
+    /// never left behind.
+    /// </summary>
+    public const string PasswordChangeRequiredCode = "relay_password_change_required";
+
+    /// <summary>The credentials door (AC-1.5): a password alone must not be able to install a copy of every record.</summary>
+    public const string AuthenticatorRequired =
+        "Installer le PC de secours demande un authentificateur : configurez-le d'abord dans « Sécurité ».";
+
+    public const string PasswordChangeRequired =
+        "Ce compte doit d'abord choisir un nouveau mot de passe : connectez-vous à APEXA, puis recommencez.";
 
     /// <summary>« Effacer la copie » on a PC the cloud has not retired (AC-8.2): the copy is still the cabinet's spare.</summary>
     public const string NotRetired =

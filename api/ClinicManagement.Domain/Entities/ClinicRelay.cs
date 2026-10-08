@@ -243,6 +243,22 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// <summary>The PC held everything up to the cloud's high-water when the cloud last answered (FR-2 « Prêt »).</summary>
     public bool IsCaughtUp => Status == ClinicRelayStatus.Active && AppliedSeq >= HighWaterAtLastAck;
 
+    /// <summary>
+    /// A setup that ended before the installer presented the code — Windows' prompt refused, too little room, a failed
+    /// download (AC-1.11). Frees the clinic's one place at once instead of after the code's 10 minutes. False, and
+    /// nothing changes, once the code has been used: a paired PC is retired by an admin, never by whoever holds a code.
+    /// </summary>
+    public bool ReleaseUnusedCode(DateTime nowUtc)
+    {
+        if (Status != ClinicRelayStatus.Pairing)
+        {
+            return false;
+        }
+
+        Retire(ClinicRelayRetirement.Abandoned, byUserId: null, nowUtc);
+        return true;
+    }
+
     /// <summary>Idempotent: the first retirement is the one that counts.</summary>
     public void Retire(ClinicRelayRetirement reason, string? byUserId, DateTime nowUtc)
     {

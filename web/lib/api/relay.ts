@@ -25,6 +25,19 @@ export interface RelayStatusDto {
   diskFreeBytes?: number | null;
   /** Retired by « Déclarer perdu ou volé » (AC-8.4) — there is nothing left to declare. */
   lostOrStolen: boolean;
+  /** Whether a PC de secours may be set up now (AC-1.10): none, retired, or a setup that lapsed. */
+  canInstall?: boolean;
+  /** The free space a PC de secours needs (AC-1.8), when `canInstall`; 0 otherwise. */
+  needBytes?: number;
+}
+
+/** A one-time setup code (AC-1.4), handed straight to the Windows app — shown to nobody. */
+export interface RelayPairingCodeDto {
+  relayId: string;
+  code: string;
+  expiresAtUtc: string;
+  /** The room the installer refuses below (`/NEEDBYTES=`), the cloud's own figure. */
+  needBytes: number;
 }
 
 /** `RelayLabels.Key` on the server — the state names the card branches on, never the sentence. */
@@ -68,6 +81,24 @@ export const relayApi = {
   eraseLocal: (stepUpToken: string) =>
     apiPost<{ erased: boolean; filesDeleted: number }>('/relay/local/erase', {}, undefined, stepUpToken),
 
+  /** « Oui » on the offer (AC-1.4) — needs a step-up token for {@link RELAY_PAIRING_STEP_UP}. */
+  issuePairingCode: (label: string, stepUpToken: string) =>
+    apiPost<RelayPairingCodeDto>('/relay/pairing-codes', { label }, undefined, stepUpToken),
+
+  /**
+   * « Installer le PC de secours ici… » on any PC (AC-1.5): an admin's email, password and code, whoever is signed in.
+   * ⚠️ Sent with **no** session token (`null`): the door is the sign-in's own check, and a refusal here must never be
+   * read as the signed-in secretary's session expiring.
+   */
+  issuePairingCodeWithCredentials: (body: { email: string; password: string; totpCode: string; label: string }) =>
+    apiPost<RelayPairingCodeDto>('/auth/relay-pairing-code', body, null),
+
+  /**
+   * Gives back a code the installer never presented (AC-1.11), so the clinic's place is free at once. The code is the
+   * credential; every outcome is the same 204, and a failure here costs nothing — the code lapses in ten minutes.
+   */
+  releasePairingCode: (code: string) => apiPost<void>('/relay/pairing-codes/release', { code }, null),
+
   /** « Retirer ce PC » (AC-8.1): the copy stops and the clinic may set up another. Returns the new state. */
   retire: () => apiDelete<RelayStatusDto>('/relay'),
 
@@ -77,6 +108,9 @@ export const relayApi = {
    */
   declareLost: (stepUpToken: string) => apiPost<RelayStatusDto>('/relay/lost', {}, undefined, stepUpToken),
 };
+
+/** The step-up action « Oui » on the offer is confirmed with (AC-1.4) — an authenticator code, never a password. */
+export const RELAY_PAIRING_STEP_UP = "relay-pairing";
 
 /** The step-up action « Déclarer perdu ou volé » is confirmed with — an authenticator code, never a password. */
 export const RELAY_LOST_STEP_UP = "relay-lost";

@@ -51,16 +51,31 @@ public sealed class IssueRelayPairingCodeCommandHandler
             return Result<RelayPairingCodeDto>.FailureFrom(admin);
         }
 
-        return await IssueAsync(admin.Value!, request.Label, cancellationToken);
+        return await RelayPairingIssuance.IssueAsync(admin.Value!, request.Label, _actor.Current, _relays,
+            _auditEntries, _unitOfWork, _logger, cancellationToken);
     }
+}
 
-    /// <summary>Shared with the « admin credentials on any PC » door (AC-1.5): one place decides who may start a setup.</summary>
-    public async Task<Result<RelayPairingCodeDto>> IssueAsync(User admin, string label, CancellationToken cancellationToken)
+/// <summary>
+/// The one place a setup attempt begins, whichever door it came through: the signed-in admin's offer (AC-1.4) or an
+/// admin's email, password and code on any PC (AC-1.5).
+/// </summary>
+internal static class RelayPairingIssuance
+{
+    public static async Task<Result<RelayPairingCodeDto>> IssueAsync(
+        User admin,
+        string label,
+        AuditActor actor,
+        IClinicRelayRepository relays,
+        IAuditEntryRepository auditEntries,
+        IUnitOfWork unitOfWork,
+        ILogger logger,
+        CancellationToken cancellationToken)
     {
         try
         {
             var now = DateTime.UtcNow;
-            var current = await _relays.GetCurrentForClinicAsync(admin.ClinicId, cancellationToken);
+            var current = await relays.GetCurrentForClinicAsync(admin.ClinicId, cancellationToken);
             if (current is not null)
             {
                 if (current.OccupiesTheClinic(now))
@@ -71,30 +86,34 @@ public sealed class IssueRelayPairingCodeCommandHandler
 
                 // An expired, unused code or an abandoned setup frees the clinic's one place (AC-1.11, EC-9).
                 current.Retire(ClinicRelayRetirement.Abandoned, admin.Id, now);
-                await RelayJournal.StageAsync(_auditEntries, _actor.Current, current, AuditAction.Update,
+                await RelayJournal.StageAsync(auditEntries, actor, current, AuditAction.Update,
                     RelayJournal.Abandoned, now, cancellationToken);
 
                 // ⚠️ Saved on its own: in one SaveChanges EF may send the INSERT before this UPDATE (the index's
                 // column does not change), and the « one non-retired PC per clinic » index would refuse it.
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
-            var (relay, code) = ClinicRelay.BeginPairing(admin.ClinicId, label, admin.Id, now);
-            await _relays.AddAsync(relay, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            var needBytes = RelayFootprint.NeedBytes(
+                await relays.GetHostedFileBytesAsync(admin.ClinicId, cancellationToken));
 
-            return Result<RelayPairingCodeDto>.Success(new RelayPairingCodeDto(relay.Id, code, relay.PairingCodeExpiresAtUtc!.Value));
+            var (relay, code) = ClinicRelay.BeginPairing(admin.ClinicId, label, admin.Id, now);
+            await relays.AddAsync(relay, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return Result<RelayPairingCodeDto>.Success(
+                new RelayPairingCodeDto(relay.Id, code, relay.PairingCodeExpiresAtUtc!.Value, needBytes));
         }
         catch (DbUpdateException)
         {
             // Two admins pressed « Oui » on two PCs at once: the filtered unique index refused the second (EC-8).
-            var winner = await _relays.GetCurrentForClinicAsync(admin.ClinicId, cancellationToken);
+            var winner = await relays.GetCurrentForClinicAsync(admin.ClinicId, cancellationToken);
             return Result<RelayPairingCodeDto>.Failure(
                 RelayRefusals.AlreadyPaired(winner?.Label ?? "un autre PC"), RelayRefusals.AlreadyPairedCode);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            _logger.LogError(ex, "Pairing code could not be issued for clinic {ClinicId}", admin.ClinicId);
+            logger.LogError(ex, "Pairing code could not be issued for clinic {ClinicId}", admin.ClinicId);
             return Result<RelayPairingCodeDto>.Failure("L'installation du PC de secours n'a pas pu démarrer. Réessayez.");
         }
     }

@@ -4335,6 +4335,47 @@ check(
   },
 );
 
+check(
+  "relay-room-sentence-matches-installer",
+  "N50",
+  "The PC de secours room refusal is the same sentence in the offer and in the installer",
+  "AC-1.8 refuses a PC without room for the cabinet's records and files twice over, and says it twice by design: the " +
+    "offer checks before a code is issued (so no place is taken for a PC that cannot hold the copy), and the " +
+    "installer checks again before copying, because a disk can fill in between. Two wordings of one refusal read " +
+    "as two different problems. The pieces of « Il faut N Go libres sur ce PC (M Go disponibles). » are compared " +
+    "between `components/relay/relay-install.ts` and `packaging/setup/clinic-setup.iss`.",
+  () => {
+    const TS = "components/relay/relay-install.ts";
+    const ISS = "../packaging/setup/clinic-setup.iss";
+
+    const tsFile = ALL_FILES.find((f) => rel(f) === TS);
+    if (!tsFile) {
+      return [{ file: TS, text: "the offer's rules are gone - the pairing needs retargeting" }];
+    }
+
+    let issSrc;
+    try {
+      issSrc = readFileSync(join(WEB_ROOT, ISS), "utf8");
+    } catch {
+      return [{ file: TS, text: "the installer is unreadable at " + ISS + " - a moved file breaks the pairing silently" }];
+    }
+
+    const tsSrc = read(tsFile);
+    const pieces = ["Il faut ", " Go libres sur ce PC (", " Go disponibles)."];
+    const problems = [];
+    for (const piece of pieces) {
+      if (!tsSrc.includes(piece)) {
+        problems.push({ file: TS, text: "the offer no longer says « " + piece.trim() + " »" });
+      }
+      if (!issSrc.includes("'" + piece) && !issSrc.includes(piece + "'")) {
+        problems.push({ file: ISS, text: "the installer no longer says « " + piece.trim() + " »" });
+      }
+    }
+
+    return problems;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

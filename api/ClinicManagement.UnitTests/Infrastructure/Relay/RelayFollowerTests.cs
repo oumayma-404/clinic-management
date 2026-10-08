@@ -280,7 +280,7 @@ public sealed class RelayFollowerTests : IDisposable
         var later = await TickAsync();
 
         Assert.True(state.Released);
-        Assert.Equal(1, _cloud.Reports.Count);
+        Assert.Single(_cloud.Reports);
         // « Copie arrêtée le … » (AC-8.1): the moment it learned, kept — not moved by later ticks.
         Assert.Equal(T0, state.ReleasedAtUtc);
         Assert.Equal(T0, later.ReleasedAtUtc);

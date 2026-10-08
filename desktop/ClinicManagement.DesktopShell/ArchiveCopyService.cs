@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -271,50 +270,8 @@ public sealed class ArchiveCopyService
     }
 
     /// <summary>
-    /// Whether the destination volume is BitLocker-protected (AC-8) — <b>stated, never enforced</b>.
-    ///
-    /// <para>⚠️ Returns null for « je ne sais pas », which is the common answer: <c>manage-bde</c> needs elevation.
-    /// Reporting that honestly is the point — asserting « non chiffré » when we could not look would be the same
-    /// class of confident wrong answer as reading a failed read as an empty list.</para>
+    /// Whether the destination volume is BitLocker-protected (AC-8) — <b>stated, never enforced</b>. Null for « je ne
+    /// sais pas »; see <see cref="DriveEncryption"/>, which the PC de secours offer asks the same way.
     /// </summary>
-    public static bool? IsDriveEncrypted(string folder)
-    {
-        try
-        {
-            var root = Path.GetPathRoot(Path.GetFullPath(folder))?.TrimEnd('\\');
-            if (string.IsNullOrEmpty(root))
-            {
-                return null;
-            }
-
-            using var process = Process.Start(new ProcessStartInfo("manage-bde", $"-status {root}")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-
-            if (process == null || !process.WaitForExit(5000) || process.ExitCode != 0)
-            {
-                return null;
-            }
-
-            var output = process.StandardOutput.ReadToEnd();
-            if (output.Contains("Protection On", StringComparison.OrdinalIgnoreCase)
-                || output.Contains("Protection activée", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            return output.Contains("Protection Off", StringComparison.OrdinalIgnoreCase)
-                   || output.Contains("Protection désactivée", StringComparison.OrdinalIgnoreCase)
-                ? false
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    public static bool? IsDriveEncrypted(string folder) => DriveEncryption.IsEncrypted(folder);
 }

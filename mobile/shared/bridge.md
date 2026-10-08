@@ -23,6 +23,8 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `print()` | `void` | 1 | Print the current page through the OS print service. |
 | `onPushToken(listener)` | `void` | 1 | Register for the OS push token. Inert until Part 6 delivers one. |
 | `confirmIdentity()` | `Promise<IdentityOutcome>` | 4 | Ask the OS to confirm the device owner. Never rejects — the failure *is* an outcome. |
+| `relayHostFacts()` | `Promise<RelayHostFacts \| null>` | Windows 1.4 | This PC's name, battery, disk encryption (three-valued) and free space, for the PC de secours offer. Never rejects. |
+| `installRelay({ code, needBytes })` | `Promise<RelayInstallOutcome>` | Windows 1.4 | Make this PC the cabinet's PC de secours with a one-time code. Never rejects. |
 
 ### The per-phase method set (FR-6)
 
@@ -161,6 +163,7 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 | `onPushToken` | ✅ registered, inert | ⚠️ written, inert — and free signing has no APNs entitlement | — |
 | `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` | ✅ since 1.3 — Windows Hello |
 | the coffre seam (below) | — | — | ✅ since 1.2 |
+| `relayHostFacts` · `installRelay` | — n/a: a phone cannot be the PC de secours (AC-1.12) | — n/a | ✅ since 1.4 — UAC run not yet rehearsed |
 
 ⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
 `mobile/ios/README.md`. Read it as a proposal until a green CI run exists.
@@ -235,6 +238,35 @@ prepared (an unplugged disk, a share that is down, a runtime predating the API) 
 cabinet » with no local open. In a plain browser the page's own `showDirectoryPicker()` path takes over, which is
 also what covers a shell whose runtime is too old.
 
+## Desktop (WPF) — the PC de secours, since 1.4 (`clinic-pc-copy` AC-1.1–1.13)
+
+```ts
+interface RelayHostFacts { machineName: string; hasBattery: boolean; diskEncrypted: boolean | null; freeBytes: number | null }
+interface RelayInstallOutcome { outcome: "installed" | "declined" | "refused" | "failed"; sentence: string }
+```
+
+The **page owns the offer and its words**; the shell owns what only it can know (this machine) and do (run an
+installer elevated). `relayHostFacts()` feeds the offer's three notices and its room check; `installRelay()` takes
+the one-time code the cloud issued and does everything else: downloads `{server}/api/relay/installer`, checks it
+against the `X-Content-SHA256` header (no header, no elevated run), shows Windows' permission prompt **once**, and runs
+the installer with `/RELAY /PAIRFILE= /CLOUD= /LABEL= /NEEDBYTES= /RESULTFILE=`.
+
+| Outcome | Means | The page |
+|---|---|---|
+| `installed` | exit 0 — paired, services running, first copy started | shows the installer's sentence |
+| `declined` | Windows' prompt answered « Non » (`ERROR_CANCELLED`) — nothing installed (AC-1.11) | gives the code back, offers « Réessayer » |
+| `refused` | exit 7 (refused before copying) or 20 (code refused at pairing) | gives the code back, shows the sentence |
+| `failed` | anything else, or the download / hash failed | gives the code back, shows the sentence |
+
+⚠️ **The code never goes on a command line** — it is written to a file under `%LocalAppData%` (whose ACL already
+admits only the user, Administrators and SYSTEM, so an over-the-shoulder elevation can read it) and `pair-relay`
+deletes it. ⚠️ **The downloaded installer is held open, sharing read only, from its hash check to its exit**, so
+nothing running as the user can swap it before the elevated run. ⚠️ Both answers come back through
+`window.__clinicShellDeliverRelayResult(id, value)`, the identity seam's shape and for its reason (AC-26 deletes the
+bridge). The shell answers only the configured server's own page, and interpolates an id only after checking it is
+one of its own (`r` + digits). ⚠️ `diskEncrypted: null` is « je ne sais pas » — the common answer without elevation —
+and the page must not word it as « non chiffré ».
+
 ## Version history
 
 | Shell version | Change |
@@ -242,3 +274,5 @@ also what covers a shell whose runtime is too old.
 | `1.0.0` | Phase 1: `version` · `platform` · `maxFileBytes` · `saveFile` · `print` · `onPushToken`. |
 | `1.1.0` | Phase 4: `confirmIdentity` added. Nothing removed, so a server floor of `1.0.0` still admits it. |
 | `1.2.0` | `clinic-file-vault`: the **desktop** shell joins this contract — its first bridge ever — with `version`, `platform: "windows"` and the coffre seam. `platform` gains a third value. Nothing removed, so a floor of `1.0.0` still admits every client. |
+| `1.3.0` | Desktop: `confirmIdentity` (Windows Hello). |
+| `1.4.0` | Desktop: `relayHostFacts` + `installRelay` (`clinic-pc-copy`). Nothing removed; the page detects both methods, so an older shell simply never makes the offer. |

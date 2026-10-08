@@ -11,6 +11,7 @@ using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Auth.Queries;
 using ClinicManagement.Application.Features.Clinics.Commands;
+using ClinicManagement.Application.Features.Relay.Commands;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
@@ -301,6 +302,39 @@ public class AuthController : ApiControllerBase
         }
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// « Installer le PC de secours ici… » on any PC (<c>clinic-pc-copy</c> AC-1.5): an administrator's email, password
+    /// and code start a setup without signing anybody in or out of this PC.
+    ///
+    /// <para>Under <c>/api/auth</c> on purpose: <c>RateLimiting.IsAnonymousAuthPath</c> gives it the sign-in's own
+    /// per-account window and capture, since it is a password check. The handler runs the sign-in itself, so the
+    /// lockout and the code's replay guard are the sign-in's and not a copy of them.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("relay-pairing-code")]
+    public async Task<IActionResult> RelayPairingCode([FromBody] RelayPairingCodeSignInRequest request)
+    {
+        if (!Deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new IssueRelayPairingCodeWithCredentialsCommand(
+            request.Email ?? string.Empty, request.Password ?? string.Empty, request.TotpCode ?? string.Empty,
+            request.Label ?? string.Empty));
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        // A relay refusal keeps the relay's own status; a sign-in refusal keeps the sign-in's.
+        return result.Code is { } code && code.StartsWith("relay_", StringComparison.Ordinal)
+            ? HandleFailure(result, RelayController.StatusFor(code))
+            : RefuseAuth(result);
     }
 
     /// <summary>

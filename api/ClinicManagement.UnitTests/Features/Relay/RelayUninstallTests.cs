@@ -124,7 +124,7 @@ public sealed class RelayUninstallTests : IDisposable
         Assert.Equal(RelayUninstallOutcome.Recorded, result.Outcome);
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(new[] { "uninstalled" }, cloud.Calls);
-        Assert.Equal(0, erases.Count);
+        Assert.Empty(erases);
         Assert.True(store.Load().Released);
     }
 
@@ -140,7 +140,7 @@ public sealed class RelayUninstallTests : IDisposable
 
         Assert.Equal(RelayUninstallOutcome.RecordedAndErased, result.Outcome);
         Assert.Equal(new[] { "uninstalled", "erase", "erased" }, cloud.Calls);
-        Assert.Equal(1, erases.Count);
+        Assert.Single(erases);
         Assert.Equal(5, result.FilesDeleted);
         Assert.True(store.Load().ErasureReported);
     }
@@ -158,7 +158,7 @@ public sealed class RelayUninstallTests : IDisposable
 
         Assert.Equal(RelayUninstallOutcome.CloudNotTold, result.Outcome);
         Assert.Equal(2, result.ExitCode);
-        Assert.Equal(0, erases.Count);
+        Assert.Empty(erases);
         Assert.Contains("la copie n'a pas été effacée", result.Sentence);
         Assert.False(store.Load().Released);
     }
@@ -173,7 +173,7 @@ public sealed class RelayUninstallTests : IDisposable
 
         Assert.Equal(RelayUninstallOutcome.KeptNewerCopy, result.Outcome);
         Assert.Equal(3, result.ExitCode);
-        Assert.Equal(0, erases.Count);
+        Assert.Empty(erases);
     }
 
     // The exit codes are a mirrored set: the verb returns them, the installer's uninstall step words each one. A code
@@ -215,7 +215,7 @@ public sealed class RelayUninstallTests : IDisposable
 
         Assert.Equal(RelayUninstallOutcome.ErasedButNotReported, result.Outcome);
         Assert.Equal(4, result.ExitCode);
-        Assert.Equal(1, erases.Count);
+        Assert.Single(erases);
         Assert.Equal(3, cloud.Calls.Count(c => c == "erased"));
         Assert.False(store.Load().ErasureReported);
     }
