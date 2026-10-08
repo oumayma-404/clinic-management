@@ -56,6 +56,9 @@ public sealed class RelayHandback
         _pause = pause ?? ((delay, token) => Task.Delay(delay, token));
     }
 
+    /// <summary>A heartbeat was answered: the two minutes of stability count from the first one.</summary>
+    public void Answered() => _answeredSince ??= _monotonic();
+
     /// <summary>The internet has held long enough for the return — or the update before it (EC-11) — to start.</summary>
     public bool IsStable => _answeredSince is { } since && _monotonic() - since >= StableFor;
 
@@ -179,16 +182,25 @@ public sealed class RelayHandback
         }
     }
 
-    private async Task<RelayCallStatus> SendFilesAsync(
-        RelayLocalSide local, RelayHandbackRequest request, CancellationToken cancellationToken)
+    private Task<RelayCallStatus> SendFilesAsync(
+        RelayLocalSide local, RelayHandbackRequest request, CancellationToken cancellationToken) =>
+        SendFilesAsync(_cloud, local, request.Rows, _logger, cancellationToken);
+
+    /// <summary>
+    /// The files <paramref name="rows"/> name that the cloud does not hold yet, sent before the rows that name them — for a
+    /// return, an overruled cut and a restored cloud's gap alike.
+    /// </summary>
+    public static async Task<RelayCallStatus> SendFilesAsync(
+        IRelayCloudClient cloud, RelayLocalSide local, IReadOnlyList<Application.Common.Interfaces.RelayRow> rows, ILogger logger,
+        CancellationToken cancellationToken)
     {
-        var keys = local.Handback!.FileKeys(request.Rows);
+        var keys = local.Handback!.FileKeys(rows);
         if (keys.Count == 0)
         {
             return RelayCallStatus.Ok;
         }
 
-        var missing = await _cloud.MissingHandbackFilesAsync(keys, cancellationToken);
+        var missing = await cloud.MissingHandbackFilesAsync(keys, cancellationToken);
         if (!missing.IsOk)
         {
             return missing.Status;
@@ -204,13 +216,13 @@ public sealed class RelayHandback
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or InvalidOperationException)
             {
                 // A row naming a file this PC never had (it was still copying when the cut came): nothing to send.
-                _logger.LogWarning("PC de secours: {StorageKey} is named by the cut but not stored here.", key);
+                logger.LogWarning("PC de secours: {StorageKey} is named by the cut but not stored here.", key);
                 continue;
             }
 
             await using (content)
             {
-                var sent = await _cloud.UploadHandbackFileAsync(key, content, cancellationToken);
+                var sent = await cloud.UploadHandbackFileAsync(key, content, cancellationToken);
                 if (!sent.IsOk)
                 {
                     return sent.Status;

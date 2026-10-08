@@ -52,6 +52,16 @@ public class ClinicChangeCursor
     public Guid ClinicId { get; private set; }
     public long LastSeq { get; private set; }
 
+    /// <summary>
+    /// AC-9.4: the database history (<c>FeedEpochAsync</c>) <see cref="EpochFromSeq"/> was counted under. A restore brings
+    /// back the old value, so a cursor whose epoch is not the current one was restored: its mark moves to the current
+    /// <see cref="LastSeq"/>, and every change after it was made by this cloud since the restore.
+    /// </summary>
+    public string? Epoch { get; private set; }
+
+    /// <summary>AC-9.4: <see cref="LastSeq"/> when <see cref="Epoch"/> was first seen — the restore point, in this log.</summary>
+    public long EpochFromSeq { get; private set; }
+
     private ClinicChangeCursor() { }
 
     public ClinicChangeCursor(Guid clinicId)

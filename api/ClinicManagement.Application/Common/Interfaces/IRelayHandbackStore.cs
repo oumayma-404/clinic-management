@@ -41,6 +41,13 @@ public interface IRelayHandbackStore
     /// <summary>The cloud's changes after <paramref name="afterSeq"/> — what the PC never received.</summary>
     Task<IReadOnlyList<RelayCloudChange>> CloudChangesAfterAsync(Guid clinicId, long afterSeq, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// AC-9.4: which of <paramref name="keys"/> this cloud changed after its restore point (never a return's own writes) —
+    /// those it keeps when its PC sends what the restore lost.
+    /// </summary>
+    Task<IReadOnlySet<RelayRowKey>> ChangedSinceRestoreAsync(
+        Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken);
+
     /// <summary>The cloud's current rows for <paramref name="keys"/>, as JSON; a key with no row is absent.</summary>
     Task<IReadOnlyDictionary<RelayRowKey, string>> CurrentRowsAsync(
         Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken);

@@ -71,7 +71,8 @@ public class RelayLeaseGateMiddleware
             var now = DateTime.UtcNow;
             if (ClinicWriteLease.IsCloudFenced(relay, now))
             {
-                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, now, relay.IsReturning);
+                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, now, relay.IsReturning,
+                    relay.IsRecoveringGap(now));
                 context.Response.StatusCode = StatusCodes.Status423Locked;
                 await context.Response.WriteAsJsonAsync(new { error, code });
                 return;

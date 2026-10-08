@@ -193,7 +193,8 @@ public sealed class ClinicChangeCapture
                 .FirstOrDefaultAsync(cancellationToken);
             if (RelayFence.CloudRefuses(relay, nowUtc))
             {
-                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, nowUtc, relay.IsReturning);
+                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, nowUtc, relay.IsReturning,
+                    relay.IsRecoveringGap(nowUtc));
                 throw new ClinicFencedException(error, code);
             }
         }

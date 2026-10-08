@@ -30,6 +30,12 @@ public sealed record RelayFollowerState
     /// <summary>The copy stopped for good on a cloud that is not the history it followed; set only by D12's tests.</summary>
     public string? StoppedReason { get; init; }
 
+    /// <summary>
+    /// AC-9.4: the gap this PC is sending a cloud that went back in time — kept across attempts, so a lost answer is sent
+    /// again under the same id and the cloud applies it once.
+    /// </summary>
+    public Guid? GapId { get; init; }
+
     /// <summary>The cloud runs another build: copy calls are refused until this PC updates (D10b).</summary>
     public bool UpdateNeeded { get; init; }
 

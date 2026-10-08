@@ -41,6 +41,12 @@ public static class ClinicWriteLease
             return false;
         }
 
+        // AC-9.4: a restored cloud, until its PC has sent back what the restore lost (capped, so it can never last).
+        if (relay.IsRecoveringGap(nowUtc))
+        {
+            return true;
+        }
+
         // The PC said it holds the cabinet's saves: nothing about the acks can make the cloud writable again until the
         // PC hands the cut's work back (D18). A heartbeat arriving once the line heals is no evidence the PC let go.
         if (relay.PcHoldingSinceUtc is not null)

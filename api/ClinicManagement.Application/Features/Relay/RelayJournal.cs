@@ -41,6 +41,12 @@ public static class RelayJournal
     public const string Reclaimed = "Le cloud a repris la main sur le PC de secours";
     public const string Returned = "Le travail fait sur le PC de secours pendant la coupure est revenu dans le cloud";
 
+    /// <summary>AC-9.4: what a restore had lost, given back by the PC de secours.</summary>
+    public static string GapReturned(int count) =>
+        count == 1
+            ? "Le cloud restauré a récupéré 1 enregistrement du PC de secours"
+            : $"Le cloud restauré a récupéré {count} enregistrements du PC de secours";
+
     /// <summary>US-7 / AC-7.3: what an overruled PC held, listed for re-entry on the cloud.</summary>
     public static string ListedToReEnter(int count) =>
         count == 1

@@ -21,6 +21,9 @@ public static class RelayVendorAlertRules
     /// <summary>No heartbeat for this long and the vendor is told (AC-9.2).</summary>
     public static readonly TimeSpan UnseenAfter = TimeSpan.FromHours(24);
 
+    /// <summary>How long a restored cloud's gap stays one open incident: one e-mail, not one per minute.</summary>
+    public static readonly TimeSpan CloudRestoredFor = TimeSpan.FromHours(24);
+
     public static IReadOnlyList<RelayIncidentKind> Due(
         ClinicRelay? relay, string? clinicHoursJson, IReadOnlyCollection<RelayIncidentKind> open, DateTime nowUtc)
     {
@@ -32,6 +35,12 @@ public static class RelayVendorAlertRules
         if (RelayAlertRules.IsReturnStuck(relay, nowUtc))
         {
             return new[] { RelayIncidentKind.ReturnStuck };
+        }
+
+        // AC-9.4: the vendor learns a cabinet's cloud was restored and its PC gave back what was lost — once, that day.
+        if (relay.LastGapAtUtc is { } gap && nowUtc - gap < CloudRestoredFor)
+        {
+            return new[] { RelayIncidentKind.CloudRestored };
         }
 
         var reading = ClinicRelayHealth.Read(relay, nowUtc);
@@ -73,6 +82,7 @@ public static class RelayVendorAlertEmail
         RelayIncidentKind.Mismatch => "copie qui ne correspond pas",
         RelayIncidentKind.Stopped => "copie arrêtée",
         RelayIncidentKind.ReturnStuck => "retour au cloud bloqué",
+        RelayIncidentKind.CloudRestored => "cloud restauré, données rendues par le PC",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 
@@ -104,13 +114,20 @@ public static class RelayVendorAlertEmail
                 $"Le PC de secours de {clinicName} n'arrive pas à rendre au cloud le travail fait pendant une coupure "
                 + "d'internet, depuis plus de 15 minutes. Le cabinet continue de travailler sur ce PC.",
                 "Ne retirez pas et n'effacez pas ce PC : il détient le travail de la coupure. Consultez son journal."),
+            RelayIncidentKind.CloudRestored => (
+                $"Le cloud de {clinicName} a été restauré depuis une sauvegarde plus ancienne que la copie de son PC de "
+                + "secours. Le PC a renvoyé au cloud les enregistrements que la restauration avait perdus.",
+                "Ce que le cloud avait modifié depuis sa restauration est gardé et listé dans « Retours du PC de "
+                + "secours » pour les administrateurs du cabinet."),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
         };
 
         return new EmailContent
         {
             Title = Subject(clinicName, kind),
-            Preheader = $"Le PC de secours de {clinicName} ne peut pas prendre le relais.",
+            Preheader = kind == RelayIncidentKind.CloudRestored
+                ? $"Le cloud de {clinicName} a récupéré les données de son PC de secours."
+                : $"Le PC de secours de {clinicName} ne peut pas prendre le relais.",
             Intro = [intro, "Vous ne recevrez ce message qu'une fois par problème ; la console éditeur montre l'état à jour."],
             Details =
             [

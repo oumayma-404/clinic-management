@@ -43,6 +43,7 @@ public sealed class RelayFollower
     private readonly RelayUpdater _updater;
     private readonly RelayLease _lease;
     private readonly RelayHandback _handback;
+    private readonly RelayGap _gap;
     private readonly Func<DateTime> _utcNow;
     private readonly ILogger _logger;
     private readonly Dictionary<string, DateTime> _fileRetryAfter = new(StringComparer.Ordinal);
@@ -59,7 +60,8 @@ public sealed class RelayFollower
         RelayLease lease,
         ILogger logger,
         Func<DateTime>? utcNow = null,
-        RelayHandback? handback = null)
+        RelayHandback? handback = null,
+        RelayGap? gap = null)
     {
         _cloud = cloud;
         _stateStore = stateStore;
@@ -72,6 +74,7 @@ public sealed class RelayFollower
         _logger = logger;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _handback = handback ?? new RelayHandback(cloud, lease, credentials.ClinicId, logger);
+        _gap = gap ?? new RelayGap(cloud, credentials.ClinicId, logger);
     }
 
     /// <summary>Opens a TOTP secret sealed for this PC and re-protects it under this install's own key ring (D8).</summary>
@@ -140,7 +143,19 @@ public sealed class RelayFollower
             return Save(listed ?? state);
         }
 
-        // A stopped copy may hold more than the cloud: it is never updated toward that cloud either — a human decides.
+        // AC-9.4: a copy stopped because the cloud went back holds what that cloud lost — it sends it back (under the
+        // cloud's own build, as a cut's work goes back: EC-11), then copies the cloud afresh. Nothing is deleted here.
+        if (RelayGap.Pending(state))
+        {
+            if (state.UpdateNeeded)
+            {
+                return Save(await _updater.StepAsync(state, ack.Value.CloudBuild, Save, AnnounceUpdatingAsync, cancellationToken));
+            }
+
+            return Save(await _gap.SendAsync(state, ack.Value, local, Save, cancellationToken) ?? state);
+        }
+
+        // Any other stopped copy may hold more than the cloud: it is never updated toward that cloud — a human decides.
         if (state.StoppedReason is not null)
         {
             return Save(state);
@@ -239,6 +254,34 @@ public sealed class RelayFollower
         {
             _handback.Unanswered();
             return state;
+        }
+
+        _handback.Answered();
+
+        // AC-9.4 / EC-21: the cloud came back from a backup older than this copy. What it lost before the cut goes back
+        // first — the cut's own work only once the cloud holds it, and nothing of the cut before (no handback meanwhile).
+        if (state.RowsSeeded && !RelayGap.Pending(state)
+            && RelayFeedDecisions.WentBack(state, call.Value!.Epoch, call.Value.HighWater))
+        {
+            _logger.LogError("The cloud came back behind this copy during the cut (epoch {Epoch}, high-water {HighWater}, "
+                             + "applied {Applied}); what it lost goes back first.", call.Value.Epoch, call.Value.HighWater,
+                state.AppliedSeq);
+            state = Save(RelayFeedDecisions.Stopped(state, RelayFeedDecisions.WentBackReason));
+        }
+
+        if (RelayGap.Pending(state))
+        {
+            if (call.Value!.UpdateNeeded)
+            {
+                return await UpdateBeforeReturnAsync(state, call.Value, cancellationToken);
+            }
+
+            if (await _gap.SendAsync(state, call.Value, local, Save, cancellationToken) is not { } sent)
+            {
+                return state;
+            }
+
+            state = Save(sent);
         }
 
         // D18: the internet is back — once it has held for two minutes, the cut goes back to the cloud.
@@ -360,7 +403,8 @@ public sealed class RelayFollower
             HttpsPort: host.HttpsPort,
             GatewayAddress: host.GatewayAddress,
             ReturnedHandbackId: lease.ReturnedHandbackId,
-            ReturnStuckSinceUtc: lease.HoldingSinceUtc is not null ? lease.ReturnFirstTriedAtUtc : null);
+            ReturnStuckSinceUtc: lease.HoldingSinceUtc is not null ? lease.ReturnFirstTriedAtUtc : null,
+            FollowedEpoch: state.Epoch);
     }
 
     /// <summary>

@@ -42,6 +42,7 @@ public static class RelayReviewLabels
         RelayReviewKind.BothChanged => "Modifié des deux côtés — la version du cabinet est gardée",
         RelayReviewKind.ProbableDuplicate => "Enregistré deux fois — doublon probable",
         RelayReviewKind.ToReEnter => "Enregistré sur le PC de secours, jamais arrivé dans le cloud",
+        RelayReviewKind.KeptAfterRestore => "Perdu par la restauration du cloud puis modifié dans le cloud — la version du cloud est gardée",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 

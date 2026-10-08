@@ -139,6 +139,8 @@ public class ClinicChangeCursorConfiguration : IEntityTypeConfiguration<ClinicCh
 
         builder.HasKey(c => c.ClinicId);
         builder.Property(c => c.ClinicId).ValueGeneratedNever();
+        // AC-9.4: system identifier, timeline and database OID — three integers and two dashes.
+        builder.Property(c => c.Epoch).HasMaxLength(100);
 
         builder.HasOne<Clinic>()
             .WithMany()

@@ -51,7 +51,7 @@ export interface RelayStatusDto {
  */
 export interface RelayReviewItemDto {
   id: string;
-  /** `CloudOnly` | `BothChanged` | `ProbableDuplicate` | `ToReEnter` — branched on, never the label. */
+  /** `CloudOnly` | `BothChanged` | `ProbableDuplicate` | `ToReEnter` | `KeptAfterRestore` — branched on, never the label. */
   kind: string;
   kindLabel: string;
   table: string;

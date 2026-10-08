@@ -66,6 +66,8 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             var report = request.Report;
             var highWater = await _rows.HighWaterAsync(relay.ClinicId, cancellationToken);
             var epoch = await _rows.FeedEpochAsync(cancellationToken);
+            // AC-9.4: the first look after a restore moves the restore mark, before anything this cloud writes next.
+            await _rows.MarkEpochAsync(relay.ClinicId, cancellationToken);
 
             // D14: what the PC says it holds first, then the state, then the new ack — the order the PC lived them in.
             relay.RecordAckConfirmation(report.ConfirmedAckSeq, report.ConfirmedAckArmed);
@@ -91,6 +93,8 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             // D19: a takeover an admin's « Reprendre la main » overruled — this answer stops that PC, and never arms it.
             var overruled = relay.IsOverruledHolding(beat);
             var seededNow = relay.RecordHeartbeat(beat, highWater, now);
+            // AC-9.4: a PC that copied another history holds what a restore lost — read-only here until it sends it.
+            relay.NoteFollowedEpoch(report.FollowedEpoch, epoch, report.AppliedSeq, now);
 
             if (seededNow)
             {

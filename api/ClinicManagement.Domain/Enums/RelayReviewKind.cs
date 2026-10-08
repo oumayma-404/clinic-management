@@ -17,4 +17,10 @@ public enum RelayReviewKind
     /// so a person enters it again on the cloud and marks it « Repris ».
     /// </summary>
     ToReEnter = 4,
+
+    /// <summary>
+    /// AC-9.4: a record the cloud lost to a restore, which the cloud changed again since — the cloud's version is kept and
+    /// the one the PC de secours held is shown beside it.
+    /// </summary>
+    KeptAfterRestore = 5,
 }

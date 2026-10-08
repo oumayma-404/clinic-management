@@ -42,6 +42,19 @@ public interface IClinicRelayRowStore
 
     /// <summary>The fingerprint of the change row at <paramref name="seq"/>, null when there is none.</summary>
     Task<string?> FingerprintAsync(Guid clinicId, long seq, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// AC-9.4, cloud: moves the restore mark of each cursor counted under another history (all clinics when null) to its
+    /// current position — the first look after a restore. In the caller's transaction when there is one.
+    /// </summary>
+    Task MarkEpochAsync(Guid? clinicId, CancellationToken cancellationToken);
+
+    /// <summary>AC-9.4: each row of <paramref name="table"/> by key, hashed without what the cloud keeps for itself.</summary>
+    Task<IReadOnlyDictionary<string, string>> RowHashesAsync(Guid clinicId, string table, CancellationToken cancellationToken);
+
+    /// <summary>AC-9.4, PC: the current rows for <paramref name="keys"/>, in one snapshot; a key with no row is absent.</summary>
+    Task<IReadOnlyList<RelayRow>> ReadRowsAsync(
+        Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken);
 }
 
 /// <summary>Cloud side: how secrets leave — wrapped for one PC's public key (D8).</summary>

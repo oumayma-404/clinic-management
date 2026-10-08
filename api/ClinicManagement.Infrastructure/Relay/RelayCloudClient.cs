@@ -59,6 +59,12 @@ public interface IRelayCloudClient
 
     /// <summary>US-7: an overruled cut's work, listed « À reprendre » on the cloud.</summary>
     Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(RelayHandbackRequest request, CancellationToken cancellationToken);
+
+    /// <summary>AC-9.4: a restored cloud's row hashes for one table.</summary>
+    Task<RelayCall<IReadOnlyList<RelayRowHashDto>>> GapHashesAsync(string table, CancellationToken cancellationToken);
+
+    /// <summary>AC-9.4: what the restore lost, sent back once (same id = no-op).</summary>
+    Task<RelayCall<RelayHandbackResultDto>> ReturnGapAsync(RelayGapRequest request, CancellationToken cancellationToken);
 }
 
 /// <summary>D16: the PC's long poll for the numbers its cloud is about to make final.</summary>
@@ -152,6 +158,16 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     public Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(
         RelayHandbackRequest request, CancellationToken cancellationToken) =>
         SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback/overruled")
+        {
+            Content = JsonContent.Create(request, options: Json),
+        }, cancellationToken);
+
+    public Task<RelayCall<IReadOnlyList<RelayRowHashDto>>> GapHashesAsync(string table, CancellationToken cancellationToken) =>
+        SendJsonAsync<IReadOnlyList<RelayRowHashDto>>(
+            () => new HttpRequestMessage(HttpMethod.Get, "relay/gap/hashes?table=" + Uri.EscapeDataString(table)), cancellationToken);
+
+    public Task<RelayCall<RelayHandbackResultDto>> ReturnGapAsync(RelayGapRequest request, CancellationToken cancellationToken) =>
+        SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/gap")
         {
             Content = JsonContent.Create(request, options: Json),
         }, cancellationToken);

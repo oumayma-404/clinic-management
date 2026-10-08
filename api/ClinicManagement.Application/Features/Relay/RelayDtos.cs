@@ -41,7 +41,9 @@ public sealed record RelayHeartbeatRequest(
     string? GatewayAddress = null,
     // D18: the handback the cloud applied, which this PC no longer holds (phase 2), and since when its return fails.
     Guid? ReturnedHandbackId = null,
-    DateTime? ReturnStuckSinceUtc = null);
+    DateTime? ReturnStuckSinceUtc = null,
+    // AC-9.4: the database history this copy follows; another than the cloud's means the cloud was restored behind it.
+    string? FollowedEpoch = null);
 
 /// <summary>D18: one change of the PC's own log of the cut — the key only; its row travels beside it.</summary>
 public sealed record RelayHandbackChange(
@@ -71,6 +73,15 @@ public sealed record RelayHandbackRequest(
     IReadOnlyList<RelayHandbackJournalEntry> Journal,
     IReadOnlyList<RelaySignInTrace> SignIns,
     IReadOnlyList<RelayRecoveryCodeUse> RecoveryCodesUsed);
+
+/// <summary>
+/// AC-9.4: what a restored cloud lost, sent back by its PC de secours — the rows the PC holds that the cloud lacks or holds
+/// otherwise. <c>GapId</c> makes a repeated request a no-op.
+/// </summary>
+public sealed record RelayGapRequest(Guid GapId, IReadOnlyList<Common.Interfaces.RelayRow> Rows);
+
+/// <summary>AC-9.4: one row's hash, per-side columns left out — what the PC compares with its own before sending.</summary>
+public sealed record RelayRowHashDto(string Key, string Hash);
 
 /// <summary>The cloud's answer: how many rows it applied, dropped as a duplicate (D17) and listed for review.</summary>
 public sealed record RelayHandbackResultDto(bool AlreadyApplied, int Applied, int Dropped, int Listed);

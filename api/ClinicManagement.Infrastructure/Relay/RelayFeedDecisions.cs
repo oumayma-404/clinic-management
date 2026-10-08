@@ -32,8 +32,8 @@ public static class RelayFeedDecisions
         + "cabinet y a enregistré.";
 
     public const string WentBackReason =
-        "Le cloud est revenu à un état antérieur à cette copie (restauration ?). La copie est arrêtée pour ne rien perdre : "
-        + "ce PC garde les données les plus récentes.";
+        "Le cloud est revenu à un état antérieur à cette copie (restauration ?). Ce PC garde les données les plus récentes "
+        + "et renvoie au cloud ce qu'il a perdu, puis la copie reprend.";
 
     /// <summary>D12's three tests, in the order the cloud cannot fake: a changed epoch, then the cloud's own verdict.</summary>
     public static RelayBatchVerdict Classify(RelayFollowerState state, RelayFeedBatch batch)

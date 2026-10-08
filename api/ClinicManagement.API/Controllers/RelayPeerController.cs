@@ -241,6 +241,44 @@ public class RelayPeerController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>AC-9.4: a restored cloud's row hashes for one table — the PC sends back only what differs.</summary>
+    [HttpGet("gap/hashes")]
+    [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
+    public async Task<ActionResult<IReadOnlyList<RelayRowHashDto>>> GapHashes(
+        [FromQuery] string? table,
+        [FromHeader(Name = BuildHeader)] string? build,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new GetRelayGapHashesQuery(table ?? string.Empty, build), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// AC-9.4: what a restore lost, sent back by the PC de secours — applied unless this cloud changed it since, once per gap.
+    /// </summary>
+    [HttpPost("gap")]
+    [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
+    [RequestSizeLimit(HandbackBodyLimit)]
+    [AllowsWithoutSubscription("Giving back what a restore lost records no new work: it was all recorded before.")]
+    public async Task<ActionResult<RelayHandbackResultDto>> ReturnGap(
+        [FromBody] RelayGapRequest request,
+        [FromHeader(Name = BuildHeader)] string? build,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new ReturnRelayGapCommand(request, build), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
+    }
+
     /// <summary>D18: which of the files the cut's rows name the cloud does not hold yet.</summary>
     [HttpPost("handback/files")]
     [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]

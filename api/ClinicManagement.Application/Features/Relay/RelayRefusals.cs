@@ -39,6 +39,12 @@ public static class RelayRefusals
     /// <summary>AC-5.2: the cut's work is on its way back to the cloud — for a few seconds neither side saves.</summary>
     public const string HandingBackCode = "relay_handing_back";
 
+    /// <summary>AC-9.4: a restored cloud, while its PC de secours sends back what the restore lost — for a few moments.</summary>
+    public const string RestoringCode = "relay_restoring";
+
+    public const string Restoring =
+        "Le cloud récupère les données du PC de secours après une restauration — réessayez dans quelques instants.";
+
     /// <summary>US-7: « À reprendre » sent by a PC whose cut no « Reprendre la main » overruled.</summary>
     public const string NotOverruledCode = "relay_not_overruled";
 
@@ -51,6 +57,9 @@ public static class RelayRefusals
     public const string CutWorkKeptCode = "relay_cut_work_kept";
     public const string NotAdminCode = "relay_admin_only";
     public const string InvalidRequestCode = "relay_invalid";
+
+    /// <summary>AC-9.4: a table the gap may not name — unknown, or one the cloud never takes from a PC (FR-11).</summary>
+    public const string UnknownGapTable = "Cette table ne fait pas partie de ce qu'un PC de secours peut rendre au cloud.";
     public const string NotRetiredCode = "relay_not_retired";
 
     /// <summary>US-7: « Reprendre la main » when the cloud is not locked — there is nothing to take back.</summary>
@@ -121,8 +130,10 @@ public static class RelayRefusals
     /// The cloud's refusal for a fenced cabinet — AC-4.2's once the PC said it holds the saves, AC-6.3's until then.
     /// One mapping for the gate and the change capture's net, so a job and a request are refused in the same words.
     /// </summary>
-    public static (string Error, string Code) ForFencedCloud(DateTime? pcHoldingSinceUtc, DateTime nowUtc, bool returning = false) =>
+    public static (string Error, string Code) ForFencedCloud(
+        DateTime? pcHoldingSinceUtc, DateTime nowUtc, bool returning = false, bool restoring = false) =>
         returning ? (HandingBack, HandingBackCode)
+        : restoring ? (Restoring, RestoringCode)
         : pcHoldingSinceUtc is { } since ? (OnRelay(SinceClinicTime(since, nowUtc)), OnRelayCode)
         : (Silent, SilentCode);
 

@@ -22,4 +22,7 @@ public enum RelayIncidentKind
 
     /// <summary>The return has been stuck for 15 min (AC-5.9, AC-9.2 « bloqué au retour »).</summary>
     ReturnStuck = 5,
+
+    /// <summary>AC-9.4: the cloud was restored from a backup and the PC de secours sent back what it had lost.</summary>
+    CloudRestored = 6,
 }

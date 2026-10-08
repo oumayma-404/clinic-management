@@ -194,6 +194,52 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// <summary>Phase 1 is in and the PC has not confirmed yet: a save is refused with « Retour au cloud en cours » (AC-5.2).</summary>
     public bool IsReturning => PcHoldingSinceUtc is not null && HandbackAppliedAtUtc is not null;
 
+    /// <summary>
+    /// AC-9.4: how long a restored cloud stays read-only for the cabinet while its PC sends what the restore lost. Long
+    /// enough for any gap; short enough that a PC unable to send it never keeps the cabinet out of its own cloud.
+    /// </summary>
+    public static readonly TimeSpan GapFenceFor = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// AC-9.4: since when this PC follows another history than the cloud's (the cloud was restored from a backup): the PC
+    /// holds what the cloud lost. Null once the PC follows this cloud again.
+    /// </summary>
+    public DateTime? GapPendingSinceUtc { get; private set; }
+
+    /// <summary>The last gap the PC sent back to this restored cloud, applied once (AC-9.4).</summary>
+    public Guid? LastGapId { get; private set; }
+
+    public DateTime? LastGapAtUtc { get; private set; }
+
+    /// <summary>How many rows that gap gave back — the vendor's alert says it.</summary>
+    public int LastGapRows { get; private set; }
+
+    /// <summary>
+    /// AC-9.4: the cloud is read-only for the cabinet until the PC has sent what the restore lost — a note numbered here
+    /// meanwhile could take a number the PC already gave a patient. Capped by <see cref="GapFenceFor"/>.
+    /// </summary>
+    public bool IsRecoveringGap(DateTime nowUtc) => GapPendingSinceUtc is { } since && nowUtc - since < GapFenceFor;
+
+    /// <summary>
+    /// AC-9.4: the history the PC says it follows, against this cloud's. A PC that copied another history (a restore
+    /// changes the epoch) holds what the cloud lost; one that follows this cloud, or none yet, holds nothing more.
+    /// </summary>
+    public void NoteFollowedEpoch(string? pcEpoch, string cloudEpoch, long pcAppliedSeq, DateTime nowUtc)
+    {
+        var otherHistory = !string.IsNullOrEmpty(pcEpoch) && pcAppliedSeq > 0
+                           && !string.Equals(pcEpoch, cloudEpoch, StringComparison.Ordinal);
+        GapPendingSinceUtc = otherHistory ? GapPendingSinceUtc ?? nowUtc : null;
+    }
+
+    /// <summary>AC-9.4: the PC's gap is applied here. The cabinet's saves come back here at once.</summary>
+    public void RecordGapReturned(Guid gapId, int rows, DateTime nowUtc)
+    {
+        LastGapId = gapId;
+        LastGapAtUtc = nowUtc;
+        LastGapRows = Math.Max(0, rows);
+        GapPendingSinceUtc = null;
+    }
+
     public DateTime? RetiredAtUtc { get; private set; }
     public ClinicRelayRetirement? RetiredReason { get; private set; }
     public string? RetiredByUserId { get; private set; }

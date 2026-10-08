@@ -1186,6 +1186,14 @@ try
                     await context.Database.MigrateAsync();
                 }
 
+                // clinic-pc-copy AC-9.4: a cloud started on a restored database marks where its own history resumes,
+                // before it serves a single save — what it changes after this mark is kept when its PC sends the gap.
+                if (profile.PublishesChangeFeed)
+                {
+                    await scope.ServiceProvider.GetRequiredService<IClinicRelayRowStore>()
+                        .MarkEpochAsync(null, CancellationToken.None);
+                }
+
                 if (profile.RunsStartupBackfills)
                 {
                     // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
