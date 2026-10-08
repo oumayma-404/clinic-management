@@ -16,11 +16,22 @@ public enum RelayUninstallOutcome
     KeptNewerCopy,
 }
 
-/// <param name="ExitCode">0 done · 2 done with something the operator must act on (the installer still goes on).</param>
+/// <summary>
+/// ⚠️ <see cref="ExitCode"/> is a contract with the installer's uninstall step (<c>clinic-setup.iss</c>,
+/// <c>UninstallSentence</c>), which words each code itself — the printed sentence arrives in the console's code page.
+/// 0 done · 1 cannot run · 2 cloud not told · 3 copy newer than the cloud · 4 erased, cloud not told · 5 erase failed,
+/// nothing erased · 6 rows erased, some files not.
+/// </summary>
 public sealed record RelayUninstallResult(RelayUninstallOutcome Outcome, int FilesDeleted, string Sentence)
 {
-    public int ExitCode => Outcome is RelayUninstallOutcome.NotPaired or RelayUninstallOutcome.Recorded
-        or RelayUninstallOutcome.RecordedAndErased ? 0 : 2;
+    public int ExitCode => Outcome switch
+    {
+        RelayUninstallOutcome.NotPaired or RelayUninstallOutcome.Recorded or RelayUninstallOutcome.RecordedAndErased => 0,
+        RelayUninstallOutcome.CloudNotTold => 2,
+        RelayUninstallOutcome.KeptNewerCopy => 3,
+        RelayUninstallOutcome.ErasedButNotReported => 4,
+        _ => throw new ArgumentOutOfRangeException(nameof(Outcome), Outcome, null),
+    };
 }
 
 /// <summary>

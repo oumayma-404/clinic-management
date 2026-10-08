@@ -164,10 +164,31 @@ var
   RolePage: TInputOptionWizardPage;  { page 1 -- « ce PC est le serveur » / « ce PC est un poste » }
   AddressPage: TInputQueryWizardPage; { page 2, poste only -- the server's name or address }
   BackupPage: TInputDirWizardPage;    { page 2, server only -- where the nightly backup is written }
+  SetupOutcome: Integer;              { relay role: the exit code the Windows app reads back -- 0 = paired, running }
+  LastFailure: string;                { the last error said, for the relay role's result file }
+
+// clinic-pc-copy: `/RELAY` makes this PC the cabinet's PC de secours -- the server stack holding a copy of the
+// cabinet's CLOUD clinic. Never a wizard choice: the offer lives in the Windows app (AC-1.1, AC-1.12), which holds the
+// admin's authenticator code that the one-time pairing code needs. Pascal Script has no CmdLineParamExists, hence the loop.
+function IsRelayRole: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/RELAY') = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+end;
 
 // Which of the two the operator picked. Consulted by every [Dirs], [Files] and [Icons] entry, so it must
 // answer before any of them is evaluated -- which it does: Inno evaluates Check functions during the file
 // copy, long after the wizard pages have been through.
+//
+// ⚠️ It answers TRUE for the PC de secours as well: that role IS the server stack (PostgreSQL, API, web) plus a
+// deployment profile and a pairing, so every payload gated here belongs on it. IsRelayRole tells the two apart.
 //
 // ⚠️ It answers TRUE before the wizard has run, and that is deliberate rather than an accident of ordering.
 // Inno evaluates Check functions in contexts that never see the page (/SILENT with no /ROLE, a restarted
@@ -214,6 +235,32 @@ begin
   Result := ExpandConstant('{app}\api\ClinicManagement.API.exe');
 end;
 
+// Every box on the server and relay path goes through here: the Windows app runs the relay install with
+// /VERYSILENT /SUPPRESSMSGBOXES, and a plain MsgBox would wait for a click nobody can give. An error is also kept
+// for the relay role's result file, since a silent install has no other way to say why it stopped.
+procedure Say(const Text: string; Typ: TMsgBoxType);
+begin
+  if Typ = mbError then
+    LastFailure := Text;
+  SuppressibleMsgBox(Text, Typ, MB_OK, IDOK);
+end;
+
+// The relay role's answer to the Windows app that launched it (/RESULTFILE=): one sentence, UTF-8, read back
+// once the setup exits. Written by the installer itself, never relayed from a console verb's output -- those
+// print in the console's code page and their accents would arrive garbled.
+procedure WriteResult(const Sentence: string);
+var
+  ResultFile: string;
+  Lines: TArrayOfString;
+begin
+  ResultFile := ExpandConstant('{param:RESULTFILE|}');
+  if ResultFile = '' then
+    Exit;
+  SetArrayLength(Lines, 1);
+  Lines[0] := Sentence;
+  SaveStringsToUTF8File(ResultFile, Lines, False);
+end;
+
 // Run an API console verb hidden, CAPTURING stdout+stderr so the verb's own French message can be shown to
 // the operator instead of a bare exit code (Finding 5 -- surface the real reason, never just a code).
 // Returns True on exit code 0; the captured output is left in LastVerbOutput either way.
@@ -249,9 +296,9 @@ function RunApiVerb(const Params, StepDescription: string): Boolean;
 begin
   Result := RunApiVerbQuiet(Params);
   if not Result then
-    MsgBox('Échec de ' + StepDescription + '.' + #13#10#13#10 +
+    Say('Échec de ' + StepDescription + '.' + #13#10#13#10 +
            'Détail :' + #13#10 + String(LastVerbOutput) + #13#10#13#10 +
-           'Installation interrompue.', mbError, MB_OK);
+           'Installation interrompue.', mbError);
 end;
 
 // Secure one or more already-quoted directory paths: inheritance broken, access reserved to the service
@@ -375,11 +422,11 @@ begin
     { File present but unreadable/corrupt: if a cluster also exists we cannot recover the real passwords. }
     if ClusterExists then
     begin
-      MsgBox('Le fichier d''identifiants de la base (' + CredFile + ') est illisible ou incomplet, alors ' +
+      Say('Le fichier d''identifiants de la base (' + CredFile + ') est illisible ou incomplet, alors ' +
              'qu''un cluster PostgreSQL existe déjà. Impossible de récupérer les mots de passe existants. ' +
              'Installation interrompue.' + #13#10#13#10 +
              'Restaurez ce fichier depuis une sauvegarde, ou supprimez volontairement le dossier "pgdata" ' +
-             'pour repartir de zéro (les données existantes seront perdues).', mbError, MB_OK);
+             'pour repartir de zéro (les données existantes seront perdues).', mbError);
       Exit;
     end;
     { No cluster → the corrupt file is harmless; fall through and regenerate. }
@@ -387,11 +434,11 @@ begin
   else if ClusterExists then
   begin
     { Cluster exists but no persisted credentials — cannot derive the existing passwords. Fail loud. }
-    MsgBox('Un cluster PostgreSQL existe déjà (' + PgData + ') mais aucun fichier d''identifiants (' +
+    Say('Un cluster PostgreSQL existe déjà (' + PgData + ') mais aucun fichier d''identifiants (' +
            CredFile + ') n''a été trouvé. Impossible de réutiliser les mots de passe existants. ' +
            'Installation interrompue.' + #13#10#13#10 +
            'Restaurez le fichier d''identifiants depuis une sauvegarde, ou supprimez volontairement le ' +
-           'dossier "pgdata" pour repartir de zéro (les données existantes seront perdues).', mbError, MB_OK);
+           'dossier "pgdata" pour repartir de zéro (les données existantes seront perdues).', mbError);
     Exit;
   end;
 
@@ -408,8 +455,8 @@ begin
 
   if not SaveStringToFile(CredFile, DbPassword + #13#10 + PgSuperPassword + #13#10, False) then
   begin
-    MsgBox('Impossible d''écrire le fichier d''identifiants de la base (' + CredFile + '). ' +
-           'Installation interrompue.', mbError, MB_OK);
+    Say('Impossible d''écrire le fichier d''identifiants de la base (' + CredFile + '). ' +
+           'Installation interrompue.', mbError);
     Exit;
   end;
 
@@ -462,9 +509,15 @@ end;
 { Installer-owned layer: everything derived from this machine. Rewritten on every install. }
 procedure WriteInstallConfig;
 var
-  Cfg, PgDump, PgRestore, Files, Backups, ConnStr, AppDir: string;
+  Cfg, PgDump, PgRestore, Files, Backups, ConnStr, AppDir, Profile: string;
 begin
   AppDir := ExpandConstant('{app}');
+  // The PC de secours is the server stack under another deployment kind; the profile is the whole difference the
+  // API needs, and `pair-relay` refuses on any other kind (a mistyped verb must not mirror a cloud over a LAN server).
+  if IsRelayRole then
+    Profile := '  "Deployment": { "Profile": "ClinicRelay" },' + #13#10
+  else
+    Profile := '';
   PgDump    := AppDir + '\postgres\bin\pg_dump.exe';
   PgRestore := AppDir + '\postgres\bin\pg_restore.exe';
   Files     := AppDir + '\api\Files';
@@ -489,6 +542,7 @@ begin
   Cfg :=
     '{' + #13#10 +
     '  "Auth": { "Mode": "Local" },' + #13#10 +
+    Profile +
     '  "ConnectionStrings": { "DefaultConnection": "' + ConnStr + '" },' + #13#10 +
     '  "FileStorage": { "BasePath": "' + Files + '" },' + #13#10 +
     // L4b/L4c: a REAL default destination (not ""), and pg_restore beside pg_dump so a backup can be
@@ -638,9 +692,9 @@ begin
       // initdb error would only obscure it), but it must be attempted.
       HardenDirectories(Quoted(PgData), 'la sécurisation du dossier de la base');
 
-      MsgBox('Échec de l''initialisation de PostgreSQL (initdb, code ' + IntToStr(Rc) + ').' + #13#10#13#10 +
+      Say('Échec de l''initialisation de PostgreSQL (initdb, code ' + IntToStr(Rc) + ').' + #13#10#13#10 +
              'Détail :' + #13#10 + LogText + #13#10#13#10 +
-             'Journal complet : ' + InitLog + #13#10 + 'Installation interrompue.', mbError, MB_OK);
+             'Journal complet : ' + InitLog + #13#10 + 'Installation interrompue.', mbError);
       Exit;
     end;
 
@@ -675,7 +729,7 @@ begin
   end;
   if not DbReady then
   begin
-    MsgBox('PostgreSQL ne répond pas (pg_isready) après 60 s. Installation interrompue.', mbError, MB_OK);
+    Say('PostgreSQL ne répond pas (pg_isready) après 60 s. Installation interrompue.', mbError);
     Exit;
   end;
 
@@ -703,7 +757,7 @@ begin
   begin
     DeleteFile(SqlFile);
     DeleteFile(PgPassFile);
-    MsgBox('Échec de la création du rôle/de la base PostgreSQL (code ' + IntToStr(Rc) + '). Installation interrompue.', mbError, MB_OK);
+    Say('Échec de la création du rôle/de la base PostgreSQL (code ' + IntToStr(Rc) + '). Installation interrompue.', mbError);
     Exit;
   end;
 
@@ -760,9 +814,9 @@ begin
     WebRegistered := True;
   end
   else
-    MsgBox('nssm.exe introuvable ({app}\tools\nssm.exe) — le service web n''a pas été enregistré. ' +
+    Say('nssm.exe introuvable ({app}\tools\nssm.exe) — le service web n''a pas été enregistré. ' +
            'Ajoutez nssm.exe et réexécutez, ou enregistrez le service Node manuellement (voir README).',
-           mbError, MB_OK);
+           mbError);
 
   { --- API service — depend on the web server ONLY if it was actually created. --- }
   if WebRegistered then
@@ -815,9 +869,9 @@ begin
     Inno zero-inits locals — so an unset Rc would report a misleading "code 0" (reads as success). }
   Rc := -1;
   if not RunWait(ApiExe, 'provision-cert', ExpandConstant('{app}\api'), Rc) then
-    MsgBox('Avertissement : la génération du certificat HTTPS à l''installation a échoué (code ' +
+    Say('Avertissement : la génération du certificat HTTPS à l''installation a échoué (code ' +
            IntToStr(Rc) + '). Le service API tentera de le générer à son premier démarrage.',
-           mbInformation, MB_OK);
+           mbInformation);
 
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
@@ -840,9 +894,9 @@ begin
   if FileExists(CaSrc) then
     FileCopy(CaSrc, CaDst, False)
   else
-    MsgBox('Le certificat CA n''est pas encore généré. Une fois le service API démarré, copiez ' +
+    Say('Le certificat CA n''est pas encore généré. Une fois le service API démarré, copiez ' +
            '{app}\api\.local\ca.crt vers un support partagé pour l''installateur client (voir README).',
-           mbInformation, MB_OK);
+           mbInformation);
 end;
 
 // Secure every directory holding patient data or per-install secrets, and remove the initdb transcript.
@@ -953,6 +1007,14 @@ end;
 // The two role pages are mutually exclusive, and each is skipped for the other role.
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
+  // The PC de secours asks nothing: the Windows app launched it with everything it needs, and it keeps no
+  // backup of its own (it IS the copy; the cloud backs the cabinet up).
+  if IsRelayRole then
+  begin
+    Result := (PageID = RolePage.ID) or (PageID = AddressPage.ID) or (PageID = BackupPage.ID);
+    Exit;
+  end;
+
   if PageID = AddressPage.ID then
     Result := IsServerRole
   else if PageID = BackupPage.ID then
@@ -1268,8 +1330,134 @@ begin
          mbInformation, MB_OK);
 end;
 
+// ---------------------------------------------------------------------------------------------
+// PC de secours role (clinic-pc-copy)
+// ---------------------------------------------------------------------------------------------
+
+// What is already installed in this directory: 0 nothing, 1 the cabinet's server, 2 a PC de secours. Read from the
+// installer-owned config layer, which only the relay role writes the ClinicRelay profile into.
+function ExistingInstall: Integer;
+var
+  Cfg: AnsiString;
+begin
+  Result := 0;
+  if LoadStringFromFile(ExpandConstant('{app}\api\appsettings.Install.json'), Cfg) and (Pos('ClinicRelay', String(Cfg)) > 0) then
+    Result := 2
+  else if FileExists(ApiExecutable) then
+    Result := 1;
+end;
+
+// Gibibytes, rounded up for what is needed and down for what is free, so the sentence never understates the gap.
+function GiB(const Bytes: Int64; RoundUp: Boolean): Int64;
+var
+  OneGiB: Int64;
+begin
+  OneGiB := 1073741824;
+  if RoundUp then
+    Result := (Bytes + OneGiB - 1) div OneGiB
+  else
+    Result := Bytes div OneGiB;
+end;
+
+// Why this install must not go ahead, or '' -- checked BEFORE a single file is copied.
+//
+// ⚠️ A cabinet's server and its PC de secours never share a PC, in either direction. Turned into a relay, a LAN
+// server's own database would be replaced by a cloud clinic's copy; turned into a server, a relay's copy would start
+// taking writes the cloud never sees. Promoting a PC de secours is the vendor's signed operation, not a reinstall.
+function InstallRefusal: string;
+var
+  Existing: Integer;
+  PairFile: string;
+  NeedBytes, FreeBytes, TotalBytes: Int64;
+begin
+  Result := '';
+  Existing := ExistingInstall;
+
+  if not IsRelayRole then
+  begin
+    if Existing = 2 then
+      Result := 'Ce PC est le PC de secours du cabinet : désinstallez-le d''abord pour en faire le serveur du cabinet.';
+    Exit;
+  end;
+
+  if Existing = 1 then
+  begin
+    Result := 'Ce PC est déjà le serveur du cabinet : il ne peut pas aussi être son PC de secours.';
+    Exit;
+  end;
+
+  PairFile := ExpandConstant('{param:PAIRFILE|}');
+  if PairFile = '' then
+  begin
+    // No code is an update in place, which keeps its pairing -- but only where there is one to keep.
+    if Existing <> 2 then
+      Result := 'Le code d''installation du PC de secours manque. Relancez l''installation depuis l''application APEXA.';
+    Exit;
+  end;
+
+  if not FileExists(PairFile) then
+  begin
+    Result := 'Le code d''installation est introuvable sur ce PC. Relancez l''installation depuis l''application APEXA.';
+    Exit;
+  end;
+
+  if ExpandConstant('{param:CLOUD|}') = '' then
+  begin
+    Result := 'L''adresse du cloud manque. Relancez l''installation depuis l''application APEXA.';
+    Exit;
+  end;
+
+  // AC-1.8: the records and the files twice over -- the copy, and the room a re-copy needs beside it.
+  NeedBytes := StrToInt64Def(ExpandConstant('{param:NEEDBYTES|0}'), 0);
+  if (NeedBytes > 0) and GetSpaceOnDisk64(ExtractFileDrive(ExpandConstant('{app}')) + '\', FreeBytes, TotalBytes)
+     and (FreeBytes < NeedBytes) then
+    Result := 'Il faut ' + IntToStr(GiB(NeedBytes, True)) + ' Go libres sur ce PC (' +
+              IntToStr(GiB(FreeBytes, False)) + ' Go disponibles).';
+end;
+
+// Pair BEFORE the services start, so the API's first boot already follows the cabinet. The one-time code arrives in
+// a file, never on the command line (process lists are readable), and `pair-relay` deletes it either way.
+function PairRelay: Boolean;
+var
+  PairFile, Params, LabelValue: string;
+begin
+  Result := True;
+  PairFile := ExpandConstant('{param:PAIRFILE|}');
+  if PairFile = '' then
+    Exit;   // an update in place keeps the pairing it has
+
+  // --replace: a code given to the installer IS the decision to pair, and the verb resets the copy state with it.
+  Params := 'pair-relay --code-file ' + Quoted(PairFile) + ' --cloud ' + Quoted(ExpandConstant('{param:CLOUD|}')) + ' --replace';
+  LabelValue := ExpandConstant('{param:LABEL|}');
+  if LabelValue <> '' then
+    Params := Params + ' --label ' + Quoted(LabelValue);
+
+  Result := RunApiVerbQuiet(Params);
+  if not Result then
+  begin
+    SetupOutcome := 20;
+    Say('Ce PC n''a pas pu être jumelé au cabinet : le code d''installation a peut-être expiré.' + #13#10 +
+        'Relancez l''installation depuis l''application APEXA.', mbError);
+  end;
+end;
+
+// The relay role's outcome, for the Windows app that launched it: 0 = paired and running, 20 = pairing refused,
+// 21 = the install stopped before the end. A PrepareToInstall refusal exits with Inno's own code 7 instead, its
+// sentence in the result file either way.
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := SetupOutcome;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  Result := InstallRefusal;
+  if Result <> '' then
+  begin
+    WriteResult(Result);
+    Exit;
+  end;
+
   StopClinicServices;
   { '' = proceed. Nothing here is fatal: a first install has no services to stop, and a service that
     refuses to stop surfaces as a file-in-use error from the copy itself, which Inno already reports
@@ -1290,7 +1478,10 @@ begin
     Exit;
   end;
 
-  begin
+  // The relay role reports how it ended to the Windows app that launched it, whichever Exit below is taken.
+  if IsRelayRole then
+    SetupOutcome := 21;
+  try
     // The console verbs invoked from here refuse to run outside Local mode, and Auth:Mode=Local lives in the
     // generated appsettings.Production.json -- which WriteProductionConfig cannot write until the DB
     // password exists. Seed a minimal Local overlay first so the ordering works on a fresh install.
@@ -1310,14 +1501,98 @@ begin
       if not HardenInstallDirectories then
         Exit;
 
+      // Before the services: the API's first boot then already follows the cabinet.
+      if IsRelayRole and not PairRelay then
+        Exit;
+
       SetupAppServices;
       OpenFirewall;
       StartAndExportCa;
 
       // Last, and in this order: the machine has to be a working server before it is announced as one, and
-      // it has to stay awake to remain one.
+      // it has to stay awake to remain one -- a PC de secours that sleeps can neither copy nor take over.
       DisableSleepOnMains;
-      AnnounceServerAddress;
+      if IsRelayRole then
+        SetupOutcome := 0
+      else
+        AnnounceServerAddress;
+    end;
+  finally
+    if IsRelayRole then
+    begin
+      if SetupOutcome = 0 then
+        WriteResult('Ce PC est maintenant le PC de secours du cabinet. La première copie commence.')
+      else if LastFailure <> '' then
+        WriteResult(LastFailure)
+      else
+        WriteResult('L''installation du PC de secours n''a pas pu se terminer.');
     end;
   end;
+end;
+
+// ============================================================================================
+// Uninstalling a PC de secours (clinic-pc-copy AC-8.3)
+// ============================================================================================
+
+// What `uninstall-relay` answered, in the installer's own words. The verb's exit code is the contract
+// (UninstallRelayConsoleCommand / RelayUninstallResult); its printed sentence is not shown, being in the console's
+// code page.
+function UninstallSentence(const Rc: Integer; const Erase: Boolean): string;
+begin
+  case Rc of
+    0:
+      if Erase then
+        Result := 'Copie du cabinet effacée de ce PC, et le cloud l''a noté.'
+      else
+        Result := 'Le cloud a noté la désinstallation. La copie du cabinet reste sur ce PC.';
+    2:
+      if Erase then
+        Result := 'Le cloud n''a pas pu être prévenu, donc la copie n''a pas été effacée : sans le cloud, ce PC est'
+                  + ' peut-être la seule copie du cabinet. Retirez ce PC depuis « Paramètres → PC de secours » sur le cloud.'
+      else
+        Result := 'Le cloud n''a pas pu être prévenu. Retirez ce PC depuis « Paramètres → PC de secours » sur le cloud.';
+    3:
+      Result := 'La copie n''a pas été effacée : ce PC contient des données plus récentes que le cloud.'
+                + ' Contactez la personne qui a installé votre logiciel.';
+    4:
+      Result := 'La copie du cabinet est effacée de ce PC, mais le cloud n''a pas pu le noter.';
+    5:
+      Result := 'La copie n''a pas pu être effacée. Rien n''a été effacé.';
+    6:
+      Result := 'Les dossiers du cabinet sont effacés de ce PC, mais certains fichiers n''ont pas pu l''être.';
+  else
+    Result := 'Le cloud n''a pas pu être prévenu de la désinstallation. Retirez ce PC depuis'
+              + ' « Paramètres → PC de secours » sur le cloud.';
+  end;
+end;
+
+// ⚠️ Before [UninstallRun] stops PostgreSQL, which the erase needs, and with the API stopped first so the copy loop
+// cannot race it. « Oui » is the default and therefore also the answer of a silent uninstall (« coché par défaut »).
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Erase: Boolean;
+  Rc: Integer;
+  Params: string;
+begin
+  if (CurUninstallStep <> usUninstall) or (ExistingInstall <> 2) then
+    Exit;
+
+  Erase := SuppressibleMsgBox('Effacer aussi la copie du cabinet de ce PC ?' + #13#10#13#10 +
+             'Oui : les dossiers, fiches, documents et fichiers du cabinet sont effacés de ce PC. Le cloud garde tout.' + #13#10 +
+             'Non : la copie reste sur ce PC, qui ne suit plus le cabinet.',
+             mbConfirmation, MB_YESNO, IDYES) = IDYES;
+
+  StopClinicServices;
+
+  Params := 'uninstall-relay';
+  if Erase then
+    Params := Params + ' --erase';
+  Rc := -1;
+  if not Exec(ApiExecutable, Params, ExpandConstant('{app}\api'), SW_HIDE, ewWaitUntilTerminated, Rc) then
+    Rc := -1;
+
+  if Rc = 0 then
+    SuppressibleMsgBox(UninstallSentence(Rc, Erase), mbInformation, MB_OK, IDOK)
+  else
+    SuppressibleMsgBox(UninstallSentence(Rc, Erase), mbError, MB_OK, IDOK);
 end;

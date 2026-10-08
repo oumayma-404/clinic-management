@@ -15,8 +15,8 @@ namespace ClinicManagement.API.Maintenance;
 ///   ClinicManagement.API.exe uninstall-relay [--erase]
 /// </summary>
 /// <remarks>
-/// Exit 0 done · 1 cannot run · 2 done with something the operator must act on — the uninstaller shows the sentence and
-/// goes on either way: refusing to uninstall would not make a lost cloud answer.
+/// Exit codes are a contract with the installer (see <see cref="RelayUninstallResult"/>), which words each one and goes
+/// on uninstalling either way: refusing to uninstall would not make a lost cloud answer.
 /// </remarks>
 public static class UninstallRelayConsoleCommand
 {
@@ -66,11 +66,13 @@ public static class UninstallRelayConsoleCommand
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // The rows go in one transaction, so either none left or all did and only files remain: say which.
-            Console.Error.WriteLine(new RelayFollowerStateStore().Load().ErasedAtUtc is null
-                ? $"La copie n'a pas pu être effacée ({ex.Message}). Rien n'a été effacé."
-                : $"Les dossiers du cabinet sont effacés, mais certains fichiers n'ont pas pu l'être ({ex.Message}).");
-            return 2;
+            // The rows go in one transaction, so either none left or all did and only files remain: say which
+            // (5 / 6 — the exit codes the installer words, see RelayUninstallResult).
+            var rowsErased = new RelayFollowerStateStore().Load().ErasedAtUtc is not null;
+            Console.Error.WriteLine(rowsErased
+                ? $"Les dossiers du cabinet sont effacés, mais certains fichiers n'ont pas pu l'être ({ex.Message})."
+                : $"La copie n'a pas pu être effacée ({ex.Message}). Rien n'a été effacé.");
+            return rowsErased ? 6 : 5;
         }
     }
 }

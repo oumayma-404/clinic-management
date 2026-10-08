@@ -172,7 +172,38 @@ public sealed class RelayUninstallTests : IDisposable
         var result = await uninstaller.UninstallAsync(eraseCopy: true, T0, default);
 
         Assert.Equal(RelayUninstallOutcome.KeptNewerCopy, result.Outcome);
+        Assert.Equal(3, result.ExitCode);
         Assert.Equal(0, erases.Count);
+    }
+
+    // The exit codes are a mirrored set: the verb returns them, the installer's uninstall step words each one. A code
+    // the installer does not know falls to its catch-all sentence, which would tell the admin the cloud was not told.
+    [Fact]
+    public void The_Installer_Words_Every_Exit_Code_The_Verb_Returns()
+    {
+        var verbCodes = Enum.GetValues<RelayUninstallOutcome>()
+            .Select(o => new RelayUninstallResult(o, 0, "").ExitCode)
+            .Concat(new[] { 5, 6 }) // the verb's own two failure codes, around the erase (UninstallRelayConsoleCommand)
+            .ToHashSet();
+
+        var installer = File.ReadAllText(InstallerPath());
+        var body = installer[installer.IndexOf("function UninstallSentence", StringComparison.Ordinal)..];
+        body = body[..body.IndexOf("\nend;", StringComparison.Ordinal)];
+        var worded = System.Text.RegularExpressions.Regex.Matches(body, @"^\s*(\d+):\s*$",
+                System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(m => int.Parse(m.Groups[1].Value))
+            .ToHashSet();
+
+        Assert.NotEmpty(worded);
+        Assert.Equal(verbCodes.OrderBy(c => c), worded.OrderBy(c => c));
+    }
+
+    private static string InstallerPath([System.Runtime.CompilerServices.CallerFilePath] string thisFile = "")
+    {
+        var path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!,
+            "..", "..", "..", "..", "packaging", "setup", "clinic-setup.iss"));
+        Assert.True(File.Exists(path), $"clinic-setup.iss not found at {path}");
+        return path;
     }
 
     [Fact]
@@ -183,7 +214,7 @@ public sealed class RelayUninstallTests : IDisposable
         var result = await uninstaller.UninstallAsync(eraseCopy: true, T0, default);
 
         Assert.Equal(RelayUninstallOutcome.ErasedButNotReported, result.Outcome);
-        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(4, result.ExitCode);
         Assert.Equal(1, erases.Count);
         Assert.Equal(3, cloud.Calls.Count(c => c == "erased"));
         Assert.False(store.Load().ErasureReported);
