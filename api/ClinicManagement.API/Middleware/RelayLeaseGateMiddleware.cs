@@ -14,12 +14,18 @@ namespace ClinicManagement.API.Middleware;
 /// reach the cloud at all, and either way the cabinet would lose work it was told was saved.
 ///
 /// <para>Reads pass by construction, as on <see cref="SubscriptionGateMiddleware"/>; only the sign-in doors marked
-/// <see cref="AllowedOnStandbyRelayAttribute"/> are writable. Part 2 lifts the refusal while the PC holds the lease.</para>
+/// <see cref="AllowedOnStandbyRelayAttribute"/> are writable.</para>
+///
+/// <para><b>While the PC holds the cabinet's saves (D13)</b> the refusal is lifted — the PC is the cabinet's server for
+/// the cut — except FR-5's « online only » list (<see cref="OnlineOnlyAttribute"/>), refused with <b>423</b>
+/// <c>online_only</c> whatever the method: what the cloud keeps writing during a cut (FR-11) must not be written here
+/// too, or the return would bring back two versions of one account.</para>
 ///
 /// <para><b>On the cloud, the other half of the lease (D13, D15):</b> while a cabinet's PC de secours may be holding its
 /// saves — armed, and silent past <see cref="ClinicWriteLease.CloudFencesAfter"/> — that cabinet's writes are refused
-/// with <b>423</b> <c>relay_silent</c>, except the doors marked <see cref="AllowedWhileCloudFencedAttribute"/> (FR-11).
-/// One indexed read per write, and none for a read or for a caller that is not a cabinet.</para>
+/// with <b>423</b> <c>relay_silent</c>, and once the PC has said it holds them, with <c>clinic_on_relay</c> and the
+/// cabinet's time of the takeover (AC-4.2) — except the doors marked <see cref="AllowedWhileCloudFencedAttribute"/>
+/// (FR-11). One indexed read per write, and none for a read or for a caller that is not a cabinet.</para>
 ///
 /// <para>⚠️ <b>Registered after <c>LocalAuthEnforcementMiddleware</c> and before the subscription gate.</b> After, so a
 /// revoked token still answers 401 and a pending password change 403; before, so a copy of an expired cabinet says
@@ -59,24 +65,49 @@ public class RelayLeaseGateMiddleware
             return;
         }
 
-        if (FenceApplies(context, deployment, tenantScope)
-            && ClinicWriteLease.IsCloudFenced(
-                await relays.GetCurrentForClinicAsync(tenantScope.ClinicId!.Value, context.RequestAborted), DateTime.UtcNow))
+        if (FenceApplies(context, deployment, tenantScope))
+        {
+            var relay = await relays.GetCurrentForClinicAsync(tenantScope.ClinicId!.Value, context.RequestAborted);
+            var now = DateTime.UtcNow;
+            if (ClinicWriteLease.IsCloudFenced(relay, now))
+            {
+                var (error, code) = relay!.PcHoldingSinceUtc is { } since
+                    ? (RelayRefusals.OnRelay(RelayRefusals.SinceClinicTime(since, now)), RelayRefusals.OnRelayCode)
+                    : (RelayRefusals.Silent, RelayRefusals.SilentCode);
+                context.Response.StatusCode = StatusCodes.Status423Locked;
+                await context.Response.WriteAsJsonAsync(new { error, code });
+                return;
+            }
+        }
+
+        if (OnlineOnlyApplies(context, deployment, relayLocal))
         {
             context.Response.StatusCode = StatusCodes.Status423Locked;
-            await context.Response.WriteAsJsonAsync(new { error = RelayRefusals.Silent, code = RelayRefusals.SilentCode });
+            await context.Response.WriteAsJsonAsync(new { error = RelayRefusals.OnlineOnly, code = RelayRefusals.OnlineOnlyCode });
             return;
         }
 
-        if (!Applies(context, deployment))
+        if (!Applies(context, deployment, relayLocal))
         {
             await _next(context);
             return;
         }
 
+        // A retired PC never accepts a save again: « pendant une coupure d'internet » would promise one.
+        var (refusal, refusalCode) = relayLocal.IsRetired
+            ? (RelayRefusals.RetiredReadOnly, RelayRefusals.RetiredCode)
+            : (RelayRefusals.Standby, RelayRefusals.StandbyCode);
         context.Response.StatusCode = StatusCodes.Status423Locked;
-        await context.Response.WriteAsJsonAsync(new { error = RelayRefusals.Standby, code = RelayRefusals.StandbyCode });
+        await context.Response.WriteAsJsonAsync(new { error = refusal, code = refusalCode });
     }
+
+    /// <summary>FR-5 on a PC holding the cabinet's saves: refused whatever the method — an archive download is a GET.</summary>
+    private static bool OnlineOnlyApplies(HttpContext context, DeploymentProfile deployment, IRelayLocalStatus relayLocal) =>
+        deployment.MirrorsCloudClinic
+        && context.Request.Path.StartsWithSegments(ApiPrefix)
+        && relayLocal.IsHolding
+        && context.GetEndpoint() is { } endpoint
+        && endpoint.Metadata.GetMetadata<OnlineOnlyAttribute>() is not null;
 
     /// <summary>
     /// A cabinet's write, on a cloud that publishes a change feed, through a door that is not FR-11's. ⚠️ A caller that
@@ -95,9 +126,10 @@ public class RelayLeaseGateMiddleware
     /// ⚠️ No endpoint matched passes, for <see cref="SubscriptionGateMiddleware"/>'s reason: a mistyped URL must reach
     /// routing's own 404, not be told the PC is a copy.
     /// </remarks>
-    private static bool Applies(HttpContext context, DeploymentProfile deployment) =>
+    private static bool Applies(HttpContext context, DeploymentProfile deployment, IRelayLocalStatus relayLocal) =>
         deployment.MirrorsCloudClinic
         && context.Request.Path.StartsWithSegments(ApiPrefix)
+        && !relayLocal.IsHolding
         && !IsRead(context.Request.Method)
         && context.GetEndpoint() is { } endpoint
         && endpoint.Metadata.GetMetadata<AllowedOnStandbyRelayAttribute>() is null;

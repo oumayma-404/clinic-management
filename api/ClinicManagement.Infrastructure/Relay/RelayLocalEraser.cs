@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Platform;
+using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 
@@ -24,6 +25,7 @@ public sealed class RelayLocalEraser
     private readonly IFileStorage _files;
     private readonly IUserRepository _users;
     private readonly RelayFollowerStateStore _state;
+    private readonly RelayLease _lease;
     private readonly ILogger<RelayLocalEraser> _logger;
 
     public RelayLocalEraser(
@@ -32,6 +34,7 @@ public sealed class RelayLocalEraser
         IFileStorage files,
         IUserRepository users,
         RelayFollowerStateStore state,
+        RelayLease lease,
         ILogger<RelayLocalEraser> logger)
     {
         _purge = purge;
@@ -39,12 +42,21 @@ public sealed class RelayLocalEraser
         _files = files;
         _users = users;
         _state = state;
+        _lease = lease;
         _logger = logger;
     }
+
+    /// <summary>False while this copy holds work saved during a cut that the cloud never received (AC-7.3).</summary>
+    public bool MayErase => !_lease.HoldsUnreturnedWork;
 
     /// <returns>How many files were removed.</returns>
     public async Task<int> EraseAsync(Guid clinicId, DateTime nowUtc, CancellationToken cancellationToken)
     {
+        if (!MayErase)
+        {
+            throw new InvalidOperationException(RelayRefusals.CutWorkKept);
+        }
+
         var addresses = await ClinicDeletionAddresses.FreedByDeletingAsync(_users, clinicId, cancellationToken);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);

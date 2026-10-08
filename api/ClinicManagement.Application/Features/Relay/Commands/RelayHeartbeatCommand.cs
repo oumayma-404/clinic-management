@@ -66,7 +66,8 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             var seededNow = relay.RecordHeartbeat(new RelayHeartbeat(
                 report.AppliedSeq, report.SeedPercent, report.SeedComplete, report.FilesTotal, report.FilesCopied,
                 report.DiskFreeBytes, report.IsUpdating, report.Build, report.PcClockUtc, report.LanAddresses,
-                report.MismatchTables, report.LastError, report.CertificateFingerprint, report.CopyStopped),
+                report.MismatchTables, report.LastError, report.CertificateFingerprint, report.CopyStopped,
+                report.Holding, report.HoldingSinceUtc),
                 highWater, now);
 
             if (seededNow)

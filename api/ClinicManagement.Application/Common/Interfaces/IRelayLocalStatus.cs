@@ -13,4 +13,7 @@ public interface IRelayLocalStatus
 
     /// <summary>When this PC learned it was retired; null while it still follows its cabinet (or on older files).</summary>
     DateTime? RetiredAtUtc { get; }
+
+    /// <summary>This PC took over the cabinet's saves during a cut (D13) and holds them until it hands them back.</summary>
+    bool IsHolding { get; }
 }

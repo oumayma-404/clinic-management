@@ -174,11 +174,19 @@ public static class Extensions
         services.AddScoped<IClinicRecoveryPointRepository, ClinicRecoveryPointRepository>();
         services.AddScoped<IClinicArchiveGrantRepository, ClinicArchiveGrantRepository>();
         services.AddScoped<IClinicRelayRepository, ClinicRelayRepository>();
+        // The PC de secours's write lease (D13): one per process, since the gate, the copy loop and the takeover decision
+        // must agree on it. Built only when asked, so no other profile ever reads .local/relay-lease.json.
+        services.AddSingleton(_ => new RelayLease());
+        services.AddSingleton<IRelayBoxProbe>(sp => new GatewayBoxProbe(sp.GetRequiredService<ILogger<GatewayBoxProbe>>()));
         // Every profile: « not retired » off a PC de secours, without touching the disk (clinic-pc-copy AC-8.1).
-        services.AddSingleton<IRelayLocalStatus>(sp => new RelayLocalStatus(sp.GetRequiredService<DeploymentProfile>()));
+        services.AddSingleton<IRelayLocalStatus>(sp =>
+        {
+            var deployment = sp.GetRequiredService<DeploymentProfile>();
+            return new RelayLocalStatus(deployment, deployment.MirrorsCloudClinic ? sp.GetRequiredService<RelayLease>() : null);
+        });
         services.AddScoped(sp => new RelayLocalEraser(
             sp.GetRequiredService<IClinicPurge>(), sp.GetRequiredService<IUnitOfWork>(), sp.GetRequiredService<IFileStorage>(),
-            sp.GetRequiredService<IUserRepository>(), new RelayFollowerStateStore(),
+            sp.GetRequiredService<IUserRepository>(), new RelayFollowerStateStore(), sp.GetRequiredService<RelayLease>(),
             sp.GetRequiredService<ILogger<RelayLocalEraser>>()));
         services.AddScoped<IRelayIncidentRepository, RelayIncidentRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();

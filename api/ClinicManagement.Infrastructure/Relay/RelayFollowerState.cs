@@ -53,16 +53,8 @@ public sealed record RelayFollowerState
     /// <summary>The last failure, in French, reported on the next heartbeat; cleared by the next success.</summary>
     public string? LastError { get; init; }
 
-    // ---- the write lease (D13, D14) ----------------------------------------------------------------------------
-
-    /// <summary>The id of the last ack received — echoed on every heartbeat, which is how the cloud's clock moves.</summary>
-    public long LastAckSeq { get; init; }
-
-    /// <summary>Whether that ack said « armé »: the PC may take over after a cut only if it did (AC-3.8).</summary>
-    public bool LastAckArmed { get; init; }
-
-    /// <summary>When that ack arrived, on this PC's clock.</summary>
-    public DateTime? LastAckReceivedAtUtc { get; init; }
+    // ⚠️ The write lease (the last ack, the holding) is NOT here: it moves during a tick, and this file is rewritten
+    // from the copy loaded at the start of one. See RelayLease (.local/relay-lease.json).
 
     // ---- the self-update (D10b) — one cloud build, one series of attempts --------------------------------------
 

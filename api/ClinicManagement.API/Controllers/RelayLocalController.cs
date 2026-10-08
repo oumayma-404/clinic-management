@@ -79,6 +79,12 @@ public class RelayLocalController : ApiControllerBase
                 StatusCodes.Status409Conflict);
         }
 
+        if (!_eraser.MayErase)
+        {
+            return HandleFailure(Result.Failure(RelayRefusals.CutWorkKept, RelayRefusals.CutWorkKeptCode),
+                StatusCodes.Status409Conflict);
+        }
+
         var callerId = _clinicContext.GetUserId();
         if (string.IsNullOrWhiteSpace(callerId) || !_stepUp.Consume(callerId, RelayStepUpActions.Erase, confirmation ?? string.Empty))
         {

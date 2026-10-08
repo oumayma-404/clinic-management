@@ -37,4 +37,5 @@ public static class RelayJournal
     public const string Uninstalled = "PC de secours désinstallé";
     public const string Erased = "Copie du cabinet effacée du PC de secours";
     public const string Promoted = "PC de secours promu en serveur local";
+    public const string TookOver = "Le PC de secours a pris le relais (le cloud ne répondait plus)";
 }

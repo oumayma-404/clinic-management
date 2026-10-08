@@ -232,8 +232,23 @@ public sealed class RelayUninstallTests : IDisposable
         Assert.Equal(0, result.ExitCode);
     }
 
+    // [AC-7.3] A PC holding work saved during a cut that never reached the cloud: that work's only copy is never erased.
+    [Fact]
+    public async Task A_Copy_Holding_A_Cuts_Work_Is_Kept()
+    {
+        var (uninstaller, _, store, erases) = Pc(RelayCallStatus.Ok, holdsCutWork: true);
+
+        var result = await uninstaller.UninstallAsync(eraseCopy: true, T0, default);
+
+        Assert.Equal(RelayUninstallOutcome.KeptNewerCopy, result.Outcome);
+        Assert.Empty(erases);
+        Assert.Contains("coupure d'internet", result.Sentence);
+        Assert.True(store.Load().Released);
+    }
+
     private (RelayUninstaller Uninstaller, FakeCloud Cloud, RelayFollowerStateStore Store, List<int> Erases) Pc(
-        RelayCallStatus uninstalledAnswer, RelayCallStatus erasedAnswer = RelayCallStatus.Ok, string? stoppedReason = null)
+        RelayCallStatus uninstalledAnswer, RelayCallStatus erasedAnswer = RelayCallStatus.Ok, string? stoppedReason = null,
+        bool holdsCutWork = false)
     {
         var store = new RelayFollowerStateStore(_dir);
         store.Save(new RelayFollowerState { StoppedReason = stoppedReason });
@@ -245,7 +260,7 @@ public sealed class RelayUninstallTests : IDisposable
             erases.Add(1);
             store.Save(store.Load() with { ErasedAtUtc = T0 });
             return Task.FromResult(5);
-        }, (_, _) => Task.CompletedTask);
+        }, (_, _) => Task.CompletedTask, () => holdsCutWork);
         return (uninstaller, cloud, store, erases);
     }
 

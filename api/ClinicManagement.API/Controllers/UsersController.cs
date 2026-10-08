@@ -81,6 +81,7 @@ public class UsersController : ApiControllerBase
     /// This action is what a profile with self-registration closed uses <i>instead</i>, so it must stay reachable
     /// in both account-owning profiles.</para>
     /// </summary>
+    [OnlineOnly("FR-5 — creating an account waits for the internet: accounts stay on the cloud during a cut (FR-11).")]
     [HttpPost]
     public async Task<ActionResult<CreatedClinicUserDto>> CreateUser([FromBody] CreateClinicUserRequest request)
     {
@@ -123,6 +124,7 @@ public class UsersController : ApiControllerBase
     /// That one is about regaining <i>read</i> access an expired cabinet keeps by right; this one is about a
     /// colleague who can still sign in with a recovery code, and there is no read at stake.</para>
     /// </summary>
+    [OnlineOnly("FR-5 — an authenticator changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("{id}/totp/reset")]
     public async Task<IActionResult> ResetTotp(string id, [FromBody] StepUpConfirmationRequest request)
     {
@@ -140,6 +142,7 @@ public class UsersController : ApiControllerBase
         return result.IsSuccess ? Ok(new { }) : HandleFailure(result);
     }
 
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("{id}/reset-password")]
     [AllowsWithoutSubscription(
         "FR-3, AC-4.1/4.2 — regaining READ access must not depend on payment. A staff member who has forgotten "
@@ -163,6 +166,7 @@ public class UsersController : ApiControllerBase
     /// <summary>
     /// Deactivate or reactivate a user (AC-5.3). Historical records are retained.
     /// </summary>
+    [OnlineOnly("FR-5 — deactivating an account happens on the cloud only (FR-11).")]
     [HttpPut("{id}/status")]
     [AllowsWithoutSubscription("FR-3 — offboarding must not wait on an invoice; a colleague who left keeps access otherwise.")]
     public async Task<ActionResult<ClinicUserDto>> SetStatus(string id, [FromBody] SetUserStatusRequest request)
@@ -188,6 +192,7 @@ public class UsersController : ApiControllerBase
     /// class-level policy; the handler re-checks the DB role, validates the value against the closed set, and
     /// refuses a self-demotion that would leave the clinic with no active admin.
     /// </summary>
+    [OnlineOnly("FR-5 — a role changes on the cloud only: accounts stay on the cloud during a cut (FR-11).")]
     [HttpPut("{id}/role")]
     public async Task<ActionResult<ClinicUserDto>> SetRole(string id, [FromBody] SetUserRoleRequest request)
     {

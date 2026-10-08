@@ -141,6 +141,22 @@ export const ApiErrorCode = {
    * `RelayRefusals.SilentCode` (`RelayLeaseGateMiddleware`).
    */
   RelaySilent: 'relay_silent',
+  /**
+   * 423 on the cloud: the cabinet's PC de secours said it holds the cabinet's saves during a cut, so the cloud is
+   * read-only for that cabinet until the work comes back. The sentence names the time. Emitted by
+   * `RelayRefusals.OnRelayCode` (`RelayLeaseGateMiddleware`).
+   */
+  ClinicOnRelay: 'clinic_on_relay',
+  /**
+   * 423 on a PC de secours in charge: this action waits for the internet (accounts, passwords, « Rappels », Google
+   * Agenda, the archive). The form stays open. Emitted by `RelayRefusals.OnlineOnlyCode` (`RelayLeaseGateMiddleware`).
+   */
+  OnlineOnly: 'online_only',
+  /**
+   * 409: this PC keeps work saved during a cut that never reached the cloud, so its copy cannot be erased. Emitted by
+   * `RelayRefusals.CutWorkKeptCode` (« Effacer la copie »).
+   */
+  RelayCutWorkKept: 'relay_cut_work_kept',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */

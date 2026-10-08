@@ -28,7 +28,9 @@ public sealed class RelayFollowerTests : IDisposable
     private readonly HashSet<string> _onDisk = new(StringComparer.Ordinal);
     private readonly List<string> _restored = new();
     private DateTime _now = T0;
+    private TimeSpan _mono = TimeSpan.FromHours(1);
     private readonly RelayFollowerStateStore _store;
+    private readonly RelayLease _lease;
     private readonly (string Public, byte[] Private) _keys;
     private readonly FakeInstaller _installer = new();
     private readonly FakeLauncher _launcher = new();
@@ -36,6 +38,7 @@ public sealed class RelayFollowerTests : IDisposable
     public RelayFollowerTests()
     {
         _store = new RelayFollowerStateStore(_dir);
+        _lease = new RelayLease(_dir, () => _now, () => _mono);
         _keys = RelaySecretEnvelope.NewKeyPair();
         _files.Setup(f => f.ExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string key, CancellationToken _) => _onDisk.Contains(key));
@@ -54,7 +57,13 @@ public sealed class RelayFollowerTests : IDisposable
             () => new RelayHostReport(new[] { "192.168.1.10" }, "FP", 100L * 1024 * 1024 * 1024),
             new RelayUpdater(_installer, _launcher, Path.Combine(_dir, "updates"), Path.Combine(_dir, "logs"),
                 NullLogger.Instance, () => _now),
-            NullLogger.Instance, () => _now);
+            _lease, NullLogger.Instance, () => _now);
+    }
+
+    private void Advance(double seconds)
+    {
+        _now = _now.AddSeconds(seconds);
+        _mono += TimeSpan.FromSeconds(seconds);
     }
 
     private RelayLocalSide Local => new(_rows, _rows, _files.Object);
@@ -350,7 +359,8 @@ public sealed class RelayFollowerTests : IDisposable
         _cloud.ArmsThePc = true;
         var follower = Follower();
 
-        var first = await TickAsync(follower);
+        await TickAsync(follower);
+        var first = _lease.Current;
         _now = T0.AddSeconds(10);
         await TickAsync(follower);
 
@@ -374,14 +384,133 @@ public sealed class RelayFollowerTests : IDisposable
 
         _cloud.HeartbeatStatus = RelayCallStatus.Unreachable;
         _now = T0.AddSeconds(10);
-        var lost = await TickAsync(follower);
+        await TickAsync(follower);
+        var lost = _lease.Current;
         _cloud.HeartbeatStatus = RelayCallStatus.Ok;
         _now = T0.AddSeconds(20);
         await TickAsync(follower);
 
         Assert.Equal(1001, lost.LastAckSeq);
         Assert.Equal(T0, lost.LastAckReceivedAtUtc);
+        Assert.True(!_lease.UnansweredSinceLastAck, "the third heartbeat was answered");
         Assert.Equal(1001, _cloud.Reports[2].ConfirmedAckSeq);
+    }
+
+    // The ack register outlives the copy's own file (a restart, a re-seed): it is the lease's, on its own file.
+    [Fact]
+    public async Task The_Last_Ack_Survives_A_Restart_In_The_Leases_Own_File()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.ArmsThePc = true;
+        await TickAsync();
+
+        var restarted = new RelayLease(_dir, () => _now, () => TimeSpan.Zero);
+
+        Assert.Equal((1001L, true, T0), (restarted.Current.LastAckSeq, restarted.Current.LastAckArmed,
+            restarted.Current.LastAckReceivedAtUtc));
+        Assert.False(File.ReadAllText(_store.FilePath).Contains("lastAck", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- holding the cabinet's saves (D13) -----------------------------------------------------------------------
+
+    // [D13] A PC in charge says so on every heartbeat and takes nothing from the cloud: its rows are newer than the
+    // cloud's now, so a catch-up, a file pass or an hourly repair would overwrite the cut's work.
+    [Fact]
+    public async Task A_Holding_Pc_Reports_It_And_Takes_Nothing_From_The_Cloud()
+    {
+        Seeded(seq: 40, filesTotal: 1);
+        _rows.Keys = new[] { "clinics/a/new.png" };
+        _cloud.HighWater = 45;
+        _cloud.Digest = new[] { new RelayTableDigest("Patients", 1, "x") };
+        _store.Save(_store.Load() with { LastDigestAtUtc = T0.AddDays(-1) });
+        _lease.TakeOver();
+
+        await TickAsync();
+
+        var report = Assert.Single(_cloud.Reports);
+        Assert.True(report.Holding);
+        Assert.Equal(T0, report.HoldingSinceUtc);
+        Assert.Empty(_cloud.ChangesAsked);
+        Assert.Empty(_cloud.BlobsAsked);
+        Assert.Equal(0, _cloud.SnapshotCalls);
+    }
+
+    // A holding PC never runs the cloud's installer either — it would stop the server the cabinet is working on.
+    [Fact]
+    public async Task A_Holding_Pc_Is_Never_Updated()
+    {
+        Seeded(seq: 40);
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 1, 2, 3 });
+        _lease.TakeOver();
+
+        var state = await TickAsync();
+
+        Assert.Empty(_launcher.Launches);
+        Assert.False(state.UpdateNeeded);
+    }
+
+    // [AC-8.6] Retired while it held the saves: it learns it, and the keeper then lets go (the work stays).
+    [Fact]
+    public async Task A_Holding_Pc_Learns_It_Was_Released()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+        _cloud.HeartbeatStatus = RelayCallStatus.Released;
+
+        var state = await TickAsync();
+
+        Assert.True(state.Released);
+        Assert.Equal(T0, state.ReleasedAtUtc);
+    }
+
+    // A holding PC does not stand down on a clean stop: the cloud must stay read-only until the cut's work is back.
+    [Fact]
+    public async Task A_Holding_Pc_Never_Stands_Down()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+
+        Assert.False(await Follower().StandDownAsync(CancellationToken.None));
+        Assert.Empty(_cloud.Reports);
+    }
+
+    // ---- the pulse beside a busy tick ----------------------------------------------------------------------------
+
+    // A copy tick fetching a big radiograph must not read, to the cloud, as a cut: past 20 s without an exchange the
+    // lease loop sends one, reporting the position last saved.
+    [Fact]
+    public async Task A_Pulse_Heartbeats_Only_Once_Twenty_Seconds_Passed_Without_An_Exchange()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.ArmsThePc = true;
+        var follower = Follower();
+        await TickAsync(follower);
+
+        Advance(19);
+        await follower.PulseAsync(CancellationToken.None);
+        Assert.Single(_cloud.Reports);
+
+        Advance(1);
+        await follower.PulseAsync(CancellationToken.None);
+
+        Assert.Equal(2, _cloud.Reports.Count);
+        Assert.Equal(40, _cloud.Reports[1].AppliedSeq);
+        Assert.Equal(1001, _cloud.Reports[1].ConfirmedAckSeq);
+        Assert.Equal(1002, _lease.Current.LastAckSeq);
+    }
+
+    [Fact]
+    public async Task A_Pc_That_Never_Exchanged_Does_Not_Pulse()
+    {
+        Seeded(seq: 40);
+
+        await Follower().PulseAsync(CancellationToken.None);
+
+        Assert.Empty(_cloud.Reports);
     }
 
     // [AC-6.1, D14] A clean stop stands down in two exchanges: ask, then confirm the disarmed answer.
@@ -401,7 +530,7 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.True(ask.WantsToStandDown && confirm.WantsToStandDown);
         Assert.Equal((1001L, true), (ask.ConfirmedAckSeq, ask.ConfirmedAckArmed));
         Assert.Equal((1002L, false), (confirm.ConfirmedAckSeq, confirm.ConfirmedAckArmed));
-        Assert.False(_store.Load().LastAckArmed);
+        Assert.False(_lease.Current.LastAckArmed);
     }
 
     [Fact]

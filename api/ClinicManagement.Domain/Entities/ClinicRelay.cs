@@ -120,6 +120,13 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// </summary>
     public bool MayBeArmed => ConfirmedAckArmed || PendingArmedAckSeq > ConfirmedAckSeq;
 
+    /// <summary>
+    /// Since when the PC has said it holds the cabinet's saves (it took over during a cut). Set by the first heartbeat
+    /// that says so and cleared only when the PC hands the cut's work back — never by a later heartbeat, which may be an
+    /// older one arriving late. While set, the cloud refuses the cabinet's saves whatever the acks say.
+    /// </summary>
+    public DateTime? PcHoldingSinceUtc { get; private set; }
+
     public DateTime? RetiredAtUtc { get; private set; }
     public ClinicRelayRetirement? RetiredReason { get; private set; }
     public string? RetiredByUserId { get; private set; }
@@ -254,6 +261,11 @@ public class ClinicRelay : AggregateRoot<Guid>
         Build = Cap(heartbeat.Build, MaxBuildLength) ?? Build;
         ClockSkewSeconds = heartbeat.PcClockUtc is { } pc ? (int)Math.Round((pc - nowUtc).TotalSeconds) : null;
         CopyStoppedSinceUtc = heartbeat.CopyStopped ? CopyStoppedSinceUtc ?? nowUtc : null;
+        if (heartbeat.Holding && PcHoldingSinceUtc is null)
+        {
+            // The PC's clock may run ahead of the cloud's; a takeover is never in the cloud's future.
+            PcHoldingSinceUtc = heartbeat.HoldingSinceUtc is { } since && since < nowUtc ? since : nowUtc;
+        }
 
         if (!string.IsNullOrWhiteSpace(heartbeat.LanAddresses))
         {
@@ -453,4 +465,6 @@ public sealed record RelayHeartbeat(
     IReadOnlyList<string>? MismatchTables,
     string? LastError,
     string? CertificateFingerprint = null,
-    bool CopyStopped = false);
+    bool CopyStopped = false,
+    bool Holding = false,
+    DateTime? HoldingSinceUtc = null);

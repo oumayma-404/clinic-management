@@ -213,6 +213,7 @@ public class BackupController : ApiControllerBase
     /// already signed in and looking at the screen; it is the *unattended* use of the result that the step-up would
     /// have covered, and that is exactly what this feature is for.</para>
     /// </summary>
+    [OnlineOnly("FR-5 — the clinic archive is downloaded or restored from the cloud only.")]
     [HttpPost("archive-grants")]
     public async Task<ActionResult<IssuedArchiveGrantDto>> IssueArchiveGrant(
         [FromBody] IssueArchiveGrantCommand command, CancellationToken cancellationToken)
@@ -260,6 +261,7 @@ public class BackupController : ApiControllerBase
     }
 
     /// <summary>Revokes one. Takes effect on the next request (AC-3).</summary>
+    [OnlineOnly("FR-5 — the clinic archive is downloaded or restored from the cloud only.")]
     [HttpDelete("archive-grants/{id:guid}")]
     public async Task<IActionResult> RevokeArchiveGrant(Guid id, CancellationToken cancellationToken)
     {
@@ -281,6 +283,7 @@ public class BackupController : ApiControllerBase
     /// <para>⚠️ One refusal for unknown, revoked, and an issuing account since deactivated or demoted — a caller
     /// learns nothing about which grants exist (AC-3).</para>
     /// </summary>
+    [OnlineOnly("FR-5 — the clinic archive is downloaded or restored from the cloud only.")]
     [HttpPost("archive-grants/token")]
     [AllowAnonymous]
     // ⚠️ Its OWN policy, not the archive's. Minting a token is a cheap auth call; sharing the « three exports in
@@ -379,6 +382,7 @@ public class BackupController : ApiControllerBase
         return result.IsSuccess ? Ok(new { covered = result.Value }) : HandleFailure(result);
     }
 
+    [OnlineOnly("FR-5 — the clinic archive is downloaded or restored from the cloud only.")]
     [HttpGet("archive")]
     [EnableRateLimiting(RateLimiting.ArchivePolicy)]
     // ⚠️ The ONE action a token from ExchangeArchiveGrant can reach. Without this line an authorised
@@ -471,6 +475,7 @@ public class BackupController : ApiControllerBase
     /// present are untouched, and rows that *differ* are skipped and counted apart. A scheduled point carries no
     /// files, and the report says so rather than reporting « 0 fichier ».</para>
     /// </summary>
+    [OnlineOnly("FR-5 — the clinic archive is downloaded or restored from the cloud only.")]
     [HttpPost("recovery-points/{recoveryPointId:guid}/restore")]
     [EnableRateLimiting(RateLimiting.ArchivePolicy)]
     [AllowsWithoutSubscription(
@@ -544,6 +549,7 @@ public class BackupController : ApiControllerBase
     /// code and the user reads the prose. Recovering an outcome by matching prose is the defect this repository
     /// deleted in <c>adoption-gaps-remediation</c>.</para>
     /// </summary>
+    [OnlineOnly("FR-5 — the clinic archive is downloaded or restored from the cloud only.")]
     [HttpPost("archive/restore")]
     [DisableRequestSizeLimit]
     [ArchiveUploadLimit]

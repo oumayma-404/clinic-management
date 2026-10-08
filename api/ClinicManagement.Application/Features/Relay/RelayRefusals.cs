@@ -1,3 +1,5 @@
+using ClinicManagement.Application.Common;
+
 namespace ClinicManagement.Application.Features.Relay;
 
 /// <summary>The step-up actions of the PC de secours: each one proves the authenticator is in hand (AC-1.4, AC-8.4, AC-7.1).</summary>
@@ -24,6 +26,15 @@ public static class RelayRefusals
 
     /// <summary>D13: the cabinet's PC de secours fell silent while armed, so the cloud stops recording that cabinet's work.</summary>
     public const string SilentCode = "relay_silent";
+
+    /// <summary>US-4: the PC said it holds the cabinet's saves, so the cloud is read-only for that cabinet.</summary>
+    public const string OnRelayCode = "clinic_on_relay";
+
+    /// <summary>FR-5: on a PC de secours holding the cabinet's saves, the « online only » list waits for the internet.</summary>
+    public const string OnlineOnlyCode = "online_only";
+
+    /// <summary>AC-7.3: this PC keeps work saved during a cut that never reached the cloud; nothing may erase it.</summary>
+    public const string CutWorkKeptCode = "relay_cut_work_kept";
     public const string NotAdminCode = "relay_admin_only";
     public const string InvalidRequestCode = "relay_invalid";
     public const string NotRetiredCode = "relay_not_retired";
@@ -56,6 +67,10 @@ public static class RelayRefusals
 
     public const string Retired = "Ce PC de secours a été retiré : il ne suit plus le cabinet.";
 
+    /// <summary>A save on a retired PC: it will never accept one again, so « pendant une coupure » would be untrue.</summary>
+    public const string RetiredReadOnly =
+        "Ce PC de secours a été retiré : sa copie se consulte, elle n'accepte plus d'enregistrement.";
+
     public const string NoRelay = "Ce cabinet n'a pas de PC de secours.";
 
     public const string VersionMismatch =
@@ -63,6 +78,30 @@ public static class RelayRefusals
 
     /// <summary>AC-6.3: the PC may be about to take over — the form stays open and the save can be pressed again.</summary>
     public const string Silent = "Le PC de secours ne répond plus — réessayez dans un instant.";
+
+    /// <summary>AC-3.5: refused with the form left open; it works again once the cabinet is back on the cloud.</summary>
+    public const string OnlineOnly = "Possible uniquement quand internet est revenu au cabinet.";
+
+    public const string CutWorkKept =
+        "Ce PC garde du travail enregistré pendant une coupure d'internet qui n'est jamais arrivé dans le cloud : sa copie "
+        + "ne peut être ni effacée ni remplacée. Contactez la personne qui a installé votre logiciel.";
+
+    /// <summary>
+    /// « 10:42 » on the cabinet's clock — or « le 06/10 à 10:42 » once the takeover is not of today, since a bare hour
+    /// would then name the wrong moment.
+    /// </summary>
+    public static string SinceClinicTime(DateTime sinceUtc, DateTime nowUtc)
+    {
+        var since = ClinicClock.ToClinicLocal(sinceUtc);
+        return since.Date == ClinicClock.ToClinicLocal(nowUtc).Date
+            ? since.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture)
+            : since.ToString("'le 'dd/MM' à 'HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>AC-4.2, with the cabinet's own time of the takeover (« depuis 10:42 »).</summary>
+    public static string OnRelay(string sinceClinicTime) =>
+        $"Le cabinet travaille sur le PC de secours depuis {sinceClinicTime}. Ici, vous pouvez consulter mais pas "
+        + "enregistrer jusqu'au retour d'internet au cabinet.";
 
     public const string Standby =
         "Ce PC de secours garde une copie du cabinet : il n'accepte des enregistrements que pendant une coupure d'internet.";

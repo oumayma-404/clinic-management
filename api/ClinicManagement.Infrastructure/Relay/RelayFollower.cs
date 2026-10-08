@@ -35,9 +35,11 @@ public sealed class RelayFollower
     private readonly string _build;
     private readonly Func<RelayHostReport> _host;
     private readonly RelayUpdater _updater;
+    private readonly RelayLease _lease;
     private readonly Func<DateTime> _utcNow;
     private readonly ILogger _logger;
     private readonly Dictionary<string, DateTime> _fileRetryAfter = new(StringComparer.Ordinal);
+    private volatile RelayFollowerState? _latest;
 
     public RelayFollower(
         IRelayCloudClient cloud,
@@ -47,6 +49,7 @@ public sealed class RelayFollower
         string build,
         Func<RelayHostReport> host,
         RelayUpdater updater,
+        RelayLease lease,
         ILogger logger,
         Func<DateTime>? utcNow = null)
     {
@@ -57,6 +60,7 @@ public sealed class RelayFollower
         _build = build;
         _host = host;
         _updater = updater;
+        _lease = lease;
         _logger = logger;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
@@ -87,7 +91,12 @@ public sealed class RelayFollower
             return state;
         }
 
-        var ack = await _cloud.HeartbeatAsync(Report(state), cancellationToken);
+        if (_lease.IsHolding)
+        {
+            return await WhileHoldingAsync(state, cancellationToken);
+        }
+
+        var ack = await HeartbeatAsync(Report(state), cancellationToken);
         switch (ack.Status)
         {
             case RelayCallStatus.Ok:
@@ -100,7 +109,7 @@ public sealed class RelayFollower
                 return state;
         }
 
-        state = Received(state, ack.Value!) with { UpdateNeeded = ack.Value!.UpdateNeeded };
+        state = state with { UpdateNeeded = ack.Value!.UpdateNeeded };
 
         // [D12] Every heartbeat says which history the cloud is and how far it has got. A copy that already holds
         // rows stops here, on the first answer that is behind it or from another history — not only when the cloud
@@ -161,6 +170,47 @@ public sealed class RelayFollower
     public async Task<bool> StandDownAsync(CancellationToken cancellationToken) =>
         await StandDownAsync(_stateStore.Load(), isUpdating: false, cancellationToken) is not null;
 
+    /// <summary>
+    /// A heartbeat beside a copy tick that has been busy past <see cref="RelayLease.PulseAfter"/> (a big radiograph, a
+    /// re-seed): without it the cloud would fence itself, and then this PC take over, while the internet works. It reports
+    /// the position last saved and only records the ack; everything else the answer says waits for the next tick.
+    /// </summary>
+    public async Task PulseAsync(CancellationToken cancellationToken)
+    {
+        if (_lease.SinceLastExchange is not { } since || since < RelayLease.PulseAfter)
+        {
+            return;
+        }
+
+        var state = _latest ?? _stateStore.Load();
+        if (state.Released || state.ErasedAtUtc is not null)
+        {
+            return;
+        }
+
+        await HeartbeatAsync(Report(state), cancellationToken);
+    }
+
+    /// <summary>
+    /// This PC holds the cabinet's saves (D13). It says so on every heartbeat — the cloud stays read-only for the cabinet
+    /// — and takes nothing from the cloud, whose rows are now older than this copy's: no catch-up, no files, no check and
+    /// no update, which would stop the server the cabinet is working on.
+    /// </summary>
+    private async Task<RelayFollowerState> WhileHoldingAsync(RelayFollowerState state, CancellationToken cancellationToken)
+    {
+        var call = await HeartbeatAsync(Report(state), cancellationToken);
+        if (call.Status == RelayCallStatus.Released)
+        {
+            _logger.LogWarning("The cloud released this PC de secours while it held the cabinet's saves: {Reason}", call.Error);
+            return Save(state with { Released = true });
+        }
+
+        return state;
+    }
+
+    private Task<RelayCall<RelayHeartbeatAck>> HeartbeatAsync(RelayHeartbeatRequest report, CancellationToken cancellationToken) =>
+        _lease.ExchangeAsync(bounded => _cloud.HeartbeatAsync(report, bounded), cancellationToken);
+
     /// <summary>The stand-down from a given state; the state it leaves, or null when the cloud did not confirm it.</summary>
     private async Task<RelayFollowerState?> StandDownAsync(
         RelayFollowerState state, bool isUpdating, CancellationToken cancellationToken)
@@ -171,30 +221,31 @@ public sealed class RelayFollower
             return state;
         }
 
+        // A PC holding the cabinet's saves never stands down: the cut's work is here, and only its return (D18) frees
+        // the cloud. Stopping it leaves the cloud read-only, which is the truth.
+        if (_lease.IsHolding)
+        {
+            _logger.LogWarning("PC de secours: stopping while it holds the cabinet's saves; the cloud stays read-only.");
+            return null;
+        }
+
         for (var round = 0; round < 2; round++)
         {
-            var ack = await _cloud.HeartbeatAsync(Report(state, isUpdating, wantsToStandDown: true), cancellationToken);
+            var ack = await HeartbeatAsync(Report(state, isUpdating, wantsToStandDown: true), cancellationToken);
             if (!ack.IsOk || ack.Value!.Armed)
             {
                 _logger.LogWarning("PC de secours: the cloud did not confirm the stand-down ({Status}).", ack.Status);
                 return null;
             }
-
-            state = Save(Received(state, ack.Value));
         }
 
         return state;
     }
 
-    /// <summary>What an ack tells the PC about the lease; kept so the next heartbeat confirms it (D14).</summary>
-    private RelayFollowerState Received(RelayFollowerState state, RelayHeartbeatAck ack) =>
-        ack.AckSeq <= 0
-            ? state
-            : state with { LastAckSeq = ack.AckSeq, LastAckArmed = ack.Armed, LastAckReceivedAtUtc = _utcNow() };
-
     private RelayHeartbeatRequest Report(RelayFollowerState state, bool? isUpdating = null, bool wantsToStandDown = false)
     {
         var host = _host();
+        var lease = _lease.Current;
         return new RelayHeartbeatRequest(
             state.AppliedSeq,
             RelayFeedDecisions.SeedPercent(state),
@@ -210,9 +261,11 @@ public sealed class RelayFollower
             state.StoppedReason ?? state.UpdateError ?? state.LastError,
             host.CertificateFingerprint,
             CopyStopped: state.StoppedReason is not null,
-            ConfirmedAckSeq: state.LastAckSeq,
-            ConfirmedAckArmed: state.LastAckArmed,
-            WantsToStandDown: wantsToStandDown);
+            ConfirmedAckSeq: lease.LastAckSeq,
+            ConfirmedAckArmed: lease.LastAckArmed,
+            WantsToStandDown: wantsToStandDown,
+            Holding: lease.HoldingSinceUtc is not null,
+            HoldingSinceUtc: lease.HoldingSinceUtc);
     }
 
     /// <summary>
@@ -425,6 +478,7 @@ public sealed class RelayFollower
         }
 
         _stateStore.Save(state);
+        _latest = state;
         return state;
     }
 

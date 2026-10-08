@@ -1,6 +1,8 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Application.Features.Relay.Queries;
+using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Relay;
@@ -13,6 +15,10 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// The PC de secours's copy loop (<c>clinic-pc-copy</c> Part 1 « Copy »): every ten seconds, one
 /// <see cref="RelayFollower"/> tick. Registered only where the deployment <c>MirrorsCloudClinic</c>.
 ///
+/// <para>Beside it, the <b>lease loop</b> (D13): every five seconds, the takeover decision
+/// (<see cref="RelayLeaseKeeper"/>) and, when a copy tick has been busy past <see cref="RelayLease.PulseAfter"/>, a
+/// heartbeat of its own — a copy tick fetching a big radiograph must not read, to the cloud, as a cut.</para>
+///
 /// <para>A <see cref="BackgroundService"/> and not a Hangfire job: the heartbeat's rhythm is what the cloud reads as
 /// « this PC is alive », and a queue that can lag or retry would make it lie. ⚠️ It waits for the deferred migrations
 /// before its first tick — applying a copy onto a schema one migration behind fails, and would be read as a broken
@@ -24,6 +30,8 @@ public sealed class RelayFeedJob : BackgroundService
 
     public static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
 
+    public static readonly TimeSpan LeaseInterval = TimeSpan.FromSeconds(5);
+
     /// <summary>The machine facts barely move; reading the certificate every ten seconds would be waste.</summary>
     private static readonly TimeSpan HostFactsTtl = TimeSpan.FromMinutes(5);
 
@@ -33,13 +41,15 @@ public sealed class RelayFeedJob : BackgroundService
     private readonly IRelayBuildInfo _build;
     private readonly IHttpClientFactory _http;
     private readonly IConfiguration _configuration;
+    private readonly RelayLease _lease;
+    private readonly RelayLeaseKeeper _keeper;
     private readonly ILogger<RelayFeedJob> _logger;
 
-    private RelayFollower? _follower;
+    private volatile RelayFollower? _follower;
     private Guid _followerRelayId;
     private RelayHostReport? _hostFacts;
     private DateTime _hostFactsReadAtUtc;
-    private bool _schemaReady;
+    private volatile bool _schemaReady;
     private bool _toldUnpaired;
 
     public RelayFeedJob(
@@ -49,6 +59,8 @@ public sealed class RelayFeedJob : BackgroundService
         IRelayBuildInfo build,
         IHttpClientFactory http,
         IConfiguration configuration,
+        RelayLease lease,
+        IRelayBoxProbe box,
         ILogger<RelayFeedJob> logger)
     {
         _scopes = scopes;
@@ -57,10 +69,84 @@ public sealed class RelayFeedJob : BackgroundService
         _build = build;
         _http = http;
         _configuration = configuration;
+        _lease = lease;
+        _keeper = new RelayLeaseKeeper(lease, new RelayFollowerStateStore(), box, logger);
         _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(CopyLoopAsync(stoppingToken), LeaseLoopAsync(stoppingToken));
+
+    private async Task LeaseLoopAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(LeaseInterval);
+        while (await WaitAsync(timer, stoppingToken))
+        {
+            try
+            {
+                if (await _keeper.TickAsync(stoppingToken))
+                {
+                    await RecordTakeoverAsync(stoppingToken);
+                }
+
+                if (_schemaReady && _follower is { } follower && !_lease.IsHolding)
+                {
+                    await follower.PulseAsync(stoppingToken);
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "PC de secours: the lease tick failed.");
+            }
+        }
+    }
+
+    private static async Task<bool> WaitAsync(PeriodicTimer timer, CancellationToken stoppingToken)
+    {
+        try
+        {
+            return await timer.WaitForNextTickAsync(stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>FR-8: the takeover is a row of the cabinet's journal, written on this PC (it reaches the cloud at the return).</summary>
+    private async Task RecordTakeoverAsync(CancellationToken cancellationToken)
+    {
+        var credentials = new RelayCredentialStore(_protection).TryLoad();
+        if (credentials is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var services = scope.ServiceProvider;
+            services.GetRequiredService<IAuditActorProvider>().RunAs(ActorName);
+            services.GetRequiredService<ITenantScope>().UseClinic(credentials.ClinicId);
+            await RelayJournal.StageOnPcAsync(services.GetRequiredService<IAuditEntryRepository>(),
+                services.GetRequiredService<IAuditActorProvider>().Current, credentials.ClinicId, credentials.RelayId,
+                Environment.MachineName, AuditAction.Update, RelayJournal.TookOver, _lease.HoldingSinceUtc ?? DateTime.UtcNow,
+                cancellationToken);
+            await services.GetRequiredService<IUnitOfWork>().SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The takeover stands whatever the journal says: refusing the cabinet's saves over a missing row would be
+            // the wrong way round.
+            _logger.LogError(ex, "PC de secours: the takeover could not be written to the journal.");
+        }
+    }
+
+    private async Task CopyLoopAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(Interval);
         do
@@ -86,8 +172,9 @@ public sealed class RelayFeedJob : BackgroundService
     public static readonly TimeSpan StandDownBudget = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// AC-6.1: a PC shut down, restarted or updated properly tells the cloud first, so nothing is locked. The loop stops,
-    /// then the PC stands down (D14) — two quick exchanges; a cloud that does not answer leaves the fence to the clock.
+    /// AC-6.1: a PC shut down, restarted or updated properly tells the cloud first, so nothing is locked. Both loops stop
+    /// (a pulse after the stand-down would arm it again), then the PC stands down (D14) — two quick exchanges; a cloud that
+    /// does not answer leaves the fence to the clock. A PC holding the cabinet's saves does not stand down.
     /// </summary>
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -173,6 +260,7 @@ public sealed class RelayFeedJob : BackgroundService
                     updates,
                     LocalInstallPaths.Resolve("logs"),
                     _logger),
+                _lease,
                 _logger);
             _followerRelayId = credentials.RelayId;
         }

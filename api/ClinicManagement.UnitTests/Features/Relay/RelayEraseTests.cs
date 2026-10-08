@@ -103,7 +103,31 @@ public sealed class RelayEraseTests : IDisposable
         Assert.Null(store.Load().ErasedAtUtc);
     }
 
-    private (RelayLocalEraser Eraser, RelayFollowerStateStore Store) Eraser(List<string> order, bool purgeFails)
+    // [AC-7.3] « Effacer la copie » on a PC that holds a cut's work never sent to the cloud: refused before anything moves.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_Copy_Holding_A_Cuts_Work_Is_Never_Erased(bool stillHolding)
+    {
+        var order = new List<string>();
+        var lease = new RelayLease(_dir);
+        lease.TakeOver();
+        if (!stillHolding)
+        {
+            lease.End();
+        }
+
+        var (eraser, store) = Eraser(order, purgeFails: false, lease);
+
+        Assert.False(eraser.MayErase);
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => eraser.EraseAsync(ClinicId, T0, default));
+        Assert.Equal(RelayRefusals.CutWorkKept, refused.Message);
+        Assert.Empty(order);
+        Assert.Null(store.Load().ErasedAtUtc);
+    }
+
+    private (RelayLocalEraser Eraser, RelayFollowerStateStore Store) Eraser(
+        List<string> order, bool purgeFails, RelayLease? lease = null)
     {
         var unitOfWork = new Mock<IUnitOfWork>();
         unitOfWork.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>())).Callback(() => order.Add("begin")).Returns(Task.CompletedTask);
@@ -132,7 +156,7 @@ public sealed class RelayEraseTests : IDisposable
         var store = new RelayFollowerStateStore(_dir);
         store.Save(new RelayFollowerState { Released = true, ReleasedAtUtc = T0.AddDays(-1) });
         return (new RelayLocalEraser(purge.Object, unitOfWork.Object, files.Object, users.Object, store,
-            NullLogger<RelayLocalEraser>.Instance), store);
+            lease ?? new RelayLease(_dir), NullLogger<RelayLocalEraser>.Instance), store);
     }
 
     public void Dispose()

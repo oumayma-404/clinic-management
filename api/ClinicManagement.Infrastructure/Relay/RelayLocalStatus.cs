@@ -14,26 +14,31 @@ public sealed class RelayLocalStatus : IRelayLocalStatus
 
     private readonly bool _isRelay;
     private readonly RelayFollowerStateStore _store;
+    private readonly RelayLease? _lease;
     private readonly Func<DateTime> _utcNow;
     private readonly object _gate = new();
     private RelayFollowerState? _state;
     private DateTime _readAtUtc;
 
-    public RelayLocalStatus(DeploymentProfile profile)
-        : this(profile.MirrorsCloudClinic, new RelayFollowerStateStore(), () => DateTime.UtcNow)
+    public RelayLocalStatus(DeploymentProfile profile, RelayLease? lease)
+        : this(profile.MirrorsCloudClinic, new RelayFollowerStateStore(), () => DateTime.UtcNow, lease)
     {
     }
 
-    public RelayLocalStatus(bool isRelay, RelayFollowerStateStore store, Func<DateTime> utcNow)
+    public RelayLocalStatus(bool isRelay, RelayFollowerStateStore store, Func<DateTime> utcNow, RelayLease? lease = null)
     {
         _isRelay = isRelay;
         _store = store;
         _utcNow = utcNow;
+        _lease = lease;
     }
 
     public bool IsRetired => Current()?.Released == true;
 
     public DateTime? RetiredAtUtc => Current() is { Released: true } state ? state.ReleasedAtUtc : null;
+
+    /// <summary>The lease is in memory (one writer, under its own lock): no file is read on this, the gate's hot path.</summary>
+    public bool IsHolding => _isRelay && _lease?.IsHolding == true;
 
     private RelayFollowerState? Current()
     {

@@ -34,7 +34,9 @@ public class RelayLeaseGateMiddlewareTests
         string? role = null,
         Guid? clinic = null,
         ClinicRelay? relay = null,
-        bool allowedWhileFenced = false)
+        bool allowedWhileFenced = false,
+        bool holding = false,
+        bool onlineOnly = false)
     {
         var context = new DefaultHttpContext();
         context.Request.Path = path;
@@ -59,6 +61,11 @@ public class RelayLeaseGateMiddlewareTests
                 metadata.Add(new AllowedWhileCloudFencedAttribute("test"));
             }
 
+            if (onlineOnly)
+            {
+                metadata.Add(new OnlineOnlyAttribute("test"));
+            }
+
             context.SetEndpoint(new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(metadata), "routed"));
         }
 
@@ -81,7 +88,7 @@ public class RelayLeaseGateMiddlewareTests
             return Task.CompletedTask;
         });
 
-        await middleware.InvokeAsync(context, DeploymentProfile.For(kind), new FixedRelayLocalStatus(retired), scope, relays.Object);
+        await middleware.InvokeAsync(context, DeploymentProfile.For(kind), new FixedRelayLocalStatus(retired, holding), scope, relays.Object);
 
         body.Position = 0;
         return new Outcome(context.Response.StatusCode, await new StreamReader(body).ReadToEndAsync(), reachedNext,
@@ -98,10 +105,88 @@ public class RelayLeaseGateMiddlewareTests
         return relay;
     }
 
-    private sealed class FixedRelayLocalStatus(bool retired) : ClinicManagement.Application.Common.Interfaces.IRelayLocalStatus
+    private sealed class FixedRelayLocalStatus(bool retired, bool holding = false)
+        : ClinicManagement.Application.Common.Interfaces.IRelayLocalStatus
     {
         public bool IsRetired => retired;
         public DateTime? RetiredAtUtc => retired ? new DateTime(2026, 10, 6, 9, 0, 0, DateTimeKind.Utc) : null;
+        public bool IsHolding => holding;
+    }
+
+    /// <summary>An armed PC that then said, on a heartbeat, that it holds the cabinet's saves since <paramref name="since"/>.</summary>
+    private static ClinicRelay HoldingRelay(DateTime since)
+    {
+        var relay = ArmedRelay(TimeSpan.FromMinutes(10));
+        relay.RecordHeartbeat(new RelayHeartbeat(10, 100, true, 0, 0, null, false, "build-1", null, null, null, null,
+            Holding: true, HoldingSinceUtc: since), 10, DateTime.UtcNow);
+        return relay;
+    }
+
+    // ---- the PC in charge (D13) ----------------------------------------------------------------------------------
+
+    // [AC-3.5] Holding the cabinet's saves, the PC is the cabinet's server: every write passes.
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task A_Holding_Pc_Accepts_The_Cabinets_Saves(string method)
+    {
+        var outcome = await InvokeAsync(method: method, holding: true);
+
+        Assert.True(outcome.ReachedNext);
+    }
+
+    // [FR-5] …except the « online only » list, refused whatever the method — downloading the archive is a GET.
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("GET")]
+    public async Task A_Holding_Pc_Refuses_The_Online_Only_List(string method)
+    {
+        var outcome = await InvokeAsync(method: method, holding: true, onlineOnly: true);
+
+        Assert.False(outcome.ReachedNext);
+        Assert.Equal(StatusCodes.Status423Locked, outcome.Status);
+        using var json = JsonDocument.Parse(outcome.Body);
+        Assert.Equal("online_only", json.RootElement.GetProperty("code").GetString());
+        Assert.Equal("Possible uniquement quand internet est revenu au cabinet.", json.RootElement.GetProperty("error").GetString());
+    }
+
+    // While the PC only follows, the online-only list is refused as any write is (standby) — and a read of it passes.
+    [Fact]
+    public async Task The_Online_Only_List_Means_Nothing_Until_The_Pc_Holds()
+    {
+        var write = await InvokeAsync(onlineOnly: true);
+        var read = await InvokeAsync(method: "GET", onlineOnly: true);
+        var cloud = await InvokeAsync(DeploymentKind.HostedMultiTenant, onlineOnly: true, holding: true);
+
+        Assert.Contains(RelayRefusals.StandbyCode, write.Body);
+        Assert.True(read.ReachedNext);
+        Assert.True(cloud.ReachedNext);
+    }
+
+    // [AC-4.2] Once the PC said it holds the saves, the cloud names it, with the cabinet's own time of the takeover.
+    [Fact]
+    public async Task The_Cloud_Says_The_Cabinet_Works_On_The_Pc_Since_When()
+    {
+        var since = DateTime.UtcNow.AddMinutes(-5);
+        var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: ClinicId, relay: HoldingRelay(since));
+
+        Assert.False(outcome.ReachedNext);
+        Assert.Equal(StatusCodes.Status423Locked, outcome.Status);
+        using var json = JsonDocument.Parse(outcome.Body);
+        Assert.Equal("clinic_on_relay", json.RootElement.GetProperty("code").GetString());
+        Assert.Equal(RelayRefusals.OnRelay(RelayRefusals.SinceClinicTime(since, DateTime.UtcNow)),
+            json.RootElement.GetProperty("error").GetString());
+    }
+
+    // FR-11 doors still pass while the PC holds the saves.
+    [Fact]
+    public async Task A_Door_Marked_For_The_Cut_Passes_While_The_Pc_Holds()
+    {
+        var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: ClinicId,
+            relay: HoldingRelay(DateTime.UtcNow.AddMinutes(-5)), allowedWhileFenced: true);
+
+        Assert.True(outcome.ReachedNext);
     }
 
     // [AC-8.1] A retired PC opens for administrators only: a colleague still signed in is signed out — reads included —
@@ -116,6 +201,18 @@ public class RelayLeaseGateMiddlewareTests
         Assert.Equal(StatusCodes.Status401Unauthorized, outcome.Status);
         Assert.Contains("relay_retired_admins_only", outcome.Body);
         Assert.False(outcome.ReachedNext);
+    }
+
+    // A retired PC's save refusal says it is retired — never « only during a cut », which would promise a save.
+    [Fact]
+    public async Task A_Save_On_A_Retired_Pc_Says_It_Is_Retired()
+    {
+        var outcome = await InvokeAsync(retired: true, role: "admin");
+
+        Assert.Equal(StatusCodes.Status423Locked, outcome.Status);
+        using var json = JsonDocument.Parse(outcome.Body);
+        Assert.Equal(RelayRefusals.RetiredCode, json.RootElement.GetProperty("code").GetString());
+        Assert.Equal(RelayRefusals.RetiredReadOnly, json.RootElement.GetProperty("error").GetString());
     }
 
     [Fact]

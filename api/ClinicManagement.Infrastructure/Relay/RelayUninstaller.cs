@@ -53,6 +53,7 @@ public sealed class RelayUninstaller
     private readonly RelayFollowerStateStore _state;
     private readonly Func<CancellationToken, Task<int>> _erase;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly Func<bool> _holdsUnreturnedWork;
 
     /// <param name="cloud">Null when this PC holds no pairing credentials.</param>
     /// <param name="erase">The local erase (<see cref="RelayLocalEraser"/>); it records <c>ErasedAtUtc</c> itself.</param>
@@ -60,12 +61,14 @@ public sealed class RelayUninstaller
         IRelayCloudClient? cloud,
         RelayFollowerStateStore state,
         Func<CancellationToken, Task<int>> erase,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Func<bool>? holdsUnreturnedWork = null)
     {
         _cloud = cloud;
         _state = state;
         _erase = erase;
         _delay = delay ?? Task.Delay;
+        _holdsUnreturnedWork = holdsUnreturnedWork ?? (() => false);
     }
 
     public async Task<RelayUninstallResult> UninstallAsync(bool eraseCopy, DateTime nowUtc, CancellationToken cancellationToken)
@@ -99,6 +102,13 @@ public sealed class RelayUninstaller
             return new(RelayUninstallOutcome.KeptNewerCopy, 0,
                 "La copie n'a pas été effacée : ce PC a arrêté la copie parce que le cloud était revenu en arrière, il contient "
                 + "donc des données plus récentes que le cloud. Contactez la personne qui a installé votre logiciel.");
+        }
+
+        if (_holdsUnreturnedWork())
+        {
+            return new(RelayUninstallOutcome.KeptNewerCopy, 0,
+                "La copie n'a pas été effacée : ce PC garde du travail enregistré pendant une coupure d'internet qui n'est "
+                + "jamais arrivé dans le cloud. Contactez la personne qui a installé votre logiciel.");
         }
 
         var files = state.ErasedAtUtc is null ? await _erase(cancellationToken) : 0;

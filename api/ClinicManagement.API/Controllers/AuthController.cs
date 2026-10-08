@@ -135,6 +135,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost("signup")]
     public async Task<IActionResult> SignUp([FromBody] ClinicSignUpRequest request)
     {
@@ -178,6 +179,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost("signup/verify")]
     public async Task<IActionResult> VerifySignUp([FromBody] ClinicSignUpVerifyRequest request)
     {
@@ -205,6 +207,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("password-reset")]
     public async Task<IActionResult> RequestPasswordReset([FromBody] PasswordResetEmailRequest request)
     {
@@ -241,6 +244,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("password-reset/complete")]
     public async Task<IActionResult> CompletePasswordReset([FromBody] PasswordResetCompletionRequest request)
     {
@@ -315,6 +319,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
     [HttpPost("relay-pairing-code")]
     public async Task<IActionResult> RelayPairingCode([FromBody] RelayPairingCodeSignInRequest request)
     {
@@ -350,6 +355,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — an authenticator changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("totp/enrol")]
     public async Task<IActionResult> EnrolTotp([FromBody] EnrolTotpRequest request)
     {
@@ -439,6 +445,7 @@ public class AuthController : ApiControllerBase
     }
 
     /// <summary>Replaces every recovery code with a fresh set. Requires a current code, not just the session.</summary>
+    [OnlineOnly("FR-5 — an authenticator changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("totp/recovery-codes")]
     public async Task<IActionResult> RegenerateRecoveryCodes([FromBody] TotpCodeRequest request)
     {
@@ -452,6 +459,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     // A POST and not a DELETE: it carries a body (the current code, which is what authorises it), and DELETE
     // with a body is unevenly supported end to end — `apiDelete` in the web client sends none at all.
+    [OnlineOnly("FR-5 — an authenticator changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("totp/disable")]
     public async Task<IActionResult> DisableTotp([FromBody] TotpCodeRequest request)
     {
@@ -589,6 +597,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost("setup")]
     public async Task<IActionResult> Setup([FromBody] SetupRequest request)
     {
@@ -641,6 +650,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — creating an account waits for the internet: accounts stay on the cloud during a cut (FR-11).")]
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
@@ -677,6 +687,7 @@ public class AuthController : ApiControllerBase
     // change their password after an admin reset may not have a role in the JWT yet (Cloud writes it to
     // app_metadata only once the clinic is joined), so requiring one here would lock them out of the very
     // screen that unblocks them. A bare `[Authorize]` said the same thing while looking like an omission.
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
     {

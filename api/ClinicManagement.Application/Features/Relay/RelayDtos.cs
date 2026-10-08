@@ -32,7 +32,9 @@ public sealed record RelayHeartbeatRequest(
     bool CopyStopped = false,
     long ConfirmedAckSeq = 0,
     bool ConfirmedAckArmed = false,
-    bool WantsToStandDown = false);
+    bool WantsToStandDown = false,
+    bool Holding = false,
+    DateTime? HoldingSinceUtc = null);
 
 /// <summary>The cloud's answer. <c>AckSeq</c> is the ack's id (its send instant); <c>Armed</c> lets the PC take over after a cut (D13).</summary>
 public sealed record RelayHeartbeatAck(

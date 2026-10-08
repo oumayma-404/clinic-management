@@ -36,7 +36,19 @@ public static class ClinicWriteLease
     /// </summary>
     public static bool IsCloudFenced(ClinicRelay? relay, DateTime nowUtc)
     {
-        if (relay is null || relay.Status == ClinicRelayStatus.Retired || !relay.MayBeArmed)
+        if (relay is null || relay.Status == ClinicRelayStatus.Retired)
+        {
+            return false;
+        }
+
+        // The PC said it holds the cabinet's saves: nothing about the acks can make the cloud writable again until the
+        // PC hands the cut's work back (D18). A heartbeat arriving once the line heals is no evidence the PC let go.
+        if (relay.PcHoldingSinceUtc is not null)
+        {
+            return true;
+        }
+
+        if (!relay.MayBeArmed)
         {
             return false;
         }
@@ -56,6 +68,34 @@ public static class ClinicWriteLease
     /// </summary>
     public static bool PcMayTakeOver(TimeSpan sinceLastAckReceived, bool lastAckArmed, bool boxAnswers) =>
         lastAckArmed && boxAnswers && sinceLastAckReceived >= PcTakesOverAfter;
+
+    /// <summary>
+    /// How long ago the PC received its last ack, never over-counted. An ack received by this process is timed on the
+    /// monotonic clock (immune to a wall-clock step); one received before the PC restarted can only be timed on the wall
+    /// clock, so it is capped by how long this process has run — a wall clock that jumped forward must never make the PC
+    /// take over early. Under-counting only makes the takeover later, which is the safe direction.
+    /// </summary>
+    public static TimeSpan SinceLastAckReceived(
+        DateTime wallNowUtc, DateTime? wallReceivedAtUtc, TimeSpan? monotonicSinceReceipt, TimeSpan monotonicSinceStart)
+    {
+        if (monotonicSinceReceipt is { } measured)
+        {
+            return measured;
+        }
+
+        if (wallReceivedAtUtc is not { } received)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var wall = wallNowUtc - received;
+        if (wall < TimeSpan.Zero)
+        {
+            wall = TimeSpan.Zero;
+        }
+
+        return wall < monotonicSinceStart ? wall : monotonicSinceStart;
+    }
 
     /// <summary>
     /// Whether this ack arms the PC: it is « Prêt » (FR-2 — the one predicate the card, the bell and the console read),

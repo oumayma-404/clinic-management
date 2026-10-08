@@ -611,11 +611,21 @@ no consent flag and no audit of which patient was sent.
   refusal (the installer's result sentence, readable only if this build survived) or 30 min with no landing is
   reported and never retried; the next cloud build starts afresh. A copy stopped by D12 is never updated.
   `Relay:UpdateLauncher=direct` (child process) exists for a test rig only.
-- **The write lease (PC side, D13/D14)**: every heartbeat confirms the last ack the PC received
-  (`RelayFollowerState.LastAckSeq/LastAckArmed`) — that echo is the only thing that moves the cloud's silence clock.
-  `RelayFollower.StandDownAsync` is the two-phase disarm (ask, then confirm the disarmed ack), called by
-  `RelayFeedJob.StopAsync` (AC-6.1) and before the self-update's launch. The rule itself is
-  `Domain/Services/ClinicWriteLease`; the PC does not take over yet (next slice).
+- **The write lease (PC side, D13/D14)** — `Relay/RelayLease.cs`. **`RelayLease`** (singleton) owns the last ack
+  received and whether this PC **holds the cabinet's saves**, in memory under one lock and in **`.local/relay-lease.json`**
+  — ⚠️ never in `relay-state.json`, which the copy loop rewrites from its tick-start copy, so a takeover or a pulse
+  saved there mid-tick would be put back. ⚠️ An unreadable lease file reads as **holding**. Every heartbeat goes
+  through `RelayLease.ExchangeAsync` (one at a time, 15 s bound): an ack is timed on the monotonic clock, an exchange
+  that brought none sets « asked and not answered ». **`RelayLeaseKeeper`** takes over when the copy is sound, the last
+  ack said « armé », the cloud was asked and did not answer, 90 s passed (`ClinicWriteLease.SinceLastAckReceived`:
+  monotonic in-process, wall clock capped by uptime after a restart) and **`GatewayBoxProbe`** says the box answers
+  (ping, else TCP 80/443/53 accepted or refused). ⚠️ « Asked and not answered » is what stops a PC that slept, or whose
+  tick was busy, from taking over with the internet working. A holding PC's follower only heartbeats (« je tiens les
+  enregistrements ») — no catch-up, files, check or update — and never stands down. Released while holding (retired,
+  lost, promoted): the lease ends and the work is marked **`UnreturnedSinceUtc`**; `RelayLocalEraser`, the uninstaller's
+  erase and `pair-relay` refuse over it (`relay_cut_work_kept`). `RelayFeedJob` runs the copy loop (10 s) and the lease
+  loop (5 s: the keeper, plus a **pulse** heartbeat when a copy tick has been busy 20 s). The two-phase disarm is
+  `RelayFollower.StandDownAsync`, called by `RelayFeedJob.StopAsync` (AC-6.1) and before the self-update's launch.
 - **Promotion (PC side, D11)**: `RelayPromotionCode` (ECDSA P-256 over the exact bytes of
   `APEXA-PROMO-1.<payload>`, bound to the PC's `RelayId` + `ClinicId`, ≤ 30 days) verified against
   **`VendorPublicKey`, a compiled-in constant** — no configuration can make a PC trust another key; rotating means a new

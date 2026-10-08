@@ -77,6 +77,15 @@ public static class PairRelayConsoleCommand
             TryDelete(codeFile);
         }
 
+        // A copy holding work saved during a cut that never reached the cloud is that work's only copy (AC-7.3): a new
+        // pairing would seed over it.
+        var lease = provider.GetRequiredService<RelayLease>();
+        if (lease.HoldsUnreturnedWork)
+        {
+            Console.Error.WriteLine(RelayRefusals.CutWorkKept);
+            return 1;
+        }
+
         var (publicKey, privateKey) = RelaySecretEnvelope.NewKeyPair();
         var label = ConsoleArgs.ReadOption(args, "--label") ?? Environment.MachineName;
         var request = new
@@ -120,8 +129,9 @@ public static class PairRelayConsoleCommand
         // A new pairing is a new copy: the cursor, the « retiré » and the erase a re-paired PC remembered belong to the
         // pairing it replaces, and a stale cursor would stop the new copy for good (D12).
         new RelayFollowerStateStore().Save(new RelayFollowerState());
+        lease.ResetForNewPairing();
 
-        Console.WriteLine($"Ce PC est maintenant le PC de secours de « {paired.ClinicName} ». La première copie commence.");
+        Console.WriteLine($"Ce PC est maintenant le PC de secours {RelayPromoter.OfTheCabinet(paired.ClinicName)}. La première copie commence.");
         return 0;
     }
 

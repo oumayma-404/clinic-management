@@ -55,7 +55,8 @@ public static class UninstallRelayConsoleCommand
         }
 
         var uninstaller = new RelayUninstaller(cloud, new RelayFollowerStateStore(),
-            ct => scope.ServiceProvider.GetRequiredService<RelayLocalEraser>().EraseAsync(credentials!.ClinicId, DateTime.UtcNow, ct));
+            ct => scope.ServiceProvider.GetRequiredService<RelayLocalEraser>().EraseAsync(credentials!.ClinicId, DateTime.UtcNow, ct),
+            holdsUnreturnedWork: () => scope.ServiceProvider.GetRequiredService<RelayLease>().HoldsUnreturnedWork);
 
         try
         {

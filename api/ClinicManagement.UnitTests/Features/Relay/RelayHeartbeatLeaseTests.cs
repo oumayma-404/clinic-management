@@ -33,7 +33,8 @@ public class RelayHeartbeatLeaseTests
     }
 
     private async Task<RelayHeartbeatAck> BeatAsync(
-        ClinicRelay relay, string build = Build, bool standDown = false, long confirmed = 0, bool confirmedArmed = false)
+        ClinicRelay relay, string build = Build, bool standDown = false, long confirmed = 0, bool confirmedArmed = false,
+        bool holding = false, DateTime? holdingSince = null)
     {
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns(relay.Subject);
@@ -54,7 +55,8 @@ public class RelayHeartbeatLeaseTests
 
         var result = await handler.Handle(new RelayHeartbeatCommand(new RelayHeartbeatRequest(
             40, 100, true, 0, 0, null, false, build, DateTime.UtcNow, null, null, null, null,
-            ConfirmedAckSeq: confirmed, ConfirmedAckArmed: confirmedArmed, WantsToStandDown: standDown)), CancellationToken.None);
+            ConfirmedAckSeq: confirmed, ConfirmedAckArmed: confirmedArmed, WantsToStandDown: standDown,
+            Holding: holding, HoldingSinceUtc: holdingSince)), CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         return result.Value!;
@@ -93,5 +95,33 @@ public class RelayHeartbeatLeaseTests
         Assert.False(relay.ConfirmedAckArmed);
         Assert.False(relay.MayBeArmed);
         Assert.False(ClinicWriteLease.IsCloudFenced(relay, DateTime.UtcNow.AddHours(1)));
+    }
+
+    // [D13] The PC's word that it holds the saves is recorded with the heartbeat and fences the cloud at once — and a
+    // stand-down asked afterwards cannot undo it.
+    [Fact]
+    public async Task A_Pc_Saying_It_Holds_The_Saves_Fences_The_Cloud_For_Good()
+    {
+        var relay = ReadyRelay();
+        var since = DateTime.UtcNow.AddMinutes(-3);
+
+        await BeatAsync(relay, holding: true, holdingSince: since);
+        var ask = await BeatAsync(relay, standDown: true);
+        await BeatAsync(relay, standDown: true, confirmed: ask.AckSeq, confirmedArmed: false);
+
+        Assert.Equal(since, relay.PcHoldingSinceUtc);
+        Assert.True(ClinicWriteLease.IsCloudFenced(relay, DateTime.UtcNow));
+    }
+
+    // [AC-4.2] « depuis 10:42 » is the cabinet's clock; a takeover from another day says which day.
+    [Theory]
+    [InlineData("2026-10-08T09:42:00Z", "2026-10-08T15:00:00Z", "10:42")]
+    [InlineData("2026-10-08T23:30:00Z", "2026-10-09T08:00:00Z", "00:30")]
+    [InlineData("2026-10-06T09:42:00Z", "2026-10-08T09:00:00Z", "le 06/10 à 10:42")]
+    public void The_Takeover_Time_Is_Said_On_The_Cabinets_Clock(string since, string now, string expected)
+    {
+        Assert.Equal(expected, RelayRefusals.SinceClinicTime(
+            DateTime.Parse(since, null, System.Globalization.DateTimeStyles.AdjustToUniversal),
+            DateTime.Parse(now, null, System.Globalization.DateTimeStyles.AdjustToUniversal)));
     }
 }

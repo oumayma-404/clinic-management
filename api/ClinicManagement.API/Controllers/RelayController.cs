@@ -46,6 +46,7 @@ public class RelayController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
     [HttpPost("pairing-codes")]
     [AllowsWithoutSubscription("A PC that will hold the clinic's own records may always be set up to copy them.")]
     public async Task<ActionResult<RelayPairingCodeDto>> IssuePairingCode(
@@ -74,6 +75,7 @@ public class RelayController : ApiControllerBase
     /// room, a failed download. The code is the credential — the credentials door has no session to send — and every
     /// outcome is the same 204, so it reveals nothing about any clinic.
     /// </summary>
+    [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
     [HttpPost("pairing-codes/release")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.RelayTokenPolicy)]
@@ -90,6 +92,7 @@ public class RelayController : ApiControllerBase
         return NoContent();
     }
 
+    [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
     [HttpDelete]
     [AllowsWithoutSubscription("Retiring a PC that holds the clinic's records is offboarding, never new work.")]
     public async Task<ActionResult<RelayStatusDto>> Retire(CancellationToken cancellationToken)
@@ -107,6 +110,7 @@ public class RelayController : ApiControllerBase
     /// « Déclarer perdu ou volé » (AC-8.4) — admin + a fresh confirmation of identity, like pairing: it resets every
     /// account of the cabinet, so a stolen session alone must not be able to do it.
     /// </summary>
+    [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
     [HttpPost("lost")]
     [AllowsWithoutSubscription("Securing the accounts a stolen PC held is never new work, and an unpaid cabinet must be able to.")]
     public async Task<ActionResult<RelayStatusDto>> DeclareLost(

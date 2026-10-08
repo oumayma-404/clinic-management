@@ -33,7 +33,7 @@ public sealed class RelayUpdaterTests : IDisposable
             (s, _) =>
             {
                 _announced.Add(s);
-                return Task.FromResult<RelayFollowerState?>(_standDownConfirmed ? s with { LastAckSeq = s.LastAckSeq + 1 } : null);
+                return Task.FromResult<RelayFollowerState?>(_standDownConfirmed ? s with { AppliedSeq = s.AppliedSeq + 1 } : null);
             },
             CancellationToken.None);
 
@@ -84,7 +84,7 @@ public sealed class RelayUpdaterTests : IDisposable
         _standDownConfirmed = false;
         var updater = Updater();
 
-        var state = await StepAsync(updater, Needed with { LastAckSeq = 41 });
+        var state = await StepAsync(updater, Needed with { AppliedSeq = 41 });
 
         Assert.Empty(_launcher.Launches);
         Assert.Null(state.UpdateLaunchedAtUtc);
@@ -95,8 +95,8 @@ public sealed class RelayUpdaterTests : IDisposable
         state = await StepAsync(updater, state);
 
         Assert.Single(_launcher.Launches);
-        Assert.Equal(42, state.LastAckSeq);
-        Assert.Equal(42, _saved.Last().LastAckSeq);
+        Assert.Equal(42, state.AppliedSeq);
+        Assert.Equal(42, _saved.Last().AppliedSeq);
     }
 
     [Fact]
