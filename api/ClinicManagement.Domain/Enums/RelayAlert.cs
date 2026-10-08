@@ -17,4 +17,7 @@ public enum RelayAlert
     Stopped = 7,
     // Appended, never inserted: persisted as int on StaffNotification.RelayAlert.
     Silent = 8,
+
+    /// <summary>D18 / AC-5.9: the PC has failed to hand the cut back for 15 min; the cabinet keeps working on it.</summary>
+    ReturnStuck = 9,
 }

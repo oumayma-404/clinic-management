@@ -67,12 +67,20 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             // D14: what the PC says it holds first, then the state, then the new ack — the order the PC lived them in.
             relay.RecordAckConfirmation(report.ConfirmedAckSeq, report.ConfirmedAckArmed);
 
+            // D18 phase 2: the PC stopped holding after the cloud applied its handback — the cloud takes the saves back.
+            // Never on a heartbeat that says it holds: that is a new cut, which its own return will release.
+            if (!report.Holding && report.ReturnedHandbackId is { } returned && relay.ConfirmReturn(returned, now))
+            {
+                await RelayJournal.StageAsync(_auditEntries, new AuditActor(relay.Subject, null), relay,
+                    AuditAction.Update, RelayJournal.Returned, now, cancellationToken);
+            }
+
             var beat = new RelayHeartbeat(
                 report.AppliedSeq, report.SeedPercent, report.SeedComplete, report.FilesTotal, report.FilesCopied,
                 report.DiskFreeBytes, report.IsUpdating, report.Build, report.PcClockUtc, report.LanAddresses,
                 report.MismatchTables, report.LastError, report.CertificateFingerprint, report.CopyStopped,
                 report.Holding, report.HoldingSinceUtc, report.HoldingUnderAckSeq,
-                report.HttpsPort, report.GatewayAddress, request.CallerAddress);
+                report.HttpsPort, report.GatewayAddress, request.CallerAddress, report.ReturnStuckSinceUtc);
 
             // D19: a takeover an admin's « Reprendre la main » overruled — this answer stops that PC, and never arms it.
             var overruled = relay.IsOverruledHolding(beat);
@@ -94,7 +102,8 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<RelayHeartbeatAck>.Success(new RelayHeartbeatAck(
-                now, highWater, epoch, Retired: false, UpdateNeeded: !sameBuild, cloudBuild, ackSeq, armed, overruled));
+                now, highWater, epoch, Retired: false, UpdateNeeded: !sameBuild, cloudBuild, ackSeq, armed, overruled,
+                ReturnReleased: relay.HasReleasedReturn(report.ReturnedHandbackId)));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

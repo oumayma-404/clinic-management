@@ -32,6 +32,23 @@ public sealed record RelayLeaseState
     /// cabinet back while this PC held it (AC-8.6). Cleared only by the return; until then nothing may erase this copy.
     /// </summary>
     public DateTime? UnreturnedSinceUtc { get; init; }
+
+    // ---- the return (D18) ------------------------------------------------------------------------------------------
+
+    /// <summary>The handback under way. A repeat of it is a no-op on the cloud; a new id once saves were taken again.</summary>
+    public Guid? HandbackId { get; init; }
+
+    /// <summary>While set, this PC refuses saves (AC-5.2): what it reads for the cloud must be all there is.</summary>
+    public DateTime? HandbackStartedAtUtc { get; init; }
+
+    /// <summary>The first attempt of this cut's return; reported, so admins and the vendor hear of one stuck 15 min (AC-5.9).</summary>
+    public DateTime? ReturnFirstTriedAtUtc { get; init; }
+
+    /// <summary>
+    /// Phase 2: the cloud applied this handback and this PC stopped holding; it says so on every heartbeat until the cloud
+    /// answers that it holds the cabinet's saves again.
+    /// </summary>
+    public Guid? ReturnedHandbackId { get; init; }
 }
 
 /// <summary>
@@ -96,7 +113,14 @@ public sealed class RelayLease
         }
     }
 
+    /// <summary>This PC holds the cut — accepting saves, or handing them back (D18).</summary>
     public bool IsHolding => Current.HoldingSinceUtc is not null;
+
+    /// <summary>The gate's and the net's question: this PC takes the cabinet's saves right now.</summary>
+    public bool AcceptsSaves => Current is { HoldingSinceUtc: not null, HandbackStartedAtUtc: null };
+
+    /// <summary>D18: the cut's work is being read and sent; every save is refused until it lands or is given up.</summary>
+    public bool IsHandingBack => Current is { HoldingSinceUtc: not null, HandbackStartedAtUtc: not null };
 
     public DateTime? HoldingSinceUtc => Current.HoldingSinceUtc;
 
@@ -200,7 +224,8 @@ public sealed class RelayLease
                 return;
             }
 
-            Write(_state with { HoldingSinceUtc = _utcNow(), HoldingUnderAckSeq = _state.LastAckSeq });
+            // A return still awaiting the cloud's word is moot: this new cut is what the next return will release.
+            Write(_state with { HoldingSinceUtc = _utcNow(), HoldingUnderAckSeq = _state.LastAckSeq, ReturnedHandbackId = null });
         }
     }
 
@@ -222,7 +247,97 @@ public sealed class RelayLease
                 HoldingSinceUtc = null,
                 HoldingUnderAckSeq = 0,
                 UnreturnedSinceUtc = _state.UnreturnedSinceUtc ?? since,
+                HandbackId = null,
+                HandbackStartedAtUtc = null,
+                ReturnFirstTriedAtUtc = null,
             });
+        }
+    }
+
+    /// <summary>
+    /// D18: from now this PC refuses saves while it reads the cut and sends it. Returns the handback's id — the same one
+    /// after a restart mid-way (nothing was saved meanwhile), a new one once saves were taken again.
+    /// </summary>
+    public Guid BeginHandback()
+    {
+        lock (_gate)
+        {
+            if (_state.HoldingSinceUtc is null)
+            {
+                throw new InvalidOperationException("Ce PC de secours ne tient aucune coupure à rendre.");
+            }
+
+            if (_state.HandbackStartedAtUtc is not null && _state.HandbackId is { } running)
+            {
+                return running;
+            }
+
+            var id = _state.HandbackId ?? Guid.NewGuid();
+            var now = _utcNow();
+            Write(_state with { HandbackId = id, HandbackStartedAtUtc = now, ReturnFirstTriedAtUtc = _state.ReturnFirstTriedAtUtc ?? now });
+            return id;
+        }
+    }
+
+    /// <summary>
+    /// The return did not land: saves are taken again (AC-5.9). The id is dropped, so the next attempt cannot be mistaken
+    /// for this one — the cloud may have applied it, and what is saved from now must travel too.
+    /// </summary>
+    public void AbortHandback()
+    {
+        lock (_gate)
+        {
+            if (_state.HandbackStartedAtUtc is null && _state.HandbackId is null)
+            {
+                return;
+            }
+
+            Write(_state with { HandbackId = null, HandbackStartedAtUtc = null });
+        }
+    }
+
+    /// <summary>The return cannot even start (the cloud runs another build): counted as stuck from now (AC-5.9).</summary>
+    public void MarkReturnBlocked()
+    {
+        lock (_gate)
+        {
+            if (_state.HoldingSinceUtc is not null && _state.ReturnFirstTriedAtUtc is null)
+            {
+                Write(_state with { ReturnFirstTriedAtUtc = _utcNow() });
+            }
+        }
+    }
+
+    /// <summary>
+    /// D18 phase 1 landed: the cloud holds the cut. This PC stops holding — and keeps saying which handback it was until
+    /// the cloud confirms it took the saves back (phase 2).
+    /// </summary>
+    public void CompleteReturn(Guid handbackId)
+    {
+        lock (_gate)
+        {
+            Write(_state with
+            {
+                HoldingSinceUtc = null,
+                HoldingUnderAckSeq = 0,
+                UnreturnedSinceUtc = null,
+                HandbackId = null,
+                HandbackStartedAtUtc = null,
+                ReturnFirstTriedAtUtc = null,
+                ReturnedHandbackId = handbackId,
+            });
+        }
+    }
+
+    /// <summary>Phase 2 confirmed: the cloud holds the cabinet's saves again.</summary>
+    public void ForgetReturned(Guid handbackId)
+    {
+        lock (_gate)
+        {
+            if (_state.ReturnedHandbackId == handbackId)
+            {
+                Write(_state with { ReturnedHandbackId = null });
+            }
         }
     }
 

@@ -47,6 +47,15 @@ public interface IRelayCloudClient
 
     /// <summary>The PC is being uninstalled (AC-8.3) — the PC's secret, like the erase report.</summary>
     Task<RelayCall<bool>> ReportUninstalledAsync(CancellationToken cancellationToken);
+
+    /// <summary>D18: which of the files the cut's rows name the cloud does not hold yet.</summary>
+    Task<RelayCall<IReadOnlyList<string>>> MissingHandbackFilesAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken);
+
+    /// <summary>D18: one file made during the cut, under the key its row names.</summary>
+    Task<RelayCall<bool>> UploadHandbackFileAsync(string storageKey, Stream content, CancellationToken cancellationToken);
+
+    /// <summary>D18 phase 1: the cut's work, handed back once.</summary>
+    Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(RelayHandbackRequest request, CancellationToken cancellationToken);
 }
 
 /// <summary>D16: the PC's long poll for the numbers its cloud is about to make final.</summary>
@@ -108,6 +117,33 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
         SendJsonAsync<IReadOnlyList<RelayNumberPromiseDto>>(() => new HttpRequestMessage(HttpMethod.Post, "relay/promises")
         {
             Content = JsonContent.Create(new RelayPromisesRequest(acks), options: Json),
+        }, cancellationToken);
+
+    public Task<RelayCall<IReadOnlyList<string>>> MissingHandbackFilesAsync(
+        IReadOnlyList<string> keys, CancellationToken cancellationToken) =>
+        SendJsonAsync<IReadOnlyList<string>>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback/files")
+        {
+            Content = JsonContent.Create(new RelayHandbackFilesRequest(keys), options: Json),
+        }, cancellationToken);
+
+    public async Task<RelayCall<bool>> UploadHandbackFileAsync(
+        string storageKey, Stream content, CancellationToken cancellationToken)
+    {
+        // One attempt: the stream is read as it is sent, so it cannot be replayed after a refreshed token.
+        var (status, response, error) = await SendAsync(() => new HttpRequestMessage(
+            HttpMethod.Put, $"relay/handback/file?key={Uri.EscapeDataString(storageKey)}")
+        {
+            Content = new StreamContent(content),
+        }, cancellationToken, singleAttempt: true);
+        response?.Dispose();
+        return new RelayCall<bool>(status, status == RelayCallStatus.Ok, error);
+    }
+
+    public Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(
+        RelayHandbackRequest request, CancellationToken cancellationToken) =>
+        SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback")
+        {
+            Content = JsonContent.Create(request, options: Json),
         }, cancellationToken);
 
     public Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken) =>
@@ -189,9 +225,9 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     /// <summary>Sends with the current token, refreshing it once on a 401 that is not « unknown PC ».</summary>
     private async Task<(RelayCallStatus Status, HttpResponseMessage? Response, string? Error)> SendAsync(
         Func<HttpRequestMessage> build, CancellationToken cancellationToken,
-        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead, bool singleAttempt = false)
     {
-        for (var attempt = 0; attempt < 2; attempt++)
+        for (var attempt = 0; attempt < (singleAttempt ? 1 : 2); attempt++)
         {
             var token = await TokenAsync(forceRefresh: attempt > 0, cancellationToken);
             if (token.Status != RelayCallStatus.Ok)
@@ -219,7 +255,7 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
             }
 
             var (code, error) = await RefusalAsync(response, cancellationToken);
-            if (response.StatusCode == HttpStatusCode.Unauthorized && code is null && attempt == 0)
+            if (response.StatusCode == HttpStatusCode.Unauthorized && code is null && attempt == 0 && !singleAttempt)
             {
                 response.Dispose();
                 continue;

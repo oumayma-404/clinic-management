@@ -38,6 +38,8 @@ public class RelayRawWriteCoverageTests
         ["SchemaVerificationReader.cs"] = "catalog reads only",
         ["PgDumpBackupService.cs"] = "pg_database_size, a read",
         ["NumberPromises.cs"] = "RelayNumberPromise only — the PC's own promised numbers, never carried (D16)",
+        ["ClinicRelayRowStore.Handback.cs"] =
+            "the return (D18): the cloud applies a cut AND appends its ClinicChanges in the same transaction; the PC drops its own log",
         ["IdempotencyStore.cs"] = "IdempotencyRecord only — the replay keys are each side's own and never carried (D17)",
     };
 

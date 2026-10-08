@@ -36,6 +36,12 @@ public static class RelayRefusals
     /// <summary>FR-5: on a PC de secours holding the cabinet's saves, the « online only » list waits for the internet.</summary>
     public const string OnlineOnlyCode = "online_only";
 
+    /// <summary>AC-5.2: the cut's work is on its way back to the cloud — for a few seconds neither side saves.</summary>
+    public const string HandingBackCode = "relay_handing_back";
+
+    /// <summary>D18: the cloud could not apply the cut's work; the PC keeps working and tries again.</summary>
+    public const string HandbackFailedCode = "relay_handback_failed";
+
     /// <summary>AC-7.3: this PC keeps work saved during a cut that never reached the cloud; nothing may erase it.</summary>
     public const string CutWorkKeptCode = "relay_cut_work_kept";
     public const string NotAdminCode = "relay_admin_only";
@@ -110,12 +116,25 @@ public static class RelayRefusals
     /// The cloud's refusal for a fenced cabinet — AC-4.2's once the PC said it holds the saves, AC-6.3's until then.
     /// One mapping for the gate and the change capture's net, so a job and a request are refused in the same words.
     /// </summary>
-    public static (string Error, string Code) ForFencedCloud(DateTime? pcHoldingSinceUtc, DateTime nowUtc) =>
-        pcHoldingSinceUtc is { } since ? (OnRelay(SinceClinicTime(since, nowUtc)), OnRelayCode) : (Silent, SilentCode);
+    public static (string Error, string Code) ForFencedCloud(DateTime? pcHoldingSinceUtc, DateTime nowUtc, bool returning = false) =>
+        returning ? (HandingBack, HandingBackCode)
+        : pcHoldingSinceUtc is { } since ? (OnRelay(SinceClinicTime(since, nowUtc)), OnRelayCode)
+        : (Silent, SilentCode);
 
-    /// <summary>A PC de secours that does not hold the saves: retired (never again) or following (only during a cut).</summary>
-    public static (string Error, string Code) ForPcNotHolding(bool retired) =>
-        retired ? (RetiredReadOnly, RetiredCode) : (Standby, StandbyCode);
+    /// <summary>
+    /// A PC de secours that does not take saves now: retired (never again), handing the cut back (seconds), or following
+    /// (only during a cut).
+    /// </summary>
+    public static (string Error, string Code) ForPcNotHolding(bool retired, bool handingBack = false) =>
+        retired ? (RetiredReadOnly, RetiredCode)
+        : handingBack ? (HandingBack, HandingBackCode)
+        : (Standby, StandbyCode);
+
+    /// <summary>AC-5.2, on both sides: the form stays open and the same save works a few seconds later.</summary>
+    public const string HandingBack = "Retour au cloud en cours — réessayez dans quelques secondes.";
+
+    public const string HandbackFailed =
+        "Le cloud n'a pas pu reprendre le travail de la coupure : le cabinet continue sur le PC de secours, qui réessaie.";
 
     /// <summary>AC-4.2, with the cabinet's own time of the takeover (« depuis 10:42 »).</summary>
     public static string OnRelay(string sinceClinicTime) =>

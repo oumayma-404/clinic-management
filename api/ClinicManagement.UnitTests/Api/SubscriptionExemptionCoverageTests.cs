@@ -59,6 +59,10 @@ public class SubscriptionExemptionCoverageTests
         "RelayPeer.Heartbeat",
         // D16: the PC keeping a number the cloud is about to issue — nothing recorded on the PC's side.
         "RelayPeer.Promises",
+        // D18: a cut's own work reaches the cloud whatever the subscription says (EC-15).
+        "RelayPeer.HandBack",
+        "RelayPeer.HandbackFiles",
+        "RelayPeer.HandbackFile",
         "Relay.Retire",
         // AC-8.4: securing the accounts a stolen PC held — an unpaid cabinet must be able to, and it records nothing new.
         "Relay.DeclareLost",

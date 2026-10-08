@@ -21,7 +21,7 @@ namespace ClinicManagement.Infrastructure.Persistence;
 /// back in are exact inverses, so no value's type, converter or owned column passes through C# on the way (D3, D6).
 /// Every table and column name comes from the EF model or the catalog, never from a request.
 /// </summary>
-public sealed class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBlobIndex
+public sealed partial class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBlobIndex
 {
     /// <summary>Past this many changed keys a batch is a re-seed (D6b).</summary>
     public const int MaxBatchKeys = 20_000;
@@ -346,7 +346,8 @@ public sealed class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBlobIndex
             : Plan.Tables.Where(t => tables.Contains(t.Name, StringComparer.Ordinal));
 
     private async Task UpsertAsync(
-        RelayScope scope, ClinicRelayTable table, IReadOnlyList<JsonElement> rows, CancellationToken cancellationToken)
+        RelayScope scope, ClinicRelayTable table, IReadOnlyList<JsonElement> rows, CancellationToken cancellationToken,
+        IReadOnlySet<string>? preserve = null)
     {
         if (rows.Count == 0)
         {
@@ -356,7 +357,10 @@ public sealed class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBlobIndex
         var columns = (await ColumnsAsync(scope, table.Schema, table.TableName, cancellationToken))
             .Where(c => !table.DeferredColumns.Contains(c, StringComparer.Ordinal))
             .ToList();
-        var updates = columns.Where(c => !table.KeyColumns.Contains(c, StringComparer.Ordinal)).ToList();
+        var updates = columns
+            .Where(c => !table.KeyColumns.Contains(c, StringComparer.Ordinal))
+            .Where(c => preserve is null || !preserve.Contains(c))
+            .ToList();
         var columnList = string.Join(", ", columns.Select(Q));
         var conflict = updates.Count == 0
             ? "DO NOTHING"
@@ -685,12 +689,15 @@ public sealed class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBlobIndex
     {
         private readonly DbConnection _connection;
         private readonly IDbContextTransaction _transaction;
+        private readonly bool _owned;
         private bool _committed;
 
-        public RelayScope(DbConnection connection, IDbContextTransaction transaction)
+        /// <param name="owned">False for the caller's own transaction (D18): neither committed nor rolled back here.</param>
+        public RelayScope(DbConnection connection, IDbContextTransaction transaction, bool owned = true)
         {
             _connection = connection;
             _transaction = transaction;
+            _owned = owned;
         }
 
         public DbCommand Command(string sql, params (string Name, object? Value)[] parameters)
@@ -715,12 +722,21 @@ public sealed class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBlobIndex
 
         public async Task CommitAsync(CancellationToken cancellationToken)
         {
-            await _transaction.CommitAsync(cancellationToken);
+            if (_owned)
+            {
+                await _transaction.CommitAsync(cancellationToken);
+            }
+
             _committed = true;
         }
 
         public async ValueTask DisposeAsync()
         {
+            if (!_owned)
+            {
+                return;
+            }
+
             if (!_committed)
             {
                 await _transaction.RollbackAsync();

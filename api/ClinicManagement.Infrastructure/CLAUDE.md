@@ -646,6 +646,16 @@ no consent flag and no audit of which patient was sent.
   (`IRelayPromiseBroker`, `POST /api/relay/promises`); not kept in 3 s → `ClinicFencedException` `relay_unconfirmed`, the
   save rolled back. ⚠️ **No numbering handler knows about it** — that is the design. On the PC, `RelayNumberPromiseStore`
   keeps each promise (raw SQL, never copied) and the three `GetMaxSequenceForYearAsync` take max(held, promised).
+- **The return (D18, slice a)**: while it accepts saves, the PC writes its **own** `ClinicChanges` (`ClinicChangeCapture`
+  — cursor created by the first save after the takeover, `INSERT … ON CONFLICT`; a save re-checks the lease after taking
+  the cursor's row lock). `Relay/RelayHandback` (driven by the follower while it holds): 2 min of answered heartbeats →
+  `RelayLease.BeginHandback` (saves refused, `relay_handing_back`) → `ClinicRelayRowStore.Handback.cs` `ReadCutAsync`
+  (takes the cursor lock first, then reads log, rows, journal, sign-in traces, spent codes in one snapshot) → missing files
+  → `POST relay/handback` → `ForgetCutAsync` + `CompleteReturn`; the next heartbeat names the handback and the cloud
+  releases (two phases — the cloud stays fenced until then). Cloud side `ApplyReturnAsync` runs **in the caller's
+  transaction** (`RelayScope` not owned): deletes, upserts with the cloud's own columns kept (AC-5.7), every key checked
+  to be the PC's cabinet before and after, the sign-in merge, and one `ClinicChange` (`Origin = Relay`) per key so the
+  PC's copy follows. ⚠️ A lost answer: same handback id for 30 s with saves refused, then saves again and a **new** id.
 - **Idempotency (D17)**: `Persistence/IdempotencyStore` — the replay keys of a cabinet's saves in `IdempotencyRecords`,
   claimed with `INSERT … ON CONFLICT DO NOTHING` and completed / released in **raw SQL** on the request's own context, so a
   claim survives the save's rollback and touches no change log, audit row or fence. ⚠️ **Per side**: excluded from the

@@ -38,7 +38,9 @@ public sealed class RelayLocalStatus : IRelayLocalStatus
     public DateTime? RetiredAtUtc => Current() is { Released: true } state ? state.ReleasedAtUtc : null;
 
     /// <summary>The lease is in memory (one writer, under its own lock): no file is read on this, the gate's hot path.</summary>
-    public bool IsHolding => _isRelay && _lease?.IsHolding == true;
+    public bool IsHolding => _isRelay && _lease?.AcceptsSaves == true;
+
+    public bool IsHandingBack => _isRelay && _lease?.IsHandingBack == true;
 
     private RelayFollowerState? Current()
     {

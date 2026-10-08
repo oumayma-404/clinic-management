@@ -14,6 +14,12 @@ public interface IRelayLocalStatus
     /// <summary>When this PC learned it was retired; null while it still follows its cabinet (or on older files).</summary>
     DateTime? RetiredAtUtc { get; }
 
-    /// <summary>This PC took over the cabinet's saves during a cut (D13) and holds them until it hands them back.</summary>
+    /// <summary>
+    /// This PC took over the cabinet's saves during a cut (D13) and accepts them now. False for the few seconds it hands
+    /// the cut back (<see cref="IsHandingBack"/>): nothing saved then could reach the cloud.
+    /// </summary>
     bool IsHolding { get; }
+
+    /// <summary>D18: the cut's work is on its way back to the cloud; saves are refused with AC-5.2's sentence.</summary>
+    bool IsHandingBack => false;
 }

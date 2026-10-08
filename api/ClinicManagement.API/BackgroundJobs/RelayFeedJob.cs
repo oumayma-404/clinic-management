@@ -312,7 +312,8 @@ public sealed class RelayFeedJob : BackgroundService
             new RelayLocalSide(
                 services.GetRequiredService<IClinicRelayRowStore>(),
                 services.GetRequiredService<IRelayBlobIndex>(),
-                services.GetRequiredService<IFileStorage>()),
+                services.GetRequiredService<IFileStorage>(),
+                services.GetRequiredService<IRelayHandbackStore>()),
             cancellationToken);
     }
 

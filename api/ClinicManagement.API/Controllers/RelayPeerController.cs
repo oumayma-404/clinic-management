@@ -197,6 +197,70 @@ public class RelayPeerController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// D18 phase 1: the PC hands the cut's work back — rows, journal, sign-in traces — applied once in one transaction.
+    /// The cloud stays fenced until the PC's next heartbeat says it stopped holding.
+    /// </summary>
+    [HttpPost("handback")]
+    [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
+    [RequestSizeLimit(HandbackBodyLimit)]
+    [AllowsWithoutSubscription("The cabinet's own work of a cut reaches the cloud whatever its subscription says (EC-15).")]
+    public async Task<ActionResult<RelayHandbackResultDto>> HandBack(
+        [FromBody] RelayHandbackRequest request,
+        [FromHeader(Name = BuildHeader)] string? build,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new HandBackRelayCommand(request, build), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    /// <summary>D18: which of the files the cut's rows name the cloud does not hold yet.</summary>
+    [HttpPost("handback/files")]
+    [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
+    [AllowsWithoutSubscription("Asking which files of a cut are missing records nothing.")]
+    public async Task<ActionResult<IReadOnlyList<string>>> HandbackFiles(
+        [FromBody] RelayHandbackFilesRequest request,
+        [FromHeader(Name = BuildHeader)] string? build,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(
+            new GetMissingHandbackFilesQuery(request.Keys ?? Array.Empty<string>(), build), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
+    }
+
+    /// <summary>D18: one file made during the cut, stored under the key its row names — never over an existing one.</summary>
+    [HttpPut("handback/file")]
+    [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
+    [DisableRequestSizeLimit]
+    [AllowsWithoutSubscription("A file the cabinet made during a cut reaches the cloud whatever its subscription says (EC-15).")]
+    public async Task<IActionResult> HandbackFile(
+        [FromQuery] string? key,
+        [FromHeader(Name = BuildHeader)] string? build,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(
+            new StoreHandbackFileCommand(key ?? string.Empty, Request.Body, build), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : NoContent();
+    }
+
+    /// <summary>A cut's rows as JSON — a day of a busy cabinet is a few megabytes; this leaves a wide margin.</summary>
+    public const long HandbackBodyLimit = 512L * 1024 * 1024;
+
     [HttpGet("changes")]
     [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
     public async Task<ActionResult<RelayFeedBatch>> Changes(

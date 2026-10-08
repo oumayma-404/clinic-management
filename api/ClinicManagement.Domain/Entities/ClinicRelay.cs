@@ -170,6 +170,30 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// <summary>A device of the cabinet reached the PC during this lock — then the PC is alive, and nothing is unlocked.</summary>
     public DateTime? DevicesReachedPcAtUtc { get; private set; }
 
+    // ---- the return (D18, US-5) — two phases, so the cabinet is never writable on both sides ----------------------
+
+    /// <summary>
+    /// The last handback the cloud applied (phase 1): the cut's rows are in, and the cloud stays fenced until the PC says
+    /// it stopped holding (phase 2, <see cref="ConfirmReturn"/>). Kept after the release, so a PC that missed the answer
+    /// is told « released » when it asks again.
+    /// </summary>
+    public Guid? HandbackAppliedId { get; private set; }
+
+    /// <summary>When phase 1 landed; null again once the PC confirmed (phase 2). While set, saves read « Retour au cloud ».</summary>
+    public DateTime? HandbackAppliedAtUtc { get; private set; }
+
+    /// <summary>The takeover moment (the PC's own clock) of the cut handed back: a late « holding » heartbeat of it is not a new cut.</summary>
+    public DateTime? ReturnedCutSinceUtc { get; private set; }
+
+    /// <summary>When the cloud took the cabinet's saves back at the end of a return (FR-8 « retour »).</summary>
+    public DateTime? ReturnedAtUtc { get; private set; }
+
+    /// <summary>Since when the PC has been failing to hand the cut back, as it reports (AC-5.9 — told after 15 min).</summary>
+    public DateTime? ReturnStuckSinceUtc { get; private set; }
+
+    /// <summary>Phase 1 is in and the PC has not confirmed yet: a save is refused with « Retour au cloud en cours » (AC-5.2).</summary>
+    public bool IsReturning => PcHoldingSinceUtc is not null && HandbackAppliedAtUtc is not null;
+
     public DateTime? RetiredAtUtc { get; private set; }
     public ClinicRelayRetirement? RetiredReason { get; private set; }
     public string? RetiredByUserId { get; private set; }
@@ -295,7 +319,42 @@ public class ClinicRelay : AggregateRoot<Guid>
         ReclaimedAtUtc = nowUtc;
         ReclaimedByUserId = byUserId;
         PcHoldingSinceUtc = null;
+        HandbackAppliedAtUtc = null;
     }
+
+    /// <summary>
+    /// D18 phase 1: the cut's work is applied here. The fence stays — the PC may still be accepting saves until it hears
+    /// this answer — and is released only by <see cref="ConfirmReturn"/>, once the PC has stopped holding.
+    /// </summary>
+    public void RecordHandbackApplied(Guid handbackId, DateTime? cutSinceUtc, DateTime nowUtc)
+    {
+        HandbackAppliedId = handbackId;
+        HandbackAppliedAtUtc = nowUtc;
+        ReturnedCutSinceUtc = cutSinceUtc;
+        ReturnStuckSinceUtc = null;
+    }
+
+    /// <summary>
+    /// D18 phase 2: the PC says it stopped holding after <paramref name="handbackId"/> was applied — the cloud takes the
+    /// cabinet's saves back. True when this call released them (the journal's « retour » row).
+    /// </summary>
+    public bool ConfirmReturn(Guid handbackId, DateTime nowUtc)
+    {
+        if (HandbackAppliedId != handbackId || HandbackAppliedAtUtc is null)
+        {
+            return false;
+        }
+
+        PcHoldingSinceUtc = null;
+        HandbackAppliedAtUtc = null;
+        ReturnedAtUtc = nowUtc;
+        ReturnStuckSinceUtc = null;
+        return true;
+    }
+
+    /// <summary>The PC may forget <paramref name="handbackId"/>: the cloud applied it and holds the saves again.</summary>
+    public bool HasReleasedReturn(Guid? handbackId) =>
+        handbackId is { } id && HandbackAppliedId == id && HandbackAppliedAtUtc is null;
 
     /// <summary>
     /// AC-6.2: a device on the cabinet's network (the caller decided that) says whether it reaches the PC during the
@@ -352,11 +411,16 @@ public class ClinicRelay : AggregateRoot<Guid>
             // The admin took the cloud back after this takeover: the PC stops on this answer and keeps the cut's work.
             CutOverruledAtUtc ??= nowUtc;
         }
-        else if (heartbeat.Holding && PcHoldingSinceUtc is null)
+        else if (heartbeat.Holding && PcHoldingSinceUtc is null && !IsReturnedCut(heartbeat))
         {
             // The PC's clock may run ahead of the cloud's; a takeover is never in the cloud's future.
             PcHoldingSinceUtc = heartbeat.HoldingSinceUtc is { } since && since < nowUtc ? since : nowUtc;
         }
+
+        // AC-5.9: a return that keeps failing, as the PC counts it — never in the cloud's future, gone once it holds nothing.
+        ReturnStuckSinceUtc = heartbeat.Holding && heartbeat.ReturnStuckSinceUtc is { } stuck
+            ? (stuck < nowUtc ? stuck : nowUtc)
+            : null;
 
         if (!string.IsNullOrWhiteSpace(heartbeat.LanAddresses))
         {
@@ -394,6 +458,10 @@ public class ClinicRelay : AggregateRoot<Guid>
 
         return seededNow;
     }
+
+    /// <summary>A « holding » heartbeat of the cut already handed back, arriving late: no evidence of a new takeover.</summary>
+    private bool IsReturnedCut(RelayHeartbeat heartbeat) =>
+        ReturnedCutSinceUtc is { } returned && heartbeat.HoldingSinceUtc is { } since && since <= returned;
 
     /// <summary>The PC held everything up to the cloud's high-water when the cloud last answered (FR-2 « Prêt »).</summary>
     public bool IsCaughtUp => Status == ClinicRelayStatus.Active && AppliedSeq >= HighWaterAtLastAck;
@@ -610,4 +678,6 @@ public sealed record RelayHeartbeat(
     // AC-6.2: how a device on the cabinet's network reaches the PC, and how it knows it is on that network.
     int? HttpsPort = null,
     string? GatewayAddress = null,
-    string? PublicAddress = null);
+    string? PublicAddress = null,
+    // D18: since when the PC has been failing to hand its cut back (AC-5.9).
+    DateTime? ReturnStuckSinceUtc = null);

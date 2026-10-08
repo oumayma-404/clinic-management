@@ -100,6 +100,36 @@ public class RelayIncidentConfiguration : IEntityTypeConfiguration<RelayIncident
     }
 }
 
+public class RelayReviewItemConfiguration : IEntityTypeConfiguration<RelayReviewItem>
+{
+    public void Configure(EntityTypeBuilder<RelayReviewItem> builder)
+    {
+        builder.ToTable("RelayReviewItems");
+
+        builder.HasKey(i => i.Id);
+        builder.Property(i => i.Id).ValueGeneratedNever();
+        builder.Property(i => i.Kind).HasConversion<int>();
+        builder.Property(i => i.Table).IsRequired().HasMaxLength(RelayReviewItem.MaxTableLength);
+        builder.Property(i => i.EntityKey).IsRequired().HasMaxLength(RelayReviewItem.MaxKeyLength);
+        builder.Property(i => i.CloudEntityKey).HasMaxLength(RelayReviewItem.MaxKeyLength);
+        builder.Property(i => i.CloudChangedBy).HasMaxLength(RelayReviewItem.MaxAuthorLength);
+        builder.Property(i => i.ReviewedByUserId).HasMaxLength(128);
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(i => i.ClinicId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<ClinicRelay>()
+            .WithMany()
+            .HasForeignKey(i => i.RelayId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(i => new { i.ClinicId, i.ReviewedAtUtc });
+        builder.HasIndex(i => new { i.RelayId, i.CutSinceUtc });
+    }
+}
+
 public class ClinicChangeCursorConfiguration : IEntityTypeConfiguration<ClinicChangeCursor>
 {
     public void Configure(EntityTypeBuilder<ClinicChangeCursor> builder)

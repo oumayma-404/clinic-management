@@ -106,6 +106,8 @@ public static class ClinicArchiveScope
         nameof(IdempotencyRecord),
         // D16: the numbers the cloud promised a PC de secours — that PC's own, never a practice's record.
         nameof(RelayNumberPromise),
+        // D18: what the return listed for the cloud's admins to look at — the deployment's bookkeeping of a cut.
+        nameof(RelayReviewItem),
         // The Data Protection key ring, where DataProtection:PersistToDatabase puts it. Deployment-wide key
         // material and the single most dangerous thing that could travel in a cabinet's zip: the archive is
         // deliberately UNENCRYPTED and kept on a practice's laptop, and these rows decrypt every administrator's

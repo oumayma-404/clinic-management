@@ -116,6 +116,8 @@ public static class Extensions
         services.AddScoped<IClinicRelayRowStore>(provider => provider.GetRequiredService<ClinicRelayRowStore>());
         services.AddScoped<ClinicManagement.Application.Features.Relay.Queries.IRelayBlobIndex>(
             provider => provider.GetRequiredService<ClinicRelayRowStore>());
+        // D18: the return — the PC reads its cut, the cloud applies it — on the same row access.
+        services.AddScoped<IRelayHandbackStore>(provider => provider.GetRequiredService<ClinicRelayRowStore>());
         services.AddSingleton<ClinicManagement.Application.Features.Relay.IRelayBuildInfo, Relay.RelayBuildInfo>();
         services.AddSingleton<ClinicManagement.Application.Features.Relay.Commands.IRelayKeyValidator, Relay.RelayKeyValidator>();
         // D17: the replay store, and the key every change of the request is stamped with.
@@ -202,6 +204,7 @@ public static class Extensions
             sp.GetRequiredService<IUserRepository>(), new RelayFollowerStateStore(), sp.GetRequiredService<RelayLease>(),
             sp.GetRequiredService<ILogger<RelayLocalEraser>>()));
         services.AddScoped<IRelayIncidentRepository, RelayIncidentRepository>();
+        services.AddScoped<IRelayReviewItemRepository, RelayReviewItemRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();

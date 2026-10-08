@@ -64,7 +64,7 @@ public sealed class ClinicChangeCapture
         var plan = ClinicRelayScope.For(context.Model);
         if (context.ChangeTracker.Entries().Any(e => IsCandidate(plan, e) && !RelayFence.IsSignInTrace(e)))
         {
-            var (error, code) = RelayRefusals.ForPcNotHolding(_relayLocal?.IsRetired == true);
+            var (error, code) = RelayRefusals.ForPcNotHolding(_relayLocal?.IsRetired == true, _relayLocal?.IsHandingBack == true);
             throw new ClinicFencedException(error, code);
         }
     }
@@ -138,6 +138,11 @@ public sealed class ClinicChangeCapture
         {
             await EnsureCloudMayWriteAsync(context, fenceable, now, cancellationToken);
         }
+        else if (_relayLocal?.IsHolding != true)
+        {
+            // A following PC writes only a sign-in's traces, which are each side's own and merged at the return: no log.
+            return;
+        }
 
         var idempotencyKey = _idempotency?.Current;
 
@@ -148,10 +153,21 @@ public sealed class ClinicChangeCapture
                 .ThenBy(t => t.Key.Key, StringComparer.Ordinal)
                 .ToList();
 
-            var last = await AdvanceCursorAsync(context, transaction, clinic, changes.Count, cancellationToken);
+            var last = _isRelay
+                ? await AdvanceOwnCursorAsync(context, transaction, clinic, changes.Count, cancellationToken)
+                : await AdvanceCursorAsync(context, transaction, clinic, changes.Count, cancellationToken);
             if (last is null)
             {
                 continue;
+            }
+
+            // D18: the PC's log of the cut is what the return sends. The return takes this same row lock before it
+            // reads, after it stopped taking saves — so a save that got here first is waited for, and one that got here
+            // after sees the return and is refused: nothing is saved that the return could miss.
+            if (_isRelay && _relayLocal?.IsHolding != true)
+            {
+                var (error, code) = RelayRefusals.ForPcNotHolding(_relayLocal?.IsRetired == true, _relayLocal?.IsHandingBack == true);
+                throw new ClinicFencedException(error, code);
             }
 
             var seq = last.Value - changes.Count;
@@ -177,7 +193,7 @@ public sealed class ClinicChangeCapture
                 .FirstOrDefaultAsync(cancellationToken);
             if (RelayFence.CloudRefuses(relay, nowUtc))
             {
-                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, nowUtc);
+                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, nowUtc, relay.IsReturning);
                 throw new ClinicFencedException(error, code);
             }
         }
@@ -284,6 +300,25 @@ public sealed class ClinicChangeCapture
         command.Transaction = transaction.GetDbTransaction();
         command.CommandText =
             "UPDATE \"ClinicChangeCursors\" SET \"LastSeq\" = \"LastSeq\" + @n WHERE \"ClinicId\" = @c RETURNING \"LastSeq\"";
+        AddParameter(command, "n", (long)count);
+        AddParameter(command, "c", clinicId);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is null or DBNull ? null : Convert.ToInt64(result, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// D18, on a PC de secours holding the cut: its own log of the cut, whose cursor is created by the first save after
+    /// the takeover and dropped once the cut is handed back.
+    /// </summary>
+    private static async Task<long?> AdvanceOwnCursorAsync(
+        DbContext context, IDbContextTransaction transaction, Guid clinicId, int count, CancellationToken cancellationToken)
+    {
+        var connection = context.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction.GetDbTransaction();
+        command.CommandText =
+            "INSERT INTO \"ClinicChangeCursors\" (\"ClinicId\", \"LastSeq\") VALUES (@c, @n) "
+            + "ON CONFLICT (\"ClinicId\") DO UPDATE SET \"LastSeq\" = \"ClinicChangeCursors\".\"LastSeq\" + @n RETURNING \"LastSeq\"";
         AddParameter(command, "n", (long)count);
         AddParameter(command, "c", clinicId);
         var result = await command.ExecuteScalarAsync(cancellationToken);

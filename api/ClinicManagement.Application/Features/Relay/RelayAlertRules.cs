@@ -28,6 +28,15 @@ public static class RelayAlertRules
     /// <summary>The PC's clock this far from the cloud's is « fausse » (D20b's threshold).</summary>
     public const int ClockToleranceSeconds = 30;
 
+    /// <summary>AC-5.9: a return failing this long is told to admins and the vendor, at any hour.</summary>
+    public static readonly TimeSpan ReturnStuckAfter = TimeSpan.FromMinutes(15);
+
+    /// <summary>The PC holds the cut and has failed to hand it back for <see cref="ReturnStuckAfter"/>.</summary>
+    public static bool IsReturnStuck(ClinicRelay relay, DateTime nowUtc) =>
+        relay.PcHoldingSinceUtc is not null
+        && relay.ReturnStuckSinceUtc is { } stuck
+        && nowUtc - stuck >= ReturnStuckAfter;
+
     /// <summary>
     /// A cabinet that never set its hours: Monday to Saturday, 08:00–18:00. « Not configured » means « no booking
     /// restriction » to the agenda, but here it must not mean « never open », or such a cabinet is never told anything.
@@ -63,6 +72,15 @@ public static class RelayAlertRules
             }
 
             return rows;
+        }
+
+        // AC-5.9: the cabinet works on the PC and its work is not reaching the cloud — told at any hour.
+        if (IsReturnStuck(relay, nowUtc))
+        {
+            rows.Add(new(RelayAlert.ReturnStuck, "Retour au cloud bloqué",
+                $"Depuis {RelayLabels.Moment(relay.ReturnStuckSinceUtc, nowUtc)}, {label} n'arrive pas à rendre au cloud le "
+                + "travail fait pendant la coupure. Le cabinet continue de travailler sur le PC de secours, qui réessaie ; "
+                + "le support est prévenu."));
         }
 
         switch (reading.State)

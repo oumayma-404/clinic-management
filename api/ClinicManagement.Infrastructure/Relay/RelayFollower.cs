@@ -9,7 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace ClinicManagement.Infrastructure.Relay;
 
 /// <summary>The PC's own database and disk, as one tick sees them (scoped services, handed in per tick).</summary>
-public sealed record RelayLocalSide(IClinicRelayRowStore Rows, IRelayBlobIndex Blobs, IFileStorage Files);
+public sealed record RelayLocalSide(
+    IClinicRelayRowStore Rows, IRelayBlobIndex Blobs, IFileStorage Files, IRelayHandbackStore? Handback = null);
 
 /// <summary>What the PC says about the machine on each heartbeat.</summary>
 public sealed record RelayHostReport(
@@ -41,6 +42,7 @@ public sealed class RelayFollower
     private readonly Func<RelayHostReport> _host;
     private readonly RelayUpdater _updater;
     private readonly RelayLease _lease;
+    private readonly RelayHandback _handback;
     private readonly Func<DateTime> _utcNow;
     private readonly ILogger _logger;
     private readonly Dictionary<string, DateTime> _fileRetryAfter = new(StringComparer.Ordinal);
@@ -56,7 +58,8 @@ public sealed class RelayFollower
         RelayUpdater updater,
         RelayLease lease,
         ILogger logger,
-        Func<DateTime>? utcNow = null)
+        Func<DateTime>? utcNow = null,
+        RelayHandback? handback = null)
     {
         _cloud = cloud;
         _stateStore = stateStore;
@@ -68,6 +71,7 @@ public sealed class RelayFollower
         _lease = lease;
         _logger = logger;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        _handback = handback ?? new RelayHandback(cloud, lease, credentials.ClinicId, logger);
     }
 
     /// <summary>Opens a TOTP secret sealed for this PC and re-protects it under this install's own key ring (D8).</summary>
@@ -98,10 +102,11 @@ public sealed class RelayFollower
 
         if (_lease.IsHolding)
         {
-            return await WhileHoldingAsync(state, cancellationToken);
+            return await WhileHoldingAsync(state, local, cancellationToken);
         }
 
         var ack = await HeartbeatAsync(Report(state), cancellationToken);
+        ForgetReturnOnceReleased(ack);
         switch (ack.Status)
         {
             case RelayCallStatus.Ok:
@@ -201,7 +206,8 @@ public sealed class RelayFollower
     /// — and takes nothing from the cloud, whose rows are now older than this copy's: no catch-up, no files, no check and
     /// no update, which would stop the server the cabinet is working on.
     /// </summary>
-    private async Task<RelayFollowerState> WhileHoldingAsync(RelayFollowerState state, CancellationToken cancellationToken)
+    private async Task<RelayFollowerState> WhileHoldingAsync(
+        RelayFollowerState state, RelayLocalSide local, CancellationToken cancellationToken)
     {
         var call = await HeartbeatAsync(Report(state), cancellationToken);
         if (call.Status == RelayCallStatus.Released)
@@ -221,7 +227,29 @@ public sealed class RelayFollower
             return stopped;
         }
 
+        if (!call.IsOk)
+        {
+            _handback.Unanswered();
+            return state;
+        }
+
+        // D18: the internet is back — once it has held for two minutes, the cut goes back to the cloud.
+        if (await _handback.StepAsync(state, call.Value!, local, cancellationToken))
+        {
+            // Phase 2 at once: this PC no longer holds, and says so, so the cloud takes the saves back now.
+            ForgetReturnOnceReleased(await HeartbeatAsync(Report(state), cancellationToken));
+        }
+
         return state;
+    }
+
+    /// <summary>D18 phase 2: the cloud says it holds the cabinet's saves again after this PC's handback.</summary>
+    private void ForgetReturnOnceReleased(RelayCall<RelayHeartbeatAck> call)
+    {
+        if (call.IsOk && call.Value!.ReturnReleased && _lease.Current.ReturnedHandbackId is { } returned)
+        {
+            _lease.ForgetReturned(returned);
+        }
     }
 
     private Task<RelayCall<RelayHeartbeatAck>> HeartbeatAsync(RelayHeartbeatRequest report, CancellationToken cancellationToken) =>
@@ -284,7 +312,9 @@ public sealed class RelayFollower
             HoldingSinceUtc: lease.HoldingSinceUtc,
             HoldingUnderAckSeq: lease.HoldingUnderAckSeq,
             HttpsPort: host.HttpsPort,
-            GatewayAddress: host.GatewayAddress);
+            GatewayAddress: host.GatewayAddress,
+            ReturnedHandbackId: lease.ReturnedHandbackId,
+            ReturnStuckSinceUtc: lease.HoldingSinceUtc is not null ? lease.ReturnFirstTriedAtUtc : null);
     }
 
     /// <summary>

@@ -29,6 +29,11 @@ public static class RelayVendorAlertRules
             return Array.Empty<RelayIncidentKind>();
         }
 
+        if (RelayAlertRules.IsReturnStuck(relay, nowUtc))
+        {
+            return new[] { RelayIncidentKind.ReturnStuck };
+        }
+
         var reading = ClinicRelayHealth.Read(relay, nowUtc);
         return reading.State switch
         {
@@ -67,6 +72,7 @@ public static class RelayVendorAlertEmail
         RelayIncidentKind.Late => "copie en retard",
         RelayIncidentKind.Mismatch => "copie qui ne correspond pas",
         RelayIncidentKind.Stopped => "copie arrêtée",
+        RelayIncidentKind.ReturnStuck => "retour au cloud bloqué",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 
@@ -94,6 +100,10 @@ public static class RelayVendorAlertEmail
                 $"Le cloud est revenu à un état antérieur à la copie du PC de secours de {clinicName} "
                 + "(restauration ?). Le PC a arrêté de copier pour ne rien perdre : il garde les données les plus récentes.",
                 "Ne retirez pas et n'effacez pas ce PC : il détient ce que le cloud a perdu."),
+            RelayIncidentKind.ReturnStuck => (
+                $"Le PC de secours de {clinicName} n'arrive pas à rendre au cloud le travail fait pendant une coupure "
+                + "d'internet, depuis plus de 15 minutes. Le cabinet continue de travailler sur ce PC.",
+                "Ne retirez pas et n'effacez pas ce PC : il détient le travail de la coupure. Consultez son journal."),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
         };
 

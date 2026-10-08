@@ -303,6 +303,15 @@ public sealed class RelayUninstallTests : IDisposable
 
         public Task<RelayCall<string>> BlobAsync(string storageKey, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<RelayCall<IReadOnlyList<string>>> MissingHandbackFilesAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<RelayCall<bool>> UploadHandbackFileAsync(string storageKey, Stream content, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(RelayHandbackRequest request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     public void Dispose()

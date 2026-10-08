@@ -19,4 +19,7 @@ public enum RelayIncidentKind
 
     /// <summary>The cloud went back in time and the copy stopped to lose nothing (AC-9.4).</summary>
     Stopped = 4,
+
+    /// <summary>The return has been stuck for 15 min (AC-5.9, AC-9.2 « bloqué au retour »).</summary>
+    ReturnStuck = 5,
 }

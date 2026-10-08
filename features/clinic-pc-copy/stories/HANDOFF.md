@@ -1,40 +1,56 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (end of session 10 — the owner said « finish this step then stop, we'll pick up later ») ·
-**Overall:** ~54 % · **Part 1 (La copie):** done in code (owed: the Windows rehearsal and the first CI run — both need
-the owner's OK) · **Part 2 (La relève):** ~52 % (lease 1, 2, 2b, « Reprendre la main », device reports, idempotency
-(D17) and the number promise (D16) done) · **all scratch servers stopped**
+**Date:** 2026-10-08 (session 11) · **Overall:** ~57 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~62 % (lease 1, 2, 2b, « Reprendre
+la main », device reports, D17, D16 and **the return, slice a** done) · **all scratch servers stopped**
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–96, verification log). Plan `../plan.md` (Part 2's
-   « Device reports » bullet, D21), spec `../spec.md` (AC-6.2, FR-7, EC-17, EC-23), blueprint `../blueprint.md`.
-3. **Next sub-step: Part 2 · the return (D18)** — detailed below (D16 and D17 are done).
+2. Read this file, then `progress.md` (part status, deviations 1–128, verification log). Plan `../plan.md` (Part 2's
+   « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
+   AC-9.4), blueprint `../blueprint.md`.
+3. **Next sub-step: Part 2 · the return, slice b (D18b)** — detailed below.
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
-## The next sub-step — the return (D18)
+## The next sub-step — the return, slice b (D18b)
 
-**Goal (US-5, AC-5.1 → AC-5.9, FR-6):** when the internet comes back and the cloud has been reachable for 2 min, the PC
-hands the cut's work back once — rows, files, journal — and the cloud is in charge again. Nothing is recorded twice.
-
-**Plan's own words** (`../plan.md` « Return » bullet, D17's return rule, D18, D19):
-1. 2 min stable → handback: the PC's own change log since the cut (rows + files + journal) goes to the cloud;
-   accounts / subscription untouched except the merged sign-in traces (used recovery codes, last login, lockouts — FR-11).
-2. D17's rule at the return: the PC's rows for a key the cloud already processed are **dropped only when no later PC
-   change points to them** (decided from the PC's own log); otherwise the pair is **listed** in « Modifications à
-   vérifier » with both versions — never dropped, never applied twice. The key is already on every `ClinicChange`.
-3. « Modifications à vérifier » (a row the cloud also changed during the cut); Google catch-up; reminders at most one per
-   visit (EC-16); the 7-day subscription cap; retry + vendor alert after 15 min; a restored cloud's gap travels back.
-4. « À reprendre » for a PC overruled by « Reprendre la main » (deviation 91) — the same handback, offered by hand.
-5. Owed by earlier steps and natural here: the PC runs no clinic jobs during the cut (deviation 88).
+What slice a left, each named in deviation 128 (and 121, 124, 88, 91):
+1. **« Modifications à vérifier »** — the rows are stored (`RelayReviewItems`, AC-5.6): the admins' bell row « N
+   modifications faites dans le cloud juste avant la coupure sont à vérifier », a list screen (cards on a phone, table
+   from desk width, both versions, the cloud author, « Vu » → `RelayReviewItem.MarkReviewed`), its read + write endpoints.
+2. **AC-5.8** — cloud screens open during the cut refresh by themselves after the return: the return writes rows in raw
+   SQL and the relay area broadcasts nothing, so phase 2 must send one realtime refresh per resource the cut touched.
+3. **AC-5.4 / EC-16** — reminders for visits booked or changed during the cut: at most one per visit, none for a visit
+   already passed (the PC's `Notification` rows arrive with the return; the cloud's dispatcher sends them once released).
+   **Google catch-up**: appointments the cut created or moved reach Google Agenda after phase 2.
+4. **EC-15** — the 7-day subscription cap on the PC during a cut.
+5. **EC-11** — the PC updates itself before the return when the cloud runs another build (today: blocked, reported stuck).
+6. **Deviation 88** — the PC runs the clinic jobs while it holds (agenda progress, monthly dépenses…), and not otherwise.
+7. **« À reprendre »** (US-7, deviation 91) — a PC overruled by « Reprendre la main » keeps its cut's log: list it for
+   re-entry (AC-7.3 → 7.6), flag the documents it numbered (AC-7.5).
+8. **AC-9.4** — a restored cloud's gap travels back through the same path.
 
 Also still open in Part 2 after the return: the PC correcting Windows' clock from the cloud (D20b) and holding Windows
 Update in opening hours; « Internet coupé » vs « Le cloud est injoignable » (D20); change-log pruning (D27); the CI cut
 test (D26); the screens step (banners; card states « en charge », « repris par les appareils »).
+
+## Done in session 11 — the return, slice a (D18, US-5, FR-6, FR-11)
+
+While it holds, the PC logs its own changes (`ClinicChangeCapture`, cursor created on demand). After 2 min of answered
+heartbeats (`RelayHandback`): saves refused (« Retour au cloud en cours », AC-5.2), every save past the gate waited for
+under the cursor's row lock, the cut read (log, rows, journal, sign-in traces, spent codes), missing files sent, then
+`POST relay/handback` — **phase 1**: the cloud applies it in one transaction (`HandBackRelayCommand`,
+`RelayHandbackPlanner`, `ClinicRelayRowStore.Handback.cs`) and **stays fenced**; the PC drops its log and stops holding;
+its next heartbeat (`ReturnedHandbackId`) is **phase 2**: the cloud takes the saves back and journals « retour ».
+Decisions: the cabinet's version wins and the pair is listed; FR-11 tables never taken (traces merged); D17 duplicate
+dropped unless pointed to; cloud-only changes listed. Lost answer → same id for 30 s, then a new one. Stuck 15 min →
+bell `ReturnStuck` + vendor e-mail. Live on the rig: cloud edit lost at the cut, PC took over in 87 s, 7 changes on the
+PC, return 2 min 11 s after the cloud came back, cabinet's version kept, note 2026-0793 continuous, 1 review line,
+journal « Via PC de secours », PC armed and caught up. Details: deviations 115–128.
 
 ## Done earlier — numbers confirmed by the PC (D16) and idempotency (D17)
 
@@ -114,7 +130,7 @@ the PC, readable by admins, until « À reprendre » / the return exist. Details
 | 3 | First `deploy-hosted` run with the new `relay-installer` job (builds the real installer on Windows, publishes it to `deploy/updates/relay/` before the swap) — never run yet | **yes** (VPS deploy) |
 | 4 | Windows rehearsal of the one-click install + a self-update (the SYSTEM task, the real installer replacing the services), on a real PC | **yes** (UAC + 3 services) |
 | 5 | Owed checks: console column live · « perdu ou volé » for real (resets the test accounts) · A2 (non-admin session opened before a retire → 401) unit-tested only · CI `relay-copy` job not written | console/CI: push needs OK |
-| 6 | Part 2 « La relève » — lease 1, 2, 2b, « Reprendre la main » and device reports done; next: the return (D18), then the clock (D20b), banners (D20), pruning (D27), the CI cut test (D26), screens | — |
+| 6 | Part 2 « La relève » — lease 1, 2, 2b, « Reprendre la main », device reports, D17, D16 and the return (slice a) done; next: D18b, then the clock (D20b), banners (D20), pruning (D27), the CI cut test (D26), screens | — |
 | 7 | Part 3 « Les appareils suivent » (devices switch, pinned certificate, carried forms) | — |
 
 ## Commits on the branch (oldest → newest, all local)
@@ -144,8 +160,9 @@ the PC, readable by admins, until « À reprendre » / the return exist. Details
 | `a2e20458` | Part 2 lease slice 2b: D15's net in `ClinicChangeCapture`, `ClinicFencedException` (423), `IClinicWriteFence` in the jobs and startup backfills, two derived guards |
 | `1945f81d` | « Reprendre la main » (US-7, D19), AC-6.4's bell row, the card's lock line and warning, migration `AddRelayReclaim` |
 | `56d3c8cd` | idempotency (D17): `IdempotencyMiddleware`, `IdempotencyRecords` (per side), `withWriteKey` in `client.ts`, N51 |
-| (session 10) | number promise (D16): `NumberedDocuments`, `NumberPromiseCoordinator` + transaction interceptor, `IRelayPromiseBroker`, `POST /api/relay/promises`, the PC's promise loop + `RelayNumberPromises` floor |
+| `020c8f09` | number promise (D16): `NumberedDocuments`, `NumberPromiseCoordinator` + transaction interceptor, `IRelayPromiseBroker`, `POST /api/relay/promises`, the PC's promise loop + `RelayNumberPromises` floor |
 | `54b8badd` | device reports (AC-6.2): `RelayDeviceController`, `relayProbe` (Windows 1.5, Android 1.2.0), the web loop, migration `AddRelayDeviceReports` |
+| (session 11) | the return, slice a (D18): the PC's own log, two-phase handback (`POST relay/handback`, files), `RelayHandbackPlanner`, FR-11 merge, `RelayReviewItems`, stuck alarms, migration `AddRelayHandback` |
 
 ## Part 1 — done / left
 
@@ -166,7 +183,7 @@ scratch account's test password + TOTP secret). The working copies live in the O
 | Piece | State at the end of session 10 |
 |---|---|
 | Shared Docker (postgres, minio, mailpit) | started from cold this session (lease holder clinic-pc-copy) |
-| Scratch cloud API :5098 | last copy **`cloud-api-19`** (D16; PC **`pc-api-18`**, web **`web-cloud-12`** — all **stopped**; `e2e\promise-api.mjs armed|killed <pid>|floor|stood` = the D16 checks). Before: **`cloud-api-18`** (D17; `e2e\idem-api.mjs` + `pw\idem-browser.mjs` = the D17 passes), **`cloud-api-17`**, run **bound to `127.0.0.1`** (`Hosting__Urls=http://127.0.0.1:5098`) so the PC and a device arrive on one address family; web **`web-cloud-11`** (built with `NEXT_PUBLIC_API_URL=http://127.0.0.1:5098/api`). `pw\device-pass.mjs <outdir> <pcPid> <fingerprint>` = the device-report pass (22 checks, kills the PC); the shell probe harness is `scratchpad\probe-harness` (session-10 scratchpad). Before that: **`cloud-api-16`** (current code; web **`web-cloud-10`**); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
+| Scratch cloud API :5098 | last copy **`cloud-api-20`** (D18a, run bound to `127.0.0.1:5098`; PC **`pc-api-19`**, « essai 6 », stood down; both DBs carry `AddRelayHandback`; `e2eeturn-api.mjs seed|cloud-edit|pc-work|cloud-try|check` = the return pass — seed, edit on the cloud and Ctrl+Break it at once, wait the takeover, pc-work, restart the cloud, wait ~2 min, check). Before: last copy **`cloud-api-19`** (D16; PC **`pc-api-18`**, web **`web-cloud-12`** — all **stopped**; `e2e\promise-api.mjs armed|killed <pid>|floor|stood` = the D16 checks). Before: **`cloud-api-18`** (D17; `e2e\idem-api.mjs` + `pw\idem-browser.mjs` = the D17 passes), **`cloud-api-17`**, run **bound to `127.0.0.1`** (`Hosting__Urls=http://127.0.0.1:5098`) so the PC and a device arrive on one address family; web **`web-cloud-11`** (built with `NEXT_PUBLIC_API_URL=http://127.0.0.1:5098/api`). `pw\device-pass.mjs <outdir> <pcPid> <fingerprint>` = the device-report pass (22 checks, kills the PC); the shell probe harness is `scratchpad\probe-harness` (session-10 scratchpad). Before that: **`cloud-api-16`** (current code; web **`web-cloud-10`**); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
 | Scratch cloud web :3098 | **`web-cloud-9`** |
 | Test PC (:5097/:3097) | **`pc-api-16`** = current code (same « essai 6 », armed). Before that: **`pc-api-15`**, paired « PC-ACCUEIL (essai 6) » (essai 5 retired after the reclaim rehearsal; its lease kept as `.local/relay-lease.kept-cut-work-2.json`). Earlier: « PC-ACCUEIL (essai 5) » (essai 4 retired during the slice-2 cut; its lease file kept as `.local/relay-lease.kept-cut-work.json`), seeded, armed, stopped cleanly. `pc-api-11` is the PC **promoted** — never use it for Part 2. `e2e/lease2-run.mjs <pc|cloud> <label>` signs in and tries a save, two FR-5 actions (PC only — on the cloud FR-11 keeps them open and they WRITE) and a read; `e2e/lease2-retire.mjs` retires during a cut (mutates); `scratchpad/ctrlc-out/ctrlc.exe <pid> 1` (session-10 scratchpad) stops an API gracefully |
 | Browser pass for the offer | `node offer-run.mjs <outdir>` — run from the OLD scratchpad's `pw\` (has `node_modules`); 38/38 last run |

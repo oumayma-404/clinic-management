@@ -813,6 +813,249 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Null(unwrap.UnwrapToProtected("CfDJ8-not-sealed-for-me"));
     }
 
+    // ---- the return (D18) ----------------------------------------------------------------------------------------
+
+    private readonly FakeHandbackStore _handbackStore = new();
+
+    private RelayFollower HandbackFollower()
+    {
+        var secrets = new Mock<IUserSecretProtector>();
+        var credentials = new RelayCredentials(Guid.NewGuid(), ClinicId, "Cabinet", "https://cloud.example.tn", "secret",
+            Convert.ToBase64String(_keys.Private), T0);
+        var handback = new RelayHandback(_cloud, _lease, ClinicId, NullLogger.Instance, () => _mono,
+            (delay, _) => { Advance(delay.TotalSeconds); return Task.CompletedTask; });
+        return new RelayFollower(_cloud, _store, credentials, secrets.Object, "build-1",
+            () => new RelayHostReport(new[] { "192.168.1.10" }, "FP", 100L * 1024 * 1024 * 1024, 5001, "192.168.1.1"),
+            new RelayUpdater(_installer, _launcher, Path.Combine(_dir, "updates"), Path.Combine(_dir, "logs"),
+                NullLogger.Instance, () => _now),
+            _lease, NullLogger.Instance, () => _now, handback);
+    }
+
+    private RelayLocalSide HandingBackLocal => new(_rows, _rows, _files.Object, _handbackStore);
+
+    private async Task HoldingTicksAsync(RelayFollower follower, int ticks, double secondsApart = 10)
+    {
+        for (var i = 0; i < ticks; i++)
+        {
+            await follower.TickAsync(HandingBackLocal, CancellationToken.None);
+            Advance(secondsApart);
+        }
+    }
+
+    // [AC-5.1] Two minutes of answered heartbeats, then the cut goes back once: the PC forgets its log, stops holding,
+    // and its very next heartbeat says so — the cloud's cue to take the saves back (phase 2).
+    [Fact]
+    public async Task A_Holding_Pc_Hands_The_Cut_Back_Once_The_Cloud_Has_Answered_For_Two_Minutes()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 12);
+        Assert.Empty(_cloud.Handbacks);
+
+        await HoldingTicksAsync(follower, 1);
+
+        var sent = Assert.Single(_cloud.Handbacks);
+        Assert.Equal(40, sent.BaseAppliedSeq);
+        Assert.Equal(T0, sent.CutSinceUtc);
+        Assert.Equal(1, _handbackStore.Forgotten);
+        Assert.False(_lease.IsHolding);
+        var confirm = _cloud.Reports[^1];
+        Assert.False(confirm.Holding);
+        Assert.Equal(sent.HandbackId, confirm.ReturnedHandbackId);
+        Assert.Null(_lease.Current.ReturnedHandbackId);
+    }
+
+    // [AC-5.2] The cut is read with the saves refused, so nothing saved meanwhile can be missing from what is sent.
+    [Fact]
+    public async Task The_Cut_Is_Read_While_The_Pc_Refuses_Saves()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _handbackStore.ReadProbe = () => (_lease.AcceptsSaves, _lease.IsHandingBack);
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 14);
+
+        Assert.Equal(new[] { (false, true) }, _handbackStore.LeaseWhileReading);
+        Assert.Single(_cloud.Handbacks);
+    }
+
+    // [AC-5.1] A heartbeat left unanswered starts the two minutes again.
+    [Fact]
+    public async Task An_Unanswered_Heartbeat_Starts_The_Two_Minutes_Again()
+    {
+        Seeded();
+        _lease.TakeOver();
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 10);
+        _cloud.HeartbeatStatus = RelayCallStatus.Unreachable;
+        await HoldingTicksAsync(follower, 1);
+        _cloud.HeartbeatStatus = RelayCallStatus.Ok;
+        await HoldingTicksAsync(follower, 10);
+
+        Assert.Empty(_cloud.Handbacks);
+        Assert.True(_lease.AcceptsSaves);
+    }
+
+    // [AC-5.9] A lost answer is sent again with the SAME id (the cloud answers « already applied »), saves still refused;
+    // after RetryWithin the cabinet works on the PC again and the next attempt carries a NEW id.
+    [Fact]
+    public async Task A_Lost_Answer_Is_Retried_With_The_Same_Id_Then_Given_Up_For_A_New_One()
+    {
+        Seeded();
+        _lease.TakeOver();
+        var follower = HandbackFollower();
+        for (var i = 0; i < 20; i++)
+        {
+            _cloud.HandbackStatuses.Enqueue(RelayCallStatus.Unreachable);
+        }
+
+        await HoldingTicksAsync(follower, 14);
+
+        var firstId = _cloud.Handbacks[0].HandbackId;
+        Assert.True(_cloud.Handbacks.Count > 1);
+        Assert.All(_cloud.Handbacks, h => Assert.Equal(firstId, h.HandbackId));
+        Assert.True(_lease.AcceptsSaves);
+        Assert.Null(_lease.Current.HandbackId);
+        Assert.Equal(0, _handbackStore.Forgotten);
+
+        _cloud.HandbackStatuses.Clear();
+        await HoldingTicksAsync(follower, 20);
+
+        Assert.NotEqual(firstId, _cloud.Handbacks[^1].HandbackId);
+        Assert.False(_lease.IsHolding);
+    }
+
+    // [AC-5.9] A refusal gives the saves back at once, and the return is reported stuck from its first attempt.
+    [Fact]
+    public async Task A_Refused_Return_Gives_The_Saves_Back_And_Is_Reported()
+    {
+        Seeded();
+        _lease.TakeOver();
+        var follower = HandbackFollower();
+        _cloud.HandbackStatuses.Enqueue(RelayCallStatus.Refused);
+
+        await HoldingTicksAsync(follower, 14);
+
+        Assert.Single(_cloud.Handbacks);
+        Assert.True(_lease.AcceptsSaves);
+        Assert.NotNull(_lease.Current.ReturnFirstTriedAtUtc);
+
+        await HoldingTicksAsync(follower, 1);
+        Assert.Equal(_lease.Current.ReturnFirstTriedAtUtc, _cloud.Reports[^1].ReturnStuckSinceUtc);
+    }
+
+    // [EC-11, AC-5.9] On another build the return cannot start: nothing is sent, the cabinet keeps working, it is reported.
+    [Fact]
+    public async Task A_Cloud_On_Another_Build_Blocks_The_Return_And_Says_So()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _cloud.UpdateNeeded = true;
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 20);
+
+        Assert.Empty(_cloud.Handbacks);
+        Assert.True(_lease.AcceptsSaves);
+        Assert.NotNull(_cloud.Reports[^1].ReturnStuckSinceUtc);
+        Assert.Equal(0, _installer.Fetches);
+    }
+
+    // [D18] The files the cut's rows name reach the cloud before the rows that name them.
+    [Fact]
+    public async Task The_Cuts_Files_Go_Before_Its_Rows()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _handbackStore.Files = new[] { "clinics/a/scan.png", "clinics/a/held.png" };
+        _cloud.MissingFiles.Add("clinics/a/scan.png");
+        _files.Setup(f => f.DownloadAsync("clinics/a/scan.png", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new MemoryStream(new byte[] { 1, 2 }));
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 14);
+
+        Assert.Equal(new[] { "clinics/a/scan.png" }, _cloud.Uploaded);
+        Assert.Single(_cloud.Handbacks);
+    }
+
+    // [AC-5.9] A PC restarted mid-return finds it refusing saves; an unanswered heartbeat gives them back at once.
+    [Fact]
+    public async Task A_Return_Interrupted_By_A_Restart_Gives_Way_When_The_Cloud_Is_Gone()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _lease.BeginHandback();
+        Assert.False(_lease.AcceptsSaves);
+        _cloud.HeartbeatStatus = RelayCallStatus.Unreachable;
+
+        await HoldingTicksAsync(HandbackFollower(), 1);
+
+        Assert.True(_lease.AcceptsSaves);
+        Assert.Empty(_cloud.Handbacks);
+    }
+
+    // [D18] A new cut before the cloud confirmed the last return: the old handback is moot and never named again.
+    [Fact]
+    public void A_New_Takeover_Forgets_A_Return_Still_Awaiting_The_Cloud()
+    {
+        _lease.TakeOver();
+        var id = _lease.BeginHandback();
+        _lease.CompleteReturn(id);
+        Assert.Equal(id, _lease.Current.ReturnedHandbackId);
+
+        _lease.TakeOver();
+
+        Assert.Null(_lease.Current.ReturnedHandbackId);
+    }
+
+    private sealed class FakeHandbackStore : IRelayHandbackStore
+    {
+        public IReadOnlyList<string> Files { get; set; } = Array.Empty<string>();
+        public List<(bool AcceptsSaves, bool HandingBack)> LeaseWhileReading { get; } = new();
+        public Func<(bool, bool)>? ReadProbe { get; set; }
+        public int Forgotten { get; private set; }
+
+        public Task<RelayHandbackRequest> ReadCutAsync(
+            Guid clinicId, Guid handbackId, long baseAppliedSeq, DateTime cutSinceUtc, CancellationToken cancellationToken)
+        {
+            if (ReadProbe is not null)
+            {
+                LeaseWhileReading.Add(ReadProbe());
+            }
+
+            return Task.FromResult(new RelayHandbackRequest(handbackId, baseAppliedSeq, cutSinceUtc,
+                Array.Empty<RelayHandbackChange>(), Array.Empty<RelayRow>(), Array.Empty<RelayHandbackJournalEntry>(),
+                Array.Empty<RelaySignInTrace>(), Array.Empty<RelayRecoveryCodeUse>()));
+        }
+
+        public IReadOnlyList<string> FileKeys(IReadOnlyList<RelayRow> rows) => Files;
+
+        public Task ForgetCutAsync(Guid clinicId, CancellationToken cancellationToken)
+        {
+            Forgotten++;
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<RelayCloudChange>> CloudChangesAfterAsync(Guid clinicId, long afterSeq, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyDictionary<RelayRowKey, string>> CurrentRowsAsync(Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyDictionary<RelayRowKey, string>> AuthorsAsync(Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public IEnumerable<RelayRowKey> References(string table, System.Text.Json.JsonElement row) => throw new NotSupportedException();
+
+        public Task ApplyReturnAsync(Guid clinicId, RelayHandbackRequest request, RelayHandbackPlan plan, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
@@ -931,7 +1174,35 @@ public sealed class RelayFollowerTests : IDisposable
             return Task.FromResult(new RelayCall<RelayHeartbeatAck>(RelayCallStatus.Ok,
                 new RelayHeartbeatAck(T0, HighWater, AckEpoch, false, UpdateNeeded, CloudBuild,
                     AckSeq: 1000 + AcksIssued, Armed: ArmsThePc && !report.WantsToStandDown && !(Reclaimed && report.Holding),
-                    Reclaimed: Reclaimed && report.Holding)));
+                    Reclaimed: Reclaimed && report.Holding,
+                    ReturnReleased: ReleasesReturn && !report.Holding && report.ReturnedHandbackId is not null)));
+        }
+
+        // ---- D18 ----
+
+        public bool ReleasesReturn { get; set; } = true;
+        public Queue<RelayCallStatus> HandbackStatuses { get; } = new();
+        public List<RelayHandbackRequest> Handbacks { get; } = new();
+        public HashSet<string> MissingFiles { get; } = new(StringComparer.Ordinal);
+        public List<string> Uploaded { get; } = new();
+
+        public Task<RelayCall<IReadOnlyList<string>>> MissingHandbackFilesAsync(
+            IReadOnlyList<string> keys, CancellationToken cancellationToken) =>
+            Task.FromResult(new RelayCall<IReadOnlyList<string>>(RelayCallStatus.Ok, keys.Where(MissingFiles.Contains).ToList()));
+
+        public Task<RelayCall<bool>> UploadHandbackFileAsync(string storageKey, Stream content, CancellationToken cancellationToken)
+        {
+            Uploaded.Add(storageKey);
+            return Task.FromResult(new RelayCall<bool>(RelayCallStatus.Ok, true));
+        }
+
+        public Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(RelayHandbackRequest request, CancellationToken cancellationToken)
+        {
+            Handbacks.Add(request);
+            var status = HandbackStatuses.Count > 0 ? HandbackStatuses.Dequeue() : RelayCallStatus.Ok;
+            return Task.FromResult(status == RelayCallStatus.Ok
+                ? new RelayCall<RelayHandbackResultDto>(status, new RelayHandbackResultDto(false, request.Rows.Count, 0, 0))
+                : new RelayCall<RelayHandbackResultDto>(status, null, "non"));
         }
 
         public Task<RelayCall<RelayFeedBatch>> ChangesAsync(long after, string? fingerprint, CancellationToken cancellationToken)

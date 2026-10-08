@@ -38,7 +38,45 @@ public sealed record RelayHeartbeatRequest(
     long HoldingUnderAckSeq = 0,
     // AC-6.2: where a device of the cabinet tries the PC, and the box it must share with it to count.
     int? HttpsPort = null,
-    string? GatewayAddress = null);
+    string? GatewayAddress = null,
+    // D18: the handback the cloud applied, which this PC no longer holds (phase 2), and since when its return fails.
+    Guid? ReturnedHandbackId = null,
+    DateTime? ReturnStuckSinceUtc = null);
+
+/// <summary>D18: one change of the PC's own log of the cut — the key only; its row travels beside it.</summary>
+public sealed record RelayHandbackChange(
+    long Seq, string Table, string Key, bool Deleted, string? IdempotencyKey, DateTime RecordedAtUtc);
+
+/// <summary>One row of the PC's « Journal d'activité » written during the cut (AC-5.5), re-chained on the cloud.</summary>
+public sealed record RelayHandbackJournalEntry(
+    string UserId, string? UserEmail, string EntityType, string EntityId, int Action, string? ChangedFields,
+    DateTime OccurredAtUtc, bool IsDeclaredGap = false);
+
+/// <summary>FR-11: an account's sign-in traces on the PC, merged field by field — never the account itself.</summary>
+public sealed record RelaySignInTrace(string UserId, DateTime? LastLoginAt, int FailedLoginAttempts, DateTime? LockoutEnd);
+
+/// <summary>FR-11: a recovery code spent on the PC stays spent on the cloud.</summary>
+public sealed record RelayRecoveryCodeUse(Guid Id, DateTime UsedAtUtc);
+
+/// <summary>
+/// D18: the cut's work, handed back once. <c>BaseAppliedSeq</c> is the last cloud change the PC held when it took over:
+/// what the cloud changed after it, the PC never saw. <c>HandbackId</c> makes a repeated request a no-op.
+/// </summary>
+public sealed record RelayHandbackRequest(
+    Guid HandbackId,
+    long BaseAppliedSeq,
+    DateTime? CutSinceUtc,
+    IReadOnlyList<RelayHandbackChange> Changes,
+    IReadOnlyList<Common.Interfaces.RelayRow> Rows,
+    IReadOnlyList<RelayHandbackJournalEntry> Journal,
+    IReadOnlyList<RelaySignInTrace> SignIns,
+    IReadOnlyList<RelayRecoveryCodeUse> RecoveryCodesUsed);
+
+/// <summary>The cloud's answer: how many rows it applied, dropped as a duplicate (D17) and listed for review.</summary>
+public sealed record RelayHandbackResultDto(bool AlreadyApplied, int Applied, int Dropped, int Listed);
+
+/// <summary>The files the cut's rows name; the cloud answers with those it does not have yet.</summary>
+public sealed record RelayHandbackFilesRequest(IReadOnlyList<string>? Keys);
 
 /// <summary>
 /// D16: one number the cloud is about to make final, sent to its PC de secours, which keeps it before the cloud commits.
@@ -60,7 +98,9 @@ public sealed record RelayHeartbeatAck(
     long AckSeq = 0,
     bool Armed = false,
     // D19: an admin took the cloud back after this PC's takeover — it stops and keeps the cut's work.
-    bool Reclaimed = false);
+    bool Reclaimed = false,
+    // D18 phase 2: the cloud holds the cabinet's saves again after the handback this PC named — it may forget it.
+    bool ReturnReleased = false);
 
 /// <summary>« Paramètres → PC de secours » (AC-2.1).</summary>
 /// <summary>The PC de secours's own view of itself (AC-8.1), read on the PC.</summary>

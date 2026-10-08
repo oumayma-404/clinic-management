@@ -71,7 +71,7 @@ public class RelayLeaseGateMiddleware
             var now = DateTime.UtcNow;
             if (ClinicWriteLease.IsCloudFenced(relay, now))
             {
-                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, now);
+                var (error, code) = RelayRefusals.ForFencedCloud(relay!.PcHoldingSinceUtc, now, relay.IsReturning);
                 context.Response.StatusCode = StatusCodes.Status423Locked;
                 await context.Response.WriteAsJsonAsync(new { error, code });
                 return;
@@ -92,7 +92,7 @@ public class RelayLeaseGateMiddleware
         }
 
         // A retired PC never accepts a save again: « pendant une coupure d'internet » would promise one.
-        var (refusal, refusalCode) = RelayRefusals.ForPcNotHolding(relayLocal.IsRetired);
+        var (refusal, refusalCode) = RelayRefusals.ForPcNotHolding(relayLocal.IsRetired, relayLocal.IsHandingBack);
         context.Response.StatusCode = StatusCodes.Status423Locked;
         await context.Response.WriteAsJsonAsync(new { error = refusal, code = refusalCode });
     }
