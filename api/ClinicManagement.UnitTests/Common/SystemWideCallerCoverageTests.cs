@@ -32,6 +32,7 @@ public class SystemWideCallerCoverageTests
     {
         ["ProvisionCertCommand.cs"] = "mints certificates into .local/; never opens a DbContext",
         ["PairRelayConsoleCommand.cs"] = "pairs over HTTPS and writes .local/relay.json; never opens a DbContext",
+        ["RelayBuildConsoleCommand.cs"] = "prints the compiled build identity; reads no configuration, opens no DbContext",
         ["HardenPermissionsCommand.cs"] = "sets filesystem ACLs; never opens a DbContext",
         ["CredentialProtectionCommand.cs"] = "encrypts a string through Data Protection; never opens a DbContext",
         ["RestoreBackupCommand.cs"] = "runs pg_restore and bumps TokenVersion over raw ADO (NpgsqlCommand) — there "

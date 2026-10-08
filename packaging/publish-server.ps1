@@ -49,6 +49,10 @@ param(
     # The release being built. Omit it and the shell project's own <Version> is used, which is the point:
     # there is ONE source for this number and everything downstream is stamped from it. See Resolve-Version.
     [string]$Version,
+    # The commit, stamped into the API's informational version (clinic-pc-copy D10). The cloud image is built with
+    # the same value, so a PC de secours installed from this build has the cloud's build identity. Omit it and a git
+    # checkout stamps its own HEAD, which is the same commit when CI builds both.
+    [string]$SourceRevision,
     [switch]$SkipInstallers
 )
 
@@ -129,11 +133,14 @@ Clear-Dir $ClientOut
 # --- 1. Publish the API (self-contained win-x64, Windows-service capable) -----------------------
 Write-Step 'Publishing ClinicManagement.API (self-contained win-x64)'
 $ApiOut = Join-Path $ServerOut 'api'
+$RevisionArgs = @()
+if ($SourceRevision) { $RevisionArgs = @("/p:SourceRevisionId=$SourceRevision") }
 dotnet publish $ApiProject `
     -c $Configuration `
     -r $Rid `
     --self-contained true `
     /p:UseAppHost=true `
+    @RevisionArgs `
     -o $ApiOut
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish (API) failed with exit code $LASTEXITCODE." }
 

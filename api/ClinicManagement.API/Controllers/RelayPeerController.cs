@@ -1,4 +1,5 @@
 using ClinicManagement.API.Authorization;
+using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Relay;
@@ -29,13 +30,52 @@ public class RelayPeerController : ApiControllerBase
     /// <summary>The relay secret travels in a header, never in a URL (this application's URLs are logged).</summary>
     public const string SecretHeader = "X-Relay-Secret";
 
+    /// <summary>The installer's SHA-256 (hex), beside its bytes: the Windows app runs nothing elevated without it.</summary>
+    public const string InstallerSha256Header = "X-Content-SHA256";
+
     private readonly IMediator _mediator;
     private readonly DeploymentProfile _deployment;
+    private readonly IConfiguration _configuration;
+    private readonly IRelayBuildInfo _build;
 
-    public RelayPeerController(IMediator mediator, DeploymentProfile deployment)
+    public RelayPeerController(
+        IMediator mediator, DeploymentProfile deployment, IConfiguration configuration, IRelayBuildInfo build)
     {
         _mediator = mediator;
         _deployment = deployment;
+        _configuration = configuration;
+        _build = build;
+    }
+
+    /// <summary>
+    /// The server installer of THIS build (D10): what the Windows app runs to make a PC the cabinet's PC de secours,
+    /// and what a PC de secours runs to follow a cloud update. Anonymous like the pairing it precedes — the installer is
+    /// the product every cabinet already gets, and the one-time code is what makes it a PC de secours.
+    ///
+    /// <para>⚠️ <b>404 until the installer of this exact build is published</b> — a PC set up one deploy behind could
+    /// never copy. The Windows app reads that 404 as « pas encore », never as a connection problem.</para>
+    /// </summary>
+    [HttpGet("installer")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.RelayTokenPolicy)]
+    [AllowsWithoutSubscription("The installer of a PC that will hold the clinic's own records.")]
+    public IActionResult Installer()
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var package = RelayInstallerPackage.Find(
+            RelayInstallerPackage.ResolveFolder(_configuration, AppContext.BaseDirectory), _build.Current);
+        if (package is null)
+        {
+            return Failure(RelayRefusals.InstallerUnavailable, StatusCodes.Status404NotFound);
+        }
+
+        Response.Headers[InstallerSha256Header] = package.Sha256;
+        Response.Headers[BuildHeader] = package.Build;
+        return PhysicalFile(package.FullPath, "application/octet-stream", package.FileName, enableRangeProcessing: true);
     }
 
     [HttpPost("pair")]

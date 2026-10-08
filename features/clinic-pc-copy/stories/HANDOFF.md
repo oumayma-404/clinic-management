@@ -1,13 +1,13 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (session 6) · **Overall:** ~33 % · **Part 1 (La copie):** ~94 %
+**Date:** 2026-10-08 (session 6) · **Overall:** ~34 % · **Part 1 (La copie):** ~96 %
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push without the owner's OK**).
 2. Read this file, then `progress.md` (Part status, deviations 1–35, verification log). Plan: `../plan.md`, spec: `../spec.md`.
-3. Next sub-step: **serve the installer + slim update (D10)** — see « Next steps » below.
+3. Next sub-step: **self-update on « update needed » (D10b)** — see « Next steps » below.
 4. The owner works step by step: « next step » = one sub-step → build, gate, live check on the scratch rig, notes,
    local commit, then a short report ending with a % table and the roadmap table (`.claude/rules/response-style.md`).
 
@@ -27,7 +27,8 @@
 | `2382c056` | « Effacer la copie » on a retired PC + shared code field no longer scrolls sideways (`pushPasswordManagerStrategy="none"`) |
 | `07d9b321` | uninstall verb `uninstall-relay [--erase]` (cloud told first, erase only once it answered) + `pair-relay` resets the follower state |
 | `b7336cb2` | installer `/RELAY` role + uninstall prompt « Effacer aussi la copie du cabinet ? » |
-| _(session 6)_ | bridge `relayHostFacts` + `installRelay` (shell 1.4), the offer (start-up dialog, card door, `/pc-de-secours` credentials door), code release, `canInstall`/`needBytes` |
+| `47a105f6` | bridge `relayHostFacts` + `installRelay` (shell 1.4), the offer (start-up dialog, card door, `/pc-de-secours` credentials door), code release, `canInstall`/`needBytes` |
+| _(session 6, 2nd)_ | `GET /api/relay/installer` (this build only, `X-Content-SHA256`), `relay-build` verb, commit stamped into the image + installer, `deploy-hosted.yml` builds and publishes the installer before the swap |
 
 ## Part 1 — what is done, what is left
 
@@ -37,20 +38,18 @@
 | Copy (snapshot, feed, apply, files) | ✅ rehearsed end to end; CI `relay-copy` job **not written** (push needs OK) |
 | Watching (heartbeat, card, bell, console, e-mails) | ✅ — console column never seen live |
 | Lifecycle (re-wrap, retire, lost, erase, uninstall) | ✅ — AC-8.6 waits for Part 2's lock |
-| One click and lockstep | 🔶 installer role ✅ (compiled, **not run**); bridge + offer ✅ (browser-rehearsed with a stand-in bridge); serving the installer/update, CI publish, self-update (D10b), promotion verbs (D11) left |
+| One click and lockstep | 🔶 installer role ✅ (compiled, **not run**); bridge + offer ✅ (browser-rehearsed with a stand-in bridge); serving the installer + CI build ✅ (the CI job has not run yet); self-update (D10b), promotion verbs (D11) left |
 
 ## Next steps, in order
 
-1. **Serve the installer + slim update** from `deploy/updates/relay/` (D10) and the CI job building them — ⚠️ the
-   first VPS publish needs the owner's OK. **Contract already fixed by the shell**: `GET /api/relay/installer` answering
-   the bytes **with an `X-Content-SHA256` hex header** — no header ⇒ the shell refuses to run it; a 404 reads « Le cloud
-   ne propose pas encore l'installation du PC de secours ».
-2. **Self-update on « update needed »** in the heartbeat ack (D10b) — runs the installer with `/RELAY` and no
-   `/PAIRFILE` (an update in place keeps its pairing; the installer refuses `/RELAY` without a code only when no relay
+1. **Self-update on « update needed »** in the heartbeat ack (D10b): disarm → fetch `GET /api/relay/installer` (check
+   `X-Content-SHA256`) → run it with `/RELAY` and no `/PAIRFILE` (an update in place keeps its pairing; the installer refuses `/RELAY` without a code only when no relay
    is installed).
-3. **Promotion verbs** (D11, offline-signed code).
+2. **Promotion verbs** (D11, offline-signed code).
+3. **First deploy with the installer job** — `deploy-hosted.yml` now builds the real server installer on
+   Windows and publishes it to `deploy/updates/relay/` before the swap; never run yet. Owner's OK (it is a VPS deploy).
 4. **Windows rehearsal** of the one-click install on a real PC — owner's OK (UAC + three services). Needs shell 1.4
-   and step 1. The browser pass `offer-run.mjs` (rig `pw\`) already covers everything around the UAC run.
+   and step 3. The browser pass `offer-run.mjs` (rig `pw\`) already covers everything around the UAC run.
 5. Owed checks: console column live; « perdu ou volé » confirmed for real (resets the test accounts → new password +
    TOTP enrolment); A2 (a non-admin session opened before the retire → 401) is unit-tested only.
 6. Then Part 2 « La relève » and Part 3 « Les appareils suivent ».

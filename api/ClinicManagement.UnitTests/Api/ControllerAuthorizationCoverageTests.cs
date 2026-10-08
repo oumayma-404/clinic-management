@@ -71,6 +71,9 @@ public class ControllerAuthorizationCoverageTests
                                      // that one PC and nothing else; rate-limited like the exchange.
         "RelayPeer.Uninstalled",     // the uninstaller saying this PC is going (AC-8.3): its own secret, for the same
                                      // reason — it retires that one PC and writes one journal row; rate-limited.
+        "RelayPeer.Installer",       // the server installer of THIS build (D10): the product every cabinet already
+                                     // gets — the one-time code is what makes it a PC de secours. Rate-limited,
+                                     // 404 where no change feed is published.
         "Relay.ReleasePairingCode",  // the Windows app giving back a code its installer never presented (AC-1.11):
                                      // the code IS the credential, it can only free that one unused setup, and every
                                      // outcome is the same 204; rate-limited like the pairing.

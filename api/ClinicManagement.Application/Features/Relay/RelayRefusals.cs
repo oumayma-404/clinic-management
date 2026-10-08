@@ -64,4 +64,7 @@ public static class RelayRefusals
     public const string NotAdmin = "Seul un administrateur du cabinet peut gérer le PC de secours.";
 
     public const string InvalidKey = "La clé du PC de secours est invalide.";
+
+    /// <summary>D10: the installer of this cloud build is not published yet (a deploy in progress, or none yet).</summary>
+    public const string InstallerUnavailable = "Le cloud ne propose pas encore l'installation du PC de secours.";
 }

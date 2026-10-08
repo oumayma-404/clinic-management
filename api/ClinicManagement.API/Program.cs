@@ -46,6 +46,14 @@ if (args.Length > 0 && string.Equals(args[0], PairRelayConsoleCommand.CommandNam
     return await PairRelayConsoleCommand.RunAsync(args);
 }
 
+// clinic-pc-copy D10: this build's identity, which CI writes into the PC de secours installer's manifest so the
+// cloud serves an installer only to the build it was made from. Usage:
+//   ClinicManagement.API.exe relay-build
+if (args.Length > 0 && string.Equals(args[0], RelayBuildConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return RelayBuildConsoleCommand.Run();
+}
+
 // clinic-pc-copy AC-8.3: uninstalling the PC de secours tells the cloud (it counts as retiring) and, with --erase, erases
 // the copy once the cloud has answered. Run by the uninstaller, with the API service stopped. Usage:
 //   ClinicManagement.API.exe uninstall-relay [--erase]
