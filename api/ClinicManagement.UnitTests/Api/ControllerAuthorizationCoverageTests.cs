@@ -66,6 +66,9 @@ public class ControllerAuthorizationCoverageTests
         "RelayPeer.Token",           // the PC exchanging its own secret (header, hashed) for a SCOPED
                                      // `clinic-relay` token that reaches the RelayPeer actions and nothing else —
                                      // `Backup.ExchangeArchiveGrant`'s shape and reasoning.
+        "RelayPeer.Erased",          // a RETIRED PC saying its copy is erased (AC-8.2): its own secret, since the
+                                     // token exchange refuses a retired PC. It records a date and a journal row for
+                                     // that one PC and nothing else; rate-limited like the exchange.
         "Auth.Logout",              // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
                                      // one more: the credential in the body IS the authentication, and demanding
                                      // a valid access token would refuse exactly the case that most needs

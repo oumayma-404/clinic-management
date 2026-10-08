@@ -39,6 +39,12 @@ public sealed record RelayFollowerState
     /// <summary>When this PC learned it was released; null on a file written before the field existed.</summary>
     public DateTime? ReleasedAtUtc { get; init; }
 
+    /// <summary>When « Effacer la copie » emptied this PC (AC-8.2). Kept so the cloud is told even if it was unreachable then.</summary>
+    public DateTime? ErasedAtUtc { get; init; }
+
+    /// <summary>The cloud has recorded the erasure — the copy loop stops reporting it.</summary>
+    public bool ErasureReported { get; init; }
+
     public DateTime? LastDigestAtUtc { get; init; }
     public IReadOnlyList<string> MismatchTables { get; init; } = Array.Empty<string>();
     public int FilesTotal { get; init; }

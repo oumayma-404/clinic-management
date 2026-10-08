@@ -64,6 +64,20 @@ public sealed class RelayFollower
     public async Task<RelayFollowerState> TickAsync(RelayLocalSide local, CancellationToken cancellationToken)
     {
         var state = _stateStore.Load();
+
+        // AC-8.2: an erased PC tells the cloud, however long the cloud was out of reach when it happened. « Unknown »
+        // counts as told — the cloud no longer has a PC to record it against.
+        if (state.ErasedAtUtc is not null && !state.ErasureReported)
+        {
+            var told = await _cloud.ReportErasedAsync(cancellationToken);
+            if (told.Status is RelayCallStatus.Ok or RelayCallStatus.Released)
+            {
+                state = Save(state with { ErasureReported = true });
+            }
+
+            return state;
+        }
+
         if (state.Released)
         {
             return state;

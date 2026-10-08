@@ -6,6 +6,9 @@ public static class RelayStepUpActions
     public const string Pairing = "relay-pairing";
     public const string Lost = "relay-lost";
     public const string Reclaim = "relay-reclaim";
+
+    /// <summary>« Effacer la copie » on a retired PC (AC-8.2) — an authenticator code, never a password.</summary>
+    public const string Erase = "relay-erase";
 }
 
 /// <summary>Each PC de secours refusal: its code and its French sentence, kept together (the client branches on the code).</summary>
@@ -20,6 +23,11 @@ public static class RelayRefusals
     public const string StandbyCode = "relay_standby";
     public const string NotAdminCode = "relay_admin_only";
     public const string InvalidRequestCode = "relay_invalid";
+    public const string NotRetiredCode = "relay_not_retired";
+
+    /// <summary>« Effacer la copie » on a PC the cloud has not retired (AC-8.2): the copy is still the cabinet's spare.</summary>
+    public const string NotRetired =
+        "Ce PC est encore le PC de secours du cabinet : retirez-le d'abord depuis « Paramètres » sur le cloud.";
 
     public static string AlreadyPaired(string label) =>
         $"Un PC de secours est déjà installé (ou en cours d'installation) : {label}.";

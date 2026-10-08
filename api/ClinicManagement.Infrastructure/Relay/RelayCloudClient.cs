@@ -41,6 +41,9 @@ public interface IRelayCloudClient
 
     /// <summary>Downloads one stored object to a temporary file the caller deletes.</summary>
     Task<RelayCall<string>> BlobAsync(string storageKey, CancellationToken cancellationToken);
+
+    /// <summary>« Effacer la copie » is done (AC-8.2) — sent with the PC's secret, since a retired PC gets no token.</summary>
+    Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -88,6 +91,31 @@ public sealed class RelayCloudClient : IRelayCloudClient
     public Task<RelayCall<string>> BlobAsync(string storageKey, CancellationToken cancellationToken) =>
         DownloadAsync(() => new HttpRequestMessage(HttpMethod.Get, $"relay/blob?key={Uri.EscapeDataString(storageKey)}"),
             ".part", cancellationToken);
+
+    public async Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "relay/erased")
+        {
+            Content = JsonContent.Create(new { relayId = _credentials.RelayId }, options: Json),
+        };
+        request.Headers.Add("X-Relay-Secret", _credentials.Secret);
+
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return new RelayCall<bool>(RelayCallStatus.Ok, true);
+            }
+
+            var (code, error) = await RefusalAsync(response, cancellationToken);
+            return new RelayCall<bool>(Classify(response.StatusCode, code), false, error);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return new RelayCall<bool>(RelayCallStatus.Unreachable, false, ex.Message);
+        }
+    }
 
     private async Task<RelayCall<T>> SendJsonAsync<T>(Func<HttpRequestMessage> build, CancellationToken cancellationToken)
     {

@@ -176,6 +176,10 @@ public static class Extensions
         services.AddScoped<IClinicRelayRepository, ClinicRelayRepository>();
         // Every profile: « not retired » off a PC de secours, without touching the disk (clinic-pc-copy AC-8.1).
         services.AddSingleton<IRelayLocalStatus>(sp => new RelayLocalStatus(sp.GetRequiredService<DeploymentProfile>()));
+        services.AddScoped(sp => new RelayLocalEraser(
+            sp.GetRequiredService<IClinicPurge>(), sp.GetRequiredService<IUnitOfWork>(), sp.GetRequiredService<IFileStorage>(),
+            sp.GetRequiredService<IUserRepository>(), new RelayFollowerStateStore(),
+            sp.GetRequiredService<ILogger<RelayLocalEraser>>()));
         services.AddScoped<IRelayIncidentRepository, RelayIncidentRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();

@@ -61,6 +61,13 @@ export const relayApi = {
   /** On the PC de secours itself (AC-8.1): still following, or retired since a day. 404 on every other install. */
   local: () => apiGet<RelayLocalStatusDto>('/relay/local'),
 
+  /**
+   * « Effacer la copie » on a retired PC (AC-8.2) — needs a step-up token for {@link RELAY_ERASE_STEP_UP}. Every record
+   * and file of the cabinet leaves this PC, the caller's own account included: the session ends with the answer.
+   */
+  eraseLocal: (stepUpToken: string) =>
+    apiPost<{ erased: boolean; filesDeleted: number }>('/relay/local/erase', {}, undefined, stepUpToken),
+
   /** « Retirer ce PC » (AC-8.1): the copy stops and the clinic may set up another. Returns the new state. */
   retire: () => apiDelete<RelayStatusDto>('/relay'),
 
@@ -73,3 +80,6 @@ export const relayApi = {
 
 /** The step-up action « Déclarer perdu ou volé » is confirmed with — an authenticator code, never a password. */
 export const RELAY_LOST_STEP_UP = "relay-lost";
+
+/** The step-up action « Effacer la copie » is confirmed with — an authenticator code, never a password. */
+export const RELAY_ERASE_STEP_UP = "relay-erase";

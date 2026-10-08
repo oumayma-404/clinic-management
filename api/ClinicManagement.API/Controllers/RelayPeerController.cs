@@ -73,6 +73,28 @@ public class RelayPeerController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// A retired PC says « Effacer la copie » is done (AC-8.2). Its own secret, no token — the exchange refuses a retired
+    /// PC, and only a retired PC can send this. It records a date and a journal row, nothing else.
+    /// </summary>
+    [HttpPost("erased")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.RelayTokenPolicy)]
+    [AllowsWithoutSubscription("Recording that a retired PC no longer holds the cabinet's records is never new work.")]
+    public async Task<IActionResult> Erased(
+        [FromBody] RelayTokenRequest request,
+        [FromHeader(Name = SecretHeader)] string? secret,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new ReportRelayErasedCommand(request.RelayId, secret ?? string.Empty), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : NoContent();
+    }
+
     [HttpPost("heartbeat")]
     [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
     [AllowsWithoutSubscription("The PC's report about itself records no work of the cabinet's.")]

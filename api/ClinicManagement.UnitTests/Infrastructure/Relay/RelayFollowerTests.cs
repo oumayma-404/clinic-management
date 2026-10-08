@@ -286,6 +286,26 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Equal(T0, later.ReleasedAtUtc);
     }
 
+    // AC-8.2: an erased PC tells the cloud until the cloud has heard — an unplugged PC tells it when plugged back in —
+    // and never calls anything else again.
+    [Fact]
+    public async Task An_Erased_Pc_Reports_It_Until_The_Cloud_Has_Heard()
+    {
+        _store.Save(new RelayFollowerState { Released = true, ErasedAtUtc = T0 });
+        _cloud.ErasedStatus = RelayCallStatus.Unreachable;
+
+        var first = await TickAsync();
+        Assert.False(first.ErasureReported);
+
+        _cloud.ErasedStatus = RelayCallStatus.Ok;
+        var second = await TickAsync();
+        await TickAsync();
+
+        Assert.True(second.ErasureReported);
+        Assert.Equal(2, _cloud.ErasedReports);
+        Assert.Empty(_cloud.Reports);
+    }
+
     // No answer is not evidence of anything: the state is left exactly as it was.
     [Fact]
     public async Task An_Unreachable_Cloud_Changes_Nothing()
@@ -473,6 +493,14 @@ public sealed class RelayFollowerTests : IDisposable
         public List<(long After, string? Fingerprint)> ChangesAsked { get; } = new();
         public List<string> BlobsAsked { get; } = new();
         public int SnapshotCalls { get; private set; }
+        public RelayCallStatus ErasedStatus { get; set; } = RelayCallStatus.Ok;
+        public int ErasedReports { get; private set; }
+
+        public Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken)
+        {
+            ErasedReports++;
+            return Task.FromResult(new RelayCall<bool>(ErasedStatus, ErasedStatus == RelayCallStatus.Ok));
+        }
 
         public Task<RelayCall<RelayHeartbeatAck>> HeartbeatAsync(RelayHeartbeatRequest report, CancellationToken cancellationToken)
         {

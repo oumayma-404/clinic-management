@@ -21,6 +21,8 @@ public class RelayStandbyExemptionCoverageTests
         "Auth.Logout",
         "Auth.EndMySession",
         "Auth.StepUp",
+        // AC-8.2: on a RETIRED PC, the admin erases this PC's copy — it removes the copy, it writes nothing the cloud owns.
+        "RelayLocal.Erase",
     };
 
     private static IReadOnlyCollection<string> AllowedWrites(IEnumerable<Type> controllers)

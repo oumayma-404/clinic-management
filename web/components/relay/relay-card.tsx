@@ -19,7 +19,8 @@ import { useSession } from "@/lib/auth/session"
 import { STATUS_TONE_CLASS, type StatusTone } from "@/components/ui/status-tone"
 import { ApiError } from "@/lib/api/client"
 import {
-  RELAY_CARD_ID, RELAY_LOST_STEP_UP, relayApi, type RelayLocalStatusDto, type RelayStateKey, type RelayStatusDto,
+  RELAY_CARD_ID, RELAY_ERASE_STEP_UP, RELAY_LOST_STEP_UP, relayApi, type RelayLocalStatusDto, type RelayStateKey,
+  type RelayStatusDto,
 } from "@/lib/api/relay"
 import { showErrorToast } from "@/lib/errors"
 import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
@@ -125,6 +126,24 @@ export function RelayCard() {
     }
   }
 
+  // « Effacer la copie » on a retired PC (AC-8.2): explained first, then confirmed with an authenticator code.
+  const [eraseConfirmOpen, setEraseConfirmOpen] = useState(false)
+  const [eraseStepUpOpen, setEraseStepUpOpen] = useState(false)
+  const [erasing, setErasing] = useState(false)
+
+  const eraseLocal = async (stepUpToken: string) => {
+    setErasing(true)
+    try {
+      await relayApi.eraseLocal(stepUpToken)
+      // The accounts went with the copy, this one included: say so, then the sign-in screen.
+      toast.success("Copie effacée de ce PC. Le cabinet garde tout sur le cloud.")
+      window.setTimeout(() => logout(), 2500)
+    } catch (err) {
+      showErrorToast(err, "La copie n'a pas pu être effacée.")
+      setErasing(false)
+    }
+  }
+
   const retire = async () => {
     setRetiring(true)
     try {
@@ -181,15 +200,29 @@ export function RelayCard() {
         )}
 
         {load.kind === "local" && (
-          <p
-            role="status"
-            className={`inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${STATUS_TONE_CLASS[load.local.retired ? "neutral" : "positive"]}`}
-          >
-            {load.local.retired
-              ? <Archive aria-hidden="true" className="size-3.5 shrink-0" />
-              : <CheckCircle2 aria-hidden="true" className="size-3.5 shrink-0" />}
-            <span className="min-w-0">{load.local.sentence}</span>
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p
+              role="status"
+              className={`inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${STATUS_TONE_CLASS[load.local.retired ? "neutral" : "positive"]}`}
+            >
+              {load.local.retired
+                ? <Archive aria-hidden="true" className="size-3.5 shrink-0" />
+                : <CheckCircle2 aria-hidden="true" className="size-3.5 shrink-0" />}
+              <span className="min-w-0">{load.local.sentence}</span>
+            </p>
+            {/* Only once retired: before that, this copy is the cabinet's spare. */}
+            {load.local.retired && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-destructive coarse:min-h-11 sm:w-auto"
+                disabled={erasing}
+                onClick={() => setEraseConfirmOpen(true)}
+              >
+                {erasing ? "Effacement…" : "Effacer la copie"}
+              </Button>
+            )}
+          </div>
         )}
       </CardContent>
 
@@ -241,6 +274,40 @@ export function RelayCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={eraseConfirmOpen} onOpenChange={setEraseConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Effacer la copie du cabinet de ce PC ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tous les dossiers, fiches, documents et fichiers du cabinet sont effacés de ce PC, ainsi que ses comptes :
+              personne ne pourra plus s&apos;y connecter. Le cloud garde tout. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="coarse:min-h-11">Annuler</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              className="coarse:min-h-11"
+              onClick={() => {
+                setEraseConfirmOpen(false)
+                setEraseStepUpOpen(true)
+              }}
+            >
+              Continuer
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <StepUpDialog
+        open={eraseStepUpOpen}
+        onOpenChange={setEraseStepUpOpen}
+        action={RELAY_ERASE_STEP_UP}
+        purpose="Vous allez effacer de ce PC toute la copie du cabinet."
+        hasTotp
+        onConfirmed={(token) => void eraseLocal(token)}
+      />
 
       <StepUpDialog
         open={lostStepUpOpen}

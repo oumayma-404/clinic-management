@@ -113,6 +113,7 @@ public class RelayController : ApiControllerBase
         RelayRefusals.UnknownRelayCode => StatusCodes.Status401Unauthorized,
         RelayRefusals.RetiredCode => StatusCodes.Status410Gone,
         RelayRefusals.VersionMismatchCode => StatusCodes.Status409Conflict,
+        RelayRefusals.NotRetiredCode => StatusCodes.Status409Conflict,
         "relay_blob_not_found" => StatusCodes.Status404NotFound,
         _ => StatusCodes.Status400BadRequest,
     };

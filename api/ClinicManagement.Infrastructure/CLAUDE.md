@@ -597,6 +597,11 @@ no consent flag and no audit of which patient was sent.
   `Application/Features/Platform/VendorAlertRecipients` — the channel shared with `server-loss-recovery`'s backup
   alerts (`Backup:AlertEmail`, else every active console account). ⚠️ `RelayIncident` is on `ClinicArchiveScope.Excluded`
   (hence the copy's too) and is deliberately not an aggregate root, so it never reaches the cabinet's journal.
+- **Retired PC (PC side)**: `RelayLocalStatus` (singleton, re-reads the state file every 5 s) is what the login and
+  `RelayLeaseGateMiddleware` ask — a retired PC opens for admins only, and nothing about it is written to the DB.
+  `RelayLocalEraser` (« Effacer la copie ») purges the cabinet through `IClinicPurge` **inside one transaction**, then
+  saves `ErasedAtUtc`, then deletes the files; ⚠️ a failed purge rolls back and claims nothing. The follower then
+  reports `relay/erased` with the PC's own secret until the cloud has heard (`ErasureReported`), and does nothing else.
 
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live

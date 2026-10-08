@@ -46,6 +46,8 @@ public static class RelayLabels
             ClinicRelayState.Mismatch => "La copie ne correspond pas au cloud — réparation en cours",
             ClinicRelayState.Retired when relay?.RetiredReason == ClinicRelayRetirement.LostOrStolen =>
                 $"Déclaré perdu ou volé le {ClinicClock.ToClinicLocal(reading.Since ?? nowUtc).ToString("dd/MM", French)}",
+            ClinicRelayState.Retired when relay?.ErasedAtUtc is { } erased =>
+                $"Copie effacée du PC le {ClinicClock.ToClinicLocal(erased).ToString("dd/MM", French)}",
             ClinicRelayState.Retired =>
                 $"Copie arrêtée le {ClinicClock.ToClinicLocal(reading.Since ?? nowUtc).ToString("dd/MM", French)}",
             ClinicRelayState.Stopped =>

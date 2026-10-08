@@ -51,6 +51,7 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
         Relay.RelayStepUpActions.Pairing,
         Relay.RelayStepUpActions.Lost,
         Relay.RelayStepUpActions.Reclaim,
+        Relay.RelayStepUpActions.Erase,
     };
 
     private readonly IClinicContext _clinicContext;

@@ -259,6 +259,29 @@ public class ClinicRelay : AggregateRoot<Guid>
         PairingCodeExpiresAtUtc = null;
     }
 
+    /// <summary>When the PC reported « Effacer la copie » done (AC-8.2); null while the copy may still be on it.</summary>
+    public DateTime? ErasedAtUtc { get; private set; }
+
+    /// <summary>
+    /// The retired PC says its copy is gone (AC-8.2). Only a retired PC can have erased — an active one still holds the
+    /// copy by definition. Returns false when already recorded, so a repeated report writes no second journal row.
+    /// </summary>
+    public bool MarkErased(DateTime nowUtc)
+    {
+        if (Status != ClinicRelayStatus.Retired)
+        {
+            throw new InvalidOperationException("Seul un PC de secours retiré peut effacer sa copie.");
+        }
+
+        if (ErasedAtUtc is not null)
+        {
+            return false;
+        }
+
+        ErasedAtUtc = nowUtc;
+        return true;
+    }
+
     /// <summary>
     /// « Déclarer perdu ou volé » (AC-8.4): retires the PC if it is not already, and records the reason even on a PC
     /// retired earlier — a PC put in a cupboard and then stolen is exactly the case.
