@@ -57,6 +57,8 @@ public class SubscriptionExemptionCoverageTests
         "Relay.ReleasePairingCode",
         "RelayPeer.Token",
         "RelayPeer.Heartbeat",
+        // D16: the PC keeping a number the cloud is about to issue — nothing recorded on the PC's side.
+        "RelayPeer.Promises",
         "Relay.Retire",
         // AC-8.4: securing the accounts a stolen PC held — an unpaid cabinet must be able to, and it records nothing new.
         "Relay.DeclareLost",

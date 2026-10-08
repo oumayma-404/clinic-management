@@ -75,7 +75,83 @@ public sealed class RelayFeedJob : BackgroundService
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
-        Task.WhenAll(CopyLoopAsync(stoppingToken), LeaseLoopAsync(stoppingToken));
+        Task.WhenAll(CopyLoopAsync(stoppingToken), LeaseLoopAsync(stoppingToken), PromiseLoopAsync(stoppingToken));
+
+    /// <summary>After a failed poll — the cloud away, a cut — the next try.</summary>
+    private static readonly TimeSpan PromiseRetry = TimeSpan.FromSeconds(2);
+
+    private IRelayPromiseChannel? _promiseChannel;
+    private Guid _promiseRelayId;
+
+    /// <summary>
+    /// D16: a long poll kept open on the cloud, so a note, devis or avoir number is held here before the cloud makes it
+    /// final — the PC then numbers after it during a cut (EC-22). Each kept promise is acknowledged in the very next
+    /// poll, opened at once: the cloud's save waits for that round trip (≤ 3 s). Idle while unpaired or holding (the
+    /// cloud then numbers nothing).
+    /// </summary>
+    private async Task PromiseLoopAsync(CancellationToken stoppingToken)
+    {
+        var acks = new List<Guid>();
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                var credentials = _schemaReady && !_lease.IsHolding ? new RelayCredentialStore(_protection).TryLoad() : null;
+                if (credentials is null)
+                {
+                    acks.Clear();
+                    await Task.Delay(PromiseRetry, stoppingToken);
+                    continue;
+                }
+
+                var call = await PromiseChannelFor(credentials).PromisesAsync(acks, stoppingToken);
+                if (!call.IsOk || call.Value is null)
+                {
+                    await Task.Delay(PromiseRetry, stoppingToken);
+                    continue;
+                }
+
+                acks.Clear();
+                if (call.Value.Count > 0)
+                {
+                    using var scope = _scopes.CreateScope();
+                    var services = scope.ServiceProvider;
+                    services.GetRequiredService<ITenantScope>().UseClinic(credentials.ClinicId);
+                    var mine = call.Value.Where(p => p.ClinicId == credentials.ClinicId).ToList();
+                    await services.GetRequiredService<RelayNumberPromiseStore>().KeepAsync(mine, DateTime.UtcNow, stoppingToken);
+                    acks.AddRange(mine.Select(p => p.Id));
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "PC de secours: the number-promise poll failed; retrying.");
+                acks.Clear();
+                try
+                {
+                    await Task.Delay(PromiseRetry, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
+    private IRelayPromiseChannel PromiseChannelFor(RelayCredentials credentials)
+    {
+        if (_promiseChannel is null || _promiseRelayId != credentials.RelayId)
+        {
+            _promiseChannel = new RelayCloudClient(_http.CreateClient(nameof(RelayFeedJob)), credentials, _build.Current);
+            _promiseRelayId = credentials.RelayId;
+        }
+
+        return _promiseChannel;
+    }
 
     private async Task LeaseLoopAsync(CancellationToken stoppingToken)
     {

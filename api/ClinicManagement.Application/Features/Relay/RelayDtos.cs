@@ -40,6 +40,15 @@ public sealed record RelayHeartbeatRequest(
     int? HttpsPort = null,
     string? GatewayAddress = null);
 
+/// <summary>
+/// D16: one number the cloud is about to make final, sent to its PC de secours, which keeps it before the cloud commits.
+/// <c>Sequence</c> is <c>invoice</c>, <c>devis</c> or <c>credit-note</c>; <c>Number</c> is <c>AAAA-NNNN</c>.
+/// </summary>
+public sealed record RelayNumberPromiseDto(Guid Id, Guid ClinicId, string Sequence, string Number, string? IdempotencyKey);
+
+/// <summary>The PC's long poll: the promises it has just kept (acknowledged), in exchange for the next ones.</summary>
+public sealed record RelayPromisesRequest(IReadOnlyList<Guid>? Acks);
+
 /// <summary>The cloud's answer. <c>AckSeq</c> is the ack's id (its send instant); <c>Armed</c> lets the PC take over after a cut (D13).</summary>
 public sealed record RelayHeartbeatAck(
     DateTime CloudTimeUtc,

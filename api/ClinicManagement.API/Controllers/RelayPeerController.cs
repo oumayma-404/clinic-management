@@ -178,6 +178,25 @@ public class RelayPeerController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// D16: the PC's long poll — the numbers it just kept, for the next ones a save is about to make final (≤ 20 s).
+    /// A save waits ≤ 3 s for this round trip before committing, so the PC re-opens it at once.
+    /// </summary>
+    [HttpPost("promises")]
+    [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
+    [AllowsWithoutSubscription("The PC keeping a number the cloud is about to issue records no work of its own.")]
+    public async Task<ActionResult<IReadOnlyList<RelayNumberPromiseDto>>> Promises(
+        [FromBody] RelayPromisesRequest request, CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new ExchangeRelayPromisesCommand(request.Acks), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
+    }
+
     [HttpGet("changes")]
     [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
     public async Task<ActionResult<RelayFeedBatch>> Changes(

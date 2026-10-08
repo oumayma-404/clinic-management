@@ -126,6 +126,22 @@ public static class ClinicWriteLease
     }
 
     /// <summary>
+    /// D16: a note, devis or avoir number numbered on the cloud must be held by the PC before it is final — whenever the
+    /// PC could take over with it: it may hold an « armé » ack no reclaim overruled, and it has not taken over (then the
+    /// cloud is fenced and numbers nothing). A PC that stood down (AC-6.1), was never armed or is retired is not waited for.
+    /// </summary>
+    public static bool PcMustConfirmNumbers(ClinicRelay? relay)
+    {
+        if (relay is null || relay.Status == ClinicRelayStatus.Retired || relay.PcHoldingSinceUtc is not null || !relay.MayBeArmed)
+        {
+            return false;
+        }
+
+        var armedFrom = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
+        return armedFrom > relay.ReclaimedAtAckSeq;
+    }
+
+    /// <summary>
     /// Whether this ack arms the PC: it is « Prêt » (FR-2 — the one predicate the card, the bell and the console read),
     /// it runs the cloud's build, and it has not asked to stand down (a clean shutdown, an update). A PC that was not
     /// ready at its last contact never takes over (AC-3.8).

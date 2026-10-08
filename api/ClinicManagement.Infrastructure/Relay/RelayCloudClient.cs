@@ -49,11 +49,19 @@ public interface IRelayCloudClient
     Task<RelayCall<bool>> ReportUninstalledAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>D16: the PC's long poll for the numbers its cloud is about to make final.</summary>
+public interface IRelayPromiseChannel
+{
+    /// <summary>Acknowledges the promises kept, then waits (about 20 s) for the next ones.</summary>
+    Task<RelayCall<IReadOnlyList<RelayNumberPromiseDto>>> PromisesAsync(
+        IReadOnlyList<Guid> acks, CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// The PC's HTTP side. Holds the short <c>clinic-relay</c> token between calls and trades the long-lived secret for a new
 /// one when it expires; the secret travels in a header, never in a URL (URLs are logged).
 /// </summary>
-public sealed class RelayCloudClient : IRelayCloudClient
+public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -94,6 +102,13 @@ public sealed class RelayCloudClient : IRelayCloudClient
     public Task<RelayCall<string>> BlobAsync(string storageKey, CancellationToken cancellationToken) =>
         DownloadAsync(() => new HttpRequestMessage(HttpMethod.Get, $"relay/blob?key={Uri.EscapeDataString(storageKey)}"),
             ".part", cancellationToken);
+
+    public Task<RelayCall<IReadOnlyList<RelayNumberPromiseDto>>> PromisesAsync(
+        IReadOnlyList<Guid> acks, CancellationToken cancellationToken) =>
+        SendJsonAsync<IReadOnlyList<RelayNumberPromiseDto>>(() => new HttpRequestMessage(HttpMethod.Post, "relay/promises")
+        {
+            Content = JsonContent.Create(new RelayPromisesRequest(acks), options: Json),
+        }, cancellationToken);
 
     public Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken) =>
         ReportWithSecretAsync("relay/erased", cancellationToken);

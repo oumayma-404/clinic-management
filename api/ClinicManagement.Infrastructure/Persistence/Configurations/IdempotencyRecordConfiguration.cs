@@ -27,3 +27,25 @@ public class IdempotencyRecordConfiguration : IEntityTypeConfiguration<Idempoten
         builder.HasIndex(r => new { r.ClinicId, r.CreatedAtUtc });
     }
 }
+
+/// <summary>The numbers the cloud promised a PC de secours (D16) — written by <see cref="RelayNumberPromiseStore"/>.</summary>
+public class RelayNumberPromiseConfiguration : IEntityTypeConfiguration<RelayNumberPromise>
+{
+    public void Configure(EntityTypeBuilder<RelayNumberPromise> builder)
+    {
+        builder.ToTable("RelayNumberPromises");
+
+        // A number is promised once per sequence: a repeat (a retry, the same key) only refreshes it.
+        builder.HasKey(p => new { p.ClinicId, p.Sequence, p.Number });
+        builder.Property(p => p.Sequence).HasMaxLength(20);
+        builder.Property(p => p.Number).HasMaxLength(20);
+        builder.Property(p => p.IdempotencyKey).HasMaxLength(IdempotencyRecord.MaxKeyLength);
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(p => p.ClinicId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(p => p.PromisedAtUtc);
+    }
+}

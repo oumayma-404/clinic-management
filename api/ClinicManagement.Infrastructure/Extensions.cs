@@ -120,6 +120,12 @@ public static class Extensions
         services.AddSingleton<ClinicManagement.Application.Features.Relay.Commands.IRelayKeyValidator, Relay.RelayKeyValidator>();
         // D17: the replay store, and the key every change of the request is stamped with.
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
+        // D16: the long-poll channel to the PC de secours, the numbers a save must have it keep, and the PC's store.
+        services.AddSingleton<ClinicManagement.Application.Features.Relay.IRelayPromiseBroker,
+            ClinicManagement.Application.Features.Relay.RelayPromiseBroker>();
+        services.AddScoped<NumberPromiseCoordinator>();
+        services.AddScoped<NumberPromiseTransactionInterceptor>();
+        services.AddScoped<RelayNumberPromiseStore>();
         services.AddScoped<IIdempotencyKeyAccessor>(provider =>
             new HttpIdempotencyKeyAccessor(provider.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()));
         services.AddScoped(provider => new ClinicChangeCapture(
@@ -134,7 +140,8 @@ public static class Extensions
                 .AddInterceptors(
                     provider.GetRequiredService<AuditSaveChangesInterceptor>(),
                     provider.GetRequiredService<AutomaticWriteInterceptor>(),
-                    provider.GetRequiredService<QueryCountingInterceptor>()));
+                    provider.GetRequiredService<QueryCountingInterceptor>(),
+                    provider.GetRequiredService<NumberPromiseTransactionInterceptor>()));
 
         // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();

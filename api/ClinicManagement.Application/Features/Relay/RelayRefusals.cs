@@ -27,6 +27,9 @@ public static class RelayRefusals
     /// <summary>D13: the cabinet's PC de secours fell silent while armed, so the cloud stops recording that cabinet's work.</summary>
     public const string SilentCode = "relay_silent";
 
+    /// <summary>D16: a note, devis or avoir number the PC de secours did not confirm within a few seconds — nothing is saved.</summary>
+    public const string UnconfirmedCode = "relay_unconfirmed";
+
     /// <summary>US-4: the PC said it holds the cabinet's saves, so the cloud is read-only for that cabinet.</summary>
     public const string OnRelayCode = "clinic_on_relay";
 

@@ -637,6 +637,15 @@ no consent flag and no audit of which patient was sent.
 - **« Reprendre la main » (D19)** — the PC reports the ack its takeover was made under (`HoldingUnderAckSeq`); a cloud
   that reclaimed after it answers `Reclaimed`, and `RelayFollower` then stops the copy (`OverruledReason`) **before**
   ending the lease (the work marked unreturned) — a restart between the two finds a PC still holding and is told again.
+- **Number promise (D16)**: `Persistence/NumberPromises.cs`. `NumberedDocuments` reads off a save the gapless numbers
+  it assigns (`Invoice` / `TreatmentPlan` / `CreditNote`, derived — a fourth numbered entity fails
+  `Every_Numbered_Document_In_The_Model_Is_Covered`); `ApplicationDbContext.SaveChangesAsync` plans them **after** the
+  rows are written (a collision fails on its unique index first) through `NumberPromiseCoordinator`, and
+  `NumberPromiseTransactionInterceptor` confirms them **just before the commit**, whoever opened the transaction. For a
+  cabinet whose PC could take over (`ClinicWriteLease.PcMustConfirmNumbers`) the numbers go to the PC's long poll
+  (`IRelayPromiseBroker`, `POST /api/relay/promises`); not kept in 3 s → `ClinicFencedException` `relay_unconfirmed`, the
+  save rolled back. ⚠️ **No numbering handler knows about it** — that is the design. On the PC, `RelayNumberPromiseStore`
+  keeps each promise (raw SQL, never copied) and the three `GetMaxSequenceForYearAsync` take max(held, promised).
 - **Idempotency (D17)**: `Persistence/IdempotencyStore` — the replay keys of a cabinet's saves in `IdempotencyRecords`,
   claimed with `INSERT … ON CONFLICT DO NOTHING` and completed / released in **raw SQL** on the request's own context, so a
   claim survives the save's rollback and touches no change log, audit row or fence. ⚠️ **Per side**: excluded from the

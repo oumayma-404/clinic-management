@@ -30,6 +30,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     private readonly ICurrentClinicProvider? _clinicProvider;
     private readonly IAuditChainKeyProvider? _auditChainKey;
     private readonly ClinicChangeCapture? _changeCapture;
+    private readonly NumberPromiseCoordinator? _numberPromises;
+
+    // D16: the numbers a save in this transaction promised a PC de secours, confirmed just before the commit.
+    private List<PlannedPromise> _plannedPromises = new();
 
     // The clinic provider is optional so the design-time factory and any manual construction still work (they
     // pass no provider → the filters return everything, as before). At runtime AddDbContext always injects it.
@@ -39,11 +43,21 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         DbContextOptions<ApplicationDbContext> options,
         ICurrentClinicProvider? clinicProvider = null,
         IAuditChainKeyProvider? auditChainKey = null,
-        ClinicChangeCapture? changeCapture = null) : base(options)
+        ClinicChangeCapture? changeCapture = null,
+        NumberPromiseCoordinator? numberPromises = null) : base(options)
     {
         _clinicProvider = clinicProvider;
         _auditChainKey = auditChainKey;
         _changeCapture = changeCapture;
+        _numberPromises = numberPromises;
+    }
+
+    /// <summary>D16: what this transaction's saves promised, handed over (and forgotten) once — at its commit or its end.</summary>
+    public IReadOnlyList<PlannedPromise> TakePlannedPromises()
+    {
+        var planned = _plannedPromises;
+        _plannedPromises = new List<PlannedPromise>();
+        return planned;
     }
 
     // Exposed for the global query filters below. Accessed through the context instance so EF Core treats them
@@ -210,6 +224,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<RelayIncident> RelayIncidents { get; set; }
     // D17: the replay keys of a cabinet's saves — per side, written in raw SQL by IdempotencyStore.
     public DbSet<IdempotencyRecord> IdempotencyRecords { get; set; }
+    // D16: the numbers the cloud promised this PC de secours — PC only, written in raw SQL by its promise loop.
+    public DbSet<RelayNumberPromise> RelayNumberPromises { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -377,6 +393,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<ClinicChangeCursor>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
         modelBuilder.Entity<RelayIncident>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
         modelBuilder.Entity<IdempotencyRecord>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<RelayNumberPromise>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a
@@ -672,6 +689,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
         ConvertDateTimesToUtc();
 
+        // D16: the legal numbers this save assigns, read before the save resets the entries.
+        var numbers = _numberPromises?.Promises == true ? NumberedDocuments.Collect(this) : null;
+
         var auditRows = PendingAuditRows();
         var captures = _changeCapture?.HasCandidates(this) == true;
         if (captures)
@@ -680,14 +700,14 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             _changeCapture!.EnsureThisSideMayWrite(this);
         }
 
-        if (auditRows.Count == 0 && !captures)
+        if (auditRows.Count == 0 && !captures && numbers is not { Count: > 0 })
         {
             return await base.SaveChangesAsync(cancellationToken);
         }
 
         if (auditRows.Count == 0)
         {
-            return await SaveCapturedAsync(cancellationToken);
+            return await SaveCapturedAsync(captures, numbers, cancellationToken);
         }
 
         if (_auditChainKey is null)
@@ -704,30 +724,46 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         {
             await CaptureAsync(captures, cancellationToken);
             await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
-            return await base.SaveChangesAsync(cancellationToken);
+            return await SaveAndPlanAsync(numbers, cancellationToken);
         }
 
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
         await CaptureAsync(captures, cancellationToken);
         await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
-        var written = await base.SaveChangesAsync(cancellationToken);
+        var written = await SaveAndPlanAsync(numbers, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return written;
     }
 
     /// <summary>A save with no audit row that touches a relay-scoped row: the change log rides the save's transaction (D1).</summary>
-    private async Task<int> SaveCapturedAsync(CancellationToken cancellationToken)
+    private async Task<int> SaveCapturedAsync(
+        bool captures, IReadOnlyList<NumberedDocument>? numbers, CancellationToken cancellationToken)
     {
         if (Database.CurrentTransaction is not null)
         {
-            await CaptureAsync(true, cancellationToken);
-            return await base.SaveChangesAsync(cancellationToken);
+            await CaptureAsync(captures, cancellationToken);
+            return await SaveAndPlanAsync(numbers, cancellationToken);
         }
 
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
-        await CaptureAsync(true, cancellationToken);
-        var written = await base.SaveChangesAsync(cancellationToken);
+        await CaptureAsync(captures, cancellationToken);
+        var written = await SaveAndPlanAsync(numbers, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        return written;
+    }
+
+    /// <summary>
+    /// D16: the rows are written first — so a number taken meanwhile fails on its unique index before anything is
+    /// promised — then the numbers a PC de secours must keep are planned, and confirmed just before the commit.
+    /// </summary>
+    private async Task<int> SaveAndPlanAsync(IReadOnlyList<NumberedDocument>? numbers, CancellationToken cancellationToken)
+    {
+        var written = await base.SaveChangesAsync(cancellationToken);
+        if (numbers is { Count: > 0 } && _numberPromises is not null)
+        {
+            _plannedPromises.AddRange(await _numberPromises.PlanAsync(this, numbers, cancellationToken));
+        }
+
         return written;
     }
 

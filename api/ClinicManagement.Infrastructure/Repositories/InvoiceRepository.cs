@@ -133,7 +133,9 @@ public class InvoiceRepository : IInvoiceRepository
             }
         }
 
-        return max;
+        // clinic-pc-copy D16: on a PC de secours, a number the cloud promised counts as taken even before its row arrives.
+        return Math.Max(max, await RelayNumberPromiseStore.MaxPromisedAsync(
+            _context, clinicId, RelayNumberPromise.InvoiceSequence, year, cancellationToken));
     }
 
     public async Task<decimal> GetCollectedBetweenAsync(
