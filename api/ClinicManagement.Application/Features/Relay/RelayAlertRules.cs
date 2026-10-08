@@ -48,7 +48,7 @@ public static class RelayAlertRules
 
     public static IReadOnlyList<RelayAlertRow> Wanted(
         ClinicRelay? relay, string? clinicHoursJson, IReadOnlyCollection<RelayAlert> shown, DateTime nowUtc,
-        int pendingReviews = 0)
+        int pendingReviews = 0, int pendingReEntries = 0)
     {
         if (relay is null)
         {
@@ -61,6 +61,12 @@ public static class RelayAlertRules
         if (pendingReviews > 0)
         {
             wanted.Add(new(RelayAlert.ToReview, "Modifications à vérifier", Queries.RelayReviewLabels.BellMessage(pendingReviews)));
+        }
+
+        // AC-7.4: what an overruled PC held stays on the bell until every record is « Repris ».
+        if (pendingReEntries > 0)
+        {
+            wanted.Add(new(RelayAlert.ToReEnter, "À reprendre", Queries.RelayReviewLabels.ReEnterBellMessage(pendingReEntries)));
         }
 
         return wanted;

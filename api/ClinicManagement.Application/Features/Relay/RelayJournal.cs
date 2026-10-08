@@ -41,6 +41,12 @@ public static class RelayJournal
     public const string Reclaimed = "Le cloud a repris la main sur le PC de secours";
     public const string Returned = "Le travail fait sur le PC de secours pendant la coupure est revenu dans le cloud";
 
+    /// <summary>US-7 / AC-7.3: what an overruled PC held, listed for re-entry on the cloud.</summary>
+    public static string ListedToReEnter(int count) =>
+        count == 1
+            ? "1 enregistrement fait sur le PC de secours pendant la coupure est listé « À reprendre »"
+            : $"{count} enregistrements faits sur le PC de secours pendant la coupure sont listés « À reprendre »";
+
     /// <summary>AC-5.5: what marks, in the cloud's journal, a row the cabinet wrote on its PC de secours during a cut.</summary>
     public const string ViaRelay = "Via PC de secours";
 

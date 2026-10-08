@@ -142,6 +142,14 @@ public class RelayAfterReturnTests
         return (context, users);
     }
 
+    private static Mock<IPatientRepository> Patients()
+    {
+        var patients = new Mock<IPatientRepository>();
+        patients.Setup(p => p.GetByIdsAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Patient>());
+        return patients;
+    }
+
     private static RelayReviewItem Item(RelayReviewKind kind = RelayReviewKind.BothChanged) =>
         new(ClinicId, Guid.NewGuid(), DateTime.UtcNow.AddHours(-1), kind, "Expense", "e1", "{\"cloud\":1}", "{\"desk\":1}",
             null, DateTime.UtcNow.AddHours(-2), "dr@cabinet.tn", DateTime.UtcNow);
@@ -151,11 +159,11 @@ public class RelayAfterReturnTests
     {
         var (context, users) = Admin();
         var items = new Mock<IRelayReviewItemRepository>();
-        items.Setup(i => i.GetPageAsync(ClinicId, false, It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
+        items.Setup(i => i.GetPageAsync(ClinicId, false, false, It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PagedResult<RelayReviewItem>(new[] { Item() }, 1, 50, 1));
 
-        var result = await new GetRelayReviewItemsQueryHandler(context.Object, users.Object, items.Object)
-            .Handle(new GetRelayReviewItemsQuery(false, null, null), CancellationToken.None);
+        var result = await new GetRelayReviewItemsQueryHandler(context.Object, users.Object, items.Object, Patients().Object)
+            .Handle(new GetRelayReviewItemsQuery(false, false, null, null), CancellationToken.None);
 
         var line = Assert.Single(result.Value!.Items);
         Assert.Equal("Modifié des deux côtés — la version du cabinet est gardée", line.KindLabel);
@@ -171,7 +179,8 @@ public class RelayAfterReturnTests
         var (context, users) = Admin();
         var items = new Mock<IRelayReviewItemRepository>();
         items.Setup(i => i.GetByIdAsync(ClinicId, item.Id, It.IsAny<CancellationToken>())).ReturnsAsync(item);
-        var handler = new MarkRelayReviewItemSeenCommandHandler(context.Object, users.Object, items.Object, new Mock<IUnitOfWork>().Object);
+        var handler = new MarkRelayReviewItemSeenCommandHandler(context.Object, users.Object, items.Object, new Mock<IUnitOfWork>().Object,
+            Patients().Object);
 
         var first = await handler.Handle(new MarkRelayReviewItemSeenCommand(item.Id), CancellationToken.None);
         var seenAt = item.ReviewedAtUtc;
@@ -186,7 +195,7 @@ public class RelayAfterReturnTests
 
         var (secretaryContext, secretaryUsers) = Admin(User.RoleSecretary);
         var refused = await new MarkRelayReviewItemSeenCommandHandler(secretaryContext.Object, secretaryUsers.Object, items.Object,
-            new Mock<IUnitOfWork>().Object).Handle(new MarkRelayReviewItemSeenCommand(item.Id), CancellationToken.None);
+            new Mock<IUnitOfWork>().Object, Patients().Object).Handle(new MarkRelayReviewItemSeenCommand(item.Id), CancellationToken.None);
         Assert.Equal(RelayRefusals.NotAdminCode, refused.Code);
     }
 

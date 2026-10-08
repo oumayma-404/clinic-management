@@ -133,7 +133,10 @@ public sealed record RelayStatusDto(
     DateTime? LockedSinceUtc = null,
     bool PcHolding = false,
     string? ReclaimWarning = null,
-    string? LockSentence = null);
+    string? LockSentence = null,
+    // D18 / US-7: lines of « Modifications à vérifier » and of « À reprendre » nobody has marked yet.
+    int ReviewPending = 0,
+    int ReEnterPending = 0);
 
 /// <summary>
 /// AC-6.2: what a Windows or Android app of the cabinet tries while the cloud is locked and the PC said nothing —

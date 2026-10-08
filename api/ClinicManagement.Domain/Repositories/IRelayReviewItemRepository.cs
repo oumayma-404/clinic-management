@@ -9,12 +9,15 @@ public interface IRelayReviewItemRepository
     /// <summary>What one cut's returns already listed: a second attempt lists a record once, keeping the first versions.</summary>
     Task<IReadOnlyList<RelayReviewItem>> GetForCutAsync(Guid relayId, DateTime cutSinceUtc, CancellationToken cancellationToken = default);
 
-    /// <summary>The cabinet's lines, newest first; the ones already « Vu » only when asked for.</summary>
+    /// <summary>
+    /// One of the two lists, newest first: « À reprendre » (<paramref name="reEnter"/>) or « À vérifier »; the lines
+    /// already marked only when asked for.
+    /// </summary>
     Task<PagedResult<RelayReviewItem>> GetPageAsync(
-        Guid clinicId, bool includeReviewed, PageRequest? paging, CancellationToken cancellationToken = default);
+        Guid clinicId, bool reEnter, bool includeReviewed, PageRequest? paging, CancellationToken cancellationToken = default);
 
-    /// <summary>The lines nobody has marked « Vu » yet — what the admins' bell row counts.</summary>
-    Task<int> CountPendingAsync(Guid clinicId, CancellationToken cancellationToken = default);
+    /// <summary>The lines of one list nobody has marked yet — what the admins' bell row and the card count.</summary>
+    Task<int> CountPendingAsync(Guid clinicId, bool reEnter, CancellationToken cancellationToken = default);
 
     Task<RelayReviewItem?> GetByIdAsync(Guid clinicId, Guid id, CancellationToken cancellationToken = default);
 

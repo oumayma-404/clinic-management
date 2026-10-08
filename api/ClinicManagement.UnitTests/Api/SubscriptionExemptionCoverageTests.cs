@@ -63,6 +63,8 @@ public class SubscriptionExemptionCoverageTests
         "RelayPeer.HandBack",
         "RelayPeer.HandbackFiles",
         "RelayPeer.HandbackFile",
+        // US-7: listing an overruled cut for re-entry records no new work.
+        "RelayPeer.ListOverruledCut",
         "Relay.Retire",
         // D18 / AC-5.6: marking a line of the return's list as read records no new work.
         "Relay.MarkReviewItemSeen",

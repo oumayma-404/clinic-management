@@ -140,44 +140,99 @@ public sealed class RelayHandback
         }
     }
 
+    /// <summary>
+    /// US-7 / AC-7.3: this PC's cut was overruled by « Reprendre la main ». Its work is sent to be listed « À reprendre »
+    /// (files first, so nothing it held is lost), then its log goes and the copy restarts from the cloud. Null while it
+    /// waits to try again.
+    /// </summary>
+    public async Task<RelayFollowerState?> ListOverruledAsync(
+        RelayFollowerState state, DateTime cutSinceUtc, RelayLocalSide local, CancellationToken cancellationToken)
+    {
+        var now = _monotonic();
+        if (local.Handback is null || (_retryAfter is { } after && now < after))
+        {
+            return null;
+        }
+
+        try
+        {
+            var request = await local.Handback.ReadCutAsync(_clinicId, Guid.NewGuid(), state.AppliedSeq, cutSinceUtc, cancellationToken);
+            var files = await SendFilesAsync(local, request, cancellationToken);
+            var listed = files == RelayCallStatus.Ok
+                ? (await _cloud.ListOverruledCutAsync(request, cancellationToken)).Status
+                : files;
+            if (listed != RelayCallStatus.Ok)
+            {
+                _logger.LogWarning("PC de secours: the overruled cut could not be listed ({Status}); it stays here.", listed);
+                _retryAfter = _monotonic() + RetryAfterFailure;
+                return null;
+            }
+
+            await local.Handback.ForgetCutAsync(_clinicId, cancellationToken);
+            _lease.ForgetUnreturned();
+            _logger.LogInformation("PC de secours: the overruled cut is listed « À reprendre » on the cloud; the copy starts afresh.");
+            return state with { StoppedReason = null, ReseedNeeded = true, LastError = null };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "PC de secours: reading or sending the overruled cut failed.");
+            _retryAfter = _monotonic() + RetryAfterFailure;
+            return null;
+        }
+    }
+
+    private async Task<RelayCallStatus> SendFilesAsync(
+        RelayLocalSide local, RelayHandbackRequest request, CancellationToken cancellationToken)
+    {
+        var keys = local.Handback!.FileKeys(request.Rows);
+        if (keys.Count == 0)
+        {
+            return RelayCallStatus.Ok;
+        }
+
+        var missing = await _cloud.MissingHandbackFilesAsync(keys, cancellationToken);
+        if (!missing.IsOk)
+        {
+            return missing.Status;
+        }
+
+        foreach (var key in missing.Value!)
+        {
+            Stream content;
+            try
+            {
+                content = await local.Files.DownloadAsync(key, cancellationToken);
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or InvalidOperationException)
+            {
+                // A row naming a file this PC never had (it was still copying when the cut came): nothing to send.
+                _logger.LogWarning("PC de secours: {StorageKey} is named by the cut but not stored here.", key);
+                continue;
+            }
+
+            await using (content)
+            {
+                var sent = await _cloud.UploadHandbackFileAsync(key, content, cancellationToken);
+                if (!sent.IsOk)
+                {
+                    return sent.Status;
+                }
+            }
+        }
+
+        return RelayCallStatus.Ok;
+    }
+
     private async Task<RelayCallStatus> TryOnceAsync(
         Guid id, RelayFollowerState state, RelayLocalSide local, CancellationToken cancellationToken)
     {
         var request = await local.Handback!.ReadCutAsync(
             _clinicId, id, state.AppliedSeq, _lease.HoldingSinceUtc ?? DateTime.UtcNow, cancellationToken);
 
-        var keys = local.Handback.FileKeys(request.Rows);
-        if (keys.Count > 0)
+        var files = await SendFilesAsync(local, request, cancellationToken);
+        if (files != RelayCallStatus.Ok)
         {
-            var missing = await _cloud.MissingHandbackFilesAsync(keys, cancellationToken);
-            if (!missing.IsOk)
-            {
-                return missing.Status;
-            }
-
-            foreach (var key in missing.Value!)
-            {
-                Stream content;
-                try
-                {
-                    content = await local.Files.DownloadAsync(key, cancellationToken);
-                }
-                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or InvalidOperationException)
-                {
-                    // A row naming a file this PC never had (it was still copying when the cut came): nothing to send.
-                    _logger.LogWarning("PC de secours: {StorageKey} is named by the cut but not stored here.", key);
-                    continue;
-                }
-
-                await using (content)
-                {
-                    var sent = await _cloud.UploadHandbackFileAsync(key, content, cancellationToken);
-                    if (!sent.IsOk)
-                    {
-                        return sent.Status;
-                    }
-                }
-            }
+            return files;
         }
 
         return (await _cloud.HandBackAsync(request, cancellationToken)).Status;

@@ -56,6 +56,9 @@ public interface IRelayCloudClient
 
     /// <summary>D18 phase 1: the cut's work, handed back once.</summary>
     Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(RelayHandbackRequest request, CancellationToken cancellationToken);
+
+    /// <summary>US-7: an overruled cut's work, listed « À reprendre » on the cloud.</summary>
+    Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(RelayHandbackRequest request, CancellationToken cancellationToken);
 }
 
 /// <summary>D16: the PC's long poll for the numbers its cloud is about to make final.</summary>
@@ -142,6 +145,13 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     public Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(
         RelayHandbackRequest request, CancellationToken cancellationToken) =>
         SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback")
+        {
+            Content = JsonContent.Create(request, options: Json),
+        }, cancellationToken);
+
+    public Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(
+        RelayHandbackRequest request, CancellationToken cancellationToken) =>
+        SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback/overruled")
         {
             Content = JsonContent.Create(request, options: Json),
         }, cancellationToken);

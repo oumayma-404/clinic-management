@@ -219,6 +219,28 @@ public class RelayPeerController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// US-7 / AC-7.3: a PC whose cut « Reprendre la main » overruled sends what it recorded — listed « À reprendre »,
+    /// never applied. Once per cut.
+    /// </summary>
+    [HttpPost("handback/overruled")]
+    [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
+    [RequestSizeLimit(HandbackBodyLimit)]
+    [AllowsWithoutSubscription("Listing what a cut recorded so it can be entered again records no new work.")]
+    public async Task<ActionResult<RelayHandbackResultDto>> ListOverruledCut(
+        [FromBody] RelayHandbackRequest request,
+        [FromHeader(Name = BuildHeader)] string? build,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new ListOverruledCutCommand(request, build), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
+    }
+
     /// <summary>D18: which of the files the cut's rows name the cloud does not hold yet.</summary>
     [HttpPost("handback/files")]
     [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]

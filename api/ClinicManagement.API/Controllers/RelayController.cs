@@ -161,10 +161,13 @@ public class RelayController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
     }
 
-    /// <summary>« Modifications à vérifier » (D18, AC-5.6): what the return found the cloud had too, newest first.</summary>
+    /// <summary>
+    /// « Modifications à vérifier » (D18, AC-5.6) — or, with <c>reEnter</c>, « À reprendre » (US-7, AC-7.4): the records an
+    /// overruled PC held that the cloud never received. Newest first.
+    /// </summary>
     [HttpGet("review-items")]
     public async Task<ActionResult<PagedResult<RelayReviewItemDto>>> ReviewItems(
-        [FromQuery] bool includeReviewed, [FromQuery] int? page, [FromQuery] int? pageSize,
+        [FromQuery] bool reEnter, [FromQuery] bool includeReviewed, [FromQuery] int? page, [FromQuery] int? pageSize,
         CancellationToken cancellationToken)
     {
         if (!_deployment.PublishesChangeFeed)
@@ -172,11 +175,11 @@ public class RelayController : ApiControllerBase
             return NotFound();
         }
 
-        var result = await _mediator.Send(new GetRelayReviewItemsQuery(includeReviewed, page, pageSize), cancellationToken);
+        var result = await _mediator.Send(new GetRelayReviewItemsQuery(reEnter, includeReviewed, page, pageSize), cancellationToken);
         return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
     }
 
-    /// <summary>« Vu »: an admin read both versions. Changes no record.</summary>
+    /// <summary>« Vu » / « Repris »: an admin read both versions, or entered the record again. Changes no record.</summary>
     [OnlineOnly("The return's review list is the cloud's; a copy holds none.")]
     [HttpPost("review-items/{id:guid}/seen")]
     [AllowsWithoutSubscription("Marking a line of the return's list as read records no new work.")]

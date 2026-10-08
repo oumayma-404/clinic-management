@@ -113,6 +113,7 @@ public class RelayReviewItemConfiguration : IEntityTypeConfiguration<RelayReview
         builder.Property(i => i.EntityKey).IsRequired().HasMaxLength(RelayReviewItem.MaxKeyLength);
         builder.Property(i => i.CloudEntityKey).HasMaxLength(RelayReviewItem.MaxKeyLength);
         builder.Property(i => i.CloudChangedBy).HasMaxLength(RelayReviewItem.MaxAuthorLength);
+        builder.Property(i => i.CabinetChangedBy).HasMaxLength(RelayReviewItem.MaxAuthorLength);
         builder.Property(i => i.ReviewedByUserId).HasMaxLength(128);
 
         builder.HasOne<Clinic>()

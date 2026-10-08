@@ -10,8 +10,8 @@ using MediatR;
 namespace ClinicManagement.Application.Features.Relay.Queries;
 
 /// <summary>
-/// One line of « Modifications à vérifier » (<c>clinic-pc-copy</c> AC-5.6): what the record is, why it is listed, the
-/// cloud's version and the cabinet's (JSON, as each side held it), and who changed it in the cloud.
+/// One line of « Modifications à vérifier » or « À reprendre » (<c>clinic-pc-copy</c> AC-5.6, AC-7.4): what the record
+/// is, why it is listed, each side's version in one French line (and as JSON), who changed it on each side.
 /// </summary>
 public sealed record RelayReviewItemDto(
     Guid Id,
@@ -21,14 +21,19 @@ public sealed record RelayReviewItemDto(
     string TableLabel,
     string EntityKey,
     string? CloudEntityKey,
+    string? CloudSummary,
+    string? CabinetSummary,
+    string? Warning,
     string? CloudVersion,
     string? CabinetVersion,
     DateTime? CloudChangedAtUtc,
     string? CloudChangedBy,
+    DateTime? CabinetChangedAtUtc,
+    string? CabinetChangedBy,
     DateTime CreatedAtUtc,
     DateTime? ReviewedAtUtc);
 
-/// <summary>The French name of why a line is listed — server-side, like the journal's own labels.</summary>
+/// <summary>The French names of the two lists' lines — server-side, like the journal's own labels.</summary>
 public static class RelayReviewLabels
 {
     public static string Kind(RelayReviewKind kind) => kind switch
@@ -36,6 +41,7 @@ public static class RelayReviewLabels
         RelayReviewKind.CloudOnly => "Modifié dans le cloud juste avant la coupure",
         RelayReviewKind.BothChanged => "Modifié des deux côtés — la version du cabinet est gardée",
         RelayReviewKind.ProbableDuplicate => "Enregistré deux fois — doublon probable",
+        RelayReviewKind.ToReEnter => "Enregistré sur le PC de secours, jamais arrivé dans le cloud",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 
@@ -45,14 +51,41 @@ public static class RelayReviewLabels
             ? "1 modification faite dans le cloud juste avant la coupure est à vérifier."
             : $"{pending} modifications faites dans le cloud juste avant la coupure sont à vérifier.";
 
-    public static RelayReviewItemDto ToDto(RelayReviewItem item) => new(
+    /// <summary>AC-7.4's bell row: the number of records nobody has marked « Repris ».</summary>
+    public static string ReEnterBellMessage(int pending) =>
+        pending == 1
+            ? "1 enregistrement fait sur le PC de secours pendant la coupure est à reprendre dans le cloud."
+            : $"{pending} enregistrements faits sur le PC de secours pendant la coupure sont à reprendre dans le cloud.";
+
+    public static RelayReviewItemDto ToDto(RelayReviewItem item, IReadOnlyDictionary<Guid, string> patientNames) => new(
         item.Id, item.Kind.ToString(), Kind(item.Kind), item.Table, AuditLabels.Entity(item.Table), item.EntityKey,
-        item.CloudEntityKey, item.CloudVersion, item.CabinetVersion, item.CloudChangedAtUtc, item.CloudChangedBy,
-        item.CreatedAtUtc, item.ReviewedAtUtc);
+        item.CloudEntityKey,
+        RelayRecordSummary.Describe(item.Table, item.CloudVersion, patientNames),
+        RelayRecordSummary.Describe(item.Table, item.CabinetVersion, patientNames),
+        RelayRecordSummary.Warning(item.Kind, item.Table, item.CabinetVersion),
+        item.CloudVersion, item.CabinetVersion, item.CloudChangedAtUtc, item.CloudChangedBy,
+        item.CabinetChangedAtUtc, item.CabinetChangedBy, item.CreatedAtUtc, item.ReviewedAtUtc);
+
+    /// <summary>The names of the patients a set of lines names, in one read.</summary>
+    public static async Task<IReadOnlyDictionary<Guid, string>> PatientNamesAsync(
+        IPatientRepository patients, Guid clinicId, IEnumerable<RelayReviewItem> items, CancellationToken cancellationToken)
+    {
+        var ids = items
+            .SelectMany(i => RelayRecordSummary.PatientIdsOf(i.CloudVersion).Concat(RelayRecordSummary.PatientIdsOf(i.CabinetVersion)))
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, string>();
+        }
+
+        var found = await patients.GetByIdsAsync(clinicId, ids, cancellationToken);
+        return found.ToDictionary(p => p.Key, p => p.Value.GetFullName());
+    }
 }
 
-/// <summary>« Modifications à vérifier », newest first — the ones already « Vu » only when asked for.</summary>
-public sealed record GetRelayReviewItemsQuery(bool IncludeReviewed, int? Page, int? PageSize)
+/// <summary>One of the two lists, newest first — the lines already marked only when asked for.</summary>
+public sealed record GetRelayReviewItemsQuery(bool ReEnter, bool IncludeReviewed, int? Page, int? PageSize)
     : IRequest<Result<PagedResult<RelayReviewItemDto>>>;
 
 public sealed class GetRelayReviewItemsQueryHandler
@@ -61,12 +94,15 @@ public sealed class GetRelayReviewItemsQueryHandler
     private readonly IClinicContext _clinicContext;
     private readonly IUserRepository _users;
     private readonly IRelayReviewItemRepository _items;
+    private readonly IPatientRepository _patients;
 
-    public GetRelayReviewItemsQueryHandler(IClinicContext clinicContext, IUserRepository users, IRelayReviewItemRepository items)
+    public GetRelayReviewItemsQueryHandler(
+        IClinicContext clinicContext, IUserRepository users, IRelayReviewItemRepository items, IPatientRepository patients)
     {
         _clinicContext = clinicContext;
         _users = users;
         _items = items;
+        _patients = patients;
     }
 
     public async Task<Result<PagedResult<RelayReviewItemDto>>> Handle(
@@ -78,8 +114,10 @@ public sealed class GetRelayReviewItemsQueryHandler
             return Result<PagedResult<RelayReviewItemDto>>.FailureFrom(admin);
         }
 
-        var page = await _items.GetPageAsync(admin.Value!.ClinicId, request.IncludeReviewed,
+        var clinicId = admin.Value!.ClinicId;
+        var page = await _items.GetPageAsync(clinicId, request.ReEnter, request.IncludeReviewed,
             PageRequest.From(request.Page, request.PageSize) ?? PageRequest.Of(1, 50), cancellationToken);
-        return Result<PagedResult<RelayReviewItemDto>>.Success(page.Map(RelayReviewLabels.ToDto));
+        var names = await RelayReviewLabels.PatientNamesAsync(_patients, clinicId, page.Items, cancellationToken);
+        return Result<PagedResult<RelayReviewItemDto>>.Success(page.Map(i => RelayReviewLabels.ToDto(i, names)));
     }
 }

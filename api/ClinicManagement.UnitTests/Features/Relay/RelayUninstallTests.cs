@@ -312,6 +312,9 @@ public sealed class RelayUninstallTests : IDisposable
 
         public Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(RelayHandbackRequest request, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(RelayHandbackRequest request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     public void Dispose()

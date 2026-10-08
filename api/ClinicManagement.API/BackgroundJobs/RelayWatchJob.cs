@@ -88,8 +88,9 @@ public class RelayWatchJob
                     .Select(n => n.RelayAlert)
                     .OfType<RelayAlert>()
                     .ToList();
-                var pending = _reviews is null ? 0 : await _reviews.CountPendingAsync(relay.ClinicId);
-                var wanted = RelayAlertRules.Wanted(relay, clinic?.WorkingHoursJson, shown, now, pending);
+                var pending = _reviews is null ? 0 : await _reviews.CountPendingAsync(relay.ClinicId, reEnter: false);
+                var reEnter = _reviews is null ? 0 : await _reviews.CountPendingAsync(relay.ClinicId, reEnter: true);
+                var wanted = RelayAlertRules.Wanted(relay, clinic?.WorkingHoursJson, shown, now, pending, reEnter);
                 await _generator.SyncRelayAlertsAsync(relay.ClinicId, wanted);
             }
             catch (Exception ex)

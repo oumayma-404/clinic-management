@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { toast } from "sonner"
 import {
   Archive, CheckCircle2, CircleSlash, Clock, CloudDownload, HardDrive, OctagonPause, PowerOff, RefreshCw, Server,
@@ -527,6 +528,22 @@ function RelayState({
           >
             {reclaiming ? "Reprise…" : "Reprendre la main"}
           </Button>
+        </div>
+      )}
+
+      {/* D18 / US-7: what a cut left behind — the cloud's changes to check, an overruled PC's records to enter again. */}
+      {((status.reviewPending ?? 0) > 0 || (status.reEnterPending ?? 0) > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {(status.reEnterPending ?? 0) > 0 && (
+            <Button asChild variant="outline" size="sm" className="grow basis-44 coarse:min-h-11 sm:grow-0">
+              <Link href="/settings/pc-de-secours?liste=a-reprendre">À reprendre · {status.reEnterPending}</Link>
+            </Button>
+          )}
+          {(status.reviewPending ?? 0) > 0 && (
+            <Button asChild variant="outline" size="sm" className="grow basis-44 coarse:min-h-11 sm:grow-0">
+              <Link href="/settings/pc-de-secours">Modifications à vérifier · {status.reviewPending}</Link>
+            </Button>
+          )}
         </div>
       )}
 

@@ -53,6 +53,8 @@ public class ScopedTokenCoverageTests
         ["RelayPeer.HandBack"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.HandbackFiles"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.HandbackFile"] = LocalAuthScopes.ClinicRelay,
+        // US-7: an overruled cut, listed « À reprendre ».
+        ["RelayPeer.ListOverruledCut"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.Changes"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.Snapshot"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.Digest"] = LocalAuthScopes.ClinicRelay,

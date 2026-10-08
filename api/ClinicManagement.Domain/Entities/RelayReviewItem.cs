@@ -46,6 +46,11 @@ public class RelayReviewItem : Entity<Guid>
     /// <summary>Who changed it in the cloud, as the journal names them (an e-mail, else the account id); null when unknown.</summary>
     public string? CloudChangedBy { get; private set; }
 
+    /// <summary>Who entered the cabinet's version on the PC, as its journal names them; null when unknown.</summary>
+    public string? CabinetChangedBy { get; private set; }
+
+    public DateTime? CabinetChangedAtUtc { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? ReviewedAtUtc { get; private set; }
     public string? ReviewedByUserId { get; private set; }
@@ -55,7 +60,7 @@ public class RelayReviewItem : Entity<Guid>
     public RelayReviewItem(
         Guid clinicId, Guid relayId, DateTime cutSinceUtc, RelayReviewKind kind, string table, string entityKey,
         string? cloudVersion, string? cabinetVersion, string? cloudEntityKey, DateTime? cloudChangedAtUtc,
-        string? cloudChangedBy, DateTime nowUtc)
+        string? cloudChangedBy, DateTime nowUtc, string? cabinetChangedBy = null, DateTime? cabinetChangedAtUtc = null)
         : base(Guid.NewGuid())
     {
         if (string.IsNullOrWhiteSpace(table) || string.IsNullOrWhiteSpace(entityKey))
@@ -74,6 +79,8 @@ public class RelayReviewItem : Entity<Guid>
         CloudEntityKey = Cap(cloudEntityKey, MaxKeyLength);
         CloudChangedAtUtc = cloudChangedAtUtc;
         CloudChangedBy = Cap(cloudChangedBy, MaxAuthorLength);
+        CabinetChangedBy = Cap(cabinetChangedBy, MaxAuthorLength);
+        CabinetChangedAtUtc = cabinetChangedAtUtc;
         CreatedAtUtc = nowUtc;
     }
 

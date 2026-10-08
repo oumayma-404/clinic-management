@@ -124,6 +124,7 @@ public sealed class HandBackRelayCommandHandler : IRequestHandler<HandBackRelayC
             .ToHashSet();
         var cabinet = request.Rows.GroupBy(r => new RelayRowKey(r.Table, r.Key))
             .ToDictionary(g => g.Key, g => g.Last().Row?.GetRawText());
+        var cabinetAuthors = CabinetAuthors(request.Journal);
 
         var items = new List<RelayReviewItem>();
         foreach (var line in plan.Review)
@@ -134,6 +135,7 @@ public sealed class HandBackRelayCommandHandler : IRequestHandler<HandBackRelayC
             }
 
             var cloudKey = line.CloudKey ?? line.Key;
+            var byCabinet = line.Kind == RelayReviewKind.CloudOnly ? default : cabinetAuthors.GetValueOrDefault(line.Key);
             items.Add(new RelayReviewItem(
                 relay.ClinicId, relay.Id, cutSince, line.Kind, line.Key.Table, line.Key.Key,
                 cloudVersions.GetValueOrDefault(cloudKey),
@@ -141,7 +143,9 @@ public sealed class HandBackRelayCommandHandler : IRequestHandler<HandBackRelayC
                 line.CloudKey?.Key,
                 line.CloudChangedAtUtc,
                 authors.GetValueOrDefault(cloudKey),
-                now));
+                now,
+                byCabinet.By,
+                byCabinet.At));
         }
 
         if (items.Count > 0)
@@ -151,6 +155,18 @@ public sealed class HandBackRelayCommandHandler : IRequestHandler<HandBackRelayC
 
         return items.Count;
     }
+
+    /// <summary>Who last changed each record on the PC, as the PC's own journal names them (an e-mail, else the account).</summary>
+    public static IReadOnlyDictionary<RelayRowKey, (string? By, DateTime? At)> CabinetAuthors(
+        IEnumerable<RelayHandbackJournalEntry> journal) =>
+        journal
+            .Where(e => !string.IsNullOrWhiteSpace(e.EntityType) && !string.IsNullOrWhiteSpace(e.EntityId))
+            .GroupBy(e => new RelayRowKey(e.EntityType, e.EntityId))
+            .ToDictionary(g => g.Key, g =>
+            {
+                var last = g.MaxBy(e => e.OccurredAtUtc)!;
+                return ((string?)(last.UserEmail ?? last.UserId), (DateTime?)DateTime.SpecifyKind(last.OccurredAtUtc, DateTimeKind.Utc));
+            });
 
     /// <summary>AC-5.5: each journal row the cabinet wrote on its PC, under its author, marked « via PC de secours ».</summary>
     private Task StageJournalAsync(Guid clinicId, RelayHandbackRequest request, CancellationToken cancellationToken)

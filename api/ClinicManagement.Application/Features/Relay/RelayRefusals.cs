@@ -39,6 +39,11 @@ public static class RelayRefusals
     /// <summary>AC-5.2: the cut's work is on its way back to the cloud — for a few seconds neither side saves.</summary>
     public const string HandingBackCode = "relay_handing_back";
 
+    /// <summary>US-7: « À reprendre » sent by a PC whose cut no « Reprendre la main » overruled.</summary>
+    public const string NotOverruledCode = "relay_not_overruled";
+
+    public const string NotOverruled = "Le cloud n'a pas repris la main pendant cette coupure : son travail revient par le retour ordinaire.";
+
     /// <summary>D18: the cloud could not apply the cut's work; the PC keeps working and tries again.</summary>
     public const string HandbackFailedCode = "relay_handback_failed";
 

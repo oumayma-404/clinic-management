@@ -23,4 +23,7 @@ public enum RelayAlert
 
     /// <summary>D18 / AC-5.6: lines of « Modifications à vérifier » nobody has marked « Vu » yet.</summary>
     ToReview = 10,
+
+    /// <summary>US-7 / AC-7.4: lines of « À reprendre » nobody has marked « Repris » yet.</summary>
+    ToReEnter = 11,
 }

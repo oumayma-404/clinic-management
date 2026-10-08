@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost } from './client';
+import type { PagedResponse } from './paging';
 
 /**
  * The PC de secours's state as « Paramètres → PC de secours » reads it (`clinic-pc-copy` AC-2.1). Mirrors the backend
@@ -38,6 +39,39 @@ export interface RelayStatusDto {
   lockSentence?: string | null;
   /** AC-7.1's warning, shown before « Reprendre la main » and before a retire or a loss while locked (AC-8.6). */
   reclaimWarning?: string | null;
+  /** D18 / AC-5.6: lines of « Modifications à vérifier » nobody has marked « Vu ». */
+  reviewPending?: number;
+  /** US-7 / AC-7.4: records of « À reprendre » nobody has marked « Repris ». */
+  reEnterPending?: number;
+}
+
+/**
+ * One line of « Modifications à vérifier » or « À reprendre » (`RelayReviewItemDto`). Each side's version is one French
+ * line built server-side (`cloudSummary`, `cabinetSummary`) — shown verbatim, never the raw JSON beside it.
+ */
+export interface RelayReviewItemDto {
+  id: string;
+  /** `CloudOnly` | `BothChanged` | `ProbableDuplicate` | `ToReEnter` — branched on, never the label. */
+  kind: string;
+  kindLabel: string;
+  table: string;
+  tableLabel: string;
+  entityKey: string;
+  cloudEntityKey?: string | null;
+  /** Null when the cloud has no such record (created on the PC, or deleted in the cloud). */
+  cloudSummary?: string | null;
+  /** Null when the cabinet's side is a deletion, or for a change made in the cloud only. */
+  cabinetSummary?: string | null;
+  /** AC-7.5: a document numbered on an overruled PC, to be redone. */
+  warning?: string | null;
+  cloudVersion?: string | null;
+  cabinetVersion?: string | null;
+  cloudChangedAtUtc?: string | null;
+  cloudChangedBy?: string | null;
+  cabinetChangedAtUtc?: string | null;
+  cabinetChangedBy?: string | null;
+  createdAtUtc: string;
+  reviewedAtUtc?: string | null;
 }
 
 /** A one-time setup code (AC-1.4), handed straight to the Windows app — shown to nobody. */
@@ -140,6 +174,13 @@ export const relayApi = {
    * `relay_not_holding` when the cloud is not locked.
    */
   reclaim: (stepUpToken: string) => apiPost<RelayStatusDto>('/relay/reclaim', {}, undefined, stepUpToken),
+
+  /** « Modifications à vérifier » (`reEnter` false) or « À reprendre » (true), newest first. */
+  reviewItems: (params: { reEnter: boolean; includeReviewed: boolean; page?: number; pageSize?: number }) =>
+    apiGet<PagedResponse<RelayReviewItemDto>>('/relay/review-items', params),
+
+  /** « Vu » / « Repris » — changes no record; a second press keeps the first reader. */
+  markReviewItemSeen: (id: string) => apiPost<RelayReviewItemDto>(`/relay/review-items/${id}/seen`, {}),
 
   /** AC-6.2 — asked by the Windows and Android apps only (`relay-device-watch`). 404 where no change feed exists. */
   deviceTarget: () => apiGet<RelayDeviceTargetDto>('/relay/devices/target'),

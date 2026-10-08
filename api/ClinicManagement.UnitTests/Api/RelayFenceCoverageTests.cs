@@ -33,6 +33,7 @@ public class RelayFenceCoverageTests
         ["VerifyClinicSignUpCommand:ProcedureType"] = "seeds a NEW cabinet's catalogue; no PC de secours yet",
         ["CreateClinicCommand:Clinic"] = "the first-run setup creates an install's first cabinet; no PC de secours yet",
         ["CreateClinicCommand:ProcedureType"] = "seeds that new cabinet's catalogue; no PC de secours yet",
+        ["MarkRelayReviewItemSeenCommand:Patient"] = "reads the patients' names a review line shows; it writes the cloud-only line",
     };
 
     /// <summary>All-cabinet paths that never write a carried table the net refuses, each with its reason.</summary>

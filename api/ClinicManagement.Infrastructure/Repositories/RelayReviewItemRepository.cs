@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -25,15 +26,17 @@ public class RelayReviewItemRepository : IRelayReviewItemRepository
             .ToListAsync(cancellationToken);
 
     public Task<PagedResult<RelayReviewItem>> GetPageAsync(
-        Guid clinicId, bool includeReviewed, PageRequest? paging, CancellationToken cancellationToken = default) =>
+        Guid clinicId, bool reEnter, bool includeReviewed, PageRequest? paging, CancellationToken cancellationToken = default) =>
         _context.RelayReviewItems
             .Where(i => i.ClinicId == clinicId && (includeReviewed || i.ReviewedAtUtc == null))
+            .Where(i => reEnter ? i.Kind == RelayReviewKind.ToReEnter : i.Kind != RelayReviewKind.ToReEnter)
             .OrderByDescending(i => i.CreatedAtUtc)
             .ThenBy(i => i.Id)
             .ToPagedResultAsync(paging, cancellationToken);
 
-    public Task<int> CountPendingAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
-        _context.RelayReviewItems.CountAsync(i => i.ClinicId == clinicId && i.ReviewedAtUtc == null, cancellationToken);
+    public Task<int> CountPendingAsync(Guid clinicId, bool reEnter, CancellationToken cancellationToken = default) =>
+        _context.RelayReviewItems.CountAsync(i => i.ClinicId == clinicId && i.ReviewedAtUtc == null
+            && (reEnter ? i.Kind == RelayReviewKind.ToReEnter : i.Kind != RelayReviewKind.ToReEnter), cancellationToken);
 
     public Task<RelayReviewItem?> GetByIdAsync(Guid clinicId, Guid id, CancellationToken cancellationToken = default) =>
         _context.RelayReviewItems.FirstOrDefaultAsync(i => i.ClinicId == clinicId && i.Id == id, cancellationToken);

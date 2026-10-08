@@ -662,6 +662,11 @@ no consent flag and no audit of which patient was sent.
   The dispatcher sends one reminder per visit when tiers collide (`NotificationRepository.HasCloserDueReminderAsync`,
   EC-16). « Modifications à vérifier » has its repository (`RelayReviewItemRepository`) and a bell row
   (`RelayAlert.ToReview`, counted by `RelayWatchJob`).
+- **« À reprendre » (D18b2, US-7)**: a PC stopped by « Reprendre la main » (`OverruledReason`) holding an unreturned cut
+  reads it (`RelayHandback.ListOverruledAsync`, same read and file upload as a handback) and sends it to
+  `relay/handback/overruled`; once the cloud answers it drops its log, ends the unreturned mark
+  (`RelayLease.ForgetUnreturned`) and copies the cloud afresh (`ReseedNeeded`) — the one stop that is undone. A refusal
+  or silence keeps the cut and tries next tick. `RelayReviewItemRepository` pages and counts either list (`reEnter`).
 - **Idempotency (D17)**: `Persistence/IdempotencyStore` — the replay keys of a cabinet's saves in `IdempotencyRecords`,
   claimed with `INSERT … ON CONFLICT DO NOTHING` and completed / released in **raw SQL** on the request's own context, so a
   claim survives the save's rollback and touches no change log, audit row or fence. ⚠️ **Per side**: excluded from the

@@ -329,6 +329,18 @@ public sealed class RelayLease
         }
     }
 
+    /// <summary>US-7: the overruled cut's work is listed « À reprendre » on the cloud — nothing here is unreturned any more.</summary>
+    public void ForgetUnreturned()
+    {
+        lock (_gate)
+        {
+            if (_state.HoldingSinceUtc is null && _state.UnreturnedSinceUtc is not null)
+            {
+                Write(_state with { UnreturnedSinceUtc = null });
+            }
+        }
+    }
+
     /// <summary>Phase 2 confirmed: the cloud holds the cabinet's saves again.</summary>
     public void ForgetReturned(Guid handbackId)
     {

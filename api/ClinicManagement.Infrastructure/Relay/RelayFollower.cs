@@ -132,6 +132,14 @@ public sealed class RelayFollower
             return Save(RelayFeedDecisions.Stopped(state, RelayFeedDecisions.WentBackReason));
         }
 
+        // US-7: a copy stopped because « Reprendre la main » overruled its cut lists that cut « À reprendre » on the
+        // cloud, then starts afresh — the one stop a machine may undo, since nothing it held is lost by it.
+        if (state.StoppedReason == RelayFeedDecisions.OverruledReason && _lease.Current.UnreturnedSinceUtc is { } cutSince)
+        {
+            var listed = await _handback.ListOverruledAsync(state, cutSince, local, cancellationToken);
+            return Save(listed ?? state);
+        }
+
         // A stopped copy may hold more than the cloud: it is never updated toward that cloud either — a human decides.
         if (state.StoppedReason is not null)
         {

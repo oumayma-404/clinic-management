@@ -1,26 +1,30 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (session 11) · **Overall:** ~59 % · **Part 1 (La copie):** done in code (owed: the Windows
-rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~65 % (lease 1, 2, 2b, « Reprendre
-la main », device reports, D17, D16, **the return slice a and the after-return step (b1)** done) · **all scratch servers stopped**
+**Date:** 2026-10-08 (session 11) · **Overall:** ~60 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~67 % (lease 1, 2, 2b, « Reprendre
+la main », device reports, D17, D16, **the return slices a, b1 and b2** done) · **all scratch servers stopped**
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–134, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–142, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next sub-step: Part 2 · the return, slice b2 (D18b2)** — the review list on the card and « À reprendre » (items 1 and 7 below); then b3 (items 5, 6, 8).
+3. **Next sub-step: Part 2 · the return, slice b3 (D18b3)** — items 5, 6 and 8 below (EC-11, deviation 88, AC-9.4).
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
 ## The next sub-step — the return, slice b (D18b)
 
 **Done in b1 (session 11, deviations 129–133):** items 2, 3, 4 below and the review bell row + API of item 1
-(`GET relay/review-items`, `POST relay/review-items/{id}/seen`, `RelayAlert.ToReview`). **Left:** the screen of item 1
-(b2), item 7 (b2), items 5, 6, 8 (b3).
+(`GET relay/review-items`, `POST relay/review-items/{id}/seen`, `RelayAlert.ToReview`).
+**Done in b2 (session 11, deviations 135–142):** the screen of item 1 and item 7 — `/settings/pc-de-secours`
+« Retours du PC de secours » (« À vérifier » / « À reprendre », « Vu » / « Repris », printable), two count links on the
+card, an overruled PC sends its cut to `POST relay/handback/overruled` and re-copies, the numbered paper flagged, the
+« À reprendre » bell row. Also fixed `useUrlFilterSeed` (a `<Link>` with a query string landed on the defaults).
+**Left:** items 5, 6, 8 (b3).
 
 What slice a left, each named in deviation 128 (and 121, 124, 88, 91):
 1. **« Modifications à vérifier »** — the rows are stored (`RelayReviewItems`, AC-5.6): the admins' bell row « N

@@ -999,6 +999,50 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Empty(_cloud.Handbacks);
     }
 
+    // [US-7, AC-7.3] A PC overruled by « Reprendre la main » sends its cut to be listed « À reprendre » (from the
+    // takeover), then drops its log and copies the cloud afresh — the one stop a machine may undo.
+    [Fact]
+    public async Task An_Overruled_Pc_Lists_Its_Cut_Then_Copies_The_Cloud_Afresh()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+        _cloud.Reclaimed = true;
+        var follower = HandbackFollower();
+        await HoldingTicksAsync(follower, 1);
+        Assert.True(_lease.HoldsUnreturnedWork);
+        _cloud.Reclaimed = false;
+
+        await HoldingTicksAsync(follower, 1);
+
+        var sent = Assert.Single(_cloud.Overruled);
+        Assert.Equal(T0, sent.CutSinceUtc);
+        Assert.Equal(1, _handbackStore.Forgotten);
+        Assert.False(_lease.HoldsUnreturnedWork);
+        var state = _store.Load();
+        Assert.Null(state.StoppedReason);
+        Assert.True(state.ReseedNeeded);
+    }
+
+    // [US-7] Not listed (the cloud refused, or did not answer): the copy stays stopped and keeps the cut, and tries later.
+    [Fact]
+    public async Task An_Overruled_Pc_That_Could_Not_List_Its_Cut_Keeps_It()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+        _cloud.Reclaimed = true;
+        var follower = HandbackFollower();
+        await HoldingTicksAsync(follower, 1);
+        _cloud.Reclaimed = false;
+        _cloud.OverruledStatus = RelayCallStatus.Refused;
+
+        await HoldingTicksAsync(follower, 2);
+
+        Assert.Single(_cloud.Overruled);
+        Assert.Equal(0, _handbackStore.Forgotten);
+        Assert.True(_lease.HoldsUnreturnedWork);
+        Assert.Equal(RelayFeedDecisions.OverruledReason, _store.Load().StoppedReason);
+    }
+
     // [D18] A new cut before the cloud confirmed the last return: the old handback is moot and never named again.
     [Fact]
     public void A_New_Takeover_Forgets_A_Return_Still_Awaiting_The_Cloud()
@@ -1197,6 +1241,17 @@ public sealed class RelayFollowerTests : IDisposable
         {
             Uploaded.Add(storageKey);
             return Task.FromResult(new RelayCall<bool>(RelayCallStatus.Ok, true));
+        }
+
+        public RelayCallStatus OverruledStatus { get; set; } = RelayCallStatus.Ok;
+        public List<RelayHandbackRequest> Overruled { get; } = new();
+
+        public Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(RelayHandbackRequest request, CancellationToken cancellationToken)
+        {
+            Overruled.Add(request);
+            return Task.FromResult(OverruledStatus == RelayCallStatus.Ok
+                ? new RelayCall<RelayHandbackResultDto>(RelayCallStatus.Ok, new RelayHandbackResultDto(false, 0, 0, 3))
+                : new RelayCall<RelayHandbackResultDto>(OverruledStatus, null, "non"));
         }
 
         public Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(RelayHandbackRequest request, CancellationToken cancellationToken)

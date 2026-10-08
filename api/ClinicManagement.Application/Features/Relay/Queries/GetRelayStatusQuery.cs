@@ -16,12 +16,16 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
     private readonly IClinicContext _clinicContext;
     private readonly IUserRepository _users;
     private readonly IClinicRelayRepository _relays;
+    private readonly IRelayReviewItemRepository? _reviews;
 
-    public GetRelayStatusQueryHandler(IClinicContext clinicContext, IUserRepository users, IClinicRelayRepository relays)
+    public GetRelayStatusQueryHandler(
+        IClinicContext clinicContext, IUserRepository users, IClinicRelayRepository relays,
+        IRelayReviewItemRepository? reviews = null)
     {
         _clinicContext = clinicContext;
         _users = users;
         _relays = relays;
+        _reviews = reviews;
     }
 
     public async Task<Result<RelayStatusDto>> Handle(GetRelayStatusQuery request, CancellationToken cancellationToken)
@@ -34,6 +38,14 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
 
         var relay = await _relays.GetLatestForClinicAsync(admin.Value!.ClinicId, cancellationToken);
         var status = ToDto(relay, DateTime.UtcNow);
+        if (_reviews is not null)
+        {
+            status = status with
+            {
+                ReviewPending = await _reviews.CountPendingAsync(admin.Value!.ClinicId, reEnter: false, cancellationToken),
+                ReEnterPending = await _reviews.CountPendingAsync(admin.Value.ClinicId, reEnter: true, cancellationToken),
+            };
+        }
 
         // The offer's room check (AC-1.8) needs the figure before « Oui », so only when a setup may start.
         return Result<RelayStatusDto>.Success(status.CanInstall
