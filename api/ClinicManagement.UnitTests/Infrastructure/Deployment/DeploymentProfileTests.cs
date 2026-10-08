@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
@@ -87,7 +87,9 @@ public class DeploymentProfileTests
             [nameof(DeploymentProfile.MirrorsCloudClinic)] = (false, false, true),
             // A mirror runs neither the clinic jobs nor the outboxes: the cloud already does, once.
             [nameof(DeploymentProfile.RunsClinicJobs)] = (true, true, false),
-            [nameof(DeploymentProfile.DispatchesOutboxes)] = (true, true, false)
+            [nameof(DeploymentProfile.DispatchesOutboxes)] = (true, true, false),
+            // Deviation 88: the PC de secours runs the cut's two jobs, gated by the write fence.
+            [nameof(DeploymentProfile.RunsCutJobs)] = (false, false, true)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -150,7 +152,8 @@ public class DeploymentProfileTests
             nameof(DeploymentProfile.RequiresAdminSecondFactor),
             // clinic-pc-copy: false on the LAN server too — one is the hosted side's, the other the PC de secours's.
             nameof(DeploymentProfile.PublishesChangeFeed),
-            nameof(DeploymentProfile.MirrorsCloudClinic)
+            nameof(DeploymentProfile.MirrorsCloudClinic),
+            nameof(DeploymentProfile.RunsCutJobs)
         };
 
         foreach (var capability in Capabilities())

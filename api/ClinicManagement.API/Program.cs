@@ -1237,8 +1237,9 @@ try
     // minute, and deliberately NOT connectivity-gated: it writes a status, so it must work on an offline LAN
     // install (StockExpiryJob's reasoning). Unconditional like the three passes that no-op until there is work:
     // on a clinic with nothing booked right now the read returns an empty set and the tick costs one query.
-    // A mirror writes only what the feed brings (clinic-pc-copy); the cloud advances its visits.
-    if (profile.RunsClinicJobs)
+    // A PC de secours runs it too, and acts only while it holds the cabinet's saves (deviation 88): during a cut the
+    // agenda keeps moving and « À clôturer » fills; the job asks IClinicWriteFence per cabinet.
+    if (profile.RunsClinicJobs || profile.RunsCutJobs)
     {
         RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AppointmentProgressJob>(
             "start-running-appointments",
@@ -1279,8 +1280,9 @@ try
     //
     // 05:00 UTC = 06:00 in Tunis: after the day has turned everywhere, and before the cabinet opens, so the
     // dépense is already in la caisse the first time somebody looks at it.
-    // A mirror writes only what the feed brings (clinic-pc-copy): a second poster would post the rent twice.
-    if (profile.RunsClinicJobs)
+    // A PC de secours posts only while it holds the cabinet's saves (deviation 88, through IClinicWriteFence); the
+    // series' marker goes back with the return, so the cloud never posts the same month again.
+    if (profile.RunsClinicJobs || profile.RunsCutJobs)
     {
         RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.MonthlyExpenseJob>(
             "post-monthly-expenses",

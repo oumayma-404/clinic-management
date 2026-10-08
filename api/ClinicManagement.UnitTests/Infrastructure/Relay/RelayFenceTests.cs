@@ -200,6 +200,26 @@ public class RelayFenceTests
         Assert.False(await fence.RefusesAsync(ClinicId));
     }
 
+    // [Deviation 88] A job registered on the PC de secours writes into the cut's own log, so it must ask the fence:
+    // otherwise it would write while the copy follows the cloud, and the feed would overwrite it (or the net refuse it).
+    [Fact]
+    public void Every_Job_The_Pc_Runs_During_A_Cut_Asks_The_Write_Fence()
+    {
+        var api = Path.Combine(ClinicManagement.UnitTests.Common.SolutionSources.Root().FullName, "ClinicManagement.API");
+        var program = File.ReadAllText(Path.Combine(api, "Program.cs"));
+        var jobs = System.Text.RegularExpressions.Regex.Matches(program,
+                @"if \([^)]*profile\.RunsCutJobs[^)]*\)\s*\{\s*RecurringJob\.AddOrUpdate<ClinicManagement\.API\.BackgroundJobs\.(\w+)>")
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+        Assert.Equal(new[] { "AppointmentProgressJob", "MonthlyExpenseJob" }, jobs.Order());
+        foreach (var job in jobs)
+        {
+            var source = File.ReadAllText(Path.Combine(api, "BackgroundJobs", job + ".cs"));
+            Assert.True(source.Contains("_fence.RefusesAsync("), $"{job} runs on the PC de secours and never asks IClinicWriteFence.");
+        }
+    }
+
     private sealed class FixedLocal(bool holding, bool retired) : IRelayLocalStatus
     {
         public bool IsRetired => retired;

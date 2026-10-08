@@ -211,8 +211,8 @@ public sealed class RelayFollower
 
     /// <summary>
     /// This PC holds the cabinet's saves (D13). It says so on every heartbeat — the cloud stays read-only for the cabinet
-    /// — and takes nothing from the cloud, whose rows are now older than this copy's: no catch-up, no files, no check and
-    /// no update, which would stop the server the cabinet is working on.
+    /// — and takes nothing from the cloud, whose rows are now older than this copy's: no catch-up, no files and no check.
+    /// It updates only to return the cut under the cloud's build (EC-11), never while the internet is still unsteady.
     /// </summary>
     private async Task<RelayFollowerState> WhileHoldingAsync(
         RelayFollowerState state, RelayLocalSide local, CancellationToken cancellationToken)
@@ -248,7 +248,45 @@ public sealed class RelayFollower
             ForgetReturnOnceReleased(await HeartbeatAsync(Report(state), cancellationToken));
         }
 
+        return await UpdateBeforeReturnAsync(state, call.Value!, cancellationToken);
+    }
+
+    /// <summary>
+    /// EC-11: the cloud runs another build, and the cut must go back under the cloud's own. The installer is fetched
+    /// while the cabinet keeps working here; once the internet has held for two minutes, saves are refused with
+    /// « Retour au cloud en cours » and the update runs. The new build finds this PC still holding and handing back,
+    /// and sends the cut at its first answered heartbeat. A refusal or a failed install takes saves again.
+    /// </summary>
+    private async Task<RelayFollowerState> UpdateBeforeReturnAsync(
+        RelayFollowerState state, RelayHeartbeatAck ack, CancellationToken cancellationToken)
+    {
+        if (!ack.UpdateNeeded)
+        {
+            return state.UpdateBuild is null ? state : Save(await _updater.SettleAsync(state with { UpdateNeeded = false }));
+        }
+
+        state = Save(await _updater.StepAsync(state with { UpdateNeeded = true }, ack.CloudBuild, Save,
+            RefuseSavesForUpdateAsync, cancellationToken));
+        if (_lease.IsHandingBack && (state.UpdateLaunchedAtUtc is null || state.UpdateError is not null))
+        {
+            _lease.AbortHandback();
+        }
+
         return state;
+    }
+
+    /// <summary>The updater's last step before the install, on a holding PC: no stand-down (it holds the cut) — saves stop.</summary>
+    private Task<RelayFollowerState?> RefuseSavesForUpdateAsync(RelayFollowerState state, CancellationToken cancellationToken)
+    {
+        if (!_handback.IsStable)
+        {
+            return Task.FromResult<RelayFollowerState?>(null);
+        }
+
+        _lease.BeginHandback();
+        _logger.LogWarning("PC de secours: saves stop while this PC updates to build {Build} before sending the cut back.",
+            state.UpdateBuild);
+        return Task.FromResult<RelayFollowerState?>(state);
     }
 
     /// <summary>D18 phase 2: the cloud says it holds the cabinet's saves again after this PC's handback.</summary>

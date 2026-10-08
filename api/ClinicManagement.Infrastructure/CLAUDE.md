@@ -662,6 +662,11 @@ no consent flag and no audit of which patient was sent.
   The dispatcher sends one reminder per visit when tiers collide (`NotificationRepository.HasCloserDueReminderAsync`,
   EC-16). « Modifications à vérifier » has its repository (`RelayReviewItemRepository`) and a bell row
   (`RelayAlert.ToReview`, counted by `RelayWatchJob`).
+- **During the cut and before the return (D18b3a)**: the PC registers the agenda's progress and the monthly dépenses
+  (`DeploymentProfile.RunsCutJobs`); both act only while it holds (`IClinicWriteFence`). On another cloud build while
+  holding (EC-11) `RelayFollower.UpdateBeforeReturnAsync` steps `RelayUpdater` with saves still taken; its last step
+  (`RefuseSavesForUpdateAsync`) waits for `RelayHandback.IsStable`, refuses saves (`BeginHandback`) and the install runs —
+  no stand-down, the PC holds the cut. The new build returns it at its first answered heartbeat.
 - **« À reprendre » (D18b2, US-7)**: a PC stopped by « Reprendre la main » (`OverruledReason`) holding an unreturned cut
   reads it (`RelayHandback.ListOverruledAsync`, same read and file upload as a handback) and sends it to
   `relay/handback/overruled`; once the cloud answers it drops its log, ends the unreturned mark

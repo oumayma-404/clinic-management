@@ -56,6 +56,9 @@ public sealed class RelayHandback
         _pause = pause ?? ((delay, token) => Task.Delay(delay, token));
     }
 
+    /// <summary>The internet has held long enough for the return — or the update before it (EC-11) — to start.</summary>
+    public bool IsStable => _answeredSince is { } since && _monotonic() - since >= StableFor;
+
     /// <summary>A heartbeat went unanswered: stability starts again, and a return interrupted by a restart gives way.</summary>
     public void Unanswered()
     {
@@ -78,16 +81,11 @@ public sealed class RelayHandback
             return false;
         }
 
-        // EC-11: the return needs the cloud's build. Updating a PC that holds the cut comes with the next slice; until
-        // then the cabinet keeps working here and the stuck return is reported (AC-5.9).
+        // EC-11: the return needs the cloud's build — the follower updates this PC first (`UpdateBeforeReturnAsync`).
+        // Counted as stuck from now, so an update that never lands still reaches the bell and the vendor (AC-5.9).
         if (ack.UpdateNeeded)
         {
             _lease.MarkReturnBlocked();
-            if (_lease.IsHandingBack)
-            {
-                _lease.AbortHandback();
-            }
-
             return false;
         }
 

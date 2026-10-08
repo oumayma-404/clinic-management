@@ -1,18 +1,18 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (session 11) · **Overall:** ~60 % · **Part 1 (La copie):** done in code (owed: the Windows
-rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~67 % (lease 1, 2, 2b, « Reprendre
-la main », device reports, D17, D16, **the return slices a, b1 and b2** done) · **all scratch servers stopped**
+**Date:** 2026-10-08 (session 11) · **Overall:** ~61 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~70 % (lease 1, 2, 2b, « Reprendre
+la main », device reports, D17, D16, **the return slices a, b1, b2 and b3a** done) · **all scratch servers stopped**
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–142, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–146, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next sub-step: Part 2 · the return, slice b3 (D18b3)** — items 5, 6 and 8 below (EC-11, deviation 88, AC-9.4).
+3. **Next sub-step: Part 2 · the return, slice b3b (D18b3b)** — item 8 below (AC-9.4, EC-21: a restored cloud's gap).
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
@@ -24,7 +24,9 @@ la main », device reports, D17, D16, **the return slices a, b1 and b2** done) �
 « Retours du PC de secours » (« À vérifier » / « À reprendre », « Vu » / « Repris », printable), two count links on the
 card, an overruled PC sends its cut to `POST relay/handback/overruled` and re-copies, the numbered paper flagged, the
 « À reprendre » bell row. Also fixed `useUrlFilterSeed` (a `<Link>` with a query string landed on the defaults).
-**Left:** items 5, 6, 8 (b3).
+**Done in b3a (deviations 143–146):** item 6 (the PC runs the agenda's progress and the monthly dépenses while it
+holds — `RunsCutJobs`) and item 5 (EC-11: fetch while working, then saves refused and the update, the new build returns at
+once). **Left:** item 8 (b3b).
 
 What slice a left, each named in deviation 128 (and 121, 124, 88, 91):
 1. **« Modifications à vérifier »** — the rows are stored (`RelayReviewItems`, AC-5.6): the admins' bell row « N

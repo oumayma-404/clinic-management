@@ -436,9 +436,10 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Equal(0, _cloud.SnapshotCalls);
     }
 
-    // A holding PC never runs the cloud's installer either — it would stop the server the cabinet is working on.
+    // [EC-11] A holding PC runs the cloud's installer only to return the cut, and never on the first answer after a cut:
+    // until the internet has held two minutes it would stop the server the cabinet is working on for nothing.
     [Fact]
-    public async Task A_Holding_Pc_Is_Never_Updated()
+    public async Task A_Holding_Pc_Never_Updates_On_An_Unsteady_Internet()
     {
         Seeded(seq: 40);
         _cloud.UpdateNeeded = true;
@@ -446,10 +447,10 @@ public sealed class RelayFollowerTests : IDisposable
         _installer.Serve("build-2", new byte[] { 1, 2, 3 });
         _lease.TakeOver();
 
-        var state = await TickAsync();
+        await TickAsync();
 
         Assert.Empty(_launcher.Launches);
-        Assert.False(state.UpdateNeeded);
+        Assert.True(_lease.AcceptsSaves);
     }
 
     // [AC-8.6] Retired while it held the saves: it learns it, and the keeper then lets go (the work stays).
@@ -817,14 +818,14 @@ public sealed class RelayFollowerTests : IDisposable
 
     private readonly FakeHandbackStore _handbackStore = new();
 
-    private RelayFollower HandbackFollower()
+    private RelayFollower HandbackFollower(string build = "build-1")
     {
         var secrets = new Mock<IUserSecretProtector>();
         var credentials = new RelayCredentials(Guid.NewGuid(), ClinicId, "Cabinet", "https://cloud.example.tn", "secret",
             Convert.ToBase64String(_keys.Private), T0);
         var handback = new RelayHandback(_cloud, _lease, ClinicId, NullLogger.Instance, () => _mono,
             (delay, _) => { Advance(delay.TotalSeconds); return Task.CompletedTask; });
-        return new RelayFollower(_cloud, _store, credentials, secrets.Object, "build-1",
+        return new RelayFollower(_cloud, _store, credentials, secrets.Object, build,
             () => new RelayHostReport(new[] { "192.168.1.10" }, "FP", 100L * 1024 * 1024 * 1024, 5001, "192.168.1.1"),
             new RelayUpdater(_installer, _launcher, Path.Combine(_dir, "updates"), Path.Combine(_dir, "logs"),
                 NullLogger.Instance, () => _now),
@@ -948,21 +949,92 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Equal(_lease.Current.ReturnFirstTriedAtUtc, _cloud.Reports[^1].ReturnStuckSinceUtc);
     }
 
-    // [EC-11, AC-5.9] On another build the return cannot start: nothing is sent, the cabinet keeps working, it is reported.
+    // [EC-11, AC-5.9] On another build whose installer cannot be had yet, nothing is sent and nothing is installed: the
+    // cabinet keeps working here, and the return is reported stuck.
     [Fact]
-    public async Task A_Cloud_On_Another_Build_Blocks_The_Return_And_Says_So()
+    public async Task A_Cloud_On_Another_Build_With_No_Installer_Keeps_The_Cabinet_Working_And_Says_So()
     {
         Seeded();
         _lease.TakeOver();
         _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
         var follower = HandbackFollower();
 
         await HoldingTicksAsync(follower, 20);
 
         Assert.Empty(_cloud.Handbacks);
+        Assert.Empty(_launcher.Launches);
         Assert.True(_lease.AcceptsSaves);
         Assert.NotNull(_cloud.Reports[^1].ReturnStuckSinceUtc);
-        Assert.Equal(0, _installer.Fetches);
+    }
+
+    // [EC-11] The installer is fetched while the cabinet keeps working; once the internet has held for two minutes the
+    // saves stop (« Retour au cloud en cours ») and the update runs — before any of the cut is sent.
+    [Fact]
+    public async Task A_Holding_Pc_Updates_To_The_Clouds_Build_Before_The_Return()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7, 7, 7 });
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 6);
+        Assert.Equal(1, _installer.Fetches);
+        Assert.Empty(_launcher.Launches);
+        Assert.True(_lease.AcceptsSaves);
+
+        _launcher.OnLaunch = () => Assert.False(_lease.AcceptsSaves);
+        await HoldingTicksAsync(follower, 8);
+
+        Assert.Single(_launcher.Launches);
+        Assert.Empty(_cloud.Handbacks);
+        Assert.True(_lease.IsHandingBack);
+        Assert.True(_lease.IsHolding);
+        Assert.True(_cloud.Reports[^1].Holding);
+    }
+
+    // [EC-11] The new build finds the PC still holding and handing back: its first answered heartbeat sends the cut,
+    // under the handback the update began — no second two-minute wait.
+    [Fact]
+    public async Task The_Updated_Pc_Sends_The_Cut_At_Its_First_Answered_Heartbeat()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7, 7, 7 });
+        await HoldingTicksAsync(HandbackFollower(), 14);
+        var begun = _lease.Current.HandbackId;
+        Assert.NotNull(begun);
+
+        _cloud.UpdateNeeded = false;
+        await HoldingTicksAsync(HandbackFollower("build-2"), 1);
+
+        var sent = Assert.Single(_cloud.Handbacks);
+        Assert.Equal(begun, sent.HandbackId);
+        Assert.False(_lease.IsHolding);
+    }
+
+    // [EC-11] An installer Windows refuses to start leaves nothing refused: the cabinet works here again.
+    [Fact]
+    public async Task An_Update_That_Cannot_Start_Gives_The_Saves_Back()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7, 7, 7 });
+        _launcher.Refuses = true;
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 14);
+
+        Assert.Single(_launcher.Launches);
+        Assert.True(_lease.AcceptsSaves);
+        Assert.Empty(_cloud.Handbacks);
+        Assert.NotNull(_cloud.Reports[^1].ReturnStuckSinceUtc);
     }
 
     // [D18] The files the cut's rows name reach the cloud before the rows that name them.

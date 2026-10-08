@@ -79,7 +79,8 @@ public sealed class DeploymentProfile
         bool publishesChangeFeed,
         bool mirrorsCloudClinic,
         bool runsClinicJobs,
-        bool dispatchesOutboxes)
+        bool dispatchesOutboxes,
+        bool runsCutJobs)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -106,6 +107,7 @@ public sealed class DeploymentProfile
         MirrorsCloudClinic = mirrorsCloudClinic;
         RunsClinicJobs = runsClinicJobs;
         DispatchesOutboxes = dispatchesOutboxes;
+        RunsCutJobs = runsCutJobs;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -326,6 +328,14 @@ public sealed class DeploymentProfile
     public bool DispatchesOutboxes { get; }
 
     /// <summary>
+    /// The jobs a cut needs — the agenda's progress and the monthly dépenses — are registered on this PC de secours
+    /// (<c>clinic-pc-copy</c> deviation 88). ⚠️ They act only while this PC holds the cabinet's saves:
+    /// <c>IClinicWriteFence</c> refuses otherwise, and both jobs ask it per cabinet. What they write joins the cut's
+    /// own log and goes back with the return.
+    /// </summary>
+    public bool RunsCutJobs { get; }
+
+    /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
     ///
     /// <para><b>Per-platform, not one boolean</b>, because a deployment with a Firebase project and no Apple key
@@ -449,7 +459,8 @@ public sealed class DeploymentProfile
             publishesChangeFeed: false,
             mirrorsCloudClinic: false,
             runsClinicJobs: true,
-            dispatchesOutboxes: true),
+            dispatchesOutboxes: true,
+            runsCutJobs: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -493,7 +504,8 @@ public sealed class DeploymentProfile
             publishesChangeFeed: true,
             mirrorsCloudClinic: false,
             runsClinicJobs: true,
-            dispatchesOutboxes: true),
+            dispatchesOutboxes: true,
+            runsCutJobs: false),
 
         // A cabinet PC built from the LAN server bundle, holding a copy of one cloud clinic (clinic-pc-copy).
         DeploymentKind.ClinicRelay => new DeploymentProfile(
@@ -524,9 +536,10 @@ public sealed class DeploymentProfile
             requiresAdminSecondFactor: true,
             publishesChangeFeed: false,
             mirrorsCloudClinic: true,
-            // The cloud runs them; the PC runs them only while it holds the lease (Part 2).
+            // The cloud runs them; the PC runs only the cut's two, and only while it holds the lease (below).
             runsClinicJobs: false,
-            dispatchesOutboxes: false),
+            dispatchesOutboxes: false,
+            runsCutJobs: true),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };
