@@ -62,6 +62,8 @@ public class SubscriptionExemptionCoverageTests
         "Relay.DeclareLost",
         // US-7: taking a locked cabinet's saves back from a silent PC — records nothing new.
         "Relay.Reclaim",
+        // AC-6.2: a device saying whether it reaches a silent PC de secours — records nothing of the cabinet's work.
+        "RelayDevice.Report",
         // AC-8.2: erasing a retired PC's copy, and the PC telling the cloud — offboarding, never new work.
         "RelayLocal.Erase",
         "RelayPeer.Erased",

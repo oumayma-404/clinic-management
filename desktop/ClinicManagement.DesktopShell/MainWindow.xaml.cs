@@ -503,6 +503,11 @@ public partial class MainWindow : Window
                 {
                     RunRelayInstallAsync(e.Source, message[RelayInstallPrefix.Length..]);
                 }
+                // `relay-probe:<id>:<json>` — AC-6.2: does this device reach a silent PC de secours?
+                else if (message.StartsWith(RelayProbePrefix, StringComparison.Ordinal))
+                {
+                    AnswerRelayProbeAsync(e.Source, message[RelayProbePrefix.Length..]);
+                }
                 break;
         }
     }
@@ -510,6 +515,7 @@ public partial class MainWindow : Window
     private const string IdentityRequestPrefix = "identity:";
     private const string RelayFactsPrefix = "relay-facts:";
     private const string RelayInstallPrefix = "relay-install:";
+    private const string RelayProbePrefix = "relay-probe:";
 
     // ---- The PC de secours (clinic-pc-copy AC-1.1–1.13) -----------------------------------------------
 
@@ -593,6 +599,37 @@ public partial class MainWindow : Window
         }
 
         await DeliverRelayResultAsync(requestId, new { outcome = outcome.Kind, sentence = outcome.Sentence });
+    }
+
+    /// <summary>
+    /// Answers <c>relayProbe()</c> (AC-6.2). ⚠️ Only for the configured server's own page, and only toward what
+    /// <see cref="RelayProbe.Parse"/> accepts — private addresses and the PC's pinned certificate.
+    /// </summary>
+    private async void AnswerRelayProbeAsync(string? source, string payload)
+    {
+        var separator = payload.IndexOf(':');
+        var requestId = separator > 0 ? payload[..separator] : payload;
+        if (!RelayInstaller.IsRequestId(requestId))
+        {
+            return;
+        }
+
+        object? answer = null;
+        try
+        {
+            if (VaultBridge.IsExpectedOrigin(source, _config) && separator > 0
+                && RelayProbe.Parse(payload[(separator + 1)..]) is { } request)
+            {
+                var result = await RelayProbe.RunAsync(request);
+                answer = new { reached = result.Reached, gateways = result.Gateways };
+            }
+        }
+        catch
+        {
+            // Null: the page sends no report.
+        }
+
+        await DeliverRelayResultAsync(requestId, answer);
     }
 
     /// <summary>

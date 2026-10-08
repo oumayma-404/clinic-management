@@ -43,6 +43,15 @@ interface ShellRelayInstallOutcome {
   sentence: string
 }
 
+/**
+ * `relayProbe`'s answer (`clinic-pc-copy` AC-6.2): whether this device reached the PC de secours through its pinned
+ * certificate, and this device's own default gateways — the cloud counts the report only from the cabinet's box.
+ */
+interface ShellRelayProbeResult {
+  reached: boolean
+  gateways: string[]
+}
+
 interface ClinicShell {
   /**
    * The shell's own version, injected before first paint.
@@ -103,6 +112,13 @@ interface ClinicShell {
    * rejects; the code goes to a file the installer reads and deletes, never onto a command line.
    */
   installRelay?(request: { code: string; needBytes: number }): Promise<ShellRelayInstallOutcome>
+
+  /**
+   * While the cloud is locked for a PC de secours that said nothing (AC-6.2): try the PC at the addresses the cloud
+   * gave, recognising it only by its certificate's SHA-256. Windows since 1.5, Android since 1.2.0 — never a browser,
+   * which cannot tell an untrusted certificate from a PC that is down. Never rejects: `null` when it cannot answer.
+   */
+  relayProbe?(request: { addresses: string[]; port: number; fingerprint: string }): Promise<ShellRelayProbeResult | null>
 }
 
 interface Window {

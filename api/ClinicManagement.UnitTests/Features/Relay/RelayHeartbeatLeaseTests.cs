@@ -34,7 +34,7 @@ public class RelayHeartbeatLeaseTests
 
     private async Task<RelayHeartbeatAck> BeatAsync(
         ClinicRelay relay, string build = Build, bool standDown = false, long confirmed = 0, bool confirmedArmed = false,
-        bool holding = false, DateTime? holdingSince = null, long holdingUnderAck = 0)
+        bool holding = false, DateTime? holdingSince = null, long holdingUnderAck = 0, string? caller = null)
     {
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns(relay.Subject);
@@ -56,7 +56,8 @@ public class RelayHeartbeatLeaseTests
         var result = await handler.Handle(new RelayHeartbeatCommand(new RelayHeartbeatRequest(
             40, 100, true, 0, 0, null, false, build, DateTime.UtcNow, null, null, null, null,
             ConfirmedAckSeq: confirmed, ConfirmedAckArmed: confirmedArmed, WantsToStandDown: standDown,
-            Holding: holding, HoldingSinceUtc: holdingSince, HoldingUnderAckSeq: holdingUnderAck)), CancellationToken.None);
+            Holding: holding, HoldingSinceUtc: holdingSince, HoldingUnderAckSeq: holdingUnderAck,
+            HttpsPort: 5001, GatewayAddress: "192.168.1.1"), caller), CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         return result.Value!;
@@ -73,6 +74,19 @@ public class RelayHeartbeatLeaseTests
         Assert.True(ack.AckSeq > 0);
         Assert.Equal(ack.AckSeq, relay.LastAckSeq);
         Assert.Equal($"saved ack {ack.AckSeq}", Assert.Single(_order));
+    }
+
+    // AC-6.2: the line the heartbeat came from is the cabinet's, as the cloud sees it — never what the PC claims.
+    [Fact]
+    public async Task The_Heartbeat_Records_The_Cabinets_Line_And_Where_Devices_Find_The_Pc()
+    {
+        var relay = ReadyRelay();
+
+        await BeatAsync(relay, caller: "::ffff:197.15.20.30");
+
+        Assert.Equal("197.15.20.30", relay.PublicAddress);
+        Assert.Equal(5001, relay.HttpsPort);
+        Assert.Equal("192.168.1.1", relay.GatewayAddress);
     }
 
     [Fact]

@@ -326,7 +326,10 @@ class MainActivity : ComponentActivity() {
         }
 
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
-        webView.addJavascriptInterface(ShellBridge(this, webView), ShellBridge.NATIVE_OBJECT)
+        webView.addJavascriptInterface(
+            ShellBridge(this, webView) { page -> config.isSameOrigin(page) },
+            ShellBridge.NATIVE_OBJECT,
+        )
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =

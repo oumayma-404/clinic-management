@@ -144,6 +144,32 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// </summary>
     public DateTime? CutOverruledAtUtc { get; private set; }
 
+    // ---- device reports (AC-6.2) -------------------------------------------------------------------------------------
+
+    /// <summary>Who took the cloud back when it was the cabinet's own devices, not an admin (<see cref="ReclaimedByUserId"/>).</summary>
+    public const string ReclaimedByDevices = "relay-devices";
+
+    /// <summary>Two « cloud yes, PC no » reports this far apart, and none that reached the PC, unlock a silent PC's cabinet.</summary>
+    public static readonly TimeSpan DeviceReportsSpan = TimeSpan.FromSeconds(30);
+
+    /// <summary>The PC's HTTPS port, so a device can try it directly (its addresses are <see cref="LanAddresses"/>).</summary>
+    public int? HttpsPort { get; private set; }
+
+    /// <summary>The PC's default gateway — the cabinet's box — as the PC last saw it.</summary>
+    public string? GatewayAddress { get; private set; }
+
+    /// <summary>The internet address the PC's last heartbeat came from: the cabinet's, seen by the cloud.</summary>
+    public string? PublicAddress { get; private set; }
+
+    /// <summary>The lock the device facts below belong to (its start); a new lock starts them afresh.</summary>
+    public DateTime? DeviceReportsLockSinceUtc { get; private set; }
+
+    public DateTime? DevicesUnreachableFirstAtUtc { get; private set; }
+    public DateTime? DevicesUnreachableLastAtUtc { get; private set; }
+
+    /// <summary>A device of the cabinet reached the PC during this lock — then the PC is alive, and nothing is unlocked.</summary>
+    public DateTime? DevicesReachedPcAtUtc { get; private set; }
+
     public DateTime? RetiredAtUtc { get; private set; }
     public ClinicRelayRetirement? RetiredReason { get; private set; }
     public string? RetiredByUserId { get; private set; }
@@ -271,6 +297,32 @@ public class ClinicRelay : AggregateRoot<Guid>
         PcHoldingSinceUtc = null;
     }
 
+    /// <summary>
+    /// AC-6.2: a device on the cabinet's network (the caller decided that) says whether it reaches the PC during the
+    /// lock that began at <paramref name="lockedSinceUtc"/>. True when this report is the one that unlocks: two
+    /// « cloud yes, PC no » reports at least <see cref="DeviceReportsSpan"/> apart, and no device that reached the PC.
+    /// </summary>
+    public bool RecordDeviceReport(bool reachesPc, DateTime lockedSinceUtc, DateTime nowUtc)
+    {
+        if (DeviceReportsLockSinceUtc != lockedSinceUtc)
+        {
+            DeviceReportsLockSinceUtc = lockedSinceUtc;
+            DevicesUnreachableFirstAtUtc = null;
+            DevicesUnreachableLastAtUtc = null;
+            DevicesReachedPcAtUtc = null;
+        }
+
+        if (reachesPc)
+        {
+            DevicesReachedPcAtUtc = nowUtc;
+            return false;
+        }
+
+        DevicesUnreachableFirstAtUtc ??= nowUtc;
+        DevicesUnreachableLastAtUtc = nowUtc;
+        return DevicesReachedPcAtUtc is null && nowUtc - DevicesUnreachableFirstAtUtc.Value >= DeviceReportsSpan;
+    }
+
     /// <summary>A heartbeat saying « je tiens les enregistrements » under an ack an admin's reclaim overruled.</summary>
     public bool IsOverruledHolding(RelayHeartbeat heartbeat) =>
         heartbeat.Holding && ReclaimedAtUtc is not null && heartbeat.HoldingUnderAckSeq <= ReclaimedAtAckSeq;
@@ -312,6 +364,9 @@ public class ClinicRelay : AggregateRoot<Guid>
         }
 
         CertificateFingerprint = NormalizeFingerprint(heartbeat.CertificateFingerprint) ?? CertificateFingerprint;
+        HttpsPort = heartbeat.HttpsPort is > 0 and <= 65535 ? heartbeat.HttpsPort : HttpsPort;
+        GatewayAddress = NormalizeAddress(heartbeat.GatewayAddress) ?? GatewayAddress;
+        PublicAddress = NormalizeAddress(heartbeat.PublicAddress) ?? PublicAddress;
 
         var seededNow = false;
         if (heartbeat.SeedComplete && SeededAtUtc is null)
@@ -487,6 +542,50 @@ public class ClinicRelay : AggregateRoot<Guid>
             .ToList();
         return list.Count == 0 ? null : string.Join(",", list);
     }
+
+    /// <summary>
+    /// AC-6.2, EC-23: the request came from the cabinet's internet line, as the PC's own heartbeats did. IPv4 must be the
+    /// same address; IPv6 the same /64 (each device has its own address there). A family mismatch never matches.
+    /// </summary>
+    public bool IsFromCabinetInternet(string? callerAddress)
+    {
+        if (PublicAddress is null
+            || !System.Net.IPAddress.TryParse(PublicAddress, out var cabinet)
+            || NormalizeAddress(callerAddress) is not { } normalized
+            || !System.Net.IPAddress.TryParse(normalized, out var caller)
+            || caller.AddressFamily != cabinet.AddressFamily)
+        {
+            return false;
+        }
+
+        if (caller.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            return caller.Equals(cabinet);
+        }
+
+        return caller.GetAddressBytes().AsSpan(0, 8).SequenceEqual(cabinet.GetAddressBytes().AsSpan(0, 8));
+    }
+
+    /// <summary>
+    /// AC-6.2: a device is on the cabinet's network when it comes from the cabinet's internet line AND its own gateway is
+    /// the PC's — a phone on mobile data fails the first, a device at home behind the same kind of box the second.
+    /// </summary>
+    public bool IsOnCabinetNetwork(string? callerAddress, IEnumerable<string>? deviceGateways) =>
+        GatewayAddress is not null
+        && IsFromCabinetInternet(callerAddress)
+        && deviceGateways is not null
+        && deviceGateways.Take(8).Any(g => NormalizeAddress(g) == GatewayAddress);
+
+    /// <summary>One IP address in its canonical form — an IPv4 seen through IPv6 compares as the IPv4 it is.</summary>
+    public static string? NormalizeAddress(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address) || !System.Net.IPAddress.TryParse(address.Trim(), out var ip))
+        {
+            return null;
+        }
+
+        return (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
+    }
 }
 
 /// <summary>One heartbeat's report from the PC de secours.</summary>
@@ -507,4 +606,8 @@ public sealed record RelayHeartbeat(
     bool CopyStopped = false,
     bool Holding = false,
     DateTime? HoldingSinceUtc = null,
-    long HoldingUnderAckSeq = 0);
+    long HoldingUnderAckSeq = 0,
+    // AC-6.2: how a device on the cabinet's network reaches the PC, and how it knows it is on that network.
+    int? HttpsPort = null,
+    string? GatewayAddress = null,
+    string? PublicAddress = null);

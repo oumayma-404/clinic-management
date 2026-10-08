@@ -54,7 +54,7 @@ public sealed class RelayFollowerTests : IDisposable
         var credentials = new RelayCredentials(Guid.NewGuid(), ClinicId, "Cabinet", "https://cloud.example.tn", "secret",
             Convert.ToBase64String(_keys.Private), T0);
         return new RelayFollower(_cloud, _store, credentials, secrets.Object, build,
-            () => new RelayHostReport(new[] { "192.168.1.10" }, "FP", 100L * 1024 * 1024 * 1024),
+            () => new RelayHostReport(new[] { "192.168.1.10" }, "FP", 100L * 1024 * 1024 * 1024, 5001, "192.168.1.1"),
             new RelayUpdater(_installer, _launcher, Path.Combine(_dir, "updates"), Path.Combine(_dir, "logs"),
                 NullLogger.Instance, () => _now),
             _lease, NullLogger.Instance, () => _now);
@@ -691,6 +691,9 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Equal("build-1", report.Build);
         Assert.Equal("192.168.1.10", report.LanAddresses);
         Assert.Equal("FP", report.CertificateFingerprint);
+        // AC-6.2: where the cabinet's devices try this PC, and the box they must share with it to count.
+        Assert.Equal(5001, report.HttpsPort);
+        Assert.Equal("192.168.1.1", report.GatewayAddress);
     }
 
     // ---- files ---------------------------------------------------------------------------------------------------

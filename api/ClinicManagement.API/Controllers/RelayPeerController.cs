@@ -6,6 +6,7 @@ using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Application.Features.Relay.Commands;
 using ClinicManagement.Application.Features.Relay.Queries;
 using ClinicManagement.API.Startup;
+using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
 using MediatR;
@@ -38,14 +39,17 @@ public class RelayPeerController : ApiControllerBase
     private readonly DeploymentProfile _deployment;
     private readonly IConfiguration _configuration;
     private readonly IRelayBuildInfo _build;
+    private readonly TrustedProxies _trustedProxies;
 
     public RelayPeerController(
-        IMediator mediator, DeploymentProfile deployment, IConfiguration configuration, IRelayBuildInfo build)
+        IMediator mediator, DeploymentProfile deployment, IConfiguration configuration, IRelayBuildInfo build,
+        TrustedProxies trustedProxies)
     {
         _mediator = mediator;
         _deployment = deployment;
         _configuration = configuration;
         _build = build;
+        _trustedProxies = trustedProxies;
     }
 
     /// <summary>
@@ -169,7 +173,8 @@ public class RelayPeerController : ApiControllerBase
             return NotFound();
         }
 
-        var result = await _mediator.Send(new RelayHeartbeatCommand(request), cancellationToken);
+        var result = await _mediator.Send(
+            new RelayHeartbeatCommand(request, ClientIp.Resolve(HttpContext, _trustedProxies)), cancellationToken);
         return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : Ok(result.Value);
     }
 

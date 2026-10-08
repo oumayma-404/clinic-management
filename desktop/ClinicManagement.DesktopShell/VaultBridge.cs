@@ -147,6 +147,19 @@ public static class VaultBridge
               }, 7200000);
             }
 
+            /*
+             * AC-6.2 (since 1.5): while the cloud is locked for a silent PC de secours, does this device reach it, and
+             * which box is it behind? Null when the shell cannot answer — the page then sends no report.
+             */
+            function relayProbe(request) {
+              var body = {
+                addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                port: request && typeof request.port === 'number' ? request.port : 0,
+                fingerprint: request && typeof request.fingerprint === 'string' ? request.fingerprint : ''
+              };
+              return relayRequest('relay-probe', body, null, 20000);
+            }
+
             window.__clinicShellDeliverRelayResult = function (id, value) {
               try {
                 var settle = relayPending[id];
@@ -156,13 +169,14 @@ public static class VaultBridge
 
             Object.defineProperty(window, '__clinicShell', {
               // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` took this
-              // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4.
+              // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4, `relayProbe` to 1.5.
               value: Object.freeze({
                 version: '{{version}}',
                 platform: 'windows',
                 confirmIdentity: confirmIdentity,
                 relayHostFacts: relayHostFacts,
-                installRelay: installRelay
+                installRelay: installRelay,
+                relayProbe: relayProbe
               }),
               configurable: true,
               writable: false,

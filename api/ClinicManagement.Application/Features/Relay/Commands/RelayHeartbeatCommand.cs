@@ -10,8 +10,12 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Relay.Commands;
 
-/// <summary>The PC's report every few seconds (FR-2). Never refused on version (D10b): the ack says « update needed ».</summary>
-public sealed record RelayHeartbeatCommand(RelayHeartbeatRequest Report) : IRequest<Result<RelayHeartbeatAck>>;
+/// <summary>
+/// The PC's report every few seconds (FR-2). Never refused on version (D10b): the ack says « update needed ».
+/// <paramref name="CallerAddress"/> is where the cloud saw it come from — the cabinet's internet line (AC-6.2).
+/// </summary>
+public sealed record RelayHeartbeatCommand(RelayHeartbeatRequest Report, string? CallerAddress = null)
+    : IRequest<Result<RelayHeartbeatAck>>;
 
 public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbeatCommand, Result<RelayHeartbeatAck>>
 {
@@ -67,7 +71,8 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
                 report.AppliedSeq, report.SeedPercent, report.SeedComplete, report.FilesTotal, report.FilesCopied,
                 report.DiskFreeBytes, report.IsUpdating, report.Build, report.PcClockUtc, report.LanAddresses,
                 report.MismatchTables, report.LastError, report.CertificateFingerprint, report.CopyStopped,
-                report.Holding, report.HoldingSinceUtc, report.HoldingUnderAckSeq);
+                report.Holding, report.HoldingSinceUtc, report.HoldingUnderAckSeq,
+                report.HttpsPort, report.GatewayAddress, request.CallerAddress);
 
             // D19: a takeover an admin's « Reprendre la main » overruled — this answer stops that PC, and never arms it.
             var overruled = relay.IsOverruledHolding(beat);

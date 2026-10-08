@@ -12,7 +12,12 @@ namespace ClinicManagement.Infrastructure.Relay;
 public sealed record RelayLocalSide(IClinicRelayRowStore Rows, IRelayBlobIndex Blobs, IFileStorage Files);
 
 /// <summary>What the PC says about the machine on each heartbeat.</summary>
-public sealed record RelayHostReport(IReadOnlyList<string> LanAddresses, string? CertificateFingerprint, long? DiskFreeBytes);
+public sealed record RelayHostReport(
+    IReadOnlyList<string> LanAddresses,
+    string? CertificateFingerprint,
+    long? DiskFreeBytes,
+    int? HttpsPort = null,
+    string? GatewayAddress = null);
 
 /// <summary>
 /// The PC de secours's copy, one tick at a time (<c>clinic-pc-copy</c> Part 1 « Copy »): report → first copy or
@@ -277,7 +282,9 @@ public sealed class RelayFollower
             WantsToStandDown: wantsToStandDown,
             Holding: lease.HoldingSinceUtc is not null,
             HoldingSinceUtc: lease.HoldingSinceUtc,
-            HoldingUnderAckSeq: lease.HoldingUnderAckSeq);
+            HoldingUnderAckSeq: lease.HoldingUnderAckSeq,
+            HttpsPort: host.HttpsPort,
+            GatewayAddress: host.GatewayAddress);
     }
 
     /// <summary>

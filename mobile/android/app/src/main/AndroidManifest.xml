@@ -11,6 +11,12 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!--
+      `relayProbe` (clinic-pc-copy AC-6.2): this phone's default gateway, which the cloud compares with the PC de
+      secours's to know the phone is on the cabinet's network. A **normal** permission — no runtime prompt.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
       Without this, `resolveActivity` for ACTION_IMAGE_CAPTURE returns null on API 30+ (package visibility) and
       the camera would silently disappear from the file chooser (AC-18). There is deliberately NO
       `android.permission.CAMERA`: declaring it would oblige us to request it at runtime, while the camera app

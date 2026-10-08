@@ -637,6 +637,12 @@ no consent flag and no audit of which patient was sent.
 - **« Reprendre la main » (D19)** — the PC reports the ack its takeover was made under (`HoldingUnderAckSeq`); a cloud
   that reclaimed after it answers `Reclaimed`, and `RelayFollower` then stops the copy (`OverruledReason`) **before**
   ending the lease (the work marked unreturned) — a restart between the two finds a PC still holding and is told again.
+- **Device reports (AC-6.2)**: each heartbeat carries the PC's HTTPS port (`Hosting:HttpsPort`) and first IPv4 gateway
+  (`RelayHostFacts.GatewayAddress`); the cloud stores them on `ClinicRelay` with the address the heartbeat came from
+  (`PublicAddress`, through `ClientIp.Resolve`). A device is « on the cabinet's network » when its request comes from that
+  line (IPv4 exact, IPv6 same /64) **and** its own gateway is the PC's (`ClinicRelay.IsOnCabinetNetwork`) — a gateway alone
+  is the same `192.168.1.1` in most homes. ⚠️ A dual-stack cabinet whose PC and tablet reach the cloud over different
+  families never counts: the fail-safe direction, and the admin's « Reprendre la main » remains.
 - **Promotion (PC side, D11)**: `RelayPromotionCode` (ECDSA P-256 over the exact bytes of
   `APEXA-PROMO-1.<payload>`, bound to the PC's `RelayId` + `ClinicId`, ≤ 30 days) verified against
   **`VendorPublicKey`, a compiled-in constant** — no configuration can make a PC trust another key; rotating means a new

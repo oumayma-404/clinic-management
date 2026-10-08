@@ -31,6 +31,8 @@ public class ClinicRelayConfiguration : IEntityTypeConfiguration<ClinicRelay>
         builder.Property(r => r.PublicKey).HasMaxLength(2048);
         builder.Property(r => r.CertificateFingerprint).HasMaxLength(64);
         builder.Property(r => r.LanAddresses).HasMaxLength(600);
+        builder.Property(r => r.GatewayAddress).HasMaxLength(64);
+        builder.Property(r => r.PublicAddress).HasMaxLength(64);
         builder.Property(r => r.Build).HasMaxLength(ClinicRelay.MaxBuildLength);
         builder.Property(r => r.MismatchTables).HasMaxLength(ClinicRelay.MaxMismatchLength);
         builder.Property(r => r.LastError).HasMaxLength(ClinicRelay.MaxErrorLength);

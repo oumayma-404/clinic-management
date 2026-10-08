@@ -27,6 +27,17 @@ public static class RelayHostFacts
                         .ToList());
             }));
 
+    /// <summary>
+    /// The cabinet's box as this PC sees it: the first IPv4 gateway of an adapter that is up (AC-6.2). A device counts
+    /// toward unlocking the cloud only when its own gateway is this one. Null with no cable and no Wi-Fi.
+    /// </summary>
+    public static string? GatewayAddress() =>
+        NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+            .SelectMany(n => n.GetIPProperties().GatewayAddresses.Select(g => g.Address))
+            .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork && !a.Equals(IPAddress.Any))
+            ?.ToString();
+
     /// <summary>One network adapter as the address choice sees it.</summary>
     public sealed record HostAdapter(bool HasGateway, IReadOnlyList<string> Ipv4Addresses);
 

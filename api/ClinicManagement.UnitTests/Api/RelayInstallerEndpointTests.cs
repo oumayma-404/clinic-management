@@ -109,7 +109,8 @@ public sealed class RelayInstallerEndpointTests : IDisposable
             .Build();
         var build = new Mock<IRelayBuildInfo>();
         build.SetupGet(b => b.Current).Returns(Build);
-        return new RelayPeerController(Mock.Of<IMediator>(), DeploymentProfile.For(kind), configuration, build.Object)
+        return new RelayPeerController(Mock.Of<IMediator>(), DeploymentProfile.For(kind), configuration, build.Object,
+            ClinicManagement.Infrastructure.TrustedProxies.LoopbackOnly)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

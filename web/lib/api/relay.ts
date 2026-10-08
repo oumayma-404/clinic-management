@@ -65,6 +65,25 @@ export type RelayStateKey =
   /** The cloud went back to an older state; the PC stopped copying to lose nothing (AC-9.4). */
   | 'stopped';
 
+/**
+ * AC-6.2: what a Windows or Android app tries while the cloud is locked for a silent PC de secours. `probe` is false
+ * unless the cloud is locked, the PC said nothing, and this request came from the cabinet's own internet line.
+ */
+export interface RelayDeviceTargetDto {
+  probe: boolean;
+  addresses: string[];
+  port?: number | null;
+  certificateFingerprint?: string | null;
+  /** When to ask again: half a minute while the cabinet has a PC de secours, ten when it has none. */
+  intervalSeconds: number;
+}
+
+/** `counted`: this device was on the cabinet's network during a lock. `unlocked`: its report ended the lock. */
+export interface RelayDeviceReportDto {
+  counted: boolean;
+  unlocked: boolean;
+}
+
 /** The PC de secours's own view of itself, read on that PC (`RelayLocalStatusDto`). */
 export interface RelayLocalStatusDto {
   retired: boolean;
@@ -121,6 +140,13 @@ export const relayApi = {
    * `relay_not_holding` when the cloud is not locked.
    */
   reclaim: (stepUpToken: string) => apiPost<RelayStatusDto>('/relay/reclaim', {}, undefined, stepUpToken),
+
+  /** AC-6.2 — asked by the Windows and Android apps only (`relay-device-watch`). 404 where no change feed exists. */
+  deviceTarget: () => apiGet<RelayDeviceTargetDto>('/relay/devices/target'),
+
+  /** AC-6.2 — whether this device reached the PC, and its own gateways. Counted only from the cabinet's network. */
+  deviceReport: (body: { reachesPc: boolean; gateways: string[] }) =>
+    apiPost<RelayDeviceReportDto>('/relay/devices/report', body),
 };
 
 /** The step-up action « Oui » on the offer is confirmed with (AC-1.4) — an authenticator code, never a password. */

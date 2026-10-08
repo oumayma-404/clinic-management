@@ -5,6 +5,7 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { BottomNav } from "@/components/bottom-nav"
 import { SubscriptionBanner } from "@/components/subscription/subscription-banner"
 import { RelayStartupOffer } from "@/components/relay/relay-install-offer"
+import { RelayDeviceWatch } from "@/components/relay/relay-device-watch"
 
 /**
  * The app's one page shell: rail + header + `<main>`.
@@ -103,6 +104,8 @@ export function AppShell({
         <SubscriptionBanner />
         {/* `clinic-pc-copy` AC-1.1 — the PC de secours offer at the Windows app's start; nothing anywhere else. */}
         <RelayStartupOffer />
+        {/* `clinic-pc-copy` AC-6.2 — renders nothing; inert outside the Windows and Android apps. */}
+        <RelayDeviceWatch />
         <DashboardHeader />
         {/*
           `animate-page-in` — one short fade per navigation.

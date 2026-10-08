@@ -39,4 +39,6 @@ public static class RelayJournal
     public const string Promoted = "PC de secours promu en serveur local";
     public const string TookOver = "Le PC de secours a pris le relais (le cloud ne répondait plus)";
     public const string Reclaimed = "Le cloud a repris la main sur le PC de secours";
+    public const string ReclaimedByDevices =
+        "Le cloud a repris la main : les appareils du cabinet le joignaient, mais plus le PC de secours";
 }

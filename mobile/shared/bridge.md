@@ -25,6 +25,7 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `confirmIdentity()` | `Promise<IdentityOutcome>` | 4 | Ask the OS to confirm the device owner. Never rejects — the failure *is* an outcome. |
 | `relayHostFacts()` | `Promise<RelayHostFacts \| null>` | Windows 1.4 | This PC's name, battery, disk encryption (three-valued) and free space, for the PC de secours offer. Never rejects. |
 | `installRelay({ code, needBytes })` | `Promise<RelayInstallOutcome>` | Windows 1.4 | Make this PC the cabinet's PC de secours with a one-time code. Never rejects. |
+| `relayProbe({ addresses, port, fingerprint })` | `Promise<RelayProbeResult \| null>` | Windows 1.5 · Android 1.2.0 | While the cloud is locked for a silent PC de secours: does this device reach it (pinned certificate), and which box is it behind? Never rejects — `null` when it cannot answer. |
 
 ### The per-phase method set (FR-6)
 
@@ -164,6 +165,7 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 | `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` | ✅ since 1.3 — Windows Hello |
 | the coffre seam (below) | — | — | ✅ since 1.2 |
 | `relayHostFacts` · `installRelay` | — n/a: a phone cannot be the PC de secours (AC-1.12) | — n/a | ✅ since 1.4 — UAC run not yet rehearsed |
+| `relayProbe` | ✅ since 1.2.0 — built, lint + R8 green, not run on a phone | — not written | ✅ since 1.5 — run live against the rig's PC |
 
 ⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
 `mobile/ios/README.md`. Read it as a proposal until a green CI run exists.
@@ -267,6 +269,29 @@ bridge). The shell answers only the configured server's own page, and interpolat
 one of its own (`r` + digits). ⚠️ `diskEncrypted: null` is « je ne sais pas » — the common answer without elevation —
 and the page must not word it as « non chiffré ».
 
+## `relayProbe` — the cabinet's devices unlock a silent PC (`clinic-pc-copy` AC-6.2, Windows 1.5 · Android 1.2.0)
+
+```ts
+interface RelayProbeResult { reached: boolean; gateways: string[] }
+```
+
+The **page owns the loop** (`components/relay/relay-device-watch.tsx`): every 30 s it asks the cloud
+`GET /api/relay/devices/target`, and only while the cloud is locked for a PC that said nothing — and the request came
+from the cabinet's own internet line — does the answer carry `probe: true` with the PC's addresses, HTTPS port and
+certificate SHA-256. The page then calls `relayProbe` and posts what it says to `POST /api/relay/devices/report`. The
+cloud decides everything else; two « PC no » reports ≥ 30 s apart from the cabinet's network, with no device reaching
+the PC during that lock, take the cloud back (`ClinicRelay.Reclaim`, D19).
+
+The shell owns what only it can do: `GET https://{address}:{port}/health` **accepting exactly one certificate** — the
+one whose DER SHA-256 is `fingerprint` (upper-case hex) — and reading its own default IPv4 gateways. Any HTTP answer over
+that TLS session is « reached »; a refusal, a timeout or another certificate is not.
+
+⚠️ **Only private addresses are tried** (RFC 1918, link-local, IPv6 ULA / link-local); anything else makes the request
+`null` — the shell must not become a way for a page to make a clinic's device call arbitrary hosts. ⚠️ **The pin is for
+this probe alone**: the WebView's own TLS never sees it. ⚠️ Answered only for the configured server's own page (Windows:
+`IsExpectedOrigin`; Android: the page's URL against `ServerConfig.isSameOrigin`), through
+`__clinicShellDeliverRelayResult(id, value)` — the id interpolated only after it matched `r` + digits.
+
 ## Version history
 
 | Shell version | Change |
@@ -276,3 +301,4 @@ and the page must not word it as « non chiffré ».
 | `1.2.0` | `clinic-file-vault`: the **desktop** shell joins this contract — its first bridge ever — with `version`, `platform: "windows"` and the coffre seam. `platform` gains a third value. Nothing removed, so a floor of `1.0.0` still admits every client. |
 | `1.3.0` | Desktop: `confirmIdentity` (Windows Hello). |
 | `1.4.0` | Desktop: `relayHostFacts` + `installRelay` (`clinic-pc-copy`). Nothing removed; the page detects both methods, so an older shell simply never makes the offer. |
+| `1.5.0` · Android `1.2.0` | `relayProbe` (`clinic-pc-copy` AC-6.2) on both shells. Nothing removed; without it the page never asks the cloud anything. |

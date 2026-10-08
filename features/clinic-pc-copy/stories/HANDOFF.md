@@ -1,8 +1,8 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (session 10, continued) · **Overall:** ~47 % · **Part 1 (La copie):** done in code (owed: the
-Windows rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~33 % (lease 1, 2, 2b and
-« Reprendre la main » done)
+**Date:** 2026-10-08 (session 10, continued) · **Overall:** ~50 % · **Part 1 (La copie):** done in code (owed: the
+Windows rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~42 % (lease 1, 2, 2b,
+« Reprendre la main » and device reports done)
 
 ## Pick up here
 
@@ -11,33 +11,43 @@ Windows rehearsal and the first CI run — both need the owner's OK) · **Part 2
    owner's OK**).
 2. Read this file, then `progress.md` (part status, deviations 1–96, verification log). Plan `../plan.md` (Part 2's
    « Device reports » bullet, D21), spec `../spec.md` (AC-6.2, FR-7, EC-17, EC-23), blueprint `../blueprint.md`.
-3. **Next sub-step: Part 2 · device reports (AC-6.2)** — detailed below.
+3. **Next sub-step: Part 2 · integrity — numbers (D16) + idempotency (D17)** — detailed below.
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
-## The next sub-step — device reports (AC-6.2)
+## The next sub-step — integrity: numbers (D16) + idempotency (D17)
 
-**Goal:** when the PC de secours goes silent while the cabinet's internet works, the cloud unlocks itself within ~2 min
-from the reports of the cabinet's OTHER devices — Windows and Android apps only, never a browser, and only a device on
-the cabinet's network.
+**Goal (FR-3, FR-6, EC-6, EC-22):** a note, devis or avoir number is final on the cloud only once the PC de secours holds
+it, and work saved once is never recorded twice — including a save whose answer was lost at the cut and pressed again.
 
-**Plan's own words** (plan.md Part 2): the shells' half is built here — the PC's address + certificate fingerprint learned
-from the cloud (`RelayStatusDto` already carries both), the pinned-certificate probe (D21), and « on the cabinet network »
-by gateway match. A report counts only when all three hold. Part 3 keeps the switch, UDP discovery, prepared sessions and
-carried forms.
+**Plan's own words** (`../plan.md` D16, D17, the « Integrity » bullet, files rows 82 / 108 / 114):
 
-**To build** (read `desktop/CLAUDE.md`, `mobile/CLAUDE.md` and `mobile/shared/bridge.md` first — a bridge member is a
-contract change and bumps the shell's version)
+1. **D16 — one `INumberPromise` service** used by the four numbering paths (`IssueInvoiceCommand`,
+   `BillDentalRecordCommand`, `DevisNumbering`, `CreateCreditNoteCommand`; a derived guard that every numbering path uses
+   it). The cloud assigns the number, writes the rows (a unique-index collision is caught *before* any promise), sends a
+   « promise » to the PC, waits ≤ 3 s (timed per save), then commits; no answer → rollback, 423 `relay_unconfirmed` with
+   FR-3's sentence, the form stays open. A PC that stood down (AC-6.1) or no PC at all is not waited for. The promise
+   carries the save's `Idempotency-Key`; the PC stores `key → number` and numbers after max(committed, promised) — a
+   re-press of a promised key reuses that key's number.
+   ⚠️ The PC has **no push channel** from the cloud today (deviation 2: heartbeat + pull). D16 names the clinic hub
+   (`InvokeAsync<T>` client result) — that means a SignalR client on the PC under its relay token, or another channel
+   with a ≤ 3 s round trip. Decide it first and record it as a deviation if it differs.
+2. **D17 — `Idempotency-Key` end to end**: generated per submit in `web/lib/api/client.ts` (carried across a retry and,
+   in Part 3, a switch); an `IdempotencyMiddleware` stores processed keys per clinic for 48 h and replays the stored
+   answer; the keys replicate to the PC (they are rows). The return's « drop only when nothing points to it, else list »
+   rule belongs to the return step (D18) — this step only has to make every web write carry and honour a key.
+3. Guards: every numbering path uses `INumberPromise`; every web write sends `Idempotency-Key`.
 
-1. Cloud: `POST /api/relay/device-report` (a signed-in cabinet device: « I reach the cloud, not the PC, on the cabinet's
-   network ») → a report store per cabinet; `ClinicWriteLease.IsCloudFenced` honours « unlocked by reports » (D13's
-   « ∧ not unlocked »): N distinct devices over ~2 min, while the PC is silent. Browsers never report (no endpoint use from
-   web code outside the shells).
-2. Windows shell: learn the PC's addresses + fingerprint from the cloud, probe the PC with the pinned certificate, decide
-   « on the cabinet network » (same gateway as the PC reported), report every ~30 s while the PC is silent.
-3. Android shell: the same (Kotlin; builds with the installed toolchain).
-4. EC-17 (PC cut off from the box: no takeover, the tablets unlock the cloud) and EC-23 (a phone on mobile data never
-   counts) as tests.
+## Done in session 10 — device reports (AC-6.2, EC-17, EC-23)
+
+The cabinet's Windows (1.5) and Android (1.2.0) apps unlock a silent PC: the web loop (`relay-device-watch.tsx`, inert
+without the bridge) asks `GET /api/relay/devices/target` every 30 s; while the cloud is locked for a PC that said
+nothing, from the cabinet's line, it gets the PC's address / port / fingerprint, the shell's `relayProbe` tries it
+through the pinned certificate and returns its own gateways, and `POST /api/relay/devices/report` counts it only from the
+cabinet's line **and** box. Two « PC no » 30 s apart, none reaching the PC → a reclaim journalled `job|relay-devices`.
+Live: 22-check pass ALL CLEAR (PC hard-killed → locked → mobile data / guest box not counted → unlocked in 30 s → saves
+201 → PC back armed). ⚠️ Owed to the screens step: the card after an automatic unlock (deviation 104). Details:
+deviations 97–104.
 
 ## Done in session 10 — « Reprendre la main » (US-7, D19) + AC-6.4's bell row
 
@@ -68,7 +78,7 @@ the PC, readable by admins, until « À reprendre » / the return exist. Details
 | 3 | First `deploy-hosted` run with the new `relay-installer` job (builds the real installer on Windows, publishes it to `deploy/updates/relay/` before the swap) — never run yet | **yes** (VPS deploy) |
 | 4 | Windows rehearsal of the one-click install + a self-update (the SYSTEM task, the real installer replacing the services), on a real PC | **yes** (UAC + 3 services) |
 | 5 | Owed checks: console column live · « perdu ou volé » for real (resets the test accounts) · A2 (non-admin session opened before a retire → 401) unit-tested only · CI `relay-copy` job not written | console/CI: push needs OK |
-| 6 | Part 2 « La relève » — lease 1, 2, 2b and « Reprendre la main » done; next: device reports, numbers + idempotency, the return, screens | — |
+| 6 | Part 2 « La relève » — lease 1, 2, 2b, « Reprendre la main » and device reports done; next: numbers + idempotency, the return, screens | — |
 | 7 | Part 3 « Les appareils suivent » (devices switch, pinned certificate, carried forms) | — |
 
 ## Commits on the branch (oldest → newest, all local)
@@ -96,7 +106,8 @@ the PC, readable by admins, until « À reprendre » / the return exist. Details
 | `6e58a6bd` | Part 2 lease slice 1: `ClinicWriteLease`, ack protocol, cloud fence (423 `relay_silent`), two-phase stand-down, migration `AddRelayWriteLease` |
 | `f5de9b96` | Part 2 lease slice 2: the PC takes over — `RelayLease`/`RelayLeaseKeeper`/`GatewayBoxProbe`, holding follower + pulse, `[OnlineOnly]`, `clinic_on_relay`, cut's-work guard, migration `AddRelayPcHolding` |
 | `a2e20458` | Part 2 lease slice 2b: D15's net in `ClinicChangeCapture`, `ClinicFencedException` (423), `IClinicWriteFence` in the jobs and startup backfills, two derived guards |
-| (session 10) | « Reprendre la main » (US-7, D19), AC-6.4's bell row, the card's lock line and warning, migration `AddRelayReclaim` |
+| `1945f81d` | « Reprendre la main » (US-7, D19), AC-6.4's bell row, the card's lock line and warning, migration `AddRelayReclaim` |
+| (session 10) | device reports (AC-6.2): `RelayDeviceController`, `relayProbe` (Windows 1.5, Android 1.2.0), the web loop, migration `AddRelayDeviceReports` |
 
 ## Part 1 — done / left
 
@@ -117,9 +128,9 @@ scratch account's test password + TOTP secret). The working copies live in the O
 | Piece | State at the end of session 10 |
 |---|---|
 | Shared Docker (postgres, minio, mailpit) | started from cold this session (lease holder clinic-pc-copy) |
-| Scratch cloud API :5098 | last copy **`cloud-api-16`** (current code; web **`web-cloud-10`**); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
+| Scratch cloud API :5098 | last copy **`cloud-api-17`**, run **bound to `127.0.0.1`** (`Hosting__Urls=http://127.0.0.1:5098`) so the PC and a device arrive on one address family; web **`web-cloud-11`** (built with `NEXT_PUBLIC_API_URL=http://127.0.0.1:5098/api`). `pw\device-pass.mjs <outdir> <pcPid> <fingerprint>` = the device-report pass (22 checks, kills the PC); the shell probe harness is `scratchpad\probe-harness` (session-10 scratchpad). Before that: **`cloud-api-16`** (current code; web **`web-cloud-10`**); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
 | Scratch cloud web :3098 | **`web-cloud-9`** |
-| Test PC (:5097/:3097) | **`pc-api-15`** = current code, paired « PC-ACCUEIL (essai 6) » (essai 5 retired after the reclaim rehearsal; its lease kept as `.local/relay-lease.kept-cut-work-2.json`). Earlier: « PC-ACCUEIL (essai 5) » (essai 4 retired during the slice-2 cut; its lease file kept as `.local/relay-lease.kept-cut-work.json`), seeded, armed, stopped cleanly. `pc-api-11` is the PC **promoted** — never use it for Part 2. `e2e/lease2-run.mjs <pc|cloud> <label>` signs in and tries a save, two FR-5 actions (PC only — on the cloud FR-11 keeps them open and they WRITE) and a read; `e2e/lease2-retire.mjs` retires during a cut (mutates); `scratchpad/ctrlc-out/ctrlc.exe <pid> 1` (session-10 scratchpad) stops an API gracefully |
+| Test PC (:5097/:3097) | **`pc-api-16`** = current code (same « essai 6 », armed). Before that: **`pc-api-15`**, paired « PC-ACCUEIL (essai 6) » (essai 5 retired after the reclaim rehearsal; its lease kept as `.local/relay-lease.kept-cut-work-2.json`). Earlier: « PC-ACCUEIL (essai 5) » (essai 4 retired during the slice-2 cut; its lease file kept as `.local/relay-lease.kept-cut-work.json`), seeded, armed, stopped cleanly. `pc-api-11` is the PC **promoted** — never use it for Part 2. `e2e/lease2-run.mjs <pc|cloud> <label>` signs in and tries a save, two FR-5 actions (PC only — on the cloud FR-11 keeps them open and they WRITE) and a read; `e2e/lease2-retire.mjs` retires during a cut (mutates); `scratchpad/ctrlc-out/ctrlc.exe <pid> 1` (session-10 scratchpad) stops an API gracefully |
 | Browser pass for the offer | `node offer-run.mjs <outdir>` — run from the OLD scratchpad's `pw\` (has `node_modules`); 38/38 last run |
 
 Servers started by a session die with it: restart with `source env.sh; run_cloud cloud-api-12` and
@@ -128,8 +139,9 @@ Servers started by a session die with it: restart with `source env.sh; run_cloud
 
 ## Gate (run all, unfiltered, after the last edit)
 
-- API: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/build-pc/` — last **5 723 pass · 6 skip · 0 fail**.
-- Shell: `cd desktop && dotnet test ClinicManagement.DesktopShell.sln -c Release -p:BaseOutputPath=<scratchpad>/build-shell/` — **114 pass**.
+- API: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/build-pc/` — last **5 744 pass · 6 skip · 0 fail**.
+- Shell: `cd desktop && dotnet test ClinicManagement.DesktopShell.sln -c Release -p:BaseOutputPath=<scratchpad>/build-shell/` — **135 pass**.
+- Android: `cd mobile/android && ./gradlew.bat --no-daemon -q assembleDebug lintDebug assembleRelease` — green.
 - Web: `cd web && npm run check:responsive && npx tsc --noEmit && npm run build` — **78/78**, green.
 - Installer: `node packaging/lint-iss.mjs`; `node packaging/ci-stub-payloads.mjs` then
   `MSYS_NO_PATHCONV=1 "<LocalAppData>/Programs/Inno Setup 6/ISCC.exe" /Qp "/O<scratch-out>" 'packaging\setup\clinic-setup.iss'`.

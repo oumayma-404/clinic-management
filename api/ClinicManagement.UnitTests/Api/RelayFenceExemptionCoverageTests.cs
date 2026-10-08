@@ -20,6 +20,7 @@ public class RelayFenceExemptionCoverageTests
         "Users",      // an administrator's account changes (FR-11)
         "Relay",      // managing the PC de secours — retiring it is how an admin frees a cabinet whose PC fell silent
         "RelayPeer",  // the PC's own channel: how a silent PC comes back, confirms its acks and stands down
+        "RelayDevice", // the cabinet's devices saying they reach the cloud but not a silent PC — how its lock ends (AC-6.2)
     };
 
     private static IEnumerable<Type> ProductionControllers() =>

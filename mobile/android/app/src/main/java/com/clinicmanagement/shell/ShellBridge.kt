@@ -13,6 +13,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import org.json.JSONObject
 import java.io.File
 
@@ -35,6 +36,8 @@ import java.io.File
 class ShellBridge(
     private val activity: Activity,
     private val webView: WebView,
+    /** The configured server's own page — the only one `relayProbe` answers (it reveals this phone's network). */
+    private val isOwnPage: (Uri) -> Boolean = { false },
 ) {
 
     /**
@@ -103,6 +106,35 @@ class ShellBridge(
         }
     }
 
+    /**
+     * AC-6.2 (since 1.2.0): while the cloud is locked for a silent PC de secours, does this phone reach it, and which
+     * box is it behind? [RelayProbe] does the work off the UI thread; the answer — or null when the shell cannot
+     * answer, and the page then sends no report — comes back through `__clinicShellDeliverRelayResult`.
+     */
+    @JavascriptInterface
+    fun relayProbe(requestId: String?, requestJson: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        val request = RelayProbe.parse(requestJson)
+        activity.runOnUiThread {
+            val page = webView.url?.let { runCatching { it.toUri() }.getOrNull() }
+            if (request == null || page == null || !isOwnPage(page)) {
+                deliverRelayResult(id, null)
+                return@runOnUiThread
+            }
+            Thread {
+                val answer = runCatching { RelayProbe.run(activity, request) }.getOrNull()
+                activity.runOnUiThread { deliverRelayResult(id, answer) }
+            }.start()
+        }
+    }
+
+    private fun deliverRelayResult(requestId: String, answer: JSONObject?) {
+        val value = answer?.toString() ?: "null"
+        val call = "window.$DELIVER_RELAY_RESULT && window.$DELIVER_RELAY_RESULT(${JSONObject.quote(requestId)}, $value);"
+        webView.evaluateJavascript(call, null)
+    }
+
     private fun deliverIdentityResult(requestId: String, outcome: String) {
         val call = "window.$DELIVER_IDENTITY_RESULT && window.$DELIVER_IDENTITY_RESULT(" +
             "${JSONObject.quote(requestId)}, ${JSONObject.quote(outcome)});"
@@ -153,6 +185,12 @@ class ShellBridge(
          */
         const val DELIVER_IDENTITY_RESULT = "__clinicShellDeliverIdentityResult"
 
+        /** `relayProbe`'s answer lands here — outside `__clinicShell`, for the same AC-26 reason. */
+        const val DELIVER_RELAY_RESULT = "__clinicShellDeliverRelayResult"
+
+        /** A request id the injected script minted: interpolated into JavaScript only after this matched it. */
+        private val RELAY_REQUEST_ID = Regex("^r[0-9]{1,10}$")
+
         /**
          * The largest file this shell accepts through `saveFile`, published as `__clinicShell.maxFileBytes`.
          *
@@ -199,6 +237,8 @@ class ShellBridge(
                   var pushListeners = [];
                   var pendingIdentity = {};
                   var nextIdentityId = 0;
+                  var pendingRelay = {};
+                  var nextRelayId = 0;
                   window.__clinicShell = Object.freeze({
                     version: $quotedVersion,
                     platform: "android",
@@ -223,8 +263,35 @@ class ShellBridge(
                           resolve("unavailable");
                         }
                       });
+                    },
+                    relayProbe: function (request) {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(value);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(null); }, 20000);
+                        try {
+                          nativeBridge.relayProbe(id, JSON.stringify({
+                            addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                            port: request && typeof request.port === "number" ? request.port : 0,
+                            fingerprint: request && typeof request.fingerprint === "string" ? request.fingerprint : ""
+                          }));
+                        } catch (e) {
+                          settle(null);
+                        }
+                      });
                     }
                   });
+                  window.$DELIVER_RELAY_RESULT = function (id, value) {
+                    var settle = pendingRelay[id];
+                    if (typeof settle === "function") { settle(value); }
+                  };
                   window.$DELIVER_IDENTITY_RESULT = function (id, outcome) {
                     var resolve = pendingIdentity[id];
                     if (!resolve) { return; }

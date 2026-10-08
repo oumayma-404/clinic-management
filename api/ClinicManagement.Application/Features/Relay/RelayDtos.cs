@@ -35,7 +35,10 @@ public sealed record RelayHeartbeatRequest(
     bool WantsToStandDown = false,
     bool Holding = false,
     DateTime? HoldingSinceUtc = null,
-    long HoldingUnderAckSeq = 0);
+    long HoldingUnderAckSeq = 0,
+    // AC-6.2: where a device of the cabinet tries the PC, and the box it must share with it to count.
+    int? HttpsPort = null,
+    string? GatewayAddress = null);
 
 /// <summary>The cloud's answer. <c>AckSeq</c> is the ack's id (its send instant); <c>Armed</c> lets the PC take over after a cut (D13).</summary>
 public sealed record RelayHeartbeatAck(
@@ -82,3 +85,21 @@ public sealed record RelayStatusDto(
     bool PcHolding = false,
     string? ReclaimWarning = null,
     string? LockSentence = null);
+
+/// <summary>
+/// AC-6.2: what a Windows or Android app of the cabinet tries while the cloud is locked and the PC said nothing —
+/// never a browser. <c>Probe</c> is false unless the caller comes from the cabinet's internet line and all three
+/// facts are known; the app then reaches the PC only through its pinned certificate (D21).
+/// </summary>
+public sealed record RelayDeviceTargetDto(
+    bool Probe,
+    IReadOnlyList<string> Addresses,
+    int? Port,
+    string? CertificateFingerprint,
+    int IntervalSeconds);
+
+/// <summary>A device's answer: it reached the cloud (this call), and whether it reached the PC; its own gateways.</summary>
+public sealed record RelayDeviceReportRequest(bool ReachesPc, IReadOnlyList<string>? Gateways);
+
+/// <summary><c>Counted</c>: the device was on the cabinet's network during a lock. <c>Unlocked</c>: this report ended it.</summary>
+public sealed record RelayDeviceReportDto(bool Counted, bool Unlocked);
