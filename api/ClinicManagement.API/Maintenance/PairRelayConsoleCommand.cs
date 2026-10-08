@@ -117,6 +117,10 @@ public static class PairRelayConsoleCommand
         store.Save(new RelayCredentials(paired.RelayId, paired.ClinicId, paired.ClinicName,
             cloudUri.ToString().TrimEnd('/'), paired.Secret, Convert.ToBase64String(privateKey), DateTime.UtcNow));
 
+        // A new pairing is a new copy: the cursor, the « retiré » and the erase a re-paired PC remembered belong to the
+        // pairing it replaces, and a stale cursor would stop the new copy for good (D12).
+        new RelayFollowerStateStore().Save(new RelayFollowerState());
+
         Console.WriteLine($"Ce PC est maintenant le PC de secours de « {paired.ClinicName} ». La première copie commence.");
         return 0;
     }

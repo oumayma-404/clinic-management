@@ -46,6 +46,11 @@ public static class RelayLabels
             ClinicRelayState.Mismatch => "La copie ne correspond pas au cloud — réparation en cours",
             ClinicRelayState.Retired when relay?.RetiredReason == ClinicRelayRetirement.LostOrStolen =>
                 $"Déclaré perdu ou volé le {ClinicClock.ToClinicLocal(reading.Since ?? nowUtc).ToString("dd/MM", French)}",
+            ClinicRelayState.Retired when relay is { UninstalledAtUtc: not null, ErasedAtUtc: { } erasedOnUninstall } =>
+                $"PC désinstallé, copie effacée le {ClinicClock.ToClinicLocal(erasedOnUninstall).ToString("dd/MM", French)}",
+            // « peut être » is the honest word: the box was unticked, or the erase was never confirmed to the cloud.
+            ClinicRelayState.Retired when relay?.UninstalledAtUtc is { } uninstalled =>
+                $"PC désinstallé le {ClinicClock.ToClinicLocal(uninstalled).ToString("dd/MM", French)} : la copie du cabinet peut être restée sur ce PC",
             ClinicRelayState.Retired when relay?.ErasedAtUtc is { } erased =>
                 $"Copie effacée du PC le {ClinicClock.ToClinicLocal(erased).ToString("dd/MM", French)}",
             ClinicRelayState.Retired =>

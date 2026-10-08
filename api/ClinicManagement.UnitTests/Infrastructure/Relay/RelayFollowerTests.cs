@@ -502,6 +502,10 @@ public sealed class RelayFollowerTests : IDisposable
             return Task.FromResult(new RelayCall<bool>(ErasedStatus, ErasedStatus == RelayCallStatus.Ok));
         }
 
+        // The follower never uninstalls itself; only the uninstaller's verb sends this.
+        public Task<RelayCall<bool>> ReportUninstalledAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<RelayCall<RelayHeartbeatAck>> HeartbeatAsync(RelayHeartbeatRequest report, CancellationToken cancellationToken)
         {
             Reports.Add(report);

@@ -602,6 +602,10 @@ no consent flag and no audit of which patient was sent.
   `RelayLocalEraser` (« Effacer la copie ») purges the cabinet through `IClinicPurge` **inside one transaction**, then
   saves `ErasedAtUtc`, then deletes the files; ⚠️ a failed purge rolls back and claims nothing. The follower then
   reports `relay/erased` with the PC's own secret until the cloud has heard (`ErasureReported`), and does nothing else.
+- **Uninstall (PC side)**: `RelayUninstaller`, driven by the API's `uninstall-relay [--erase]` verb (the installer's
+  uninstall step, service stopped). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
+  silent cloud may be a lost one, and then this PC is the cabinet's last copy; a copy stopped by a cloud that went back
+  is never erased either. `pair-relay` resets `relay-state.json`: the old cursor would stop a new pairing for good.
 
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live

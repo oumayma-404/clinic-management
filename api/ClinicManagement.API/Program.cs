@@ -46,6 +46,14 @@ if (args.Length > 0 && string.Equals(args[0], PairRelayConsoleCommand.CommandNam
     return await PairRelayConsoleCommand.RunAsync(args);
 }
 
+// clinic-pc-copy AC-8.3: uninstalling the PC de secours tells the cloud (it counts as retiring) and, with --erase, erases
+// the copy once the cloud has answered. Run by the uninstaller, with the API service stopped. Usage:
+//   ClinicManagement.API.exe uninstall-relay [--erase]
+if (args.Length > 0 && string.Equals(args[0], UninstallRelayConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await UninstallRelayConsoleCommand.RunAsync(args);
+}
+
 // Idempotent HTTPS-cert provisioning (Server Installer Reliability): a one-shot console command that
 // generates (or reuses) the CA + server cert into .local/ and exits, without starting the web server or
 // touching the DB. The installer runs this BEFORE starting the API service so the service's first boot

@@ -95,6 +95,28 @@ public class RelayPeerController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : NoContent();
     }
 
+    /// <summary>
+    /// The PC is being uninstalled (AC-8.3): it counts as retiring it, and the journal says so. Its own secret, no token —
+    /// a PC retired earlier gets no token either, and is often the one being uninstalled.
+    /// </summary>
+    [HttpPost("uninstalled")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.RelayTokenPolicy)]
+    [AllowsWithoutSubscription("Recording that a PC no longer runs the copy is never new work.")]
+    public async Task<IActionResult> Uninstalled(
+        [FromBody] RelayTokenRequest request,
+        [FromHeader(Name = SecretHeader)] string? secret,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new ReportRelayUninstalledCommand(request.RelayId, secret ?? string.Empty), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, RelayController.StatusFor(result.Code)) : NoContent();
+    }
+
     [HttpPost("heartbeat")]
     [AcceptsScopedToken(LocalAuthScopes.ClinicRelay)]
     [AllowsWithoutSubscription("The PC's report about itself records no work of the cabinet's.")]

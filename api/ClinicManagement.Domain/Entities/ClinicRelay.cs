@@ -282,6 +282,25 @@ public class ClinicRelay : AggregateRoot<Guid>
         return true;
     }
 
+    /// <summary>When the PC said it was being uninstalled (AC-8.3); null while it is still installed.</summary>
+    public DateTime? UninstalledAtUtc { get; private set; }
+
+    /// <summary>
+    /// The PC is being uninstalled (AC-8.3), which counts as retiring it. A PC retired earlier keeps its reason and date —
+    /// « perdu ou volé » above all. Returns false when already recorded, so a repeated report writes no second journal row.
+    /// </summary>
+    public bool MarkUninstalled(DateTime nowUtc)
+    {
+        Retire(ClinicRelayRetirement.Uninstalled, byUserId: null, nowUtc);
+        if (UninstalledAtUtc is not null)
+        {
+            return false;
+        }
+
+        UninstalledAtUtc = nowUtc;
+        return true;
+    }
+
     /// <summary>
     /// « Déclarer perdu ou volé » (AC-8.4): retires the PC if it is not already, and records the reason even on a PC
     /// retired earlier — a PC put in a cupboard and then stolen is exactly the case.

@@ -44,6 +44,9 @@ public interface IRelayCloudClient
 
     /// <summary>« Effacer la copie » is done (AC-8.2) — sent with the PC's secret, since a retired PC gets no token.</summary>
     Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken);
+
+    /// <summary>The PC is being uninstalled (AC-8.3) — the PC's secret, like the erase report.</summary>
+    Task<RelayCall<bool>> ReportUninstalledAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -92,9 +95,16 @@ public sealed class RelayCloudClient : IRelayCloudClient
         DownloadAsync(() => new HttpRequestMessage(HttpMethod.Get, $"relay/blob?key={Uri.EscapeDataString(storageKey)}"),
             ".part", cancellationToken);
 
-    public async Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken)
+    public Task<RelayCall<bool>> ReportErasedAsync(CancellationToken cancellationToken) =>
+        ReportWithSecretAsync("relay/erased", cancellationToken);
+
+    public Task<RelayCall<bool>> ReportUninstalledAsync(CancellationToken cancellationToken) =>
+        ReportWithSecretAsync("relay/uninstalled", cancellationToken);
+
+    /// <summary>A retired PC gets no token, so these reports carry the secret in a header (never the URL).</summary>
+    private async Task<RelayCall<bool>> ReportWithSecretAsync(string path, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "relay/erased")
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
         {
             Content = JsonContent.Create(new { relayId = _credentials.RelayId }, options: Json),
         };
