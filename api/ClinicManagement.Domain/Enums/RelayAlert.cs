@@ -15,4 +15,6 @@ public enum RelayAlert
     Abandoned = 5,
     ClockWrong = 6,
     Stopped = 7,
+    // Appended, never inserted: persisted as int on StaffNotification.RelayAlert.
+    Silent = 8,
 }

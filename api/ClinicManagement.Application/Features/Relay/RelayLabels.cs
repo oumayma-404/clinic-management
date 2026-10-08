@@ -55,11 +55,25 @@ public static class RelayLabels
                 $"Copie effacée du PC le {ClinicClock.ToClinicLocal(erased).ToString("dd/MM", French)}",
             ClinicRelayState.Retired =>
                 $"Copie arrêtée le {ClinicClock.ToClinicLocal(reading.Since ?? nowUtc).ToString("dd/MM", French)}",
+            ClinicRelayState.Stopped when relay?.CutOverruledAtUtc is not null =>
+                $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)} : le cloud a repris la main pendant la coupure, {label} garde ce que le cabinet y a enregistré",
             ClinicRelayState.Stopped =>
                 $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)} : le cloud est revenu à un état antérieur, {label} garde les données les plus récentes",
             _ => throw new ArgumentOutOfRangeException(nameof(reading), reading.State, null),
         };
     }
+
+    /// <summary>Why the cabinet's saves are refused on the cloud right now — the card's line above « Reprendre la main ».</summary>
+    public static string Lock(bool pcHolding, DateTime lockedSinceUtc, DateTime nowUtc) =>
+        pcHolding
+            ? $"Le cabinet travaille sur le PC de secours depuis {Moment(lockedSinceUtc, nowUtc)} : ici, le cloud est en lecture seule."
+            : $"Le PC de secours ne répond plus depuis {Moment(lockedSinceUtc, nowUtc)} : le cloud refuse les enregistrements du cabinet.";
+
+    /// <summary>AC-7.1's warning before « Reprendre la main » — and before a retire or a loss while the cabinet is locked (AC-8.6).</summary>
+    public static string ReclaimWarning(string? label, DateTime lockedSinceUtc, DateTime nowUtc) =>
+        $"Ce que le cabinet a enregistré sur {label ?? "le PC de secours"} depuis {Moment(lockedSinceUtc, nowUtc)} ne partira pas "
+        + "dans le cloud : il faudra le saisir à nouveau, et les numéros de notes émis sur ce PC seront en double. "
+        + "Appelez le cabinet avant de continuer.";
 
     /// <summary>What the PC de secours says about itself on its own « Paramètres » (AC-8.1).</summary>
     public static string Local(bool retired, DateTime? retiredAtUtc) =>

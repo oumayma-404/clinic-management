@@ -26,6 +26,11 @@ public static class RelayFeedDecisions
     /// <summary>How long a failed whole copy waits before the next attempt.</summary>
     public static readonly TimeSpan SeedRetryAfterFailure = TimeSpan.FromMinutes(5);
 
+    /// <summary>D19: an admin took the cloud back after this PC's takeover; the cut's work stays here for « À reprendre ».</summary>
+    public const string OverruledReason =
+        "Le cloud a repris la main pendant la coupure. La copie est arrêtée pour ne rien perdre : ce PC garde ce que le "
+        + "cabinet y a enregistré.";
+
     public const string WentBackReason =
         "Le cloud est revenu à un état antérieur à cette copie (restauration ?). La copie est arrêtée pour ne rien perdre : "
         + "ce PC garde les données les plus récentes.";

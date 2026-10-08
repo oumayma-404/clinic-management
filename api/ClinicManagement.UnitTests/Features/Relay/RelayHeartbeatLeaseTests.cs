@@ -34,7 +34,7 @@ public class RelayHeartbeatLeaseTests
 
     private async Task<RelayHeartbeatAck> BeatAsync(
         ClinicRelay relay, string build = Build, bool standDown = false, long confirmed = 0, bool confirmedArmed = false,
-        bool holding = false, DateTime? holdingSince = null)
+        bool holding = false, DateTime? holdingSince = null, long holdingUnderAck = 0)
     {
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns(relay.Subject);
@@ -56,7 +56,7 @@ public class RelayHeartbeatLeaseTests
         var result = await handler.Handle(new RelayHeartbeatCommand(new RelayHeartbeatRequest(
             40, 100, true, 0, 0, null, false, build, DateTime.UtcNow, null, null, null, null,
             ConfirmedAckSeq: confirmed, ConfirmedAckArmed: confirmedArmed, WantsToStandDown: standDown,
-            Holding: holding, HoldingSinceUtc: holdingSince)), CancellationToken.None);
+            Holding: holding, HoldingSinceUtc: holdingSince, HoldingUnderAckSeq: holdingUnderAck)), CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         return result.Value!;
@@ -111,6 +111,25 @@ public class RelayHeartbeatLeaseTests
 
         Assert.Equal(since, relay.PcHoldingSinceUtc);
         Assert.True(ClinicWriteLease.IsCloudFenced(relay, DateTime.UtcNow));
+    }
+
+    // [D19] A PC reconnecting with a takeover an admin's reclaim overruled: answered « Reclaimed », never armed, and its
+    // word is not recorded — the cloud stays free.
+    [Fact]
+    public async Task A_Takeover_Overruled_By_A_Reclaim_Is_Answered_Reclaimed_And_Disarmed()
+    {
+        var relay = ReadyRelay();
+        var armed = await BeatAsync(relay);
+        relay.Reclaim("local|admin", DateTime.UtcNow);
+
+        var ack = await BeatAsync(relay, confirmed: armed.AckSeq, confirmedArmed: true,
+            holding: true, holdingSince: DateTime.UtcNow.AddMinutes(-2), holdingUnderAck: armed.AckSeq);
+
+        Assert.True(ack.Reclaimed);
+        Assert.False(ack.Armed);
+        Assert.Null(relay.PcHoldingSinceUtc);
+        Assert.NotNull(relay.CutOverruledAtUtc);
+        Assert.False(ClinicWriteLease.IsCloudFenced(relay, DateTime.UtcNow.AddMinutes(5)));
     }
 
     // [AC-4.2] « depuis 10:42 » is the cabinet's clock; a takeover from another day says which day.

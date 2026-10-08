@@ -49,11 +49,33 @@ public static class RelayAlertRules
         var label = relay.Label;
         var rows = new List<RelayAlertRow>();
 
+        // AC-6.4: an armed PC fell silent and the cabinet's saves are refused on the cloud — told at once, at any hour,
+        // in place of « éteint » (the same PC, said twice). Not while the PC said it holds the saves: that is a cut.
+        if (relay.PcHoldingSinceUtc is null && ClinicWriteLease.LockedSinceUtc(relay, nowUtc) is { } lockedSince)
+        {
+            rows.Add(new(RelayAlert.Silent, "PC de secours injoignable",
+                $"Le PC de secours ne répond plus depuis {RelayLabels.Moment(lockedSince, nowUtc)} : le cabinet ne peut pas "
+                + "enregistrer sur le cloud. Rallumez-le, ou « Reprendre la main » dans « Paramètres → PC de secours »."));
+            if (HasWrongClock(relay, reading))
+            {
+                rows.Add(new(RelayAlert.ClockWrong, "Horloge du PC de secours fausse",
+                    $"L'horloge de {label} est fausse : réglez la date et l'heure de Windows."));
+            }
+
+            return rows;
+        }
+
         switch (reading.State)
         {
             case ClinicRelayState.Abandoned:
                 rows.Add(new(RelayAlert.Abandoned, "Installation abandonnée",
                     $"Installation abandonnée sur {label} : le PC de secours peut être installé sur un autre PC."));
+                break;
+
+            case ClinicRelayState.Stopped when relay.CutOverruledAtUtc is not null:
+                rows.Add(new(RelayAlert.Stopped, "Copie du PC de secours arrêtée",
+                    $"Le cloud a repris la main pendant la coupure : ce que le cabinet a enregistré sur {label} y est gardé, "
+                    + "et la copie est arrêtée pour ne rien perdre. Contactez le support."));
                 break;
 
             case ClinicRelayState.Stopped:

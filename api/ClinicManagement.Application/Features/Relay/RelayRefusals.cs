@@ -38,6 +38,9 @@ public static class RelayRefusals
     public const string NotAdminCode = "relay_admin_only";
     public const string InvalidRequestCode = "relay_invalid";
     public const string NotRetiredCode = "relay_not_retired";
+
+    /// <summary>US-7: « Reprendre la main » when the cloud is not locked — there is nothing to take back.</summary>
+    public const string NotHoldingCode = "relay_not_holding";
     public const string AuthenticatorRequiredCode = "relay_authenticator_required";
 
     /// <summary>
@@ -54,6 +57,8 @@ public static class RelayRefusals
         "Ce compte doit d'abord choisir un nouveau mot de passe : connectez-vous à APEXA, puis recommencez.";
 
     /// <summary>« Effacer la copie » on a PC the cloud has not retired (AC-8.2): the copy is still the cabinet's spare.</summary>
+    public const string NotHolding = "Le cloud accepte déjà les enregistrements du cabinet : il n'y a rien à reprendre.";
+
     public const string NotRetired =
         "Ce PC est encore le PC de secours du cabinet : retirez-le d'abord depuis « Paramètres » sur le cloud.";
 

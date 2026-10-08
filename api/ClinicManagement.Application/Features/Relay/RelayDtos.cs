@@ -34,7 +34,8 @@ public sealed record RelayHeartbeatRequest(
     bool ConfirmedAckArmed = false,
     bool WantsToStandDown = false,
     bool Holding = false,
-    DateTime? HoldingSinceUtc = null);
+    DateTime? HoldingSinceUtc = null,
+    long HoldingUnderAckSeq = 0);
 
 /// <summary>The cloud's answer. <c>AckSeq</c> is the ack's id (its send instant); <c>Armed</c> lets the PC take over after a cut (D13).</summary>
 public sealed record RelayHeartbeatAck(
@@ -45,7 +46,9 @@ public sealed record RelayHeartbeatAck(
     bool UpdateNeeded,
     string CloudBuild,
     long AckSeq = 0,
-    bool Armed = false);
+    bool Armed = false,
+    // D19: an admin took the cloud back after this PC's takeover — it stops and keeps the cut's work.
+    bool Reclaimed = false);
 
 /// <summary>« Paramètres → PC de secours » (AC-2.1).</summary>
 /// <summary>The PC de secours's own view of itself (AC-8.1), read on the PC.</summary>
@@ -71,4 +74,11 @@ public sealed record RelayStatusDto(
     bool LostOrStolen = false,
     // The Windows app's offer (AC-1.1, AC-1.10): whether a PC de secours may be set up now, and how much room it needs.
     bool CanInstall = false,
-    long NeedBytes = 0);
+    long NeedBytes = 0,
+    // The lease (D13, US-7): the cabinet's saves are refused on the cloud now, since when, whether the PC said it holds
+    // them, and AC-7.1's warning for « Reprendre la main » (also shown before a retire or a loss while locked, AC-8.6).
+    bool CloudLocked = false,
+    DateTime? LockedSinceUtc = null,
+    bool PcHolding = false,
+    string? ReclaimWarning = null,
+    string? LockSentence = null);

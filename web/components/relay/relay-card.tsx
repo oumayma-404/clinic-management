@@ -19,8 +19,8 @@ import { useSession } from "@/lib/auth/session"
 import { STATUS_TONE_CLASS, type StatusTone } from "@/components/ui/status-tone"
 import { ApiError } from "@/lib/api/client"
 import {
-  RELAY_CARD_ID, RELAY_ERASE_STEP_UP, RELAY_LOST_STEP_UP, relayApi, type RelayLocalStatusDto, type RelayStateKey,
-  type RelayStatusDto,
+  RELAY_CARD_ID, RELAY_ERASE_STEP_UP, RELAY_LOST_STEP_UP, RELAY_RECLAIM_STEP_UP, relayApi, type RelayLocalStatusDto,
+  type RelayStateKey, type RelayStatusDto,
 } from "@/lib/api/relay"
 import { showErrorToast } from "@/lib/errors"
 import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
@@ -147,6 +147,24 @@ export function RelayCard() {
     }
   }
 
+  // « Reprendre la main » (US-7): AC-7.1's warning first, then an authenticator code.
+  const [reclaimConfirmOpen, setReclaimConfirmOpen] = useState(false)
+  const [reclaimStepUpOpen, setReclaimStepUpOpen] = useState(false)
+  const [reclaiming, setReclaiming] = useState(false)
+
+  const reclaim = async (stepUpToken: string) => {
+    setReclaiming(true)
+    try {
+      const status = await relayApi.reclaim(stepUpToken)
+      setLoad({ kind: "loaded", status })
+      toast.success("Le cloud a repris la main : le cabinet peut de nouveau enregistrer.")
+    } catch (err) {
+      showErrorToast(err, "Le cloud n'a pas pu reprendre la main.")
+    } finally {
+      setReclaiming(false)
+    }
+  }
+
   // « Effacer la copie » on a retired PC (AC-8.2): explained first, then confirmed with an authenticator code.
   const [eraseConfirmOpen, setEraseConfirmOpen] = useState(false)
   const [eraseStepUpOpen, setEraseStepUpOpen] = useState(false)
@@ -216,6 +234,8 @@ export function RelayCard() {
             status={load.status}
             onRetire={() => setConfirmOpen(true)}
             onDeclareLost={() => setLostConfirmOpen(true)}
+            onReclaim={() => setReclaimConfirmOpen(true)}
+            reclaiming={reclaiming}
             onInstall={inWindowsApp && load.status.canInstall ? () => void openInstall(load.status.needBytes ?? 0) : undefined}
             installing={readingPc}
             retiring={retiring || declaring}
@@ -259,6 +279,10 @@ export function RelayCard() {
               La copie s&apos;arrête et le cabinet pourra installer un autre PC de secours. Ce qui est déjà copié reste
               sur ce PC.
             </AlertDialogDescription>
+            {/* AC-8.6: pressed while the cabinet is locked, retiring also takes the cloud back. */}
+            {load.kind === "loaded" && load.status.cloudLocked && load.status.reclaimWarning && (
+              <p className="text-sm font-medium text-destructive">{load.status.reclaimWarning}</p>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={retiring} className="coarse:min-h-11">Annuler</AlertDialogCancel>
@@ -281,6 +305,9 @@ export function RelayCard() {
               Le PC est retiré. Comme il contenait les comptes du cabinet, chaque compte devra choisir un nouveau mot de
               passe, et un nouvel authentificateur s&apos;il en avait un. Tout le monde, vous compris, sera déconnecté.
             </AlertDialogDescription>
+            {load.kind === "loaded" && load.status.cloudLocked && load.status.reclaimWarning && (
+              <p className="text-sm font-medium text-destructive">{load.status.reclaimWarning}</p>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="coarse:min-h-11">Annuler</AlertDialogCancel>
@@ -335,6 +362,39 @@ export function RelayCard() {
         />
       )}
 
+      <AlertDialog open={reclaimConfirmOpen} onOpenChange={setReclaimConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reprendre la main sur le cloud ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {load.kind === "loaded" && load.status.reclaimWarning}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="coarse:min-h-11">Annuler</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              className="coarse:min-h-11"
+              onClick={() => {
+                setReclaimConfirmOpen(false)
+                setReclaimStepUpOpen(true)
+              }}
+            >
+              Continuer
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <StepUpDialog
+        open={reclaimStepUpOpen}
+        onOpenChange={setReclaimStepUpOpen}
+        action={RELAY_RECLAIM_STEP_UP}
+        purpose="Vous allez reprendre la main sur le cloud : ce que le cabinet a enregistré sur le PC de secours n'y partira pas."
+        hasTotp
+        onConfirmed={(token) => void reclaim(token)}
+      />
+
       <StepUpDialog
         open={eraseStepUpOpen}
         onOpenChange={setEraseStepUpOpen}
@@ -357,11 +417,14 @@ export function RelayCard() {
 }
 
 function RelayState({
-  status, onRetire, onDeclareLost, onInstall, installing, retiring,
+  status, onRetire, onDeclareLost, onReclaim, onInstall, installing, retiring, reclaiming,
 }: {
   status: RelayStatusDto
   onRetire: () => void
   onDeclareLost: () => void
+  /** US-7: offered only while the cabinet's saves are refused on the cloud. */
+  onReclaim: () => void
+  reclaiming: boolean
   /** Present in the Windows app while a PC de secours may be set up (AC-1.10); absent everywhere else. */
   onInstall?: () => void
   installing: boolean
@@ -448,6 +511,24 @@ function RelayState({
           )}
         </div>
       </div>
+
+      {/* US-7, AC-6.4: why the cabinet cannot record on the cloud now, and the one way out an admin has. */}
+      {status.cloudLocked && status.lockSentence && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 p-3">
+          <p role="status" className="min-w-0 basis-56 grow text-sm font-medium text-destructive">
+            {status.lockSentence}
+          </p>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="grow basis-36 coarse:min-h-11 sm:grow-0"
+            disabled={reclaiming || retiring}
+            onClick={onReclaim}
+          >
+            {reclaiming ? "Reprise…" : "Reprendre la main"}
+          </Button>
+        </div>
+      )}
 
       {status.state === "installing" && (
         <div

@@ -63,12 +63,15 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             // D14: what the PC says it holds first, then the state, then the new ack — the order the PC lived them in.
             relay.RecordAckConfirmation(report.ConfirmedAckSeq, report.ConfirmedAckArmed);
 
-            var seededNow = relay.RecordHeartbeat(new RelayHeartbeat(
+            var beat = new RelayHeartbeat(
                 report.AppliedSeq, report.SeedPercent, report.SeedComplete, report.FilesTotal, report.FilesCopied,
                 report.DiskFreeBytes, report.IsUpdating, report.Build, report.PcClockUtc, report.LanAddresses,
                 report.MismatchTables, report.LastError, report.CertificateFingerprint, report.CopyStopped,
-                report.Holding, report.HoldingSinceUtc),
-                highWater, now);
+                report.Holding, report.HoldingSinceUtc, report.HoldingUnderAckSeq);
+
+            // D19: a takeover an admin's « Reprendre la main » overruled — this answer stops that PC, and never arms it.
+            var overruled = relay.IsOverruledHolding(beat);
+            var seededNow = relay.RecordHeartbeat(beat, highWater, now);
 
             if (seededNow)
             {
@@ -78,7 +81,7 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
 
             var cloudBuild = _build.Current;
             var sameBuild = string.Equals(report.Build, cloudBuild, StringComparison.Ordinal);
-            var armed = ClinicWriteLease.ShouldArm(relay, sameBuild, report.WantsToStandDown, now);
+            var armed = !overruled && ClinicWriteLease.ShouldArm(relay, sameBuild, report.WantsToStandDown, now);
             // Saved with the heartbeat, before the answer leaves: an ack the cloud did not record could arm a PC the
             // cloud would then never fence for.
             var ackSeq = relay.IssueAck(armed, now);
@@ -86,7 +89,7 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<RelayHeartbeatAck>.Success(new RelayHeartbeatAck(
-                now, highWater, epoch, Retired: false, UpdateNeeded: !sameBuild, cloudBuild, ackSeq, armed));
+                now, highWater, epoch, Retired: false, UpdateNeeded: !sameBuild, cloudBuild, ackSeq, armed, overruled));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

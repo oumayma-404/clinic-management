@@ -1,39 +1,51 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (session 10, continued) · **Overall:** ~45 % · **Part 1 (La copie):** done in code (owed: the
-Windows rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~28 % (lease slices 1, 2 and
-2b done)
+**Date:** 2026-10-08 (session 10, continued) · **Overall:** ~47 % · **Part 1 (La copie):** done in code (owed: the
+Windows rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~33 % (lease 1, 2, 2b and
+« Reprendre la main » done)
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–89, verification log). Plan `../plan.md` (Part 2,
-   D13–D20b), spec `../spec.md` (Part B: US-6, US-7, AC-6.2–6.6, AC-7.1–7.6), blueprint `../blueprint.md` (§ Part B).
-3. **Next sub-step: Part 2 · device reports (AC-6.2) + « Reprendre la main » (US-7)** — detailed below.
-4. The owner works step by step and said « when you complete, start the next step right away »: after each sub-step's
-   local commit and short report, go straight on to the next one.
+2. Read this file, then `progress.md` (part status, deviations 1–96, verification log). Plan `../plan.md` (Part 2's
+   « Device reports » bullet, D21), spec `../spec.md` (AC-6.2, FR-7, EC-17, EC-23), blueprint `../blueprint.md`.
+3. **Next sub-step: Part 2 · device reports (AC-6.2)** — detailed below.
+4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
+   report, go straight on to the next one.
 
-## The next sub-step — device reports + « Reprendre la main »
+## The next sub-step — device reports (AC-6.2)
 
-**Goal:** a cabinet whose armed PC died is not read-only for hours: devices on the cabinet's network can say « the PC is
-gone » (AC-6.2), and an admin can take the cloud back on purpose (US-7, AC-7.1/7.2, AC-8.6).
+**Goal:** when the PC de secours goes silent while the cabinet's internet works, the cloud unlocks itself within ~2 min
+from the reports of the cabinet's OTHER devices — Windows and Android apps only, never a browser, and only a device on
+the cabinet's network.
 
-**Already built:** the lease (`ClinicWriteLease`, `RelayLease`, `RelayLeaseKeeper`), the PC's holding mode, the gate and
-D15's net (`RelayFence`, `IClinicWriteFence`), `ClinicRelay.PcHoldingSinceUtc`, the cut's-work guard
-(`UnreturnedSinceUtc`), « Retirer » (frees the cloud — AC-8.6 needs AC-7.1's warning in front of it).
+**Plan's own words** (plan.md Part 2): the shells' half is built here — the PC's address + certificate fingerprint learned
+from the cloud (`RelayStatusDto` already carries both), the pinned-certificate probe (D21), and « on the cabinet network »
+by gateway match. A report counts only when all three hold. Part 3 keeps the switch, UDP discovery, prepared sessions and
+carried forms.
 
-**To build** (read AC-6.2 and US-7 first; decide the device-report wire with the spec's FR-7 « on the cabinet's network »)
+**To build** (read `desktop/CLAUDE.md`, `mobile/CLAUDE.md` and `mobile/shared/bridge.md` first — a bridge member is a
+contract change and bumps the shell's version)
 
-1. `POST /api/relay/reclaim` (admin + authenticator, `relay-reclaim` step-up already declared) → the cloud takes the
-   cabinet back: a reclaim epoch on `ClinicRelay` that `IsCloudFenced` honours, a journal row naming the admin (AC-7.2),
-   409 `relay_not_holding` when nothing is fenced.
-2. The PC learns it on its next heartbeat (reclaimed) → stops taking work, ends the lease with the cut's work marked
-   unreturned (the same path as a retire) — « À reprendre » itself (AC-7.3/7.4) is the return's slice.
-3. AC-6.2: device reports of a silent PC from the cabinet's network — read the spec; this may belong with Part 3's
-   devices.
-4. The cloud card's « Reprendre la main » button + AC-7.1's warning (web — full web gate + eye pass).
+1. Cloud: `POST /api/relay/device-report` (a signed-in cabinet device: « I reach the cloud, not the PC, on the cabinet's
+   network ») → a report store per cabinet; `ClinicWriteLease.IsCloudFenced` honours « unlocked by reports » (D13's
+   « ∧ not unlocked »): N distinct devices over ~2 min, while the PC is silent. Browsers never report (no endpoint use from
+   web code outside the shells).
+2. Windows shell: learn the PC's addresses + fingerprint from the cloud, probe the PC with the pinned certificate, decide
+   « on the cabinet network » (same gateway as the PC reported), report every ~30 s while the PC is silent.
+3. Android shell: the same (Kotlin; builds with the installed toolchain).
+4. EC-17 (PC cut off from the box: no takeover, the tablets unlock the cloud) and EC-23 (a phone on mobile data never
+   counts) as tests.
+
+## Done in session 10 — « Reprendre la main » (US-7, D19) + AC-6.4's bell row
+
+`POST /api/relay/reclaim` (admin + code) frees a locked cabinet; a PC whose takeover predates it is overruled when it
+reconnects (stops its copy, keeps the cut's work — « À reprendre » comes with the return). Card: lock line, the button,
+AC-7.1's warning (also on retire / lost while locked). Bell: « Le PC de secours ne répond plus depuis 10:42 ». Live:
+both scenarios on the rig + a 16-check browser pass. ⚠️ Owed to the screens step: while the PC holds the saves, the card's
+state chip still reads « Copie en retard » (deviation 96). Details: deviations 90–96.
 
 ## Done in session 10 — slice 2b (the safety nets)
 
@@ -56,7 +68,7 @@ the PC, readable by admins, until « À reprendre » / the return exist. Details
 | 3 | First `deploy-hosted` run with the new `relay-installer` job (builds the real installer on Windows, publishes it to `deploy/updates/relay/` before the swap) — never run yet | **yes** (VPS deploy) |
 | 4 | Windows rehearsal of the one-click install + a self-update (the SYSTEM task, the real installer replacing the services), on a real PC | **yes** (UAC + 3 services) |
 | 5 | Owed checks: console column live · « perdu ou volé » for real (resets the test accounts) · A2 (non-admin session opened before a retire → 401) unit-tested only · CI `relay-copy` job not written | console/CI: push needs OK |
-| 6 | Part 2 « La relève » — slices 1, 2, 2b done; next: device reports + « Reprendre la main », numbers + idempotency, the return, screens | — |
+| 6 | Part 2 « La relève » — lease 1, 2, 2b and « Reprendre la main » done; next: device reports, numbers + idempotency, the return, screens | — |
 | 7 | Part 3 « Les appareils suivent » (devices switch, pinned certificate, carried forms) | — |
 
 ## Commits on the branch (oldest → newest, all local)
@@ -83,7 +95,8 @@ the PC, readable by admins, until « À reprendre » / the return exist. Details
 | `13e64bfd` | promotion verbs (D11): `promote-relay`, `sign-relay-promotion`, compiled-in vendor key, operator procedure in `packaging/README.md` |
 | `6e58a6bd` | Part 2 lease slice 1: `ClinicWriteLease`, ack protocol, cloud fence (423 `relay_silent`), two-phase stand-down, migration `AddRelayWriteLease` |
 | `f5de9b96` | Part 2 lease slice 2: the PC takes over — `RelayLease`/`RelayLeaseKeeper`/`GatewayBoxProbe`, holding follower + pulse, `[OnlineOnly]`, `clinic_on_relay`, cut's-work guard, migration `AddRelayPcHolding` |
-| (session 10) | Part 2 lease slice 2b: D15's net in `ClinicChangeCapture`, `ClinicFencedException` (423), `IClinicWriteFence` in the jobs and startup backfills, two derived guards |
+| `a2e20458` | Part 2 lease slice 2b: D15's net in `ClinicChangeCapture`, `ClinicFencedException` (423), `IClinicWriteFence` in the jobs and startup backfills, two derived guards |
+| (session 10) | « Reprendre la main » (US-7, D19), AC-6.4's bell row, the card's lock line and warning, migration `AddRelayReclaim` |
 
 ## Part 1 — done / left
 
@@ -104,9 +117,9 @@ scratch account's test password + TOTP secret). The working copies live in the O
 | Piece | State at the end of session 10 |
 |---|---|
 | Shared Docker (postgres, minio, mailpit) | started from cold this session (lease holder clinic-pc-copy) |
-| Scratch cloud API :5098 | last copy **`cloud-api-15`** (current code); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
+| Scratch cloud API :5098 | last copy **`cloud-api-16`** (current code; web **`web-cloud-10`**); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayPcHolding` |
 | Scratch cloud web :3098 | **`web-cloud-9`** |
-| Test PC (:5097/:3097) | **`pc-api-14`** = current code (`pc-api-13` = slice 2), paired « PC-ACCUEIL (essai 5) » (essai 4 retired during the slice-2 cut; its lease file kept as `.local/relay-lease.kept-cut-work.json`), seeded, armed, stopped cleanly. `pc-api-11` is the PC **promoted** — never use it for Part 2. `e2e/lease2-run.mjs <pc|cloud> <label>` signs in and tries a save, two FR-5 actions (PC only — on the cloud FR-11 keeps them open and they WRITE) and a read; `e2e/lease2-retire.mjs` retires during a cut (mutates); `scratchpad/ctrlc-out/ctrlc.exe <pid> 1` (session-10 scratchpad) stops an API gracefully |
+| Test PC (:5097/:3097) | **`pc-api-15`** = current code, paired « PC-ACCUEIL (essai 6) » (essai 5 retired after the reclaim rehearsal; its lease kept as `.local/relay-lease.kept-cut-work-2.json`). Earlier: « PC-ACCUEIL (essai 5) » (essai 4 retired during the slice-2 cut; its lease file kept as `.local/relay-lease.kept-cut-work.json`), seeded, armed, stopped cleanly. `pc-api-11` is the PC **promoted** — never use it for Part 2. `e2e/lease2-run.mjs <pc|cloud> <label>` signs in and tries a save, two FR-5 actions (PC only — on the cloud FR-11 keeps them open and they WRITE) and a read; `e2e/lease2-retire.mjs` retires during a cut (mutates); `scratchpad/ctrlc-out/ctrlc.exe <pid> 1` (session-10 scratchpad) stops an API gracefully |
 | Browser pass for the offer | `node offer-run.mjs <outdir>` — run from the OLD scratchpad's `pw\` (has `node_modules`); 38/38 last run |
 
 Servers started by a session die with it: restart with `source env.sh; run_cloud cloud-api-12` and
@@ -115,7 +128,7 @@ Servers started by a session die with it: restart with `source env.sh; run_cloud
 
 ## Gate (run all, unfiltered, after the last edit)
 
-- API: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/build-pc/` — last **5 709 pass · 6 skip · 0 fail**.
+- API: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/build-pc/` — last **5 723 pass · 6 skip · 0 fail**.
 - Shell: `cd desktop && dotnet test ClinicManagement.DesktopShell.sln -c Release -p:BaseOutputPath=<scratchpad>/build-shell/` — **114 pass**.
 - Web: `cd web && npm run check:responsive && npx tsc --noEmit && npm run build` — **78/78**, green.
 - Installer: `node packaging/lint-iss.mjs`; `node packaging/ci-stub-payloads.mjs` then
@@ -143,4 +156,7 @@ Servers started by a session die with it: restart with `source env.sh; run_cloud
 - A process launched from the Bash tool ignores Ctrl+C (`GenerateConsoleCtrlEvent(0)`); Ctrl+Break (`1`) reaches .NET's graceful shutdown — and kills the sending helper with it (exit -1073741510), which is harmless.
 - `TenantScope` takes an `ILogger<TenantScope>` — tests pass `NullLogger<TenantScope>.Instance`.
 - `dotnet ef … -- -p:BaseOutputPath=…` passes the switch to the APP, not to MSBuild (« short switch not defined ») — EF then builds in-tree; harmless when no API holds `bin/`, otherwise use `--no-build` after a scratch build.
+- Browser passes: `pw\reclaim-pass.mjs <outdir>` (16 checks) is the template — fresh profile per run, Chrome launched with
+  the three anti-throttling flags, the post-visit prompt dismissed with « Plus tard » (forced click). `e2e\reclaim-api.mjs
+  status|reclaim|retire` drives the card's API.
 - To take the PC over on the rig: stop the cloud (Ctrl+Break); the PC holds ~90 s after its last ack (the gateway of this machine answers). To undo: retire from the cloud, stop the PC, set `.local/relay-lease.json` aside, re-pair.

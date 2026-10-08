@@ -60,6 +60,8 @@ public class SubscriptionExemptionCoverageTests
         "Relay.Retire",
         // AC-8.4: securing the accounts a stolen PC held — an unpaid cabinet must be able to, and it records nothing new.
         "Relay.DeclareLost",
+        // US-7: taking a locked cabinet's saves back from a silent PC — records nothing new.
+        "Relay.Reclaim",
         // AC-8.2: erasing a retired PC's copy, and the PC telling the cloud — offboarding, never new work.
         "RelayLocal.Erase",
         "RelayPeer.Erased",

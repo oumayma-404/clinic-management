@@ -634,6 +634,9 @@ no consent flag and no audit of which patient was sent.
   ⚠️ A path with no request behind it must ask **`IClinicWriteFence`** (`Relay/ClinicWriteFence`) before it acts — the
   agenda job, the monthly dépenses, the reminder outbox (it sends before it saves), the catalogue and Google backfills
   do; `RelayFenceCoverageTests` derives the rest.
+- **« Reprendre la main » (D19)** — the PC reports the ack its takeover was made under (`HoldingUnderAckSeq`); a cloud
+  that reclaimed after it answers `Reclaimed`, and `RelayFollower` then stops the copy (`OverruledReason`) **before**
+  ending the lease (the work marked unreturned) — a restart between the two finds a PC still holding and is told again.
 - **Promotion (PC side, D11)**: `RelayPromotionCode` (ECDSA P-256 over the exact bytes of
   `APEXA-PROMO-1.<payload>`, bound to the PC's `RelayId` + `ClinicId`, ≤ 30 days) verified against
   **`VendorPublicKey`, a compiled-in constant** — no configuration can make a PC trust another key; rotating means a new

@@ -133,8 +133,36 @@ public class RelayController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// « Reprendre la main » (US-7, AC-7.1/7.2) — admin + a fresh confirmation of identity: what the cabinet recorded on
+    /// the PC since the lock will not come back by itself, so a stolen session alone must not be able to do it.
+    /// </summary>
+    [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
+    [HttpPost("reclaim")]
+    [AllowsWithoutSubscription("Taking a locked cabinet's saves back from a silent PC records nothing new, and an unpaid cabinet must be able to.")]
+    public async Task<ActionResult<RelayStatusDto>> Reclaim(
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
+        CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var callerId = _clinicContext.GetUserId();
+        if (string.IsNullOrWhiteSpace(callerId) || !_stepUp.Consume(callerId, RelayStepUpActions.Reclaim, confirmation ?? string.Empty))
+        {
+            return Failure("Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        var result = await _mediator.Send(new ReclaimRelayCommand(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result.Code)) : Ok(result.Value);
+    }
+
     internal static int StatusFor(string? code) => code switch
     {
+        RelayRefusals.NotHoldingCode => StatusCodes.Status409Conflict,
         RelayRefusals.AlreadyPairedCode => StatusCodes.Status409Conflict,
         RelayRefusals.PairingCodeExpiredCode => StatusCodes.Status410Gone,
         RelayRefusals.NoRelayCode => StatusCodes.Status404NotFound,

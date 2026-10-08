@@ -53,6 +53,13 @@ public static class ClinicWriteLease
             return false;
         }
 
+        // « Reprendre la main » (D19): no ack sent up to the reclaim arms the PC any more.
+        var armedFrom = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
+        if (armedFrom <= relay.ReclaimedAtAckSeq)
+        {
+            return false;
+        }
+
         if (nowUtc.Ticks < relay.LastAckSeq - ClockStepTolerance.Ticks)
         {
             return true;
@@ -60,6 +67,27 @@ public static class ClinicWriteLease
 
         var anchor = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
         return nowUtc.Ticks - anchor > CloudFencesAfter.Ticks;
+    }
+
+    /// <summary>
+    /// Since when the cabinet's saves have been refused here: the PC's own takeover moment once it said so, else 60 s
+    /// after the ack the silence clock runs from. Null while the cloud is writable.
+    /// </summary>
+    public static DateTime? LockedSinceUtc(ClinicRelay? relay, DateTime nowUtc)
+    {
+        if (!IsCloudFenced(relay, nowUtc))
+        {
+            return null;
+        }
+
+        if (relay!.PcHoldingSinceUtc is { } holding)
+        {
+            return holding;
+        }
+
+        var anchor = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
+        var since = new DateTime(Math.Min(anchor + CloudFencesAfter.Ticks, nowUtc.Ticks), DateTimeKind.Utc);
+        return since;
     }
 
     /// <summary>

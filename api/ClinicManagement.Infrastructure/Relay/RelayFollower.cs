@@ -205,6 +205,17 @@ public sealed class RelayFollower
             return Save(state with { Released = true });
         }
 
+        if (call.IsOk && call.Value!.Reclaimed)
+        {
+            // D19: an admin took the cloud back after this takeover. The copy stops FIRST — a restart between the two
+            // then finds a PC still holding, asks again and is told again — and only then does the lease end, the cut's
+            // work marked as never returned: no catch-up, re-seed or erase may touch it before « À reprendre ».
+            _logger.LogWarning("An administrator took the cloud back during the cut; this PC stops and keeps the cut's work.");
+            var stopped = Save(RelayFeedDecisions.Stopped(state, RelayFeedDecisions.OverruledReason));
+            _lease.End();
+            return stopped;
+        }
+
         return state;
     }
 
@@ -265,7 +276,8 @@ public sealed class RelayFollower
             ConfirmedAckArmed: lease.LastAckArmed,
             WantsToStandDown: wantsToStandDown,
             Holding: lease.HoldingSinceUtc is not null,
-            HoldingSinceUtc: lease.HoldingSinceUtc);
+            HoldingSinceUtc: lease.HoldingSinceUtc,
+            HoldingUnderAckSeq: lease.HoldingUnderAckSeq);
     }
 
     /// <summary>

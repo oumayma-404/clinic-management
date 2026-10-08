@@ -466,6 +466,35 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Equal(T0, state.ReleasedAtUtc);
     }
 
+    // [D19, AC-7.3] An admin took the cloud back during the cut: on reconnecting, the PC stops taking work AND stops its
+    // copy — no catch-up or re-seed may touch the cut's work before « À reprendre » — and the work is marked as never
+    // returned, so nothing can erase it. Its report named the ack its takeover was made under.
+    [Fact]
+    public async Task A_Holding_Pc_Overruled_By_A_Reclaim_Stops_And_Keeps_The_Cuts_Work()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 45;
+        _cloud.ArmsThePc = true;
+        var follower = Follower();
+        await TickAsync(follower);
+        var underAck = _lease.Current.LastAckSeq;
+        _lease.TakeOver();
+        _cloud.Reclaimed = true;
+
+        var pulledBefore = _cloud.ChangesAsked.Count;
+
+        var state = await TickAsync(follower);
+
+        Assert.Equal(underAck, _cloud.Reports[^1].HoldingUnderAckSeq);
+        Assert.Equal(RelayFeedDecisions.OverruledReason, state.StoppedReason);
+        Assert.False(_lease.IsHolding);
+        Assert.True(_lease.HoldsUnreturnedWork);
+
+        await TickAsync(follower);
+        Assert.Equal(pulledBefore, _cloud.ChangesAsked.Count);
+        Assert.True(_cloud.Reports[^1].CopyStopped);
+    }
+
     // A holding PC does not stand down on a clean stop: the cloud must stay read-only until the cut's work is back.
     [Fact]
     public async Task A_Holding_Pc_Never_Stands_Down()
@@ -860,6 +889,9 @@ public sealed class RelayFollowerTests : IDisposable
         /// <summary>Whether the cloud arms the PC — a stand-down request is always answered disarmed, as the real one does.</summary>
         public bool ArmsThePc { get; set; }
 
+        /// <summary>An admin took the cloud back: a holding PC is answered « Reclaimed » (D19).</summary>
+        public bool Reclaimed { get; set; }
+
         public long AcksIssued { get; private set; }
         public string AckEpoch { get; set; } = "e1";
         public Queue<RelayFeedBatch> Batches { get; } = new();
@@ -895,7 +927,8 @@ public sealed class RelayFollowerTests : IDisposable
             AcksIssued++;
             return Task.FromResult(new RelayCall<RelayHeartbeatAck>(RelayCallStatus.Ok,
                 new RelayHeartbeatAck(T0, HighWater, AckEpoch, false, UpdateNeeded, CloudBuild,
-                    AckSeq: 1000 + AcksIssued, Armed: ArmsThePc && !report.WantsToStandDown)));
+                    AckSeq: 1000 + AcksIssued, Armed: ArmsThePc && !report.WantsToStandDown && !(Reclaimed && report.Holding),
+                    Reclaimed: Reclaimed && report.Holding)));
         }
 
         public Task<RelayCall<RelayFeedBatch>> ChangesAsync(long after, string? fingerprint, CancellationToken cancellationToken)

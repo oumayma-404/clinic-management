@@ -127,6 +127,23 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// </summary>
     public DateTime? PcHoldingSinceUtc { get; private set; }
 
+    // ---- « Reprendre la main » (D19, US-7) -------------------------------------------------------------------------
+
+    /// <summary>
+    /// The last ack sent when an admin took the cloud back: no ack up to it arms the PC any more, and a takeover the PC
+    /// made under one of them is overruled when it reconnects (<see cref="IsOverruledHolding"/>). 0 = never reclaimed.
+    /// </summary>
+    public long ReclaimedAtAckSeq { get; private set; }
+
+    public DateTime? ReclaimedAtUtc { get; private set; }
+    public string? ReclaimedByUserId { get; private set; }
+
+    /// <summary>
+    /// When the PC reconnected holding a takeover the reclaim overruled: it stopped, and keeps that cut's work for
+    /// « À reprendre » (AC-7.3). What makes its « Copie arrêtée » name the right cause.
+    /// </summary>
+    public DateTime? CutOverruledAtUtc { get; private set; }
+
     public DateTime? RetiredAtUtc { get; private set; }
     public ClinicRelayRetirement? RetiredReason { get; private set; }
     public string? RetiredByUserId { get; private set; }
@@ -241,6 +258,23 @@ public class ClinicRelay : AggregateRoot<Guid>
         return LastAckSeq;
     }
 
+    /// <summary>
+    /// « Reprendre la main » (D19, US-7): the cloud takes the cabinet's saves back. Every ack sent so far stops arming the
+    /// PC, and the PC's word that it holds the saves is set aside — a takeover made under one of those acks is overruled
+    /// when that PC reconnects. Allowed while the cloud is fenced (the caller checks).
+    /// </summary>
+    public void Reclaim(string? byUserId, DateTime nowUtc)
+    {
+        ReclaimedAtAckSeq = LastAckSeq;
+        ReclaimedAtUtc = nowUtc;
+        ReclaimedByUserId = byUserId;
+        PcHoldingSinceUtc = null;
+    }
+
+    /// <summary>A heartbeat saying « je tiens les enregistrements » under an ack an admin's reclaim overruled.</summary>
+    public bool IsOverruledHolding(RelayHeartbeat heartbeat) =>
+        heartbeat.Holding && ReclaimedAtUtc is not null && heartbeat.HoldingUnderAckSeq <= ReclaimedAtAckSeq;
+
     /// <summary>What the PC reports on each heartbeat; true when this one completed the first copy (FR-8).</summary>
     public bool RecordHeartbeat(RelayHeartbeat heartbeat, long highWater, DateTime nowUtc)
     {
@@ -261,7 +295,12 @@ public class ClinicRelay : AggregateRoot<Guid>
         Build = Cap(heartbeat.Build, MaxBuildLength) ?? Build;
         ClockSkewSeconds = heartbeat.PcClockUtc is { } pc ? (int)Math.Round((pc - nowUtc).TotalSeconds) : null;
         CopyStoppedSinceUtc = heartbeat.CopyStopped ? CopyStoppedSinceUtc ?? nowUtc : null;
-        if (heartbeat.Holding && PcHoldingSinceUtc is null)
+        if (IsOverruledHolding(heartbeat))
+        {
+            // The admin took the cloud back after this takeover: the PC stops on this answer and keeps the cut's work.
+            CutOverruledAtUtc ??= nowUtc;
+        }
+        else if (heartbeat.Holding && PcHoldingSinceUtc is null)
         {
             // The PC's clock may run ahead of the cloud's; a takeover is never in the cloud's future.
             PcHoldingSinceUtc = heartbeat.HoldingSinceUtc is { } since && since < nowUtc ? since : nowUtc;
@@ -467,4 +506,5 @@ public sealed record RelayHeartbeat(
     string? CertificateFingerprint = null,
     bool CopyStopped = false,
     bool Holding = false,
-    DateTime? HoldingSinceUtc = null);
+    DateTime? HoldingSinceUtc = null,
+    long HoldingUnderAckSeq = 0);

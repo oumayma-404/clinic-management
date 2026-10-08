@@ -29,6 +29,15 @@ export interface RelayStatusDto {
   canInstall?: boolean;
   /** The free space a PC de secours needs (AC-1.8), when `canInstall`; 0 otherwise. */
   needBytes?: number;
+  /** The cabinet's saves are refused on the cloud now (D13): its PC fell silent armed, or said it holds them. */
+  cloudLocked?: boolean;
+  lockedSinceUtc?: string | null;
+  /** The PC said it holds the cabinet's saves (a cut), rather than falling silent. */
+  pcHolding?: boolean;
+  /** Why the saves are refused, in the cabinet's clock — shown verbatim above « Reprendre la main ». */
+  lockSentence?: string | null;
+  /** AC-7.1's warning, shown before « Reprendre la main » and before a retire or a loss while locked (AC-8.6). */
+  reclaimWarning?: string | null;
 }
 
 /** A one-time setup code (AC-1.4), handed straight to the Windows app — shown to nobody. */
@@ -107,6 +116,11 @@ export const relayApi = {
    * cabinet, the caller's included, must then choose a new password: the caller's session ends with the answer.
    */
   declareLost: (stepUpToken: string) => apiPost<RelayStatusDto>('/relay/lost', {}, undefined, stepUpToken),
+  /**
+   * « Reprendre la main » (US-7) — needs a step-up token for {@link RELAY_RECLAIM_STEP_UP}. Refused 409
+   * `relay_not_holding` when the cloud is not locked.
+   */
+  reclaim: (stepUpToken: string) => apiPost<RelayStatusDto>('/relay/reclaim', {}, undefined, stepUpToken),
 };
 
 /** The step-up action « Oui » on the offer is confirmed with (AC-1.4) — an authenticator code, never a password. */
@@ -114,6 +128,9 @@ export const RELAY_PAIRING_STEP_UP = "relay-pairing";
 
 /** The step-up action « Déclarer perdu ou volé » is confirmed with — an authenticator code, never a password. */
 export const RELAY_LOST_STEP_UP = "relay-lost";
+
+/** The step-up action « Reprendre la main » consumes (`RelayStepUpActions.Reclaim`). */
+export const RELAY_RECLAIM_STEP_UP = "relay-reclaim";
 
 /** The step-up action « Effacer la copie » is confirmed with — an authenticator code, never a password. */
 export const RELAY_ERASE_STEP_UP = "relay-erase";

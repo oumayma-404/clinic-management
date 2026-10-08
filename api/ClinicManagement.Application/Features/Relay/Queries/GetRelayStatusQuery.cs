@@ -48,6 +48,7 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
     public static RelayStatusDto ToDto(ClinicRelay? relay, DateTime nowUtc)
     {
         var reading = ClinicRelayHealth.Read(relay, nowUtc);
+        var lockedSince = ClinicWriteLease.LockedSinceUtc(relay, nowUtc);
         return new RelayStatusDto(
             reading.State != ClinicRelayState.None,
             relay?.Id,
@@ -67,6 +68,13 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
             relay?.DiskFreeBytes,
             relay?.RetiredReason == ClinicRelayRetirement.LostOrStolen,
             // The issuance's own test (AC-1.10): retired, expired-unused and abandoned rows leave the place free.
-            CanInstall: relay is null || !relay.OccupiesTheClinic(nowUtc));
+            CanInstall: relay is null || !relay.OccupiesTheClinic(nowUtc),
+            CloudLocked: lockedSince is not null,
+            LockedSinceUtc: lockedSince,
+            PcHolding: lockedSince is not null && relay!.PcHoldingSinceUtc is not null,
+            ReclaimWarning: lockedSince is { } since ? RelayLabels.ReclaimWarning(relay!.Label, since, nowUtc) : null,
+            LockSentence: lockedSince is { } at
+                ? RelayLabels.Lock(relay!.PcHoldingSinceUtc is not null, at, nowUtc)
+                : null);
     }
 }

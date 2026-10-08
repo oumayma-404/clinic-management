@@ -25,6 +25,7 @@ public class ClinicRelayConfiguration : IEntityTypeConfiguration<ClinicRelay>
         builder.Property(r => r.RetiredReason).HasConversion<int?>();
         builder.Property(r => r.CreatedByUserId).IsRequired().HasMaxLength(128);
         builder.Property(r => r.RetiredByUserId).HasMaxLength(128);
+        builder.Property(r => r.ReclaimedByUserId).HasMaxLength(128);
         builder.Property(r => r.PairingCodeHash).HasMaxLength(64);
         builder.Property(r => r.SecretHash).HasMaxLength(64);
         builder.Property(r => r.PublicKey).HasMaxLength(2048);
