@@ -157,6 +157,13 @@ export const ApiErrorCode = {
    * `RelayRefusals.CutWorkKeptCode` (« Effacer la copie »).
    */
   RelayCutWorkKept: 'relay_cut_work_kept',
+  /**
+   * 409 (D17): the same save is still being recorded — a double-click, or a re-press while the first is in flight. The
+   * key is kept, so pressing again in a moment gets the first save's answer. Emitted by `IdempotencyMiddleware`.
+   */
+  IdempotencyInProgress: 'idempotency_in_progress',
+  /** 422 (D17): a replay key reused on another request — a client fault; the server records nothing. */
+  IdempotencyKeyReused: 'idempotency_key_reused',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */
@@ -907,10 +914,75 @@ function deadline(ms: number): AbortSignal | undefined {
  */
 export const STEP_UP_HEADER = 'X-Step-Up-Confirmation'
 
+/**
+ * `clinic-pc-copy` D17 — the header a write's replay key travels in. The server answers a key it has already seen
+ * with what it answered then, so a save pressed again after its answer was lost is never recorded twice.
+ */
+export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
+
+/** How long a write whose answer never came back keeps its key for an identical re-press. */
+const UNSETTLED_KEY_TTL_MS = 10 * 60 * 1000
+
+/**
+ * The keys of writes whose OUTCOME IS UNKNOWN — the line dropped, a gateway timed out, the same save still running —
+ * by request (method · endpoint · body). Pressing the same save again reuses its key, so the server replays the first
+ * answer instead of recording a second row; any real answer, success or refusal, forgets it. ⚠️ A body that changed is
+ * a different request and gets a new key: a corrected form is a new save. ⚠️ Memory only — a page reload forgets.
+ */
+const unsettledWriteKeys = new Map<string, { key: string; at: number }>()
+
+function newIdempotencyKey(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : undefined
+  // `randomUUID` needs a secure context; a LAN page served over plain HTTP still has `getRandomValues`.
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (c && typeof c.getRandomValues === 'function') {
+    c.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+/** A write whose answer says nothing about whether the server recorded it. */
+function outcomeUnknown(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  if (err.status === 0) return err.code === ApiErrorCode.Network
+  return err.status === 502 || err.status === 503 || err.status === 504 || err.code === ApiErrorCode.IdempotencyInProgress
+}
+
+/**
+ * Runs one write with its replay key: the key of an identical write still unsettled, else a fresh one. `fingerprint`
+ * is null for a body that cannot be compared (a file, a form) — that write always gets a fresh key.
+ */
+async function withWriteKey<T>(fingerprint: string | null, run: (key: string) => Promise<T>): Promise<T> {
+  const now = Date.now()
+  for (const [print, entry] of unsettledWriteKeys) {
+    if (now - entry.at > UNSETTLED_KEY_TTL_MS) unsettledWriteKeys.delete(print)
+  }
+  const kept = fingerprint ? unsettledWriteKeys.get(fingerprint) : undefined
+  const key = kept?.key ?? newIdempotencyKey()
+  try {
+    const result = await run(key)
+    if (fingerprint) unsettledWriteKeys.delete(fingerprint)
+    return result
+  } catch (err) {
+    if (fingerprint) {
+      if (outcomeUnknown(err)) unsettledWriteKeys.set(fingerprint, { key, at: kept?.at ?? now })
+      else unsettledWriteKeys.delete(fingerprint)
+    }
+    throw err
+  }
+}
+
 export function apiHeaders(
   accessToken?: string | null,
   contentType: ApiContentType = 'json',
   stepUpToken?: string | null,
+  idempotencyKey?: string | null,
 ): HeadersInit {
   const headers: Record<string, string> = {};
 
@@ -922,6 +994,9 @@ export function apiHeaders(
   }
   if (stepUpToken) {
     headers[STEP_UP_HEADER] = stepUpToken;
+  }
+  if (idempotencyKey) {
+    headers[IDEMPOTENCY_HEADER] = idempotencyKey;
   }
 
   const shellVersion = typeof window !== 'undefined' ? window.__clinicShell?.version : undefined;
@@ -991,23 +1066,25 @@ export async function apiGetBlob(endpoint: string, params?: Record<string, any>,
 export async function apiPost<T>(
   endpoint: string, data: any, accessToken?: string | null, stepUpToken?: string | null
 ): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  const body = JSON.stringify(data);
+  return withWriteKey(`POST ${endpoint}\n${body}`, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token, 'json', stepUpToken),
-    body: JSON.stringify(data),
+    headers: apiHeaders(token, 'json', stepUpToken, key),
+    body,
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
-  }));
+  })));
 }
 
 export async function apiPut<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  const body = JSON.stringify(data);
+  return withWriteKey(`PUT ${endpoint}\n${body}`, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: apiHeaders(token),
-    body: JSON.stringify(data),
+    headers: apiHeaders(token, 'json', null, key),
+    body,
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
-  }));
+  })));
 }
 
 /**
@@ -1029,13 +1106,13 @@ export async function apiPutBinary<T>(
   accessToken?: string | null,
   signal?: AbortSignal,
 ): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  return withWriteKey(null, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: apiHeaders(token, 'none'),
+    headers: apiHeaders(token, 'none', null, key),
     body,
     credentials: 'include',
     signal: withDeadline(signal, TRANSFER_TIMEOUT_MS),
-  }));
+  })));
 }
 
 /** The caller's signal and the deadline as one, degrading to the deadline where `AbortSignal.any` is missing. */
@@ -1047,12 +1124,12 @@ function withDeadline(signal: AbortSignal | undefined, ms: number): AbortSignal 
 }
 
 export async function apiDelete<T>(endpoint: string, accessToken?: string | null): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  return withWriteKey(`DELETE ${endpoint}`, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'DELETE',
-    headers: apiHeaders(token),
+    headers: apiHeaders(token, 'json', null, key),
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
-  }));
+  })));
 }
 
 /**
@@ -1080,13 +1157,14 @@ export async function apiGetFile(endpoint: string, params?: Record<string, any>,
  * wants `readBlob`, not `handleResponse`.
  */
 export async function apiPostBlob(endpoint: string, data: any, accessToken?: string | null): Promise<Blob> {
-  return handleRequest<Blob>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  const body = JSON.stringify(data);
+  return withWriteKey(`POST ${endpoint}\n${body}`, (key) => handleRequest<Blob>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token),
-    body: JSON.stringify(data),
+    headers: apiHeaders(token, 'json', null, key),
+    body,
     credentials: 'include',
     signal: deadline(TRANSFER_TIMEOUT_MS),
-  }), readBlob);
+  }), readBlob));
 }
 
 export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS, stepUpToken?: string | null): Promise<T> {
@@ -1097,23 +1175,23 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
   // ⚠️ A step-up confirmation is SINGLE-USE, so it survives that retry only because the retry re-sends the same
   // request rather than re-authenticating: a 401 refresh does not spend the confirmation, and a 403 is not
   // retried at all.
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  return withWriteKey(null, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token, 'none', stepUpToken),
+    headers: apiHeaders(token, 'none', stepUpToken, key),
     body: formData,
     credentials: 'include',
     signal: deadline(timeoutMs),
-  }));
+  })));
 }
 
 export async function apiPutFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  return withWriteKey(null, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: apiHeaders(token, 'none'),
+    headers: apiHeaders(token, 'none', null, key),
     body: formData,
     credentials: 'include',
     signal: deadline(TRANSFER_TIMEOUT_MS),
-  }));
+  })));
 }
 
 

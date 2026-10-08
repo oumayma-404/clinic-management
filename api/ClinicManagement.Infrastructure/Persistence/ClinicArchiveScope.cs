@@ -102,6 +102,8 @@ public static class ClinicArchiveScope
         nameof(ClinicChangeCursor),
         // The vendor's monitoring of that PC (AC-9.2): what the vendor was told, not what the practice recorded.
         nameof(RelayIncident),
+        // D17: 48 h of replay keys, each side its own — a cabinet's saves are its record, the keys only protect them.
+        nameof(IdempotencyRecord),
         // The Data Protection key ring, where DataProtection:PersistToDatabase puts it. Deployment-wide key
         // material and the single most dangerous thing that could travel in a cabinet's zip: the archive is
         // deliberately UNENCRYPTED and kept on a practice's laptop, and these rows decrypt every administrator's

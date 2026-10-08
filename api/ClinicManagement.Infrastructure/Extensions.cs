@@ -118,6 +118,10 @@ public static class Extensions
             provider => provider.GetRequiredService<ClinicRelayRowStore>());
         services.AddSingleton<ClinicManagement.Application.Features.Relay.IRelayBuildInfo, Relay.RelayBuildInfo>();
         services.AddSingleton<ClinicManagement.Application.Features.Relay.Commands.IRelayKeyValidator, Relay.RelayKeyValidator>();
+        // D17: the replay store, and the key every change of the request is stamped with.
+        services.AddScoped<IIdempotencyStore, IdempotencyStore>();
+        services.AddScoped<IIdempotencyKeyAccessor>(provider =>
+            new HttpIdempotencyKeyAccessor(provider.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()));
         services.AddScoped(provider => new ClinicChangeCapture(
             provider.GetRequiredService<DeploymentProfile>(),
             provider.GetService<IIdempotencyKeyAccessor>(),

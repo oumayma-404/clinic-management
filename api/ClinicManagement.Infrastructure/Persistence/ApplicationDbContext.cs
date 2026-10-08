@@ -208,6 +208,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<ClinicChange> ClinicChanges { get; set; }
     public DbSet<ClinicChangeCursor> ClinicChangeCursors { get; set; }
     public DbSet<RelayIncident> RelayIncidents { get; set; }
+    // D17: the replay keys of a cabinet's saves — per side, written in raw SQL by IdempotencyStore.
+    public DbSet<IdempotencyRecord> IdempotencyRecords { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -374,6 +376,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<ClinicChange>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ClinicChangeCursor>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
         modelBuilder.Entity<RelayIncident>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<IdempotencyRecord>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

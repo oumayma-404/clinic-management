@@ -1075,6 +1075,11 @@ try
         app.UseMiddleware<ClinicManagement.API.Middleware.LocalAuthEnforcementMiddleware>();
     }
 
+    // clinic-pc-copy D17: a cabinet's save pressed again is answered again, never recorded twice. After the token checks
+    // (a revoked token replays nothing), BEFORE the lease and subscription gates: a save that went through before the
+    // cloud locked is still answered « fait » when re-pressed during the lock.
+    app.UseMiddleware<ClinicManagement.API.Middleware.IdempotencyMiddleware>();
+
     // clinic-pc-copy: a PC de secours holding a copy refuses staff writes (423 relay_standby). After the block above so
     // 401/403 still win; before the subscription gate so a copy says « copy », not « pay ». Inert off the relay kind.
     app.UseMiddleware<ClinicManagement.API.Middleware.RelayLeaseGateMiddleware>();

@@ -637,6 +637,12 @@ no consent flag and no audit of which patient was sent.
 - **« Reprendre la main » (D19)** — the PC reports the ack its takeover was made under (`HoldingUnderAckSeq`); a cloud
   that reclaimed after it answers `Reclaimed`, and `RelayFollower` then stops the copy (`OverruledReason`) **before**
   ending the lease (the work marked unreturned) — a restart between the two finds a PC still holding and is told again.
+- **Idempotency (D17)**: `Persistence/IdempotencyStore` — the replay keys of a cabinet's saves in `IdempotencyRecords`,
+  claimed with `INSERT … ON CONFLICT DO NOTHING` and completed / released in **raw SQL** on the request's own context, so a
+  claim survives the save's rollback and touches no change log, audit row or fence. ⚠️ **Per side**: excluded from the
+  archive and the copy (`ClinicArchiveScope.Excluded`); what travels is the key stamped on each `ClinicChange` by
+  `HttpIdempotencyKeyAccessor` (the middleware's `HttpContext.Items`). 48 h purge beside each claim; a claim older than
+  2 min with no answer is free again.
 - **Device reports (AC-6.2)**: each heartbeat carries the PC's HTTPS port (`Hosting:HttpsPort`) and first IPv4 gateway
   (`RelayHostFacts.GatewayAddress`); the cloud stores them on `ClinicRelay` with the address the heartbeat came from
   (`PublicAddress`, through `ClientIp.Resolve`). A device is « on the cabinet's network » when its request comes from that

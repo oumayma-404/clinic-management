@@ -37,6 +37,7 @@ public class RelayRawWriteCoverageTests
         ["RestoreBackupCommand.cs"] = "a whole-database restore, app stopped; the PC's continuity check (D12) then refuses the older cloud",
         ["SchemaVerificationReader.cs"] = "catalog reads only",
         ["PgDumpBackupService.cs"] = "pg_database_size, a read",
+        ["IdempotencyStore.cs"] = "IdempotencyRecord only — the replay keys are each side's own and never carried (D17)",
     };
 
     private static readonly Regex BulkWrite = new(@"\.Execute(Delete|Update)(Async)?\s*\(", RegexOptions.Compiled);

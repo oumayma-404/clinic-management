@@ -4376,6 +4376,42 @@ check(
   },
 );
 
+check(
+  "api-writes-carry-idempotency-key",
+  "N51",
+  "Every write the app sends to the clinic API carries an Idempotency-Key (`withWriteKey`)",
+  "`clinic-pc-copy` D17 / FR-6: a save pressed again after its answer was lost must be answered again, never " +
+    "recorded twice. The server can only do that for a request that carries a key, and `lib/api/client.ts` is the one " +
+    "place a write is sent — so each exported function there that sends POST / PUT / DELETE / PATCH must run through " +
+    "`withWriteKey`, which also reuses the key of an identical write whose outcome is unknown. A new write verb that " +
+    "forgets it would be the one door through which a double save gets in.",
+  () => {
+    const CLIENT = "lib/api/client.ts";
+    const file = ALL_FILES.find((f) => rel(f) === CLIENT);
+    if (!file) return [{ file: CLIENT, text: "the API client is gone — retarget this check" }];
+
+    const src = read(file);
+    const blocks = src.split(/\nexport async function /).slice(1);
+    const offenders = [];
+    let writes = 0;
+    for (const block of blocks) {
+      const name = block.slice(0, block.indexOf("(")).replace(/<.*$/, "").trim();
+      if (!/method:\s*'(POST|PUT|DELETE|PATCH)'/.test(block)) continue;
+      writes++;
+      if (!/\bwithWriteKey\(/.test(block)) {
+        offenders.push({ file: CLIENT, text: `\`${name}\` sends a write without \`withWriteKey\` — it carries no Idempotency-Key` });
+      }
+      if (!/apiHeaders\([^)]*,\s*key\)/.test(block)) {
+        offenders.push({ file: CLIENT, text: `\`${name}\` does not hand its key to \`apiHeaders\` — the header is never sent` });
+      }
+    }
+    if (writes < 6) {
+      return [{ file: CLIENT, text: `found only ${writes} write function(s) — the client's shape changed and this check measures nothing` }];
+    }
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();
