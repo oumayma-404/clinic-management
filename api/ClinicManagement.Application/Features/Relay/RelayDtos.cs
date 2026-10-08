@@ -11,7 +11,10 @@ public sealed record RelayPairingDto(Guid RelayId, Guid ClinicId, string ClinicN
 
 public sealed record RelayTokenDto(string AccessToken, DateTime ExpiresAt);
 
-/// <summary>The PC's heartbeat (FR-2). The heartbeat never refuses on version: a mismatch is a field of the ack (D10b).</summary>
+/// <summary>
+/// The PC's heartbeat (FR-2). The heartbeat never refuses on version: a mismatch is a field of the ack (D10b).
+/// <c>ConfirmedAck*</c> echo the last ack the PC received and <c>WantsToStandDown</c> asks for a disarm (D13, D14).
+/// </summary>
 public sealed record RelayHeartbeatRequest(
     long AppliedSeq,
     int SeedPercent,
@@ -26,15 +29,21 @@ public sealed record RelayHeartbeatRequest(
     IReadOnlyList<string>? MismatchTables,
     string? LastError,
     string? CertificateFingerprint,
-    bool CopyStopped = false);
+    bool CopyStopped = false,
+    long ConfirmedAckSeq = 0,
+    bool ConfirmedAckArmed = false,
+    bool WantsToStandDown = false);
 
+/// <summary>The cloud's answer. <c>AckSeq</c> is the ack's id (its send instant); <c>Armed</c> lets the PC take over after a cut (D13).</summary>
 public sealed record RelayHeartbeatAck(
     DateTime CloudTimeUtc,
     long HighWater,
     string Epoch,
     bool Retired,
     bool UpdateNeeded,
-    string CloudBuild);
+    string CloudBuild,
+    long AckSeq = 0,
+    bool Armed = false);
 
 /// <summary>« Paramètres → PC de secours » (AC-2.1).</summary>
 /// <summary>The PC de secours's own view of itself (AC-8.1), read on the PC.</summary>

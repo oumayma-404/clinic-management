@@ -1,51 +1,56 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (end of session 8) · **Overall:** ~36 % · **Part 1 (La copie):** done in code (owed: the Windows
-rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** next
+**Date:** 2026-10-08 (end of session 9) · **Overall:** ~39 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~12 % (lease slice 1 done)
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–62, verification log). Plan `../plan.md` (Part 2 is
-   « La relève », decisions D13–D20b), spec `../spec.md` (Part B), blueprint `../blueprint.md` (§ 3 « The lease »,
-   § 4 « Handback », Part B files).
-3. **Next sub-step: Part 2 · the lease, first slice** — detailed below.
+2. Read this file, then `progress.md` (part status, deviations 1–70, verification log). Plan `../plan.md` (Part 2,
+   D13–D20b), spec `../spec.md` (Part B), blueprint `../blueprint.md` (§ 3, Part B files).
+3. **Next sub-step: Part 2 · the PC takes over (lease slice 2)** — detailed below.
 4. The owner works step by step: « next step » = one sub-step → blast-radius rows in `progress.md` → build → full gate →
    live check on the scratch rig → notes → **local** commit → short report ending with a % table and the roadmap table
    (`.claude/rules/response-style.md`: bullets, tables, no paragraphs).
 
-## The next sub-step — Part 2 · the lease, first slice (D13, D14)
+## The next sub-step — Part 2 · the PC takes over (lease slice 2)
 
-**Goal:** the cloud and the PC can never both accept writes for one cabinet. This slice builds the rule and proves it;
-the banners, the return and the devices come after.
+**Goal:** during a cut, after 90 s, a PC whose last ack said « armé » and that still reaches the cabinet's box becomes
+writable — and the cloud stays fenced for as long as it holds.
 
-**To build** (plan Part 2 « Lease », blueprint § 3)
+**Already built (slice 1, this session):** `Domain/Services/ClinicWriteLease` (`IsCloudFenced`, `PcMayTakeOver`,
+`ShouldArm`), the ack protocol (`ClinicRelay.IssueAck` / `RecordAckConfirmation`, ack id = send instant), the PC's
+confirmations and two-phase `StandDownAsync`, the cloud's 423 `relay_silent` in `RelayLeaseGateMiddleware` with
+`[AllowedWhileCloudFenced]` on Auth / Users / Relay / RelayPeer, and the 240-line simulation in `ClinicWriteLeaseTests`.
 
-1. `ClinicWriteLease` (D13): the fence is a **predicate**, never a flag a job flips — the cloud refuses the cabinet's
-   scoped writes when `relay armed ∧ now − LastConfirmedAckSentAt > 60 s ∧ not unlocked`; the PC takes over on its
-   side of the same clock (measured from the **ack**, not the send, so the PC's takeover lands after the cloud's
-   fence). Read D13's full row before coding.
-2. Two-phase arming (D14): the ack states armed/disarmed, the PC confirms, and the cloud keeps fencing-on-silence
-   until the PC has confirmed a disarm. The self-update's `RelayUpdater.DisarmBeforeUpdateAsync` hook (today a no-op)
-   is where the PC's planned disarm goes.
-3. Enforcement in two layers both sides (D15): `ClinicFenceInterceptor` (SaveChanges safety net, catches jobs) +
-   the existing `RelayLeaseGateMiddleware` (the 423 sentence) — read how that middleware and the standby gate work today.
-4. Tests first: fake-clock lease tests, « never both writable » above all — including heartbeats that reach the cloud
-   while every answer is lost, and an unplugged PC that must never take over.
-5. Leave for the next slices: `RelayLeaseJob` box check + device reports (AC-6.2), clean shutdown / Windows Update /
-   clock (D20b), number promises (D16), idempotency (D17), the return (D18), screens.
+**To build**
 
-## Done in session 8 — promotion verbs (D11, AC-9.3)
+1. `RelayLeaseJob` (PC, every ~5 s): « box answers » = the default gateway responds (pick a probe; `RelayHostFacts`
+   already knows the gateway-backed adapters), then `PcMayTakeOver(now − LastAckReceivedAtUtc, LastAckArmed, box)` →
+   a persisted **Holding** state (`relay-state.json`: since when, under which ack) so a restart during a cut resumes in
+   charge (AC-3.11). ⚠️ Measure from the ack **received**, and decide what clock survives a PC restart.
+2. The PC's gate: lift `relay_standby` while Holding (writes pass), keep FR-5's online-only list refused with AC-3.5's
+   sentence (`accounts_online_only`-style code). The PC-side SaveChanges interceptor: refuse non-exempt writes unless
+   Holding (the feed applier and the eraser use raw SQL — confirm).
+3. **A holding PC must never unfence the cloud.** Its heartbeats (if any reach the cloud) say « holding », and the cloud
+   stays fenced while the PC holds — extend the simulation: a holding PC that keeps heartbeating, with answers getting
+   through again, must never make the cloud writable. This is the gap slice 1 leaves open on purpose (its simulation
+   has a holding PC stop talking).
+4. The cloud's `ClinicFenceInterceptor` (D15 safety net, by table — the FR-11 table set) + the recurring jobs skip a
+   fenced cabinet (`AppointmentProgressJob`, `MonthlyExpenseJob`, `StockExpiryJob`, `NotificationJob` — check each
+   saves per clinic so one fenced cabinet does not abort the others). Then the cloud's sentence can become AC-4.2's.
+5. Leave for later slices: device reports (AC-6.2 unlock) + « Reprendre la main » (US-7) · number promises (D16) +
+   idempotency (D17) · the return (D18) · banners and screens.
 
-`promote-relay` (on the PC) + `sign-relay-promotion` (on the vendor's machine): an ECDSA P-256 code bound to one PC and
-one cabinet, verified against a compiled-in vendor key; refused while the cloud's own `/health` is healthy; on success
-journal row → `Deployment:Profile=SelfHostedLan` → copy released. Rehearsed on the rig with the real vendor key: the
-promoted PC booted as a local server, the copied admin signed in, a write was accepted. The vendor's private key is at
-`C:\Users\Oumayma Benkhalifa\apexa-vendor-keys\relay-promotion-private.pem` (outside the repo — the owner must keep an
-offline backup). Operator procedure: `packaging/README.md` § « PC de secours — making it the cabinet's server ».
-Details: deviations 56–62.
+## Done in session 9 — the cloud's fence and two-phase arming (lease slice 1)
+
+Live on the scratch rig: a hard-killed armed PC → the cloud refused the cabinet's saves exactly 60 s after the last
+ack the PC confirmed (423, AC-6.3's sentence), reads and sign-in still worked; the PC came back → saves accepted again
+within ~12 s; a clean stop (Ctrl+Break) stood down and the cloud stayed writable. ⚠️ **Interim**: a crashed armed PC
+keeps its cabinet read-only on the cloud until it returns or an admin retires it (« Retirer » stays open) — the
+device-report unlock and « Reprendre la main » come in later slices. Details: deviations 63–70.
 
 ## Then, in order
 
@@ -54,7 +59,7 @@ Details: deviations 56–62.
 | 3 | First `deploy-hosted` run with the new `relay-installer` job (builds the real installer on Windows, publishes it to `deploy/updates/relay/` before the swap) — never run yet | **yes** (VPS deploy) |
 | 4 | Windows rehearsal of the one-click install + a self-update (the SYSTEM task, the real installer replacing the services), on a real PC | **yes** (UAC + 3 services) |
 | 5 | Owed checks: console column live · « perdu ou volé » for real (resets the test accounts) · A2 (non-admin session opened before a retire → 401) unit-tested only · CI `relay-copy` job not written | console/CI: push needs OK |
-| 6 | Part 2 « La relève » (lease, takeover, return, « Modifications à vérifier », « À reprendre ») | — |
+| 6 | Part 2 « La relève » — slice 1 done; next: takeover, then device reports + « Reprendre la main », numbers + idempotency, the return, screens | — |
 | 7 | Part 3 « Les appareils suivent » (devices switch, pinned certificate, carried forms) | — |
 
 ## Commits on the branch (oldest → newest, all local)
@@ -78,7 +83,8 @@ Details: deviations 56–62.
 | `fb9cfd9f` | `GET /api/relay/installer` (this build only), `relay-build` verb, commit stamped into the image + installer, `deploy-hosted.yml` builds and publishes the installer before the swap |
 | `9327a858` | handoff before session 7 |
 | `bf4a65f7` | the PC updates itself on « update needed » (D10b): `RelayUpdater`, resumable download, SYSTEM scheduled task, « Mise à jour » through the restart |
-| (session 8) | promotion verbs (D11): `promote-relay`, `sign-relay-promotion`, compiled-in vendor key, operator procedure in `packaging/README.md` |
+| `13e64bfd` | promotion verbs (D11): `promote-relay`, `sign-relay-promotion`, compiled-in vendor key, operator procedure in `packaging/README.md` |
+| (session 9) | Part 2 lease slice 1: `ClinicWriteLease`, ack protocol, cloud fence (423 `relay_silent`), two-phase stand-down, migration `AddRelayWriteLease` |
 
 ## Part 1 — done / left
 
@@ -96,12 +102,12 @@ How to bring it back: **`C:\Users\Oumayma Benkhalifa\clinic-pc-copy-rig\README.m
 scratch account's test password + TOTP secret). The working copies live in the OLD scratchpad
 `…\20e51cc5-ea54-481b-8728-3a2161ef3bf6\scratchpad\e2e` (`env.sh` points there).
 
-| Piece | State at the end of session 8 |
+| Piece | State at the end of session 9 |
 |---|---|
 | Shared Docker (postgres, minio, mailpit) | started from cold this session (lease holder clinic-pc-copy) |
-| Scratch cloud API :5098 | last copy **`cloud-api-12`** (build `…+d10bc10ud…0002`, label only); `updates/relay/` serves a 67 MB stand-in installer (`fakesetup.exe`, writes `e2e/fakesetup-ran.txt`) for that build |
+| Scratch cloud API :5098 | last copy **`cloud-api-13`** (current code, build label `…+d10bc10ud…0002`); `cloud-api-12/updates/relay/` holds the 67 MB stand-in installer (`fakesetup.exe`) — copy it over to test an update. Both scratch DBs carry `AddRelayWriteLease` |
 | Scratch cloud web :3098 | **`web-cloud-9`** |
-| Test PC (:5097/:3097) | `pc-api-10` = paired « PC-ACCUEIL (essai 4) », first copy done (same build as the cloud; `Relay__UpdateLauncher=direct` + `FAKESETUP_MARKER` replays an update). `pc-api-11` = the same PC **promoted** to a local server (its `.local` and `appsettings.Install.json` say so) — to test Part 2 use `pc-api-10`, never 11; its DB `clinic_relay_pc` now also holds one scratch patient « Essai Promotion PC … » created on the promoted server |
+| Test PC (:5097/:3097) | **`pc-api-12`** = current code, paired « PC-ACCUEIL (essai 4) », seeded, last stopped cleanly (disarm confirmed). `pc-api-11` is the same PC **promoted** — never use it for Part 2. `e2e/cloud-probe.mjs login|write|read` signs in on the cloud and probes the fence; `scratchpad/ctrlc-out/ctrlc.exe <pid> 1` stops a PC gracefully (Ctrl+Break) |
 | Browser pass for the offer | `node offer-run.mjs <outdir>` — run from the OLD scratchpad's `pw\` (has `node_modules`); 38/38 last run |
 
 Servers started by a session die with it: restart with `source env.sh; run_cloud cloud-api-12` and
@@ -110,7 +116,7 @@ Servers started by a session die with it: restart with `source env.sh; run_cloud
 
 ## Gate (run all, unfiltered, after the last edit)
 
-- API: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/build-pc/` — last **5 286 pass · 6 skip · 0 fail**.
+- API: `cd api && dotnet test ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -c Release -p:BaseOutputPath=<scratchpad>/build-pc/` — last **5 561 pass · 6 skip · 0 fail**.
 - Shell: `cd desktop && dotnet test ClinicManagement.DesktopShell.sln -c Release -p:BaseOutputPath=<scratchpad>/build-shell/` — **114 pass**.
 - Web: `cd web && npm run check:responsive && npx tsc --noEmit && npm run build` — **78/78**, green.
 - Installer: `node packaging/lint-iss.mjs`; `node packaging/ci-stub-payloads.mjs` then
@@ -135,3 +141,5 @@ Servers started by a session die with it: restart with `source env.sh; run_cloud
 - Several Claude sessions share this machine: `stack-lease.ps1 status` before touching the shared stack.
 - A standard (non-elevated) account cannot register a SYSTEM or « highest rights » scheduled task (`schtasks` says « Access is denied » — the XML parsed fine); check the task format under your own SID with `LeastPrivilege` + `InteractiveToken`, keep the SYSTEM run for the rehearsal.
 - A Bash heredoc collapses `\\` to `\` and breaks Python string escapes — write scripts with the Write tool.
+- A process launched from the Bash tool ignores Ctrl+C (`GenerateConsoleCtrlEvent(0)`); Ctrl+Break (`1`) reaches .NET's graceful shutdown — and kills the sending helper with it (exit -1073741510), which is harmless.
+- `TenantScope` takes an `ILogger<TenantScope>` — tests pass `NullLogger<TenantScope>.Instance`.

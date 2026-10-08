@@ -53,6 +53,17 @@ public sealed record RelayFollowerState
     /// <summary>The last failure, in French, reported on the next heartbeat; cleared by the next success.</summary>
     public string? LastError { get; init; }
 
+    // ---- the write lease (D13, D14) ----------------------------------------------------------------------------
+
+    /// <summary>The id of the last ack received — echoed on every heartbeat, which is how the cloud's clock moves.</summary>
+    public long LastAckSeq { get; init; }
+
+    /// <summary>Whether that ack said « armé »: the PC may take over after a cut only if it did (AC-3.8).</summary>
+    public bool LastAckArmed { get; init; }
+
+    /// <summary>When that ack arrived, on this PC's clock.</summary>
+    public DateTime? LastAckReceivedAtUtc { get; init; }
+
     // ---- the self-update (D10b) — one cloud build, one series of attempts --------------------------------------
 
     /// <summary>The cloud build this PC is updating to; null when no update is under way.</summary>

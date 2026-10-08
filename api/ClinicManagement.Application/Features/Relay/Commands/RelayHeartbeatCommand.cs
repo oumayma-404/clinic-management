@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
@@ -59,6 +60,9 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             var highWater = await _rows.HighWaterAsync(relay.ClinicId, cancellationToken);
             var epoch = await _rows.FeedEpochAsync(cancellationToken);
 
+            // D14: what the PC says it holds first, then the state, then the new ack — the order the PC lived them in.
+            relay.RecordAckConfirmation(report.ConfirmedAckSeq, report.ConfirmedAckArmed);
+
             var seededNow = relay.RecordHeartbeat(new RelayHeartbeat(
                 report.AppliedSeq, report.SeedPercent, report.SeedComplete, report.FilesTotal, report.FilesCopied,
                 report.DiskFreeBytes, report.IsUpdating, report.Build, report.PcClockUtc, report.LanAddresses,
@@ -71,12 +75,17 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
                     AuditAction.Update, RelayJournal.FirstCopy, now, cancellationToken);
             }
 
+            var cloudBuild = _build.Current;
+            var sameBuild = string.Equals(report.Build, cloudBuild, StringComparison.Ordinal);
+            var armed = ClinicWriteLease.ShouldArm(relay, sameBuild, report.WantsToStandDown, now);
+            // Saved with the heartbeat, before the answer leaves: an ack the cloud did not record could arm a PC the
+            // cloud would then never fence for.
+            var ackSeq = relay.IssueAck(armed, now);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var cloudBuild = _build.Current;
             return Result<RelayHeartbeatAck>.Success(new RelayHeartbeatAck(
-                now, highWater, epoch, Retired: false,
-                UpdateNeeded: !string.Equals(report.Build, cloudBuild, StringComparison.Ordinal), cloudBuild));
+                now, highWater, epoch, Retired: false, UpdateNeeded: !sameBuild, cloudBuild, ackSeq, armed));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

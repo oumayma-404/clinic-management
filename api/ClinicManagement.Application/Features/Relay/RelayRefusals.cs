@@ -21,6 +21,9 @@ public static class RelayRefusals
     public const string NoRelayCode = "no_relay";
     public const string VersionMismatchCode = "relay_version_mismatch";
     public const string StandbyCode = "relay_standby";
+
+    /// <summary>D13: the cabinet's PC de secours fell silent while armed, so the cloud stops recording that cabinet's work.</summary>
+    public const string SilentCode = "relay_silent";
     public const string NotAdminCode = "relay_admin_only";
     public const string InvalidRequestCode = "relay_invalid";
     public const string NotRetiredCode = "relay_not_retired";
@@ -57,6 +60,9 @@ public static class RelayRefusals
 
     public const string VersionMismatch =
         "Le PC de secours doit se mettre à jour avant de reprendre la copie.";
+
+    /// <summary>AC-6.3: the PC may be about to take over — the form stays open and the save can be pressed again.</summary>
+    public const string Silent = "Le PC de secours ne répond plus — réessayez dans un instant.";
 
     public const string Standby =
         "Ce PC de secours garde une copie du cabinet : il n'accepte des enregistrements que pendant une coupure d'internet.";

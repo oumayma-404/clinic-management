@@ -17,6 +17,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/relay")]
 [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[AllowedWhileCloudFenced("Managing the PC de secours itself — retiring it is how an administrator frees a cabinet whose PC fell silent.")]
 public class RelayController : ApiControllerBase
 {
     private readonly IMediator _mediator;

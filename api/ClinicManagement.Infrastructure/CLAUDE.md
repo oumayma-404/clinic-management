@@ -611,6 +611,11 @@ no consent flag and no audit of which patient was sent.
   refusal (the installer's result sentence, readable only if this build survived) or 30 min with no landing is
   reported and never retried; the next cloud build starts afresh. A copy stopped by D12 is never updated.
   `Relay:UpdateLauncher=direct` (child process) exists for a test rig only.
+- **The write lease (PC side, D13/D14)**: every heartbeat confirms the last ack the PC received
+  (`RelayFollowerState.LastAckSeq/LastAckArmed`) — that echo is the only thing that moves the cloud's silence clock.
+  `RelayFollower.StandDownAsync` is the two-phase disarm (ask, then confirm the disarmed ack), called by
+  `RelayFeedJob.StopAsync` (AC-6.1) and before the self-update's launch. The rule itself is
+  `Domain/Services/ClinicWriteLease`; the PC does not take over yet (next slice).
 - **Promotion (PC side, D11)**: `RelayPromotionCode` (ECDSA P-256 over the exact bytes of
   `APEXA-PROMO-1.<payload>`, bound to the PC's `RelayId` + `ClinicId`, ≤ 30 days) verified against
   **`VendorPublicKey`, a compiled-in constant** — no configuration can make a PC trust another key; rotating means a new

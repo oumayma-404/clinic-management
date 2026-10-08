@@ -82,6 +82,36 @@ public sealed class RelayFeedJob : BackgroundService
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
+    /// <summary>How long a stopping service waits for the cloud to confirm the stand-down.</summary>
+    public static readonly TimeSpan StandDownBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// AC-6.1: a PC shut down, restarted or updated properly tells the cloud first, so nothing is locked. The loop stops,
+    /// then the PC stands down (D14) — two quick exchanges; a cloud that does not answer leaves the fence to the clock.
+    /// </summary>
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken);
+        if (_follower is null)
+        {
+            return;
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(StandDownBudget);
+        try
+        {
+            if (await _follower.StandDownAsync(budget.Token))
+            {
+                _logger.LogInformation("PC de secours: stood down before stopping; the cloud keeps recording the cabinet's work.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "PC de secours: the stand-down before stopping did not complete.");
+        }
+    }
+
     private async Task TickAsync(CancellationToken cancellationToken)
     {
         var credentials = new RelayCredentialStore(_protection).TryLoad();

@@ -143,7 +143,7 @@ public sealed class RelayUpdater
         RelayFollowerState state,
         string cloudBuild,
         Func<RelayFollowerState, RelayFollowerState> save,
-        Func<RelayFollowerState, CancellationToken, Task> announceUpdating,
+        Func<RelayFollowerState, CancellationToken, Task<RelayFollowerState?>> standDown,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(cloudBuild))
@@ -191,7 +191,7 @@ public sealed class RelayUpdater
             }
         }
 
-        return await LaunchAsync(state, save, announceUpdating, now, cancellationToken);
+        return await LaunchAsync(state, save, standDown, now, cancellationToken);
     }
 
     /// <summary>
@@ -247,7 +247,7 @@ public sealed class RelayUpdater
     private async Task<RelayFollowerState> LaunchAsync(
         RelayFollowerState state,
         Func<RelayFollowerState, RelayFollowerState> save,
-        Func<RelayFollowerState, CancellationToken, Task> announceUpdating,
+        Func<RelayFollowerState, CancellationToken, Task<RelayFollowerState?>> standDown,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -263,14 +263,14 @@ public sealed class RelayUpdater
             return state with { UpdateSha256 = null, UpdateRetryAfterUtc = now + BadInstallerRetry };
         }
 
-        if (!await DisarmBeforeUpdateAsync(cancellationToken))
+        // [D10b / D14] Disarm first, saying « Mise à jour »: a PC the cloud believes armed must not go quiet, or the
+        // cloud would fence the cabinet for the whole install. No confirmation, no launch — the next tick tries again.
+        if (await standDown(state, cancellationToken) is not { } stoodDown)
         {
             return state;
         }
 
-        // « Mise à jour » is the last thing the cloud hears before the installer stops this service.
-        await announceUpdating(state, cancellationToken);
-        state = save(state with { UpdateLaunchedAtUtc = now });
+        state = save(stoodDown with { UpdateLaunchedAtUtc = now });
 
         Directory.CreateDirectory(_logFolder);
         TryDelete(ResultPath);
@@ -286,12 +286,6 @@ public sealed class RelayUpdater
             state.UpdateBuild);
         return state;
     }
-
-    /// <summary>
-    /// [D10b / D14] The write lease is disarmed here, before the installer stops this PC's services, so that a planned
-    /// restart never reads as a cut. Part 2 (« La relève ») brings the lease; until then there is nothing to disarm.
-    /// </summary>
-    private static Task<bool> DisarmBeforeUpdateAsync(CancellationToken cancellationToken) => Task.FromResult(true);
 
     private RelayFollowerState AfterLaunch(RelayFollowerState state, DateTime launched, DateTime now)
     {

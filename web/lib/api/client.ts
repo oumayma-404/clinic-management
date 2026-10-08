@@ -135,6 +135,12 @@ export const ApiErrorCode = {
    * sentence travels verbatim. Emitted by `RelayRefusals.StandbyCode` (`RelayLeaseGateMiddleware`).
    */
   RelayStandby: 'relay_standby',
+  /**
+   * 423 on the cloud: the cabinet's PC de secours fell silent while it could take over, so the cloud waits before
+   * recording that cabinet's work. The form stays open; the sentence travels verbatim. Emitted by
+   * `RelayRefusals.SilentCode` (`RelayLeaseGateMiddleware`).
+   */
+  RelaySilent: 'relay_silent',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */

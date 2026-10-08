@@ -1,9 +1,13 @@
 using System.Text.Json;
 using ClinicManagement.API.Middleware;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Application.Features.Relay;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.Http;
+using Moq;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Api;
@@ -16,8 +20,9 @@ namespace ClinicManagement.UnitTests.Api;
 public class RelayLeaseGateMiddlewareTests
 {
     private const string WritePath = "/api/patients";
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
-    private sealed record Outcome(int Status, string Body, bool ReachedNext);
+    private sealed record Outcome(int Status, string Body, bool ReachedNext, int RelayReads);
 
     private static async Task<Outcome> InvokeAsync(
         DeploymentKind kind = DeploymentKind.ClinicRelay,
@@ -26,7 +31,10 @@ public class RelayLeaseGateMiddlewareTests
         bool allowed = false,
         bool routed = true,
         bool retired = false,
-        string? role = null)
+        string? role = null,
+        Guid? clinic = null,
+        ClinicRelay? relay = null,
+        bool allowedWhileFenced = false)
     {
         var context = new DefaultHttpContext();
         context.Request.Path = path;
@@ -40,13 +48,28 @@ public class RelayLeaseGateMiddlewareTests
 
         if (routed)
         {
-            context.SetEndpoint(new Endpoint(
-                _ => Task.CompletedTask,
-                allowed
-                    ? new EndpointMetadataCollection(new AllowedOnStandbyRelayAttribute("test"))
-                    : EndpointMetadataCollection.Empty,
-                allowed ? "allowed" : "routed"));
+            var metadata = new List<object>();
+            if (allowed)
+            {
+                metadata.Add(new AllowedOnStandbyRelayAttribute("test"));
+            }
+
+            if (allowedWhileFenced)
+            {
+                metadata.Add(new AllowedWhileCloudFencedAttribute("test"));
+            }
+
+            context.SetEndpoint(new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(metadata), "routed"));
         }
+
+        var scope = new TenantScope(Microsoft.Extensions.Logging.Abstractions.NullLogger<TenantScope>.Instance);
+        if (clinic is { } clinicId)
+        {
+            scope.UseClinic(clinicId);
+        }
+
+        var relays = new Mock<IClinicRelayRepository>();
+        relays.Setup(r => r.GetCurrentForClinicAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(relay);
 
         var body = new MemoryStream();
         context.Response.Body = body;
@@ -58,10 +81,21 @@ public class RelayLeaseGateMiddlewareTests
             return Task.CompletedTask;
         });
 
-        await middleware.InvokeAsync(context, DeploymentProfile.For(kind), new FixedRelayLocalStatus(retired));
+        await middleware.InvokeAsync(context, DeploymentProfile.For(kind), new FixedRelayLocalStatus(retired), scope, relays.Object);
 
         body.Position = 0;
-        return new Outcome(context.Response.StatusCode, await new StreamReader(body).ReadToEndAsync(), reachedNext);
+        return new Outcome(context.Response.StatusCode, await new StreamReader(body).ReadToEndAsync(), reachedNext,
+            relays.Invocations.Count);
+    }
+
+    /// <summary>A PC that confirmed an « armé » ack sent <paramref name="ago"/> before now, and has said nothing since.</summary>
+    private static ClinicRelay ArmedRelay(TimeSpan ago)
+    {
+        var sent = DateTime.UtcNow - ago;
+        var (relay, _) = ClinicRelay.BeginPairing(ClinicId, "PC-ACCUEIL", "local|admin", sent.AddDays(-1));
+        relay.Pair("PC-ACCUEIL", "key", null, null, null, sent.AddDays(-1));
+        relay.RecordAckConfirmation(relay.IssueAck(armed: true, sent), armed: true);
+        return relay;
     }
 
     private sealed class FixedRelayLocalStatus(bool retired) : ClinicManagement.Application.Common.Interfaces.IRelayLocalStatus
@@ -188,5 +222,95 @@ public class RelayLeaseGateMiddlewareTests
             "The relay gate must run AFTER LocalAuthEnforcementMiddleware, or a 423 masks a revoked token's 401.");
         Assert.True(relay < subscription,
             "The relay gate must run BEFORE the subscription gate, or a copy of an expired cabinet is told to pay.");
+
+        var tenantScope = program.IndexOf(
+            "UseMiddleware<ClinicManagement.API.Middleware.TenantScopeMiddleware>", StringComparison.Ordinal);
+        Assert.True(tenantScope > 0 && tenantScope < relay,
+            "The relay gate must run AFTER TenantScopeMiddleware: the cloud's fence is decided per cabinet.");
+    }
+
+    // ---- the cloud's fence (D13, D15) ------------------------------------------------------------------------------
+
+    // [AC-6.3] A cabinet whose armed PC has been silent past 60 s: its writes wait, with the sentence and the code.
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task A_Cabinet_Write_Is_Refused_While_Its_Armed_Pc_Is_Silent(string method)
+    {
+        var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, method: method, clinic: ClinicId,
+            relay: ArmedRelay(TimeSpan.FromSeconds(75)));
+
+        Assert.False(outcome.ReachedNext);
+        Assert.Equal(StatusCodes.Status423Locked, outcome.Status);
+        using var json = JsonDocument.Parse(outcome.Body);
+        Assert.Equal(RelayRefusals.SilentCode, json.RootElement.GetProperty("code").GetString());
+        Assert.Equal(RelayRefusals.Silent, json.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task A_Cabinet_Whose_Pc_Answered_Recently_Writes_As_Usual()
+    {
+        var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: ClinicId,
+            relay: ArmedRelay(TimeSpan.FromSeconds(30)));
+
+        Assert.True(outcome.ReachedNext);
+    }
+
+    // FR-11: signing in, an admin's account changes and the PC de secours's own management stay open.
+    [Fact]
+    public async Task A_Door_Marked_For_The_Cut_Passes_The_Fence()
+    {
+        var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: ClinicId,
+            relay: ArmedRelay(TimeSpan.FromMinutes(10)), allowedWhileFenced: true);
+
+        Assert.True(outcome.ReachedNext);
+    }
+
+    // The cloud stays readable during a cut (US-4), and a read costs no lookup at all.
+    [Fact]
+    public async Task A_Read_Is_Never_Fenced_And_Reads_No_Relay()
+    {
+        var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, method: "GET", clinic: ClinicId,
+            relay: ArmedRelay(TimeSpan.FromMinutes(10)));
+
+        Assert.True(outcome.ReachedNext);
+        Assert.Equal(0, outcome.RelayReads);
+    }
+
+    // A caller that is not a cabinet — the PC's own token, the vendor's console — has no PC to wait for.
+    [Fact]
+    public async Task A_Caller_That_Is_Not_A_Cabinet_Passes_And_Reads_No_Relay()
+    {
+        var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: null,
+            relay: ArmedRelay(TimeSpan.FromMinutes(10)));
+
+        Assert.True(outcome.ReachedNext);
+        Assert.Equal(0, outcome.RelayReads);
+    }
+
+    [Fact]
+    public async Task A_Cabinet_With_No_Pc_Or_A_Retired_One_Writes_As_Usual()
+    {
+        var none = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: ClinicId, relay: null);
+        var retired = ArmedRelay(TimeSpan.FromMinutes(10));
+        retired.Retire(ClinicManagement.Domain.Enums.ClinicRelayRetirement.Retired, "local|admin", DateTime.UtcNow);
+        var afterRetire = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: ClinicId, relay: retired);
+
+        Assert.True(none.ReachedNext);
+        Assert.Equal(1, none.RelayReads);
+        Assert.True(afterRetire.ReachedNext);
+    }
+
+    // The fence is the cloud's: a LAN server has no PC de secours, and the PC's own refusal is relay_standby.
+    [Theory]
+    [InlineData(DeploymentKind.SelfHostedLan)]
+    [InlineData(DeploymentKind.ClinicRelay)]
+    public async Task Only_The_Cloud_Fences(DeploymentKind kind)
+    {
+        var outcome = await InvokeAsync(kind, clinic: ClinicId, relay: ArmedRelay(TimeSpan.FromMinutes(10)), allowed: true);
+
+        Assert.True(outcome.ReachedNext);
+        Assert.Equal(0, outcome.RelayReads);
     }
 }

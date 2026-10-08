@@ -98,6 +98,28 @@ public class ClinicRelay : AggregateRoot<Guid>
 
     public string? LastError { get; private set; }
 
+    // ---- the write lease (D13, D14) — see ClinicWriteLease --------------------------------------------------------
+
+    /// <summary>The last ack sent. Its id IS its send instant in ticks (strictly increasing), so no table remembers send times.</summary>
+    public long LastAckSeq { get; private set; }
+
+    /// <summary>
+    /// The FIRST « armé » ack sent after the confirmed one, or not greater than <see cref="ConfirmedAckSeq"/> when none was —
+    /// the earliest armed ack the PC may hold that it has not confirmed, which is where the silence clock must start.
+    /// </summary>
+    public long PendingArmedAckSeq { get; private set; }
+
+    /// <summary>The newest ack the PC has said it received — the cloud's silence clock runs from when THAT ack was sent.</summary>
+    public long ConfirmedAckSeq { get; private set; }
+
+    /// <summary>What that confirmed ack told the PC (D14: a disarm counts once the PC has confirmed it).</summary>
+    public bool ConfirmedAckArmed { get; private set; }
+
+    /// <summary>
+    /// Whether the PC may be holding an « armé » ack: the one it confirmed said so, or one sent since it may have received.
+    /// </summary>
+    public bool MayBeArmed => ConfirmedAckArmed || PendingArmedAckSeq > ConfirmedAckSeq;
+
     public DateTime? RetiredAtUtc { get; private set; }
     public ClinicRelayRetirement? RetiredReason { get; private set; }
     public string? RetiredByUserId { get; private set; }
@@ -184,6 +206,33 @@ public class ClinicRelay : AggregateRoot<Guid>
         SecretHash is not null
         && CryptographicOperations.FixedTimeEquals(
             Encoding.ASCII.GetBytes(SecretHash), Encoding.ASCII.GetBytes(Hash(secret)));
+
+    /// <summary>
+    /// The PC's echo of the last ack it received (D14). An ack older than the one already confirmed, or one never sent,
+    /// changes nothing — the clock may only move forward, and only to an ack the cloud really sent.
+    /// </summary>
+    public void RecordAckConfirmation(long ackSeq, bool armed)
+    {
+        if (Status == ClinicRelayStatus.Retired || ackSeq <= ConfirmedAckSeq || ackSeq > LastAckSeq)
+        {
+            return;
+        }
+
+        ConfirmedAckSeq = ackSeq;
+        ConfirmedAckArmed = armed;
+    }
+
+    /// <summary>The next ack (D13): its id is its send instant, made strictly increasing so a clock step cannot reuse one.</summary>
+    public long IssueAck(bool armed, DateTime nowUtc)
+    {
+        LastAckSeq = Math.Max(LastAckSeq + 1, nowUtc.Ticks);
+        if (armed && PendingArmedAckSeq <= ConfirmedAckSeq)
+        {
+            PendingArmedAckSeq = LastAckSeq;
+        }
+
+        return LastAckSeq;
+    }
 
     /// <summary>What the PC reports on each heartbeat; true when this one completed the first copy (FR-8).</summary>
     public bool RecordHeartbeat(RelayHeartbeat heartbeat, long highWater, DateTime nowUtc)

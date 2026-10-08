@@ -100,7 +100,7 @@ public sealed class RelayFollower
                 return state;
         }
 
-        state = state with { UpdateNeeded = ack.Value!.UpdateNeeded };
+        state = Received(state, ack.Value!) with { UpdateNeeded = ack.Value!.UpdateNeeded };
 
         // [D12] Every heartbeat says which history the cloud is and how far it has got. A copy that already holds
         // rows stops here, on the first answer that is behind it or from another history — not only when the cloud
@@ -154,7 +154,45 @@ public sealed class RelayFollower
         return Save(state);
     }
 
-    private RelayHeartbeatRequest Report(RelayFollowerState state, bool? isUpdating = null)
+    /// <summary>
+    /// Stands this PC down before it stops (AC-6.1, D14): one heartbeat asking for a disarm, then one confirming the
+    /// disarmed ack — only then does the cloud stop fencing on this PC's silence. True when both were answered disarmed.
+    /// </summary>
+    public async Task<bool> StandDownAsync(CancellationToken cancellationToken) =>
+        await StandDownAsync(_stateStore.Load(), isUpdating: false, cancellationToken) is not null;
+
+    /// <summary>The stand-down from a given state; the state it leaves, or null when the cloud did not confirm it.</summary>
+    private async Task<RelayFollowerState?> StandDownAsync(
+        RelayFollowerState state, bool isUpdating, CancellationToken cancellationToken)
+    {
+        // A released PC holds no lease: the cloud fences nothing for it.
+        if (state.Released || state.ErasedAtUtc is not null)
+        {
+            return state;
+        }
+
+        for (var round = 0; round < 2; round++)
+        {
+            var ack = await _cloud.HeartbeatAsync(Report(state, isUpdating, wantsToStandDown: true), cancellationToken);
+            if (!ack.IsOk || ack.Value!.Armed)
+            {
+                _logger.LogWarning("PC de secours: the cloud did not confirm the stand-down ({Status}).", ack.Status);
+                return null;
+            }
+
+            state = Save(Received(state, ack.Value));
+        }
+
+        return state;
+    }
+
+    /// <summary>What an ack tells the PC about the lease; kept so the next heartbeat confirms it (D14).</summary>
+    private RelayFollowerState Received(RelayFollowerState state, RelayHeartbeatAck ack) =>
+        ack.AckSeq <= 0
+            ? state
+            : state with { LastAckSeq = ack.AckSeq, LastAckArmed = ack.Armed, LastAckReceivedAtUtc = _utcNow() };
+
+    private RelayHeartbeatRequest Report(RelayFollowerState state, bool? isUpdating = null, bool wantsToStandDown = false)
     {
         var host = _host();
         return new RelayHeartbeatRequest(
@@ -171,12 +209,18 @@ public sealed class RelayFollower
             state.MismatchTables,
             state.StoppedReason ?? state.UpdateError ?? state.LastError,
             host.CertificateFingerprint,
-            CopyStopped: state.StoppedReason is not null);
+            CopyStopped: state.StoppedReason is not null,
+            ConfirmedAckSeq: state.LastAckSeq,
+            ConfirmedAckArmed: state.LastAckArmed,
+            WantsToStandDown: wantsToStandDown);
     }
 
-    /// <summary>The heartbeat sent just before the installer stops this service: the cloud's last word is « Mise à jour ».</summary>
-    private async Task AnnounceUpdatingAsync(RelayFollowerState state, CancellationToken cancellationToken) =>
-        await _cloud.HeartbeatAsync(Report(state, isUpdating: true), cancellationToken);
+    /// <summary>
+    /// Just before the installer stops this service (D10b « disarm first »): stand down, saying « Mise à jour ». The
+    /// update waits for the next tick when the cloud did not confirm — a PC the cloud believes armed must not go quiet.
+    /// </summary>
+    private Task<RelayFollowerState?> AnnounceUpdatingAsync(RelayFollowerState state, CancellationToken cancellationToken) =>
+        StandDownAsync(state, isUpdating: true, cancellationToken);
 
     private async Task<RelayFollowerState> CatchUpAsync(
         RelayFollowerState state, RelayLocalSide local, long cloudHighWater, CancellationToken cancellationToken)

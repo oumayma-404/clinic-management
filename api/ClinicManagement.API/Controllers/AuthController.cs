@@ -35,6 +35,7 @@ namespace ClinicManagement.API.Controllers;
 // clinical work. The bootstrap actions arrive with an Unset tenant scope and so pass the gate anyway; only
 // change-password is authenticated, clinic-scoped and non-GET, i.e. genuinely refused without this.
 [AllowsWithoutSubscription("AC-4.7, EC-2 — a cabinet locked out of its own account cannot even read its records.")]
+[AllowedWhileCloudFenced("FR-11 — signing in and a person's own credentials stay on the cloud during a cut.")]
 public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;

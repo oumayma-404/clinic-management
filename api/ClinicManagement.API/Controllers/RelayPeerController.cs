@@ -22,6 +22,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/relay")]
 [Authorize(Policy = AuthorizationPolicies.ClinicRelayPeer)]
+[AllowedWhileCloudFenced("The PC's own channel: it is how a silent PC comes back, confirms its acks and stands down.")]
 public class RelayPeerController : ApiControllerBase
 {
     /// <summary>The PC's build, sent on every copy call so a mismatch is refused before any row moves (D10).</summary>

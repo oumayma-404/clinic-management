@@ -339,6 +339,80 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Empty(_cloud.ChangesAsked);
     }
 
+    // ---- the write lease (D13, D14) ------------------------------------------------------------------------------
+
+    // The cloud's silence clock moves only when the PC says which ack it holds — so every heartbeat says it.
+    [Fact]
+    public async Task Every_Heartbeat_Confirms_The_Last_Ack_It_Received()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.ArmsThePc = true;
+        var follower = Follower();
+
+        var first = await TickAsync(follower);
+        _now = T0.AddSeconds(10);
+        await TickAsync(follower);
+
+        Assert.Equal(0, _cloud.Reports[0].ConfirmedAckSeq);
+        Assert.Equal(1001, first.LastAckSeq);
+        Assert.True(first.LastAckArmed);
+        Assert.Equal(T0, first.LastAckReceivedAtUtc);
+        Assert.Equal((1001L, true), (_cloud.Reports[1].ConfirmedAckSeq, _cloud.Reports[1].ConfirmedAckArmed));
+        Assert.False(_cloud.Reports[1].WantsToStandDown);
+    }
+
+    // An answer lost on the way back moves nothing: the PC keeps confirming what it really holds.
+    [Fact]
+    public async Task An_Unanswered_Heartbeat_Leaves_The_Last_Ack_Where_It_Was()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.ArmsThePc = true;
+        var follower = Follower();
+        await TickAsync(follower);
+
+        _cloud.HeartbeatStatus = RelayCallStatus.Unreachable;
+        _now = T0.AddSeconds(10);
+        var lost = await TickAsync(follower);
+        _cloud.HeartbeatStatus = RelayCallStatus.Ok;
+        _now = T0.AddSeconds(20);
+        await TickAsync(follower);
+
+        Assert.Equal(1001, lost.LastAckSeq);
+        Assert.Equal(T0, lost.LastAckReceivedAtUtc);
+        Assert.Equal(1001, _cloud.Reports[2].ConfirmedAckSeq);
+    }
+
+    // [AC-6.1, D14] A clean stop stands down in two exchanges: ask, then confirm the disarmed answer.
+    [Fact]
+    public async Task Standing_Down_Asks_Then_Confirms_The_Disarmed_Ack()
+    {
+        Seeded(seq: 40);
+        _cloud.HighWater = 40;
+        _cloud.ArmsThePc = true;
+        var follower = Follower();
+        await TickAsync(follower);
+
+        var stoodDown = await follower.StandDownAsync(CancellationToken.None);
+
+        Assert.True(stoodDown);
+        var (ask, confirm) = (_cloud.Reports[1], _cloud.Reports[2]);
+        Assert.True(ask.WantsToStandDown && confirm.WantsToStandDown);
+        Assert.Equal((1001L, true), (ask.ConfirmedAckSeq, ask.ConfirmedAckArmed));
+        Assert.Equal((1002L, false), (confirm.ConfirmedAckSeq, confirm.ConfirmedAckArmed));
+        Assert.False(_store.Load().LastAckArmed);
+    }
+
+    [Fact]
+    public async Task A_Stand_Down_The_Cloud_Did_Not_Answer_Is_Not_Claimed()
+    {
+        Seeded(seq: 40);
+        _cloud.HeartbeatStatus = RelayCallStatus.Unreachable;
+
+        Assert.False(await Follower().StandDownAsync(CancellationToken.None));
+    }
+
     // ---- the self-update (D10b) ----------------------------------------------------------------------------------
 
     // The whole path in one tick: the cloud's installer is fetched, matches its hash, the cloud hears « Mise à jour »,
@@ -358,7 +432,9 @@ public sealed class RelayFollowerTests : IDisposable
         var launch = Assert.Single(_launcher.Launches);
         Assert.Contains("/RELAY", launch.Arguments);
         Assert.DoesNotContain("/PAIRFILE", launch.Arguments);
-        Assert.Equal(new[] { false, true }, _cloud.Reports.Select(r => r.IsUpdating));
+        // The tick's heartbeat, then the two-step stand-down saying « Mise à jour » (D10b « disarm first »).
+        Assert.Equal(new[] { false, true, true }, _cloud.Reports.Select(r => r.IsUpdating));
+        Assert.Equal(new[] { false, true, true }, _cloud.Reports.Select(r => r.WantsToStandDown));
         Assert.Equal(_now, state.UpdateLaunchedAtUtc);
         Assert.Equal(_now, _store.Load().UpdateLaunchedAtUtc);
 
@@ -651,6 +727,11 @@ public sealed class RelayFollowerTests : IDisposable
         public long HighWater { get; set; }
         public bool UpdateNeeded { get; set; }
         public string CloudBuild { get; set; } = "build-1";
+
+        /// <summary>Whether the cloud arms the PC — a stand-down request is always answered disarmed, as the real one does.</summary>
+        public bool ArmsThePc { get; set; }
+
+        public long AcksIssued { get; private set; }
         public string AckEpoch { get; set; } = "e1";
         public Queue<RelayFeedBatch> Batches { get; } = new();
         public (string Epoch, long HighWater, string? Head) Snapshot { get; set; } = ("e1", 0, null);
@@ -677,10 +758,15 @@ public sealed class RelayFollowerTests : IDisposable
         public Task<RelayCall<RelayHeartbeatAck>> HeartbeatAsync(RelayHeartbeatRequest report, CancellationToken cancellationToken)
         {
             Reports.Add(report);
-            return Task.FromResult(HeartbeatStatus == RelayCallStatus.Ok
-                ? new RelayCall<RelayHeartbeatAck>(RelayCallStatus.Ok,
-                    new RelayHeartbeatAck(T0, HighWater, AckEpoch, false, UpdateNeeded, CloudBuild))
-                : new RelayCall<RelayHeartbeatAck>(HeartbeatStatus));
+            if (HeartbeatStatus != RelayCallStatus.Ok)
+            {
+                return Task.FromResult(new RelayCall<RelayHeartbeatAck>(HeartbeatStatus));
+            }
+
+            AcksIssued++;
+            return Task.FromResult(new RelayCall<RelayHeartbeatAck>(RelayCallStatus.Ok,
+                new RelayHeartbeatAck(T0, HighWater, AckEpoch, false, UpdateNeeded, CloudBuild,
+                    AckSeq: 1000 + AcksIssued, Armed: ArmsThePc && !report.WantsToStandDown)));
         }
 
         public Task<RelayCall<RelayFeedBatch>> ChangesAsync(long after, string? fingerprint, CancellationToken cancellationToken)

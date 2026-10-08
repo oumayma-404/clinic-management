@@ -30,8 +30,14 @@ public sealed class RelayUpdaterTests : IDisposable
     private Task<RelayFollowerState> StepAsync(RelayUpdater updater, RelayFollowerState state, string cloudBuild = "build-2") =>
         updater.StepAsync(state, cloudBuild,
             s => { _saved.Add(s); return s; },
-            (s, _) => { _announced.Add(s); return Task.CompletedTask; },
+            (s, _) =>
+            {
+                _announced.Add(s);
+                return Task.FromResult<RelayFollowerState?>(_standDownConfirmed ? s with { LastAckSeq = s.LastAckSeq + 1 } : null);
+            },
             CancellationToken.None);
+
+    private bool _standDownConfirmed = true;
 
     // ---- what runs ----------------------------------------------------------------------------------------------
 
@@ -66,6 +72,31 @@ public sealed class RelayUpdaterTests : IDisposable
         Assert.Equal(1, savedAtLaunch);
         Assert.Equal(T0, _saved.Single().UpdateLaunchedAtUtc);
         Assert.Equal(1, announcedAtLaunch);
+    }
+
+    // [D10b / D14] Disarm first: a PC the cloud may still believe armed must not go quiet for the whole install — the
+    // cabinet would be fenced on the cloud until the new build answered. No confirmation, no launch, and the next tick
+    // tries again; the state the stand-down left is the one saved.
+    [Fact]
+    public async Task No_Launch_Until_The_Cloud_Confirmed_The_Stand_Down()
+    {
+        _installer.Serve("build-2", new byte[] { 1, 2, 3 });
+        _standDownConfirmed = false;
+        var updater = Updater();
+
+        var state = await StepAsync(updater, Needed with { LastAckSeq = 41 });
+
+        Assert.Empty(_launcher.Launches);
+        Assert.Null(state.UpdateLaunchedAtUtc);
+        Assert.Null(state.UpdateError);
+
+        _standDownConfirmed = true;
+        _now = T0.AddSeconds(10);
+        state = await StepAsync(updater, state);
+
+        Assert.Single(_launcher.Launches);
+        Assert.Equal(42, state.LastAckSeq);
+        Assert.Equal(42, _saved.Last().LastAckSeq);
     }
 
     [Fact]
