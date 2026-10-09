@@ -100,12 +100,106 @@ jobs:
             docker push "$CLINIC_IMAGE_PREFIX-$service:latest"
           done
 
+  # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  # clinic-pc-copy D10 — the PC de secours installer of THIS commit, published with the deploy (lockstep).
+  #
+  # ⚠️ **Lockstep is the reason it is built here and not in a separate release.** A PC de secours copies only from a
+  # cloud of its exact build (`relay_version_mismatch`), so the cloud must serve — from `GET /api/relay/installer` —
+  # the installer of the build it runs: for a new PC, and for every PC following this deploy. The deploy job below
+  # therefore needs this one, and places the installer BEFORE the new API starts.
+  #
+  # ⚠️ **The real installer, not the stub-payload compile `ci.yml` does**: PostgreSQL 16 and Node are fetched here
+  # (Node checked against nodejs.org's own SHASUMS256), and `publish-server.ps1` builds everything else from this
+  # commit. `-SourceRevision` is the same SHA the API image is stamped with (`SOURCE_REVISION`), so the two builds
+  # print the same identity — checked below, before anything is published.
+  # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  relay-installer:
+    name: Build the PC de secours installer
+    # Skipped on a rollback, like `images`: that commit's installer is still on the server (the last three are kept).
+    if: inputs.image_tag == ''
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      PG_ZIP: postgresql-16.4-1-windows-x64-binaries.zip
+      NODE_VERSION: v22.11.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Inno Setup pinned to 6.x as in `ci.yml`; `vpk` because the server bundle carries the Windows client feed.
+      - name: Install Inno Setup and vpk
+        run: |
+          choco install innosetup --version=6.7.1 --allow-downgrade --no-progress -y
+          dotnet tool install -g vpk
+
+      - name: Fetch the bundled runtimes
+        shell: pwsh
+        run: |
+          $rt = Join-Path $env:RUNNER_TEMP 'runtimes'
+          New-Item -ItemType Directory -Path $rt -Force | Out-Null
+
+          $node = "node-$env:NODE_VERSION-win-x64"
+          Invoke-WebRequest "https://nodejs.org/dist/$env:NODE_VERSION/$node.zip" -OutFile "$rt\node.zip"
+          $sums = (Invoke-WebRequest "https://nodejs.org/dist/$env:NODE_VERSION/SHASUMS256.txt").Content -split "`n"
+          $expected = (($sums | Where-Object { $_ -match " $node\.zip$" }) -split '\s+')[0]
+          $actual = (Get-FileHash "$rt\node.zip" -Algorithm SHA256).Hash
+          if (-not $expected -or $actual -ne $expected.ToUpperInvariant()) { throw "Node.js checksum mismatch: $actual vs $expected" }
+          tar -xf "$rt\node.zip" -C $rt
+          "NODE_DIR=$rt\$node" >> $env:GITHUB_ENV
+
+          Invoke-WebRequest "https://get.enterprisedb.com/postgresql/$env:PG_ZIP" -OutFile "$rt\pg.zip"
+          tar -xf "$rt\pg.zip" -C $rt
+          if (-not (Test-Path "$rt\pgsql\bin\pg_dump.exe")) { throw 'The PostgreSQL archive has no pgsql\bin\pg_dump.exe.' }
+          "PG_DIR=$rt\pgsql" >> $env:GITHUB_ENV
+
+      - name: Build the server installer
+        shell: pwsh
+        run: ./packaging/publish-server.ps1 -PostgresDir $env:PG_DIR -NodeDir $env:NODE_DIR -SourceRevision '${{ github.sha }}'
+
+      # ⚠️ The manifest's build is read off the API INSIDE this installer (`relay-build`), never composed here — and
+      # it must end with this commit, or the cloud stamped with the same SHA would never serve it.
+      - name: Name it for its build
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem packaging/build-output -Filter 'ClinicManagementSetup-*.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'No ClinicManagementSetup-*.exe was produced.' }
+          $build = (& packaging/build-output/server/api/ClinicManagement.API.exe relay-build | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $build.EndsWith('+${{ github.sha }}')) {
+            throw "The installer's build « $build » does not carry this commit."
+          }
+          $short = '${{ github.sha }}'.Substring(0, 12)
+          New-Item -ItemType Directory -Path relay-out -Force | Out-Null
+          $file = "APEXA-PC-de-secours-$short.exe"
+          Copy-Item $setup.FullName (Join-Path relay-out $file)
+          $manifest = [ordered]@{ build = $build; file = $file } | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path (Resolve-Path relay-out) "relay-$short.json"), $manifest)
+          Write-Host "$file  $([math]::Round($setup.Length / 1MB)) MB  build $build"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relay-installer
+          path: relay-out/
+          retention-days: 7
+
   deploy:
     name: Deploy to the VPS
-    needs: images
+    needs: [images, relay-installer]
     # `always()` so a rollback (where `images` is *skipped*, not successful) still runs — but a genuine build
-    # failure must still stop here, hence the explicit result check rather than a bare `always()`.
-    if: always() && (needs.images.result == 'success' || needs.images.result == 'skipped')
+    # failure must still stop here, hence the explicit result check rather than a bare `always()`. The PC de secours
+    # installer is held to the same rule: a cloud deployed without the installer of its build would stop every PC de
+    # secours's copy until the next deploy.
+    if: >-
+      always()
+      && (needs.images.result == 'success' || needs.images.result == 'skipped')
+      && (needs.relay-installer.result == 'success' || needs.relay-installer.result == 'skipped')
     runs-on: ubuntu-latest
     # Add required reviewers / a wait timer to this environment in repo settings to gate production deploys.
     environment: production
@@ -178,6 +272,33 @@ jobs:
             --exclude='.env' --exclude='secrets' --exclude='rclone/rclone.conf' \
             -C deploy . \
           | ssh vps "mkdir -p '${{ vars.VPS_DEPLOY_DIR }}' && tar -xzf - -C '${{ vars.VPS_DEPLOY_DIR }}'"
+
+      - name: Fetch the PC de secours installer
+        if: inputs.image_tag == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: relay-installer
+          path: relay-out
+
+      # ⚠️ **Before the swap**: the new API serves only the installer of its own build, so it must be on disk when
+      # that API starts. The old API, still running meanwhile, finds no installer of ITS build in the new manifest
+      # and keeps finding its own — every published build stays until it is one of the oldest of more than three.
+      # `./updates` is mounted read-only into the API container, as for the Windows client feed beside it.
+      - name: Publish the PC de secours installer before the swap
+        if: inputs.image_tag == ''
+        run: |
+          tar -czf - -C relay-out . \
+          | ssh vps "mkdir -p '${{ vars.VPS_DEPLOY_DIR }}/updates/relay' && tar -xzf - -C '${{ vars.VPS_DEPLOY_DIR }}/updates/relay'"
+          ssh vps "RELAY_DIR='${{ vars.VPS_DEPLOY_DIR }}/updates/relay' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$RELAY_DIR"
+          # The three newest builds stay (a rollback keeps its installer); older manifests go with the file they name.
+          ls -1t relay-*.json | tail -n +4 | while read -r manifest; do
+            file=$(grep -o '"file":"[^"]*"' "$manifest" | cut -d'"' -f4)
+            rm -f -- "$manifest" "$file"
+          done
+          ls -l
+          REMOTE
 
       # ⚠️ **The proxy's configuration is refreshed BEFORE the containers swap, and the order is the point.**
       #

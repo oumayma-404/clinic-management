@@ -48,6 +48,10 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
     private static readonly HashSet<string> CodeOnlyActions = new(StringComparer.Ordinal)
     {
         ClinicMoneyMask.ShowStepUpAction,
+        Relay.RelayStepUpActions.Pairing,
+        Relay.RelayStepUpActions.Lost,
+        Relay.RelayStepUpActions.Reclaim,
+        Relay.RelayStepUpActions.Erase,
     };
 
     private readonly IClinicContext _clinicContext;

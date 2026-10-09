@@ -116,6 +116,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// command's own note on why routing a deletion through a cancellation would finish destroying the calendar
     /// this exists to protect.</para>
     /// </summary>
+    [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("imports/{runId:guid}/revert")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> RevertImport(Guid runId, CancellationToken cancellationToken)
@@ -144,6 +145,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// internals) and what gets the realtime broadcast for free.
     /// </para>
     /// </summary>
+    [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("disconnect")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> Disconnect(CancellationToken cancellationToken)
@@ -257,6 +259,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// <summary>
     /// Manually trigger sync of a specific appointment to Google Calendar (admin only).
     /// </summary>
+    [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("sync-appointment/{appointmentId}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> SyncAppointmentToGoogle(Guid appointmentId)
@@ -284,6 +287,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// bound to THIS clinic (server-side cache + HttpOnly companion cookie) so the anonymous callback can
     /// prove the flow (CSRF) and save the token to the correct tenant.
     /// </summary>
+    [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("connect")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> Connect(CancellationToken cancellationToken = default)
@@ -340,6 +344,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// and it cannot carry a bearer token; the clinic is resolved from the state-bound cache entry.
     /// </summary>
     [AllowAnonymous]
+    [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpGet("callback")]
     public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? error, [FromQuery] string? state, CancellationToken cancellationToken = default)
     {

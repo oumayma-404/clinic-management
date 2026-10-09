@@ -335,6 +335,17 @@ export function TreatmentPlansTable({
     setFormOpen(true)
   }
 
+  // `?newPlan=1` — the creation form, opened on arrival. A devis carried across a switch of server (`clinic-pc-copy`
+  // AC-3.2) comes back through this door and refills itself.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get("newPlan") !== "1") return
+    url.searchParams.delete("newPlan")
+    window.history.replaceState({}, "", url.pathname + url.search)
+    openCreate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, [])
+
   /**
    * Edit a devis from the list.
    *

@@ -660,6 +660,64 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("ClinicArchiveGrants", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChange", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("EntityKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Op")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Origin")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Table")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("ClinicId", "Seq");
+
+                    b.HasIndex("ClinicId", "Table", "EntityKey");
+
+                    b.ToTable("ClinicChanges", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChangeCursor", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Epoch")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("EpochFromSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("LastSeq")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("ClinicId");
+
+                    b.ToTable("ClinicChangeCursors", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicMessagingMonth", b =>
                 {
                     b.Property<Guid>("Id")
@@ -746,6 +804,235 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("ClinicId", "StartedAt");
 
                     b.ToTable("ClinicRecoveryPoints", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicRelay", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("AppliedSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AssertionKeyProtected")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Build")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("CertificateFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ClockCorrectedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("ClockCorrectedBySeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ClockSkewSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ClockUnfixableSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ConfirmedAckArmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("ConfirmedAckSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("CopyStoppedSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("CutOverruledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeviceReportsLockSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DevicesReachedPcAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DevicesUnreachableFirstAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DevicesUnreachableLastAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("DiskFreeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("ErasedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FilesCopied")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FilesTotal")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("GapPendingSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("GatewayAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("HandbackAppliedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HandbackAppliedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("HighWaterAtLastAck")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("HttpsPort")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsUpdating")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("LanAddresses")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)");
+
+                    b.Property<long>("LastAckSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("LastGapAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LastGapId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LastGapRows")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastReadyAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("MismatchSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MismatchTables")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("PairedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PairingCodeExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PairingCodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("PcHoldingSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("PendingArmedAckSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PublicAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PublicKey")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<long>("ReclaimedAtAckSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("ReclaimedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReclaimedByUserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("RetiredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RetiredByUserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int?>("RetiredReason")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ReturnStuckSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReturnedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReturnedCutSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecretHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("SeedPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SeededAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UninstalledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" <> 3");
+
+                    b.HasIndex("PairingCodeHash")
+                        .IsUnique()
+                        .HasFilter("\"PairingCodeHash\" IS NOT NULL");
+
+                    b.HasIndex("SecretHash")
+                        .IsUnique()
+                        .HasFilter("\"SecretHash\" IS NOT NULL");
+
+                    b.ToTable("ClinicRelays", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
@@ -1677,6 +1964,46 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("ClinicId", "PatientId");
 
                     b.ToTable("FileUploadSessions", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.IdempotencyRecord", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ClinicId", "Key");
+
+                    b.HasIndex("ClinicId", "CreatedAtUtc");
+
+                    b.ToTable("IdempotencyRecords", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Installment", b =>
@@ -3402,6 +3729,149 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("RecurringExpenses", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RelayIncident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("EmailedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EndedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("RelayId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "StartedAtUtc");
+
+                    b.HasIndex("RelayId", "Kind")
+                        .IsUnique()
+                        .HasFilter("\"EndedAtUtc\" IS NULL");
+
+                    b.ToTable("RelayIncidents", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RelayNumberPromise", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sequence")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Number")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("PromisedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ClinicId", "Sequence", "Number");
+
+                    b.HasIndex("PromisedAtUtc");
+
+                    b.ToTable("RelayNumberPromises", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RelayReviewItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CabinetChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CabinetChangedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("CabinetVersion")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CloudChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CloudChangedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("CloudEntityKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("CloudVersion")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CutSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EntityKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("RelayId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReviewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Table")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "ReviewedAtUtc");
+
+                    b.HasIndex("RelayId", "CutSinceUtc");
+
+                    b.ToTable("RelayReviewItems", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.SessionFamily", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3504,6 +3974,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid?>("PatientId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("RelayAlert")
+                        .HasColumnType("integer");
+
                     b.Property<Guid?>("StockItemId")
                         .HasColumnType("uuid");
 
@@ -3512,6 +3985,10 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<int>("TargetKind")
                         .HasColumnType("integer");
+
+                    b.Property<string>("TargetRole")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("TargetUserId")
                         .HasMaxLength(255)
@@ -4132,6 +4609,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("TotpEnrolledAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("TotpReenrolmentRequired")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime?>("TotpReplacementAllowedUntil")
                         .HasColumnType("timestamp with time zone");
 
@@ -4388,6 +4868,24 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChange", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChangeCursor", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicMessagingMonth", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -4398,6 +4896,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicRecoveryPoint", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicRelay", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()
@@ -4524,6 +5031,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.FileUploadSession", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.IdempotencyRecord", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()
@@ -5096,6 +5612,45 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()
                         .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RelayIncident", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ClinicManagement.Domain.Entities.ClinicRelay", null)
+                        .WithMany()
+                        .HasForeignKey("RelayId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RelayNumberPromise", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.RelayReviewItem", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ClinicManagement.Domain.Entities.ClinicRelay", null)
+                        .WithMany()
+                        .HasForeignKey("RelayId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

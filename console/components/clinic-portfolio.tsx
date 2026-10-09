@@ -54,6 +54,7 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                 <TableHead scope="col">Cabinet</TableHead>
                 <TableHead scope="col">Administrateur</TableHead>
                 <TableHead scope="col">État</TableHead>
+                <TableHead scope="col">PC de secours</TableHead>
                 <TableHead scope="col" className="text-right">
                   Patients
                 </TableHead>
@@ -110,6 +111,9 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                   </TableCell>
                   <TableCell>
                     <StateBadge clinic={clinic} />
+                  </TableCell>
+                  <TableCell>
+                    <RelayBadge clinic={clinic} />
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{measured(clinic, clinic.patients)}</TableCell>
                   <TableCell className="text-right tabular-nums">{measured(clinic, clinic.users)}</TableCell>
@@ -170,6 +174,8 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                 ? { label: "Compteurs", value: "Dormant (30 j)" }
                 : false,
             clinic.endsOn ? { label: "Fin d'abonnement", value: formatDate(clinic.endsOn) } : false,
+            // clinic-pc-copy AC-9.1 — always present, « Aucun » included: whether a cabinet is covered is the question.
+            { label: "PC de secours", value: <RelayBadge clinic={clinic} /> },
             // Ordered by what a churn conversation needs first: is it being used, then the rest. The unmeasured
             // cabinet drops every figure rather than showing zeros it cannot vouch for.
             clinic.countersComputedAt !== null && {
@@ -253,6 +259,22 @@ function StateBadge({ clinic }: { clinic: PlatformClinicRow }) {
       ) : null}
     </span>
   );
+}
+
+/**
+ * A cabinet's PC de secours, in one place for the table and the card list (`clinic-pc-copy` AC-9.1). The server's
+ * words with a shape; the colour only marks a state the vendor must act on.
+ */
+const RELAY_NEEDS_ACTION = new Set(["late", "off", "mismatch", "stopped", "install-failed", "disk-nearly-full", "clock-wrong"]);
+
+function RelayBadge({ clinic }: { clinic: PlatformClinicRow }) {
+  const tone = RELAY_NEEDS_ACTION.has(clinic.relayState)
+    ? "border-destructive/40 text-destructive"
+    : clinic.relayState === "none"
+      ? "border-transparent text-muted-foreground"
+      : "border-border text-muted-foreground";
+
+  return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${tone}`}>{clinic.relayLabel}</span>;
 }
 
 /**

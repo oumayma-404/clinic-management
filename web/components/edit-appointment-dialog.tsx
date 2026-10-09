@@ -30,6 +30,15 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
+import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
+import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
+import { mergeSections, takenOverSentence } from "@/lib/forms/form-merge"
+import {
+  APPOINTMENT_SECTIONS,
+  APPOINTMENT_SECTION_LABEL,
+  appointmentSnapshot,
+  type AppointmentSection,
+} from "@/components/appointment-merge"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
@@ -140,6 +149,24 @@ function actSetKey(acts: readonly SelectedAct[]): string {
   ]
     .sort()
     .join("|")
+}
+
+/** What the edit dialog hands the shell (`clinic-pc-copy` D23): the screen, and the copy it was opened against. */
+interface CarriedAppointment {
+  day: string | null
+  startHour: string
+  startMinute: string
+  useEndTime: boolean
+  endHour: string
+  endMinute: string
+  duration: string
+  durationTouched: boolean
+  status: string
+  doctorId: string
+  acts: SelectedAct[]
+  notes: string
+  showNotes: boolean
+  opened: AppointmentDto | null
 }
 
 export function EditAppointmentDialog({ open, onOpenChange, appointment, onSuccess }: EditAppointmentDialogProps) {
@@ -422,7 +449,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     if (!appointment?.id) return
     setLoading(true)
     try {
-      setRefreshed(await appointmentsApi.get(appointment.id))
+      // Reconciled HERE, not left to the effect: the effect only runs when the version moved, and a carried form
+      // (AC-3.2) must be reconciled with the server it landed on even when nobody else wrote since.
+      const fresh = await appointmentsApi.get(appointment.id)
+      reconcileRef.current(fresh)
+      setRefreshed(fresh)
       resetConflict()
     } catch {
       setError("Impossible de recharger ce rendez-vous. Vérifiez votre connexion.")
@@ -555,141 +586,223 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedActs, procedureTypes, durationTouched, useEndTime])
 
+  /*
+   * The form, section by section, as it is loaded from a stored copy — on open, and when « Recharger » or the
+   * open-time re-read takes a colleague's version (`lib/forms/form-merge.ts`). ONE loader per section, so opening a
+   * visit and taking over a section cannot fill a field two different ways.
+   */
+  // The whole séance. Falls back to the lead-act scalar for a response that predates `procedures` (or a server that
+  // has not been updated), so an older appointment still shows the act it was booked with instead of an empty list
+  // that the next save would then persist.
+  const actsOf = (appointment: AppointmentDto): SelectedAct[] =>
+      appointment.procedures && appointment.procedures.length > 0
+        ? appointment.procedures
+            .slice()
+            .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+            .map((p) => ({
+              procedureTypeId: p.procedureTypeId ?? null,
+              treatmentPlanItemId: p.treatmentPlanItemId ?? null,
+              planLabel: p.treatmentPlanItemId ? "devis" : undefined,
+              fallbackName: p.name ?? undefined,
+              // A negotiated price hydrates as **typed**, so it is re-sent on save. Leaving it undefined would
+              // show the catalogue tarif in the field and the next save — rescheduling, changing the note,
+              // anything — would quietly restore every act to that tarif, since the list replaces the acts.
+              agreedCost: p.agreedCost != null ? formatAmount(p.agreedCost) : undefined,
+              // ⚠️ The step must hydrate for exactly the reason the price must: `SetProcedures` replaces the
+              // whole list, so a save that omitted it would drop « c'est la séance du scellement » from a
+              // booked visit — and, on a séance holding two steps of one act, the server would then see the
+              // same act twice and refuse the save outright.
+              treatmentPlanItemStepId: p.treatmentPlanItemStepId ?? null,
+              /*
+               * ⚠️ **`billedOnPlan` and `stepOptions`, the two fields this mapper forgot — and forgetting the
+               * first removed the only guard against pricing a devis act twice.**
+               *
+               * `agreedCostOf` returns a hard 0 for an act carrying `billedOnPlan`, and that single client
+               * function is what makes « a devis act adds no honoraires » true. Without it here, re-opening a
+               * booked séance — which is what moving an appointment *is* — made the price field editable
+               * again, dropped the « Déjà facturé » notice and the « facturé sur le devis » caption, and
+               * offered « remettre au tarif (60,000 DT) »: the *catalogue* figure, not even the devis' own
+               * 120,000 for that act. Proven on one act minutes apart: created at 0,000 read-only, re-opened
+               * editable, typed 120, saved 200, `AgreedCost` 0.000 → 120.000. The fiche then bills whatever it
+               * finds. `presetToSelectedAct` sets both fields on the two *add* paths; hydration was the third.
+               *
+               * `stepOptions` is the same omission one level down: without it the séance strip's
+               * séances do not render, so which step a booked visit is for cannot be changed at all.
+               */
+              ...planFieldsFor(p.treatmentPlanItemId, heldPlanActs, procedureTypes),
+              // ⚠️ A stored act is already decided. Left `undefined`, the picker's default splits any act with
+              // a catalogue protocol into séances, so merely moving an implant visit created a new treatment
+              // and zeroed the visit's price on save.
+              plannedProtocol: null,
+            }))
+        : appointment.procedureTypeId
+          ? [
+              {
+                procedureTypeId: appointment.procedureTypeId,
+                treatmentPlanItemId: appointment.treatmentPlanItemId ?? null,
+                /*
+                 * ⚠️ Explicitly null, and it has to be stated rather than left undefined. This is the
+                 * lead-act-scalar fallback, for a response predating the `procedures` collection — and the
+                 * parent's scalars have **no step twin** by design (nothing reads a lead step, so a fifth
+                 * derived column would be one more field to keep in sync for no reader). So a visit hydrated
+                 * through this branch genuinely knows no step, and saying so here is what stops the next
+                 * reader assuming the field was forgotten.
+                 */
+                treatmentPlanItemStepId: null,
+                planLabel: appointment.treatmentPlanItemId ? "devis" : undefined,
+                fallbackName: appointment.procedureTypeName ?? undefined,
+                // Same reason as the branch above: this row's price must stay locked at 0 on a devis act.
+                ...planFieldsFor(appointment.treatmentPlanItemId, heldPlanActs, procedureTypes),
+                plannedProtocol: null,
+              },
+            ]
+          : []
+
+  const doctorIdOf = (appointment: AppointmentDto): string => {
+    // Try to find doctor by ID first, then by name as fallback
+    if ((appointment as any).doctorId) return (appointment as any).doctorId
+    if (appointment.doctorName && allDoctors.length > 0) {
+      return allDoctors.find((d) => d.name === appointment.doctorName)?.id || ""
+    }
+    return ""
+  }
+
+  const applySection: Record<AppointmentSection, (appointment: AppointmentDto) => void> = {
+    when: (appointment) => {
+      const appointmentDate = parseISO(appointment.appointmentDateTime)
+      setDate(appointmentDate)
+      setStartHour(String(appointmentDate.getHours()).padStart(2, "0"))
+      setStartMinute(String(appointmentDate.getMinutes()).padStart(2, "0"))
+      const durationMinutes = parseDurationToMinutes(appointment.duration)
+      setDuration(String(durationMinutes))
+      const endTotalMinutes = appointmentDate.getHours() * 60 + appointmentDate.getMinutes() + durationMinutes
+      setEndHour(String(Math.floor(endTotalMinutes / 60) % 24).padStart(2, "0"))
+      setEndMinute(String(endTotalMinutes % 60).padStart(2, "0"))
+      setUseEndTime(false)
+    },
+    status: (appointment) => setStatus(appointment.status.toLowerCase()),
+    doctor: (appointment) => setSelectedDoctorId(doctorIdOf(appointment)),
+    acts: (appointment) => {
+      setSelectedActs(actsOf(appointment))
+      setDurationTouched(true)
+    },
+    // AC-P1.51: the `Type: ` prefix READER is gone, in the same change as the writer below. The act now lives only
+    // in `procedureTypeId` (the `MigrateAppointmentTypePrefix` migration moved it there), so the notes are just the
+    // notes.
+    notes: (appointment) => {
+      setNotes(appointment.notes ?? "")
+      setShowNotes(!!appointment.notes)
+    },
+  }
+
+  /** A stored copy as the merge compares it. */
+  const storedSnapshot = (appointment: AppointmentDto) => {
+    const at = parseISO(appointment.appointmentDateTime)
+    return appointmentSnapshot({
+      day: format(at, "yyyy-MM-dd"),
+      start: format(at, "HH:mm"),
+      minutes: parseDurationToMinutes(appointment.duration),
+      status: appointment.status.toLowerCase(),
+      doctorId: doctorIdOf(appointment),
+      acts: actsOf(appointment),
+      notes: appointment.notes ?? "",
+    })
+  }
+
+  /** The screen as the merge compares it — the « mine » of the three ways. */
+  const screenSnapshot = () =>
+    appointmentSnapshot({
+      day: date ? format(date, "yyyy-MM-dd") : "",
+      start: `${startHour}:${startMinute}`,
+      minutes: calculatedDuration,
+      status,
+      doctorId: selectedDoctorId,
+      acts: selectedActs,
+      notes,
+    })
+
+  /**
+   * The server's copy the screen was last hydrated or reconciled with — its version is the one the save sends, and it
+   * only moves together with the content merged against it. Null until this opening's first hydration.
+   */
+  const openedRef = useRef<AppointmentDto | null>(null)
+  /** What a colleague's save replaced over typing, named until the next save. */
+  const [takenOver, setTakenOver] = useState<AppointmentSection[]>([])
+
+  /** Takes, section by section, what only the server changed — and names what both changed (`form-merge.ts`). */
+  const reconcileWith = (server: AppointmentDto) => {
+    const opened = openedRef.current
+    if (!opened) return
+    const { take, takenOver: named } = mergeSections(APPOINTMENT_SECTIONS, storedSnapshot(opened), screenSnapshot(), storedSnapshot(server))
+    for (const section of take) applySection[section](server)
+    // The save compares the statut with what the SERVER holds, so this follows the server whatever was kept.
+    setHydratedStatus(server.status.toLowerCase())
+    openedRef.current = server
+    if (named.length > 0) setTakenOver((prev) => [...new Set([...prev, ...named])])
+  }
+  const reconcileRef = useRef(reconcileWith)
+  reconcileRef.current = reconcileWith
+
+  /*
+   * `clinic-pc-copy` D23 / AC-3.2 — the visit being edited survives the app switching server: the screen goes to the
+   * shell as it is typed, comes back here with the copy it was opened against (so the reconcile above works across
+   * the two servers), and the first save after a switch is refused once.
+   */
+  const carried = useCarriedDraft<CarriedAppointment>({
+    form: "appointment",
+    formKey: appointment?.id ? `appointment:${appointment.id}` : null,
+    path: appointment?.id ? `/appointments?appointmentId=${appointment.id}` : "/appointments",
+    open,
+    dirty: true,
+    state: {
+      day: date ? date.toISOString() : null,
+      startHour, startMinute, useEndTime, endHour, endMinute, duration, durationTouched,
+      status, doctorId: selectedDoctorId, acts: selectedActs, notes, showNotes,
+      opened: openedRef.current,
+    },
+    restore: (s) => {
+      if (s.day) setDate(new Date(s.day))
+      setStartHour(s.startHour)
+      setStartMinute(s.startMinute)
+      setUseEndTime(s.useEndTime)
+      setEndHour(s.endHour)
+      setEndMinute(s.endMinute)
+      setDuration(s.duration)
+      setDurationTouched(s.durationTouched)
+      setStatus(s.status)
+      setSelectedDoctorId(s.doctorId)
+      setSelectedActs(s.acts)
+      setNotes(s.notes)
+      setShowNotes(s.showNotes)
+      if (s.opened && s.opened.id === appointment?.id) {
+        openedRef.current = s.opened
+        setHydratedStatus(s.opened.status.toLowerCase())
+      }
+    },
+  })
+
   // Populate the form once per opening — keyed on the appointment's ID, not the object. The calendar
   // refetches on every realtime `appointments` event and hands down a fresh object each time; depending
   // on it meant a peer booking an unrelated slot reset this form under the user's hands.
   //
-  // ⚠️ It DOES re-run once when the server's own copy lands (`refreshed?.version`), which is the point of that
-  // re-read: hydrating from a snapshot whose version is behind the stored row is what turns the next save into
-  // a 409. That is one re-hydration a few hundred milliseconds after opening, not a running sync — a peer's
-  // later edit still leaves this form alone.
+  // ⚠️ When the server's own copy lands (`refreshed?.version`) — the open-time re-read, « Recharger », a version moved
+  // by our own write — it is RECONCILED, never re-hydrated: a re-hydration threw away whatever had been typed in
+  // the meantime, and after a switch of server (`clinic-pc-copy` AC-3.2) it would throw away the carried form.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const appointment = source
-    if (appointment && open) {
-      setPatientName(appointment.patientName)
-      setStatus(appointment.status.toLowerCase())
-      // Remembered so the save can tell « the user changed the statut » from « the form is echoing what it was
-      // hydrated with ». See the `status` key in `performUpdate`.
-      setHydratedStatus(appointment.status.toLowerCase())
-      // Try to find doctor by ID first, then by name as fallback
-      if ((appointment as any).doctorId) {
-        setSelectedDoctorId((appointment as any).doctorId)
-      } else if (appointment.doctorName && allDoctors.length > 0) {
-        // Try to find doctor by name
-        const doctor = allDoctors.find(d => d.name === appointment.doctorName)
-        if (doctor) {
-          setSelectedDoctorId(doctor.id || "")
-        } else {
-          setSelectedDoctorId("")
-        }
-      } else {
-        setSelectedDoctorId("")
-      }
-      // Hydrate the whole séance. Falls back to the lead-act scalar for a response that predates `procedures`
-      // (or a server that has not been updated), so an older appointment still shows the act it was booked with
-      // instead of an empty list that the next save would then persist.
-      const storedActs: SelectedAct[] =
-        appointment.procedures && appointment.procedures.length > 0
-          ? appointment.procedures
-              .slice()
-              .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-              .map((p) => ({
-                procedureTypeId: p.procedureTypeId ?? null,
-                treatmentPlanItemId: p.treatmentPlanItemId ?? null,
-                planLabel: p.treatmentPlanItemId ? "devis" : undefined,
-                fallbackName: p.name ?? undefined,
-                // A negotiated price hydrates as **typed**, so it is re-sent on save. Leaving it undefined would
-                // show the catalogue tarif in the field and the next save — rescheduling, changing the note,
-                // anything — would quietly restore every act to that tarif, since the list replaces the acts.
-                agreedCost: p.agreedCost != null ? formatAmount(p.agreedCost) : undefined,
-                // ⚠️ The step must hydrate for exactly the reason the price must: `SetProcedures` replaces the
-                // whole list, so a save that omitted it would drop « c'est la séance du scellement » from a
-                // booked visit — and, on a séance holding two steps of one act, the server would then see the
-                // same act twice and refuse the save outright.
-                treatmentPlanItemStepId: p.treatmentPlanItemStepId ?? null,
-                /*
-                 * ⚠️ **`billedOnPlan` and `stepOptions`, the two fields this mapper forgot — and forgetting the
-                 * first removed the only guard against pricing a devis act twice.**
-                 *
-                 * `agreedCostOf` returns a hard 0 for an act carrying `billedOnPlan`, and that single client
-                 * function is what makes « a devis act adds no honoraires » true. Without it here, re-opening a
-                 * booked séance — which is what moving an appointment *is* — made the price field editable
-                 * again, dropped the « Déjà facturé » notice and the « facturé sur le devis » caption, and
-                 * offered « remettre au tarif (60,000 DT) »: the *catalogue* figure, not even the devis' own
-                 * 120,000 for that act. Proven on one act minutes apart: created at 0,000 read-only, re-opened
-                 * editable, typed 120, saved 200, `AgreedCost` 0.000 → 120.000. The fiche then bills whatever it
-                 * finds. `presetToSelectedAct` sets both fields on the two *add* paths; hydration was the third.
-                 *
-                 * `stepOptions` is the same omission one level down: without it the séance strip's
-                 * séances do not render, so which step a booked visit is for cannot be changed at all.
-                 */
-                ...planFieldsFor(p.treatmentPlanItemId, heldPlanActs, procedureTypes),
-                // ⚠️ A stored act is already decided. Left `undefined`, the picker's default splits any act with
-                // a catalogue protocol into séances, so merely moving an implant visit created a new treatment
-                // and zeroed the visit's price on save.
-                plannedProtocol: null,
-              }))
-          : appointment.procedureTypeId
-            ? [
-                {
-                  procedureTypeId: appointment.procedureTypeId,
-                  treatmentPlanItemId: appointment.treatmentPlanItemId ?? null,
-                  /*
-                   * ⚠️ Explicitly null, and it has to be stated rather than left undefined. This is the
-                   * lead-act-scalar fallback, for a response predating the `procedures` collection — and the
-                   * parent's scalars have **no step twin** by design (nothing reads a lead step, so a fifth
-                   * derived column would be one more field to keep in sync for no reader). So a visit hydrated
-                   * through this branch genuinely knows no step, and saying so here is what stops the next
-                   * reader assuming the field was forgotten.
-                   */
-                  treatmentPlanItemStepId: null,
-                  planLabel: appointment.treatmentPlanItemId ? "devis" : undefined,
-                  fallbackName: appointment.procedureTypeName ?? undefined,
-                  // Same reason as the branch above: this row's price must stay locked at 0 on a devis act.
-                  ...planFieldsFor(appointment.treatmentPlanItemId, heldPlanActs, procedureTypes),
-                  plannedProtocol: null,
-                },
-              ]
-            : []
-      setSelectedActs(storedActs)
-      setDurationTouched(true)
-
-      // Parse appointment date/time
-      const appointmentDate = parseISO(appointment.appointmentDateTime)
-      setDate(appointmentDate)
-
-      const hours = String(appointmentDate.getHours()).padStart(2, "0")
-      const minutes = String(appointmentDate.getMinutes()).padStart(2, "0")
-      setStartHour(hours)
-      setStartMinute(minutes)
-
-      // Parse duration
-      const durationMinutes = parseDurationToMinutes(appointment.duration)
-      setDuration(String(durationMinutes))
-
-      // Calculate end time
-      const startTotalMinutes = appointmentDate.getHours() * 60 + appointmentDate.getMinutes()
-      const endTotalMinutes = startTotalMinutes + durationMinutes
-      const newEndHour = Math.floor(endTotalMinutes / 60) % 24
-      const newEndMinute = endTotalMinutes % 60
-      setEndHour(String(newEndHour).padStart(2, "0"))
-      setEndMinute(String(newEndMinute).padStart(2, "0"))
-
-      // AC-P1.51: the `Type: ` prefix READER is gone, in the same change as the writer below. The act now
-      // lives only in `procedureTypeId` (the `MigrateAppointmentTypePrefix` migration moved it there), so the
-      // notes are just the notes. The old parser also had two latent bugs worth not carrying forward:
-      // `.replace('Type: ', '')` was a first-occurrence-anywhere replace rather than an anchored strip, and the
-      // filter dropped EVERY line beginning "Type: ", so a user who legitimately typed a second such line lost
-      // it on the next edit round-trip.
-      if (appointment.notes) {
-        setNotes(appointment.notes)
-        setShowNotes(true)
-      } else {
-        setNotes("")
-        setShowNotes(false)
-      }
+    if (!appointment || !open) return
+    if (openedRef.current && openedRef.current.id === appointment.id) {
+      reconcileRef.current(appointment)
+      return
     }
+    setPatientName(appointment.patientName)
+    // Remembered so the save can tell « the user changed the statut » from « the form is echoing what it was
+    // hydrated with ». See the `status` key in `performUpdate`.
+    setHydratedStatus(appointment.status.toLowerCase())
+    for (const section of APPOINTMENT_SECTIONS) applySection[section](appointment)
+    openedRef.current = appointment
+    setTakenOver([])
   }, [appointment?.id, open, refreshed?.version])
 
   // Reset form when dialog closes
@@ -704,6 +817,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       // The server's copy belongs to the appointment that was open — keeping it would hydrate the next one
       // from the previous patient's row.
       setRefreshed(null)
+      openedRef.current = null
+      setTakenOver([])
       // Both belong to the visit that was open. The page keeps ONE instance of this dialog, so a kept plan memo
       // re-used visit A's treatment on visit B (another patient's → « Plan de traitement introuvable »), and a
       // kept dismissal hid the suggestion on every later visit until reload.
@@ -888,7 +1003,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
+    // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
+    if (carried.consumeSwitch()) {
+      conflict.raise(SWITCH_REFUSAL)
+      return
+    }
     clearBanner()
+    // Pressing Enregistrer is the answer to « refaites votre modification ».
+    setTakenOver([])
 
     if (!validateForm()) return
 
@@ -1435,6 +1557,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   : undefined
               }
             />
+            {takenOver.length > 0 && (
+              <p role="status" className="rounded-md bg-warning-wash px-3 py-2 text-sm text-warning-ink">
+                {takenOverSentence(takenOver.map((s) => APPOINTMENT_SECTION_LABEL[s]))}
+              </p>
+            )}
 
             </DialogBody>
 

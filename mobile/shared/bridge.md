@@ -23,6 +23,13 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `print()` | `void` | 1 | Print the current page through the OS print service. |
 | `onPushToken(listener)` | `void` | 1 | Register for the OS push token. Inert until Part 6 delivers one. |
 | `confirmIdentity()` | `Promise<IdentityOutcome>` | 4 | Ask the OS to confirm the device owner. Never rejects — the failure *is* an outcome. |
+| `relayHostFacts()` | `Promise<RelayHostFacts \| null>` | Windows 1.4 | This PC's name, battery, disk encryption (three-valued) and free space, for the PC de secours offer. Never rejects. |
+| `installRelay({ code, needBytes })` | `Promise<RelayInstallOutcome>` | Windows 1.4 | Make this PC the cabinet's PC de secours with a one-time code. Never rejects. |
+| `relayProbe({ addresses, port, fingerprint })` | `Promise<RelayProbeResult \| null>` | Windows 1.5 · Android 1.2.0 | While the cloud is locked for a silent PC de secours: does this device reach it (pinned certificate), and which box is it behind? Never rejects — `null` when it cannot answer. |
+| `relayPrepare({ assertion, addresses, port, fingerprint })` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | `clinic-pc-copy` D22: trade the cloud's ticket on the PC de secours (pinned certificate) and keep that session in the app's cookie for the PC — **one holder**: the shell never refreshes it. `relayId` (optional) lets the shell find the PC again by UDP discovery (D21) when its address changed. Never rejects. |
+| `carryDraft(draft)` | `void` | Windows 1.6 · Android 1.3.0 | `clinic-pc-copy` D23: keep the open form's state (a JSON string ≤ 2 MB) in the shell's **memory** for this window, replacing what it held; `null` forgets it. Only from the cloud's page or the PC de secours's. |
+| `takeCarriedDraft()` | `Promise<string \| null>` | Windows 1.6 · Android 1.3.0 | D23: the held state, handed over once and forgotten; `null` when none or older than 2 h. Never rejects. |
+| `relaySwitch()` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | Part 3: the cloud says the cabinet works on the PC — ask the PC and move the window there if it holds. Never rejects. Moving on a cloud that does not load, and back once the PC lets go, is the shell's own. |
 
 ### The per-phase method set (FR-6)
 
@@ -161,6 +168,9 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 | `onPushToken` | ✅ registered, inert | ⚠️ written, inert — and free signing has no APNs entitlement | — |
 | `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` | ✅ since 1.3 — Windows Hello |
 | the coffre seam (below) | — | — | ✅ since 1.2 |
+| `relayHostFacts` · `installRelay` | — n/a: a phone cannot be the PC de secours (AC-1.12) | — n/a | ✅ since 1.4 — UAC run not yet rehearsed |
+| `relayProbe` | ✅ since 1.2.0 — built, lint + R8 green, not run on a phone | — not written | ✅ since 1.5 — run live against the rig's PC |
+| `relayPrepare` · `relaySwitch` · `carryDraft` · `takeCarriedDraft` | ✅ since 1.3.0 — built, lint + R8 green, not run on a phone | — not written | ✅ since 1.6 — built and unit-tested; trade + pinning run against the rig's PC; the window switch is owed to the Windows rehearsal |
 
 ⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
 `mobile/ios/README.md`. Read it as a proposal until a green CI run exists.
@@ -235,6 +245,58 @@ prepared (an unplugged disk, a share that is down, a runtime predating the API) 
 cabinet » with no local open. In a plain browser the page's own `showDirectoryPicker()` path takes over, which is
 also what covers a shell whose runtime is too old.
 
+## Desktop (WPF) — the PC de secours, since 1.4 (`clinic-pc-copy` AC-1.1–1.13)
+
+```ts
+interface RelayHostFacts { machineName: string; hasBattery: boolean; diskEncrypted: boolean | null; freeBytes: number | null }
+interface RelayInstallOutcome { outcome: "installed" | "declined" | "refused" | "failed"; sentence: string }
+```
+
+The **page owns the offer and its words**; the shell owns what only it can know (this machine) and do (run an
+installer elevated). `relayHostFacts()` feeds the offer's three notices and its room check; `installRelay()` takes
+the one-time code the cloud issued and does everything else: downloads `{server}/api/relay/installer`, checks it
+against the `X-Content-SHA256` header (no header, no elevated run), shows Windows' permission prompt **once**, and runs
+the installer with `/RELAY /PAIRFILE= /CLOUD= /LABEL= /NEEDBYTES= /RESULTFILE=`.
+
+| Outcome | Means | The page |
+|---|---|---|
+| `installed` | exit 0 — paired, services running, first copy started | shows the installer's sentence |
+| `declined` | Windows' prompt answered « Non » (`ERROR_CANCELLED`) — nothing installed (AC-1.11) | gives the code back, offers « Réessayer » |
+| `refused` | exit 7 (refused before copying) or 20 (code refused at pairing) | gives the code back, shows the sentence |
+| `failed` | anything else, or the download / hash failed | gives the code back, shows the sentence |
+
+⚠️ **The code never goes on a command line** — it is written to a file under `%LocalAppData%` (whose ACL already
+admits only the user, Administrators and SYSTEM, so an over-the-shoulder elevation can read it) and `pair-relay`
+deletes it. ⚠️ **The downloaded installer is held open, sharing read only, from its hash check to its exit**, so
+nothing running as the user can swap it before the elevated run. ⚠️ Both answers come back through
+`window.__clinicShellDeliverRelayResult(id, value)`, the identity seam's shape and for its reason (AC-26 deletes the
+bridge). The shell answers only the configured server's own page, and interpolates an id only after checking it is
+one of its own (`r` + digits). ⚠️ `diskEncrypted: null` is « je ne sais pas » — the common answer without elevation —
+and the page must not word it as « non chiffré ».
+
+## `relayProbe` — the cabinet's devices unlock a silent PC (`clinic-pc-copy` AC-6.2, Windows 1.5 · Android 1.2.0)
+
+```ts
+interface RelayProbeResult { reached: boolean; gateways: string[] }
+```
+
+The **page owns the loop** (`components/relay/relay-device-watch.tsx`): every 30 s it asks the cloud
+`GET /api/relay/devices/target`, and only while the cloud is locked for a PC that said nothing — and the request came
+from the cabinet's own internet line — does the answer carry `probe: true` with the PC's addresses, HTTPS port and
+certificate SHA-256. The page then calls `relayProbe` and posts what it says to `POST /api/relay/devices/report`. The
+cloud decides everything else; two « PC no » reports ≥ 30 s apart from the cabinet's network, with no device reaching
+the PC during that lock, take the cloud back (`ClinicRelay.Reclaim`, D19).
+
+The shell owns what only it can do: `GET https://{address}:{port}/health` **accepting exactly one certificate** — the
+one whose DER SHA-256 is `fingerprint` (upper-case hex) — and reading its own default IPv4 gateways. Any HTTP answer over
+that TLS session is « reached »; a refusal, a timeout or another certificate is not.
+
+⚠️ **Only private addresses are tried** (RFC 1918, link-local, IPv6 ULA / link-local); anything else makes the request
+`null` — the shell must not become a way for a page to make a clinic's device call arbitrary hosts. ⚠️ **The pin is for
+this probe alone**: the WebView's own TLS never sees it. ⚠️ Answered only for the configured server's own page (Windows:
+`IsExpectedOrigin`; Android: the page's URL against `ServerConfig.isSameOrigin`), through
+`__clinicShellDeliverRelayResult(id, value)` — the id interpolated only after it matched `r` + digits.
+
 ## Version history
 
 | Shell version | Change |
@@ -242,3 +304,8 @@ also what covers a shell whose runtime is too old.
 | `1.0.0` | Phase 1: `version` · `platform` · `maxFileBytes` · `saveFile` · `print` · `onPushToken`. |
 | `1.1.0` | Phase 4: `confirmIdentity` added. Nothing removed, so a server floor of `1.0.0` still admits it. |
 | `1.2.0` | `clinic-file-vault`: the **desktop** shell joins this contract — its first bridge ever — with `version`, `platform: "windows"` and the coffre seam. `platform` gains a third value. Nothing removed, so a floor of `1.0.0` still admits every client. |
+| `1.3.0` | Desktop: `confirmIdentity` (Windows Hello). |
+| `1.4.0` | Desktop: `relayHostFacts` + `installRelay` (`clinic-pc-copy`). Nothing removed; the page detects both methods, so an older shell simply never makes the offer. |
+| `1.5.0` · Android `1.2.0` | `relayProbe` (`clinic-pc-copy` AC-6.2) on both shells. Nothing removed; without it the page never asks the cloud anything. |
+| `1.6.0` | Desktop: `relayPrepare` + `relaySwitch` + `carryDraft` + `takeCarriedDraft` (`clinic-pc-copy` Part 3). Nothing removed; an older shell is simply never switched and carries nothing. |
+| Android `1.3.0` | `relayPrepare` + `relaySwitch` on Android (`RelaySwitch.kt`): the same trade through the same pin, the session in `CookieManager` for the PC's origin, `onReceivedSslError` proceeding for the PC's certificate alone; `carryDraft` + `takeCarriedDraft` (`CarriedDraftSlot.kt`), with the bridge script also installed on the PC's origin. Nothing removed. |

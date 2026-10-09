@@ -1078,6 +1078,25 @@ folder is just a folder.
 
 ---
 
+## L'installateur du PC de secours (`clinic-pc-copy`)
+
+A cabinet's PC de secours is installed — and later updated — from `GET /api/relay/installer`. **The cloud serves
+only the installer of its own build**: a PC on another build is refused every copy, so an installer one deploy behind
+would set up a PC that can never copy.
+
+- **Built by every deploy.** `deploy-hosted.yml`'s `relay-installer` job (Windows) builds the real server installer
+  from the deployed commit — PostgreSQL 16 and Node fetched, everything else from the repo — and the deploy job puts
+  it in `deploy/updates/relay/` **before** the new API starts. A deploy whose installer did not build is refused.
+- **One manifest per build**: `relay-<sha12>.json` (`{"build": "...", "file": "APEXA-PC-de-secours-<sha12>.exe"}`).
+  The three newest stay, so a rollback (`image_tag`) keeps its installer.
+- **The build identity** is `<newest migration>+1.0.0+<commit>`. The API image is stamped with the commit through the
+  `SOURCE_REVISION` build arg (set from `CLINIC_IMAGE_TAG`), the installer through `publish-server.ps1 -SourceRevision`.
+  To read either: `docker exec clinic-api-prod dotnet ClinicManagement.API.dll relay-build` · `ClinicManagement.API.exe relay-build`.
+
+To check it on the server: `ls -l deploy/updates/relay/`, then `curl -sI https://<domain>/api/relay/installer` →
+`200` with `X-Content-SHA256` and `X-Relay-Build`. A `404` « Le cloud ne propose pas encore l'installation du PC de
+secours » means no installer of the running build is there.
+
 ## Two things this topology does not solve
 
 - **Per-clinic backup and restore.** `backup`/`pitr` protect the whole cluster; restoring one clinic's data without

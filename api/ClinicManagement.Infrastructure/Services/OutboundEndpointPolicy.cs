@@ -31,6 +31,8 @@ public class OutboundEndpointPolicy : IOutboundEndpointPolicy
     public bool AllowsPrivateNetworkEndpoints => _profile.Kind switch
     {
         DeploymentKind.SelfHostedLan => true,
+        // A PC de secours sends nothing outbound but to the cloud; it keeps the LAN server's rule.
+        DeploymentKind.ClinicRelay => true,
         _ => false,
     };
 }

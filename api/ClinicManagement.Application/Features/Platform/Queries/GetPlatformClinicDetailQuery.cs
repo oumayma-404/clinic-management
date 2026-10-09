@@ -58,6 +58,7 @@ public class GetPlatformClinicDetailQueryHandler
     private readonly IMessagingAllowanceRepository _allowances;
     private readonly IClinicReminderSettingsRepository _reminderSettings;
     private readonly IVendorMessagingAvailability _vendorMessaging;
+    private readonly IClinicRelayRepository _relays;
     private readonly ILogger<GetPlatformClinicDetailQueryHandler> _logger;
 
     public GetPlatformClinicDetailQueryHandler(
@@ -71,8 +72,10 @@ public class GetPlatformClinicDetailQueryHandler
         IMessagingAllowanceRepository allowances,
         IClinicReminderSettingsRepository reminderSettings,
         IVendorMessagingAvailability vendorMessaging,
+        IClinicRelayRepository relays,
         ILogger<GetPlatformClinicDetailQueryHandler> logger)
     {
+        _relays = relays;
         _activityRepository = activityRepository;
         _userRepository = userRepository;
         _subscriptions = subscriptions;
@@ -118,6 +121,7 @@ public class GetPlatformClinicDetailQueryHandler
             var payments = await ReadPaymentsAsync(row, cancellationToken);
             var suspension = await ReadSuspensionAsync(row.ClinicId, cancellationToken);
             var messaging = await ReadMessagingAsync(row, messagingMonth, cancellationToken);
+            var relay = await _relays.GetLatestForClinicAsync(row.ClinicId, cancellationToken);
 
             // AC-7.3. Staged before the save below, and its failure fails the read — see the class remarks.
             await PlatformAccessLedger.RecordAsync(
@@ -132,7 +136,7 @@ public class GetPlatformClinicDetailQueryHandler
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<PlatformClinicDetailDto>.Success(new PlatformClinicDetailDto(
-                Clinic: PlatformClinicRowMapper.ToDto(row, clinicToday, admin?.Email),
+                Clinic: PlatformClinicRowMapper.ToDto(row, clinicToday, admin?.Email, relay, DateTime.UtcNow),
                 AdminName: admin?.FullName,
                 AdminEmail: admin?.Email,
                 // No admin at all reads as « inactive » rather than as a reachable person: the screen shows a

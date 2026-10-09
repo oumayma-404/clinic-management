@@ -42,6 +42,7 @@ public static class Extensions
         services.AddScoped<IStockConsumptionService, StockConsumptionService>();
         // Fire-and-forget, connectivity-gated Google Calendar sync for appointment create/update.
         services.AddScoped<IAppointmentGoogleSyncDispatcher, AppointmentGoogleSyncDispatcher>();
+        services.AddScoped<Features.Relay.IRelayReturnAftermath, Features.Relay.RelayReturnAftermath>();
         // Feeds the EF Core global query filter the scope's clinic (US-2). ITenantScope itself is registered in
         // AddInfrastructure, which the console verbs also call — see the floor there.
         services.AddScoped<ICurrentClinicProvider, CurrentClinicProvider>();

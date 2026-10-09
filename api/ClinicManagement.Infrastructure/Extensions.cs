@@ -11,6 +11,7 @@ using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
+using ClinicManagement.Infrastructure.Relay;
 using ClinicManagement.Infrastructure.Repositories;
 using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.Infrastructure.Services;
@@ -110,13 +111,39 @@ public static class Extensions
         services.AddScoped<RequestQueryMetrics>();
         services.AddScoped<QueryCountingInterceptor>();
 
+        // clinic-pc-copy: the relay's row access (cloud reads, PC applies) and the change log it follows.
+        services.AddScoped<ClinicRelayRowStore>();
+        services.AddScoped<IClinicRelayRowStore>(provider => provider.GetRequiredService<ClinicRelayRowStore>());
+        services.AddScoped<ClinicManagement.Application.Features.Relay.Queries.IRelayBlobIndex>(
+            provider => provider.GetRequiredService<ClinicRelayRowStore>());
+        // D18: the return — the PC reads its cut, the cloud applies it — on the same row access.
+        services.AddScoped<IRelayHandbackStore>(provider => provider.GetRequiredService<ClinicRelayRowStore>());
+        services.AddSingleton<ClinicManagement.Application.Features.Relay.IRelayBuildInfo, Relay.RelayBuildInfo>();
+        services.AddSingleton<ClinicManagement.Application.Features.Relay.Commands.IRelayKeyValidator, Relay.RelayKeyValidator>();
+        // D17: the replay store, and the key every change of the request is stamped with.
+        services.AddScoped<IIdempotencyStore, IdempotencyStore>();
+        // D16: the long-poll channel to the PC de secours, the numbers a save must have it keep, and the PC's store.
+        services.AddSingleton<ClinicManagement.Application.Features.Relay.IRelayPromiseBroker,
+            ClinicManagement.Application.Features.Relay.RelayPromiseBroker>();
+        services.AddScoped<NumberPromiseCoordinator>();
+        services.AddScoped<NumberPromiseTransactionInterceptor>();
+        services.AddScoped<RelayNumberPromiseStore>();
+        services.AddScoped<IIdempotencyKeyAccessor>(provider =>
+            new HttpIdempotencyKeyAccessor(provider.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()));
+        services.AddScoped(provider => new ClinicChangeCapture(
+            provider.GetRequiredService<DeploymentProfile>(),
+            provider.GetService<IIdempotencyKeyAccessor>(),
+            provider.GetRequiredService<IRelayLocalStatus>()));
+        services.AddScoped<IClinicWriteFence, ClinicWriteFence>();
+
         services.AddDbContext<ApplicationDbContext>((provider, options) =>
             options
                 .UseNpgsql(connectionString)
                 .AddInterceptors(
                     provider.GetRequiredService<AuditSaveChangesInterceptor>(),
                     provider.GetRequiredService<AutomaticWriteInterceptor>(),
-                    provider.GetRequiredService<QueryCountingInterceptor>()));
+                    provider.GetRequiredService<QueryCountingInterceptor>(),
+                    provider.GetRequiredService<NumberPromiseTransactionInterceptor>()));
 
         // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -161,6 +188,32 @@ public static class Extensions
         services.AddScoped<ICalendarImportRunRepository, CalendarImportRunRepository>();
         services.AddScoped<IClinicRecoveryPointRepository, ClinicRecoveryPointRepository>();
         services.AddScoped<IClinicArchiveGrantRepository, ClinicArchiveGrantRepository>();
+        services.AddScoped<IClinicRelayRepository, ClinicRelayRepository>();
+        // The PC de secours's write lease (D13): one per process, since the gate, the copy loop and the takeover decision
+        // must agree on it. Built only when asked, so no other profile ever reads .local/relay-lease.json.
+        // D20b: the PC de secours sets Windows' clock from the cloud's — only here, never in a test or a tool.
+        services.AddSingleton(_ => new RelayLease(clock: new WindowsSystemClock()));
+        services.AddSingleton<IRelayBoxProbe>(sp => new GatewayBoxProbe(sp.GetRequiredService<ILogger<GatewayBoxProbe>>()));
+        // Every profile: « not retired » off a PC de secours, without touching the disk (clinic-pc-copy AC-8.1).
+        services.AddSingleton<IRelayLocalStatus>(sp =>
+        {
+            var deployment = sp.GetRequiredService<DeploymentProfile>();
+            return new RelayLocalStatus(deployment, deployment.MirrorsCloudClinic ? sp.GetRequiredService<RelayLease>() : null);
+        });
+        services.AddScoped(sp => new RelayLocalEraser(
+            sp.GetRequiredService<IClinicPurge>(), sp.GetRequiredService<IUnitOfWork>(), sp.GetRequiredService<IFileStorage>(),
+            sp.GetRequiredService<IUserRepository>(), new RelayFollowerStateStore(), sp.GetRequiredService<RelayLease>(),
+            sp.GetRequiredService<ILogger<RelayLocalEraser>>()));
+        // D22: prepared sessions — the cloud's keys (every profile; only the cloud's heartbeat mints one), and the PC's own.
+        services.AddSingleton<IRelayAssertionKeys>(sp => new RelayAssertionKeys(sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>()));
+        services.AddSingleton<IRelayLocalAssertionKey>(sp =>
+        {
+            var protection = sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>();
+            return new RelayLocalAssertionKeyReader(sp.GetRequiredService<DeploymentProfile>().MirrorsCloudClinic,
+                new RelayCredentialStore(protection), new RelayAssertionKeyStore(protection));
+        });
+        services.AddScoped<IRelayIncidentRepository, RelayIncidentRepository>();
+        services.AddScoped<IRelayReviewItemRepository, RelayReviewItemRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();

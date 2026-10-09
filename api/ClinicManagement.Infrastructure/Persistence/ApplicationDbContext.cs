@@ -29,6 +29,11 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
     private readonly ICurrentClinicProvider? _clinicProvider;
     private readonly IAuditChainKeyProvider? _auditChainKey;
+    private readonly ClinicChangeCapture? _changeCapture;
+    private readonly NumberPromiseCoordinator? _numberPromises;
+
+    // D16: the numbers a save in this transaction promised a PC de secours, confirmed just before the commit.
+    private List<PlannedPromise> _plannedPromises = new();
 
     // The clinic provider is optional so the design-time factory and any manual construction still work (they
     // pass no provider → the filters return everything, as before). At runtime AddDbContext always injects it.
@@ -37,10 +42,22 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public ApplicationDbContext(
         DbContextOptions<ApplicationDbContext> options,
         ICurrentClinicProvider? clinicProvider = null,
-        IAuditChainKeyProvider? auditChainKey = null) : base(options)
+        IAuditChainKeyProvider? auditChainKey = null,
+        ClinicChangeCapture? changeCapture = null,
+        NumberPromiseCoordinator? numberPromises = null) : base(options)
     {
         _clinicProvider = clinicProvider;
         _auditChainKey = auditChainKey;
+        _changeCapture = changeCapture;
+        _numberPromises = numberPromises;
+    }
+
+    /// <summary>D16: what this transaction's saves promised, handed over (and forgotten) once — at its commit or its end.</summary>
+    public IReadOnlyList<PlannedPromise> TakePlannedPromises()
+    {
+        var planned = _plannedPromises;
+        _plannedPromises = new List<PlannedPromise>();
+        return planned;
     }
 
     // Exposed for the global query filters below. Accessed through the context instance so EF Core treats them
@@ -200,6 +217,17 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // ClinicIds, so both are filtered; the three messaging-* verbs declare UseSystemWide to reach every cabinet.
     public DbSet<MessagingAllowanceEntry> MessagingAllowanceEntries { get; set; }
     public DbSet<ClinicMessagingMonth> ClinicMessagingMonths { get; set; }
+    // clinic-pc-copy: the PC de secours rows, and the per-clinic change log they follow.
+    public DbSet<ClinicRelay> ClinicRelays { get; set; }
+    public DbSet<ClinicChange> ClinicChanges { get; set; }
+    public DbSet<ClinicChangeCursor> ClinicChangeCursors { get; set; }
+    public DbSet<RelayIncident> RelayIncidents { get; set; }
+    // D17: the replay keys of a cabinet's saves — per side, written in raw SQL by IdempotencyStore.
+    public DbSet<IdempotencyRecord> IdempotencyRecords { get; set; }
+    // D16: the numbers the cloud promised this PC de secours — PC only, written in raw SQL by its promise loop.
+    public DbSet<RelayNumberPromise> RelayNumberPromises { get; set; }
+    // D18: « Modifications à vérifier » — what the return found the cloud had too. Cloud only.
+    public DbSet<RelayReviewItem> RelayReviewItems { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -361,6 +389,14 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // filter is owning a clinic, not being a root.
         modelBuilder.Entity<MessagingAllowanceEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ClinicMessagingMonth>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+        // clinic-pc-copy. The relay's own token reads escape through IgnoreQueryFilters (it has no session clinic).
+        modelBuilder.Entity<ClinicRelay>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicChange>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicChangeCursor>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<RelayIncident>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<IdempotencyRecord>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<RelayNumberPromise>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<RelayReviewItem>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a
@@ -479,6 +515,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
         typeof(UserDashboardPreference),
         typeof(SessionFamily),
+        // clinic-pc-copy: written by the PC's heartbeat every few seconds; a lifecycle step must not 409 against it.
+        typeof(ClinicRelay),
     };
 
     /// <summary>
@@ -625,6 +663,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                 "Le journal d'audit ne peut être chaîné que sur le chemin asynchrone : utilisez SaveChangesAsync.");
         }
 
+        // clinic-pc-copy: a change the log never saw is a gap the PC de secours cannot detect.
+        if (_changeCapture?.HasCandidates(this) == true)
+        {
+            throw new InvalidOperationException(
+                "Les modifications d'un cabinet ne peuvent être enregistrées que sur le chemin asynchrone : utilisez SaveChangesAsync.");
+        }
+
         return base.SaveChanges();
     }
 
@@ -647,10 +692,25 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
         ConvertDateTimesToUtc();
 
+        // D16: the legal numbers this save assigns, read before the save resets the entries.
+        var numbers = _numberPromises?.Promises == true ? NumberedDocuments.Collect(this) : null;
+
         var auditRows = PendingAuditRows();
-        if (auditRows.Count == 0)
+        var captures = _changeCapture?.HasCandidates(this) == true;
+        if (captures)
+        {
+            // clinic-pc-copy D15: a PC de secours that does not hold the cabinet's saves refuses before anything opens.
+            _changeCapture!.EnsureThisSideMayWrite(this);
+        }
+
+        if (auditRows.Count == 0 && !captures && numbers is not { Count: > 0 })
         {
             return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        if (auditRows.Count == 0)
+        {
+            return await SaveCapturedAsync(captures, numbers, cancellationToken);
         }
 
         if (_auditChainKey is null)
@@ -662,18 +722,58 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                 "Aucune clé de chaînage n'est disponible : ce contexte ne peut pas écrire au journal d'audit.");
         }
 
+        // Lock order is fixed — the change cursor, then the audit chain — so two writers cannot deadlock (R-9).
         if (Database.CurrentTransaction is not null)
         {
+            await CaptureAsync(captures, cancellationToken);
             await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
-            return await base.SaveChangesAsync(cancellationToken);
+            return await SaveAndPlanAsync(numbers, cancellationToken);
         }
 
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await CaptureAsync(captures, cancellationToken);
         await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
-        var written = await base.SaveChangesAsync(cancellationToken);
+        var written = await SaveAndPlanAsync(numbers, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return written;
     }
+
+    /// <summary>A save with no audit row that touches a relay-scoped row: the change log rides the save's transaction (D1).</summary>
+    private async Task<int> SaveCapturedAsync(
+        bool captures, IReadOnlyList<NumberedDocument>? numbers, CancellationToken cancellationToken)
+    {
+        if (Database.CurrentTransaction is not null)
+        {
+            await CaptureAsync(captures, cancellationToken);
+            return await SaveAndPlanAsync(numbers, cancellationToken);
+        }
+
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await CaptureAsync(captures, cancellationToken);
+        var written = await SaveAndPlanAsync(numbers, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return written;
+    }
+
+    /// <summary>
+    /// D16: the rows are written first — so a number taken meanwhile fails on its unique index before anything is
+    /// promised — then the numbers a PC de secours must keep are planned, and confirmed just before the commit.
+    /// </summary>
+    private async Task<int> SaveAndPlanAsync(IReadOnlyList<NumberedDocument>? numbers, CancellationToken cancellationToken)
+    {
+        var written = await base.SaveChangesAsync(cancellationToken);
+        if (numbers is { Count: > 0 } && _numberPromises is not null)
+        {
+            _plannedPromises.AddRange(await _numberPromises.PlanAsync(this, numbers, cancellationToken));
+        }
+
+        return written;
+    }
+
+    private Task CaptureAsync(bool captures, CancellationToken cancellationToken) =>
+        captures && _changeCapture is not null
+            ? _changeCapture.AppendAsync(this, cancellationToken)
+            : Task.CompletedTask;
 
     private List<AuditEntry> PendingAuditRows() =>
         ChangeTracker.Entries<AuditEntry>()

@@ -146,6 +146,7 @@ public class OutboxParkingTests
                 new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
                 new Mock<IClinicReminderSettingsRepository>().Object,
                 new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+                ClinicManagement.UnitTests.Common.TestFence.None,
                 NullLogger<NotificationJob>.Instance);
         }
     }

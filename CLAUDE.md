@@ -65,6 +65,10 @@ clinic-management/
 │                                   ⚠️ Serve `web` with `node .next/standalone/server.js` — `npm run start`
 │                                   binds, says « Ready », then EXITS (output: 'standalone'), and the browser
 │                                   half then reports ten product defects. e2e/README.md § Running it locally.
+├── e2e/relay-roundtrip/          The PC de secours's cut test (clinic-pc-copy D26): cloud + PC + two Postgres in
+│                                   containers, the cabinet's network cut with `docker network disconnect`, work on
+│                                   both sides, back. `bash e2e/relay-roundtrip/run.sh` (Docker + node); CI job
+│                                   `relay-roundtrip`
 ├── web/                          Next.js frontend
 │   ├── (root)                            → CLAUDE.md  (stack, routing, API/auth integration)
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)

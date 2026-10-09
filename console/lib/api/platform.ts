@@ -62,6 +62,14 @@ export interface PlatformClinicRow {
   messagingRemaining: number | null;
   /** The server's own verdict, false where nothing was measured — an unknown is not an exhaustion. */
   messagingExhausted: boolean;
+  /**
+   * The cabinet's PC de secours (`clinic-pc-copy` AC-9.1) — `none` · `ready` · `late` · `off` · `mismatch` ·
+   * `stopped` · `retired` · … — from the predicate the cabinet's own card and bell read. Branch on this, never on
+   * `relayLabel`.
+   */
+  relayState: string;
+  /** « Prêt », « Éteint depuis 08:12 », « Copie arrêtée depuis … ». Never names the PC itself. */
+  relayLabel: string;
 }
 
 export interface PlatformClinicPage {

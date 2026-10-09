@@ -11,6 +11,7 @@ using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Auth.Queries;
 using ClinicManagement.Application.Features.Clinics.Commands;
+using ClinicManagement.Application.Features.Relay.Commands;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
@@ -34,6 +35,7 @@ namespace ClinicManagement.API.Controllers;
 // clinical work. The bootstrap actions arrive with an Unset tenant scope and so pass the gate anyway; only
 // change-password is authenticated, clinic-scoped and non-GET, i.e. genuinely refused without this.
 [AllowsWithoutSubscription("AC-4.7, EC-2 — a cabinet locked out of its own account cannot even read its records.")]
+[AllowedWhileCloudFenced("FR-11 — signing in and a person's own credentials stay on the cloud during a cut.")]
 public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -113,6 +115,9 @@ public class AuthController : ApiControllerBase
             // factor. Served so the login screen can say so before the first refusal rather than after it; the
             // server enforces it regardless, and no client reads this to decide whether to send the code.
             requiresSecondFactor = deployment.RequiresAdminSecondFactor,
+            // clinic-pc-copy: whether this server can have a PC de secours, and whether it IS one.
+            relayFeedEnabled = deployment.PublishesChangeFeed,
+            isClinicRelay = deployment.MirrorsCloudClinic,
         });
     }
 
@@ -130,6 +135,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost("signup")]
     public async Task<IActionResult> SignUp([FromBody] ClinicSignUpRequest request)
     {
@@ -173,6 +179,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost("signup/verify")]
     public async Task<IActionResult> VerifySignUp([FromBody] ClinicSignUpVerifyRequest request)
     {
@@ -200,6 +207,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("password-reset")]
     public async Task<IActionResult> RequestPasswordReset([FromBody] PasswordResetEmailRequest request)
     {
@@ -236,6 +244,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("password-reset/complete")]
     public async Task<IActionResult> CompletePasswordReset([FromBody] PasswordResetCompletionRequest request)
     {
@@ -267,6 +276,7 @@ public class AuthController : ApiControllerBase
     // The brute-force surface (US-4 / AC-4.1): a tight window per submitted account, plus a looser per-address
     // ceiling — a whole practice arrives through one NAT address, so the address alone cannot be the brake.
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [AllowedOnStandbyRelay("Reading the copy on a PC de secours needs a session; sign-in traces stay that side's own.")]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
@@ -300,6 +310,60 @@ public class AuthController : ApiControllerBase
     }
 
     /// <summary>
+    /// « Installer le PC de secours ici… » on any PC (<c>clinic-pc-copy</c> AC-1.5): an administrator's email, password
+    /// and code start a setup without signing anybody in or out of this PC.
+    ///
+    /// <para>Under <c>/api/auth</c> on purpose: <c>RateLimiting.IsAnonymousAuthPath</c> gives it the sign-in's own
+    /// per-account window and capture, since it is a password check. The handler runs the sign-in itself, so the
+    /// lockout and the code's replay guard are the sign-in's and not a copy of them.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
+    [HttpPost("relay-pairing-code")]
+    public async Task<IActionResult> RelayPairingCode([FromBody] RelayPairingCodeSignInRequest request)
+    {
+        if (!Deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new IssueRelayPairingCodeWithCredentialsCommand(
+            request.Email ?? string.Empty, request.Password ?? string.Empty, request.TotpCode ?? string.Empty,
+            request.Label ?? string.Empty));
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        // A relay refusal keeps the relay's own status; a sign-in refusal keeps the sign-in's.
+        return result.Code is { } code && code.StartsWith("relay_", StringComparison.Ordinal)
+            ? HandleFailure(result, RelayController.StatusFor(code))
+            : RefuseAuth(result);
+    }
+
+    /// <summary>
+    /// D22, on the PC de secours only: a cabinet app trades the cloud's ticket for a session here, before any cut, so the
+    /// person is already signed in after a switch. Anonymous by necessity (nobody is signed in on this PC yet) and under
+    /// <c>/api/auth</c> for the anonymous window; every refusal is one sentence, whatever was wrong with the ticket.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [AllowedOnStandbyRelay("A prepared session is this PC's own and never copied; it writes no row of the cabinet's.")]
+    [HttpPost("relay-session")]
+    public async Task<IActionResult> RelaySession([FromBody] RelaySessionRequest request)
+    {
+        if (!Deployment.MirrorsCloudClinic)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new TradeRelayAssertionCommand(request.Assertion));
+        return result.IsSuccess ? Ok(result) : RefuseAuth(result);
+    }
+
+    /// <summary>
     /// Enrols a second factor from the login screen itself (FR-1.3). Two calls: the first returns a secret to
     /// scan, the second confirms it with a code and returns the recovery codes <b>once</b>.
     ///
@@ -311,6 +375,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — an authenticator changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("totp/enrol")]
     public async Task<IActionResult> EnrolTotp([FromBody] EnrolTotpRequest request)
     {
@@ -391,6 +456,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowsWithoutSubscription(
         "The counterpart of the read above: a device must be revocable whatever the cabinet's entitlement says.")]
+    [AllowedOnStandbyRelay("Sessions are each install's own and never copied, so ending one changes nothing the cloud sends.")]
     [HttpDelete("sessions/{sessionId:guid}")]
     public async Task<IActionResult> EndMySession(Guid sessionId)
     {
@@ -399,6 +465,7 @@ public class AuthController : ApiControllerBase
     }
 
     /// <summary>Replaces every recovery code with a fresh set. Requires a current code, not just the session.</summary>
+    [OnlineOnly("FR-5 — an authenticator changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("totp/recovery-codes")]
     public async Task<IActionResult> RegenerateRecoveryCodes([FromBody] TotpCodeRequest request)
     {
@@ -412,6 +479,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     // A POST and not a DELETE: it carries a body (the current code, which is what authorises it), and DELETE
     // with a body is unevenly supported end to end — `apiDelete` in the web client sends none at all.
+    [OnlineOnly("FR-5 — an authenticator changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("totp/disable")]
     public async Task<IActionResult> DisableTotp([FromBody] TotpCodeRequest request)
     {
@@ -425,6 +493,7 @@ public class AuthController : ApiControllerBase
     /// <para>⚠️ It spends its <b>own</b> failure counter, never the login lockout: three wrong attempts refuse
     /// this action with the session untouched, because the user is already signed in and doing ordinary work.</para>
     /// </summary>
+    [AllowedOnStandbyRelay("A step-up proof lives in this process's memory only and writes no row of the cabinet's.")]
     [HttpPost("step-up")]
     public async Task<IActionResult> StepUp([FromBody] StepUpRequest request)
     {
@@ -465,6 +534,9 @@ public class AuthController : ApiControllerBase
         ClinicAuthRefusals.TotpAlreadyEnrolled => StatusCodes.Status409Conflict,
         ClinicAuthRefusals.TooManyAttempts => StatusCodes.Status429TooManyRequests,
         ClinicAuthRefusals.PasswordPolicy => StatusCodes.Status400BadRequest,
+        ClinicAuthRefusals.RelaySessionRefused => StatusCodes.Status401Unauthorized,
+        // 403: the password was right, this PC simply no longer opens for this role (clinic-pc-copy AC-8.1).
+        ClinicAuthRefusals.RetiredRelayAdminsOnly => StatusCodes.Status403Forbidden,
         _ => StatusCodes.Status401Unauthorized
     };
 
@@ -478,6 +550,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [AllowedOnStandbyRelay("Keeping a session on the PC alive; sessions are each install's own and never copied.")]
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
@@ -513,6 +586,7 @@ public class AuthController : ApiControllerBase
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [AllowsWithoutSubscription("Signing out is not recording clinic work, and a cabinet must always be able to.")]
+    [AllowedOnStandbyRelay("Signing out of a shared PC must always work, and sessions are never copied.")]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
     {
@@ -544,6 +618,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost("setup")]
     public async Task<IActionResult> Setup([FromBody] SetupRequest request)
     {
@@ -596,6 +671,7 @@ public class AuthController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — creating an account waits for the internet: accounts stay on the cloud during a cut (FR-11).")]
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
@@ -632,6 +708,7 @@ public class AuthController : ApiControllerBase
     // change their password after an admin reset may not have a role in the JWT yet (Cloud writes it to
     // app_metadata only once the clinic is joined), so requiring one here would lock them out of the very
     // screen that unblocks them. A bare `[Authorize]` said the same thing while looking like an omission.
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
     {
@@ -651,3 +728,6 @@ public class AuthController : ApiControllerBase
         return Ok(result);
     }
 }
+
+/// <summary>D22: the ticket a cabinet app got from the cloud (<c>GET /api/relay/devices/assertion</c>).</summary>
+public sealed record RelaySessionRequest(string? Assertion);

@@ -19,7 +19,11 @@ mobile/
 │       ├── MainActivity.kt        the five states, the WebView, insets, back, the launch version check
 │       ├── ServerConfig.kt        the address + SharedPreferences; a port of desktop/ServerConfig.cs
 │       ├── ClientRequirements.kt  the native pre-launch read of GET /api/meta/client-requirements
-│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity
+│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity · relayProbe · relayPrepare · relaySwitch · carryDraft · takeCarriedDraft
+│       ├── RelayProbe.kt          AC-6.2: the PC de secours probed through its pinned certificate + this phone's gateway
+│       ├── RelaySwitch.kt         Part 3: the prepared session on the PC (D22), « does it hold? », where the PC is
+│       ├── CarriedDraftSlot.kt    D23: the open form's state, in memory, handed to the next clinic page once
+│       ├── RelayDiscovery.kt      D21: the PC found again by UDP broadcast after its address changed
 │       ├── BiometricGate.kt       the OS owner check behind confirmIdentity (AC-57…AC-60, API 28+)
 │       ├── FileChooser.kt         WebChromeClient.onShowFileChooser + the camera
 │       └── ExternalNavigation.kt  off-origin top-level navigations → Custom Tabs
@@ -70,8 +74,11 @@ mobile/
   load, so the failure surfaces as *Impossible de joindre* » — was **wrong, and was found wrong on a physical
   Galaxy S9**: when the SSL handler cancels, `onReceivedError` is *not* raised for the main frame, so
   `mainFrameFailed` stayed false, `onPageFinished` still fired and the shell switched to an **empty WebView** — the
-  white rectangle AC-74 forbids. The security property is unchanged: the certificate is still refused and
-  `proceed()` appears nowhere in this project. What changed is only that the user is told, and told what to do.
+  white rectangle AC-74 forbids. The security property is unchanged: the certificate is still refused. What changed
+  is only that the user is told, and told what to do. ⚠️ **One exception since 1.3.0** (`clinic-pc-copy` Part 3):
+  `proceed()` for the PC de secours's own self-issued certificate, at the address and port a session was traded on,
+  matched by its DER SHA-256 — nothing else. ⚠️ Google Play's scanner flags any `proceed()` there; a pin is the
+  documented remedy, but expect the question at submission.
 - **`network_security_config.xml` trusts user-installed CAs.** That is what makes the offline-LAN install reachable
   at all: its certificate is self-signed into `.local/` by the API on first boot. Cleartext stays refused.
 - **The « Serveur » actions hang off the back gesture at the root**, not off a title bar. A permanent strip of

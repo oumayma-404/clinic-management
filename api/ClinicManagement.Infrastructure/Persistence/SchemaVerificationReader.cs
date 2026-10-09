@@ -224,12 +224,16 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             ? null
             : TryResolveProtectingCertificates();
 
+        var profile = TryResolveProfile();
+
         return new SecretProtectionFacts(
             certificates?.IsConfigured ?? false,
             certificates?.Active is { } active
                 ? (int)Math.Floor((active.NotAfter.ToUniversalTime() - DateTime.UtcNow).TotalDays)
                 : null,
-            families);
+            families,
+            CertificateRequired: profile is null || Security.LocalDataProtection.RequiresProtectingCertificate(profile),
+            ProtectedByDpapi: profile is not null && Security.LocalDataProtection.ProtectsWithDpapi(profile));
     }
 
     /// <summary>
@@ -278,6 +282,27 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         }
 
         return values;
+    }
+
+    /// <summary>
+    /// The deployment profile, or null when it cannot be read — the report then keeps the strict reading
+    /// (a certificate required), never the lenient one.
+    /// </summary>
+    private Deployment.DeploymentProfile? TryResolveProfile()
+    {
+        if (_configuration is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Deployment.DeploymentProfile.Resolve(_configuration);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -1058,13 +1083,15 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                 """);
 
         // platform-console Part 2. A cabinet the nightly pass has never reached — which the per-cabinet
-        // try/catch makes survivable and therefore silent.
+        // try/catch makes survivable and therefore silent. Only a cabinet older than 26 h counts: the pass runs
+        // daily, so a fresh install or a cabinet created today has simply not been reached yet.
         var clinicsWithoutSnapshot = await ScalarOrNullAsync(connection, cancellationToken,
             requiredTable: "ClinicActivitySnapshots",
             requiredColumn: "ClinicId",
             sql: """
                 SELECT COUNT(*) FROM "Clinics" c
-                WHERE NOT EXISTS (SELECT 1 FROM "ClinicActivitySnapshots" s WHERE s."ClinicId" = c."Id")
+                WHERE c."CreatedAt" < now() - interval '26 hours'
+                  AND NOT EXISTS (SELECT 1 FROM "ClinicActivitySnapshots" s WHERE s."ClinicId" = c."Id")
                 """);
 
         // The relations one Restate call makes true by construction. Any of them false means a second writer.

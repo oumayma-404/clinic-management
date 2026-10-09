@@ -63,6 +63,8 @@ public static class StaffNotificationRules
         // What it asks for is a birth date and a telephone number typed into a fiche, which happens at a keyboard;
         // and the record stays marked provisional on the patient itself, so nothing is lost by waiting.
         NotificationCategory.PatientImportedNeedsReview => false,
+        // Switching the PC de secours on or freeing its disk is done at the cabinet, not from a lock screen.
+        NotificationCategory.RelayAttention => false,
         // A new category does not silently start pushing. Deciding is the point — a default of `true` would put
         // an unreviewed message on a lock screen, and `false` would look like a decision nobody made.
         _ => throw new ArgumentOutOfRangeException(

@@ -1,4 +1,6 @@
 using ClinicManagement.API.Middleware;
+using Microsoft.Extensions.DependencyInjection;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Subscriptions;
@@ -93,9 +95,18 @@ public class SubscriptionGateMiddlewareTests
         bool requiresSubscription = true,
         TenantScopeKind scopeKind = TenantScopeKind.Clinic,
         bool exempt = false,
-        bool routed = true)
+        bool routed = true,
+        bool holdingPc = false)
     {
         var context = new DefaultHttpContext();
+        if (holdingPc)
+        {
+            var local = new Mock<IRelayLocalStatus>();
+            local.SetupGet(l => l.IsHolding).Returns(true);
+            context.RequestServices = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+                .AddSingleton(local.Object).BuildServiceProvider();
+        }
+
         context.Request.Path = path;
         context.Request.Method = method;
 
@@ -145,6 +156,20 @@ public class SubscriptionGateMiddlewareTests
         body.Position = 0;
         return new Outcome(
             context.Response.StatusCode, await new StreamReader(body).ReadToEndAsync(), reachedNext, reads);
+    }
+
+    // ---- the PC de secours during a cut (clinic-pc-copy EC-15) ----------------------------------------------
+
+    // EC-15: the cabinet cannot reach the vendor to pay during a cut, so a PC holding its saves keeps them working up to
+    // seven days past the end date — and no further. Anywhere else the ordinary rule applies.
+    [Fact]
+    public async Task A_Holding_Pc_Keeps_Saving_Seven_Days_Past_The_End_And_No_Further()
+    {
+        var today = ClinicClock.ClinicToday();
+
+        Assert.True((await InvokeAsync(EndingOn(today.AddDays(-3)), holdingPc: true)).ReachedNext);
+        Assert.False((await InvokeAsync(EndingOn(today.AddDays(-8)), holdingPc: true)).ReachedNext);
+        Assert.False((await InvokeAsync(EndingOn(today.AddDays(-3)))).ReachedNext);
     }
 
     // ---- what must never be refused ---------------------------------------------------------------------

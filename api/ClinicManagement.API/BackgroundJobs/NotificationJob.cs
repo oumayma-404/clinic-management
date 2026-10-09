@@ -52,6 +52,7 @@ public class NotificationJob
     private readonly IClinicReminderSettingsRepository _reminderSettings;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
+    private readonly IClinicWriteFence _fence;
     private readonly ILogger<NotificationJob> _logger;
 
     public NotificationJob(
@@ -71,8 +72,10 @@ public class NotificationJob
         IClinicReminderSettingsRepository reminderSettings,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
+        IClinicWriteFence fence,
         ILogger<NotificationJob> logger)
     {
+        _fence = fence;
         _notificationRepository = notificationRepository;
         _patientRepository = patientRepository;
         _appointmentRepository = appointmentRepository;
@@ -150,6 +153,14 @@ public class NotificationJob
         {
             try
             {
+                // clinic-pc-copy D15 — asked BEFORE the send: the row cannot be marked sent while the cabinet's saves
+                // belong to its PC de secours, so sending first would send the same reminder every minute. It stays
+                // Pending and goes out once the cabinet is back (AC-5.4).
+                if (await FencedAsync(notification))
+                {
+                    continue;
+                }
+
                 await DispatchAsync(notification, maxRetries, nowUtc, entitlements, forfait, countingRows);
             }
             catch (Exception ex)
@@ -198,6 +209,11 @@ public class NotificationJob
 
             foreach (var notification in blocked)
             {
+                if (await FencedAsync(notification))
+                {
+                    continue;
+                }
+
                 // Step 15a, R-5 — the age bound, asked FIRST and whatever parked the row. A row that has waited a
                 // whole allowance cycle is not going to become useful, and this is the only drain that reaches a
                 // recall row: those carry no appointment, so nothing else here can ever make one obsolete, they are
@@ -339,6 +355,9 @@ public class NotificationJob
     /// has already started » boundary (D-3) is otherwise untestable, and two rows of one batch would be judged
     /// against two different nows.
     /// </param>
+    private async Task<bool> FencedAsync(Notification notification) =>
+        notification.ClinicId is { } clinicId && await _fence.RefusesAsync(clinicId);
+
     private async Task DispatchAsync(
         Notification notification,
         int maxRetries,
@@ -398,6 +417,15 @@ public class NotificationJob
             if (appointment.AppointmentDateTime <= nowUtc)
             {
                 await FailAsync(notification, "Rendez-vous déjà passé — rappel obsolète, non envoyé");
+                return;
+            }
+
+            // EC-16 — and one reminder per visit when several tiers fell due at once (a cut handed back, an outage, a
+            // backlog): the scan is oldest first, so the earlier tier gives way to the one closest to the visit.
+            if (await _notificationRepository.HasCloserDueReminderAsync(
+                    appointment.Id, notification.Type, notification.ScheduledFor, nowUtc))
+            {
+                await FailAsync(notification, "Remplacé par un rappel plus proche du rendez-vous — non envoyé");
                 return;
             }
         }

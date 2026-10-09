@@ -2,6 +2,8 @@
 
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
+import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
 import {
   Dialog,
   DialogBody,
@@ -133,6 +135,30 @@ function nextQuarterHour(now: Date = new Date()): { hour: string; minute: string
     hour: String(next.getHours()).padStart(2, "0"),
     minute: String(next.getMinutes()).padStart(2, "0"),
   }
+}
+
+/** What the booking dialog hands the shell (`clinic-pc-copy` D23). */
+interface CarriedBooking {
+  isBusySlot: boolean
+  isNewPatient: boolean
+  selectedPatientId: string
+  newPatientFirstName: string
+  newPatientLastName: string
+  newPatientPhone: string
+  newPatientPhoneCountry: CountryCode
+  acts: SelectedAct[]
+  durationTouched: boolean
+  day: string | null
+  doctorId: string
+  startHour: string
+  startMinute: string
+  useEndTime: boolean
+  endHour: string
+  endMinute: string
+  duration: string
+  notes: string
+  showNotes: boolean
+  createdPatientId: string | null
 }
 
 interface CreateAppointmentDialogProps {
@@ -1079,8 +1105,61 @@ export function CreateAppointmentDialog({
     }
   }
 
+  /*
+   * `clinic-pc-copy` D23 / AC-3.2 — a booking being typed survives the app switching server. It reopens on the agenda
+   * (`?newAppointment=1`) whichever screen it was started from: nothing it holds needs the host — the devis it books
+   * is derived from its acts. The first save after a switch is refused once; nothing was stored, so the next one saves.
+   */
+  const carried = useCarriedDraft<CarriedBooking>({
+    form: "appointment-new",
+    formKey: "new",
+    path: "/appointments?newAppointment=1",
+    open,
+    dirty: true,
+    state: {
+      isBusySlot, isNewPatient, selectedPatientId,
+      newPatientFirstName, newPatientLastName, newPatientPhone, newPatientPhoneCountry,
+      acts: selectedActs, durationTouched,
+      day: date ? date.toISOString() : null,
+      doctorId: selectedDoctorId,
+      startHour, startMinute, useEndTime, endHour, endMinute, duration,
+      notes, showNotes,
+      createdPatientId: createdPatientIdRef.current,
+    },
+    restore: (s) => {
+      // Seeded, not changed: the patient-change effect must not drop the devis acts restored with it.
+      continuationPatientRef.current = s.selectedPatientId
+      setIsBusySlot(s.isBusySlot)
+      setIsNewPatient(s.isNewPatient)
+      setSelectedPatientId(s.selectedPatientId)
+      setNewPatientFirstName(s.newPatientFirstName)
+      setNewPatientLastName(s.newPatientLastName)
+      setNewPatientPhone(s.newPatientPhone)
+      setNewPatientPhoneCountry(s.newPatientPhoneCountry)
+      setSelectedActs(s.acts)
+      setDurationTouched(s.durationTouched)
+      if (s.day) setDate(new Date(s.day))
+      setSelectedDoctorId(s.doctorId)
+      setStartHour(s.startHour)
+      setStartMinute(s.startMinute)
+      setUseEndTime(s.useEndTime)
+      setEndHour(s.endHour)
+      setEndMinute(s.endMinute)
+      setDuration(s.duration)
+      setNotes(s.notes)
+      setShowNotes(s.showNotes)
+      // A patient already created before the switch is booked onto, never created a second time.
+      if (s.createdPatientId) createdPatientIdRef.current = s.createdPatientId
+    },
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // AC-3.2: the first save after the app switched server is refused once — nothing is sent.
+    if (carried.consumeSwitch()) {
+      setError(SWITCH_REFUSAL)
+      return
+    }
     setError(null)
     // A fresh submit re-asks every question: the user may have changed the time, the practitioner or the patient
     // since the last one, so a grant given about the previous attempt says nothing about this one. (The created

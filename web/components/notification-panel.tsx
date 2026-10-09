@@ -16,6 +16,7 @@ import {
   Hourglass,
   type LucideIcon,
   DatabaseBackup,
+  Server,
   UserPlus,
   X,
 } from "lucide-react"
@@ -70,6 +71,8 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   // calendar-import-review — Google Agenda conjured a patient record from an event title. `UserPlus` rather than a
   // warning glyph: a fiche was added and needs finishing, which is a task rather than a fault.
   PatientImportedNeedsReview: UserPlus,
+  // clinic-pc-copy AC-2.2 — the PC de secours cannot take over right now. The card on « Paramètres » wears the same glyph.
+  RelayAttention: Server,
 }
 
 /**
@@ -104,6 +107,8 @@ const CATEGORY_TONE: Record<string, string> = {
   // clinic-subscription — a deadline with a countdown, so amber like the two above. Deliberately not red even on
   // the last day: nothing has gone wrong, and the record is never at risk (reads and exports keep working).
   SubscriptionExpiring: "bg-warning-wash text-warning-ink",
+  // clinic-pc-copy — nothing has failed yet; what is at risk is the next internet cut. Amber, like a stale backup.
+  RelayAttention: "bg-warning-wash text-warning-ink",
   // Something the user is asked to complete. Teal — the app's "do this" colour.
   PostVisitReview: "bg-primary/10 text-primary",
   PatientImportedNeedsReview: "bg-primary/10 text-primary",

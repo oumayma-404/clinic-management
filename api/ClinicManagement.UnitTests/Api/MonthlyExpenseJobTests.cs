@@ -47,6 +47,8 @@ public class MonthlyExpenseJobTests
 
         public List<Expense> Posted { get; } = new();
 
+        public ClinicManagement.UnitTests.Common.TestFence Fence { get; set; } = ClinicManagement.UnitTests.Common.TestFence.None;
+
         public Harness(params RecurringExpense[] active)
         {
             Series.Setup(r => r.GetActiveForPostingAsync(It.IsAny<CancellationToken>())).ReturnsAsync(active);
@@ -63,7 +65,25 @@ public class MonthlyExpenseJobTests
             Realtime.Object,
             AuditActor.Object,
             TenantScope,
+            Fence,
             NullLogger<MonthlyExpenseJob>.Instance);
+    }
+
+    // [clinic-pc-copy D15] A cabinet on its PC de secours posts nothing and keeps its months due — they are posted
+    // once it is back (DueMonths catches a backlog up). The other cabinets post as usual.
+    [Fact]
+    public async Task A_Cabinet_On_Its_Pc_De_Secours_Keeps_Its_Months_Due()
+    {
+        var fenced = Series(ClinicA, lastPosted: "2026-08");
+        var other = Series(ClinicB, lastPosted: "2026-08");
+        var harness = new Harness(fenced, other) { Fence = ClinicManagement.UnitTests.Common.TestFence.Of(ClinicA) };
+
+        await harness.Job().PostDueMonthlyExpenses(Now);
+
+        Assert.All(harness.Posted, e => Assert.Equal(ClinicB, e.ClinicId));
+        Assert.Single(harness.Posted);
+        Assert.Equal("2026-08", fenced.LastPostedMonth);
+        harness.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // The headline: the month that has turned is posted, dated in the cabinet's own calendar.

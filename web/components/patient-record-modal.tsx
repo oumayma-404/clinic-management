@@ -63,9 +63,11 @@ import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { PRESCRIPTION_KINDS, prescriptionKind, type PrescriptionLine } from "@/lib/documents"
 import type { MedicationDto } from "@/lib/api/types"
 import {
-  actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs, type BookedActPrefill, type PlanItemPrefill,
-  type SessionAct,
+  actTotal, actsFromCarried, carriedActs, hasInvalidPrice, isActNamed, isActTouched, useSessionActs,
+  type BookedActPrefill, type PlanItemPrefill, type SessionAct,
 } from "@/components/record/use-session-acts"
+import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
+import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
 import {
   CHEQUE_METHOD,
   ChequeFields,
@@ -290,6 +292,14 @@ interface PatientRecordModalProps {
 
 const NOTES_SECTION_ANCHOR = "record-notes-section"
 
+/** What the fiche hands the shell (`clinic-pc-copy` D23): the reconciled sections, the ordonnance, the copy they were opened against. */
+type CarriedFiche = Omit<FicheFormValues, "acts"> & {
+  acts: unknown[]
+  prescriptionLines: PrescriptionLine[]
+  prescriptionBase: string | null
+  base: DentalRecordDto | null
+}
+
 /**
  * Confirm-first dental-record entry. The act comes first — proposed from the appointment when there is one,
  * otherwise picked from the catalogue — then the chart says which teeth, then « Enregistrer la séance » saves. Everything
@@ -505,6 +515,11 @@ export function PatientRecordModal({
    * `setError(null)` on purpose - it keeps the consecutive-conflict count, so a second 409 still escalates.
    */
   const reloadFromServer = useCallback(async () => {
+    // A new fiche has no stored copy — the only refusal it can carry is the switch's (AC-3.2), and the typing stays.
+    if (!record) {
+      conflict.clearMessage()
+      return
+    }
     let server: DentalRecordDto | null
     try {
       server = await readStored()
@@ -519,7 +534,7 @@ export function PatientRecordModal({
     reconcileRef.current(server)
     setPrescriptionReload((n) => n + 1)
     conflict.clearMessage()
-  }, [readStored, conflict])
+  }, [readStored, conflict, record])
 
   /**
    * The refusal that blocked the last save, **anchored to the act that caused it**.
@@ -621,6 +636,58 @@ export function PatientRecordModal({
     setBaseRecord(server)
     markTakenOver(named)
   }
+
+  /*
+   * `clinic-pc-copy` D23 / AC-3.2 — the fiche survives the app switching server. The screen goes to the shell as it is
+   * typed; after a switch it comes back here, with the copy it was opened against (so « Recharger » on the other server
+   * reconciles three ways exactly as it does here), and its first save is refused once.
+   */
+  const restoredFromCarryRef = useRef(false)
+  const carried = useCarriedDraft<CarriedFiche>({
+    form: "fiche",
+    formKey: patientId ? (record ? `record:${record.id}` : `new:${patientId}:${appointmentId ?? "-"}`) : null,
+    path: patientId
+      ? record
+        ? `/patients/${patientId}?editRecord=${record.id}`
+        : `/patients/${patientId}?addRecord=1${appointmentId ? `&appointmentId=${appointmentId}` : ""}`
+      : "/",
+    open,
+    dirty: true,
+    state: {
+      ...onScreen,
+      acts: carriedActs(onScreen.acts),
+      prescriptionLines,
+      prescriptionBase: prescriptionBaseRef.current,
+      base: stored ?? null,
+    },
+    restore: (s) => {
+      const restoredActs = actsFromCarried(s.acts)
+      if (!restoredActs) return
+      restoredFromCarryRef.current = true
+      setInterventionDate(s.interventionDate)
+      dispatch({ type: "restoreActs", acts: restoredActs })
+      setTotalDraft(null)
+      setLinkedPlanItemId(s.planItemId ?? NO_PLAN_ITEM)
+      hydratedPlanLinkRef.current = s.planItemId && record ? record.id : null
+      setHydrationEpoch((n) => n + 1)
+      setAmountPaid(s.amountPaid)
+      setCollectedOnPlan(s.collectedOnPlan)
+      setPaidDirty(true)
+      setPaymentMethod(s.paymentMethod)
+      setCheque(s.cheque)
+      setNotes(s.notes)
+      setImportantNotes(s.importantNotes)
+      if (s.notes.length > 0 || s.importantNotes.length > 0) setNotesOpen(true)
+      setPrescriptionLines(s.prescriptionLines)
+      prescriptionBaseRef.current = s.prescriptionBase
+      if (s.prescriptionLines.length > 0) setPrescriptionOpen(true)
+      setArmedPrescriptionIndex(null)
+      if (s.base && record && s.base.id === record.id) setBaseRecord(s.base)
+    },
+  })
+  useEffect(() => {
+    if (!open) restoredFromCarryRef.current = false
+  }, [open])
 
   /**
    * Commit the typed total onto the acts. An unusable or negative entry is dropped and the field snaps back to
@@ -870,7 +937,7 @@ export function PatientRecordModal({
   // Only pre-selects a step that is actually in `planItems` — that list holds the plan's OPEN steps, so an
   // act already marked réalisé (or on a cancelled plan) correctly falls through to the normal flow.
   useEffect(() => {
-    if (!open || record || !appointment?.treatmentPlanItemId) return
+    if (!open || record || !appointment?.treatmentPlanItemId || restoredFromCarryRef.current) return
     const linked = planItems.find((p) => p.itemId === appointment.treatmentPlanItemId)
     if (!linked) return
 
@@ -987,7 +1054,7 @@ export function PatientRecordModal({
   // Propose EVERY act booked into the séance. Guarded twice over: `applyAppointment` is a no-op unless the
   // session is a single untouched card, so it can never clobber a saved record or work in progress.
   useEffect(() => {
-    if (!open || record || procedureTypes.length === 0) return
+    if (!open || record || procedureTypes.length === 0 || restoredFromCarryRef.current) return
     // ⚠️ Prices come from the appointment's own act ROWS, never from `defaultCost` — a visit booked at a
     // negotiated 120 DT would otherwise open the fiche at the 150 DT tarif.
     const prefill: BookedActPrefill[] = bookedActs.map(bookedPrefillOf)
@@ -1751,6 +1818,11 @@ export function PatientRecordModal({
   }, [acts, linkedPlanItemId])
 
   const handleSave = async (correctionReason?: string) => {
+    // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
+    if (carried.consumeSwitch()) {
+      conflict.raise(SWITCH_REFUSAL)
+      return
+    }
     // Pressing Enregistrer is the answer to « refaites votre modification ».
     setTakenOver([])
     if (!patientId) {

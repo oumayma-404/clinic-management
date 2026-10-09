@@ -40,22 +40,32 @@ public static class GoogleTokenProtectionBackfill
         ApplicationDbContext context,
         IGoogleTokenProtector protector,
         IUnitOfWork unitOfWork,
+        IClinicWriteFence fence,
         CancellationToken cancellationToken = default)
     {
         var clinics = await context.Clinics
             .Where(c => c.GoogleRefreshToken != null && c.GoogleRefreshTokenProtected == null)
             .ToListAsync(cancellationToken);
 
+        var converted = 0;
         foreach (var clinic in clinics)
         {
+            // clinic-pc-copy D15: a cabinet on its PC de secours is converted at the next start — a refused save here
+            // would stop the cloud from starting during a cut.
+            if (await fence.RefusesAsync(clinic.Id, cancellationToken))
+            {
+                continue;
+            }
+
             clinic.SetProtectedGoogleRefreshToken(protector.Protect(clinic.GoogleRefreshToken!));
+            converted++;
         }
 
-        if (clinics.Count > 0)
+        if (converted > 0)
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
-        return clinics.Count;
+        return converted;
     }
 }

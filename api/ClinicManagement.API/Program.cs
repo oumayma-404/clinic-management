@@ -38,6 +38,46 @@ if (args.Length > 0 && string.Equals(args[0], ProvisionClinicCommand.CommandName
     return await ProvisionClinicCommand.RunAsync(args);
 }
 
+// clinic-pc-copy: pair this PC with its cloud clinic as its PC de secours, using the one-time code an admin issued.
+// Run by the installer's « PC de secours » role. Usage:
+//   ClinicManagement.API.exe pair-relay --code-file <fichier> --cloud <https://…> [--label <nom>] [--replace]
+if (args.Length > 0 && string.Equals(args[0], PairRelayConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await PairRelayConsoleCommand.RunAsync(args);
+}
+
+// clinic-pc-copy D10: this build's identity, which CI writes into the PC de secours installer's manifest so the
+// cloud serves an installer only to the build it was made from. Usage:
+//   ClinicManagement.API.exe relay-build
+if (args.Length > 0 && string.Equals(args[0], RelayBuildConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return RelayBuildConsoleCommand.Run();
+}
+
+// clinic-pc-copy AC-8.3: uninstalling the PC de secours tells the cloud (it counts as retiring) and, with --erase, erases
+// the copy once the cloud has answered. Run by the uninstaller, with the API service stopped. Usage:
+//   ClinicManagement.API.exe uninstall-relay [--erase]
+if (args.Length > 0 && string.Equals(args[0], UninstallRelayConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await UninstallRelayConsoleCommand.RunAsync(args);
+}
+
+// clinic-pc-copy D11 / AC-9.3: once the cloud is lost for good, a vendor-signed code turns this PC de secours into the
+// cabinet's local server. Run on the PC, by hand. Usage:
+//   ClinicManagement.API.exe promote-relay [--code-file <fichier>]
+if (args.Length > 0 && string.Equals(args[0], PromoteRelayConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await PromoteRelayConsoleCommand.RunAsync(args);
+}
+
+// clinic-pc-copy D11: the vendor signs that code on their own machine — never on a server, which dies with the cloud.
+//   ClinicManagement.API.exe sign-relay-promotion --new-key <fichier>
+//   ClinicManagement.API.exe sign-relay-promotion --key <fichier> --relay <id> --clinic <id> [--days <1-30>] --out <fichier>
+if (args.Length > 0 && string.Equals(args[0], SignRelayPromotionConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return SignRelayPromotionConsoleCommand.Run(args);
+}
+
 // Idempotent HTTPS-cert provisioning (Server Installer Reliability): a one-shot console command that
 // generates (or reuses) the CA + server cert into .local/ and exits, without starting the web server or
 // touching the DB. The installer runs this BEFORE starting the API service so the service's first boot
@@ -634,6 +674,15 @@ try
         builder.Services.AddHostedService<ClinicManagement.API.Startup.DeferredStartupService>();
     }
 
+    // clinic-pc-copy: the PC de secours follows its cloud clinic — first copy, then every change, its files and the
+    // hourly check. Only on that kind: anywhere else there is no cloud to follow.
+    if (profile.MirrorsCloudClinic)
+    {
+        builder.Services.AddHostedService<ClinicManagement.API.BackgroundJobs.RelayFeedJob>();
+        // Part 3 (D21): the cabinet's apps find this PC again after the box gave it a new address.
+        builder.Services.AddHostedService<ClinicManagement.API.BackgroundJobs.RelayDiscoveryResponder>();
+    }
+
     // Add CORS
     // Note: When using credentials (cookies), we cannot use AllowAnyOrigin()
     // We must specify the exact origin(s) and use AllowCredentials().
@@ -1028,6 +1077,15 @@ try
         app.UseMiddleware<ClinicManagement.API.Middleware.LocalAuthEnforcementMiddleware>();
     }
 
+    // clinic-pc-copy D17: a cabinet's save pressed again is answered again, never recorded twice. After the token checks
+    // (a revoked token replays nothing), BEFORE the lease and subscription gates: a save that went through before the
+    // cloud locked is still answered « fait » when re-pressed during the lock.
+    app.UseMiddleware<ClinicManagement.API.Middleware.IdempotencyMiddleware>();
+
+    // clinic-pc-copy: a PC de secours holding a copy refuses staff writes (423 relay_standby). After the block above so
+    // 401/403 still win; before the subscription gate so a copy says « copy », not « pay ». Inert off the relay kind.
+    app.UseMiddleware<ClinicManagement.API.Middleware.RelayLeaseGateMiddleware>();
+
     // Last before the controllers, and AFTER the block above rather than beside TenantScopeMiddleware: a 402 must
     // never mask a 401 (revoked token) or a 403 must_change_password, or an expired cabinet's deactivated colleague
     // is told the subscription lapsed and a user owing a password change is routed to « Abonnement » instead of to
@@ -1130,6 +1188,14 @@ try
                     await context.Database.MigrateAsync();
                 }
 
+                // clinic-pc-copy AC-9.4: a cloud started on a restored database marks where its own history resumes,
+                // before it serves a single save — what it changes after this mark is kept when its PC sends the gap.
+                if (profile.PublishesChangeFeed)
+                {
+                    await scope.ServiceProvider.GetRequiredService<IClinicRelayRowStore>()
+                        .MarkEpochAsync(null, CancellationToken.None);
+                }
+
                 if (profile.RunsStartupBackfills)
                 {
                     // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
@@ -1148,7 +1214,8 @@ try
                     var converted = await ClinicManagement.API.Startup.GoogleTokenProtectionBackfill.RunAsync(
                         context,
                         scope.ServiceProvider.GetRequiredService<IGoogleTokenProtector>(),
-                        scope.ServiceProvider.GetRequiredService<IUnitOfWork>());
+                        scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                        scope.ServiceProvider.GetRequiredService<IClinicWriteFence>());
                     if (converted > 0)
                     {
                         Log.Information(
@@ -1163,29 +1230,54 @@ try
     // SMS/WhatsApp appointment-reminder dispatcher — minutely, connectivity-gated (see NotificationJob).
     // Sends only when the server has internet; otherwise it no-ops and leaves rows Pending, so it is safe
     // to run unconditionally (it does nothing until a Reminders channel + credentials are configured).
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.NotificationJob>(
-        "process-notifications",
-        job => job.ProcessPendingNotifications(),
-        Cron.Minutely);
+    // Not on a PC de secours: the cloud sends the clinic's reminders, and two senders text a patient twice.
+    if (profile.DispatchesOutboxes)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.NotificationJob>(
+            "process-notifications",
+            job => job.ProcessPendingNotifications(),
+            Cron.Minutely);
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("process-notifications");
+    }
 
     // Auto-start a visit once its own slot has begun — minutely, because the resolution the agenda shows is the
     // minute, and deliberately NOT connectivity-gated: it writes a status, so it must work on an offline LAN
     // install (StockExpiryJob's reasoning). Unconditional like the three passes that no-op until there is work:
     // on a clinic with nothing booked right now the read returns an empty set and the tick costs one query.
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AppointmentProgressJob>(
-        "start-running-appointments",
-        job => job.StartRunningAppointments(),
-        Cron.Minutely);
+    // A PC de secours runs it too, and acts only while it holds the cabinet's saves (deviation 88): during a cut the
+    // agenda keeps moving and « À clôturer » fills; the job asks IClinicWriteFence per cabinet.
+    if (profile.RunsClinicJobs || profile.RunsCutJobs)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AppointmentProgressJob>(
+            "start-running-appointments",
+            job => job.StartRunningAppointments(),
+            Cron.Minutely);
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("start-running-appointments");
+    }
 
     // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is
     // in-app, so it has to work on an offline LAN install. An expiry is crossed by the passage of time rather
     // than by a write, so without this scan the notification would never fire for the case it exists for (a
     // box nobody has touched). Runs at 06:00 UTC — before the clinic opens, so the alert is already in the
     // feed when the first person looks at the bell, rather than appearing mid-morning.
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.StockExpiryJob>(
-        "flag-expiring-stock",
-        job => job.FlagExpiringStock(),
-        Cron.Daily(6));
+    // A mirror writes only what the feed brings (clinic-pc-copy).
+    if (profile.RunsClinicJobs)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.StockExpiryJob>(
+            "flag-expiring-stock",
+            job => job.FlagExpiringStock(),
+            Cron.Daily(6));
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("flag-expiring-stock");
+    }
 
     // Les dépenses mensuelles (caisse-monthly-expenses) — daily, unconditional and deliberately NOT
     // connectivity-gated, for the expiry scan's reason: it writes a database row, so it has to work on an
@@ -1198,10 +1290,19 @@ try
     //
     // 05:00 UTC = 06:00 in Tunis: after the day has turned everywhere, and before the cabinet opens, so the
     // dépense is already in la caisse the first time somebody looks at it.
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.MonthlyExpenseJob>(
-        "post-monthly-expenses",
-        job => job.PostDueMonthlyExpenses(),
-        Cron.Daily(5));
+    // A PC de secours posts only while it holds the cabinet's saves (deviation 88, through IClinicWriteFence); the
+    // series' marker goes back with the return, so the cloud never posts the same month again.
+    if (profile.RunsClinicJobs || profile.RunsCutJobs)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.MonthlyExpenseJob>(
+            "post-monthly-expenses",
+            job => job.PostDueMonthlyExpenses(),
+            Cron.Daily(5));
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("post-monthly-expenses");
+    }
 
     // Housekeeping for the session table (« Rester connecté sur cet appareil »). `PurgeExpiredAsync` had shipped
     // with no caller at all, which was harmless while every row expired within 12 h of its last use; a trusted
@@ -1254,10 +1355,18 @@ try
     //
     // 03:00 UTC = 04:00 in Tunis: after the day it measures has ended everywhere, and long before the vendor
     // opens the console, so « countersAsOf » is this morning rather than the middle of the working day.
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.ClinicActivityCounterJob>(
-        "count-clinic-activity",
-        job => job.CountClinicActivity(),
-        Cron.Daily(3));
+    // The vendor's counters are the cloud's history; a mirror has no portfolio to count (clinic-pc-copy).
+    if (profile.RunsClinicJobs)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.ClinicActivityCounterJob>(
+            "count-clinic-activity",
+            job => job.CountClinicActivity(),
+            Cron.Daily(3));
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("count-clinic-activity");
+    }
 
     // The daily per-clinic recovery point (clinic-recovery-points) — 02:00 UTC = 03:00 in Tunis, before the counter
     // pass above so the two do not contend for the same connection pool at the same instant.
@@ -1267,10 +1376,18 @@ try
     // the tenant filter like every CSV export and carries one cabinet's rows, so it is correct on every deployment
     // kind. On SelfHostedLan it is additionally the only *granular, online* recovery there is: the restore-backup verb
     // stops the app and restores the whole database to undo one deleted fiche.
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.ClinicRecoveryPointJob>(
-        "take-recovery-points",
-        job => job.TakeRecoveryPoints(),
-        Cron.Daily(2));
+    // The cloud takes the clinic's recovery points; the PC's own history is the Windows app's archive pull (FR-12).
+    if (profile.RunsClinicJobs)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.ClinicRecoveryPointJob>(
+            "take-recovery-points",
+            job => job.TakeRecoveryPoints(),
+            Cron.Daily(2));
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("take-recovery-points");
+    }
 
     // OS push dispatcher (mobile-native-shells Part 6) — minutely, connectivity-gated, and registered ONLY where
     // the deployment can actually push (AC-51). Unlike its three siblings above, which are safe to register
@@ -1297,7 +1414,8 @@ try
     // so the pass could only ever loop over cabinets it must not warn. Not
     // connectivity-gated — the warning is in-app. 07:00 UTC, after the expiry scan and before the clinic opens, so
     // the row is already in the feed when the first person looks at the bell.
-    if (profile.RequiresSubscription)
+    // A mirror holds the entitlement but never warns: the cloud already raised that bell row (clinic-pc-copy).
+    if (profile.RequiresSubscription && profile.RunsClinicJobs)
     {
         RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.SubscriptionWarningJob>(
             "warn-subscription-expiry",
@@ -1329,6 +1447,27 @@ try
         // Defensively drop it, as the two jobs above do: an install reprofiled away from the hosted kind would
         // otherwise keep a registration pointing at work it must no longer do.
         RecurringJob.RemoveIfExists("review-messaging-allowances");
+    }
+
+    // The PC de secours watch (clinic-pc-copy AC-2.2, EC-9, EC-10) — minutely, on the cloud only: it reads the
+    // heartbeats the cloud receives and keeps each cabinet's admin bell rows in step. A PC has no heartbeats to read.
+    if (profile.PublishesChangeFeed)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.RelayWatchJob>(
+            "watch-relays",
+            job => job.WatchRelays(),
+            Cron.Minutely());
+
+        // D27: the change log keeps only what a PC may still ask for — daily, 04:30 Tunis.
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.PruneClinicChangesJob>(
+            "prune-clinic-changes",
+            job => job.PruneClinicChanges(),
+            Cron.Daily(3, 30));
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("watch-relays");
+        RecurringJob.RemoveIfExists("prune-clinic-changes");
     }
 
     // Google→App calendar sync does not exist any more, on a schedule or otherwise. App→Google runs inline on

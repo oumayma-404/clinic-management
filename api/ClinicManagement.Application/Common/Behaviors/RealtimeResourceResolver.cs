@@ -45,9 +45,10 @@ public static class RealtimeResourceResolver
     // audience the behavior derives would be nobody, silently, on both doors. The practice learns its new figure by the
     // ordinary re-read its « Rappels » screen already does; the counter that moves minutely is `ClinicMessagingMonth`,
     // which is not an aggregate root and emits nothing by design (D-6).
+    // "Relay" (clinic-pc-copy): the PC de secours heartbeats every few seconds; no screen refreshes on that.
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Subscriptions"
+        "Auth", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Relay", "Subscriptions"
     };
 
     /// <summary>
@@ -56,6 +57,19 @@ public static class RealtimeResourceResolver
     /// <para>Two rules, in order: a command may veto its own broadcast with <see cref="IDoesNotBroadcast"/> — a
     /// step of a longer operation is not an edit — and otherwise the answer is its area's.</para>
     /// </summary>
+    /// <summary>
+    /// Every key a command of this assembly broadcasts — for the one moment a whole cabinet changed at once without a
+    /// command behind it: the PC de secours handing a cut back (D18, AC-5.8), whose rows arrive in SQL.
+    /// </summary>
+    public static IReadOnlyList<string> AllKeys() =>
+        typeof(RealtimeResourceResolver).Assembly.GetTypes()
+            .Where(t => !t.IsAbstract && typeof(MediatR.IBaseRequest).IsAssignableFrom(t))
+            .Select(Resolve)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .ToList();
+
     public static string? Resolve(Type requestType)
         => typeof(IDoesNotBroadcast).IsAssignableFrom(requestType) ? null : AreaKeyOf(requestType);
 

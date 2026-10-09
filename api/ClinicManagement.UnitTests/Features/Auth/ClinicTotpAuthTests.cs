@@ -64,13 +64,16 @@ public class ClinicTotpAuthTests
 
     private readonly Mock<IAuditActorProvider> _auditActor = new();
 
+    /// <summary>Not a PC de secours by default (clinic-pc-copy); the retired-PC case sets it.</summary>
+    private readonly Mock<IRelayLocalStatus> _relayLocal = new();
+
     private LoginCommandHandler LoginHandler()
     {
         _replay.Setup(g => g.TryConsume(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
         return new(
             _users.Object, _auth.Object, _uow.Object, _attempts.Object,
             _totp.Object, _replay.Object, _secrets.Object, _policy.Object,
-            _sessionFamilies.Object, _auditActor.Object);
+            _sessionFamilies.Object, _auditActor.Object, _relayLocal.Object);
     }
 
     // ⚠️ The attempt tracker is now a dependency, and it is permissive here by default: every scenario in this
@@ -121,6 +124,37 @@ public class ClinicTotpAuthTests
         Assert.Equal(ClinicAuthRefusals.TotpEnrolmentRequired, result.Code);
         // The whole point: no session of any kind comes back with it.
         Assert.Null(result.Value);
+    }
+
+    // [clinic-pc-copy AC-8.1] A retired PC de secours opens for the cabinet's administrators only — after the password.
+    [Theory]
+    [InlineData(User.RoleDoctor, true)]
+    [InlineData(User.RoleSecretary, true)]
+    [InlineData(User.RoleAdmin, false)]
+    public async Task A_Retired_Pc_De_Secours_Opens_For_Admins_Only(string role, bool refused)
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(false);
+        Account(role);
+        _relayLocal.SetupGet(r => r.IsRetired).Returns(true);
+
+        var result = await LoginHandler().Handle(Login(), CancellationToken.None);
+
+        Assert.Equal(refused, result.Code == ClinicAuthRefusals.RetiredRelayAdminsOnly);
+    }
+
+    // [clinic-pc-copy AC-8.4] An authenticator removed by « Déclarer perdu ou volé » is replaced, not dropped — even
+    // for a doctor, whom this deployment does not otherwise ask for a code.
+    [Fact]
+    public async Task An_Account_Whose_Authenticator_A_Stolen_Pc_Held_Must_Set_Up_A_New_One()
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(false);
+        var user = Enrolled(Account(User.RoleDoctor));
+        user.RequireNewCredentials();
+
+        var result = await LoginHandler().Handle(Login(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ClinicAuthRefusals.TotpEnrolmentRequired, result.Code);
     }
 
     // [FR-1.2] Enrolled, no code offered yet — the ordinary first half of a two-step sign-in, and NOT a failed

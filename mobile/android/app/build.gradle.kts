@@ -42,7 +42,9 @@ android {
         // 1 and 2 were pre-store builds that never left this machine; 3 is the first that may.
         // 4 is 3 rebuilt with app.apexa.tn as the starting address — same code, so a new number is the only
         // thing that lets the server and a phone tell the two binaries apart.
-        versionCode = 4
+        versionCode = 6
+        // 5: `relayProbe` (clinic-pc-copy AC-6.2) — a new bridge member is a new build.
+        // 6: `relayPrepare` + `relaySwitch` (clinic-pc-copy Part 3).
 
         // The single source of the shell's version. `BuildConfig.VERSION_NAME` is what reaches
         // `window.__clinicShell.version` and therefore `X-Client-Version`, so the build and the bridge cannot
@@ -52,7 +54,7 @@ android {
         // ⚠️ A change to the bridge's method set edits `mobile/shared/bridge.md` **and** bumps this — one without
         // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
         // (Part 7); its version history is the table at the foot of that file.
-        versionName = "1.1.1"
+        versionName = "1.3.0"
 
         // The address a fresh install starts on, so a phone that downloads this build from the product's own
         // download page connects with nothing typed — the friction the iOS route does not have, because there the
@@ -148,6 +150,9 @@ android {
         // bumped as a side effect of an SDK bump, because a dependency upgrade that rides along in another commit
         // is one nobody reviewed as an upgrade.
         disable += "GradleDependency"
+        // ⚠️ The third, for the same reason: « A newer version of Gradle than 8.13 is available » reddened CI on
+        // every run once Gradle 8.14.6 shipped. Gradle is pinned with AGP and Kotlin as one set (mobile/CLAUDE.md).
+        disable += "AndroidGradlePluginVersion"
     }
 }
 

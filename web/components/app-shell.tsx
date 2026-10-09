@@ -4,6 +4,11 @@ import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { BottomNav } from "@/components/bottom-nav"
 import { SubscriptionBanner } from "@/components/subscription/subscription-banner"
+import { RelayStartupOffer } from "@/components/relay/relay-install-offer"
+import { RelayBanner } from "@/components/relay/relay-banner"
+import { RelayDeviceWatch } from "@/components/relay/relay-device-watch"
+import { RelaySwitchWatch } from "@/components/relay/relay-switch-watch"
+import { CarriedDraftResume } from "@/components/relay/carried-draft-resume"
 
 /**
  * The app's one page shell: rail + header + `<main>`.
@@ -99,7 +104,15 @@ export function AppShell({
           it. Mounting it here also makes « absent on /login and /signup » structural, since those six routes are
           precisely the ones that render no shell.
         */}
+        {/* `clinic-pc-copy` AC-3.4 / AC-4.1 / D20 — the cut's strip, above the subscription's (AC-4.3). */}
+        <RelayBanner />
         <SubscriptionBanner />
+        {/* `clinic-pc-copy` AC-1.1 — the PC de secours offer at the Windows app's start; nothing anywhere else. */}
+        <RelayStartupOffer />
+        {/* `clinic-pc-copy` AC-6.2 — renders nothing; inert outside the Windows and Android apps. */}
+        <RelayDeviceWatch />
+        <RelaySwitchWatch />
+        <CarriedDraftResume />
         <DashboardHeader />
         {/*
           `animate-page-in` — one short fade per navigation.

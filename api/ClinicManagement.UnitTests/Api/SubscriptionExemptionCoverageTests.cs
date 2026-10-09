@@ -47,6 +47,41 @@ public class SubscriptionExemptionCoverageTests
         // of its own files is not recording new work, and a lapsed cabinet must not be the one that stops being
         // told its coffre is unprotected. It is grant-gated independently of the subscription.
         "Backup.ReportVaultCopy",
+        // clinic-pc-copy: setting up, feeding and retiring the PC de secours. A copy of the cabinet's own records
+        // is not new work, and a lapsed cabinet is the last one that should lose its spare copy (FR-1).
+        "RelayPeer.Pair",
+        "Relay.IssuePairingCode",
+        // AC-1.5: the same setup from any PC with an admin's email, password and code (AuthController, class-level).
+        "Auth.RelayPairingCode",
+        // D22: a prepared session on the PC de secours records no work of the cabinet's (AuthController, class-level).
+        "Auth.RelaySession",
+        // AC-1.11: giving back a code the installer never presented frees the clinic's place; nothing is recorded.
+        "Relay.ReleasePairingCode",
+        "RelayPeer.Token",
+        "RelayPeer.Heartbeat",
+        // D16: the PC keeping a number the cloud is about to issue — nothing recorded on the PC's side.
+        "RelayPeer.Promises",
+        // D18: a cut's own work reaches the cloud whatever the subscription says (EC-15).
+        "RelayPeer.HandBack",
+        "RelayPeer.HandbackFiles",
+        "RelayPeer.HandbackFile",
+        // US-7: listing an overruled cut for re-entry records no new work.
+        "RelayPeer.ListOverruledCut",
+        "RelayPeer.ReturnGap",
+        "Relay.Retire",
+        // D18 / AC-5.6: marking a line of the return's list as read records no new work.
+        "Relay.MarkReviewItemSeen",
+        // AC-8.4: securing the accounts a stolen PC held — an unpaid cabinet must be able to, and it records nothing new.
+        "Relay.DeclareLost",
+        // US-7: taking a locked cabinet's saves back from a silent PC — records nothing new.
+        "Relay.Reclaim",
+        // AC-6.2: a device saying whether it reaches a silent PC de secours — records nothing of the cabinet's work.
+        "RelayDevice.Report",
+        // AC-8.2: erasing a retired PC's copy, and the PC telling the cloud — offboarding, never new work.
+        "RelayLocal.Erase",
+        "RelayPeer.Erased",
+        // AC-8.3: uninstalling the PC — it retires the PC, never new work.
+        "RelayPeer.Uninstalled",
         // Signing out is not recording clinic work, and it must keep working on an expired cabinet — a practice
         // that cannot sign out of a shared reception PC is a worse outcome than one that cannot bill.
         "Auth.Logout",

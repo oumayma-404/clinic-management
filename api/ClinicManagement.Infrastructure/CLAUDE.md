@@ -575,6 +575,156 @@ no consent flag and no audit of which patient was sent.
   lives on `HttpReminderChannelSender` and is overridden here only; the gateway's body still never reaches the
   persisted result (D-8).
 
+### PC de secours (`Relay/`, `clinic-pc-copy` — in progress)
+- **Cloud side**: `Persistence/ClinicChangeCapture` (one `ClinicChange` per touched key, inside the save's transaction,
+  only for clinics with a cursor), `Persistence/ClinicRelayRowStore` (rows out as `row_to_json`, back in as
+  `json_populate_recordset` — feed, snapshot, digest, apply, replace), `Persistence/ClinicRelayScope` (model-derived
+  table plan, `Excluded` / `Added` / `PerSideColumns`), `Security/RelaySecretEnvelope` (TOTP secrets sealed per PC).
+- **PC side**: `RelayFollower` (one tick: heartbeat → first copy or catch-up → files → hourly check), its pure rules in
+  `RelayFeedDecisions` (⚠️ D12: a changed epoch, a lower high-water or the cloud's own `WentBack` **stops** the copy for
+  good — it is never re-seeded toward), `RelayCloudClient`, `RelayCredentialStore` (`.local/relay.json`, key-ring
+  encrypted) and `RelayFollowerStateStore` (`.local/relay-state.json` — ⚠️ never in the DB, which a re-seed replaces;
+  an unreadable file reads as stopped). Small files go through `AtomicFile`, which retries the move (Windows refuses
+  replacing a just-written file). Driven by the API's `RelayFeedJob`. Reasoning: `features/clinic-pc-copy/`.
+  ⚠️ A stopped copy reports **`CopyStopped`** on every heartbeat — a flag, never the French reason — so the cloud
+  reads it as « Copie arrêtée » instead of « Prêt » (its copy holds *more* than the cloud).
+- **Watching (cloud)**: the API's `RelayWatchJob` (minutely, `PublishesChangeFeed` only) syncs each cabinet's admin
+  bell rows to `Application/Features/Relay/RelayAlertRules`. ⚠️ `StaffNotificationRepository.AddressedTo` is the one
+  audience clause for the list **and** the unread count, and `TargetRole` is checked against the viewer's account row,
+  never the token. The vendor console's « PC de secours » column reads `ClinicRelayRepository.GetLatestForClinicsAsync`
+  (one read per page, same « newest row » order as the card) through `PlatformClinicRowMapper`.
+  The same job e-mails the **vendor** once per problem episode (`RelayIncidents`, `RelayVendorAlertRules`) through
+  `Application/Features/Platform/VendorAlertRecipients` — the channel shared with `server-loss-recovery`'s backup
+  alerts (`Backup:AlertEmail`, else every active console account). ⚠️ `RelayIncident` is on `ClinicArchiveScope.Excluded`
+  (hence the copy's too) and is deliberately not an aggregate root, so it never reaches the cabinet's journal.
+- **Retired PC (PC side)**: `RelayLocalStatus` (singleton, re-reads the state file every 5 s) is what the login and
+  `RelayLeaseGateMiddleware` ask — a retired PC opens for admins only, and nothing about it is written to the DB.
+  `RelayLocalEraser` (« Effacer la copie ») purges the cabinet through `IClinicPurge` **inside one transaction**, then
+  saves `ErasedAtUtc`, then deletes the files; ⚠️ a failed purge rolls back and claims nothing. The follower then
+  reports `relay/erased` with the PC's own secret until the cloud has heard (`ErasureReported`), and does nothing else.
+- **Self-update (PC side, D10b)**: when the heartbeat says « update needed » the follower hands each tick to
+  `RelayUpdater` — the cloud's own installer (`RelayInstallerDownloader`, `GET relay/installer`) is fetched **beside**
+  the ticks with `Range` resume (a ~200 MB wait inside a tick would stop the heartbeat), checked against
+  `X-Content-SHA256`, announced (`IsUpdating`), then run `/RELAY` with no code — an update in place — by a one-shot
+  **SYSTEM scheduled task** (`ScheduledTaskUpdateLauncher`, `schtasks /xml`): the installer stops the very service
+  that would otherwise be its parent. ⚠️ **One cloud build, one run** — the start is saved before it happens, a
+  refusal (the installer's result sentence, readable only if this build survived) or 30 min with no landing is
+  reported and never retried; the next cloud build starts afresh. A copy stopped by D12 is never updated.
+  `Relay:UpdateLauncher=direct` (child process) exists for a test rig only.
+- **The write lease (PC side, D13/D14)** — `Relay/RelayLease.cs`. **`RelayLease`** (singleton) owns the last ack
+  received and whether this PC **holds the cabinet's saves**, in memory under one lock and in **`.local/relay-lease.json`**
+  — ⚠️ never in `relay-state.json`, which the copy loop rewrites from its tick-start copy, so a takeover or a pulse
+  saved there mid-tick would be put back. ⚠️ An unreadable lease file reads as **holding**. Every heartbeat goes
+  through `RelayLease.ExchangeAsync` (one at a time, 15 s bound): an ack is timed on the monotonic clock, an exchange
+  that brought none sets « asked and not answered ». **`RelayLeaseKeeper`** takes over when the copy is sound, the last
+  ack said « armé », the cloud was asked and did not answer, 90 s passed (`ClinicWriteLease.SinceLastAckReceived`:
+  monotonic in-process, wall clock capped by uptime after a restart) and **`GatewayBoxProbe`** says the box answers
+  (ping, else TCP 80/443/53 accepted or refused). ⚠️ « Asked and not answered » is what stops a PC that slept, or whose
+  tick was busy, from taking over with the internet working. A holding PC's follower only heartbeats (« je tiens les
+  enregistrements ») — no catch-up, files, check or update — and never stands down. Released while holding (retired,
+  lost, promoted): the lease ends and the work is marked **`UnreturnedSinceUtc`**; `RelayLocalEraser`, the uninstaller's
+  erase and `pair-relay` refuse over it (`relay_cut_work_kept`). `RelayFeedJob` runs the copy loop (10 s) and the lease
+  loop (5 s: the keeper, plus a **pulse** heartbeat when a copy tick has been busy 20 s). The two-phase disarm is
+  `RelayFollower.StandDownAsync`, called by `RelayFeedJob.StopAsync` (AC-6.1) and before the self-update's launch.
+- **The lease's net (D15)** — `ClinicChangeCapture` refuses, with `ClinicFencedException` (423 + code), what the side
+  may not write: on a PC de secours not holding the saves, every carried row but a sign-in's traces
+  (`EnsureThisSideMayWrite`, before any SQL); on the cloud, for a cabinet whose PC may hold its saves, every carried
+  table outside `Relay/RelayFence.AllowedOnFencedCloud` (FR-11: accounts, recovery codes, `Doctor`, the entitlement,
+  bell rows), reading the current relay through `ClinicRelayRepository.CurrentFor` on the save's own transaction.
+  ⚠️ A path with no request behind it must ask **`IClinicWriteFence`** (`Relay/ClinicWriteFence`) before it acts — the
+  agenda job, the monthly dépenses, the reminder outbox (it sends before it saves), the catalogue and Google backfills
+  do; `RelayFenceCoverageTests` derives the rest.
+- **« Reprendre la main » (D19)** — the PC reports the ack its takeover was made under (`HoldingUnderAckSeq`); a cloud
+  that reclaimed after it answers `Reclaimed`, and `RelayFollower` then stops the copy (`OverruledReason`) **before**
+  ending the lease (the work marked unreturned) — a restart between the two finds a PC still holding and is told again.
+- **Number promise (D16)**: `Persistence/NumberPromises.cs`. `NumberedDocuments` reads off a save the gapless numbers
+  it assigns (`Invoice` / `TreatmentPlan` / `CreditNote`, derived — a fourth numbered entity fails
+  `Every_Numbered_Document_In_The_Model_Is_Covered`); `ApplicationDbContext.SaveChangesAsync` plans them **after** the
+  rows are written (a collision fails on its unique index first) through `NumberPromiseCoordinator`, and
+  `NumberPromiseTransactionInterceptor` confirms them **just before the commit**, whoever opened the transaction. For a
+  cabinet whose PC could take over (`ClinicWriteLease.PcMustConfirmNumbers`) the numbers go to the PC's long poll
+  (`IRelayPromiseBroker`, `POST /api/relay/promises`); not kept in 3 s → `ClinicFencedException` `relay_unconfirmed`, the
+  save rolled back. ⚠️ **No numbering handler knows about it** — that is the design. On the PC, `RelayNumberPromiseStore`
+  keeps each promise (raw SQL, never copied) and the three `GetMaxSequenceForYearAsync` take max(held, promised).
+- **The return (D18, slice a)**: while it accepts saves, the PC writes its **own** `ClinicChanges` (`ClinicChangeCapture`
+  — cursor created by the first save after the takeover, `INSERT … ON CONFLICT`; a save re-checks the lease after taking
+  the cursor's row lock). `Relay/RelayHandback` (driven by the follower while it holds): 2 min of answered heartbeats →
+  `RelayLease.BeginHandback` (saves refused, `relay_handing_back`) → `ClinicRelayRowStore.Handback.cs` `ReadCutAsync`
+  (takes the cursor lock first, then reads log, rows, journal, sign-in traces, spent codes in one snapshot) → missing files
+  → `POST relay/handback` → `ForgetCutAsync` + `CompleteReturn`; the next heartbeat names the handback and the cloud
+  releases (two phases — the cloud stays fenced until then). Cloud side `ApplyReturnAsync` runs **in the caller's
+  transaction** (`RelayScope` not owned): deletes, upserts with the cloud's own columns kept (AC-5.7), every key checked
+  to be the PC's cabinet before and after, the sign-in merge, and one `ClinicChange` (`Origin = Relay`) per key so the
+  PC's copy follows. ⚠️ A lost answer: same handback id for 30 s with saves refused, then saves again and a **new** id.
+- **After the return (D18b1)**: phase 2 runs `Application/Features/Relay/RelayReturnAftermath` after the commit —
+  every appointment the return wrote (`ClinicRelayRowStore.KeysWrittenByReturnAsync`, `Origin = Relay`) to Google
+  Agenda, and every realtime key (`RealtimeResourceResolver.AllKeys()`) sent once, since the cut's rows arrived in SQL.
+  The dispatcher sends one reminder per visit when tiers collide (`NotificationRepository.HasCloserDueReminderAsync`,
+  EC-16). « Modifications à vérifier » has its repository (`RelayReviewItemRepository`) and a bell row
+  (`RelayAlert.ToReview`, counted by `RelayWatchJob`).
+- **During the cut and before the return (D18b3a)**: the PC registers the agenda's progress and the monthly dépenses
+  (`DeploymentProfile.RunsCutJobs`); both act only while it holds (`IClinicWriteFence`). On another cloud build while
+  holding (EC-11) `RelayFollower.UpdateBeforeReturnAsync` steps `RelayUpdater` with saves still taken; its last step
+  (`RefuseSavesForUpdateAsync`) waits for `RelayHandback.IsStable`, refuses saves (`BeginHandback`) and the install runs —
+  no stand-down, the PC holds the cut. The new build returns it at its first answered heartbeat.
+- **The PC's clock (D20b)**: `RelayLease.ExchangeAsync` compares each ack's cloud time (plus half the round trip) with
+  Windows' and, beyond 30 s on an answer quicker than 5 s, sets it (`Relay/RelaySystemClock.cs` — `WindowsSystemClock`,
+  `SetSystemTime` after enabling `SeSystemtimePrivilege`). ⚠️ Only `Extensions` passes the Windows clock: a lease built
+  without one (every test, every tool) never moves time. Cannot set it → `ClockError` on the lease, no takeover, the
+  cloud reads « Horloge fausse » and never arms it. `RelayFeedJob` sets Windows Update's active hours (policy keys,
+  `Relay/WindowsUpdateHours.cs`) hourly from the cabinet's hours (`Application/Features/Relay/RelayUpdateHours`).
+- **The cause of a cut (D20)**: `RelayLeaseKeeper` takes an optional `IInternetProbe` and, at the takeover and every
+  30 s while holding, records on the lease (`CutCause`, cleared at the next takeover) whether the public internet
+  answers — yes means « Le cloud est injoignable » (EC-20), no « Internet coupé ». ⚠️ Timed on `RelayLease.Monotonic`,
+  never the wall clock, which D20b may move. `RelayLocalStatus.CutCause` reads it only while holding.
+- **Discovery (D21)**: `Relay/RelayDiscovery.cs` — the UDP request format (`APEXA-RELAY-DISCOVER/1 <relayId>`, port
+  47950) and who is answered: the paired relay only, a private source only, silence otherwise. Both shells carry the
+  same constants. Driven by the API's `RelayDiscoveryResponder`.
+- **Prepared sessions (D22)**: `Relay/RelayAssertionKeys.cs` — `RelayAssertionKeys` (cloud: 32 random bytes per PC,
+  protected on `ClinicRelay.AssertionKeyProtected`, sealed for the PC with `RelaySecretEnvelope`), `RelayAssertionKeyStore`
+  (PC: `.local/relay-assertion-key`, kept by `RelayFollower` from the heartbeat ack, deleted by `pair-relay`) and
+  `RelayLocalAssertionKeyReader` (what `TradeRelayAssertionCommand` checks against). The ticket format is
+  `Application/Features/Relay/RelayAssertion` (HMAC, token version inside).
+- **Log retention (D27)**: `ClinicRelayRowStore.PruneChangesAsync` deletes a cabinet's change rows below a seq and
+  older than an instant, 5 000 per transaction. Driven by the API's `PruneClinicChangesJob` with the PC's confirmed
+  seq; ⚠️ strictly **below** it — the row at the PC's position is what `ReadChangesAsync` fingerprints, and losing it
+  reads as « went back » and stops the copy for good.
+- **A restored cloud (D18b3b, AC-9.4)**: `ClinicChangeCursor.Epoch`/`EpochFromSeq` is the restore mark
+  (`ClinicRelayRowStore.Gap.cs`: `MarkEpochAsync` at cloud startup and per heartbeat, `ChangedSinceRestoreAsync`,
+  `RowHashesAsync` with the cloud's own columns left out, `ReadRowsAsync` on the PC). The PC's `Relay/RelayGap` sends
+  what the cloud lacks once (`GapId` in the follower state), files first; the cloud is fenced meanwhile
+  (`ClinicRelay.IsRecoveringGap`, 15 min cap, `relay_restoring`). ⚠️ `MarkEpochAsync` must decide « ambient or own
+  transaction » **before** opening its scope — asking afterwards always says ambient and the mark never commits.
+- **« À reprendre » (D18b2, US-7)**: a PC stopped by « Reprendre la main » (`OverruledReason`) holding an unreturned cut
+  reads it (`RelayHandback.ListOverruledAsync`, same read and file upload as a handback) and sends it to
+  `relay/handback/overruled`; once the cloud answers it drops its log, ends the unreturned mark
+  (`RelayLease.ForgetUnreturned`) and copies the cloud afresh (`ReseedNeeded`) — the one stop that is undone. A refusal
+  or silence keeps the cut and tries next tick. `RelayReviewItemRepository` pages and counts either list (`reEnter`).
+- **Idempotency (D17)**: `Persistence/IdempotencyStore` — the replay keys of a cabinet's saves in `IdempotencyRecords`,
+  claimed with `INSERT … ON CONFLICT DO NOTHING` and completed / released in **raw SQL** on the request's own context, so a
+  claim survives the save's rollback and touches no change log, audit row or fence. ⚠️ **Per side**: excluded from the
+  archive and the copy (`ClinicArchiveScope.Excluded`); what travels is the key stamped on each `ClinicChange` by
+  `HttpIdempotencyKeyAccessor` (the middleware's `HttpContext.Items`). 48 h purge beside each claim; a claim older than
+  2 min with no answer is free again.
+- **Device reports (AC-6.2)**: each heartbeat carries the PC's HTTPS port (`Hosting:HttpsPort`) and first IPv4 gateway
+  (`RelayHostFacts.GatewayAddress`); the cloud stores them on `ClinicRelay` with the address the heartbeat came from
+  (`PublicAddress`, through `ClientIp.Resolve`). A device is « on the cabinet's network » when its request comes from that
+  line (IPv4 exact, IPv6 same /64) **and** its own gateway is the PC's (`ClinicRelay.IsOnCabinetNetwork`) — a gateway alone
+  is the same `192.168.1.1` in most homes. ⚠️ A dual-stack cabinet whose PC and tablet reach the cloud over different
+  families never counts: the fail-safe direction, and the admin's « Reprendre la main » remains.
+- **Promotion (PC side, D11)**: `RelayPromotionCode` (ECDSA P-256 over the exact bytes of
+  `APEXA-PROMO-1.<payload>`, bound to the PC's `RelayId` + `ClinicId`, ≤ 30 days) verified against
+  **`VendorPublicKey`, a compiled-in constant** — no configuration can make a PC trust another key; rotating means a new
+  constant, and every private key that ever shipped must be kept, since a PC verifies with the key of its last build.
+  `RelayPromoter` refuses (wrong code · a layer that is not a relay's · `CloudServesAsync` = the cloud's own `/health`
+  healthy) **before** writing anything, then journal row → `RelayInstallLayer.SwitchToLocalServer` (⚠️ leaves no
+  `ClinicRelay` substring — the installer's `ExistingInstall` matches on it) → follower state released →
+  `.local/relay-promotion.json`.
+- **Uninstall (PC side)**: `RelayUninstaller`, driven by the API's `uninstall-relay [--erase]` verb (the installer's
+  uninstall step, service stopped). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
+  silent cloud may be a lost one, and then this PC is the cabinet's last copy; a copy stopped by a cloud that went back
+  is never erased either. `pair-relay` resets `relay-state.json`: the old cursor would stop a new pairing for good.
+
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live
   caller is `TrustController`, which puts the LAN trust page's URL on screen for a phone to scan. It is what

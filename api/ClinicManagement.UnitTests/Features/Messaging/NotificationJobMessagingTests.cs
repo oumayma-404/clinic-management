@@ -213,6 +213,7 @@ public class NotificationJobMessagingTests
                 new Mock<IClinicSubscriptionRepository>().Object,
                 Availability.Object, Allowances.Object, ReminderSettings.Object,
                 new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+                ClinicManagement.UnitTests.Common.TestFence.None,
                 NullLogger<NotificationJob>.Instance);
         }
     }

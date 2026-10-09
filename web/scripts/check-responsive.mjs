@@ -4335,6 +4335,83 @@ check(
   },
 );
 
+check(
+  "relay-room-sentence-matches-installer",
+  "N50",
+  "The PC de secours room refusal is the same sentence in the offer and in the installer",
+  "AC-1.8 refuses a PC without room for the cabinet's records and files twice over, and says it twice by design: the " +
+    "offer checks before a code is issued (so no place is taken for a PC that cannot hold the copy), and the " +
+    "installer checks again before copying, because a disk can fill in between. Two wordings of one refusal read " +
+    "as two different problems. The pieces of « Il faut N Go libres sur ce PC (M Go disponibles). » are compared " +
+    "between `components/relay/relay-install.ts` and `packaging/setup/clinic-setup.iss`.",
+  () => {
+    const TS = "components/relay/relay-install.ts";
+    const ISS = "../packaging/setup/clinic-setup.iss";
+
+    const tsFile = ALL_FILES.find((f) => rel(f) === TS);
+    if (!tsFile) {
+      return [{ file: TS, text: "the offer's rules are gone - the pairing needs retargeting" }];
+    }
+
+    let issSrc;
+    try {
+      issSrc = readFileSync(join(WEB_ROOT, ISS), "utf8");
+    } catch {
+      return [{ file: TS, text: "the installer is unreadable at " + ISS + " - a moved file breaks the pairing silently" }];
+    }
+
+    const tsSrc = read(tsFile);
+    const pieces = ["Il faut ", " Go libres sur ce PC (", " Go disponibles)."];
+    const problems = [];
+    for (const piece of pieces) {
+      if (!tsSrc.includes(piece)) {
+        problems.push({ file: TS, text: "the offer no longer says « " + piece.trim() + " »" });
+      }
+      if (!issSrc.includes("'" + piece) && !issSrc.includes(piece + "'")) {
+        problems.push({ file: ISS, text: "the installer no longer says « " + piece.trim() + " »" });
+      }
+    }
+
+    return problems;
+  },
+);
+
+check(
+  "api-writes-carry-idempotency-key",
+  "N51",
+  "Every write the app sends to the clinic API carries an Idempotency-Key (`withWriteKey`)",
+  "`clinic-pc-copy` D17 / FR-6: a save pressed again after its answer was lost must be answered again, never " +
+    "recorded twice. The server can only do that for a request that carries a key, and `lib/api/client.ts` is the one " +
+    "place a write is sent — so each exported function there that sends POST / PUT / DELETE / PATCH must run through " +
+    "`withWriteKey`, which also reuses the key of an identical write whose outcome is unknown. A new write verb that " +
+    "forgets it would be the one door through which a double save gets in.",
+  () => {
+    const CLIENT = "lib/api/client.ts";
+    const file = ALL_FILES.find((f) => rel(f) === CLIENT);
+    if (!file) return [{ file: CLIENT, text: "the API client is gone — retarget this check" }];
+
+    const src = read(file);
+    const blocks = src.split(/\nexport async function /).slice(1);
+    const offenders = [];
+    let writes = 0;
+    for (const block of blocks) {
+      const name = block.slice(0, block.indexOf("(")).replace(/<.*$/, "").trim();
+      if (!/method:\s*'(POST|PUT|DELETE|PATCH)'/.test(block)) continue;
+      writes++;
+      if (!/\bwithWriteKey\(/.test(block)) {
+        offenders.push({ file: CLIENT, text: `\`${name}\` sends a write without \`withWriteKey\` — it carries no Idempotency-Key` });
+      }
+      if (!/apiHeaders\([^)]*,\s*key\)/.test(block)) {
+        offenders.push({ file: CLIENT, text: `\`${name}\` does not hand its key to \`apiHeaders\` — the header is never sent` });
+      }
+    }
+    if (writes < 6) {
+      return [{ file: CLIENT, text: `found only ${writes} write function(s) — the client's shape changed and this check measures nothing` }];
+    }
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

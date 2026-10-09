@@ -93,10 +93,20 @@ public sealed record AuditChainFacts(IReadOnlyList<AuditChainWalkResult> Chains)
 /// rotation, on <see cref="InternalCertificateFact"/>'s precedent — this verb is the thing already run before and
 /// after every schema change, so it is where a remaining life is actually seen.
 /// </param>
+/// <param name="CertificateRequired">
+/// Whether this deployment kind must encrypt the ring with a certificate (only the hosted one). Defaults to true
+/// so a reader that does not know the profile keeps the strict reading.
+/// </param>
+/// <param name="ProtectedByDpapi">
+/// Whether the ring is encrypted by Windows DPAPI instead — a LAN install running as a Windows service. That is
+/// real protection at rest, and reading it as « NOT encrypted » flagged every LAN install.
+/// </param>
 public sealed record SecretProtectionFacts(
     bool KeyRingIsCertificateProtected,
     int? ProtectingCertificateDaysRemaining,
-    IReadOnlyList<SecretFamilyFact> Families);
+    IReadOnlyList<SecretFamilyFact> Families,
+    bool CertificateRequired = true,
+    bool ProtectedByDpapi = false);
 
 /// <summary>
 /// One protected column family: how many rows hold ciphertext, and how many of those are not yet under the

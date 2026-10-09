@@ -117,6 +117,9 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string PlatformConsole = "PlatformConsole";
 
+    /// <summary>A PC de secours following its clinic (<c>clinic-pc-copy</c>): a token whose subject is a relay, never a person.</summary>
+    public const string ClinicRelayPeer = "ClinicRelayPeer";
+
     /// <param name="isLocalMode">
     /// When true (Local/offline mode — FR-E3 release gate) a <see cref="AuthorizationOptions.FallbackPolicy"/>
     /// of <c>RequireAuthenticatedUser()</c> is installed so every endpoint lacking an explicit
@@ -148,6 +151,12 @@ public static class AuthorizationPolicies
         options.AddPolicy(PlatformConsole, policy => policy
             .AddAuthenticationSchemes(PlatformConsoleScheme.Name)
             .RequireAuthenticatedUser());
+
+        options.AddPolicy(ClinicRelayPeer, policy => policy
+            .RequireAuthenticatedUser()
+            .RequireAssertion(context =>
+                (context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                 ?? context.User.FindFirst("sub")?.Value)?.StartsWith(ClinicRelay.SubjectPrefix, StringComparison.Ordinal) == true));
 
         if (isLocalMode)
         {

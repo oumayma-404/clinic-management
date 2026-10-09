@@ -124,6 +124,12 @@ public class SubscriptionWarningTests
         public Task<IReadOnlyList<StaffNotification>> GetByPatientAsync(
             Guid patientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public Task<IReadOnlyList<StaffNotification>> GetRelayAlertsAsync(
+            Guid clinicId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<Guid>> GetClinicIdsWithRelayAlertsAsync(
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
     }
 
     private sealed class Harness

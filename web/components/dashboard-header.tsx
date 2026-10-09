@@ -26,6 +26,7 @@ import { useNotifications } from "@/lib/hooks/use-notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
+import { RELAY_CARD_ID } from "@/lib/api/relay"
 import { cn } from "@/lib/utils"
 import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon, ArrowLeft } from "lucide-react"
 import { useTheme } from "next-themes"
@@ -237,6 +238,9 @@ export function DashboardHeader() {
       // calendar-import-review — the first targeted kind since Appointment/StockItem to carry an id: the record to
       // finish is a specific fiche, not a clinic-wide screen.
       router.push(`/patients/${notification.patientId}`)
+    } else if (notification.targetKind === "RelaySettings") {
+      // clinic-pc-copy AC-2.2 — admins only, like the card the row opens.
+      if (isNavItemVisible("/settings", user?.role)) router.push(`/settings#${RELAY_CARD_ID}`)
     } else if (notification.targetKind === "Subscription") {
       // clinic-subscription AC-3.4 — like the two above it carries no id; a secretary may not open « Abonnement ».
       if (isNavItemVisible("/abonnement", user?.role)) router.push("/abonnement")

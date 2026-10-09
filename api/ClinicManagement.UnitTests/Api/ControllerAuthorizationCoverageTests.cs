@@ -59,7 +59,35 @@ public class ControllerAuthorizationCoverageTests
                                       // GET /api/backup/archive and, by ScopedTokenFilter's fail-closed rule,
                                       // nothing else. While it minted an ordinary clinic-admin token this
                                       // endpoint was a hole and this guard was right to be red about it.
-        "Auth.Logout",               // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
+        "RelayPeer.Pair",            // clinic-pc-copy: the installer on the PC de secours, before it has any
+                                     // credential. The one-time pairing code an admin issued behind step-up IS
+                                     // the credential (hashed, 10 min, single-use), rate-limited, 404 where the
+                                     // deployment publishes no change feed.
+        "RelayPeer.Token",           // the PC exchanging its own secret (header, hashed) for a SCOPED
+                                     // `clinic-relay` token that reaches the RelayPeer actions and nothing else —
+                                     // `Backup.ExchangeArchiveGrant`'s shape and reasoning.
+        "RelayPeer.Erased",          // a RETIRED PC saying its copy is erased (AC-8.2): its own secret, since the
+                                     // token exchange refuses a retired PC. It records a date and a journal row for
+                                     // that one PC and nothing else; rate-limited like the exchange.
+        "RelayPeer.Uninstalled",     // the uninstaller saying this PC is going (AC-8.3): its own secret, for the same
+                                     // reason — it retires that one PC and writes one journal row; rate-limited.
+        "RelayPeer.Installer",       // the server installer of THIS build (D10): the product every cabinet already
+                                     // gets — the one-time code is what makes it a PC de secours. Rate-limited,
+                                     // 404 where no change feed is published.
+        "Relay.ReleasePairingCode",  // the Windows app giving back a code its installer never presented (AC-1.11):
+                                     // the code IS the credential, it can only free that one unused setup, and every
+                                     // outcome is the same 204; rate-limited like the pairing.
+        "RelayLocal.Holding",        // clinic-pc-copy Part 3, PC only: « do you hold the cabinet's saves? » for the
+                                     // cabinet's apps, asked before anyone is signed in here; one boolean the strip
+                                     // already shows everyone.
+        "Auth.RelaySession",         // clinic-pc-copy D22, PC only: a cabinet app trades the cloud's ticket for a
+                                     // session there; nobody is signed in on this PC yet. HMAC'd by a key only the
+                                     // cloud and this PC hold; one sentence whatever is wrong; rate-limited.
+        "Auth.RelayPairingCode",     // « Installer le PC de secours ici… » on any PC (AC-1.5): an admin's email,
+                                     // password AND code, checked by running the sign-in itself (its lockout, its
+                                     // replay guard), whose session is ended before the answer leaves. Under
+                                     // /api/auth so the sign-in's per-account rate limit applies.
+        "Auth.Logout",              // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
                                      // one more: the credential in the body IS the authentication, and demanding
                                      // a valid access token would refuse exactly the case that most needs
                                      // revoking — a browser signing out after its 30-minute token expired. It

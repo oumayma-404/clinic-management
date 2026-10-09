@@ -63,6 +63,12 @@ public class StaffNotificationConfiguration : IEntityTypeConfiguration<StaffNoti
         builder.Property(n => n.MessagingAllowanceMonth)
             .HasMaxLength(ClinicMessagingMonth.MonthKeyLength);
 
+        // Admin-only rows (clinic-pc-copy D9) and the PC de secours problem a row names — its dedupe key.
+        builder.Property(n => n.TargetRole)
+            .HasMaxLength(StaffNotification.MaxTargetRoleLength);
+        builder.Property(n => n.RelayAlert)
+            .HasConversion<int>();
+
         builder.Property(n => n.CreatedAt)
             .IsRequired();
 

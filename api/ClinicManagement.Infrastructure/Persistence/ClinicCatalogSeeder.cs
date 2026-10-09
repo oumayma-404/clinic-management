@@ -26,11 +26,13 @@ namespace ClinicManagement.Infrastructure.Persistence;
 public class ClinicCatalogSeeder : IClinicCatalogSeeder
 {
     private readonly ApplicationDbContext _context;
+    private readonly IClinicWriteFence _fence;
     private readonly ILogger<ClinicCatalogSeeder> _logger;
 
-    public ClinicCatalogSeeder(ApplicationDbContext context, ILogger<ClinicCatalogSeeder> logger)
+    public ClinicCatalogSeeder(ApplicationDbContext context, IClinicWriteFence fence, ILogger<ClinicCatalogSeeder> logger)
     {
         _context = context;
+        _fence = fence;
         _logger = logger;
     }
 
@@ -39,6 +41,14 @@ public class ClinicCatalogSeeder : IClinicCatalogSeeder
         var clinicIds = await _context.Clinics.Select(c => c.Id).ToListAsync(cancellationToken);
         foreach (var clinicId in clinicIds)
         {
+            // clinic-pc-copy D15: a cabinet on its PC de secours is seeded at the next start instead — a refused save
+            // here would stop the cloud from starting during a cut.
+            if (await _fence.RefusesAsync(clinicId, cancellationToken))
+            {
+                _logger.LogInformation("Clinic {ClinicId} is on its PC de secours; its catalogue backfill waits", clinicId);
+                continue;
+            }
+
             await SeedForClinicAsync(clinicId, cancellationToken);
         }
     }

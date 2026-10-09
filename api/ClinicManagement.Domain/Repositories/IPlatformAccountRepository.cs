@@ -30,4 +30,11 @@ public interface IPlatformAccountRepository
     Task<PlatformAccount?> GetForStateCheckAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task AddAsync(PlatformAccount account, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The addresses of every active console account — who the daily backup alert is sent to when the operator has
+    /// named nobody (<c>server-loss-recovery</c> Part 3). Addresses only: the job needs somebody to tell, never an
+    /// account it could act on, so this cannot become the list a future screen is built on.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetActiveEmailsAsync(CancellationToken cancellationToken = default);
 }
