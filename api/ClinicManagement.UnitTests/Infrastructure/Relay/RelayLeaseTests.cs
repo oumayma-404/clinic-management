@@ -237,6 +237,49 @@ public sealed class RelayLeaseTests : IDisposable
         Assert.Equal(1, _box.Asked);
     }
 
+    // The first prod test (2026-10-09): the PC's own Wi-Fi was cut, then came back. Its « unanswered » dated from the
+    // outage, the box answered again — and it took the saves at once, internet working. It must ask the cloud again.
+    [Fact]
+    public async Task A_Pc_Back_On_The_Network_Asks_The_Cloud_Again_Before_Taking_Over()
+    {
+        var lease = await ArmedThenCutAsync();
+        var keeper = Keeper(lease);
+
+        _box.Answers = false;
+        Advance(120);
+        Assert.False(await keeper.TickAsync(default));
+
+        _box.Answers = true;
+        Advance(5);
+        Assert.False(await keeper.TickAsync(default));
+        Assert.False(lease.IsHolding);
+
+        // The next heartbeat is answered: nothing ever changes hands.
+        await lease.ExchangeAsync(_ => Answer(1002, armed: true), default);
+        Advance(5);
+        Assert.False(await keeper.TickAsync(default));
+        Assert.False(lease.IsHolding);
+    }
+
+    // …but if the cloud really is gone, a heartbeat asked WITH the box answering is the cut, and the PC takes over.
+    [Fact]
+    public async Task A_Pc_Back_On_The_Network_Takes_Over_Once_The_Cloud_Fails_To_Answer_Again()
+    {
+        var lease = await ArmedThenCutAsync();
+        var keeper = Keeper(lease);
+
+        _box.Answers = false;
+        Advance(120);
+        Assert.False(await keeper.TickAsync(default));
+
+        _box.Answers = true;
+        Advance(5);
+        await lease.ExchangeAsync(_ => NoAnswer(), default);
+        Advance(1);
+        Assert.True(await keeper.TickAsync(default));
+        Assert.True(lease.IsHolding);
+    }
+
     // A PC that slept, or whose copy tick was busy, has an old ack without the cloud being gone: it must ASK first. The
     // first heartbeat after it wakes is answered, and nothing changes hands.
     [Fact]
