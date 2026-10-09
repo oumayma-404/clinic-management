@@ -87,12 +87,22 @@ object RelaySwitch {
     }
 
     /** What the unreachable screen adds while the PC answers but does not hold (AC-3.3, then AC-3.8). */
-    fun waitingLine(cloudLostAtMs: Long, nowMs: Long): String =
-        if (nowMs - cloudLostAtMs < TAKEOVER_EXPECTED_WITHIN_MS) {
-            "Internet coupé — le PC de secours prend le relais dans quelques instants."
-        } else {
-            "Le PC de secours n'était pas à jour : il ne peut pas prendre le relais."
+    fun waitingLine(cloudLostAtMs: Long, nowMs: Long): String {
+        val elapsed = nowMs - cloudLostAtMs
+        if (elapsed >= TAKEOVER_EXPECTED_WITHIN_MS) {
+            return "Le PC de secours n'était pas à jour : il ne peut pas prendre le relais."
         }
+        // Counted from when THIS app lost the cloud — close to the PC's own count (60 s after its last answer).
+        val left = Math.ceil((TAKEOVER_AFTER_MS - elapsed) / 5000.0).toInt() * 5
+        return if (left > 0) {
+            "Internet coupé — le PC de secours prend le relais dans $left secondes."
+        } else {
+            "Internet coupé — le PC de secours prend le relais dans quelques instants."
+        }
+    }
+
+    /** When the PC de secours takes over after its last answer from the cloud (`ClinicWriteLease.PcTakesOverAfter`). */
+    private const val TAKEOVER_AFTER_MS = 60_000L
 
     /** The two cookie strings the PC's own sign-in route writes — `HttpOnly`, `Secure`, `Lax`, its expiry. */
     fun cookies(session: Session): Pair<String, String> {

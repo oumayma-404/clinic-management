@@ -15,7 +15,7 @@ namespace ClinicManagement.Domain.Services;
 ///   said « armé », and only while the cabinet's internet box answers (AC-6.6).</item>
 /// </list>
 /// <para>An ack is received after it is sent, and a confirmed ack is never newer than the last one received, so the
-/// PC's moment is always at least 30 s after the cloud's — on any line, losing requests, answers or both. The cost is a
+/// PC's moment is always at least 15 s after the cloud's — on any line, losing requests, answers or both. The cost is a
 /// cloud that locks up to ~10 s sooner after a cut (the confirmation trails the newest ack by one heartbeat).</para>
 ///
 /// <para>⚠️ <b>Disarming is two-phase (D14)</b>: an ack saying « pas armé » counts only once the PC has confirmed it,
@@ -23,8 +23,10 @@ namespace ClinicManagement.Domain.Services;
 /// </summary>
 public static class ClinicWriteLease
 {
-    public static readonly TimeSpan CloudFencesAfter = TimeSpan.FromSeconds(60);
-    public static readonly TimeSpan PcTakesOverAfter = TimeSpan.FromSeconds(90);
+    // 45 s / 60 s since 2026-10-09 (owner: « 60 s, not 90 »). The margin is what keeps the two from both accepting
+    // saves, and any positive one does (an ack is received after it is sent); 15 s leaves room for a slow answer.
+    public static readonly TimeSpan CloudFencesAfter = TimeSpan.FromSeconds(45);
+    public static readonly TimeSpan PcTakesOverAfter = TimeSpan.FromSeconds(60);
 
     /// <summary>A cloud clock this far behind an ack it already sent has gone back, not merely jittered.</summary>
     public static readonly TimeSpan ClockStepTolerance = TimeSpan.FromSeconds(1);

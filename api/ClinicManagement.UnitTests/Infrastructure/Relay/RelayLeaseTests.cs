@@ -134,12 +134,12 @@ public sealed class RelayLeaseTests : IDisposable
     // ---- the takeover (FR-3, D13) ---------------------------------------------------------------------------------
 
     [Fact]
-    public async Task An_Armed_Pc_Whose_Cloud_Stopped_Answering_Takes_Over_At_Ninety_Seconds()
+    public async Task An_Armed_Pc_Whose_Cloud_Stopped_Answering_Takes_Over_At_Sixty_Seconds()
     {
         var lease = await ArmedThenCutAsync();
         var keeper = Keeper(lease);
 
-        Advance(79.9);
+        Advance(49.9);
         Assert.False(await keeper.TickAsync(default));
         Assert.False(lease.IsHolding);
 
