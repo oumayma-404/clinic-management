@@ -667,6 +667,12 @@ no consent flag and no audit of which patient was sent.
   holding (EC-11) `RelayFollower.UpdateBeforeReturnAsync` steps `RelayUpdater` with saves still taken; its last step
   (`RefuseSavesForUpdateAsync`) waits for `RelayHandback.IsStable`, refuses saves (`BeginHandback`) and the install runs —
   no stand-down, the PC holds the cut. The new build returns it at its first answered heartbeat.
+- **A restored cloud (D18b3b, AC-9.4)**: `ClinicChangeCursor.Epoch`/`EpochFromSeq` is the restore mark
+  (`ClinicRelayRowStore.Gap.cs`: `MarkEpochAsync` at cloud startup and per heartbeat, `ChangedSinceRestoreAsync`,
+  `RowHashesAsync` with the cloud's own columns left out, `ReadRowsAsync` on the PC). The PC's `Relay/RelayGap` sends
+  what the cloud lacks once (`GapId` in the follower state), files first; the cloud is fenced meanwhile
+  (`ClinicRelay.IsRecoveringGap`, 15 min cap, `relay_restoring`). ⚠️ `MarkEpochAsync` must decide « ambient or own
+  transaction » **before** opening its scope — asking afterwards always says ambient and the mark never commits.
 - **« À reprendre » (D18b2, US-7)**: a PC stopped by « Reprendre la main » (`OverruledReason`) holding an unreturned cut
   reads it (`RelayHandback.ListOverruledAsync`, same read and file upload as a handback) and sends it to
   `relay/handback/overruled`; once the cloud answers it drops its log, ends the unreturned mark

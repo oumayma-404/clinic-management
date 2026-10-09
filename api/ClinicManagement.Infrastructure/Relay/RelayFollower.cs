@@ -152,7 +152,7 @@ public sealed class RelayFollower
                 return Save(await _updater.StepAsync(state, ack.Value.CloudBuild, Save, AnnounceUpdatingAsync, cancellationToken));
             }
 
-            return Save(await _gap.SendAsync(state, ack.Value, local, Save, cancellationToken) ?? state);
+            return Save(await _gap.SendAsync(state, ack.Value, local, Save, cancellationToken));
         }
 
         // Any other stopped copy may hold more than the cloud: it is never updated toward that cloud — a human decides.
@@ -276,12 +276,11 @@ public sealed class RelayFollower
                 return await UpdateBeforeReturnAsync(state, call.Value, cancellationToken);
             }
 
-            if (await _gap.SendAsync(state, call.Value, local, Save, cancellationToken) is not { } sent)
+            state = Save(await _gap.SendAsync(state, call.Value, local, Save, cancellationToken));
+            if (RelayGap.Pending(state))
             {
                 return state;
             }
-
-            state = Save(sent);
         }
 
         // D18: the internet is back — once it has held for two minutes, the cut goes back to the cloud.

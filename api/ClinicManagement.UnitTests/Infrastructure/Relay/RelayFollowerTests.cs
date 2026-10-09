@@ -71,12 +71,20 @@ public sealed class RelayFollowerTests : IDisposable
     private Task<RelayFollowerState> TickAsync(RelayFollower? follower = null) =>
         (follower ?? Follower()).TickAsync(Local, CancellationToken.None);
 
-    private void Seeded(string epoch = "e1", long seq = 40, int filesTotal = 0) =>
+    private void Seeded(string epoch = "e1", long seq = 40, int filesTotal = 0)
+    {
         _store.Save(new RelayFollowerState
         {
             Epoch = epoch, AppliedSeq = seq, HeadFingerprint = "h" + seq, RowsSeededAtUtc = T0,
             FilesTotal = filesTotal, FilesCopied = filesTotal, LastDigestAtUtc = _now,
         });
+
+        // The cloud this copy followed is at least where the copy is — lower is a cloud that went back (AC-9.4).
+        if (_cloud.HighWater == 0)
+        {
+            _cloud.HighWater = seq;
+        }
+    }
 
     // ---- the first copy ------------------------------------------------------------------------------------------
 
@@ -638,12 +646,13 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Empty(Directory.GetFiles(Path.Combine(_dir, "updates")));
     }
 
-    // A stopped copy may hold more than the cloud: it is never updated toward that cloud either.
+    // A copy stopped for another reason than a cloud that went back (AC-9.4 sends that one's gap, under the cloud's
+    // build) may hold more than the cloud: it is never updated toward that cloud — a human decides.
     [Fact]
     public async Task A_Stopped_Copy_Is_Never_Updated()
     {
         Seeded(seq: 40);
-        _store.Save(_store.Load() with { StoppedReason = RelayFeedDecisions.WentBackReason });
+        _store.Save(_store.Load() with { StoppedReason = "L'état de la copie est illisible sur ce PC." });
         _cloud.HighWater = 40;
         _cloud.UpdateNeeded = true;
         _cloud.CloudBuild = "build-2";
@@ -829,7 +838,7 @@ public sealed class RelayFollowerTests : IDisposable
             () => new RelayHostReport(new[] { "192.168.1.10" }, "FP", 100L * 1024 * 1024 * 1024, 5001, "192.168.1.1"),
             new RelayUpdater(_installer, _launcher, Path.Combine(_dir, "updates"), Path.Combine(_dir, "logs"),
                 NullLogger.Instance, () => _now),
-            _lease, NullLogger.Instance, () => _now, handback);
+            _lease, NullLogger.Instance, () => _now, handback, new RelayGap(_cloud, ClinicId, NullLogger.Instance, () => _mono));
     }
 
     private RelayLocalSide HandingBackLocal => new(_rows, _rows, _files.Object, _handbackStore);
@@ -1037,6 +1046,94 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.NotNull(_cloud.Reports[^1].ReturnStuckSinceUtc);
     }
 
+    // ---- a cloud restored behind this copy (AC-9.4, EC-21) ---------------------------------------------------------
+
+    /// <summary>The cloud came back from a backup: another history, behind the copy; one Patient row it lost (p2).</summary>
+    private void RestoredCloud()
+    {
+        _cloud.AckEpoch = "e2";
+        _cloud.HighWater = 10;
+        _cloud.Snapshot = ("e2", 10, null);
+        _rows.Digests.Enqueue(new[] { new RelayTableDigest("Patient", 2, "mine"), new RelayTableDigest("Expense", 1, "same") });
+        _cloud.Digest = new[] { new RelayTableDigest("Patient", 1, "theirs"), new RelayTableDigest("Expense", 1, "same") };
+        _cloud.GapHashes["Patient"] = new[] { new RelayRowHashDto("p1", "a") };
+        _rows.RowHashes["Patient"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["p1"] = "a", ["p2"] = "b" };
+    }
+
+    // [AC-9.4] The copy stops on the first answer from a cloud that went back — and says which history it follows, so
+    // the cloud stays read-only — then sends only the rows the cloud lacks or holds otherwise, and copies it afresh.
+    [Fact]
+    public async Task A_Copy_Behind_A_Restored_Cloud_Sends_What_It_Lost_Then_Copies_Afresh()
+    {
+        Seeded(seq: 40);
+        RestoredCloud();
+        var follower = HandbackFollower();
+
+        var stopped = await follower.TickAsync(HandingBackLocal, CancellationToken.None);
+        Assert.Equal(RelayFeedDecisions.WentBackReason, stopped.StoppedReason);
+        Assert.Equal("e1", _cloud.Reports[^1].FollowedEpoch);
+        Assert.Empty(_cloud.Gaps);
+
+        Advance(10);
+        var resumed = await follower.TickAsync(HandingBackLocal, CancellationToken.None);
+
+        var gap = Assert.Single(_cloud.Gaps);
+        Assert.Equal(new[] { ("Patient", "p2") }, gap.Rows.Select(r => (r.Table, r.Key)));
+        Assert.Equal(new[] { "Patient" }, _cloud.HashesAsked);
+        Assert.Null(resumed.StoppedReason);
+        Assert.Null(resumed.GapId);
+        Assert.True(resumed.ReseedNeeded);
+        Assert.Equal("e2", resumed.Epoch);
+        Assert.Equal(10, resumed.AppliedSeq);
+    }
+
+    // [AC-9.4] A gap the cloud did not take stays here, is tried again a minute later under the SAME id (the cloud
+    // applies it once), and the copy keeps holding what the cloud lost meanwhile.
+    [Fact]
+    public async Task A_Gap_That_Did_Not_Land_Is_Kept_And_Sent_Again_Under_The_Same_Id()
+    {
+        Seeded(seq: 40);
+        RestoredCloud();
+        _cloud.GapStatus = RelayCallStatus.Refused;
+        var follower = HandbackFollower();
+
+        await follower.TickAsync(HandingBackLocal, CancellationToken.None);
+        Advance(10);
+        var kept = await follower.TickAsync(HandingBackLocal, CancellationToken.None);
+        Advance(10);
+        await follower.TickAsync(HandingBackLocal, CancellationToken.None);
+
+        Assert.Single(_cloud.Gaps);
+        Assert.Equal(RelayFeedDecisions.WentBackReason, kept.StoppedReason);
+
+        Advance(RelayGap.RetryAfterFailure.TotalSeconds);
+        _rows.Digests.Enqueue(new[] { new RelayTableDigest("Patient", 2, "mine") });
+        _cloud.GapStatus = RelayCallStatus.Ok;
+        await follower.TickAsync(HandingBackLocal, CancellationToken.None);
+
+        Assert.Equal(2, _cloud.Gaps.Count);
+        Assert.Equal(_cloud.Gaps[0].GapId, _cloud.Gaps[1].GapId);
+    }
+
+    // [EC-21] The cloud came back from a backup while this PC held the saves: what it lost before the cut goes back
+    // first, the cut's own work after — under the cloud's new position, so nothing it lists is the old history.
+    [Fact]
+    public async Task A_Restored_Cloud_During_A_Cut_Gets_What_It_Lost_Before_The_Cut()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+        RestoredCloud();
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 14);
+
+        Assert.Single(_cloud.Gaps);
+        Assert.Equal(0, _cloud.HandbacksBeforeEachGap.Single());
+        var handback = Assert.Single(_cloud.Handbacks);
+        Assert.Equal(10, handback.BaseAppliedSeq);
+        Assert.False(_lease.IsHolding);
+    }
+
     // [D18] The files the cut's rows name reach the cloud before the rows that name them.
     [Fact]
     public async Task The_Cuts_Files_Go_Before_Its_Rows()
@@ -1164,6 +1261,9 @@ public sealed class RelayFollowerTests : IDisposable
             throw new NotSupportedException();
 
         public Task<IReadOnlyDictionary<RelayRowKey, string>> CurrentRowsAsync(Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlySet<RelayRowKey>> ChangedSinceRestoreAsync(Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<IReadOnlyDictionary<RelayRowKey, string>> AuthorsAsync(Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken) =>
@@ -1361,6 +1461,29 @@ public sealed class RelayFollowerTests : IDisposable
         public Task<RelayCall<IReadOnlyList<RelayTableDigest>>> DigestAsync(CancellationToken cancellationToken) =>
             Task.FromResult(new RelayCall<IReadOnlyList<RelayTableDigest>>(RelayCallStatus.Ok, Digest));
 
+        // ---- AC-9.4 --------------------------------------------------------------------------------------------
+        public Dictionary<string, IReadOnlyList<RelayRowHashDto>> GapHashes { get; } = new(StringComparer.Ordinal);
+        public RelayCallStatus GapStatus { get; set; } = RelayCallStatus.Ok;
+        public List<RelayGapRequest> Gaps { get; } = new();
+        public List<int> HandbacksBeforeEachGap { get; } = new();
+        public List<string> HashesAsked { get; } = new();
+
+        public Task<RelayCall<IReadOnlyList<RelayRowHashDto>>> GapHashesAsync(string table, CancellationToken cancellationToken)
+        {
+            HashesAsked.Add(table);
+            return Task.FromResult(new RelayCall<IReadOnlyList<RelayRowHashDto>>(RelayCallStatus.Ok,
+                GapHashes.TryGetValue(table, out var hashes) ? hashes : Array.Empty<RelayRowHashDto>()));
+        }
+
+        public Task<RelayCall<RelayHandbackResultDto>> ReturnGapAsync(RelayGapRequest request, CancellationToken cancellationToken)
+        {
+            Gaps.Add(request);
+            HandbacksBeforeEachGap.Add(Handbacks.Count);
+            return Task.FromResult(GapStatus == RelayCallStatus.Ok
+                ? new RelayCall<RelayHandbackResultDto>(RelayCallStatus.Ok, new RelayHandbackResultDto(false, request.Rows.Count, 0, 0))
+                : new RelayCall<RelayHandbackResultDto>(GapStatus, null, "non"));
+        }
+
         public Task<RelayCall<string>> BlobAsync(string storageKey, CancellationToken cancellationToken)
         {
             BlobsAsked.Add(storageKey);
@@ -1419,5 +1542,23 @@ public sealed class RelayFollowerTests : IDisposable
         public Task<RelayFeedBatch> ReadChangesAsync(Guid clinicId, long after, string? fingerprint, RelayOutboundWrap wrap, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task WriteSnapshotAsync(Guid clinicId, IReadOnlyCollection<string>? tables, RelayOutboundWrap wrap, Stream output, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<string?> FingerprintAsync(Guid clinicId, long seq, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        // ---- AC-9.4 --------------------------------------------------------------------------------------------
+        public Dictionary<string, Dictionary<string, string>> RowHashes { get; } = new(StringComparer.Ordinal);
+        public List<RelayRowKey> RowsRead { get; } = new();
+
+        public Task MarkEpochAsync(Guid? clinicId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<IReadOnlyDictionary<string, string>> RowHashesAsync(Guid clinicId, string table, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, string>>(
+                RowHashes.TryGetValue(table, out var hashes) ? hashes : new Dictionary<string, string>());
+
+        public Task<IReadOnlyList<RelayRow>> ReadRowsAsync(Guid clinicId, IReadOnlyCollection<RelayRowKey> keys, CancellationToken cancellationToken)
+        {
+            RowsRead.AddRange(keys);
+            return Task.FromResult<IReadOnlyList<RelayRow>>(keys
+                .Select(k => new RelayRow(k.Table, k.Key, System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone()))
+                .ToList());
+        }
     }
 }

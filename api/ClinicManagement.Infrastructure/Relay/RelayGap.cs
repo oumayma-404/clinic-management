@@ -44,15 +44,15 @@ public sealed class RelayGap
 
     /// <summary>
     /// One attempt. The new state once the cloud holds the gap — the copy follows the cloud's history again, from a fresh
-    /// copy — or null while it waits to try again.
+    /// copy — else the state as saved, still <see cref="Pending"/> and carrying its <c>GapId</c> for the next attempt.
     /// </summary>
-    public async Task<RelayFollowerState?> SendAsync(
+    public async Task<RelayFollowerState> SendAsync(
         RelayFollowerState state, RelayHeartbeatAck ack, RelayLocalSide local,
         Func<RelayFollowerState, RelayFollowerState> save, CancellationToken cancellationToken)
     {
         if (local.Handback is null || (_retryAfter is { } after && _monotonic() < after))
         {
-            return null;
+            return state;
         }
 
         try
@@ -99,7 +99,7 @@ public sealed class RelayGap
         }
 
         _retryAfter = _monotonic() + RetryAfterFailure;
-        return null;
+        return state;
     }
 
     /// <summary>The rows this PC holds that the cloud lacks or holds otherwise; null when the cloud did not answer.</summary>

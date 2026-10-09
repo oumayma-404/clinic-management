@@ -55,6 +55,9 @@ public class ScopedTokenCoverageTests
         ["RelayPeer.HandbackFile"] = LocalAuthScopes.ClinicRelay,
         // US-7: an overruled cut, listed « À reprendre ».
         ["RelayPeer.ListOverruledCut"] = LocalAuthScopes.ClinicRelay,
+        // AC-9.4: a restored cloud's row hashes, and what it lost, sent back by its PC.
+        ["RelayPeer.GapHashes"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.ReturnGap"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.Changes"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.Snapshot"] = LocalAuthScopes.ClinicRelay,
         ["RelayPeer.Digest"] = LocalAuthScopes.ClinicRelay,

@@ -315,6 +315,12 @@ public sealed class RelayUninstallTests : IDisposable
 
         public Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(RelayHandbackRequest request, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<RelayCall<IReadOnlyList<RelayRowHashDto>>> GapHashesAsync(string table, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<RelayCall<RelayHandbackResultDto>> ReturnGapAsync(RelayGapRequest request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     public void Dispose()

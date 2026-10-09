@@ -1,61 +1,32 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-08 (session 11) · **Overall:** ~61 % · **Part 1 (La copie):** done in code (owed: the Windows
-rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~70 % (lease 1, 2, 2b, « Reprendre
-la main », device reports, D17, D16, **the return slices a, b1, b2 and b3a** done; **b3b (AC-9.4) half-built, paused by the owner — WIP commit, tests not compiling yet**) · **all scratch servers stopped**
+**Date:** 2026-10-09 (session 12) · **Overall:** ~62 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~73 % (lease 1, 2, 2b, « Reprendre
+la main », device reports, D17, D16, **the return (D18) complete** — slices a, b1, b2, b3a, b3b) · **all scratch servers stopped**
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–146, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–155, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next sub-step: FINISH Part 2 · slice b3b (D18b3b, AC-9.4 / EC-21)** — paused mid-way on 2026-10-08 at the owner's
-   request. The code is in the WIP commit « wip(relay): D18b3b … » (builds; the **test project does not compile yet**).
-   Read « D18b3b — where it stopped » below first.
+3. **Next sub-step: Part 2 · the PC's clock (D20b)** — the PC corrects Windows' clock from the cloud and holds Windows
+   Update in opening hours; then D20 (« Internet coupé » vs « Le cloud est injoignable » banners), D27 (change-log
+   pruning), D26 (the CI cut test), the screens step (banners, card states « en charge », « repris par les appareils »).
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
-## D18b3b — where it stopped (2026-10-08, paused by the owner)
+## Done in session 11–12 — D18b3b, a restored cloud's gap (AC-9.4, EC-21)
 
-**Design (decided, built):** a cloud restored from a backup is behind its PC de secours.
-- **Cloud knows it was restored:** `ClinicChangeCursor.Epoch` + `EpochFromSeq` (the restore mark), moved by
-  `IClinicRelayRowStore.MarkEpochAsync` at cloud startup (`Program.cs`, `PublishesChangeFeed`) and on each heartbeat;
-  `IRelayHandbackStore.ChangedSinceRestoreAsync` = keys this cloud changed after the mark (never `Origin = Relay`).
-- **Cloud fenced until the gap lands:** the heartbeat carries `FollowedEpoch`; `ClinicRelay.NoteFollowedEpoch` sets
-  `GapPendingSinceUtc` when the PC follows another history; `ClinicWriteLease.IsCloudFenced` refuses while
-  `IsRecoveringGap` (capped `GapFenceFor` = 15 min); sentence `RelayRefusals.Restoring`, code `relay_restoring`
-  (gate + capture both pass it). Keeps a restored cloud from re-using a note number the PC already gave.
-- **PC sends the gap:** `Relay/RelayGap.cs` — digests compared, per-row hashes (`GET relay/gap/hashes?table=`,
-  `RowHashesAsync`, cloud-kept columns left out) for differing tables only, rows read (`ReadRowsAsync`), files first
-  (`RelayHandback.SendFilesAsync`, now public static), `POST relay/gap` with a `GapId` kept in `RelayFollowerState`.
-  On success: `StoppedReason` cleared, `Epoch`/`AppliedSeq` = the cloud's, `ReseedNeeded` → fresh copy.
-  Follower: a went-back copy (`RelayGap.Pending`) sends (updating first if the cloud runs another build); while
-  **holding**, a went-back cloud gets the gap BEFORE the cut's handback (`_handback.Answered()` keeps EC-11's stability).
-- **Cloud applies it:** `ReturnRelayGapCommand` (+ `GetRelayGapHashesQuery`) — rows not changed since the restore are
-  applied through `ApplyReturnAsync`; changed ones keep the cloud's version and are listed `RelayReviewKind.KeptAfterRestore = 5`;
-  `NeverReturned` tables never travel; `ClinicRelay.RecordGapReturned` (`LastGapId/AtUtc/Rows`) makes it once per id and
-  lifts the fence; journal `RelayJournal.GapReturned`; aftermath (Google + screens).
-- **Vendor told:** `RelayIncidentKind.CloudRestored = 6`, due 24 h after `LastGapAtUtc` (`RelayVendorAlertRules`, e-mail text done).
-- Migration `20261008223819_AddRelayRestoreGap` (6 columns, no `xmin`). `WentBackReason` reworded (« renvoie au cloud ce qu'il a perdu »).
-
-**Left to do:**
-1. Test fakes: `RelayFollowerTests.FakeCloud` / `FakeRows` / `FakeHandbackStore` and `RelayUninstallTests.FakeCloud`
-   need the new members (`GapHashesAsync`, `ReturnGapAsync`, `MarkEpochAsync`, `RowHashesAsync`, `ReadRowsAsync`,
-   `ChangedSinceRestoreAsync`); check the heartbeat-handler tests' row-store mocks for `MarkEpochAsync`.
-2. New tests: `ClinicRelay.NoteFollowedEpoch`/`IsRecoveringGap` + fence + 15-min cap; `ReturnRelayGapCommand`
-   (applied vs kept + listed, NeverReturned dropped, same id = no-op, version refused); follower (went-back → gap sent
-   with only differing rows → re-seed; holding → gap before handback); vendor `CloudRestored` due/once; refusal code.
-   Check guards: `ScopedTokenCoverageTests`, `SubscriptionExemptionCoverageTests` (new `RelayPeer.ReturnGap`),
-   `RelayFenceCoverageTests`, realtime resolver (`Relay` area), anything enumerating `RelayIncidentKind`/`RelayReviewKind`.
-3. Full unfiltered suite; web gate (only a doc comment changed in `relay.ts`).
-4. Rig EC-21: dump `clinic_relay_cloud` (backup point) → seed a row on the cloud → cut → PC takes over → pc-work →
-   restore the dump into a **new** DB (e.g. `clinic_relay_cloud_r`; never drop) → run the cloud against it → expect
-   423 `relay_restoring`, the gap (the seeded row + cut rows back), then the handback, numbers continuous, PC re-copied.
-5. Docs: progress.md (blast radius « slice b3b », deviations 147+, verification row), this file, Infrastructure/API
-   CLAUDE.md, rig README, memory; then commit (replace nothing — a new commit on top of the WIP one).
+The cloud keeps a restore mark on its change cursor (`Epoch`/`EpochFromSeq`, moved at startup and on each heartbeat);
+a PC following another history (`FollowedEpoch`) keeps the cloud read-only for the cabinet (423 `relay_restoring`,
+15 min cap) until `RelayGap` has sent what the cloud lacks (digests → per-row hashes → rows, files first,
+`POST relay/gap`, once per `GapId`). Rows the cloud changed since its restore keep the cloud's version
+(`KeptAfterRestore`, listed). During a cut the gap goes before the handback. The vendor gets `CloudRestored`. Rig: real
+dump/restore into a new DB, 8 rows back 3 s after the restored cloud started, then the cut, numbers continuous.
+Details: deviations 147–155.
 
 ## The next sub-step — the return, slice b (D18b)
 
@@ -67,7 +38,7 @@ card, an overruled PC sends its cut to `POST relay/handback/overruled` and re-co
 « À reprendre » bell row. Also fixed `useUrlFilterSeed` (a `<Link>` with a query string landed on the defaults).
 **Done in b3a (deviations 143–146):** item 6 (the PC runs the agenda's progress and the monthly dépenses while it
 holds — `RunsCutJobs`) and item 5 (EC-11: fetch while working, then saves refused and the update, the new build returns at
-once). **Left:** item 8 (b3b).
+once). **Done in b3b (deviations 147–155):** item 8 — the return (D18) is complete.
 
 What slice a left, each named in deviation 128 (and 121, 124, 88, 91):
 1. **« Modifications à vérifier »** — the rows are stored (`RelayReviewItems`, AC-5.6): the admins' bell row « N

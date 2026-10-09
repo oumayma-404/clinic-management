@@ -20,11 +20,13 @@ public sealed partial class ClinicRelayRowStore
     public async Task MarkEpochAsync(Guid? clinicId, CancellationToken cancellationToken)
     {
         var epoch = await FeedEpochAsync(cancellationToken);
-        await using var scope = _db.Database.CurrentTransaction is not null
+        // Decided before opening: our own scope begins a transaction, so asking afterwards would always say « ambient ».
+        var ambient = _db.Database.CurrentTransaction is not null;
+        await using var scope = ambient
             ? await AmbientAsync(cancellationToken)
             : await OpenAsync(IsolationLevel.ReadCommitted, cancellationToken);
         await MarkEpochAsync(scope, clinicId, epoch, cancellationToken);
-        if (_db.Database.CurrentTransaction is null)
+        if (!ambient)
         {
             await scope.CommitAsync(cancellationToken);
         }
