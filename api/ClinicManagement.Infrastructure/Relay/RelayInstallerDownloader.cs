@@ -20,17 +20,38 @@ public sealed class RelayInstallerDownloader : IRelayInstallerSource
     /// <summary>No byte for this long and the attempt ends — a slow line is fine, a silent one is not.</summary>
     public static readonly TimeSpan StallAfter = TimeSpan.FromMinutes(2);
 
-    private readonly HttpClient _http;
+    /// <summary>Above this the installer comes in pieces over several connections (one ran at ~100 KB/s, London to Tunis).</summary>
+    public const long ParallelAbove = 32L * 1024 * 1024;
 
-    public RelayInstallerDownloader(HttpClient http, Uri apiBase)
+    public const int PieceBytes = 8 * 1024 * 1024;
+    public const int Connections = 6;
+
+    private readonly HttpClient _http;
+    private readonly long _parallelAbove;
+    private readonly int _pieceBytes;
+
+    public RelayInstallerDownloader(HttpClient http, Uri apiBase, long parallelAbove = ParallelAbove, int pieceBytes = PieceBytes)
     {
         _http = http;
+        _parallelAbove = parallelAbove;
+        _pieceBytes = pieceBytes;
         _http.BaseAddress ??= apiBase;
         _http.Timeout = Timeout.InfiniteTimeSpan;
     }
 
     public async Task<RelayInstallerFetch> FetchAsync(string partPath, string build, CancellationToken cancellationToken)
     {
+        // A download already going in pieces carries on in pieces, from the pieces it has.
+        if (PieceMap.Load(MapPath(partPath)) is { } resumed)
+        {
+            if (resumed.Build == build && File.Exists(partPath))
+            {
+                return await InPiecesAsync(partPath, resumed, cancellationToken);
+            }
+
+            DeletePieces(partPath);
+        }
+
         using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         stall.CancelAfter(StallAfter);
         try
@@ -71,6 +92,22 @@ public sealed class RelayInstallerDownloader : IRelayInstallerSource
                 return new RelayInstallerFetch(RelayInstallerFetchStatus.Interrupted, Error: "no installer hash");
             }
 
+            // A whole answer for a big file: drop it and fetch the file in pieces, several at a time.
+            if (offset == 0 && response.StatusCode == HttpStatusCode.OK
+                && response.Content.Headers.ContentLength is { } length && length > _parallelAbove
+                && response.Headers.AcceptRanges.Contains("bytes"))
+            {
+                var map = new PieceMap(build, sha256, length, _pieceBytes, new SortedSet<int>());
+                await using (var sized = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    sized.SetLength(length);
+                }
+
+                map.Save(MapPath(partPath));
+                response.Dispose();
+                return await InPiecesAsync(partPath, map, cancellationToken);
+            }
+
             FileMode mode;
             if (response.StatusCode == HttpStatusCode.PartialContent)
             {
@@ -109,6 +146,150 @@ public sealed class RelayInstallerDownloader : IRelayInstallerSource
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
         {
             return new RelayInstallerFetch(RelayInstallerFetchStatus.Interrupted, Error: ex.Message);
+        }
+    }
+
+    private static string MapPath(string partPath) => partPath + ".pieces";
+
+    private static void DeletePieces(string partPath)
+    {
+        try
+        {
+            File.Delete(MapPath(partPath));
+            File.Delete(partPath);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// The pieces still missing, fetched by <see cref="Connections"/> workers sharing one queue — a fast connection takes
+    /// the next piece instead of waiting for a slow one. Each finished piece is noted on disk, so a cut, a restart or the
+    /// next tick resumes from the pieces it has. The hash, checked by the updater, still decides.
+    /// </summary>
+    private async Task<RelayInstallerFetch> InPiecesAsync(string partPath, PieceMap map, CancellationToken cancellationToken)
+    {
+        var missing = new System.Collections.Concurrent.ConcurrentQueue<int>(
+            Enumerable.Range(0, map.Count).Where(i => !map.Done.Contains(i)));
+        var gate = new object();
+        string? otherBuild = null;
+        string? error = null;
+
+        async Task WorkAsync()
+        {
+            while (otherBuild is null && missing.TryDequeue(out var piece))
+            {
+                var from = (long)piece * map.PieceBytes;
+                var to = Math.Min(map.Length, from + map.PieceBytes) - 1;
+                using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                stall.CancelAfter(StallAfter);
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, Route);
+                    request.Headers.Range = new RangeHeaderValue(from, to);
+                    using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, stall.Token);
+                    var served = Header(response, BuildHeader);
+                    if (served is not null && !string.Equals(served, map.Build, StringComparison.Ordinal))
+                    {
+                        otherBuild = served;
+                        return;
+                    }
+
+                    if (response.StatusCode != HttpStatusCode.PartialContent || response.Content.Headers.ContentRange?.From != from)
+                    {
+                        error = $"piece {piece}: HTTP {(int)response.StatusCode}";
+                        return;
+                    }
+
+                    await using var body = await response.Content.ReadAsStreamAsync(stall.Token);
+                    await using var file = new FileStream(partPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite, 81920, useAsync: true);
+                    file.Seek(from, SeekOrigin.Begin);
+                    var buffer = new byte[81920];
+                    var position = from;
+                    int read;
+                    while (position <= to && (read = await body.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, to - position + 1)), stall.Token)) > 0)
+                    {
+                        await file.WriteAsync(buffer.AsMemory(0, read), CancellationToken.None);
+                        position += read;
+                        stall.CancelAfter(StallAfter);
+                    }
+
+                    if (position <= to)
+                    {
+                        error = $"piece {piece}: cut short";
+                        return;
+                    }
+
+                    lock (gate)
+                    {
+                        map.Done.Add(piece);
+                        map.Save(MapPath(partPath));
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    error = cancellationToken.IsCancellationRequested ? "stopped" : "stalled";
+                    return;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
+                {
+                    error = ex.Message;
+                    return;
+                }
+            }
+        }
+
+        await Task.WhenAll(Enumerable.Range(0, Connections).Select(_ => WorkAsync()));
+
+        if (otherBuild is not null)
+        {
+            DeletePieces(partPath);
+            return new RelayInstallerFetch(RelayInstallerFetchStatus.OtherBuild, Error: otherBuild);
+        }
+
+        if (map.Done.Count < map.Count)
+        {
+            return new RelayInstallerFetch(RelayInstallerFetchStatus.Interrupted, Error: error ?? "pieces missing");
+        }
+
+        File.Delete(MapPath(partPath));
+        return new RelayInstallerFetch(RelayInstallerFetchStatus.Complete, map.Sha256);
+    }
+
+    /// <summary>What a download in pieces has: its build, hash, length and the pieces already on disk.</summary>
+    private sealed record PieceMap(string Build, string Sha256, long Length, int PieceBytes, SortedSet<int> Done)
+    {
+        public int Count => (int)((Length + PieceBytes - 1) / PieceBytes);
+
+        public void Save(string path)
+        {
+            var temp = path + ".tmp";
+            File.WriteAllLines(temp, new[] { Build, Sha256, Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                PieceBytes.ToString(System.Globalization.CultureInfo.InvariantCulture), string.Join(',', Done) });
+            File.Move(temp, path, overwrite: true);
+        }
+
+        public static PieceMap? Load(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    return null;
+                }
+
+                var lines = File.ReadAllLines(path);
+                var done = new SortedSet<int>(lines.Length > 4 && lines[4].Length > 0
+                    ? lines[4].Split(',').Select(int.Parse)
+                    : Enumerable.Empty<int>());
+                return new PieceMap(lines[0], lines[1], long.Parse(lines[2], System.Globalization.CultureInfo.InvariantCulture),
+                    int.Parse(lines[3], System.Globalization.CultureInfo.InvariantCulture), done);
+            }
+            catch (Exception ex) when (ex is IOException or FormatException or IndexOutOfRangeException or UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
     }
 
