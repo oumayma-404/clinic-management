@@ -151,7 +151,6 @@ class MainActivity : ComponentActivity() {
         }
 
         findViewById<Button>(R.id.unreachable_retry).setOnClickListener { startSession() }
-        findViewById<Button>(R.id.unreachable_change_server).setOnClickListener { showServerAddress() }
         findViewById<Button>(R.id.update_retry).setOnClickListener { startSession() }
         findViewById<Button>(R.id.update_change_server).setOnClickListener { showServerAddress() }
         findViewById<Button>(R.id.update_open_store).setOnClickListener { openStoreListing() }

@@ -1325,7 +1325,6 @@ public partial class MainWindow : Window
 
     // Back to the fork, not to the address box: a clinic that moves from its own PC to the hosted plan would
     // otherwise have to be told a hostname to type -- the exact question the chooser exists to avoid.
-    private void ChangeServer_Click(object sender, RoutedEventArgs e) => ShowModeChoice();
 
     /// <summary>« APEXA Cloud » -- the address is ours to know, so it is not asked for.</summary>
     private void ChooseHosted_Click(object sender, RoutedEventArgs e)
