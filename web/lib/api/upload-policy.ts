@@ -63,7 +63,7 @@ export type FileDestination = 'hosted' | 'vault';
  * The doors the server publishes a policy for. Named rather than free-form so a typo is a `tsc` error and not a
  * refusal at runtime — the server answers « Ce type d'envoi n'existe pas » for an unknown one.
  */
-export type UploadProfile = 'patient-file' | 'profile-image' | 'medical-document-pdf' | 'csv';
+export type UploadProfile = 'patient-file' | 'profile-image' | 'letterhead-band' | 'medical-document-pdf' | 'csv';
 
 export const uploadPolicyApi = {
   get: async (profile: UploadProfile = 'patient-file'): Promise<UploadPolicy> =>

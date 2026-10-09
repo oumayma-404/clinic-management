@@ -9,8 +9,8 @@ public class MedicalDocumentPdfData
     public string PatientName { get; set; } = string.Empty;
 
     /// <summary>
-    /// ⚠️ Holds the patient's <b>formatted date de naissance</b> (dd/MM/yyyy), not an age — it is labelled
-    /// « Date de naissance » wherever it renders. Deliberately not renamed: it is a persisted
+    /// ⚠️ Holds the patient's <b>formatted date de naissance</b> (dd/MM/yyyy), not an age — and no generic
+    /// document prints it any more (see <c>DocumentIdentity.PatientLines</c>). Deliberately not renamed: it is a persisted
     /// <c>MedicalDocument</c> column <i>and</i> a field on the body the client posts to
     /// <c>generate-pdf-download</c>, so a rename costs a migration and a wire-contract change for no
     /// behavioural gain.
@@ -55,6 +55,14 @@ public class MedicalDocumentPdfData
     public string? DoctorOrdreNumber { get; set; }      // CNOMDT registration number (snapshot)
     public string? DoctorCachetKey { get; set; }        // IFileStorage key of the practitioner cachet image
     public string? DoctorCachetContentType { get; set; } // persisted MIME type of that image
+
+    /// <summary>
+    /// The cabinet's letterhead bands, snapshotted at issue like the cachet. Server-resolved only — a client-sent
+    /// key would let a request print another cabinet's paper, since the PDF job dereferences it unauthenticated.
+    /// </summary>
+    public string? LetterheadHeaderKey { get; set; }
+    public string? LetterheadFooterKey { get; set; }
+    public string? LetterheadBodyKey { get; set; }
 
     // Recipient (for liaison documents)
     public string? RecipientDoctorName { get; set; }

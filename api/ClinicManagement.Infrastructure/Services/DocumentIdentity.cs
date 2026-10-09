@@ -81,7 +81,7 @@ public static class DocumentIdentity
         !string.Equals(documentType?.Trim(), DocumentTypes.Certificat, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The patient identity lines, labelled, in reading order: nom, date de naissance, sexe, poids — plus the
+    /// The patient identity lines, labelled, in reading order: the nom — plus the
     /// « médecin traitant / praticien adresseur » a lettre de liaison may carry, which the norms place with the
     /// patient's identity rather than in the clinical synthèse.
     /// </summary>
@@ -97,21 +97,18 @@ public static class DocumentIdentity
             lines.Add(new IdentityLine("Patient", name));
         }
 
-        // PatientAge holds a formatted date de naissance despite its name — see the field's own remark.
-        AddLine(lines, "Date de naissance", data.PatientAge);
         /*
-         * ⚠️ « Sexe » and « Poids » are DELIBERATELY GONE, and this comment is here so nobody puts them back
-         * by reading `ordonnance-certificat-norms`' spec, which added them as R.5132-3 mentions for listes
-         * I/II and is otherwise still accurate.
+         * ⚠️ « Date de naissance », « Sexe » and « Poids » are DELIBERATELY GONE, and this comment is here so
+         * nobody puts them back by reading `ordonnance-certificat-norms`' spec, which added them as R.5132-3
+         * mentions and is otherwise still accurate.
          *
-         * The practice owner's decision: a Tunisian dental ordonnance does not carry them, and « Sexe » was
-         * the one that actually showed — it was prefilled from the patient record, so it printed on every
-         * ordonnance ever issued, while « Poids » was optional and almost always blank. The two form fields
-         * are gone from the editor with them.
+         * The practice owner's decisions: a Tunisian dental ordonnance does not carry sexe or poids, and the
+         * date de naissance went on 2026-10-06 from every document (« extremely irrelevant info »). All three
+         * printed because they were prefilled from the patient record.
          *
-         * Nothing was migrated. Documents issued before this still hold `patientSex` / `patientWeightKg` in
-         * their ContentJson; those keys are simply no longer read, so re-rendering an old ordonnance now
-         * omits two lines it used to print. That is the intended behaviour, not a regression.
+         * Nothing was migrated. `MedicalDocument.PatientAge` is still written and legacy documents still hold
+         * `patientSex` / `patientWeightKg` in their ContentJson; none of it is printed any more, so re-rendering
+         * an old document omits lines it used to carry. That is the intended behaviour, not a regression.
          */
         AddLine(lines, "Médecin traitant / praticien adresseur", data.Content.GetValueOrDefault("medecinTraitant"));
 

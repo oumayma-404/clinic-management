@@ -1212,6 +1212,17 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
   })));
 }
 
+/** A multipart POST whose answer is a file — the letterhead preview sends two bands and gets a PDF back. */
+export async function apiPostFormDataBlob(endpoint: string, formData: FormData, accessToken?: string | null): Promise<Blob> {
+  return withWriteKey(null, (key) => handleRequest<Blob>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers: apiHeaders(token, 'none', null, key),
+    body: formData,
+    credentials: 'include',
+    signal: deadline(TRANSFER_TIMEOUT_MS),
+  }), readBlob));
+}
+
 export async function apiPutFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
   return withWriteKey(null, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',

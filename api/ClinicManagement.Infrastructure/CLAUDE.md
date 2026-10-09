@@ -803,7 +803,11 @@ no consent flag and no audit of which patient was sent.
   documents: `prescription` (ORDONNANCE), `liaison`, `certificat` (+ optional practitioner-cachet image loaded
   from storage, falling back to a plain signature line). **`honoraires` is rejected** (retired — issue an Invoice
   instead). **`bulletin-cnam` branches out** to the BS1 overlay renderer. Helpers: `CertificatTextBuilder`,
-  `LiaisonContent`.
+  `LiaisonContent`. ⚠️ **Every page goes through `DocumentPage.Compose`** (`Services/DocumentPage.cs`) — the one
+  owner of size, margins and the cabinet's **letterhead bands** (true scale, every page; « Page entière » adds the strip
+  between them behind the text, the only part ever stretched); with no letterhead the page
+  is byte-for-byte the old A4 + 2 cm. The four money documents share `ClinicIdentityHeader`. A page that sets its
+  own margins ignores the letterhead — `LetterheadRenderTests` fails on it. See `features/document-letterhead/notes.md`.
 - **`CnamBs1BulletinRenderer`** (internal) — stamps `bulletin-cnam` data onto the genuine CNAM **BS1** form
   (`Assets/BS1.pdf`) at calibrated coordinates (2-page A4-landscape) using **PdfSharp**; fills only the
   dentist-relevant regions (IDU comb, régime/lien ticks, assuré/malade identity, the 6-row dental acts table incl.

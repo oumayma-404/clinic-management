@@ -174,7 +174,11 @@ public static class ClinicArchiveScope
         {
             [nameof(PatientFile)] = new[] { nameof(PatientFile.StorageKey), nameof(PatientFile.PreviewStorageKey) },
             [nameof(Doctor)] = new[] { nameof(Doctor.CachetStorageKey) },
-            [nameof(Clinic)] = new[] { nameof(Clinic.LogoUrl) },
+            [nameof(Clinic)] = new[]
+            {
+                nameof(Clinic.LogoUrl), nameof(Clinic.LetterheadHeaderStorageKey), nameof(Clinic.LetterheadFooterStorageKey),
+                nameof(Clinic.LetterheadBodyStorageKey)
+            },
         };
 
     /// <summary>

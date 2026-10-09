@@ -50,6 +50,9 @@ import { patientsApi } from "@/lib/api/patients"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
+import { useClinicLetterhead } from "@/lib/letterhead/use-clinic-letterhead"
+import { wordLetterheadSection } from "@/lib/letterhead/word"
+import { cn } from "@/lib/utils"
 import type { BillableActLine } from "@/lib/api/dental-records"
 import { useMedications, useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import type { PatientDto, MedicationDto } from "@/lib/api/types"
@@ -550,6 +553,9 @@ export function DocumentEditorContent() {
 
   // A fresh read that also refreshes the tab's shared status, so the rail and the pickers see the same answer.
   const fetchUserStatus = useFetchUserStatus()
+
+  // The cabinet's own paper, when it has one: the preview and the Word export draw it in place of the text header.
+  const letterheadPaper = useClinicLetterhead()
 
   // Load clinic information
   useEffect(() => {
@@ -1165,34 +1171,29 @@ export function DocumentEditorContent() {
     try {
       const documentTypeName = getDocumentTitle();
       const patientName = `${patientData.firstName} ${patientData.lastName}`;
-      const patientDobFormatted = patientData.dateOfBirth
-        ? new Date(patientData.dateOfBirth).toLocaleDateString("fr-FR", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-          })
-        : null;
-      
-      // Build document content
-      const paragraphs: Paragraph[] = [
-        new Paragraph({
-          text: formData.clinicName,
-          heading: HeadingLevel.HEADING_1,
-          alignment: AlignmentType.LEFT,
-        }),
-        new Paragraph({
-          text: formData.clinicAddress,
-        }),
-        new Paragraph({
-          text: `Tél: ${formData.clinicPhone}`,
-        }),
-        new Paragraph({
-          text: `${formData.doctorName} - ${formData.doctorSpecialty}`,
-        }),
-        new Paragraph({
-          text: "",
-        }),
-      ];
+
+      // Build document content. On the cabinet's own paper the bands carry the identity, as on the PDF.
+      const paragraphs: Paragraph[] = letterheadPaper.header
+        ? [new Paragraph({ text: "" })]
+        : [
+            new Paragraph({
+              text: formData.clinicName,
+              heading: HeadingLevel.HEADING_1,
+              alignment: AlignmentType.LEFT,
+            }),
+            new Paragraph({
+              text: formData.clinicAddress,
+            }),
+            new Paragraph({
+              text: `Tél: ${formData.clinicPhone}`,
+            }),
+            new Paragraph({
+              text: `${formData.doctorName} - ${formData.doctorSpecialty}`,
+            }),
+            new Paragraph({
+              text: "",
+            }),
+          ];
 
       // No « À l'attention de » block: a lettre de liaison is a blank letterhead the practitioner writes on,
       // and the confrère is addressed in the prose. Mirrors the PDF renderer.
@@ -1228,9 +1229,6 @@ export function DocumentEditorContent() {
             heading: HeadingLevel.HEADING_2,
           })
         );
-        if (patientDobFormatted) {
-          paragraphs.push(new Paragraph({ text: `Date de naissance: ${patientDobFormatted}` }));
-        }
       }
       paragraphs.push(new Paragraph({ text: "" }));
 
@@ -1331,6 +1329,7 @@ export function DocumentEditorContent() {
 
       const doc = new Document({
         sections: [{
+          ...(await wordLetterheadSection(letterheadPaper.header, letterheadPaper.footer, letterheadPaper.body)),
           children: paragraphs,
         }],
       });
@@ -2468,9 +2467,31 @@ export function DocumentEditorContent() {
               `dark:bg-slate-900` twin goes: a certificat
               médical that is white-on-black on screen and black-on-white on paper is not a preview of anything.
             */}
-            <Card className="light p-6 sm:p-10 xl:p-16 bg-white shadow-2xl min-h-[1123px] flex flex-col" style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>
-              <div className="flex-1 flex flex-col space-y-5" style={{ fontSize: '11pt', lineHeight: '1.5' }}>
-                {/* Letterhead */}
+            <Card
+              className={cn(
+                "light bg-white shadow-2xl min-h-[1123px] flex flex-col",
+                letterheadPaper.header ? "gap-0 p-0" : "p-6 sm:p-10 xl:p-16",
+              )}
+              style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}
+            >
+              {/* The cabinet's own paper, edge to edge as the PDF prints it. */}
+              {letterheadPaper.header && <img src={letterheadPaper.header.url} alt="" className="block w-full" />}
+              <div
+                className={cn(
+                  "flex-1 flex flex-col space-y-5",
+                  letterheadPaper.header && "px-6 pt-4 pb-6 sm:px-10 xl:px-16",
+                )}
+                style={{
+                  fontSize: '11pt',
+                  lineHeight: '1.5',
+                  // « Page entière »: the strip between the bands, stretched behind the text as the PDF draws it.
+                  ...(letterheadPaper.header && letterheadPaper.body
+                    ? { backgroundImage: `url(${letterheadPaper.body.url})`, backgroundSize: '100% 100%' }
+                    : {}),
+                }}
+              >
+                {/* Letterhead — the text one, only when the cabinet has no paper of its own */}
+                {!letterheadPaper.header && (
                 <div className="space-y-1 pb-4">
                   <h1
                     className="font-bold text-primary focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
@@ -2511,6 +2532,7 @@ export function DocumentEditorContent() {
                     </p>
                   )}
                 </div>
+                )}
 
                 {/* No « À l'attention de » block — the letter is a blank letterhead. See the PDF renderer. */}
 
@@ -2537,32 +2559,14 @@ export function DocumentEditorContent() {
                 {/* Patient Info — withheld on the two types that name their own patient in the prose. */}
                 {documentType !== "liaison" && documentType !== "certificat" && (
                 <div className="space-y-2 py-3 px-3">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Patient</p>
-                      <p
-                        className="font-bold focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
-                        style={{ fontSize: '12pt' }}
-                      >
-                        {patientData ? getPatientName(patientData) : "Sélectionnez un patient"}
-                      </p>
-                    </div>
-                    {patientData?.dateOfBirth && (
-                      <div>
-                        <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Date de naissance</p>
-                        <p
-                          className="focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
-                          style={{ fontSize: '12pt' }}
-                        >
-                          {new Date(patientData.dateOfBirth).toLocaleDateString("fr-FR", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                          })}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  {/* No date de naissance: no document prints it any more (DocumentIdentity.PatientLines). */}
+                  <p className="text-muted-foreground mb-1" style={{ fontSize: '9pt' }}>Patient</p>
+                  <p
+                    className="font-bold focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
+                    style={{ fontSize: '12pt' }}
+                  >
+                    {patientData ? getPatientName(patientData) : "Sélectionnez un patient"}
+                  </p>
                 </div>
                 )}
 
@@ -2707,6 +2711,7 @@ export function DocumentEditorContent() {
                   </div>
                 </div>
               </div>
+              {letterheadPaper.footer && <img src={letterheadPaper.footer.url} alt="" className="block w-full" />}
             </Card>
           </div>
         </div>
