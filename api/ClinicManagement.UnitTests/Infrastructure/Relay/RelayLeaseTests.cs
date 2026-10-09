@@ -149,6 +149,68 @@ public sealed class RelayLeaseTests : IDisposable
         Assert.Equal(1001, lease.Current.HoldingUnderAckSeq);
     }
 
+    // ---- the cause of the cut (D20, AC-3.4, EC-20) -----------------------------------------------------------------
+
+    private sealed class FakeInternet : ClinicManagement.Application.Common.Interfaces.IInternetProbe
+    {
+        public bool Reachable { get; set; }
+        public int Asked { get; private set; }
+
+        public Task<bool> IsInternetReachableAsync(CancellationToken cancellationToken = default)
+        {
+            Asked++;
+            return Task.FromResult(Reachable);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, RelayCutCauses.Internet)]
+    [InlineData(true, RelayCutCauses.Cloud)]
+    public async Task At_The_Takeover_The_Pc_Judges_Whether_The_Internet_Or_The_Cloud_Is_Down(bool internetUp, string cause)
+    {
+        var lease = await ArmedThenCutAsync();
+        var keeper = new RelayLeaseKeeper(lease, _states, _box, NullLogger.Instance, new FakeInternet { Reachable = internetUp });
+
+        Advance(80);
+        Assert.True(await keeper.TickAsync(default));
+
+        Assert.Equal(cause, lease.Current.CutCause);
+        Assert.Equal(cause, new RelayLease(_dir).Current.CutCause);
+    }
+
+    // The internet may come back before the cloud: re-judged every 30 s on the monotonic clock, not on every tick.
+    [Fact]
+    public async Task While_Holding_The_Cause_Is_Judged_Again_Every_Thirty_Seconds()
+    {
+        var lease = await ArmedThenCutAsync();
+        var internet = new FakeInternet { Reachable = false };
+        var keeper = new RelayLeaseKeeper(lease, _states, _box, NullLogger.Instance, internet);
+        Advance(80);
+        await keeper.TickAsync(default);
+        Assert.Equal(RelayCutCauses.Internet, lease.Current.CutCause);
+
+        internet.Reachable = true;
+        Advance(10);
+        await keeper.TickAsync(default);
+        Assert.Equal(1, internet.Asked);
+        Assert.Equal(RelayCutCauses.Internet, lease.Current.CutCause);
+
+        Advance(20);
+        await keeper.TickAsync(default);
+        Assert.Equal(2, internet.Asked);
+        Assert.Equal(RelayCutCauses.Cloud, lease.Current.CutCause);
+    }
+
+    [Fact]
+    public async Task Without_A_Probe_The_Cause_Stays_Unknown()
+    {
+        var lease = await ArmedThenCutAsync();
+        Advance(80);
+
+        Assert.True(await Keeper(lease).TickAsync(default));
+        Assert.Null(lease.Current.CutCause);
+    }
+
     // [AC-3.8] A PC that was not ready at its last contact never takes over.
     [Fact]
     public async Task A_Pc_Last_Told_It_Was_Not_Armed_Never_Takes_Over()

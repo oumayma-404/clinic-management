@@ -68,7 +68,8 @@ public sealed class RelayFeedJob : BackgroundService
         IConfiguration configuration,
         RelayLease lease,
         IRelayBoxProbe box,
-        ILogger<RelayFeedJob> logger)
+        ILogger<RelayFeedJob> logger,
+        IInternetProbe? internet = null)
     {
         _scopes = scopes;
         _protection = protection;
@@ -77,7 +78,7 @@ public sealed class RelayFeedJob : BackgroundService
         _http = http;
         _configuration = configuration;
         _lease = lease;
-        _keeper = new RelayLeaseKeeper(lease, new RelayFollowerStateStore(), box, logger);
+        _keeper = new RelayLeaseKeeper(lease, new RelayFollowerStateStore(), box, logger, internet);
         _logger = logger;
     }
 

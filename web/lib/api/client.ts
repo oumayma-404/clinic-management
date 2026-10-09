@@ -277,6 +277,29 @@ export function onMoneyHidden(listener: MoneyHiddenListener): () => void {
   };
 }
 
+type RelayRefusedListener = () => void;
+const relayRefusedListeners = new Set<RelayRefusedListener>();
+
+/** The 423 codes that say a cut changed which side records the cabinet's work (`clinic-pc-copy`). */
+const RELAY_CODES: ReadonlySet<string> = new Set([
+  'relay_standby',
+  'relay_silent',
+  'clinic_on_relay',
+  'relay_handing_back',
+  'relay_restoring',
+]);
+
+/**
+ * Subscribe to « a save was refused because of a cut » (`clinic-pc-copy` D20) — the cut's strip re-reads at once
+ * instead of waiting for its next poll. The refusal's own French sentence still travels to the toast untouched.
+ */
+export function onRelayRefused(listener: RelayRefusedListener): () => void {
+  relayRefusedListeners.add(listener);
+  return () => {
+    relayRefusedListeners.delete(listener);
+  };
+}
+
 type SubscriptionRequiredListener = () => void;
 const subscriptionRequiredListeners = new Set<SubscriptionRequiredListener>();
 
@@ -572,6 +595,11 @@ async function throwIfNotOk(response: Response): Promise<void> {
     // gate cannot trigger a re-read — and the message travels on untouched.
     if (errorCode && SUBSCRIPTION_CODES.has(errorCode)) {
       subscriptionRequiredListeners.forEach((listener) => listener());
+    }
+
+    // A cut began, ended or changed side while the screen was open: the strip re-reads now (clinic-pc-copy D20).
+    if (errorCode && RELAY_CODES.has(errorCode)) {
+      relayRefusedListeners.forEach((listener) => listener());
     }
 
     // A screen still open when the cabinet was hidden from another PC: re-read, and the page swaps for its card.

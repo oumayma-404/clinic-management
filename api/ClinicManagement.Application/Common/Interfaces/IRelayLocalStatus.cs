@@ -22,4 +22,7 @@ public interface IRelayLocalStatus
 
     /// <summary>D18: the cut's work is on its way back to the cloud; saves are refused with AC-5.2's sentence.</summary>
     bool IsHandingBack => false;
+
+    /// <summary>D20: why this PC holds — <c>internet</c> or <c>cloud</c> (EC-20) — null when unknown or not holding.</summary>
+    string? CutCause => null;
 }

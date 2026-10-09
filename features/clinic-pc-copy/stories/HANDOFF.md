@@ -1,22 +1,20 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-09 (session 12) · **Overall:** ~63 % · **Part 1 (La copie):** done in code (owed: the Windows
-rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~75 % (lease 1, 2, 2b, « Reprendre
-la main », device reports, D17, D16, **the return (D18) complete**, the PC's clock and Windows Update (D20b)) · **all scratch servers stopped**
+**Date:** 2026-10-09 (session 12) · **Overall:** ~64 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~77 % (lease 1, 2, 2b, « Reprendre
+la main », device reports, D17, D16, **the return (D18) complete**, the PC's clock and Windows Update (D20b), the cut's strip on every screen (D20)) · **all scratch servers stopped**
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–160, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–165, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next sub-step: Part 2 · D20, « Internet coupé » vs « Le cloud est injoignable »** — the PC decides which (box
-   answers + public probe fails = internet; public probe ok + cloud fails = cloud) and the banners say it; then D27
-   (change-log pruning), D26 (the CI cut test), the screens step (banners, card states « en charge », « repris par les
-   appareils »). D20b is done (deviations 156–160) — its real clock change and policy write are owed to the Windows
-   rehearsal.
+3. **Next sub-step: Part 2 · D27, change-log pruning** — then D26 (the CI cut test), the screens step (card states
+   « en charge », « repris par les appareils »). D20 is done (deviations 161–165: `GET /api/relay/banner`,
+   `components/relay/relay-banner.tsx`); D20b's real clock change and policy write are owed to the Windows rehearsal.
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
@@ -58,8 +56,8 @@ What slice a left, each named in deviation 128 (and 121, 124, 88, 91):
    re-entry (AC-7.3 → 7.6), flag the documents it numbered (AC-7.5).
 8. **AC-9.4** — a restored cloud's gap travels back through the same path.
 
-Also still open in Part 2 after the return: « Internet coupé » vs « Le cloud est injoignable » (D20); change-log pruning (D27); the CI cut
-test (D26); the screens step (banners; card states « en charge », « repris par les appareils »).
+Also still open in Part 2 after the return: change-log pruning (D27); the CI cut
+test (D26); the screens step (card states « en charge », « repris par les appareils »).
 
 ## Done in session 11 — the return, slice a (D18, US-5, FR-6, FR-11)
 

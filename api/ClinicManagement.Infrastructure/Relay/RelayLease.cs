@@ -50,6 +50,12 @@ public sealed record RelayLeaseState
     /// </summary>
     public Guid? ReturnedHandbackId { get; init; }
 
+    /// <summary>
+    /// D20: why the cloud stopped answering, as this PC judged it — <c>internet</c> (the box answers, the internet does
+    /// not) or <c>cloud</c> (the internet answers, the cloud does not: EC-20). Meaningful only while holding.
+    /// </summary>
+    public string? CutCause { get; init; }
+
     // ---- the clock (D20b) ------------------------------------------------------------------------------------------
 
     /// <summary>When this PC last set Windows' clock from the cloud's, and by how many seconds it was off (EC-10).</summary>
@@ -161,6 +167,9 @@ public sealed class RelayLease
             }
         }
     }
+
+    /// <summary>The lease's monotonic clock — never moved by a wall-clock correction (D20b), so intervals stay true.</summary>
+    public TimeSpan Monotonic => _monotonic();
 
     /// <summary>How long since an exchange last started; null before the first.</summary>
     public TimeSpan? SinceLastExchange
@@ -290,6 +299,18 @@ public sealed class RelayLease
         }
     }
 
+    /// <summary>D20: records why the cloud is silent — said on every screen of the PC while it holds (AC-3.4).</summary>
+    public void RecordCutCause(string cause)
+    {
+        lock (_gate)
+        {
+            if (_state.CutCause != cause)
+            {
+                Write(_state with { CutCause = cause });
+            }
+        }
+    }
+
     /// <summary>Takes the cabinet's saves. Written to disk before it is true in memory, so no write is accepted unrecorded.</summary>
     public void TakeOver()
     {
@@ -301,7 +322,7 @@ public sealed class RelayLease
             }
 
             // A return still awaiting the cloud's word is moot: this new cut is what the next return will release.
-            Write(_state with { HoldingSinceUtc = _utcNow(), HoldingUnderAckSeq = _state.LastAckSeq, ReturnedHandbackId = null });
+            Write(_state with { HoldingSinceUtc = _utcNow(), HoldingUnderAckSeq = _state.LastAckSeq, ReturnedHandbackId = null, CutCause = null });
         }
     }
 
@@ -591,12 +612,44 @@ public sealed class RelayLeaseKeeper
     private readonly IRelayBoxProbe _box;
     private readonly ILogger _logger;
 
-    public RelayLeaseKeeper(RelayLease lease, RelayFollowerStateStore states, IRelayBoxProbe box, ILogger logger)
+    /// <summary>D20: while holding, the cause of the cut is judged again this often — the internet may return before the cloud.</summary>
+    public static readonly TimeSpan CauseEvery = TimeSpan.FromSeconds(30);
+
+    private readonly Application.Common.Interfaces.IInternetProbe? _internet;
+    private TimeSpan? _causeCheckedAt;
+
+    public RelayLeaseKeeper(
+        RelayLease lease, RelayFollowerStateStore states, IRelayBoxProbe box, ILogger logger,
+        Application.Common.Interfaces.IInternetProbe? internet = null)
     {
         _lease = lease;
         _states = states;
         _box = box;
         _logger = logger;
+        _internet = internet;
+    }
+
+    /// <summary>
+    /// D20 (AC-3.4, EC-20): the box answered (that is why this PC holds) — so if the public internet answers too, it is the
+    /// cloud that is down, « Le cloud est injoignable »; otherwise « Internet coupé ».
+    /// </summary>
+    private async Task JudgeCauseAsync(CancellationToken cancellationToken)
+    {
+        if (_internet is null)
+        {
+            return;
+        }
+
+        _causeCheckedAt = _lease.Monotonic;
+        try
+        {
+            var cause = await _internet.IsInternetReachableAsync(cancellationToken) ? RelayCutCauses.Cloud : RelayCutCauses.Internet;
+            _lease.RecordCutCause(cause);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "PC de secours: the cause of the cut could not be judged.");
+        }
     }
 
     /// <summary>One decision; true when this PC took the cabinet's saves just now.</summary>
@@ -606,6 +659,12 @@ public sealed class RelayLeaseKeeper
 
         if (_lease.IsHolding)
         {
+            // Timed on the monotonic clock: D20b may move Windows' clock by hours while this PC holds.
+            if (!_lease.IsHandingBack && (_causeCheckedAt is not { } at || _lease.Monotonic - at >= CauseEvery))
+            {
+                await JudgeCauseAsync(cancellationToken);
+            }
+
             // The cloud took the cabinet back while this PC held it (« Retirer », « perdu ou volé », a promotion): the
             // cut's work stays here, readable by the administrators, and this PC stops accepting saves. The return
             // proper arrives with D18.
@@ -635,8 +694,16 @@ public sealed class RelayLeaseKeeper
         }
 
         _lease.TakeOver();
+        await JudgeCauseAsync(cancellationToken);
         _logger.LogWarning("PC de secours: no answer from the cloud for {Seconds} s — this PC now holds the cabinet's saves.",
             (int)since.TotalSeconds);
         return true;
     }
+}
+
+/// <summary>D20: the two causes of a cut a PC de secours tells apart (<see cref="RelayLeaseState.CutCause"/>).</summary>
+public static class RelayCutCauses
+{
+    public const string Internet = "internet";
+    public const string Cloud = "cloud";
 }

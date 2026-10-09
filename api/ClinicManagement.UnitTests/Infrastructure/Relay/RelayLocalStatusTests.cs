@@ -59,6 +59,25 @@ public sealed class RelayLocalStatusTests : IDisposable
         Assert.True(status.IsRetired);
     }
 
+    // [D20] The cause is said only while this PC holds — a cause left in the file after the cut means nothing.
+    [Fact]
+    public void The_Cut_Cause_Is_Read_Only_While_Holding()
+    {
+        var lease = new RelayLease(_dir, () => _now);
+        lease.RecordCutCause(RelayCutCauses.Cloud);
+        var status = new RelayLocalStatus(true, new RelayFollowerStateStore(_dir), () => _now, lease);
+        Assert.Null(status.CutCause);
+
+        // A new takeover starts with no cause: the last cut's is not this one's.
+        lease.TakeOver();
+        Assert.Null(status.CutCause);
+
+        lease.RecordCutCause(RelayCutCauses.Cloud);
+        Assert.Equal(RelayCutCauses.Cloud, status.CutCause);
+
+        Assert.Null(new RelayLocalStatus(false, new RelayFollowerStateStore(_dir), () => _now, lease).CutCause);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

@@ -131,7 +131,24 @@ export interface RelayLocalStatusDto {
 /** The card's anchor on « Paramètres », shared with the bell's deep link so the two cannot drift. */
 export const RELAY_CARD_ID = "pc-de-secours";
 
+/**
+ * The cut's strip (`clinic-pc-copy` AC-3.4, AC-4.1, D20). `kind` is what the screen branches on; `title` is what a phone
+ * shows alone, `detail` follows on wider screens. `warning` is false for the « on its way back » kinds.
+ */
+export interface RelayBannerDto {
+  kind: 'pc-holding' | 'pc-returning' | 'cloud-on-relay' | 'cloud-returning' | 'cloud-silent' | 'cloud-restoring'
+  title: string
+  detail: string
+  warning: boolean
+}
+
 export const relayApi = {
+  /** Every role, on the cloud and the PC alike; `null` (a 204) when no cut is under way — almost always. */
+  banner: async (): Promise<RelayBannerDto | null> => {
+    const banner = await apiGet<RelayBannerDto | ''>('/relay/banner')
+    return banner ? banner : null
+  },
+
   /** ⚠️ A 404 means this deployment has no PC de secours at all; any other failure is a retryable read (AC-2.4). */
   status: () => apiGet<RelayStatusDto>('/relay/status'),
 

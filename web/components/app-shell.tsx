@@ -5,6 +5,7 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { BottomNav } from "@/components/bottom-nav"
 import { SubscriptionBanner } from "@/components/subscription/subscription-banner"
 import { RelayStartupOffer } from "@/components/relay/relay-install-offer"
+import { RelayBanner } from "@/components/relay/relay-banner"
 import { RelayDeviceWatch } from "@/components/relay/relay-device-watch"
 
 /**
@@ -101,6 +102,8 @@ export function AppShell({
           it. Mounting it here also makes « absent on /login and /signup » structural, since those six routes are
           precisely the ones that render no shell.
         */}
+        {/* `clinic-pc-copy` AC-3.4 / AC-4.1 / D20 — the cut's strip, above the subscription's (AC-4.3). */}
+        <RelayBanner />
         <SubscriptionBanner />
         {/* `clinic-pc-copy` AC-1.1 — the PC de secours offer at the Windows app's start; nothing anywhere else. */}
         <RelayStartupOffer />

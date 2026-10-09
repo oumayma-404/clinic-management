@@ -673,6 +673,10 @@ no consent flag and no audit of which patient was sent.
   without one (every test, every tool) never moves time. Cannot set it → `ClockError` on the lease, no takeover, the
   cloud reads « Horloge fausse » and never arms it. `RelayFeedJob` sets Windows Update's active hours (policy keys,
   `Relay/WindowsUpdateHours.cs`) hourly from the cabinet's hours (`Application/Features/Relay/RelayUpdateHours`).
+- **The cause of a cut (D20)**: `RelayLeaseKeeper` takes an optional `IInternetProbe` and, at the takeover and every
+  30 s while holding, records on the lease (`CutCause`, cleared at the next takeover) whether the public internet
+  answers — yes means « Le cloud est injoignable » (EC-20), no « Internet coupé ». ⚠️ Timed on `RelayLease.Monotonic`,
+  never the wall clock, which D20b may move. `RelayLocalStatus.CutCause` reads it only while holding.
 - **A restored cloud (D18b3b, AC-9.4)**: `ClinicChangeCursor.Epoch`/`EpochFromSeq` is the restore mark
   (`ClinicRelayRowStore.Gap.cs`: `MarkEpochAsync` at cloud startup and per heartbeat, `ChangedSinceRestoreAsync`,
   `RowHashesAsync` with the cloud's own columns left out, `ReadRowsAsync` on the PC). The PC's `Relay/RelayGap` sends
