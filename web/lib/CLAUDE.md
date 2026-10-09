@@ -229,6 +229,15 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   question that gates the offer: an original smaller than it *is* its own stand-in.
   ⚠️ **libheif runs in a `blob:` Worker**, which `default-src 'self'` refuses — hence `worker-src 'self' blob:`
   in all four CSP copies. A dev server sends no CSP, so without it the failure appears **only in production**.
+- **`forms/carried-draft.ts`** + **`hooks/use-carried-draft.ts`** (`clinic-pc-copy` D23, AC-3.2) — an open form
+  survives the app switching server (cloud ⇄ PC de secours). The new server is another origin, so only the shell can
+  carry it (`carryDraft` / `takeCarriedDraft`, memory only); `useCarriedDraft({ form, formKey, path, open, dirty, state,
+  restore })` pushes the state 400 ms after each change, withdraws it on close, claims it back on reopen, and exposes
+  `consumeSwitch()` — true once after a claim from ANOTHER origin, so the form refuses its first save with
+  `SWITCH_REFUSAL` (through `useConflict().raise`, which offers « Recharger ») and sends nothing. ⚠️ `state` must be
+  JSON — a `Set` is not (the fiche converts its acts with `carriedActs` / `actsFromCarried`). ⚠️ The identity is the
+  session's **e-mail**, lower-cased: `SessionUser` carries no id, and the e-mail is the same on both servers. Inert in a
+  browser. Used by the fiche de soins; c2 adds the RDV, patient and devis.
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.
 
 ## Conventions

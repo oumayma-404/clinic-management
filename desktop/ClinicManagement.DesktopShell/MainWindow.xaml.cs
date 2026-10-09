@@ -519,6 +519,18 @@ public partial class MainWindow : Window
                 {
                     AnswerRelaySwitchAsync(e.Source, message[RelaySwitchPrefix.Length..]);
                 }
+                // `carry-draft:<json>` / `carry-take:<id>` — D23: an open form survives a switch of server.
+                else if (message.StartsWith(CarryDraftPrefix, StringComparison.Ordinal))
+                {
+                    if (IsClinicPage(e.Source))
+                    {
+                        _carriedDraft.Carry(message[CarryDraftPrefix.Length..], DateTime.UtcNow);
+                    }
+                }
+                else if (message.StartsWith(CarryTakePrefix, StringComparison.Ordinal))
+                {
+                    AnswerCarryTakeAsync(e.Source, message[CarryTakePrefix.Length..]);
+                }
                 break;
         }
     }
@@ -529,6 +541,28 @@ public partial class MainWindow : Window
     private const string RelayProbePrefix = "relay-probe:";
     private const string RelayPreparePrefix = "relay-prepare:";
     private const string RelaySwitchPrefix = "relay-switch:";
+    private const string CarryDraftPrefix = "carry-draft:";
+    private const string CarryTakePrefix = "carry-take:";
+
+    /// <summary>D23: the one form state this window carries across a switch of server.</summary>
+    private readonly CarriedDraftSlot _carriedDraft = new();
+
+    /// <summary>The cloud's own page, or the PC de secours's — the only two that may hand over or take a form.</summary>
+    private bool IsClinicPage(string? source) =>
+        VaultBridge.IsExpectedOrigin(source, _config)
+        || (Uri.TryCreate(source, UriKind.Absolute, out var page) && RelaySwitch.IsPcOrigin(page, RelaySwitch.Current));
+
+    /// <summary><c>takeCarriedDraft()</c>: the held form state, once — then forgotten.</summary>
+    private async void AnswerCarryTakeAsync(string? source, string requestId)
+    {
+        if (!RelayInstaller.IsRequestId(requestId))
+        {
+            return;
+        }
+
+        var draft = IsClinicPage(source) ? _carriedDraft.Take(DateTime.UtcNow) : null;
+        await DeliverRelayResultAsync(requestId, draft);
+    }
 
     // ---- Following the PC de secours (clinic-pc-copy Part 3) ------------------------------------------------
 

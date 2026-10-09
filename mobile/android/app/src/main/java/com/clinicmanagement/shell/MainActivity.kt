@@ -350,6 +350,7 @@ class MainActivity : ComponentActivity() {
                 isOwnPage = { page -> config.isSameOrigin(page) },
                 onRelayPrepare = { request, done -> prepareRelay(request, done) },
                 onRelaySwitch = { done -> switchToPcIfHolding(done) },
+                isClinicPage = { page -> config.isSameOrigin(page) || RelaySwitch.isPcOrigin(page, relayTarget) },
             ),
             ShellBridge.NATIVE_OBJECT,
         )
@@ -447,7 +448,7 @@ class MainActivity : ComponentActivity() {
                 // `bridgeOrigins`, not `baseUrl`: a page served on 443 reports `https://host` as its origin — the
                 // URL spec omits a default port — so granting only `https://host:443` would leave the bridge
                 // silently uninstalled on exactly the deployment that has no other way in.
-                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), config.bridgeOrigins)
+                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), bridgeOrigins())
             } catch (t: Throwable) {
                 Log.w(TAG, "document-start script rejected — falling back to page-start injection", t)
                 null
@@ -468,6 +469,9 @@ class MainActivity : ComponentActivity() {
             script.remove()
         }
     }
+
+    /** The cloud's origins, and the PC de secours's once one was prepared — a carried form is taken back there (D23). */
+    private fun bridgeOrigins(): Set<String> = config.bridgeOrigins + listOfNotNull(relayTarget?.origin)
 
     private fun bridgeSource(): String =
         ShellBridge.injectedScript(BuildConfig.VERSION_NAME, ShellBridge.MAX_FILE_BYTES)
@@ -490,7 +494,10 @@ class MainActivity : ComponentActivity() {
                 cookies.setCookie(target.origin, mustChange)
                 cookies.flush()
                 RelaySwitch.save(this, target)
+                val moved = relayTarget?.origin != target.origin
                 relayTarget = target
+                // A new PC origin needs the bridge too (D23); the page in front is the cloud's, so this changes nothing on screen.
+                if (moved) installBridgeScript()
                 done(true)
             }
         }

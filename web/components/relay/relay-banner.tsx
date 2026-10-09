@@ -100,6 +100,19 @@ export function onRelayBanner(listener: (banner: RelayBannerDto | null) => void)
   }
 }
 
+const unreachableListeners = new Set<() => void>()
+
+/**
+ * Part 3: this tab's read of the strip got no answer at all (the line, not a refusal). A page that stays open through a
+ * cut never navigates, so the shell never sees a failed document — this is how the app learns to ask the PC.
+ */
+export function onRelayBannerUnreachable(listener: () => void): () => void {
+  unreachableListeners.add(listener)
+  return () => {
+    unreachableListeners.delete(listener)
+  }
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener)
   return () => {
@@ -124,6 +137,7 @@ async function refresh() {
   } catch (error) {
     // No such endpoint (an older server): no strip. Anything else keeps what is shown.
     if (error instanceof ApiError && error.status === 404) publish(null)
+    if (error instanceof ApiError && error.status === 0) unreachableListeners.forEach((listener) => listener())
   } finally {
     inFlight = false
   }

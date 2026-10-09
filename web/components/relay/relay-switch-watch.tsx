@@ -4,7 +4,7 @@ import { useEffect } from "react"
 
 import { relayApi } from "@/lib/api/relay"
 import { useSession } from "@/lib/auth/session"
-import { onRelayBanner } from "./relay-banner"
+import { onRelayBanner, onRelayBannerUnreachable } from "./relay-banner"
 
 /**
  * `clinic-pc-copy` Part 3: the cabinet's Windows app follows the PC de secours. This half lives in the page because only
@@ -13,7 +13,10 @@ import { onRelayBanner } from "./relay-banner"
  * - **once a day**, it fetches the person's ticket (D22) and hands it to the shell, which trades it on the PC and keeps
  *   that session in its cookie for the PC — so after a switch nobody signs in again;
  * - **when the cloud says the cabinet works on the PC** (the strip's `cloud-on-relay`), it asks the shell to check the PC
- *   and move there — the case where the PC alone lost the cloud and the cabinet would otherwise sit read-only.
+ *   and move there — the case where the PC alone lost the cloud and the cabinet would otherwise sit read-only;
+ * - **when the cloud does not answer at all** (the strip's read gets no reply), it asks the same — a page left open
+ *   through a cut never navigates, so the shell would never see a failed document. The shell moves only if the PC
+ *   says it holds, so asking early costs nothing.
  *
  * The rest is the shell's own (a cloud that does not load at all, and the way back once the PC lets go).
  *
@@ -35,6 +38,7 @@ const SWITCH_AGAIN_AFTER_MS = 15_000
 let mounted = 0
 let timer: number | null = null
 let stopBanner: (() => void) | null = null
+let stopUnreachable: (() => void) | null = null
 let lastSwitchAt = 0
 
 function watch(): (() => void) | undefined {
@@ -48,6 +52,7 @@ function watch(): (() => void) | undefined {
     stopBanner = onRelayBanner((banner) => {
       if (banner?.kind === "cloud-on-relay") void switchToPc()
     })
+    stopUnreachable = onRelayBannerUnreachable(() => void switchToPc())
   }
 
   return () => {
@@ -57,6 +62,8 @@ function watch(): (() => void) | undefined {
       timer = null
       stopBanner?.()
       stopBanner = null
+      stopUnreachable?.()
+      stopUnreachable = null
     }
   }
 }

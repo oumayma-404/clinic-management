@@ -180,6 +180,20 @@ public static class VaultBridge
               return relayRequest('relay-switch', null, false, 20000);
             }
 
+            /*
+             * clinic-pc-copy D23 (since 1.6): the open form's state, kept by the shell for this window so it survives a
+             * switch of server — `null` forgets it — and taken back once by the next clinic page.
+             */
+            function carryDraft(draft) {
+              try {
+                window.chrome.webview.postMessage('carry-draft:' + (typeof draft === 'string' ? draft : ''));
+              } catch (e) { /* the form still works; it would not survive a switch */ }
+            }
+
+            function takeCarriedDraft() {
+              return relayRequest('carry-take', null, null, 5000);
+            }
+
             window.__clinicShellDeliverRelayResult = function (id, value) {
               try {
                 var settle = relayPending[id];
@@ -190,7 +204,7 @@ public static class VaultBridge
             Object.defineProperty(window, '__clinicShell', {
               // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` took this
               // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4, `relayProbe` to 1.5,
-              // `relayPrepare` + `relaySwitch` to 1.6.
+              // `relayPrepare` + `relaySwitch` (and `carryDraft` + `takeCarriedDraft`) to 1.6.
               value: Object.freeze({
                 version: '{{version}}',
                 platform: 'windows',
@@ -199,7 +213,9 @@ public static class VaultBridge
                 installRelay: installRelay,
                 relayProbe: relayProbe,
                 relayPrepare: relayPrepare,
-                relaySwitch: relaySwitch
+                relaySwitch: relaySwitch,
+                carryDraft: carryDraft,
+                takeCarriedDraft: takeCarriedDraft
               }),
               configurable: true,
               writable: false,

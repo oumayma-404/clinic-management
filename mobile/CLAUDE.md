@@ -19,9 +19,10 @@ mobile/
 │       ├── MainActivity.kt        the five states, the WebView, insets, back, the launch version check
 │       ├── ServerConfig.kt        the address + SharedPreferences; a port of desktop/ServerConfig.cs
 │       ├── ClientRequirements.kt  the native pre-launch read of GET /api/meta/client-requirements
-│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity · relayProbe · relayPrepare · relaySwitch
+│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity · relayProbe · relayPrepare · relaySwitch · carryDraft · takeCarriedDraft
 │       ├── RelayProbe.kt          AC-6.2: the PC de secours probed through its pinned certificate + this phone's gateway
 │       ├── RelaySwitch.kt         Part 3: the prepared session on the PC (D22), « does it hold? », where the PC is
+│       ├── CarriedDraftSlot.kt    D23: the open form's state, in memory, handed to the next clinic page once
 │       ├── BiometricGate.kt       the OS owner check behind confirmIdentity (AC-57…AC-60, API 28+)
 │       ├── FileChooser.kt         WebChromeClient.onShowFileChooser + the camera
 │       └── ExternalNavigation.kt  off-origin top-level navigations → Custom Tabs

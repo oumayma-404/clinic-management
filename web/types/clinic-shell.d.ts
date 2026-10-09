@@ -129,6 +129,15 @@ interface ClinicShell {
 
   /** Part 3: the cloud says the cabinet works on the PC — the shell asks the PC and moves there when it holds. */
   relaySwitch?(): Promise<boolean>
+
+  /**
+   * `clinic-pc-copy` D23 (Windows 1.6 · Android 1.3.0): keep the open form's state (a JSON string) in the shell's memory
+   * for this window, replacing what it held — `null` forgets it. So a form survives the app switching server.
+   */
+  carryDraft?(draft: string | null): void
+
+  /** D23: the form state the shell holds, handed over once (and forgotten) — `null` when there is none. Never rejects. */
+  takeCarriedDraft?(): Promise<string | null>
 }
 
 interface Window {

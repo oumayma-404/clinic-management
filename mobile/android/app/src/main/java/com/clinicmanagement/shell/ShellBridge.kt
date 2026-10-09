@@ -42,6 +42,8 @@ class ShellBridge(
     private val onRelayPrepare: (RelaySwitch.Prepare, (Boolean) -> Unit) -> Unit = { _, done -> done(false) },
     /** Part 3: the cloud says the cabinet works on the PC — move there if the PC holds. */
     private val onRelaySwitch: ((Boolean) -> Unit) -> Unit = { done -> done(false) },
+    /** D23: the cloud's page or the PC de secours's — the only two that may hand over or take a form. */
+    private val isClinicPage: (Uri) -> Boolean = isOwnPage,
 ) {
 
     /**
@@ -161,6 +163,28 @@ class ShellBridge(
             onRelaySwitch { moved -> deliverRelayValue(id, moved.toString()) }
         }
     }
+
+    /** `carryDraft` (D23): the open form's state, kept in memory for the next clinic page — null or empty forgets it. */
+    @JavascriptInterface
+    fun carryDraft(draftJson: String?) {
+        activity.runOnUiThread {
+            if (onClinicPage()) CarriedDraftSlot.carry(draftJson, System.currentTimeMillis())
+        }
+    }
+
+    /** `takeCarriedDraft` (D23): the held form state, once — then forgotten. */
+    @JavascriptInterface
+    fun takeCarriedDraft(requestId: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        activity.runOnUiThread {
+            val draft = if (onClinicPage()) CarriedDraftSlot.take(System.currentTimeMillis()) else null
+            deliverRelayValue(id, draft?.let { JSONObject.quote(it) } ?: "null")
+        }
+    }
+
+    private fun onClinicPage(): Boolean =
+        webView.url?.let { runCatching { it.toUri() }.getOrNull() }?.let(isClinicPage) ?: false
 
     private fun onOwnPage(): Boolean =
         webView.url?.let { runCatching { it.toUri() }.getOrNull() }?.let(isOwnPage) ?: false
@@ -351,6 +375,30 @@ class ShellBridge(
                           }));
                         } catch (e) {
                           settle(false);
+                        }
+                      });
+                    },
+                    carryDraft: function (draft) {
+                      try {
+                        nativeBridge.carryDraft(typeof draft === "string" ? draft : null);
+                      } catch (e) {}
+                    },
+                    takeCarriedDraft: function () {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(typeof value === "string" ? value : null);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(null); }, 5000);
+                        try {
+                          nativeBridge.takeCarriedDraft(id);
+                        } catch (e) {
+                          settle(null);
                         }
                       });
                     },
