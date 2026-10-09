@@ -53,6 +53,84 @@ public sealed class RelayLeaseTests : IDisposable
         return lease;
     }
 
+    // ---- the clock (D20b, FR-3, EC-10) ---------------------------------------------------------------------------
+
+    private sealed class FakeClock(bool refuses = false) : IRelaySystemClock
+    {
+        public List<DateTime> Set { get; } = new();
+
+        public bool TrySet(DateTime utc, out string? error)
+        {
+            Set.Add(utc);
+            error = refuses ? "le service du PC de secours n'a pas le droit de régler l'heure de Windows." : null;
+            return !refuses;
+        }
+    }
+
+    private static Task<RelayCall<RelayHeartbeatAck>> AnswerAt(DateTime cloudUtc, long seq = 1001) =>
+        Task.FromResult(new RelayCall<RelayHeartbeatAck>(RelayCallStatus.Ok,
+            new RelayHeartbeatAck(cloudUtc, 40, "e1", false, false, "build-1", seq, Armed: true)));
+
+    // [D20b] Off by more than 30 s on a quick answer: Windows' clock is set to the cloud's (plus half the round trip),
+    // and the correction is remembered for the cloud's bell row.
+    [Fact]
+    public async Task A_Clock_More_Than_Thirty_Seconds_Off_Is_Set_From_The_Clouds()
+    {
+        var clock = new FakeClock();
+        var lease = new RelayLease(_dir, () => _now, () => _mono, clock: clock);
+
+        await lease.ExchangeAsync(_ => { Advance(2); return AnswerAt(_now.AddMinutes(2)); }, default);
+
+        Assert.Equal(_now.AddMinutes(2).AddSeconds(1), Assert.Single(clock.Set));
+        Assert.Equal(121, lease.Current.ClockCorrectedBySeconds);
+        Assert.Null(lease.Current.ClockError);
+    }
+
+    [Fact]
+    public async Task Within_Thirty_Seconds_Or_On_A_Slow_Answer_The_Clock_Is_Left_Alone()
+    {
+        var clock = new FakeClock();
+        var lease = new RelayLease(_dir, () => _now, () => _mono, clock: clock);
+
+        await lease.ExchangeAsync(_ => AnswerAt(_now.AddSeconds(20)), default);
+        await lease.ExchangeAsync(_ => { Advance(6); return AnswerAt(_now.AddHours(1)); }, default);
+
+        Assert.Empty(clock.Set);
+        Assert.Null(lease.Current.ClockCorrectedAtUtc);
+    }
+
+    // [FR-3] Cannot set it: the PC says why and never takes over — during a cut its dates would not be the cloud's. The
+    // first answer that finds the clock right lifts it.
+    [Fact]
+    public async Task A_Pc_That_Cannot_Set_Its_Clock_Says_Why_And_Does_Not_Take_Over()
+    {
+        var lease = new RelayLease(_dir, () => _now, () => _mono, clock: new FakeClock(refuses: true));
+        await lease.ExchangeAsync(_ => AnswerAt(_now.AddMinutes(-3)), default);
+        Advance(10);
+        await lease.ExchangeAsync(_ => NoAnswer(), default);
+        Advance(120);
+
+        Assert.Contains("fausse de 3 min", lease.Current.ClockError);
+        Assert.Contains("pas le droit", lease.Current.ClockError);
+        Assert.False(await Keeper(lease).TickAsync(default));
+        Assert.False(lease.IsHolding);
+
+        await lease.ExchangeAsync(_ => AnswerAt(_now), default);
+        Assert.Null(lease.Current.ClockError);
+    }
+
+    // No clock given (every test, every tool): nothing ever moves the machine's time.
+    [Fact]
+    public async Task A_Lease_Without_A_Clock_Never_Sets_One()
+    {
+        var lease = Lease();
+
+        await lease.ExchangeAsync(_ => AnswerAt(_now.AddDays(1)), default);
+
+        Assert.Null(lease.Current.ClockCorrectedAtUtc);
+        Assert.Null(lease.Current.ClockError);
+    }
+
     // ---- the takeover (FR-3, D13) ---------------------------------------------------------------------------------
 
     [Fact]

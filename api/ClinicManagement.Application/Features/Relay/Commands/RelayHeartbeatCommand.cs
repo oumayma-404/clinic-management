@@ -88,7 +88,8 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
                 report.DiskFreeBytes, report.IsUpdating, report.Build, report.PcClockUtc, report.LanAddresses,
                 report.MismatchTables, report.LastError, report.CertificateFingerprint, report.CopyStopped,
                 report.Holding, report.HoldingSinceUtc, report.HoldingUnderAckSeq,
-                report.HttpsPort, report.GatewayAddress, request.CallerAddress, report.ReturnStuckSinceUtc);
+                report.HttpsPort, report.GatewayAddress, request.CallerAddress, report.ReturnStuckSinceUtc,
+                report.ClockCorrectedAtUtc, report.ClockCorrectedBySeconds, report.ClockUnfixable);
 
             // D19: a takeover an admin's « Reprendre la main » overruled — this answer stops that PC, and never arms it.
             var overruled = relay.IsOverruledHolding(beat);

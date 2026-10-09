@@ -83,6 +83,14 @@ public class ClinicRelay : AggregateRoot<Guid>
     /// <summary>The PC's clock minus the cloud's, as measured at its last contact (EC-10).</summary>
     public int? ClockSkewSeconds { get; private set; }
 
+    /// <summary>D20b: when the PC last set its clock from the cloud's, and by how much it was off (EC-10).</summary>
+    public DateTime? ClockCorrectedAtUtc { get; private set; }
+
+    public int? ClockCorrectedBySeconds { get; private set; }
+
+    /// <summary>D20b: since when the PC's clock is wrong and it cannot set it — not ready, never armed.</summary>
+    public DateTime? ClockUnfixableSinceUtc { get; private set; }
+
     /// <summary>Set while the hourly check finds a difference the PC could not repair (FR-9).</summary>
     public DateTime? MismatchSinceUtc { get; private set; }
     public string? MismatchTables { get; private set; }
@@ -451,6 +459,14 @@ public class ClinicRelay : AggregateRoot<Guid>
         LastError = Cap(heartbeat.LastError, MaxErrorLength);
         Build = Cap(heartbeat.Build, MaxBuildLength) ?? Build;
         ClockSkewSeconds = heartbeat.PcClockUtc is { } pc ? (int)Math.Round((pc - nowUtc).TotalSeconds) : null;
+        if (heartbeat.ClockCorrectedAtUtc is { } corrected && corrected > (ClockCorrectedAtUtc ?? DateTime.MinValue))
+        {
+            // The PC's own report, never in the cloud's future.
+            ClockCorrectedAtUtc = corrected < nowUtc ? corrected : nowUtc;
+            ClockCorrectedBySeconds = heartbeat.ClockCorrectedBySeconds;
+        }
+
+        ClockUnfixableSinceUtc = heartbeat.ClockUnfixable ? ClockUnfixableSinceUtc ?? nowUtc : null;
         CopyStoppedSinceUtc = heartbeat.CopyStopped ? CopyStoppedSinceUtc ?? nowUtc : null;
         if (IsOverruledHolding(heartbeat))
         {
@@ -726,4 +742,8 @@ public sealed record RelayHeartbeat(
     string? GatewayAddress = null,
     string? PublicAddress = null,
     // D18: since when the PC has been failing to hand its cut back (AC-5.9).
-    DateTime? ReturnStuckSinceUtc = null);
+    DateTime? ReturnStuckSinceUtc = null,
+    // D20b: the PC set its clock from the cloud's (when, by how much), or cannot set it.
+    DateTime? ClockCorrectedAtUtc = null,
+    int? ClockCorrectedBySeconds = null,
+    bool ClockUnfixable = false);

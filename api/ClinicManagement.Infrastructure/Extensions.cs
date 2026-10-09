@@ -191,7 +191,8 @@ public static class Extensions
         services.AddScoped<IClinicRelayRepository, ClinicRelayRepository>();
         // The PC de secours's write lease (D13): one per process, since the gate, the copy loop and the takeover decision
         // must agree on it. Built only when asked, so no other profile ever reads .local/relay-lease.json.
-        services.AddSingleton(_ => new RelayLease());
+        // D20b: the PC de secours sets Windows' clock from the cloud's — only here, never in a test or a tool.
+        services.AddSingleton(_ => new RelayLease(clock: new WindowsSystemClock()));
         services.AddSingleton<IRelayBoxProbe>(sp => new GatewayBoxProbe(sp.GetRequiredService<ILogger<GatewayBoxProbe>>()));
         // Every profile: « not retired » off a PC de secours, without touching the disk (clinic-pc-copy AC-8.1).
         services.AddSingleton<IRelayLocalStatus>(sp =>

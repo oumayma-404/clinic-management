@@ -25,6 +25,7 @@ public static class RelayLabels
         ClinicRelayState.Mismatch => "mismatch",
         ClinicRelayState.Retired => "retired",
         ClinicRelayState.Stopped => "stopped",
+        ClinicRelayState.ClockWrong => "clock-wrong",
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
     };
 
@@ -59,6 +60,8 @@ public static class RelayLabels
                 $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)} : le cloud a repris la main pendant la coupure, {label} garde ce que le cabinet y a enregistré",
             ClinicRelayState.Stopped =>
                 $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)} : le cloud est revenu à un état antérieur, {label} garde les données les plus récentes",
+            ClinicRelayState.ClockWrong =>
+                $"L'horloge de {label} est fausse et il ne peut pas la remettre à l'heure : il ne prendra pas le relais",
             _ => throw new ArgumentOutOfRangeException(nameof(reading), reading.State, null),
         };
     }
@@ -102,6 +105,7 @@ public static class RelayLabels
         ClinicRelayState.Mismatch => "Ne correspond pas",
         ClinicRelayState.Retired => "Retiré",
         ClinicRelayState.Stopped => $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)}",
+        ClinicRelayState.ClockWrong => "Horloge fausse",
         _ => throw new ArgumentOutOfRangeException(nameof(reading), reading.State, null),
     };
 
@@ -117,6 +121,16 @@ public static class RelayLabels
         return age < TimeSpan.FromMinutes(1)
             ? $"Copie à jour il y a {Math.Max(0, (int)age.TotalSeconds)} s"
             : $"Copie de {ClinicClock.ToClinicLocal(since.Value).ToString("HH:mm", French)}";
+    }
+
+    /// <summary>D20b: how far a clock was off — « 45 s », « 3 min », « 1 h 05 », « 2 j ».</summary>
+    public static string ClockOffset(int seconds)
+    {
+        var d = TimeSpan.FromSeconds(Math.Abs(seconds));
+        return d.TotalDays >= 1 ? $"{(int)d.TotalDays} j"
+            : d.TotalHours >= 1 ? $"{(int)d.TotalHours} h {d.Minutes:00}"
+            : d.TotalMinutes >= 1 ? $"{(int)d.TotalMinutes} min"
+            : $"{(int)d.TotalSeconds} s";
     }
 
     /// <summary>« 08:12 » today, « 06/10 à 08:12 » otherwise — the bell says the same as the card.</summary>

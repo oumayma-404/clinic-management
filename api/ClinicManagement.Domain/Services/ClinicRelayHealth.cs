@@ -20,6 +20,9 @@ public enum ClinicRelayState
 
     /// <summary>The PC stopped following a cloud that went back in time (D12, AC-9.4) — never repaired toward.</summary>
     Stopped = 11,
+
+    /// <summary>D20b / EC-10: the PC's clock is wrong and it cannot set it — it would not take over (FR-3).</summary>
+    ClockWrong = 12,
 }
 
 /// <summary>The state plus the instant its sentence names (« depuis 08:12 », « Copie de 14:32 »).</summary>
@@ -28,7 +31,7 @@ public sealed record ClinicRelayHealthReading(ClinicRelayState State, DateTime? 
     /// <summary>Whether this is a problem admins are told about (AC-2.2, AC-2.3).</summary>
     public bool IsProblem => State is ClinicRelayState.Late or ClinicRelayState.Off or ClinicRelayState.DiskNearlyFull
         or ClinicRelayState.Mismatch or ClinicRelayState.InstallFailed or ClinicRelayState.Abandoned
-        or ClinicRelayState.Stopped;
+        or ClinicRelayState.Stopped or ClinicRelayState.ClockWrong;
 }
 
 /// <summary>The one FR-2 predicate, read by « Paramètres », the bell and the vendor console alike.</summary>
@@ -103,6 +106,12 @@ public static class ClinicRelayHealth
         if (relay.IsUpdating)
         {
             return new(ClinicRelayState.Updating, lastSeen, null);
+        }
+
+        // D20b: a PC whose clock is wrong and stays wrong never takes over — so it is never « Prêt » (and never armed).
+        if (relay.ClockUnfixableSinceUtc is { } clockWrong)
+        {
+            return new(ClinicRelayState.ClockWrong, clockWrong, null);
         }
 
         if (relay.MismatchSinceUtc is { } mismatch)

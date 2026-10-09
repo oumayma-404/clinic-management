@@ -265,7 +265,7 @@ function StateBadge({ clinic }: { clinic: PlatformClinicRow }) {
  * A cabinet's PC de secours, in one place for the table and the card list (`clinic-pc-copy` AC-9.1). The server's
  * words with a shape; the colour only marks a state the vendor must act on.
  */
-const RELAY_NEEDS_ACTION = new Set(["late", "off", "mismatch", "stopped", "install-failed", "disk-nearly-full"]);
+const RELAY_NEEDS_ACTION = new Set(["late", "off", "mismatch", "stopped", "install-failed", "disk-nearly-full", "clock-wrong"]);
 
 function RelayBadge({ clinic }: { clinic: PlatformClinicRow }) {
   const tone = RELAY_NEEDS_ACTION.has(clinic.relayState)

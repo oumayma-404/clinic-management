@@ -87,10 +87,9 @@ public static class RelayAlertRules
             rows.Add(new(RelayAlert.Silent, "PC de secours injoignable",
                 $"Le PC de secours ne répond plus depuis {RelayLabels.Moment(lockedSince, nowUtc)} : le cabinet ne peut pas "
                 + "enregistrer sur le cloud. Rallumez-le, ou « Reprendre la main » dans « Paramètres → PC de secours »."));
-            if (HasWrongClock(relay, reading))
+            if (ClockRow(relay, reading, nowUtc) is { } silentClockRow)
             {
-                rows.Add(new(RelayAlert.ClockWrong, "Horloge du PC de secours fausse",
-                    $"L'horloge de {label} est fausse : réglez la date et l'heure de Windows."));
+                rows.Add(silentClockRow);
             }
 
             return rows;
@@ -120,8 +119,8 @@ public static class RelayAlertRules
 
             case ClinicRelayState.Stopped:
                 rows.Add(new(RelayAlert.Stopped, "Copie du PC de secours arrêtée",
-                    $"Le cloud est revenu à un état antérieur : la copie sur {label} est arrêtée pour ne rien perdre. "
-                    + "Contactez le support."));
+                    $"Le cloud est revenu à un état antérieur : {label} garde les données les plus récentes et lui renvoie "
+                    + "ce qu'il a perdu, puis la copie reprend."));
                 break;
 
             case ClinicRelayState.Off or ClinicRelayState.Late or ClinicRelayState.DiskNearlyFull or ClinicRelayState.Mismatch:
@@ -134,10 +133,9 @@ public static class RelayAlertRules
                 break;
         }
 
-        if (HasWrongClock(relay, reading))
+        if (ClockRow(relay, reading, nowUtc) is { } clockRow)
         {
-            rows.Add(new(RelayAlert.ClockWrong, "Horloge du PC de secours fausse",
-                $"L'horloge de {label} est fausse : réglez la date et l'heure de Windows."));
+            rows.Add(clockRow);
         }
 
         return rows;
@@ -219,9 +217,39 @@ public static class RelayAlertRules
         return ClinicClock.ToUtc(local.Date + windowStart);
     }
 
-    /// <summary>EC-10: measured at its last contact. Not asked of a setup that ended or a PC already retired.</summary>
-    private static bool HasWrongClock(ClinicRelay relay, ClinicRelayHealthReading reading) =>
-        reading.State is not (ClinicRelayState.None or ClinicRelayState.Abandoned or ClinicRelayState.Retired)
-        && relay.ClockSkewSeconds is { } skew
-        && Math.Abs(skew) > ClockToleranceSeconds;
+    /// <summary>How long « l'horloge … a été remise à l'heure » stays on the bell after the PC set it (EC-10).</summary>
+    public static readonly TimeSpan ClockCorrectionToldFor = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// EC-10 / D20b: the PC sets its own clock from the cloud's, so admins are TOLD it was wrong rather than asked to fix
+    /// it — unless it cannot, which keeps it from taking over. A PC of an older build still reports its measured skew.
+    /// Not asked of a setup that ended or a PC already retired.
+    /// </summary>
+    private static RelayAlertRow? ClockRow(ClinicRelay relay, ClinicRelayHealthReading reading, DateTime nowUtc)
+    {
+        if (reading.State is ClinicRelayState.None or ClinicRelayState.Abandoned or ClinicRelayState.Retired)
+        {
+            return null;
+        }
+
+        var label = relay.Label;
+        if (relay.ClockUnfixableSinceUtc is not null)
+        {
+            return new(RelayAlert.ClockWrong, "Horloge du PC de secours fausse",
+                $"L'horloge de {label} est fausse et ce PC ne peut pas la remettre à l'heure : il ne prendra pas le relais. "
+                + "Réglez la date et l'heure de Windows.");
+        }
+
+        if (relay.ClockCorrectedAtUtc is { } corrected && nowUtc - corrected < ClockCorrectionToldFor)
+        {
+            var by = relay.ClockCorrectedBySeconds is { } seconds ? $" de {RelayLabels.ClockOffset(seconds)}" : string.Empty;
+            return new(RelayAlert.ClockWrong, "Horloge du PC de secours fausse",
+                $"L'horloge de {label} était fausse{by} : elle a été remise à l'heure du cloud ({RelayLabels.Moment(corrected, nowUtc)}).");
+        }
+
+        return relay.ClockSkewSeconds is { } skew && Math.Abs(skew) > ClockToleranceSeconds
+            ? new(RelayAlert.ClockWrong, "Horloge du PC de secours fausse",
+                $"L'horloge de {label} est fausse : réglez la date et l'heure de Windows.")
+            : null;
+    }
 }

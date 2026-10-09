@@ -43,7 +43,11 @@ public sealed record RelayHeartbeatRequest(
     Guid? ReturnedHandbackId = null,
     DateTime? ReturnStuckSinceUtc = null,
     // AC-9.4: the database history this copy follows; another than the cloud's means the cloud was restored behind it.
-    string? FollowedEpoch = null);
+    string? FollowedEpoch = null,
+    // D20b: the PC set its clock from the cloud's (when, by how much), or cannot set it (then it is not ready).
+    DateTime? ClockCorrectedAtUtc = null,
+    int? ClockCorrectedBySeconds = null,
+    bool ClockUnfixable = false);
 
 /// <summary>D18: one change of the PC's own log of the cut — the key only; its row travels beside it.</summary>
 public sealed record RelayHandbackChange(

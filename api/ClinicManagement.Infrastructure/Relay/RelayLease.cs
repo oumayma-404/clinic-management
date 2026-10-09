@@ -49,6 +49,19 @@ public sealed record RelayLeaseState
     /// answers that it holds the cabinet's saves again.
     /// </summary>
     public Guid? ReturnedHandbackId { get; init; }
+
+    // ---- the clock (D20b) ------------------------------------------------------------------------------------------
+
+    /// <summary>When this PC last set Windows' clock from the cloud's, and by how many seconds it was off (EC-10).</summary>
+    public DateTime? ClockCorrectedAtUtc { get; init; }
+
+    public int? ClockCorrectedBySeconds { get; init; }
+
+    /// <summary>
+    /// D20b: the clock is wrong and this PC could not set it — said on every heartbeat, and the PC does not take over (FR-3:
+    /// during a cut, dates must follow the cloud's time). Cleared by the first answer that finds the clock right.
+    /// </summary>
+    public string? ClockError { get; init; }
 }
 
 /// <summary>
@@ -82,6 +95,7 @@ public sealed class RelayLease
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     private readonly string _path;
+    private readonly IRelaySystemClock? _clock;
     private readonly Func<DateTime> _utcNow;
     private readonly Func<TimeSpan> _monotonic;
     private readonly TimeSpan _exchangeTimeout;
@@ -92,9 +106,15 @@ public sealed class RelayLease
     private TimeSpan? _lastExchangeAt;
     private bool _unansweredSinceAck;
 
+    /// <param name="clock">
+    /// D20b: the machine clock this PC sets from the cloud's. ⚠️ Null means « never set it » — the default, so that no test
+    /// and no tool can move a developer's clock; only the PC de secours's own registration passes the Windows one.
+    /// </param>
     public RelayLease(
-        string? localDir = null, Func<DateTime>? utcNow = null, Func<TimeSpan>? monotonic = null, TimeSpan? exchangeTimeout = null)
+        string? localDir = null, Func<DateTime>? utcNow = null, Func<TimeSpan>? monotonic = null, TimeSpan? exchangeTimeout = null,
+        IRelaySystemClock? clock = null)
     {
+        _clock = clock;
         _path = Path.Combine(localDir ?? LocalInstallPaths.LocalDir, FileName);
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _monotonic = monotonic ?? SinceProcessStart();
@@ -172,9 +192,11 @@ public sealed class RelayLease
         await _exchange.WaitAsync(cancellationToken);
         try
         {
+            TimeSpan sentAt;
             lock (_gate)
             {
-                _lastExchangeAt = _monotonic();
+                sentAt = _monotonic();
+                _lastExchangeAt = sentAt;
             }
 
             RelayCall<RelayHeartbeatAck> call;
@@ -197,6 +219,8 @@ public sealed class RelayLease
                 {
                     Received(call.Value.AckSeq, call.Value.Armed);
                 }
+
+                KeepClock(call.Value.CloudTimeUtc, _monotonic() - sentAt);
             }
             else if (call.Status != RelayCallStatus.Released)
             {
@@ -211,6 +235,58 @@ public sealed class RelayLease
         finally
         {
             _exchange.Release();
+        }
+    }
+
+    /// <summary>
+    /// D20b (FR-3, EC-10): an answer says what time the cloud has. More than 30 s apart on a quick answer, Windows' clock
+    /// is set to the cloud's — the server reads its wall clock in hundreds of places (dates, the caisse's day, the
+    /// authenticator codes), so the one clock is corrected rather than each reader. Cannot set it: said, and no takeover.
+    /// The lease's own timings run on the monotonic clock, so moving the wall clock moves none of them.
+    /// </summary>
+    private void KeepClock(DateTime cloudUtc, TimeSpan roundTrip)
+    {
+        if (cloudUtc == default || RelayClockRules.Offset(cloudUtc, _utcNow(), roundTrip) is not { } offset)
+        {
+            return;
+        }
+
+        if (!RelayClockRules.IsWrong(offset))
+        {
+            lock (_gate)
+            {
+                if (_state.ClockError is not null)
+                {
+                    Write(_state with { ClockError = null });
+                }
+            }
+
+            return;
+        }
+
+        if (_clock is null)
+        {
+            return;
+        }
+
+        var seconds = (int)Math.Round(offset.TotalSeconds);
+        var off = Application.Features.Relay.RelayLabels.ClockOffset(seconds);
+        if (_clock.TrySet(_utcNow() + offset, out var error))
+        {
+            lock (_gate)
+            {
+                Write(_state with { ClockCorrectedAtUtc = _utcNow(), ClockCorrectedBySeconds = seconds, ClockError = null });
+            }
+
+            return;
+        }
+
+        lock (_gate)
+        {
+            Write(_state with
+            {
+                ClockError = $"L'horloge de ce PC est fausse de {off} et il ne peut pas la remettre à l'heure du cloud : {error}",
+            });
         }
     }
 
@@ -543,7 +619,9 @@ public sealed class RelayLeaseKeeper
         }
 
         var ack = _lease.Current;
+        // D20b: a PC whose clock is wrong and stays wrong never takes over — its dates would not be the cloud's.
         if (state.Released || state.ErasedAtUtc is not null || !state.RowsSeeded || state.StoppedReason is not null
+            || ack.ClockError is not null
             || !ack.LastAckArmed || ack.LastAckReceivedAtUtc is null || !_lease.UnansweredSinceLastAck)
         {
             return false;

@@ -35,6 +35,9 @@ public sealed class RelayFeedJob : BackgroundService
     /// <summary>The machine facts barely move; reading the certificate every ten seconds would be waste.</summary>
     private static readonly TimeSpan HostFactsTtl = TimeSpan.FromMinutes(5);
 
+    /// <summary>AC-3.11: how often the cabinet's hours are read again for Windows Update's active hours.</summary>
+    public static readonly TimeSpan UpdateHoursEvery = TimeSpan.FromHours(1);
+
     private readonly IServiceScopeFactory _scopes;
     private readonly IDataProtectionProvider _protection;
     private readonly IUserSecretProtector _secrets;
@@ -51,6 +54,10 @@ public sealed class RelayFeedJob : BackgroundService
     private DateTime _hostFactsReadAtUtc;
     private volatile bool _schemaReady;
     private bool _toldUnpaired;
+    private readonly IRelayUpdateHoursSink _updateHours = new WindowsUpdateHours();
+    private DateTime _updateHoursCheckedAtUtc;
+    private RelayActiveHours? _updateHoursApplied;
+    private bool _toldUpdateHours;
 
     public RelayFeedJob(
         IServiceScopeFactory scopes,
@@ -315,6 +322,50 @@ public sealed class RelayFeedJob : BackgroundService
                 services.GetRequiredService<IFileStorage>(),
                 services.GetRequiredService<IRelayHandbackStore>()),
             cancellationToken);
+
+        await KeepUpdateHoursAsync(services.GetRequiredService<ApplicationDbContext>(), credentials.ClinicId, cancellationToken);
+    }
+
+    /// <summary>
+    /// AC-3.11: Windows Update never restarts this PC during the cabinet's opening hours — its active hours follow them,
+    /// read hourly from the copy (an admin changing the hours reaches the PC with the next copy). Best-effort: a PC that
+    /// cannot set them says so once in its log; nothing else depends on it.
+    /// </summary>
+    private async Task KeepUpdateHoursAsync(ApplicationDbContext db, Guid clinicId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        if (now - _updateHoursCheckedAtUtc < UpdateHoursEvery)
+        {
+            return;
+        }
+
+        _updateHoursCheckedAtUtc = now;
+        try
+        {
+            var json = await db.Clinics.AsNoTracking().Where(c => c.Id == clinicId)
+                .Select(c => c.WorkingHoursJson).FirstOrDefaultAsync(cancellationToken);
+            if (RelayUpdateHours.Window(json) is not { } hours || hours == _updateHoursApplied)
+            {
+                return;
+            }
+
+            if (_updateHours.TryApply(hours, out var error))
+            {
+                _updateHoursApplied = hours;
+                _toldUpdateHours = false;
+                _logger.LogInformation("PC de secours: Windows Update will not restart this PC between {Start}:00 and {End}:00.",
+                    hours.Start, hours.End);
+            }
+            else if (!_toldUpdateHours)
+            {
+                _toldUpdateHours = true;
+                _logger.LogWarning("PC de secours: Windows Update's active hours could not be set — {Error}", error);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "PC de secours: the cabinet's hours could not be read for Windows Update.");
+        }
     }
 
     /// <summary>One follower per pairing, kept across ticks for its token and its file retry memory.</summary>

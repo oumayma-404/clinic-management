@@ -390,7 +390,7 @@ public sealed class RelayFollower
             _utcNow(),
             string.Join(",", host.LanAddresses),
             state.MismatchTables,
-            state.StoppedReason ?? state.UpdateError ?? state.LastError,
+            state.StoppedReason ?? state.UpdateError ?? lease.ClockError ?? state.LastError,
             host.CertificateFingerprint,
             CopyStopped: state.StoppedReason is not null,
             ConfirmedAckSeq: lease.LastAckSeq,
@@ -403,7 +403,10 @@ public sealed class RelayFollower
             GatewayAddress: host.GatewayAddress,
             ReturnedHandbackId: lease.ReturnedHandbackId,
             ReturnStuckSinceUtc: lease.HoldingSinceUtc is not null ? lease.ReturnFirstTriedAtUtc : null,
-            FollowedEpoch: state.Epoch);
+            FollowedEpoch: state.Epoch,
+            ClockCorrectedAtUtc: lease.ClockCorrectedAtUtc,
+            ClockCorrectedBySeconds: lease.ClockCorrectedBySeconds,
+            ClockUnfixable: lease.ClockError is not null);
     }
 
     /// <summary>

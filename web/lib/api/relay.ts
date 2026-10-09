@@ -97,7 +97,9 @@ export type RelayStateKey =
   | 'mismatch'
   | 'retired'
   /** The cloud went back to an older state; the PC stopped copying to lose nothing (AC-9.4). */
-  | 'stopped';
+  | 'stopped'
+  /** D20b: the PC's clock is wrong and it cannot set it — it would not take over. */
+  | 'clock-wrong';
 
 /**
  * AC-6.2: what a Windows or Android app tries while the cloud is locked for a silent PC de secours. `probe` is false

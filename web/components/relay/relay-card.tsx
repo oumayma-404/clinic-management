@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
-  Archive, CheckCircle2, CircleSlash, Clock, CloudDownload, HardDrive, OctagonPause, PowerOff, RefreshCw, Server,
+  Archive, CheckCircle2, CircleSlash, Clock, ClockAlert, CloudDownload, HardDrive, OctagonPause, PowerOff, RefreshCw, Server,
   TriangleAlert, XCircle, type LucideIcon,
 } from "lucide-react"
 
@@ -43,6 +43,7 @@ const STATE_LOOK: Record<RelayStateKey, { icon: LucideIcon; tone: StatusTone }> 
   mismatch: { icon: TriangleAlert, tone: "negative" },
   retired: { icon: Archive, tone: "neutral" },
   stopped: { icon: OctagonPause, tone: "negative" },
+  "clock-wrong": { icon: ClockAlert, tone: "negative" },
 }
 
 /** The sentence ages by the second (« il y a 3 s »), so the card re-reads while it is on screen. */
