@@ -224,7 +224,14 @@ public sealed class RelayInstallerDownloader : IRelayInstallerSource
                     lock (gate)
                     {
                         map.Done.Add(piece);
-                        map.Save(MapPath(partPath));
+                        try
+                        {
+                            map.Save(MapPath(partPath));
+                        }
+                        catch (IOException)
+                        {
+                            // The note is only a head start for a resume: a piece it misses is fetched again.
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -264,10 +271,10 @@ public sealed class RelayInstallerDownloader : IRelayInstallerSource
 
         public void Save(string path)
         {
-            var temp = path + ".tmp";
-            File.WriteAllLines(temp, new[] { Build, Sha256, Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            // Written in place (a rename over it can be refused while Windows' scanner holds it); a torn note fails to
+            // parse and the download starts afresh, which is safe — the hash still decides.
+            File.WriteAllLines(path, new[] { Build, Sha256, Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 PieceBytes.ToString(System.Globalization.CultureInfo.InvariantCulture), string.Join(',', Done) });
-            File.Move(temp, path, overwrite: true);
         }
 
         public static PieceMap? Load(string path)
