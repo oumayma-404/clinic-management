@@ -8,6 +8,10 @@ import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
+import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
+import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
+import { takenOverSentence } from "@/lib/forms/form-merge"
+import { mergePlanForm, planFormValuesOf, planSectionLabel } from "./plan-form-merge"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -86,6 +90,18 @@ const fold = (value: string): string =>
  * own shape is the contract.
  */
 export type TreatmentPlanSeedLine = OdontogramPlanSeed
+
+/** What the devis editor hands the shell (`clinic-pc-copy` D23): the screen, and the copy it was opened against. */
+interface CarriedPlanForm {
+  patientId: string
+  title: string
+  notes: string
+  lines: PlanLineRow[]
+  installments: InstallmentRow[]
+  installmentsTouched: boolean
+  placeholderTitle: string | null
+  opened: TreatmentPlanDto | null
+}
 
 interface TreatmentPlanFormModalProps {
   open: boolean
@@ -264,6 +280,8 @@ export function TreatmentPlanFormModal({
    * whatever the dentist had typed the moment anyone saved anything (F1).
    */
   const hydrateFrom = (plan: TreatmentPlanDto) => {
+    openedRef.current = plan
+    setTakenOver([])
     hydratedVersionRef.current = plan.version
     setPatientId(plan.patientId)
     // A placeholder (« Plan de traitement ») opens EMPTY under the page's own name; left empty, it is sent back.
@@ -277,6 +295,76 @@ export function TreatmentPlanFormModal({
     setInstallments(planInstallmentRows(plan))
     setInstallmentsTouched(false)
   }
+
+  /**
+   * The server's copy the form was hydrated or last reconciled with — the « opened » of the three ways
+   * (`plan-form-merge.ts`). Its version is `hydratedVersionRef`, and the two only ever move together.
+   */
+  const openedRef = useRef<TreatmentPlanDto | null>(null)
+  /** What a colleague's save replaced over typing, named until the next save. */
+  const [takenOver, setTakenOver] = useState<string[]>([])
+
+  /**
+   * « Recharger » — the server's copy reconciled into the screen (`plan-form-merge.ts`): each act, the title, the
+   * notes and the échéancier on their own; what only this screen changed is kept, what only the colleague changed
+   * is taken, a part both changed shows theirs and is named. It used to RE-HYDRATE and drop every edit.
+   */
+  const reconcileWith = (server: TreatmentPlanDto) => {
+    const opened = openedRef.current
+    if (!opened || opened.id !== server.id) {
+      hydrateFrom(server)
+      return
+    }
+    const theirs = planFormValuesOf(server, isPlaceholderTitle)
+    const mine = { title, notes, lines, installments }
+    const { values, takenOver: named } = mergePlanForm(planFormValuesOf(opened, isPlaceholderTitle), mine, theirs)
+    setTitle(values.title)
+    setNotes(values.notes)
+    setLines(values.lines.length > 0 ? values.lines : [emptyLine()])
+    if (values.installments !== installments) {
+      setInstallments(values.installments)
+      setInstallmentsTouched(false)
+    }
+    const placeholder = isPlaceholderTitle(server.title) ? server.title.trim() : ""
+    storedPlaceholderTitleRef.current = placeholder || null
+    hydratedVersionRef.current = server.version
+    openedRef.current = server
+    if (named.length > 0) {
+      const labels = named.map((s) => planSectionLabel(s, mine, theirs))
+      setTakenOver((prev) => [...new Set([...prev, ...labels])])
+    }
+  }
+
+  /*
+   * `clinic-pc-copy` D23 / AC-3.2 — the devis being written survives the app switching server. An amendment reopens on
+   * the devis' own page (`?editPlan=1`), a new devis on the list (`?newPlan=1`); the first save after a switch is
+   * refused once, and « Recharger » then reconciles with the server it landed on.
+   */
+  const carried = useCarriedDraft<CarriedPlanForm>({
+    form: "plan",
+    formKey: editingPlan ? `plan:${editingPlan.id}` : "new",
+    path: editingPlan ? `/treatment-plans/${editingPlan.id}?editPlan=1` : "/treatment-plans?newPlan=1",
+    open,
+    dirty: true,
+    state: {
+      patientId, title, notes, lines, installments, installmentsTouched,
+      placeholderTitle: storedPlaceholderTitleRef.current,
+      opened: openedRef.current,
+    },
+    restore: (s) => {
+      if (!editingPlan) setPatientId(s.patientId)
+      setTitle(s.title)
+      setNotes(s.notes)
+      setLines(s.lines.length > 0 ? s.lines : [emptyLine()])
+      setInstallments(s.installments)
+      setInstallmentsTouched(s.installmentsTouched)
+      storedPlaceholderTitleRef.current = s.placeholderTitle
+      if (s.opened && editingPlan && s.opened.id === editingPlan.id) {
+        openedRef.current = s.opened
+        hydratedVersionRef.current = s.opened.version
+      }
+    },
+  })
 
   const hydratedForRef = useRef<string | null>(null)
   useEffect(() => {
@@ -294,6 +382,8 @@ export function TreatmentPlanFormModal({
       hydrateFrom(editingPlan)
     } else {
       setPatientId(presetPatientId ?? "")
+      openedRef.current = null
+      setTakenOver([])
       const seeded = seedLines && seedLines.length > 0
       // Blank: the title is derived from the acts at save, and shown as the placeholder until then.
       storedPlaceholderTitleRef.current = null
@@ -666,6 +756,14 @@ export function TreatmentPlanFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
+    if (carried.consumeSwitch()) {
+      if (editingPlan) conflict.raise(SWITCH_REFUSAL)
+      else setError(SWITCH_REFUSAL)
+      return
+    }
+    // Pressing Enregistrer is the answer to « refaites votre modification ».
+    setTakenOver([])
     // An empty field over a stored placeholder title saves that title unchanged — never a rename, and an
     // otherwise untouched form still answers « Aucune modification demandée ».
     const submittedTitle =
@@ -830,11 +928,12 @@ export function TreatmentPlanFormModal({
                 ? {
                     label: "Recharger",
                     onClick: () => {
-                      // Re-hydrated from the server's copy: resyncing the version alone let the stale form
-                      // overwrite the colleague on the next press (F3).
+                      // Reconciled with the server's copy, never its version alone — that let the stale form
+                      // overwrite the colleague on the next press (F3) — and never a re-hydration, which dropped
+                      // every edit (`plan-form-merge.ts`).
                       if (!editingPlan) return
                       void treatmentPlansApi.get(editingPlan.id)
-                        .then((row) => { hydrateFrom(row); conflict.clearMessage() })
+                        .then((row) => { reconcileWith(row); conflict.clearMessage() })
                         .catch(() => undefined)
                     },
                     disabled: loading,
@@ -842,6 +941,11 @@ export function TreatmentPlanFormModal({
                 : undefined
             }
           />
+          {takenOver.length > 0 && (
+            <p role="status" className="rounded-md bg-warning-wash px-3 py-2 text-sm text-warning-ink">
+              {takenOverSentence(takenOver)}
+            </p>
+          )}
 
           {/* One notice for the three picker reads: they load together, they fail together in practice, and three
               separate banners over one form would say the same thing three times. */}
