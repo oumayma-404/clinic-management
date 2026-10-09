@@ -90,6 +90,11 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 PrivilegesRequired=admin
+; The services are stopped by PrepareToInstall (StopClinicServices) and started again after the copy. Inno's own
+; Restart Manager pass must not try as well: in a silent install it answers « Abort » the moment one PostgreSQL
+; process lingers, rolls back -- and leaves the services it already stopped switched off (a PC de secours
+; update, 2026-10-09: « Éteint » until somebody restarted it by hand).
+CloseApplications=no
 ; Config, storage, logs and the DB cluster all live under the install dir (resolved via
 ; AppContext.BaseDirectory by the API — R-6), so a service whose CWD is System32 still finds them.
 
@@ -173,6 +178,7 @@ var
   // The five TCP ports this install uses. The server role keeps the defines; the PC de secours takes the first FREE
   // port from each define upward (ChooseRelayPorts), because it lands on a PC that already runs other software.
   PortDb, PortHttp, PortHttps, PortWeb, PortTrust: string;
+  InstallFinished: Boolean;           { ssDone reached -- otherwise DeinitializeSetup puts the services back }
 
 // clinic-pc-copy: `/RELAY` makes this PC the cabinet's PC de secours -- the server stack holding a copy of the
 // cabinet's CLOUD clinic. Never a wizard choice: the offer lives in the Windows app (AC-1.1, AC-1.12), which holds the
@@ -973,6 +979,10 @@ begin
   else
     Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
+  // The database last: its binaries are replaced too, and a running postgres.exe locks them. It is started again
+  // after the copy (SetupDatabase), and on a failed install by DeinitializeSetup.
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceDb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+
   { `sc stop` returns as soon as the STOP control is ACCEPTED, not once the process has exited -- so
     without this wait the copy can still hit a locked image. Kestrel and Node both shut down in well
     under this; the cost is a few seconds on an upgrade nobody is watching. }
@@ -1549,6 +1559,20 @@ begin
   Result := SetupOutcome;
 end;
 
+// A cancelled, refused or failed install must never leave the cabinet's server -- or its PC de secours -- switched
+// off: whatever PrepareToInstall stopped is started again. Harmless where nothing was stopped or nothing exists.
+procedure DeinitializeSetup;
+var
+  Rc: Integer;
+begin
+  if InstallFinished or IsWorkstationRole or not FileExists(ApiExecutable) then
+    Exit;
+
+  Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceDb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   PortDb := '{#DbPort}';
@@ -1576,6 +1600,8 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  if CurStep = ssDone then
+    InstallFinished := True;
   if CurStep <> ssPostInstall then
     Exit;
 
