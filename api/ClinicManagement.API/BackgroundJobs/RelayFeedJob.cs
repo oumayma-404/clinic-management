@@ -173,7 +173,10 @@ public sealed class RelayFeedJob : BackgroundService
                     await RecordTakeoverAsync(stoppingToken);
                 }
 
-                if (_schemaReady && _follower is { } follower && !_lease.IsHolding)
+                // A holding PC pulses too: its copy tick can be busy for minutes (a file it started before the takeover),
+                // and silence would leave the cloud not knowing the cabinet works here (first prod test: 2 min). Not
+                // during a handback, whose exchanges are the return's own.
+                if (_schemaReady && _follower is { } follower && !_lease.IsHandingBack)
                 {
                     await follower.PulseAsync(stoppingToken);
                 }

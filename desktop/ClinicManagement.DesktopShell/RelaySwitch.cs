@@ -111,10 +111,23 @@ public static class RelaySwitch
     }
 
     /// <summary>What the unreachable screen adds while the PC answers but does not hold (AC-3.3, then AC-3.8).</summary>
-    public static string WaitingLine(DateTime cloudLostAtUtc, DateTime nowUtc) =>
-        nowUtc - cloudLostAtUtc < TakeoverExpectedWithin
-            ? "Internet coupé — le PC de secours prend le relais dans quelques instants."
-            : "Le PC de secours n'était pas à jour : il ne peut pas prendre le relais.";
+    public static string WaitingLine(DateTime cloudLostAtUtc, DateTime nowUtc)
+    {
+        var elapsed = nowUtc - cloudLostAtUtc;
+        if (elapsed >= TakeoverExpectedWithin)
+        {
+            return "Le PC de secours n'était pas à jour : il ne peut pas prendre le relais.";
+        }
+
+        // Counted from when THIS app lost the cloud — close to the PC's own count, which starts at its last answer.
+        var left = (int)Math.Ceiling((TakeoverAfter - elapsed).TotalSeconds / 5) * 5;
+        return left > 0
+            ? $"Internet coupé — le PC de secours prend le relais dans {left} secondes."
+            : "Internet coupé — le PC de secours prend le relais dans quelques instants.";
+    }
+
+    /// <summary>When the PC de secours takes over after its last answer from the cloud (<c>ClinicWriteLease.PcTakesOverAfter</c>).</summary>
+    public static readonly TimeSpan TakeoverAfter = TimeSpan.FromSeconds(60);
 
     // ---- where the PC is, kept between runs -----------------------------------------------------------------
 

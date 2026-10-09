@@ -621,6 +621,9 @@ public sealed class RelayLeaseKeeper
     private readonly Application.Common.Interfaces.IInternetProbe? _internet;
     private TimeSpan? _causeCheckedAt;
 
+    // When the box was last seen silent (this PC off the cabinet's network), on the monotonic clock.
+    private TimeSpan? _boxSilentAt;
+
     public RelayLeaseKeeper(
         RelayLease lease, RelayFollowerStateStore states, IRelayBoxProbe box, ILogger logger,
         Application.Common.Interfaces.IInternetProbe? internet = null)
@@ -690,8 +693,27 @@ public sealed class RelayLeaseKeeper
         }
 
         var since = _lease.SinceLastAckReceived();
-        if (since < ClinicWriteLease.PcTakesOverAfter
-            || !ClinicWriteLease.PcMayTakeOver(since, ack.LastAckArmed, await _box.AnswersAsync(cancellationToken)))
+        if (since < ClinicWriteLease.PcTakesOverAfter)
+        {
+            return false;
+        }
+
+        var boxAnswers = await _box.AnswersAsync(cancellationToken);
+        if (!boxAnswers)
+        {
+            _boxSilentAt = _lease.Monotonic;
+        }
+
+        // ⚠️ The cloud's silence only counts if it was heard WITH the box answering. A PC that was itself off the network
+        // (Wi-Fi cut, cable out) comes back with « unanswered » left over from the outage; it must ask the cloud once more
+        // before taking over — the first prod test took the saves the instant the Wi-Fi returned, internet working.
+        if (_boxSilentAt is { } silentAt
+            && (_lease.SinceLastExchange is not { } sinceExchange || _lease.Monotonic - sinceExchange <= silentAt))
+        {
+            return false;
+        }
+
+        if (!ClinicWriteLease.PcMayTakeOver(since, ack.LastAckArmed, boxAnswers))
         {
             return false;
         }

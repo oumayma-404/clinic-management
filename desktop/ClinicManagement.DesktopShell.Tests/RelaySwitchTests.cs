@@ -61,6 +61,11 @@ public class RelaySwitchTests
     {
         var lost = new DateTime(2026, 10, 9, 9, 0, 0, DateTimeKind.Utc);
 
+        // A countdown to the PC's takeover (60 s), in steps of 5 s, then « quelques instants » once it is due.
+        Assert.Equal("Internet coupé — le PC de secours prend le relais dans 60 secondes.",
+            RelaySwitch.WaitingLine(lost, lost));
+        Assert.Equal("Internet coupé — le PC de secours prend le relais dans 35 secondes.",
+            RelaySwitch.WaitingLine(lost, lost.AddSeconds(27)));
         Assert.Equal("Internet coupé — le PC de secours prend le relais dans quelques instants.",
             RelaySwitch.WaitingLine(lost, lost.AddSeconds(90)));
         Assert.Equal("Le PC de secours n'était pas à jour : il ne peut pas prendre le relais.",

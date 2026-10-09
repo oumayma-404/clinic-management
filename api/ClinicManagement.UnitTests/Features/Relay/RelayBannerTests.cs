@@ -105,7 +105,7 @@ public class RelayBannerTests
 
         Assert.NotNull(banner);
         Assert.Equal(RelayBanners.CloudSilent, banner!.Kind);
-        Assert.Equal("Le PC de secours ne répond plus depuis 10:01", banner.Title);
+        Assert.Equal("Le PC de secours ne répond plus depuis 10:00", banner.Title);
         Assert.Contains("Reprendre la main", banner.Detail);
     }
 

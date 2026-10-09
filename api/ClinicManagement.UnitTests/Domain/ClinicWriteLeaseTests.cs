@@ -41,7 +41,7 @@ public class ClinicWriteLeaseTests
     /// The PC heartbeats every ~10 s; each request and each answer may be lost or delayed (≤ 2 s each way); an exchange
     /// with no answer after 15 s counts as unanswered. The cloud confirms, records and acks in the real handler's order,
     /// arming most acks. From a random moment the line degrades. Every 100 ms: the cloud is writable unless fenced; the
-    /// PC holds once its takeover rule fires — armed, asked and not answered, 90 s since its last ack — and, holding,
+    /// PC holds once its takeover rule fires — armed, asked and not answered, 60 s since its last ack — and, holding,
     /// keeps heartbeating « je tiens les enregistrements », so on a line that heals the cloud hears it. They are never
     /// both writable.
     /// </summary>
@@ -247,7 +247,7 @@ public class ClinicWriteLeaseTests
     // ---- the cloud's clock ----------------------------------------------------------------------------------------
 
     [Fact]
-    public void The_Cloud_Fences_Sixty_Seconds_After_It_Sent_The_Ack_The_Pc_Confirmed()
+    public void The_Cloud_Fences_Forty_Five_Seconds_After_It_Sent_The_Ack_The_Pc_Confirmed()
     {
         var relay = NewRelay();
         relay.RecordAckConfirmation(relay.IssueAck(armed: true, T0), armed: true);
@@ -255,8 +255,8 @@ public class ClinicWriteLeaseTests
         relay.IssueAck(armed: true, T0.AddSeconds(10));
         relay.IssueAck(armed: true, T0.AddSeconds(20));
 
-        Assert.False(Fenced(relay, T0.AddSeconds(60)));
-        Assert.True(Fenced(relay, T0.AddSeconds(60.1)));
+        Assert.False(Fenced(relay, T0.AddSeconds(45)));
+        Assert.True(Fenced(relay, T0.AddSeconds(45.1)));
     }
 
     [Fact]
@@ -330,8 +330,8 @@ public class ClinicWriteLeaseTests
     // ---- the PC's rule and the arming rule ------------------------------------------------------------------------
 
     [Theory]
-    [InlineData(90, true, true, true)]
-    [InlineData(89.9, true, true, false)]
+    [InlineData(60, true, true, true)]
+    [InlineData(59.9, true, true, false)]
     [InlineData(600, false, true, false)]   // AC-3.8: its last ack did not arm it
     [InlineData(600, true, false, false)]   // AC-6.6: cut off from the box, it never takes over
     public void The_Pc_Takes_Over_Only_Armed_On_Time_And_Still_Reaching_The_Box(

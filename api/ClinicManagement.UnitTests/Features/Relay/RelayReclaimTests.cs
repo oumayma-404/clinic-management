@@ -212,11 +212,11 @@ public class RelayReclaimTests
         Assert.False(status.PcHolding);
         Assert.Equal(T0 + ClinicWriteLease.CloudFencesAfter, status.LockedSinceUtc);
         Assert.Equal(
-            "Ce que le cabinet a enregistré sur PC-ACCUEIL depuis 10:01 ne partira pas dans le cloud : il faudra le saisir "
+            "Ce que le cabinet a enregistré sur PC-ACCUEIL depuis 10:00 ne partira pas dans le cloud : il faudra le saisir "
             + "à nouveau, et les numéros de notes émis sur ce PC seront en double. Appelez le cabinet avant de continuer.",
             status.ReclaimWarning);
 
-        Assert.Equal("Le PC de secours ne répond plus depuis 10:01 : le cloud refuse les enregistrements du cabinet.",
+        Assert.Equal("Le PC de secours ne répond plus depuis 10:00 : le cloud refuse les enregistrements du cabinet.",
             status.LockSentence);
 
         var free = GetRelayStatusQueryHandler.ToDto(relay, T0.AddSeconds(30));
@@ -235,7 +235,7 @@ public class RelayReclaimTests
 
         var row = Assert.Single(rows);
         Assert.Equal(RelayAlert.Silent, row.Alert);
-        Assert.StartsWith("Le PC de secours ne répond plus depuis 10:01", row.Message);
+        Assert.StartsWith("Le PC de secours ne répond plus depuis 10:00", row.Message);
     }
 
     [Fact]
