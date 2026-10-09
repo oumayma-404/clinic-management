@@ -108,7 +108,11 @@ Name: "{app}\api\logs"; Check: IsServerRole
 ; L4b -- the real default backup destination. The config used to carry "" for it while the settings
 ; screen said "leave the field blank to use the server default folder", so the documented default path
 ; failed on every fresh install. Created here and hardened with the other data directories below.
-Name: "{app}\api\Backups"; Check: IsServerRole
+; server-loss-recovery: under ProgramData, NOT in the API's install folder. LegacyBackupRelocation moves a
+; Backups folder out of the API's install folder at EVERY start (a hardened folder there kills QuestPDF's
+; font scan, and with it every PDF), so the old default scattered each install's backups into
+; legacy-install-dir-N folders that retention never prunes. This is LocalInstallPaths.DefaultBackupRoot.
+Name: "{commonappdata}\ClinicManagement\Backups"; Check: IsServerRole
 ; Where the matching client installer is staged, so a clinic's own server can serve the shell update to its
 ; own PCs (ClientUpdatePackage -> GET /api/meta/client-download). On an offline LAN this is what makes
 ; « Mettre a jour maintenant » able to FETCH an update rather than only announce one.
@@ -473,10 +477,13 @@ begin
   // it dumps dies with the disk. It stays available because a single-PC cabinet with no external disk has
   // nowhere else, and the page says so in words before the operator accepts it -- what is not acceptable is
   // arriving there silently, which is what happened before this page existed.
+  // server-loss-recovery: the fallback is LocalInstallPaths.DefaultBackupRoot, never a folder inside the API's
+  // install folder -- the API moves that one away at every start (it breaks PDF generation), which sent the
+  // backups somewhere retention never looks.
   if (BackupPage <> nil) and (Trim(BackupPage.Values[0]) <> '') then
     Backups := Trim(BackupPage.Values[0])
   else
-    Backups := AppDir + '\api\Backups';
+    Backups := ExpandConstant('{commonappdata}') + '\ClinicManagement\Backups';
   ConnStr := 'Host=localhost;Port={#DbPort};Database={#DbName};Username={#DbUser};Password=' + DbPassword;
 
   { Escape backslashes for JSON. }
@@ -859,7 +866,7 @@ begin
            // L4b: a backup folder is a full copy of every patient record, so it gets the same posture as
            // the live data. PgDumpBackupService hardens each timestamped subfolder as well; this secures
            // the root so a folder is never briefly readable between creation and hardening.
-           Quoted(ExpandConstant('{app}\api\Backups')) + ' ' +
+           Quoted(ExpandConstant('{commonappdata}\ClinicManagement\Backups')) + ' ' +
            Quoted(ExpandConstant('{app}\pgdata'));
 
   Result := HardenDirectories(Paths, 'la sécurisation des droits d''accès aux données');

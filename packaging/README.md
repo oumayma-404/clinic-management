@@ -107,10 +107,18 @@ Three things are new and worth knowing:
   service now runs `pg_restore --list` on the output and requires a non-empty table of contents; the **object
   count** is recorded, because « 3 objets » where the schema has thirty-eight tables is a detectable disaster.
   A failed verification is a **failed backup**: the partial folder is deleted.
-- **There is a real default destination.** `<install>\api\Backups`, created by the installer and written into
-  `appsettings.Install.json`. Leaving the destination field blank in the app now works, which is what the screen
-  had always said. ⚠️ The app **warns prominently** when the destination is on the same volume as the live data —
-  which the default necessarily is. Point it at an external disk or a network share.
+- **There is a real default destination.** `%ProgramData%\ClinicManagement\Backups`
+  (`LocalInstallPaths.DefaultBackupRoot`), created by the installer and written into `appsettings.Install.json`.
+  Leaving the destination field blank in the app now works, which is what the screen had always said. ⚠️ The app
+  **warns prominently** when the destination is on the same volume as the live data — which the default
+  necessarily is. Point it at an external disk or a network share.
+  ⚠️ **It was `<install>\api\Backups` until server-loss-recovery, and that default defeated itself**: it is the
+  API's own install folder, which `LegacyBackupRelocation` moves away at **every** start (a hardened folder
+  there kills QuestPDF's font scan, and with it every PDF). So every install that left the page blank had its
+  backups carried into `…\Backups\legacy-install-dir-N` folders that retention never prunes, while the next
+  night wrote a fresh folder back into the install directory. Reinstalling with this installer rewrites the
+  default; the `legacy-install-dir*` folders it left behind are old backups and can be deleted by hand once a
+  backup in the new place has succeeded.
 - **Every attempt is recorded**, success or failure, and **Paramètres → Sauvegarde** leads with
   « Dernière sauvegarde réussie ». Past the staleness threshold the admins get an in-app notification. A week of
   nightly failures therefore reads as « it is trying and failing », not as « nobody has backed up » — two
@@ -339,6 +347,22 @@ The server installer is safe to re-run over an existing install **without wiping
 > **The credentials file is now encrypted and machine-bound.** Back up the **whole `.local` folder**, not
 > just `db-credentials` — the file is decryptable only with that machine's Data Protection key ring, which
 > also lives in `.local`. A copy of the file alone, on a different machine, is unreadable (that is the point).
+>
+> ⚠️ **That copy of `.local` only helps a reinstall on the SAME Windows installation.** The key ring itself is
+> protected with machine-scoped DPAPI (`LocalDataProtection`), so on a **new PC** — the case a dead disk or a
+> stolen machine leaves you in — nothing in it can be decrypted, however carefully it was copied. A restore onto a
+> new PC therefore brings back the database and the files (`restore-backup`) but **not** the secrets they were
+> protecting. Plan for, on that day:
+>
+> | What | Repair |
+> |---|---|
+> | Every account's second factor | `ClinicManagement.API.exe reset-user-totp --email <adresse>`, then the user enrols again |
+> | SMS / WhatsApp / e-mail reminder credentials | re-entered in **Paramètres → Rappels** |
+> | Google Agenda | reconnected in **Paramètres → Google Agenda** |
+> | The HTTPS certificate authority | new one — every poste and phone re-trusts the server (the poste installer does it) |
+> | Sessions | everyone signs in again (`restore-backup` already forces it) |
+>
+> The patient records, the money and every stored file come back intact; it is a support day, not a loss.
 
 ## Permissions & data at rest
 
@@ -734,6 +758,11 @@ behaviour is the thing under test.
       « même disque » warning and can still be accepted.
 - [ ] The destination chosen there is what **Paramètres → Sauvegarde** shows afterwards, and what
       « Sauvegarder maintenant » actually writes to.
+- [ ] With the page **left empty**, the destination shown is `C:\ProgramData\ClinicManagement\Backups`, and
+      after `sc stop` / `sc start ClinicManagementApi` the backup taken before the restart **is still there** —
+      not moved into a `legacy-install-dir` folder (server-loss-recovery). A PDF still generates after that backup.
+- [ ] **Restore rehearsal** — backup → wipe a spare PC or VM → install → `restore-backup` → sign in (after
+      `reset-user-totp`) → patient, appointment and invoice counts match. Never done on a real install yet.
 
 ### Cloud regression (all slices)
 

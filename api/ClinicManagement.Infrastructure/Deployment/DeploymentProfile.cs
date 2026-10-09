@@ -72,7 +72,8 @@ public sealed class DeploymentProfile
         bool requiresSubscription,
         bool backsUpItsOwnData,
         bool sellsVendorMessaging,
-        bool requiresAdminSecondFactor)
+        bool requiresAdminSecondFactor,
+        bool monitorsSidecarBackups)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -95,6 +96,7 @@ public sealed class DeploymentProfile
         BacksUpItsOwnData = backsUpItsOwnData;
         SellsVendorMessaging = sellsVendorMessaging;
         RequiresAdminSecondFactor = requiresAdminSecondFactor;
+        MonitorsSidecarBackups = monitorsSidecarBackups;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -303,6 +305,25 @@ public sealed class DeploymentProfile
     public bool RequiresAdminSecondFactor { get; }
 
     /// <summary>
+    /// The host's off-site copies are made by sidecars the application never calls — the nightly <c>backup</c>
+    /// service and the WAL-G stream — and the API <b>watches their outcome</b>: it reads the status file the nightly
+    /// run writes and PostgreSQL's archiver statistics, shows them on the vendor console and e-mails the console's
+    /// accounts every morning one of them is not healthy (<c>server-loss-recovery</c> Part 3).
+    ///
+    /// <para><b>True for <see cref="DeploymentKind.HostedMultiTenant"/> alone.</b> It is the topology that runs
+    /// those sidecars, and it is where a silent failure cost something: the nightly run aborted for 33 nights with
+    /// its only record a <c>docker logs</c> line, so no copy of any patient file left the server in that time.
+    /// <see cref="DeploymentKind.SelfHostedLan"/> ✗ because its backup is the in-app <c>BackupJob</c>
+    /// (<see cref="BacksUpItsOwnData"/>), which already records every run and raises its own stale alert; there is
+    /// no sidecar there to watch.</para>
+    ///
+    /// <para>⚠️ <b>Not <c>!BacksUpItsOwnData</c></b>, though it answers the same today: « the application does not
+    /// back itself up » and « the application reads a sidecar's report » are two facts, and a topology with neither
+    /// (a host backing up by its own means) would be told by the inverted flag to watch a file nobody writes.</para>
+    /// </summary>
+    public bool MonitorsSidecarBackups { get; }
+
+    /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
     ///
     /// <para><b>Per-platform, not one boolean</b>, because a deployment with a Firebase project and no Apple key
@@ -420,7 +441,9 @@ public sealed class DeploymentProfile
             sellsVendorMessaging: false,
             // An admin locked out here has nobody to call: every way back this feature ships needs a second
             // admin or the vendor, and a single-dentist LAN install has neither.
-            requiresAdminSecondFactor: false),
+            requiresAdminSecondFactor: false,
+            // No sidecar to watch: the in-app BackupJob above records its own runs and raises its own alert.
+            monitorsSidecarBackups: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -459,7 +482,10 @@ public sealed class DeploymentProfile
             sellsVendorMessaging: true,
             // Reached over the internet, holding every cabinet's records, with a vendor on call: the one
             // topology where a stolen admin password is the whole attack and a way back genuinely exists.
-            requiresAdminSecondFactor: true),
+            requiresAdminSecondFactor: true,
+            // The topology that runs the backup + pitr sidecars — and where their failure went unnoticed for 33
+            // nights. The API reads their outcome and tells the vendor.
+            monitorsSidecarBackups: true),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

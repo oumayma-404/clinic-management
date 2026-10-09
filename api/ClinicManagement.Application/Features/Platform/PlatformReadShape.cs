@@ -292,6 +292,25 @@ public static class PlatformReadShape
         "AddressRowsCleared",
         "FreedEmails",
         // Which of two words the panel must ask for — `Address` or `Name`. A fixed pair, about a form field.
-        "ConfirmationKind"
+        "ConfirmationKind",
+
+        // ── The host's off-site copies (server-loss-recovery Part 3). Facts about the DEPLOYMENT, not about any
+        // cabinet: a verdict and its French label, a run's outcome (`succeeded`/`failed`) and the step a failed one
+        // stopped at (a fixed vocabulary written by deploy/backup/backup.sh — `remote`, `dump`, `upload`…), four
+        // instants and a count of failed WAL pushes. None of them can hold a name, a record or an amount, because
+        // nothing they are read from — a status file the backup script writes and `pg_stat_archiver` — holds one.
+        // The two copies themselves — the nightly run and the WAL stream — as named groups of the leaves below.
+        "Nightly",
+        "WalArchive",
+        "Verdict",
+        "VerdictLabel",
+        "CheckedAt",
+        "Outcome",
+        "FailedStage",
+        "LastRunAt",
+        "LastSuccessAt",
+        "LastArchivedAt",
+        "FailedCount",
+        "LastFailedAt"
     };
 }
