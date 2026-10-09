@@ -160,7 +160,12 @@ public sealed record RelayStatusDto(
     int ReviewPending = 0,
     int ReEnterPending = 0,
     // AC-6.2 / US-7: « Repris par les appareils du cabinet à 10:44 … » until the PC is heard from again.
-    string? ReclaimSentence = null);
+    string? ReclaimSentence = null,
+    // AC-3.7 / D24: where a plain browser opens the PC, and its trust page (« Préparer ce navigateur »), each with a QR.
+    string? OpenUrl = null,
+    string? OpenQrPng = null,
+    string? PrepareUrl = null,
+    string? PrepareQrPng = null);
 
 /// <summary>
 /// AC-6.2: what a Windows or Android app of the cabinet tries while the cloud is locked and the PC said nothing —

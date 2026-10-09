@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
-  Archive, CheckCircle2, CircleSlash, Clock, ClockAlert, CloudDownload, CloudUpload, HardDrive, OctagonPause, PowerOff,
-  RefreshCw, Server, ServerCog, TriangleAlert, XCircle, type LucideIcon,
+  Archive, CheckCircle2, CircleSlash, Clock, ClockAlert, CloudDownload, CloudUpload, ExternalLink, HardDrive, OctagonPause,
+  PowerOff, RefreshCw, Server, ServerCog, ShieldCheck, TriangleAlert, XCircle, type LucideIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -569,6 +569,15 @@ function RelayState({
         </div>
       )}
 
+      {live && status.openUrl && status.prepareUrl && (
+        <BrowserAccess
+          openUrl={status.openUrl}
+          prepareUrl={status.prepareUrl}
+          openQrPng={status.openQrPng ?? null}
+          prepareQrPng={status.prepareQrPng ?? null}
+        />
+      )}
+
       {facts.length > 0 && (
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
           {facts.map((f) => (
@@ -578,6 +587,68 @@ function RelayState({
             </div>
           ))}
         </dl>
+      )}
+    </div>
+  )
+}
+
+/**
+ * AC-3.7 / D24 — the PC de secours from a plain browser: open it at its address, or prepare this browser first (the PC's
+ * own trust page installs the cabinet's certificate, after which it opens with no warning). The QR codes are the same
+ * two addresses, for a tablet or a phone; folded, since the buttons serve the device in hand.
+ *
+ * ⚠️ Plain links in a new tab, never fetched from here: the trust page is cleartext on the cabinet's network by
+ * necessity, which a page served over https may navigate to but not load.
+ */
+function BrowserAccess({
+  openUrl, prepareUrl, openQrPng, prepareQrPng,
+}: {
+  openUrl: string
+  prepareUrl: string
+  openQrPng: string | null
+  prepareQrPng: string | null
+}) {
+  const codes = [
+    { key: "open", label: "Ouvrir le PC de secours", url: openUrl, png: openQrPng },
+    { key: "prepare", label: "Préparer l'appareil", url: prepareUrl, png: prepareQrPng },
+  ]
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <p className="text-sm font-medium">Sur un autre appareil</p>
+      <div className="flex flex-wrap gap-2">
+        <Button asChild variant="outline" size="sm" className="grow basis-44 coarse:min-h-11 sm:grow-0">
+          <a href={openUrl} target="_blank" rel="noopener noreferrer">
+            <ExternalLink aria-hidden="true" className="size-4" />
+            Ouvrir le PC de secours
+          </a>
+        </Button>
+        <Button asChild variant="outline" size="sm" className="grow basis-44 coarse:min-h-11 sm:grow-0">
+          <a href={prepareUrl} target="_blank" rel="noopener noreferrer">
+            <ShieldCheck aria-hidden="true" className="size-4" />
+            Préparer ce navigateur
+          </a>
+        </Button>
+      </div>
+      {(openQrPng || prepareQrPng) && (
+        <details className="group">
+          <summary className="flex min-h-9 cursor-pointer items-center text-sm text-muted-foreground hover:text-foreground coarse:min-h-11">
+            Codes QR pour une tablette ou un téléphone
+          </summary>
+          <div className="grid gap-4 pt-2 sm:grid-cols-2">
+            {codes.map((c) =>
+              c.png ? (
+                <figure key={c.key} className="min-w-0 space-y-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a data: URI, not a remote asset */}
+                  <img src={c.png} alt={`QR code : ${c.label}`} className="mx-auto block size-40 rounded-lg bg-white p-2" />
+                  <figcaption className="text-center text-xs">
+                    <span className="block font-medium">{c.label}</span>
+                    <span className="block break-all text-muted-foreground">{c.url}</span>
+                  </figcaption>
+                </figure>
+              ) : null,
+            )}
+          </div>
+        </details>
       )}
     </div>
   )

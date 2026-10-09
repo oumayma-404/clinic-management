@@ -17,15 +17,17 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
     private readonly IUserRepository _users;
     private readonly IClinicRelayRepository _relays;
     private readonly IRelayReviewItemRepository? _reviews;
+    private readonly IQrCodeGenerator? _qr;
 
     public GetRelayStatusQueryHandler(
         IClinicContext clinicContext, IUserRepository users, IClinicRelayRepository relays,
-        IRelayReviewItemRepository? reviews = null)
+        IRelayReviewItemRepository? reviews = null, IQrCodeGenerator? qr = null)
     {
         _clinicContext = clinicContext;
         _users = users;
         _relays = relays;
         _reviews = reviews;
+        _qr = qr;
     }
 
     public async Task<Result<RelayStatusDto>> Handle(GetRelayStatusQuery request, CancellationToken cancellationToken)
@@ -38,6 +40,16 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
 
         var relay = await _relays.GetLatestForClinicAsync(admin.Value!.ClinicId, cancellationToken);
         var status = ToDto(relay, DateTime.UtcNow);
+        if (RelayBrowserAccess.For(relay) is { } urls)
+        {
+            status = status with
+            {
+                OpenUrl = urls.Open,
+                PrepareUrl = urls.Prepare,
+                OpenQrPng = _qr is null ? null : "data:image/png;base64," + Convert.ToBase64String(_qr.GeneratePng(urls.Open)),
+                PrepareQrPng = _qr is null ? null : "data:image/png;base64," + Convert.ToBase64String(_qr.GeneratePng(urls.Prepare)),
+            };
+        }
         if (_reviews is not null)
         {
             status = status with

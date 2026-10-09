@@ -45,6 +45,11 @@ export interface RelayStatusDto {
   reEnterPending?: number;
   /** AC-6.2 / US-7: who took the saves back from a silent PC, until that PC is heard from again. */
   reclaimSentence?: string | null;
+  /** AC-3.7 / D24: where a plain browser opens the PC, and its trust page (« Préparer ce navigateur »), each with a QR. */
+  openUrl?: string | null;
+  openQrPng?: string | null;
+  prepareUrl?: string | null;
+  prepareQrPng?: string | null;
 }
 
 /**

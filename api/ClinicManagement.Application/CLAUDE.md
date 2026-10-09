@@ -94,6 +94,10 @@ drifted label understates a row somebody can still see in the total. ⚠️ Both
 | **Backup** (Local) | `BackupNowCommand` (admin-only; re-checks `IsAdmin()`, delegates to `IBackupService`; catches `InvalidOperationException` → `Result.Failure`, lets other exceptions propagate). |
 | **Backup** — recovery points (`clinic-recovery-points`) | **`Queries/ListRecoveryPointsQuery`** (what the cabinet can restore from with no file, plus when an archive last *reached* somebody) and **`Commands/RestoreFromRecoveryPointCommand`** — the **third** caller of `ClinicArchiveRestorer.ApplyAsync`, adding no restore semantics of its own. ⚠️ The list is a **`Query`** so it stays off `RealtimeBroadcastBehavior`, whose key comes from the namespace: a « Backup » broadcast on every card render would tell every open browser that something changed when nothing did. ⚠️ A non-restorable point and a pruned object are **named refusals**, never « la restauration a échoué », which would send an owner looking for a fault in their data. ⚠️ The clinic-mismatch check runs even though the point was written for this cabinet — a guarantee that costs one comparison is not worth reasoning about. ⚠️ `INotificationGenerator` gained **`EnsureArchiveStaleAsync`/`ClearArchiveStaleAsync`** on `EnsureBackupStaleAsync`'s ensure/clear shape (one restating row, matched on a stable prefix so the elapsed-day count does not restate nightly) — and it is about the copy that **left the building**, not about the server-kept points |
 
+> **`Features/Relay/RelayBrowserAccess`** (`clinic-pc-copy` AC-3.7 / D24): where a plain browser opens the PC de secours
+> and its trust page (`TrustPort` = 5080, pinned to the API's `TrustPortGate.DefaultPort` by a test). Read by
+> `GetRelayStatusQuery`, which adds both addresses and their QR codes (optional `IQrCodeGenerator`).
+
 ## Outbound interfaces — `Common/Interfaces/`
 Implemented in **Infrastructure** unless noted. Grouped:
 

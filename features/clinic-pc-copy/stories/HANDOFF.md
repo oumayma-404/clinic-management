@@ -1,6 +1,6 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-09 (session 12) · **Overall:** ~91 % · **Part 1 (La copie):** done in code (owed: the Windows
+**Date:** 2026-10-09 (session 12) · **Overall:** ~93 % · **Part 1 (La copie):** done in code (owed: the Windows
 rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~95 % — code complete (lease 1, 2, 2b, « Reprendre
 la main », device reports, D17, D16, **the return (D18) complete**, the PC's clock and Windows Update (D20b), the cut's strip on every screen (D20), the change log pruned (D27), the cut test (D26), the card's cut states) · **all scratch servers stopped**
 
@@ -9,16 +9,14 @@ la main », device reports, D17, D16, **the return (D18) complete**, the PC's cl
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–203, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–205, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next: Part 3 — « Préparer ce navigateur »** (AC-3.7): a plain browser (no Windows/Android app) can open the PC de
-   secours without a certificate warning — a button on the device itself (download/install the PC's CA, or open the
-   PC's trust page) and a QR code for a phone, on the « Paramètres → PC de secours » card. UDP discovery is done
-   (deviations 201–203): `RelayDiscoveryResponder` on the PC, `RelayDiscovery` in both apps, UDP 47950 opened by the
-   installer on the relay role only. That is the last code item of Part 3. Still owed with the owner's OK: the first
-   GitHub run of `relay-roundtrip`, the Windows rehearsal (now also: two-machine discovery) and the Android app on a
-   real phone.
+3. **All code of the three parts is written.** What remains needs the owner's OK, in this order: (a) the first GitHub
+   run of `relay-roundtrip` (needs a push of `feature/clinic-pc-copy`), (b) the Windows rehearsal on a real cabinet PC —
+   one-click install, cable pulled, 10 min of work, cable back, the window switch, two-machine UDP discovery, the D20b
+   clock, « Préparer ce navigateur » from a second PC, (c) the Android app on a real phone. Do not start any of them
+   without her explicit OK. Last slice: e (« Préparer ce navigateur », deviations 204–205).
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 
