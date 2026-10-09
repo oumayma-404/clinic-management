@@ -1455,10 +1455,17 @@ try
             "watch-relays",
             job => job.WatchRelays(),
             Cron.Minutely());
+
+        // D27: the change log keeps only what a PC may still ask for — daily, 04:30 Tunis.
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.PruneClinicChangesJob>(
+            "prune-clinic-changes",
+            job => job.PruneClinicChanges(),
+            Cron.Daily(3, 30));
     }
     else
     {
         RecurringJob.RemoveIfExists("watch-relays");
+        RecurringJob.RemoveIfExists("prune-clinic-changes");
     }
 
     // Google→App calendar sync does not exist any more, on a schedule or otherwise. App→Google runs inline on

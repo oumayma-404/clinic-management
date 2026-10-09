@@ -44,6 +44,7 @@ public class RelayFenceCoverageTests
         ["ClinicRecoveryPointJob.cs"] = "recovery points live in the cloud's object store and its own ledger, never carried",
         ["MessagingAllowanceJob.cs"] = "the vendor's forfait tables, never carried, and bell rows (FR-11 set)",
         ["PushDispatchJob.cs"] = "the push outbox, never carried",
+        ["PruneClinicChangesJob.cs"] = "deletes the change log itself (raw SQL, never carried, never through the capture) — and skips a cut",
         ["RelayWatchJob.cs"] = "the relay's own incidents and the admins' bell rows (FR-11 set)",
         ["SessionFamilyPurgeJob.cs"] = "sessions are each install's own, never carried",
         ["StockExpiryJob.cs"] = "bell rows only, which the fenced cloud keeps writing (FR-11 set)",

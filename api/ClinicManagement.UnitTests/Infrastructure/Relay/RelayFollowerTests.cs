@@ -1537,6 +1537,9 @@ public sealed class RelayFollowerTests : IDisposable
         public Task<bool> ClinicNamesKeyAsync(Guid clinicId, string storageKey, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task EnsureCursorAsync(Guid clinicId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task DropCursorAsync(Guid clinicId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<int> PruneChangesAsync(Guid clinicId, long belowSeq, DateTime recordedBeforeUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
         public Task<long> HighWaterAsync(Guid clinicId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<string> FeedEpochAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<RelayFeedBatch> ReadChangesAsync(Guid clinicId, long after, string? fingerprint, RelayOutboundWrap wrap, CancellationToken cancellationToken) => throw new NotSupportedException();

@@ -53,6 +53,36 @@ public sealed partial class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBl
         await ExecuteAsync("DELETE FROM \"ClinicChanges\" WHERE \"ClinicId\" = @clinic", cancellationToken, ("clinic", clinicId));
     }
 
+    /// <summary>D27: one batch per transaction, so a long-unpruned log never holds a lock over the cabinet's saves.</summary>
+    private const int PruneBatch = 5000;
+
+    public async Task<int> PruneChangesAsync(
+        Guid clinicId, long belowSeq, DateTime recordedBeforeUtc, CancellationToken cancellationToken)
+    {
+        var total = 0;
+        while (true)
+        {
+            await using var scope = await OpenAsync(IsolationLevel.ReadCommitted, cancellationToken);
+            int deleted;
+            await using (var command = scope.Command(
+                             "DELETE FROM \"ClinicChanges\" WHERE \"ClinicId\" = @clinic AND \"Seq\" IN ("
+                             + "SELECT \"Seq\" FROM \"ClinicChanges\" WHERE \"ClinicId\" = @clinic AND \"Seq\" < @below "
+                             + "AND \"RecordedAtUtc\" < @before ORDER BY \"Seq\" LIMIT @limit)",
+                             ("clinic", clinicId), ("below", belowSeq),
+                             ("before", DateTime.SpecifyKind(recordedBeforeUtc, DateTimeKind.Utc)), ("limit", PruneBatch)))
+            {
+                deleted = await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await scope.CommitAsync(cancellationToken);
+            total += deleted;
+            if (deleted < PruneBatch)
+            {
+                return total;
+            }
+        }
+    }
+
     public async Task<long> HighWaterAsync(Guid clinicId, CancellationToken cancellationToken)
     {
         var value = await ScalarAsync(

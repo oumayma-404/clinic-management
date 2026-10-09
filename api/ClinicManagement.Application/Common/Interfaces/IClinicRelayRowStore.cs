@@ -14,6 +14,12 @@ public interface IClinicRelayRowStore
     /// <summary>Closes capture for a clinic: its cursor and its log go (retirement, D2).</summary>
     Task DropCursorAsync(Guid clinicId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// D27: deletes the clinic's change rows below <paramref name="belowSeq"/> recorded before
+    /// <paramref name="recordedBeforeUtc"/>, in small batches; returns how many went.
+    /// </summary>
+    Task<int> PruneChangesAsync(Guid clinicId, long belowSeq, DateTime recordedBeforeUtc, CancellationToken cancellationToken);
+
     /// <summary>The cloud's log high-water for a clinic, 0 when it has no cursor.</summary>
     Task<long> HighWaterAsync(Guid clinicId, CancellationToken cancellationToken);
 

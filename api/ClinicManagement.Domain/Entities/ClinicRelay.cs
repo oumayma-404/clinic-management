@@ -525,6 +525,21 @@ public class ClinicRelay : AggregateRoot<Guid>
     private bool IsReturnedCut(RelayHeartbeat heartbeat) =>
         ReturnedCutSinceUtc is { } returned && heartbeat.HoldingSinceUtc is { } since && since <= returned;
 
+    /// <summary>D27: how long the cloud keeps change rows its PC already holds.</summary>
+    public static readonly TimeSpan ChangeLogKeptFor = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// D27: the seq below which the cloud's change log may go — the PC's confirmed position, whose own row stays (the
+    /// feed's fingerprint check reads it, D12). Null when pruning is not safe: no seeded copy, a stopped copy, a cut
+    /// (the return reads the log after this seq), a restore gap, or a position above the cloud's high-water — a seq
+    /// from another history, which says nothing about this log.
+    /// </summary>
+    public long? ChangeLogPrunableBelow(long cloudHighWater) =>
+        Status == ClinicRelayStatus.Active && SeededAtUtc is not null && CopyStoppedSinceUtc is null
+        && PcHoldingSinceUtc is null && GapPendingSinceUtc is null && AppliedSeq > 0 && AppliedSeq <= cloudHighWater
+            ? AppliedSeq
+            : null;
+
     /// <summary>The PC held everything up to the cloud's high-water when the cloud last answered (FR-2 « Prêt »).</summary>
     public bool IsCaughtUp => Status == ClinicRelayStatus.Active && AppliedSeq >= HighWaterAtLastAck;
 
