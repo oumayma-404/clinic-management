@@ -98,6 +98,23 @@ jobs:
             $origin = "the tag ${{ github.ref_name }}"
           }
 
+          # ⚠️ What clinics ALREADY have counts as much as the tags. A release once went out with no tag (run from a
+          # branch, where the tag step is skipped), so the next run derived the same number from the tags alone and
+          # `vpk` refused it at the very end (2026-10-09, 1.0.11 twice). The published feed is the truth clinics see.
+          $published = $null
+          if ('${{ vars.DEPLOY_DOMAIN }}') {
+            try {
+              $feed = Invoke-RestMethod -Uri "https://${{ vars.DEPLOY_DOMAIN }}/api/meta/client-feed/releases.win.json" -TimeoutSec 30
+              $published = $feed.Assets | ForEach-Object { $_.Version } |
+                           Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
+                           ForEach-Object { [version]$_ } | Sort-Object | Select-Object -Last 1
+              if ($published) { Write-Host "Newest version already published: $published" }
+            }
+            catch {
+              Write-Host "The published feed could not be read; deriving from the tags alone."
+            }
+          }
+
           if (-not $explicit -and '${{ github.ref_type }}' -eq 'branch') {
             # ⚠️ Patch and never minor/major: this runs unattended and must not invent a claim about the size of
             # a change. A human bumps the minor by pushing `client-v1.3.0` by hand and the derivation continues
@@ -106,10 +123,10 @@ jobs:
                     ForEach-Object { $_ -replace '^client-v', '' } |
                     Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
                     ForEach-Object { [version]$_ } | Sort-Object
-            $latest = $tags | Select-Object -Last 1
+            $latest = @($tags) + @($published) | Where-Object { $_ } | Sort-Object | Select-Object -Last 1
             if ($latest) {
               $explicit = "$($latest.Major).$($latest.Minor).$($latest.Build + 1)"
-              $origin = "the newest tag client-v$latest, bumped"
+              $origin = "the newest of the tags and the published feed ($latest), bumped"
             }
             else {
               # No release has ever been tagged. Start from the .csproj rather than 0.0.1, so the first automatic
@@ -120,6 +137,12 @@ jobs:
           }
 
           $resolved = Resolve-Version $explicit $csproj
+
+          # Say it now, not after a 3-minute build: `vpk` refuses a version at or below one already published.
+          if ($published -and [version]$resolved -le $published) {
+            throw "Version $resolved is not above $published, already published to the clinics. Run again with a higher version."
+          }
+
           "version=$resolved" >> $env:GITHUB_OUTPUT
           Write-Host "Releasing $resolved (from $origin)"
 
@@ -225,8 +248,11 @@ jobs:
       # ⚠️ **Order matters: packages first, manifests LAST.** A client reading a manifest that names a package
       # still in flight fails the update; the reverse — packages present, manifest not yet replaced — is simply
       # « no update yet », which is safe. That is the only reason this is a loop rather than one `scp` of a folder.
+      # ⚠️ Only `main` or a `client-v*` tag reaches the clinics. A run from any other branch builds and packs (the
+      # artifact is kept) but publishes nothing: a branch has no tag step, so a release from it is a number the
+      # next run cannot see — and it ships unreviewed code to every cabinet's app.
       - name: Publish the feed to the hosted deployment
-        if: ${{ vars.VPS_HOST != '' }}
+        if: ${{ vars.VPS_HOST != '' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path ~/.ssh | Out-Null
