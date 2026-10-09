@@ -166,7 +166,7 @@ public class RelayAfterReturnTests
             .Handle(new GetRelayReviewItemsQuery(false, false, null, null), CancellationToken.None);
 
         var line = Assert.Single(result.Value!.Items);
-        Assert.Equal("Modifié des deux côtés — la version du cabinet est gardée", line.KindLabel);
+        Assert.Equal("Modifié des deux côtés — la version du cloud est gardée, celle du cabinet est à reporter si elle est juste", line.KindLabel);
         Assert.Equal("{\"cloud\":1}", line.CloudVersion);
         Assert.Equal("{\"desk\":1}", line.CabinetVersion);
         Assert.Equal("dr@cabinet.tn", line.CloudChangedBy);

@@ -228,6 +228,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<RelayNumberPromise> RelayNumberPromises { get; set; }
     // D18: « Modifications à vérifier » — what the return found the cloud had too. Cloud only.
     public DbSet<RelayReviewItem> RelayReviewItems { get; set; }
+    public DbSet<RelayReturnBeforeImage> RelayReturnBeforeImages { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -397,6 +398,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<IdempotencyRecord>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
         modelBuilder.Entity<RelayNumberPromise>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
         modelBuilder.Entity<RelayReviewItem>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<RelayReturnBeforeImage>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

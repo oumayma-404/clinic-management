@@ -71,6 +71,29 @@ public class ClinicChangeConfiguration : IEntityTypeConfiguration<ClinicChange>
     }
 }
 
+/// <summary>The cloud's rows as they were before a return touched them — the safety net (never a PC's to write).</summary>
+public class RelayReturnBeforeImageConfiguration : IEntityTypeConfiguration<RelayReturnBeforeImage>
+{
+    public void Configure(EntityTypeBuilder<RelayReturnBeforeImage> builder)
+    {
+        builder.ToTable("RelayReturnBeforeImages");
+
+        builder.HasKey(i => i.Id);
+        builder.Property(i => i.Id).ValueGeneratedNever();
+        builder.Property(i => i.Table).IsRequired().HasMaxLength(128);
+        builder.Property(i => i.EntityKey).IsRequired().HasMaxLength(300);
+        builder.Property(i => i.RowJson).IsRequired();
+
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(i => i.ClinicId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(i => new { i.ClinicId, i.Table, i.EntityKey });
+        builder.HasIndex(i => i.ReturnId);
+    }
+}
+
 public class RelayIncidentConfiguration : IEntityTypeConfiguration<RelayIncident>
 {
     public void Configure(EntityTypeBuilder<RelayIncident> builder)

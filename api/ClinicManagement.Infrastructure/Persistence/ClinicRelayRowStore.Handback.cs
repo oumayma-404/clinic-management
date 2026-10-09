@@ -232,6 +232,26 @@ public sealed partial class ClinicRelayRowStore : IRelayHandbackStore
             .ToDictionary(g => tables.Find(g.Key) ?? throw new InvalidOperationException($"Table inconnue : {g.Key}"),
                 g => g.ToList());
 
+        // ⚠️ Every cloud row this return is about to delete or replace is saved whole first, in this same transaction:
+        // whatever the return gets wrong, the cloud's version can be put back (RelayReturnBeforeImages).
+        foreach (var table in tables.Tables.Where(byTable.ContainsKey))
+        {
+            foreach (var deleted in new[] { true, false })
+            {
+                var keys = byTable[table].Where(r => (r.Row is null) == deleted).Select(r => r.Key).ToList();
+                foreach (var chunk in keys.Chunk(ChunkRows))
+                {
+                    await scope.ExecuteAsync(
+                        "INSERT INTO \"RelayReturnBeforeImages\" (\"Id\", \"ClinicId\", \"ReturnId\", \"Table\", \"EntityKey\", "
+                        + "\"RowJson\", \"Deleted\", \"SavedAtUtc\") "
+                        + $"SELECT gen_random_uuid(), @clinic, @return, @table, {KeyExpression(table, "a")}, ({RowJson(table, "a")})::text, "
+                        + $"@deleted, now() FROM {table.QualifiedName} a WHERE {KeyMatch(table, "a")} AND {Scope(table, "a", 0)}",
+                        cancellationToken, ("keys", KeysJson(table, chunk)), ("clinic", clinicId), ("return", request.HandbackId),
+                        ("table", table.Name), ("deleted", deleted));
+                }
+            }
+        }
+
         foreach (var table in tables.Tables.Reverse().Where(byTable.ContainsKey))
         {
             var tombstones = byTable[table].Where(r => r.Row is null).Select(r => r.Key).ToList();
@@ -279,6 +299,8 @@ public sealed partial class ClinicRelayRowStore : IRelayHandbackStore
             .Select(r => (r.Table, r.Key, Op: r.Row is null ? ClinicChangeOp.Delete : ClinicChangeOp.Upsert,
                 Save: saveOf.GetValueOrDefault(new RelayRowKey(r.Table, r.Key))))
             .Concat(plan.Dropped.Select(k => (k.Table, k.Key, Op: ClinicChangeOp.Delete, Save: saveOf.GetValueOrDefault(k))))
+            // The rows the cloud kept: logged so the PC's copy takes the cloud's version back (its own was not applied).
+            .Concat((plan.Kept ?? Array.Empty<RelayRowKey>()).Select(k => (k.Table, k.Key, Op: ClinicChangeOp.Upsert, Save: (string?)null)))
             .Concat(mergedUsers.Select(id => (Table: nameof(User), Key: id, Op: ClinicChangeOp.Upsert, Save: (string?)null)))
             .Concat(spentCodes.Select(id => (Table: nameof(UserRecoveryCode), Key: id, Op: ClinicChangeOp.Upsert, Save: (string?)null)))
             .OrderBy(c => c.Table, StringComparer.Ordinal).ThenBy(c => c.Key, StringComparer.Ordinal)

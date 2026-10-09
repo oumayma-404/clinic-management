@@ -128,9 +128,11 @@ public sealed class ReturnRelayGapCommandHandler : IRequestHandler<ReturnRelayGa
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
+            // ⚠️ Only what the restored cloud LACKS is taken from the PC. A row the cloud holds stays the cloud's, even when
+            // the PC's differs: the PC may have been behind the backup, and its older version would overwrite newer work.
             var keys = rows.Select(r => new RelayRowKey(r.Table, r.Key)).ToList();
-            var changed = await _store.ChangedSinceRestoreAsync(relay.ClinicId, keys, cancellationToken);
-            var (apply, kept) = Split(rows, changed);
+            var present = (await _store.CurrentRowsAsync(relay.ClinicId, keys, cancellationToken)).Keys.ToHashSet();
+            var (apply, kept) = Split(rows, present);
             var listed = kept.Where(r => !RelayHandbackRules.NotReviewed.Contains(r.Table)).ToList();
 
             await _store.ApplyReturnAsync(relay.ClinicId,
@@ -186,12 +188,12 @@ public sealed class ReturnRelayGapCommandHandler : IRequestHandler<ReturnRelayGa
             .Select(g => g.Last())
             .ToList();
 
-    /// <summary>The PC's version, unless this cloud changed the row since its restore — then the cloud's stays.</summary>
+    /// <summary>The rows the cloud lacks are applied; a row it already holds is never replaced — it is listed instead.</summary>
     public static (IReadOnlyList<RelayRow> Apply, IReadOnlyList<RelayRow> Kept) Split(
-        IReadOnlyList<RelayRow> rows, IReadOnlySet<RelayRowKey> changedSinceRestore)
+        IReadOnlyList<RelayRow> rows, IReadOnlySet<RelayRowKey> presentOnCloud)
     {
-        var apply = rows.Where(r => !changedSinceRestore.Contains(new RelayRowKey(r.Table, r.Key))).ToList();
-        var kept = rows.Where(r => changedSinceRestore.Contains(new RelayRowKey(r.Table, r.Key))).ToList();
+        var apply = rows.Where(r => !presentOnCloud.Contains(new RelayRowKey(r.Table, r.Key))).ToList();
+        var kept = rows.Where(r => presentOnCloud.Contains(new RelayRowKey(r.Table, r.Key))).ToList();
         return (apply, kept);
     }
 }
