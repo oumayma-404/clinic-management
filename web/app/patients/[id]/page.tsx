@@ -108,6 +108,7 @@ import { useDebtLineCollection } from "@/components/patient/use-debt-line-collec
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
+import { noteFiguresByFiche, type BilledNoteFigures } from "@/lib/fiche-note-figures"
 import { activeItems, isPlanLive, itemNetCost, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { teethSuffix } from "@/components/treatment-plans/treatment-plan-labels"
 import { teethUnderTreatment } from "@/components/treatment-plans/teeth-under-treatment"
@@ -321,14 +322,26 @@ const MONEY_CELL_BADGE = "min-w-0 shrink whitespace-normal text-2xs font-normal"
  * either one actively misread the other, on money. The card form carried no explanation at all; the table's
  * lived in a `title`, which a finger cannot reach (§ 9.2).
  *
- * <p>So the amount is muted — it is no longer the authority — and the reason is stated in words, with the
+ * <p>The amount is the note's own collected figure when the note bills this fiche alone (`fromNote`): a payment
+ * taken on the note never reaches the fiche. Otherwise it is the fiche's and is muted — it is not the authority.</p>
+ *
+ * <p>The reason is stated in words, with the
  * invoice's own number when the map has it. « en cours » is deliberately not printed here: the badge is a
  * statement about where the money lives, and a number that has not arrived yet is simply not part of it.</p>
  */
-function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber?: string }) {
+function BilledAmount({
+  amount,
+  invoiceNumber,
+  fromNote = false,
+}: {
+  amount: number
+  invoiceNumber?: string
+  /** The figure is the note's own collected amount — the authority, so it is not muted. */
+  fromNote?: boolean
+}) {
   return (
     <span className="inline-flex min-w-0 flex-wrap items-baseline justify-end gap-1.5">
-      <span className="text-muted-foreground">{formatDT(amount)}</span>
+      <span className={fromNote ? undefined : "text-muted-foreground"}>{formatDT(amount)}</span>
       <Badge variant="outline" className={MONEY_CELL_BADGE}>
         {/* The number in its own `whitespace-nowrap` span: a hyphen is an ordinary break opportunity, so a
             wrapping pill split « 2026-0016 » across two lines — the defect `card-list.tsx` already records
@@ -967,6 +980,10 @@ export default function PatientDetailsPage() {
   // The note d'honoraires that bills each of those records, so the delete confirmation can NAME it
   // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
   const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
+  // A billed fiche's « Payé » / « Reste », read from its note — see `noteFiguresByFiche` for the three answers.
+  const [noteFiguresByRecordId, setNoteFiguresByRecordId] = useState<Map<string, BilledNoteFigures | null>>(
+    new Map(),
+  )
 
   /*
    * « Solde dû » — the ONE figure, and the count is the whole point.
@@ -1364,6 +1381,7 @@ export default function PatientDetailsPage() {
         }
         setInvoicedDentalRecordIds(invoicedIds)
         setInvoicingNumberByRecordId(invoicingNumbers)
+        setNoteFiguresByRecordId(noteFiguresByFiche(invoicesData))
       } catch (err) {
         // Every call above already degrades to `[]`, so reaching here means a genuine fault rather than one
         // endpoint being down. The identity is on screen either way, so this is a toast, not an error page.
@@ -2607,7 +2625,10 @@ procedureTypeId: it.procedureTypeId ?? null,
                          * 1 500 DT outstanding — and on a six-visit implant most séances collect nothing.
                          */
                         const onTreatment = !invoiced && record.treatmentPlanId != null
-                        const reste = Math.max(0, record.balance ?? record.cost - record.amountPaid)
+                        const note = noteFiguresByRecordId.get(record.id)
+                        const reste = note
+                          ? note.outstanding
+                          : Math.max(0, record.balance ?? record.cost - record.amountPaid)
                         // ⚠️ Tested here, not by letting the component return null: `CardList` drops a field on an
                         // empty *value*, and a React element is never empty — the row would keep an « NOTES »
                         // label over nothing.
@@ -2627,7 +2648,8 @@ procedureTypeId: it.procedureTypeId ?? null,
                             label: "Payé",
                             value: invoiced ? (
                               <BilledAmount
-                                amount={record.amountPaid}
+                                amount={note ? note.collected : record.amountPaid}
+                                fromNote={note != null}
                                 invoiceNumber={invoicingNumberByRecordId.get(record.id)}
                               />
                             ) : onTreatment ? (
@@ -2642,7 +2664,8 @@ procedureTypeId: it.procedureTypeId ?? null,
                           },
                           {
                             label: "Reste à payer",
-                            value: onTreatment ? (
+                            // A note over several fiches (`note === null`) has no per-fiche reste either.
+                            value: onTreatment || note === null ? (
                               // ⚠️ A séance of a treatment has no « reste » of its OWN — the act is priced once
                               // and what remains is the treatment’s, not this visit’s. Printing 0,000 here read
                               // as « rien à payer » beside a patient owing 500 on the devis; repeating the
@@ -2775,7 +2798,8 @@ procedureTypeId: it.procedureTypeId ?? null,
                             <TableCell>
                               {invoicedDentalRecordIds.has(record.id) ? (
                                 <BilledAmount
-                                  amount={record.amountPaid}
+                                  amount={noteFiguresByRecordId.get(record.id)?.collected ?? record.amountPaid}
+                                  fromNote={noteFiguresByRecordId.get(record.id) != null}
                                   invoiceNumber={invoicingNumberByRecordId.get(record.id)}
                                 />
                               ) : record.treatmentPlanId != null ? (
@@ -2794,12 +2818,16 @@ procedureTypeId: it.procedureTypeId ?? null,
                                 three places the same row said it. */}
                             <TableCell>
                               {(() => {
-                                // A séance of a treatment has no reste of its own — see the card list above.
-                                if (!invoicedDentalRecordIds.has(record.id)
-                                    && record.treatmentPlanId != null) {
+                                // A séance of a treatment, or a fiche on a shared note, has no reste of its own —
+                                // see the card list above.
+                                const note = noteFiguresByRecordId.get(record.id)
+                                if ((!invoicedDentalRecordIds.has(record.id) && record.treatmentPlanId != null)
+                                    || note === null) {
                                   return <span className="text-muted-foreground">—</span>
                                 }
-                                const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
+                                const reste = note
+                                  ? note.outstanding
+                                  : Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                                 return reste > 0
                                   // `--warning-ink` — same fix as the card list above.
                                   ? <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
@@ -3986,6 +4014,7 @@ procedureTypeId: it.procedureTypeId ?? null,
         patientId={patient.id}
         record={editingRecord}
         isInvoiced={editingRecord ? invoicedDentalRecordIds.has(editingRecord.id) : false}
+        billedNote={editingRecord ? noteFiguresByRecordId.get(editingRecord.id) : undefined}
         patient={patient}
         planItems={openPlanItems}
         appointmentId={editingRecord ? null : reviewAppointmentId}
