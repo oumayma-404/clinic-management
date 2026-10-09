@@ -350,6 +350,13 @@ if (-not $SkipInstallers) {
             throw 'vpk not found. Install it with `dotnet tool install -g vpk`. Without the Velopack feed this server ships no client installer at all, so no staff PC could be set up from it.'
         }
 
+        # ⚠️ The .iss takes nssm.exe with `skipifsourcedoesntexist`, so a build without it compiles and installs a
+        # server with no web service — pages answer 502 and nothing says why (the installer's own message is
+        # suppressed in a silent install). A real build refuses instead.
+        if (-not (Test-Path (Join-Path $PackagingDir 'server\tools\nssm.exe'))) {
+            throw 'packaging\server\tools\nssm.exe is missing: the installed server would have no web service. Run fetch-build-tools.ps1 first.'
+        }
+
         & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'setup\clinic-setup.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE." }
     } else {

@@ -160,6 +160,17 @@ jobs:
           if (-not (Test-Path "$rt\pgsql\bin\pg_dump.exe")) { throw 'The PostgreSQL archive has no pgsql\bin\pg_dump.exe.' }
           "PG_DIR=$rt\pgsql" >> $env:GITHUB_ENV
 
+          # NSSM runs the web app (Node) as a Windows service. ⚠️ Without it the installer still compiled and the PC
+          # de secours came up with an API and no pages — a 502 on « Ouvrir le PC de secours » (first prod install,
+          # 2026-10-09). From Chocolatey (nssm.cc is often down); the real 64-bit exe, never choco's shim.
+          choco install nssm --version=2.24.101.20180116 --no-progress -y
+          $nssm = Get-ChildItem "$env:ChocolateyInstall\lib\nssm" -Recurse -Filter nssm.exe |
+                  Where-Object { $_.FullName -match 'win64' } | Select-Object -First 1
+          if (-not $nssm) { $nssm = Get-ChildItem "$env:ChocolateyInstall\lib\nssm" -Recurse -Filter nssm.exe | Select-Object -First 1 }
+          if (-not $nssm) { throw 'nssm.exe not found after installing the Chocolatey package.' }
+          New-Item -ItemType Directory -Path packaging/server/tools -Force | Out-Null
+          Copy-Item $nssm.FullName packaging/server/tools/nssm.exe -Force
+
       - name: Build the server installer
         shell: pwsh
         run: ./packaging/publish-server.ps1 -PostgresDir $env:PG_DIR -NodeDir $env:NODE_DIR -SourceRevision '${{ github.sha }}'
