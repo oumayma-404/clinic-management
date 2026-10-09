@@ -18,6 +18,7 @@ public class RelayStandbyExemptionCoverageTests
     {
         "Auth.Login",
         "Auth.Refresh",
+        "Auth.RelaySession",
         "Auth.Logout",
         "Auth.EndMySession",
         "Auth.StepUp",

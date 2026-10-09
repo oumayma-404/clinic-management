@@ -390,7 +390,8 @@ public sealed class RelayFeedJob : BackgroundService
                     LocalInstallPaths.Resolve("logs"),
                     _logger),
                 _lease,
-                _logger);
+                _logger,
+                assertionKeys: new RelayAssertionKeyStore(_protection));
             _followerRelayId = credentials.RelayId;
         }
 

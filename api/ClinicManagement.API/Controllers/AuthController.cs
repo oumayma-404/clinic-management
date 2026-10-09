@@ -344,6 +344,26 @@ public class AuthController : ApiControllerBase
     }
 
     /// <summary>
+    /// D22, on the PC de secours only: a cabinet app trades the cloud's ticket for a session here, before any cut, so the
+    /// person is already signed in after a switch. Anonymous by necessity (nobody is signed in on this PC yet) and under
+    /// <c>/api/auth</c> for the anonymous window; every refusal is one sentence, whatever was wrong with the ticket.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [AllowedOnStandbyRelay("A prepared session is this PC's own and never copied; it writes no row of the cabinet's.")]
+    [HttpPost("relay-session")]
+    public async Task<IActionResult> RelaySession([FromBody] RelaySessionRequest request)
+    {
+        if (!Deployment.MirrorsCloudClinic)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new TradeRelayAssertionCommand(request.Assertion));
+        return result.IsSuccess ? Ok(result) : RefuseAuth(result);
+    }
+
+    /// <summary>
     /// Enrols a second factor from the login screen itself (FR-1.3). Two calls: the first returns a secret to
     /// scan, the second confirms it with a code and returns the recovery codes <b>once</b>.
     ///
@@ -514,6 +534,7 @@ public class AuthController : ApiControllerBase
         ClinicAuthRefusals.TotpAlreadyEnrolled => StatusCodes.Status409Conflict,
         ClinicAuthRefusals.TooManyAttempts => StatusCodes.Status429TooManyRequests,
         ClinicAuthRefusals.PasswordPolicy => StatusCodes.Status400BadRequest,
+        ClinicAuthRefusals.RelaySessionRefused => StatusCodes.Status401Unauthorized,
         // 403: the password was right, this PC simply no longer opens for this role (clinic-pc-copy AC-8.1).
         ClinicAuthRefusals.RetiredRelayAdminsOnly => StatusCodes.Status403Forbidden,
         _ => StatusCodes.Status401Unauthorized
@@ -707,3 +728,6 @@ public class AuthController : ApiControllerBase
         return Ok(result);
     }
 }
+
+/// <summary>D22: the ticket a cabinet app got from the cloud (<c>GET /api/relay/devices/assertion</c>).</summary>
+public sealed record RelaySessionRequest(string? Assertion);

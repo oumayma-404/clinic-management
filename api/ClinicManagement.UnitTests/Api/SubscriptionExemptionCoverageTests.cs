@@ -53,6 +53,8 @@ public class SubscriptionExemptionCoverageTests
         "Relay.IssuePairingCode",
         // AC-1.5: the same setup from any PC with an admin's email, password and code (AuthController, class-level).
         "Auth.RelayPairingCode",
+        // D22: a prepared session on the PC de secours records no work of the cabinet's (AuthController, class-level).
+        "Auth.RelaySession",
         // AC-1.11: giving back a code the installer never presented frees the clinic's place; nothing is recorded.
         "Relay.ReleasePairingCode",
         "RelayPeer.Token",

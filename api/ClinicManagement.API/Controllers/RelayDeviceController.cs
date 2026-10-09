@@ -44,6 +44,27 @@ public class RelayDeviceController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// D22: the signed-in person's ticket to a prepared session on the PC de secours, with where the PC is and the
+    /// certificate it shows. A Windows or Android app asks while online and trades it on the PC; 404 where no PC is ready.
+    /// </summary>
+    [HttpGet("assertion")]
+    public async Task<ActionResult<RelayAssertionDto>> Assertion(CancellationToken cancellationToken)
+    {
+        if (!_deployment.PublishesChangeFeed)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new GetRelayAssertionQuery(), cancellationToken);
+        if (result.IsFailure)
+        {
+            return result.Code == GetRelayAssertionQueryHandler.NotReadyCode ? HandleFailure(result, 404) : HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
     [OnlineOnly("Only the cloud is unlocked by the cabinet's devices; a PC in charge has nothing to learn from them.")]
     [HttpPost("report")]
     [AllowsWithoutSubscription("A device saying whether it reaches the PC de secours records no work of the cabinet's.")]

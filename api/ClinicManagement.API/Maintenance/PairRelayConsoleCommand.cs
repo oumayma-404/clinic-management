@@ -129,6 +129,8 @@ public static class PairRelayConsoleCommand
         // A new pairing is a new copy: the cursor, the « retiré » and the erase a re-paired PC remembered belong to the
         // pairing it replaces, and a stale cursor would stop the new copy for good (D12).
         new RelayFollowerStateStore().Save(new RelayFollowerState());
+        // D22: the old pairing's prepared-session key means nothing to the new relay row; the next heartbeat brings one.
+        new RelayAssertionKeyStore(provider.GetRequiredService<IDataProtectionProvider>()).Delete();
         lease.ResetForNewPairing();
 
         Console.WriteLine($"Ce PC est maintenant le PC de secours {RelayPromoter.OfTheCabinet(paired.ClinicName)}. La première copie commence.");

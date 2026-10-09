@@ -252,6 +252,24 @@ public class ClinicRelay : AggregateRoot<Guid>
     public ClinicRelayRetirement? RetiredReason { get; private set; }
     public string? RetiredByUserId { get; private set; }
 
+    /// <summary>
+    /// D22: the prepared-session key this PC and the cloud share, under the cloud's key ring — the cloud signs each
+    /// device's ticket with it and the PC checks it. Minted once, at a heartbeat; a new pairing is a new row, so a new key.
+    /// </summary>
+    public string? AssertionKeyProtected { get; private set; }
+
+    /// <summary>Keeps the first key; true when one was minted just now.</summary>
+    public bool EnsureAssertionKey(Func<string> mintProtected)
+    {
+        if (AssertionKeyProtected is not null)
+        {
+            return false;
+        }
+
+        AssertionKeyProtected = mintProtected();
+        return true;
+    }
+
     private ClinicRelay() { }
 
     /// <summary>Starts a setup attempt and returns the one-time code the installer will present (shown once).</summary>

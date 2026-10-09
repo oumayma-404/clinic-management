@@ -47,7 +47,9 @@ public sealed record RelayHeartbeatRequest(
     // D20b: the PC set its clock from the cloud's (when, by how much), or cannot set it (then it is not ready).
     DateTime? ClockCorrectedAtUtc = null,
     int? ClockCorrectedBySeconds = null,
-    bool ClockUnfixable = false);
+    bool ClockUnfixable = false,
+    // D22: whether this PC already holds its prepared-session key; the cloud seals it into the ack until it does.
+    bool HasAssertionKey = false);
 
 /// <summary>D18: one change of the PC's own log of the cut — the key only; its row travels beside it.</summary>
 public sealed record RelayHandbackChange(
@@ -115,7 +117,9 @@ public sealed record RelayHeartbeatAck(
     // D19: an admin took the cloud back after this PC's takeover — it stops and keeps the cut's work.
     bool Reclaimed = false,
     // D18 phase 2: the cloud holds the cabinet's saves again after the handback this PC named — it may forget it.
-    bool ReturnReleased = false);
+    bool ReturnReleased = false,
+    // D22: the prepared-session key, sealed with this PC's public key — sent until the PC says it holds it.
+    string? AssertionKey = null);
 
 /// <summary>« Paramètres → PC de secours » (AC-2.1).</summary>
 /// <summary>The PC de secours's own view of itself (AC-8.1), read on the PC.</summary>

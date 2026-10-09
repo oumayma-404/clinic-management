@@ -204,6 +204,14 @@ public static class Extensions
             sp.GetRequiredService<IClinicPurge>(), sp.GetRequiredService<IUnitOfWork>(), sp.GetRequiredService<IFileStorage>(),
             sp.GetRequiredService<IUserRepository>(), new RelayFollowerStateStore(), sp.GetRequiredService<RelayLease>(),
             sp.GetRequiredService<ILogger<RelayLocalEraser>>()));
+        // D22: prepared sessions — the cloud's keys (every profile; only the cloud's heartbeat mints one), and the PC's own.
+        services.AddSingleton<IRelayAssertionKeys>(sp => new RelayAssertionKeys(sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>()));
+        services.AddSingleton<IRelayLocalAssertionKey>(sp =>
+        {
+            var protection = sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>();
+            return new RelayLocalAssertionKeyReader(sp.GetRequiredService<DeploymentProfile>().MirrorsCloudClinic,
+                new RelayCredentialStore(protection), new RelayAssertionKeyStore(protection));
+        });
         services.AddScoped<IRelayIncidentRepository, RelayIncidentRepository>();
         services.AddScoped<IRelayReviewItemRepository, RelayReviewItemRepository>();
         services.AddScoped<IArchiveGrantAuthorizer, ArchiveGrantAuthorizer>();

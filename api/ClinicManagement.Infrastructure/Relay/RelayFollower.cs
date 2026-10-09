@@ -37,6 +37,7 @@ public sealed class RelayFollower
     private readonly IRelayCloudClient _cloud;
     private readonly RelayFollowerStateStore _stateStore;
     private readonly RelayCredentials _credentials;
+    private readonly RelayAssertionKeyStore? _assertionKeys;
     private readonly IUserSecretProtector _secrets;
     private readonly string _build;
     private readonly Func<RelayHostReport> _host;
@@ -61,8 +62,10 @@ public sealed class RelayFollower
         ILogger logger,
         Func<DateTime>? utcNow = null,
         RelayHandback? handback = null,
-        RelayGap? gap = null)
+        RelayGap? gap = null,
+        RelayAssertionKeyStore? assertionKeys = null)
     {
+        _assertionKeys = assertionKeys;
         _cloud = cloud;
         _stateStore = stateStore;
         _credentials = credentials;
@@ -340,8 +343,33 @@ public sealed class RelayFollower
         }
     }
 
-    private Task<RelayCall<RelayHeartbeatAck>> HeartbeatAsync(RelayHeartbeatRequest report, CancellationToken cancellationToken) =>
-        _lease.ExchangeAsync(bounded => _cloud.HeartbeatAsync(report, bounded), cancellationToken);
+    private async Task<RelayCall<RelayHeartbeatAck>> HeartbeatAsync(RelayHeartbeatRequest report, CancellationToken cancellationToken)
+    {
+        var call = await _lease.ExchangeAsync(bounded => _cloud.HeartbeatAsync(report, bounded), cancellationToken);
+        KeepAssertionKey(call);
+        return call;
+    }
+
+    /// <summary>D22: the prepared-session key the cloud sealed for this PC — kept once, under this install's key ring.</summary>
+    private void KeepAssertionKey(RelayCall<RelayHeartbeatAck> call)
+    {
+        if (_assertionKeys is null || !call.IsOk || call.Value!.AssertionKey is not { } sealedKey)
+        {
+            return;
+        }
+
+        try
+        {
+            if (RelaySecretEnvelope.Open(sealedKey, _credentials.PrivateKey) is { } plain)
+            {
+                _assertionKeys.Save(Convert.FromBase64String(plain));
+            }
+        }
+        catch (Exception ex) when (ex is FormatException or IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "PC de secours: the prepared-session key could not be kept.");
+        }
+    }
 
     /// <summary>The stand-down from a given state; the state it leaves, or null when the cloud did not confirm it.</summary>
     private async Task<RelayFollowerState?> StandDownAsync(
@@ -404,6 +432,7 @@ public sealed class RelayFollower
             ReturnedHandbackId: lease.ReturnedHandbackId,
             ReturnStuckSinceUtc: lease.HoldingSinceUtc is not null ? lease.ReturnFirstTriedAtUtc : null,
             FollowedEpoch: state.Epoch,
+            HasAssertionKey: _assertionKeys?.Exists ?? true,
             ClockCorrectedAtUtc: lease.ClockCorrectedAtUtc,
             ClockCorrectedBySeconds: lease.ClockCorrectedBySeconds,
             ClockUnfixable: lease.ClockError is not null);

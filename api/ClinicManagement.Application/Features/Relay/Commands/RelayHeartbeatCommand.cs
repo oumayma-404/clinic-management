@@ -28,6 +28,7 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<RelayHeartbeatCommandHandler> _logger;
     private readonly IRelayReturnAftermath? _aftermath;
+    private readonly IRelayAssertionKeys? _assertionKeys;
 
     public RelayHeartbeatCommandHandler(
         IClinicContext clinicContext,
@@ -38,9 +39,11 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
         IAuditEntryRepository auditEntries,
         IUnitOfWork unitOfWork,
         ILogger<RelayHeartbeatCommandHandler> logger,
-        IRelayReturnAftermath? aftermath = null)
+        IRelayReturnAftermath? aftermath = null,
+        IRelayAssertionKeys? assertionKeys = null)
     {
         _aftermath = aftermath;
+        _assertionKeys = assertionKeys;
         _clinicContext = clinicContext;
         _relays = relays;
         _tenantScope = tenantScope;
@@ -94,6 +97,12 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
             // D19: a takeover an admin's « Reprendre la main » overruled — this answer stops that PC, and never arms it.
             var overruled = relay.IsOverruledHolding(beat);
             var seededNow = relay.RecordHeartbeat(beat, highWater, now);
+            // D22: the prepared-session key, minted once — here and not in a read, so the device's GET writes nothing.
+            if (_assertionKeys is not null)
+            {
+                relay.EnsureAssertionKey(_assertionKeys.NewProtectedKey);
+            }
+
             // AC-9.4: a PC that copied another history holds what a restore lost — read-only here until it sends it.
             relay.NoteFollowedEpoch(report.FollowedEpoch, epoch, report.AppliedSeq, now);
 
@@ -120,7 +129,10 @@ public sealed class RelayHeartbeatCommandHandler : IRequestHandler<RelayHeartbea
 
             return Result<RelayHeartbeatAck>.Success(new RelayHeartbeatAck(
                 now, highWater, epoch, Retired: false, UpdateNeeded: !sameBuild, cloudBuild, ackSeq, armed, overruled,
-                ReturnReleased: relay.HasReleasedReturn(report.ReturnedHandbackId)));
+                ReturnReleased: relay.HasReleasedReturn(report.ReturnedHandbackId),
+                AssertionKey: report.HasAssertionKey || _assertionKeys is null || relay.PublicKey is null
+                    ? null
+                    : _assertionKeys.SealFor(relay.AssertionKeyProtected, relay.PublicKey)));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
