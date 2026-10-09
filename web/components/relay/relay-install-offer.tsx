@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2, Server, TriangleAlert } from "lucide-react"
+import { CheckCircle2, Loader2, Server } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,7 +16,7 @@ import { useSession } from "@/lib/auth/session"
 import { getErrorMessage } from "@/lib/errors"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
-  alreadyConsideredThisRun, offerSetAside, relayInstallShell, relayNotices, rememberLater, rememberNever, roomRefusal,
+  alreadyConsideredThisRun, offerSetAside, relayInstallShell, rememberLater, rememberNever, roomRefusal,
 } from "./relay-install"
 
 type Phase =
@@ -31,7 +31,7 @@ type Phase =
  * doors cannot handle a refusal differently.
  *
  * ⚠️ **Any outcome but « installed » gives the code back**: Windows' prompt refused, too little room, a failed download
- * — the code was never presented, and without the release the clinic's one place stays taken for ten minutes, so the
+ * — the code was never presented, and without the release the clinic's one place stays taken for an hour, so the
  * offer would vanish from every device (AC-1.10) exactly when AC-1.11 says it stays available.
  *
  * ⚠️ **The outcome becomes a toast only when nothing on screen shows it** (`onScreen`): the install runs for minutes and
@@ -75,20 +75,6 @@ export function useRelayInstall(onScreen: () => boolean = () => false) {
   return { phase, install, reset, refuse }
 }
 
-/** AC-1.6, AC-1.7, AC-1.13: what the offer adds about this PC — warnings, never refusals. */
-export function RelayNoticeList({ facts }: { facts: ShellRelayHostFacts }) {
-  return (
-    <ul className="space-y-2">
-      {relayNotices(facts).map((notice) => (
-        <li key={notice} className="flex gap-2 text-sm">
-          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning-ink" />
-          <span className="min-w-0">{notice}</span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 /** The running and finished states, shared by the dialog and the page. */
 export function RelayInstallProgress({ phase }: { phase: Phase }) {
   if (phase.kind === "installing") {
@@ -96,8 +82,8 @@ export function RelayInstallProgress({ phase }: { phase: Phase }) {
       <p role="status" className="flex items-start gap-2 text-sm">
         <Loader2 aria-hidden="true" className="mt-0.5 size-4 shrink-0 motion-safe:animate-spin" />
         <span className="min-w-0">
-          Installation en cours. Windows demande l&apos;autorisation une fois, puis tout se fait seul : le
-          téléchargement, l&apos;installation et la première copie.
+          L&apos;installation se poursuit en arrière-plan. Windows vous demandera une autorisation dans quelques
+          minutes.
         </span>
       </p>
     )
@@ -114,6 +100,8 @@ export function RelayInstallProgress({ phase }: { phase: Phase }) {
 
   return null
 }
+
+const BACKGROUND_NOTICE_MS = 4000
 
 interface RelayOfferDialogProps {
   open: boolean
@@ -143,6 +131,14 @@ export function RelayOfferDialog({ open, onOpenChange, facts, needBytes, onLater
     if (!open && phase.kind !== "installing") reset()
   }, [open, phase.kind, reset])
 
+  // The download and the install take minutes: once they start, say it happens in the background and close. The
+  // outcome then arrives as a toast (`onScreen` is false once closed).
+  useEffect(() => {
+    if (!open || phase.kind !== "installing") return
+    const timer = window.setTimeout(() => onOpenChange(false), BACKGROUND_NOTICE_MS)
+    return () => window.clearTimeout(timer)
+  }, [open, phase.kind, onOpenChange])
+
   const accept = () => {
     // AC-1.8 before the code: no code is issued, and no place taken, for a PC that cannot hold the copy.
     const room = roomRefusal(facts.freeBytes, needBytes)
@@ -170,17 +166,12 @@ export function RelayOfferDialog({ open, onOpenChange, facts, needBytes, onLater
               <DialogTitle>Garder une copie du cabinet sur ce PC ?</DialogTitle>
             </div>
             <DialogDescription>
-              Si internet coupe au cabinet, ce PC prend le relais et tout le monde continue de travailler.
+              Ce PC gardera une copie du cabinet pour que vous puissiez continuer à travailler quand internet est coupé.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            {phase.kind === "idle" && (
-              <>
-                <FormErrorBanner message={phase.error ?? null} />
-                <RelayNoticeList facts={facts} />
-              </>
-            )}
+            {phase.kind === "idle" && <FormErrorBanner message={phase.error ?? null} />}
             {phase.kind === "failed" && <FormErrorBanner message={phase.sentence} />}
             <RelayInstallProgress phase={phase} />
           </div>

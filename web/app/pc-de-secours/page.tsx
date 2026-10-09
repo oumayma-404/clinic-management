@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { TotpCodeField } from "@/components/security/totp-code-field"
-import { RelayInstallProgress, RelayNoticeList, useRelayInstall } from "@/components/relay/relay-install-offer"
+import { RelayInstallProgress, useRelayInstall } from "@/components/relay/relay-install-offer"
 import { relayInstallShell } from "@/components/relay/relay-install"
 import { authApi } from "@/lib/api/auth"
 import { relayApi } from "@/lib/api/relay"
@@ -134,8 +134,6 @@ export default function RelayInstallPage() {
                 <FormErrorBanner
                   message={phase.kind === "failed" ? phase.sentence : phase.kind === "idle" ? phase.error ?? null : null}
                 />
-                <RelayNoticeList facts={stage.facts} />
-
                 <div className="space-y-2">
                   <Label htmlFor="relay-email">E-mail de l&apos;administrateur</Label>
                   <Input

@@ -203,8 +203,18 @@ public static class RelayInstaller
             }
 
             var part = setupPath + ".part";
-            await using (var target = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
+            var length = response.Content.Headers.ContentLength;
+            var ranged = length is > ParallelThreshold && response.Headers.AcceptRanges.Contains("bytes");
+            if (ranged)
             {
+                // One connection from the cloud to a cabinet is often far slower than the line (measured: 120 KB/s
+                // on a 1,1 MB/s line, London to Tunis) — several ranges at once fill it. The hash still decides.
+                response.Dispose();
+                await DownloadInPartsAsync(client, baseUrl + InstallerPath, part, length!.Value).ConfigureAwait(false);
+            }
+            else
+            {
+                await using var target = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None);
                 await response.Content.CopyToAsync(target).ConfigureAwait(false);
             }
 
@@ -215,6 +225,89 @@ public static class RelayInstaller
         {
             return (string.Empty, new Outcome(Failed,
                 "Le fichier d'installation n'a pas pu être téléchargé depuis le cloud. Vérifiez votre connexion, puis réessayez."));
+        }
+    }
+
+    /// <summary>Below this a single connection is quick enough; above it the file comes in parts.</summary>
+    private const long ParallelThreshold = 16L * 1024 * 1024;
+
+    /// <summary>Connections at once: enough to fill a cabinet's line, few enough to be polite to the cloud.</summary>
+    public const int ParallelParts = 6;
+
+    /// <summary>The byte ranges (inclusive ends) a file of this length is fetched in — contiguous, covering it exactly.</summary>
+    public static (long From, long To)[] Ranges(long length, int parts)
+    {
+        if (length <= 0)
+        {
+            return Array.Empty<(long, long)>();
+        }
+
+        parts = (int)Math.Clamp(parts, 1, length);
+        var size = length / parts;
+        var ranges = new (long From, long To)[parts];
+        for (var i = 0; i < parts; i++)
+        {
+            var from = i * size;
+            var to = i == parts - 1 ? length - 1 : from + size - 1;
+            ranges[i] = (from, to);
+        }
+
+        return ranges;
+    }
+
+    /// <summary>
+    /// Each range written at its own offset of a file sized up front; a part that drops resumes where it stopped, three
+    /// times. Throws when a part cannot finish — the caller words it.
+    /// </summary>
+    private static async Task DownloadInPartsAsync(HttpClient client, string url, string part, long length)
+    {
+        await using (var sized = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+        {
+            sized.SetLength(length);
+        }
+
+        await Task.WhenAll(Ranges(length, ParallelParts).Select(range => DownloadRangeAsync(client, url, part, range)))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task DownloadRangeAsync(HttpClient client, string url, string part, (long From, long To) range)
+    {
+        var next = range.From;
+        for (var attempt = 0; next <= range.To; attempt++)
+        {
+            if (attempt > 3)
+            {
+                throw new IOException("a part of the installer did not finish");
+            }
+
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(next, range.To);
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)
+                    .ConfigureAwait(false);
+                if (response.StatusCode != HttpStatusCode.PartialContent)
+                {
+                    throw new HttpRequestException($"range answered {(int)response.StatusCode}");
+                }
+
+                await using var body = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                await using var target = new FileStream(part, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+                target.Seek(next, SeekOrigin.Begin);
+                var buffer = new byte[81920];
+                int read;
+                while (next <= range.To
+                       && (read = await body.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, range.To - next + 1)))
+                           .ConfigureAwait(false)) > 0)
+                {
+                    await target.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+                    next += read;
+                }
+            }
+            catch (Exception) when (attempt < 3)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2 * (attempt + 1))).ConfigureAwait(false);
+            }
         }
     }
 
@@ -281,7 +374,7 @@ public static class RelayInstaller
         }
         catch
         {
-            // The pairing code lapses in ten minutes and is single-use; the result sentence holds nothing secret.
+            // The pairing code lapses within the hour and is single-use; the result sentence holds nothing secret.
         }
     }
 }

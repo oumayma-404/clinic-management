@@ -14,7 +14,10 @@ namespace ClinicManagement.Application.Features.Relay;
 /// </summary>
 public static class RelayBrowserAccess
 {
-    /// <summary>The PC's trust page port — <c>TrustPortGate.DefaultPort</c> and the installer's <c>TrustPort</c>, which write it.</summary>
+    /// <summary>
+    /// The trust page port of a PC that has not reported its own yet — <c>TrustPortGate.DefaultPort</c>. A PC installed
+    /// since the installer picks free ports reports the one it got (<see cref="ClinicRelay.TrustPort"/>).
+    /// </summary>
     public const int TrustPort = 5080;
 
     public sealed record Urls(string Open, string Prepare);
@@ -34,6 +37,6 @@ public static class RelayBrowserAccess
         }
 
         var host = address.Contains(':') ? $"[{address}]" : address;
-        return new Urls($"https://{host}:{port}/", $"http://{host}:{TrustPort}/api/trust");
+        return new Urls($"https://{host}:{port}/", $"http://{host}:{relay.TrustPort ?? TrustPort}/api/trust");
     }
 }

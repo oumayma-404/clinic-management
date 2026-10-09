@@ -11,7 +11,7 @@ namespace ClinicManagement.Application.Features.Relay.Commands;
 
 /// <summary>
 /// The Windows app gives back a code its installer never presented — Windows' prompt refused, too little room, a failed
-/// download (AC-1.11): the clinic's one place is free again at once rather than after ten minutes. Whoever holds the
+/// download (AC-1.11): the clinic's one place is free again at once rather than after an hour. Whoever holds the
 /// code may release it, so it needs no session (the credentials door has none). Every outcome answers the same: an
 /// unknown, used or already-released code tells the caller nothing about any clinic.
 /// </summary>
@@ -65,7 +65,7 @@ public sealed class ReleaseRelayPairingCodeCommandHandler : IRequestHandler<Rele
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            // The code still lapses on its own in ten minutes: nothing here is worth a refusal the app could not act on.
+            // The code still lapses on its own within the hour: nothing here is worth a refusal the app could not act on.
             _logger.LogWarning(ex, "PC de secours pairing code could not be released");
             return Result.Success();
         }

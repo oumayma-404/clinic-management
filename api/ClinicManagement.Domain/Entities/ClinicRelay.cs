@@ -16,8 +16,11 @@ public class ClinicRelay : AggregateRoot<Guid>
 
     public string Subject => SubjectPrefix + Id.ToString("D");
 
-    /// <summary>How long a pairing code may wait for the installer (D8).</summary>
-    public static readonly TimeSpan PairingCodeLifetime = TimeSpan.FromMinutes(10);
+    /// <summary>
+    /// How long a pairing code may wait for the installer (D8). An hour, not ten minutes: the Windows app downloads the
+    /// installer (~360 MB) BEFORE the installer presents the code, and on a slow cabinet line that took ~55 min.
+    /// </summary>
+    public static readonly TimeSpan PairingCodeLifetime = TimeSpan.FromMinutes(60);
 
     /// <summary>A setup that never finishes its first copy is released after this (EC-9).</summary>
     public static readonly TimeSpan AbandonedAfter = TimeSpan.FromHours(24);
@@ -162,6 +165,12 @@ public class ClinicRelay : AggregateRoot<Guid>
 
     /// <summary>The PC's HTTPS port, so a device can try it directly (its addresses are <see cref="LanAddresses"/>).</summary>
     public int? HttpsPort { get; private set; }
+
+    /// <summary>
+    /// The PC's trust page port (« Préparer ce navigateur »), as the PC reported it — the installer picks a free port,
+    /// so it is not always 5080. Null: not reported yet (an older PC), or the page is switched off.
+    /// </summary>
+    public int? TrustPort { get; private set; }
 
     /// <summary>The PC's default gateway — the cabinet's box — as the PC last saw it.</summary>
     public string? GatewayAddress { get; private set; }
@@ -509,6 +518,12 @@ public class ClinicRelay : AggregateRoot<Guid>
 
         CertificateFingerprint = NormalizeFingerprint(heartbeat.CertificateFingerprint) ?? CertificateFingerprint;
         HttpsPort = heartbeat.HttpsPort is > 0 and <= 65535 ? heartbeat.HttpsPort : HttpsPort;
+        TrustPort = heartbeat.TrustPort switch
+        {
+            0 => null,
+            > 0 and <= 65535 => heartbeat.TrustPort,
+            _ => TrustPort,
+        };
         GatewayAddress = NormalizeAddress(heartbeat.GatewayAddress) ?? GatewayAddress;
         PublicAddress = NormalizeAddress(heartbeat.PublicAddress) ?? PublicAddress;
 
@@ -563,7 +578,7 @@ public class ClinicRelay : AggregateRoot<Guid>
 
     /// <summary>
     /// A setup that ended before the installer presented the code — Windows' prompt refused, too little room, a failed
-    /// download (AC-1.11). Frees the clinic's one place at once instead of after the code's 10 minutes. False, and
+    /// download (AC-1.11). Frees the clinic's one place at once instead of after the code's hour. False, and
     /// nothing changes, once the code has been used: a paired PC is retired by an admin, never by whoever holds a code.
     /// </summary>
     public bool ReleaseUnusedCode(DateTime nowUtc)
@@ -779,4 +794,6 @@ public sealed record RelayHeartbeat(
     // D20b: the PC set its clock from the cloud's (when, by how much), or cannot set it.
     DateTime? ClockCorrectedAtUtc = null,
     int? ClockCorrectedBySeconds = null,
-    bool ClockUnfixable = false);
+    bool ClockUnfixable = false,
+    // The PC's trust page port — the installer picks a free one, so it is reported, never assumed. 0 = no trust page.
+    int? TrustPort = null);
