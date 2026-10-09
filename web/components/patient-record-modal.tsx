@@ -44,6 +44,7 @@ import type {
   TreatmentPlanItemStepDto,
 } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, todayLocalIso } from "@/lib/format"
+import type { BilledNoteFigures } from "@/lib/fiche-note-figures"
 import { conditionStyle, needsTreatment, serializeSurfaces } from "@/components/odontogram-conditions"
 import { ARCH_QUADRANTS_BY_VIEW, FDI_BY_VIEW, isAdultTooth } from "@/components/tooth-multiselect"
 import { dentitionViewFor, dentitionViewForTeeth, type DentitionView } from "@/lib/dentition"
@@ -271,6 +272,8 @@ interface PatientRecordModalProps {
   record?: DentalRecordDto | null // Record to edit, null for a new record
   /** True when the record is already billed by a (non-cancelled) invoice — its payment is invoice-managed. */
   isInvoiced?: boolean
+  /** The note's own figures when it bills this fiche alone — money taken on the note never updates the fiche. */
+  billedNote?: BilledNoteFigures | null
   /** Patient — used to surface allergy / flag / medical-history alerts at the point of care. */
   patient?: PatientDto | null
   /** Open treatment-plan steps the record can complete (marks the step "réalisé" on save). */
@@ -317,6 +320,7 @@ export function PatientRecordModal({
   patientId,
   record,
   isInvoiced = false,
+  billedNote,
   patient,
   planItems = [],
   appointmentId,
@@ -1506,6 +1510,11 @@ export function PatientRecordModal({
 
   const paidAmount = parseAmountInput(amountPaid) || 0
   const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
+  // A billed fiche's reste is its note's: « Encaisser » pays the note and leaves this fiche's « Payé » behind.
+  // Only what is typed above what the note already took is new money (the server's top-up rule).
+  const invoicedReste = billedNote
+    ? Math.max(0, roundMillimes(billedNote.outstanding - Math.max(0, paidAmount - billedNote.collected)))
+    : reste
 
   /**
    * What the patient owes on the treatment **before** this séance — the plan's own outstanding, read from the
@@ -3114,7 +3123,7 @@ export function PatientRecordModal({
                 </p>
               ) : isInvoiced ? (
                 <p className="text-muted-foreground">
-                  Facturé{reste > 0 ? ` — reste à payer${seanceScope} ${formatDT(reste)}` : ""}
+                  Facturé{invoicedReste > 0 ? ` — reste à payer${seanceScope} ${formatDT(invoicedReste)}` : ""}
                 </p>
               ) : (
                 <p className="text-muted-foreground">
