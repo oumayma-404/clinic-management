@@ -40,6 +40,17 @@ import {
 import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
+import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
+import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
+import { mergeSections, takenOverSentence } from "@/lib/forms/form-merge"
+import {
+  PATIENT_SECTIONS,
+  PATIENT_SECTION_LABEL,
+  patientFormValuesOf,
+  patientSnapshot,
+  type PatientFormValues,
+  type PatientSection,
+} from "@/components/patient/patient-merge"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { User, MapPin, Heart, Pill, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
 import { RecordSection } from "@/components/record/record-section"
@@ -188,6 +199,17 @@ type SectionKey = "medical" | "notes" | "coordonnees"
  */
 function defaultSections(): Record<SectionKey, boolean> {
   return { medical: true, notes: true, coordonnees: false }
+}
+
+/** What the patient form hands the shell (`clinic-pc-copy` D23): the screen, and the copy it was opened against. */
+interface CarriedPatient {
+  values: PatientFormValues
+  birthdateMode: "date" | "age"
+  approximateAge: string
+  dentitionTouched: boolean
+  medicalHistoryEntries: { id?: string; description: string; date?: string; notes?: string; isNew?: boolean }[]
+  familyHistoryEntries: { id?: string; relationship: string; condition: string; notes?: string; isNew?: boolean }[]
+  opened: PatientDto | null
 }
 
 /** One row of « Autres numéros », while it is being edited. `key` is local and never leaves the browser. */
@@ -376,6 +398,114 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
   )
   const [errors, setErrors] = useState<Record<string, string>>({})
 
+  /** The section loaders — the first hydration and the merge both go through these (`patient-merge.ts`). */
+  const applySection: Record<PatientSection, (v: PatientFormValues) => void> = {
+    identity: (v) => {
+      setFirstName(v.firstName)
+      setLastName(v.lastName)
+      setGender(v.gender)
+      setBirthdate(v.birthdate)
+      setDentition(v.dentition)
+    },
+    contact: (v) => {
+      setPhone(v.phone)
+      setPhoneCountry(v.phoneCountry)
+      setExtraPhones(v.extraPhones.map((extra) => ({ key: `extra-phone-${++extraPhoneKeySeed}`, ...extra })))
+      setEmail(v.email)
+      setAddressLine(v.addressLine)
+      setReferredBy(v.referredBy)
+      setReminderConsent(v.reminderConsent)
+    },
+    reason: (v) => setConsultationReason(v.consultationReason),
+    health: (v) => {
+      setAllergies(v.allergies)
+      setMedications(v.medications)
+      setChronicDiseases(v.chronicDiseases)
+      setSmokingStatus(v.smokingStatus)
+      setSmokingPerDay(v.smokingPerDay)
+      setSmokingUnit(v.smokingUnit)
+    },
+    notes: (v) => {
+      setPatientNotes(v.notes)
+      setPatientImportantNotes(v.importantNotes)
+    },
+  }
+
+  /** The screen — the « mine » of the three ways, and what is carried across a switch. */
+  const screenValues = (): PatientFormValues => ({
+    firstName, lastName, gender, birthdate, dentition,
+    phone, phoneCountry,
+    extraPhones: extraPhones.map(({ value, country }) => ({ value, country })),
+    email, addressLine, referredBy, reminderConsent,
+    consultationReason, allergies, medications, chronicDiseases,
+    smokingStatus, smokingPerDay, smokingUnit,
+    notes: patientNotes, importantNotes: patientImportantNotes,
+  })
+
+  /**
+   * The server's copy the screen was last hydrated or reconciled with. Its version is the one the save sends, and it
+   * only moves together with the content merged against it — a version adopted alone lets the next save overwrite a
+   * colleague (`use-fresh-version.ts` says the same).
+   */
+  const openedRef = useRef<PatientDto | null>(null)
+  /** Set once a carried form was put back, so a late history read does not write over the carried entries. */
+  const restoredRef = useRef(false)
+  const [takenOver, setTakenOver] = useState<PatientSection[]>([])
+
+  const reconcileWith = (server: PatientDto) => {
+    const opened = openedRef.current
+    if (!opened) return
+    const theirs = patientFormValuesOf(server)
+    const { take, takenOver: named } = mergeSections(
+      PATIENT_SECTIONS,
+      patientSnapshot(patientFormValuesOf(opened)),
+      patientSnapshot(screenValues()),
+      patientSnapshot(theirs),
+    )
+    for (const section of take) applySection[section](theirs)
+    openedRef.current = server
+    if (named.length > 0) setTakenOver((prev) => [...new Set([...prev, ...named])])
+  }
+  const reconcileRef = useRef(reconcileWith)
+  reconcileRef.current = reconcileWith
+
+  // The row as the server holds it NOW lands after the form hydrated: it is reconciled, never adopted as a bare version.
+  useEffect(() => {
+    if (!open || !freshPatient || openedRef.current?.id !== freshPatient.id) return
+    if (freshPatient.version === openedRef.current.version) return
+    reconcileRef.current(freshPatient)
+  }, [open, freshPatient])
+
+  /*
+   * `clinic-pc-copy` D23 / AC-3.2 — the patient form survives the app switching server. Edit reopens on the patient's
+   * page (`?editPatient=1`), create on the list (`?newPatient=1`); the first save after a switch is refused once.
+   */
+  const carried = useCarriedDraft<CarriedPatient>({
+    form: "patient",
+    formKey: patient?.id ? `patient:${patient.id}` : "new",
+    path: patient?.id ? `/patients/${patient.id}?editPatient=1` : "/patients?newPatient=1",
+    open,
+    dirty: true,
+    state: {
+      values: screenValues(),
+      birthdateMode, approximateAge, dentitionTouched,
+      medicalHistoryEntries, familyHistoryEntries,
+      opened: openedRef.current,
+    },
+    restore: (s) => {
+      restoredRef.current = true
+      for (const section of PATIENT_SECTIONS) applySection[section](s.values)
+      setBirthdateMode(s.birthdateMode)
+      setApproximateAge(s.approximateAge)
+      setDentitionTouched(s.dentitionTouched)
+      setMedicalHistoryEntries(s.medicalHistoryEntries)
+      setFamilyHistoryEntries(s.familyHistoryEntries)
+      setMedicalHistoryFailed(false)
+      setFamilyHistoryFailed(false)
+      if (s.opened && s.opened.id === patient?.id) openedRef.current = s.opened
+    },
+  })
+
   /**
    * Which sections are unfolded. ⚠️ **Every section is open on arrival, on BOTH paths** — a folded section is a
    * question the desk never sees, and « Informations médicales » folded on a new patient is how a smoker, an
@@ -487,76 +617,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
       )
       if (patient) {
         // Edit mode: populate with existing patient data
-      setFirstName(patient.firstName || "")
-      setLastName(patient.lastName || "")
-      setGender(patient.gender || "")
-      setBirthdate(patient.dateOfBirth ? patient.dateOfBirth.split('T')[0] : "")
+      // Every section through its one loader — the same one that takes a colleague's version (`patient-merge.ts`).
+      for (const section of PATIENT_SECTIONS) applySection[section](patientFormValuesOf(patient))
       // A stored patient is always shown on the date tab — the age was never persisted, so there is nothing to
       // restore, and reopening on « Âge » would present an empty box beside a date the record actually holds.
       setBirthdateMode("date")
       setApproximateAge("")
       // A stored patient already has an answer; treat it as the user's own so the age rule never overrides it.
-      setDentition((patient.dentition as Dentition) || null)
       setDentitionTouched(true)
-      setPhone(patient.phoneNumber || "")
-      // A stored number re-opens the country its WRITER chose — `phoneE164`, never `phoneNumber`, which
-      // re-derives against Tunisia and is why a French patient came back +216. See `storedPhoneCountry`.
-      setPhoneCountry(storedPhoneCountry(patient.phoneE164, patient.phoneNumber))
-      /*
-       * ⚠️ **Read back AND sent again, both halves.** `SetAdditionalPhoneNumbers` replaces the whole list
-       * server-side, so a form that displays these and forgets to re-send them erases every extra number on
-       * the next ordinary save — the `SetActs` shape this codebase has paid for three times. The save below
-       * sends `extraPhones` unconditionally for that reason.
-       *
-       * Each row re-opens its own country from its own stored E.164, never from the typed value — see
-       * `storedPhoneCountry`.
-       */
-      setExtraPhones(
-        (patient.additionalPhones ?? []).map((extra) => ({
-          key: `extra-phone-${++extraPhoneKeySeed}`,
-          value: extra.value,
-          country: storedPhoneCountry(extra.e164, extra.value),
-        })),
-      )
-      setEmail(patient.email || "")
-      
-      // ⚠️ Folded, not truncated. A stored « 12 rue de Carthage / Tunis / La Marsa / 2070 » must come back into
-      // the one box in FULL, or opening this form and pressing « Enregistrer » would quietly drop three quarters
-      // of the address — the exact silent-drop shape `Address.OfAny` was written to end. Same join and same
-      // separator as every surface that already displays one.
-      // ⚠️ **Adjacent duplicates are dropped**, the same way the patient file's `formatAddress` does it: a
-      // patient in Ariana has « Ariana » as both ville and gouvernorat, and a naive join reads « Ariana,
-      // Ariana » — which looks like a bug in the record rather than a true statement about Tunisian
-      // administrative naming. Adjacent only, and case-insensitively: two identical parts far apart in a long
-      // address are far likelier to be real than a typo.
-      setAddressLine(
-        [patient.address?.street, patient.address?.city, patient.address?.state, patient.address?.zipCode]
-          .map((part) => part?.trim())
-          .filter((part): part is string => Boolean(part))
-          .filter((part, index, all) => index === 0 || part.toLowerCase() !== all[index - 1].toLowerCase())
-          .join(", "),
-      )
-
-      // « Adressé par »
-      setReferredBy(patient.referredBy || "")
-      setReminderConsent(patient.reminderConsent ?? "NotRecorded")
-
-      // Patient-level notes
-      setPatientNotes(patient.notes || "")
-      setPatientImportantNotes(patient.importantNotes || "")
-
-      // « Motif de consultation » — why they came in the first place.
-      setConsultationReason(patient.consultationReason || "")
-
-      // Medical info - parse from strings
-      setAllergies(patient.allergies || "")
-      setMedications(patient.medications || "")
-      setChronicDiseases(patient.medicalHistory || "")
-      
-      // « Tabac ». A null block is « jamais renseigné » — never seeded as « Non-fumeur ».
-      setSmokingStatus(patient.tobaccoUse?.status ?? null)
-      setSmokingPerDay(patient.tobaccoUse?.perDay != null ? String(patient.tobaccoUse.perDay) : "")
-      setSmokingUnit(patient.tobaccoUse?.unit ?? "Cigarettes")
+      openedRef.current = patient
+      setTakenOver([])
+      restoredRef.current = false
 
       // Load medical and family history entries when dialog opens
       if (patient.id) {
@@ -565,6 +636,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
       }
     } else {
         // Create mode: reset form to empty
+        openedRef.current = null
+        restoredRef.current = false
+        setTakenOver([])
         setFirstName("")
         setLastName("")
         setGender("")
@@ -668,6 +742,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
   const loadMedicalHistoryEntries = async (patientId: string) => {
     try {
       const entries = await patientMedicalHistoryApi.list(patientId)
+      // A carried form (D23) already holds the entries as they were being edited.
+      if (restoredRef.current) return
       setMedicalHistoryEntries(entries.map(e => ({
         id: e.id,
         description: e.description,
@@ -686,6 +762,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
   const loadFamilyHistoryEntries = async (patientId: string) => {
     try {
       const entries = await patientFamilyHistoryApi.list(patientId)
+      // A carried form (D23) already holds the entries as they were being edited.
+      if (restoredRef.current) return
       setFamilyHistoryEntries(entries.map(e => ({
         id: e.id,
         relationship: e.relationship,
@@ -918,8 +996,36 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
     return Object.keys(newErrors).length === 0
   }
 
+  /**
+   * « Recharger » — re-reads the patient and reconciles each section three ways (`lib/forms/form-merge.ts`): what only
+   * the colleague changed is taken, what only this screen changed is kept, a section both changed shows theirs and is
+   * named. On a NEW patient (only reachable after a switch) there is nothing stored, so the typing simply stays.
+   */
+  const reloadFromServer = async () => {
+    if (!patient?.id) {
+      conflict.clearMessage()
+      return
+    }
+    setLoading(true)
+    try {
+      reconcileRef.current(await patientsApi.get(patient.id))
+      conflict.clearMessage()
+    } catch {
+      conflict.setError("Impossible de recharger ce patient. Vérifiez votre connexion.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
+    // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
+    if (carried.consumeSwitch()) {
+      conflict.raise(SWITCH_REFUSAL)
+      return
+    }
+    // Pressing Enregistrer is the answer to « refaites votre modification ».
+    setTakenOver([])
     // A fresh submit re-asks: the user may have corrected the name or the birthdate since the last refusal, so a
     // grant given about the previous attempt says nothing about this one.
     allowDuplicateRef.current = false
@@ -996,7 +1102,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           email: email.trim() || null,
           // The row's version as last read from the server — so a peer's save in the meantime is a 409, not a
           // silent overwrite of their work, and our own previous save is not mistaken for one.
-          version: freshPatient?.version ?? patient.version,
+          version: openedRef.current?.id === patient.id ? openedRef.current.version : freshPatient?.version ?? patient.version,
           address: addressObj,
           // Always present (possibly ""), so emptying the box clears the stored value instead of
           // reading as "leave it alone" — same reason as the two contact fields above.
@@ -1244,21 +1350,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
               is expensive: the version this form holds never moves on its own, so every later click repeats the
               refusal (measured in production at six over 81 minutes, until the user reloaded the page by hand).
 
-              ⚠️ **It re-reads by closing, and must not merely `resync()`.** `useFreshVersion` deliberately takes
-              the VERSION alone and never the field values, so resyncing in place would hand this form a fresh
-              token while it still holds what the user typed over the colleague's edit — the next save would then
-              succeed and silently overwrite them, which is worse than the refusal. Re-opening is what re-reads
-              the row. Same shape as `expense-form-dialog` and `dental-act-form-modal`.
-
-              ⚠️ The RAW `onOpenChange`, never `guard.onOpenChange`: the dirty guard would ask whether to discard
-              the entries, and « voulez-vous abandonner ? » immediately after pressing « Recharger » is a second
-              question about a decision already taken.
-
-              ⚠️ **The fiche de soins recovers differently on purpose, and the difference is not an inconsistency.**
-              Its « Recharger » re-reads the record's version *and* both documents in place, because what is stale
-              there is a document's CONTENT and the server's sentence promises to show it. This form has no such
-              thing to re-read — every value in it is the patient row the conflict is about — so re-opening IS the
-              re-read, and doing it in place would be the silent overwrite described above wearing a button.
+              ⚠️ **It re-reads IN PLACE and reconciles — never a bare `resync()`, and no longer by closing.** A bare
+              resync hands the form a fresh token while it still holds what the user typed over the colleague's edit,
+              so the next save would silently overwrite them. Closing was the old answer, and it threw away every
+              unsaved field (and, after a switch of server, the whole carried form — `clinic-pc-copy` AC-3.2). Now
+              each section is compared three ways (`lib/forms/form-merge.ts`, the fiche de soins' rule): what only the
+              colleague changed is taken, what only this screen changed is kept, a section both changed shows theirs
+              and is named below. The version moves only together with the content merged against it.
             */}
             <FormErrorBanner
               message={conflict.error}
@@ -1266,15 +1364,17 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                 conflict.isConflict
                   ? {
                       label: "Recharger",
-                      onClick: () => {
-                        onSuccess?.()
-                        onOpenChange(false)
-                      },
+                      onClick: () => void reloadFromServer(),
                       disabled: loading,
                     }
                   : undefined
               }
             />
+            {takenOver.length > 0 && (
+              <p role="status" className="rounded-md bg-warning-wash px-3 py-2 text-sm text-warning-ink">
+                {takenOverSentence(takenOver.map((s) => PATIENT_SECTION_LABEL[s]))}
+              </p>
+            )}
             {/* ⚠️ A summary as well as the per-field messages, because on a form this long the first refusal can
                 be off screen — and on a phone it always is. `FormErrorBanner` is the shared aria-live region, so
                 this announces too. It names the fields; the fields themselves carry the reason. */}

@@ -1417,6 +1417,22 @@ export default function PatientDetailsPage() {
   // Deep-link from « Corriger cette note » on /factures (?editRecord=<ficheId>): open that fiche's editor, which
   // is the only door where the correction is expressible — the price is changed on the acts, and the note follows.
   // Two steps because the modal edits the record itself, and the fiches arrive with the page's phase-2 batch.
+  /*
+   * `?editPatient=1` — the patient's own form, opened once the patient is loaded. A form carried across a switch of
+   * server (`clinic-pc-copy` AC-3.2) comes back through this door and refills itself.
+   */
+  const [pendingEditPatient, setPendingEditPatient] = useState(false)
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("editPatient") === "1") setPendingEditPatient(true)
+  }, [patientId])
+  useEffect(() => {
+    if (!pendingEditPatient || !patient) return
+    setPendingEditPatient(false)
+    window.history.replaceState({}, "", `/patients/${patientId}`)
+    setEditSection(null)
+    setEditDialogOpen(true)
+  }, [pendingEditPatient, patient, patientId])
+
   const [pendingEditRecordId, setPendingEditRecordId] = useState<string | null>(null)
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("editRecord")
