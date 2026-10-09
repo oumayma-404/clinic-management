@@ -125,6 +125,9 @@ public sealed record RelayHeartbeatAck(
 /// <summary>The PC de secours's own view of itself (AC-8.1), read on the PC.</summary>
 public sealed record RelayLocalStatusDto(bool Retired, DateTime? RetiredAtUtc, string Sentence);
 
+/// <summary>Part 3: this PC holds the cabinet's saves (handing them back included) — the apps switch here while true.</summary>
+public sealed record RelayHoldingDto(bool Holding, bool HandingBack);
+
 public sealed record RelayStatusDto(
     bool Exists,
     Guid? RelayId,

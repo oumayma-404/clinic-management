@@ -26,6 +26,8 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `relayHostFacts()` | `Promise<RelayHostFacts \| null>` | Windows 1.4 | This PC's name, battery, disk encryption (three-valued) and free space, for the PC de secours offer. Never rejects. |
 | `installRelay({ code, needBytes })` | `Promise<RelayInstallOutcome>` | Windows 1.4 | Make this PC the cabinet's PC de secours with a one-time code. Never rejects. |
 | `relayProbe({ addresses, port, fingerprint })` | `Promise<RelayProbeResult \| null>` | Windows 1.5 · Android 1.2.0 | While the cloud is locked for a silent PC de secours: does this device reach it (pinned certificate), and which box is it behind? Never rejects — `null` when it cannot answer. |
+| `relayPrepare({ assertion, addresses, port, fingerprint })` | `Promise<boolean>` | Windows 1.6 | `clinic-pc-copy` D22: trade the cloud's ticket on the PC de secours (pinned certificate) and keep that session in the app's cookie for the PC — **one holder**: the shell never refreshes it. Never rejects. |
+| `relaySwitch()` | `Promise<boolean>` | Windows 1.6 | Part 3: the cloud says the cabinet works on the PC — ask the PC and move the window there if it holds. Never rejects. Moving on a cloud that does not load, and back once the PC lets go, is the shell's own. |
 
 ### The per-phase method set (FR-6)
 
@@ -166,6 +168,7 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 | the coffre seam (below) | — | — | ✅ since 1.2 |
 | `relayHostFacts` · `installRelay` | — n/a: a phone cannot be the PC de secours (AC-1.12) | — n/a | ✅ since 1.4 — UAC run not yet rehearsed |
 | `relayProbe` | ✅ since 1.2.0 — built, lint + R8 green, not run on a phone | — not written | ✅ since 1.5 — run live against the rig's PC |
+| `relayPrepare` · `relaySwitch` | — not yet (Part 3 slice b2) | — not written | ✅ since 1.6 — built and unit-tested; trade + pinning run against the rig's PC; the window switch is owed to the Windows rehearsal |
 
 ⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
 `mobile/ios/README.md`. Read it as a proposal until a green CI run exists.
@@ -302,3 +305,4 @@ this probe alone**: the WebView's own TLS never sees it. ⚠️ Answered only fo
 | `1.3.0` | Desktop: `confirmIdentity` (Windows Hello). |
 | `1.4.0` | Desktop: `relayHostFacts` + `installRelay` (`clinic-pc-copy`). Nothing removed; the page detects both methods, so an older shell simply never makes the offer. |
 | `1.5.0` · Android `1.2.0` | `relayProbe` (`clinic-pc-copy` AC-6.2) on both shells. Nothing removed; without it the page never asks the cloud anything. |
+| `1.6.0` | Desktop: `relayPrepare` + `relaySwitch` (`clinic-pc-copy` Part 3). Nothing removed; an older shell is simply never switched. |

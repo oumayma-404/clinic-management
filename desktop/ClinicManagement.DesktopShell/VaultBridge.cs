@@ -160,6 +160,26 @@ public static class VaultBridge
               return relayRequest('relay-probe', body, null, 20000);
             }
 
+            /*
+             * clinic-pc-copy Part 3 (since 1.6). `relayPrepare`: the cloud's ticket and where the PC is — the shell trades
+             * it there and keeps the session in this WebView's cookie for the PC (true when it did). `relaySwitch`: the
+             * cloud says the cabinet works on the PC — the shell asks the PC and moves there if it holds (true when it
+             * moved). Both resolve false when the shell cannot.
+             */
+            function relayPrepare(request) {
+              var body = {
+                assertion: request && typeof request.assertion === 'string' ? request.assertion : '',
+                addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                port: request && typeof request.port === 'number' ? request.port : 0,
+                fingerprint: request && typeof request.fingerprint === 'string' ? request.fingerprint : ''
+              };
+              return relayRequest('relay-prepare', body, false, 30000);
+            }
+
+            function relaySwitch() {
+              return relayRequest('relay-switch', null, false, 20000);
+            }
+
             window.__clinicShellDeliverRelayResult = function (id, value) {
               try {
                 var settle = relayPending[id];
@@ -169,14 +189,17 @@ public static class VaultBridge
 
             Object.defineProperty(window, '__clinicShell', {
               // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` took this
-              // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4, `relayProbe` to 1.5.
+              // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4, `relayProbe` to 1.5,
+              // `relayPrepare` + `relaySwitch` to 1.6.
               value: Object.freeze({
                 version: '{{version}}',
                 platform: 'windows',
                 confirmIdentity: confirmIdentity,
                 relayHostFacts: relayHostFacts,
                 installRelay: installRelay,
-                relayProbe: relayProbe
+                relayProbe: relayProbe,
+                relayPrepare: relayPrepare,
+                relaySwitch: relaySwitch
               }),
               configurable: true,
               writable: false,

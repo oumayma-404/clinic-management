@@ -91,6 +91,15 @@ let timer: number | null = null
 let inFlight = false
 const listeners = new Set<() => void>()
 
+/** Part 3: the cut's state as it changes in this tab — the app switch reads it rather than polling a second time. */
+export function onRelayBanner(listener: (banner: RelayBannerDto | null) => void): () => void {
+  const notify = () => listener(current)
+  listeners.add(notify)
+  return () => {
+    listeners.delete(notify)
+  }
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener)
   return () => {

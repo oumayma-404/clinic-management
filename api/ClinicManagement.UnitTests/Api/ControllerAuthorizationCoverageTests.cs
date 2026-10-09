@@ -77,6 +77,9 @@ public class ControllerAuthorizationCoverageTests
         "Relay.ReleasePairingCode",  // the Windows app giving back a code its installer never presented (AC-1.11):
                                      // the code IS the credential, it can only free that one unused setup, and every
                                      // outcome is the same 204; rate-limited like the pairing.
+        "RelayLocal.Holding",        // clinic-pc-copy Part 3, PC only: « do you hold the cabinet's saves? » for the
+                                     // cabinet's apps, asked before anyone is signed in here; one boolean the strip
+                                     // already shows everyone.
         "Auth.RelaySession",         // clinic-pc-copy D22, PC only: a cabinet app trades the cloud's ticket for a
                                      // session there; nobody is signed in on this PC yet. HMAC'd by a key only the
                                      // cloud and this PC hold; one sentence whatever is wrong; rate-limited.

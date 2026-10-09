@@ -43,6 +43,24 @@ public class RelayLocalController : ApiControllerBase
         _eraser = eraser;
     }
 
+    /// <summary>
+    /// <c>clinic-pc-copy</c> Part 3: whether this PC holds the cabinet's saves — asked by the cabinet's Windows and
+    /// Android apps (through the PC's pinned certificate) to know whether to switch here, and when to go back to the
+    /// cloud. Anonymous: an app asks before anyone is signed in here, and the answer is one fact the cabinet's own
+    /// screens already show everyone (the strip).
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("holding")]
+    public ActionResult<RelayHoldingDto> Holding()
+    {
+        if (!_deployment.MirrorsCloudClinic)
+        {
+            return NotFound();
+        }
+
+        return Ok(new RelayHoldingDto(_status.IsHolding || _status.IsHandingBack, _status.IsHandingBack));
+    }
+
     [HttpGet]
     public ActionResult<RelayLocalStatusDto> Get()
     {

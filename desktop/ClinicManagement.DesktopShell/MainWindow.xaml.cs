@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Web.WebView2.Core;
@@ -176,6 +176,8 @@ public partial class MainWindow : Window
             WebView.CoreWebView2.NavigationStarting += WebView_NavigationStarting;
             WebView.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
             WebView.CoreWebView2.DownloadStarting += WebView_DownloadStarting;
+            // clinic-pc-copy Part 3: the PC de secours's self-signed certificate, accepted by its fingerprint only.
+            WebView.CoreWebView2.ServerCertificateErrorDetected += WebView_ServerCertificateErrorDetected;
             await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ThemeReporterScript);
             // The shell's first bridge (clinic-file-vault). Injected here rather than composed into the theme
             // script: they answer to different things, and a page that breaks one must keep the other.
@@ -328,6 +330,8 @@ public partial class MainWindow : Window
                 if (ExternalNavigation.IsClinicDocument(e.Uri, _config))
                 {
                     _clinicDocumentNavigationId = e.NavigationId;
+                    _navigatingToPc = Uri.TryCreate(e.Uri, UriKind.Absolute, out var target)
+                                      && RelaySwitch.IsPcOrigin(target, RelaySwitch.Current);
                 }
                 break;
         }
@@ -369,6 +373,7 @@ public partial class MainWindow : Window
     {
         if (e.IsSuccess)
         {
+            FollowRelayAfterSuccess();
             ShowWebView();
             // ⚠️ On EVERY successful navigation, unlike the once-per-session archive check: a reload gets a new
             // document, and the handle was posted to the old one. A page with no coffre cannot file a study.
@@ -379,10 +384,7 @@ public partial class MainWindow : Window
         }
         else if (IsClinicServerUnreachable(e))
         {
-            ShowUnreachable(
-                $"Adresse : {_config.BaseUrl}\n" +
-                $"Détail : {e.WebErrorStatus}\n\n" +
-                "Vérifiez que le serveur est allumé et connecté au réseau, puis réessayez.");
+            FollowRelayAfterFailure(e.WebErrorStatus);
         }
     }
 
@@ -508,6 +510,15 @@ public partial class MainWindow : Window
                 {
                     AnswerRelayProbeAsync(e.Source, message[RelayProbePrefix.Length..]);
                 }
+                // `relay-prepare:<id>:<json>` / `relay-switch:<id>` — Part 3: a session prepared on the PC, and the move.
+                else if (message.StartsWith(RelayPreparePrefix, StringComparison.Ordinal))
+                {
+                    AnswerRelayPrepareAsync(e.Source, message[RelayPreparePrefix.Length..]);
+                }
+                else if (message.StartsWith(RelaySwitchPrefix, StringComparison.Ordinal))
+                {
+                    AnswerRelaySwitchAsync(e.Source, message[RelaySwitchPrefix.Length..]);
+                }
                 break;
         }
     }
@@ -516,6 +527,216 @@ public partial class MainWindow : Window
     private const string RelayFactsPrefix = "relay-facts:";
     private const string RelayInstallPrefix = "relay-install:";
     private const string RelayProbePrefix = "relay-probe:";
+    private const string RelayPreparePrefix = "relay-prepare:";
+    private const string RelaySwitchPrefix = "relay-switch:";
+
+    // ---- Following the PC de secours (clinic-pc-copy Part 3) ------------------------------------------------
+
+    /// <summary>The clinic document now loading is the PC de secours's — its failure sends the window back to the cloud.</summary>
+    private bool _navigatingToPc;
+
+    /// <summary>The window shows the PC de secours: it goes back to the cloud once the PC no longer holds.</summary>
+    private bool _onPc;
+
+    /// <summary>Since when the cloud has been unreachable with a PC that does not hold yet (AC-3.3, then AC-3.8).</summary>
+    private DateTime? _cloudLostAtUtc;
+
+    private System.Windows.Threading.DispatcherTimer? _relayTimer;
+    private static readonly TimeSpan RelayRetryInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RelayBackCheckInterval = TimeSpan.FromSeconds(20);
+
+    /// <summary>Accepts the PC's own certificate and nothing else — never a blanket « ignore certificate errors ».</summary>
+    private void WebView_ServerCertificateErrorDetected(object? sender, CoreWebView2ServerCertificateErrorDetectedEventArgs e)
+    {
+        try
+        {
+            if (Uri.TryCreate(e.RequestUri, UriKind.Absolute, out var uri)
+                && RelaySwitch.Current is { } pc && RelaySwitch.IsPcOrigin(uri, pc)
+                && RelayProbe.IsThePcsCertificate(e.ServerCertificate?.ToX509Certificate2()?.RawData, pc.Fingerprint))
+            {
+                e.Action = CoreWebView2ServerCertificateErrorAction.AlwaysAllow;
+            }
+        }
+        catch
+        {
+            // Anything unreadable stays refused — WebView2's default.
+        }
+    }
+
+    private void FollowRelayAfterSuccess()
+    {
+        _onPc = _navigatingToPc;
+        _cloudLostAtUtc = null;
+        StartRelayTimer(_onPc ? RelayBackCheckInterval : null);
+    }
+
+    /// <summary>
+    /// The clinic's document did not load. From the PC: back to the cloud. From the cloud: if the PC holds the cabinet's
+    /// saves, move there (already signed in, D22); if it answers without holding, say it is about to (AC-3.3) or that it
+    /// was not ready (AC-3.8), and try again every few seconds.
+    /// </summary>
+    private async void FollowRelayAfterFailure(CoreWebView2WebErrorStatus status)
+    {
+        var detail = $"Adresse : {_config.BaseUrl}\nDétail : {status}\n\n"
+                     + "Vérifiez que le serveur est allumé et connecté au réseau, puis réessayez.";
+        try
+        {
+            if (_navigatingToPc)
+            {
+                _navigatingToPc = false;
+                _onPc = false;
+                WebView.CoreWebView2.Navigate(_config.BaseUrl);
+                return;
+            }
+
+            if (RelaySwitch.Current is not { } pc)
+            {
+                ShowUnreachable(detail);
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            _cloudLostAtUtc ??= now;
+            var holding = await RelaySwitch.HoldingAsync(pc);
+            if (holding == true)
+            {
+                WebView.CoreWebView2.Navigate(pc.Origin + "/");
+                return;
+            }
+
+            ShowUnreachable(holding == false ? RelaySwitch.WaitingLine(_cloudLostAtUtc.Value, now) + "\n\n" + detail : detail);
+            StartRelayTimer(null);
+        }
+        catch
+        {
+            ShowUnreachable(detail);
+        }
+    }
+
+    /// <summary>One timer: on the PC, « does it still hold? »; while the cloud is unreachable, try it again.</summary>
+    private void StartRelayTimer(TimeSpan? backCheck)
+    {
+        _relayTimer?.Stop();
+        if (RelaySwitch.Current is null || (backCheck is null && _cloudLostAtUtc is null))
+        {
+            return;
+        }
+
+        _relayTimer = new System.Windows.Threading.DispatcherTimer { Interval = backCheck ?? RelayRetryInterval };
+        _relayTimer.Tick += async (_, _) =>
+        {
+            try
+            {
+                if (_onPc)
+                {
+                    if (RelaySwitch.Current is { } pc && await RelaySwitch.HoldingAsync(pc) != true)
+                    {
+                        _relayTimer?.Stop();
+                        _onPc = false;
+                        WebView.CoreWebView2.Navigate(_config.BaseUrl);
+                    }
+                }
+                else if (_cloudLostAtUtc is not null)
+                {
+                    _relayTimer?.Stop();
+                    WebView.CoreWebView2.Navigate(_config.BaseUrl);
+                }
+            }
+            catch
+            {
+                // The next tick asks again.
+            }
+        };
+        _relayTimer.Start();
+    }
+
+    /// <summary>
+    /// <c>relayPrepare()</c> (D22): trade the cloud's ticket on the PC through its certificate, write the session into this
+    /// WebView's cookie for the PC, and remember where the PC is. Only for the cloud's own page.
+    /// </summary>
+    private async void AnswerRelayPrepareAsync(string? source, string payload)
+    {
+        var separator = payload.IndexOf(':');
+        var requestId = separator > 0 ? payload[..separator] : payload;
+        if (!RelayInstaller.IsRequestId(requestId))
+        {
+            return;
+        }
+
+        var prepared = false;
+        try
+        {
+            if (VaultBridge.IsExpectedOrigin(source, _config) && separator > 0
+                && RelaySwitch.ParsePrepare(payload[(separator + 1)..]) is { } request
+                && await RelaySwitch.TradeAsync(request) is { } traded)
+            {
+                WriteRelaySession(traded.Target, traded.Session);
+                RelaySwitch.Save(traded.Target);
+                prepared = true;
+            }
+        }
+        catch
+        {
+            // False: the page tries again tomorrow.
+        }
+
+        await DeliverRelayResultAsync(requestId, prepared);
+    }
+
+    /// <summary>The PC's session cookie, as its own sign-in route writes it — one holder: the shell never refreshes it.</summary>
+    private void WriteRelaySession(RelaySwitch.Target target, RelaySwitch.Session session)
+    {
+        var cookies = WebView.CoreWebView2.CookieManager;
+        var cookie = cookies.CreateCookie(RelaySwitch.SessionCookie, session.Credential, target.Address, "/");
+        cookie.IsSecure = true;
+        cookie.IsHttpOnly = true;
+        cookie.SameSite = CoreWebView2CookieSameSiteKind.Lax;
+        if (session.ExpiresAtUtc is { } expires)
+        {
+            cookie.Expires = expires.ToLocalTime();
+        }
+
+        cookies.AddOrUpdateCookie(cookie);
+
+        if (session.MustChangePassword)
+        {
+            var mustChange = cookies.CreateCookie(RelaySwitch.MustChangeCookie, "1", target.Address, "/");
+            mustChange.IsSecure = true;
+            mustChange.IsHttpOnly = true;
+            mustChange.SameSite = CoreWebView2CookieSameSiteKind.Lax;
+            cookies.AddOrUpdateCookie(mustChange);
+        }
+        else
+        {
+            cookies.DeleteCookies(RelaySwitch.MustChangeCookie, target.Origin);
+        }
+    }
+
+    /// <summary><c>relaySwitch()</c>: the cloud says the cabinet works on the PC — move there if the PC says it holds.</summary>
+    private async void AnswerRelaySwitchAsync(string? source, string requestId)
+    {
+        if (!RelayInstaller.IsRequestId(requestId))
+        {
+            return;
+        }
+
+        var moved = false;
+        try
+        {
+            if (VaultBridge.IsExpectedOrigin(source, _config) && RelaySwitch.Current is { } pc
+                && await RelaySwitch.HoldingAsync(pc) == true)
+            {
+                WebView.CoreWebView2.Navigate(pc.Origin + "/");
+                moved = true;
+            }
+        }
+        catch
+        {
+            // False: the page asks again.
+        }
+
+        await DeliverRelayResultAsync(requestId, moved);
+    }
 
     // ---- The PC de secours (clinic-pc-copy AC-1.1–1.13) -----------------------------------------------
 

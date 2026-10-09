@@ -119,6 +119,16 @@ interface ClinicShell {
    * which cannot tell an untrusted certificate from a PC that is down. Never rejects: `null` when it cannot answer.
    */
   relayProbe?(request: { addresses: string[]; port: number; fingerprint: string }): Promise<ShellRelayProbeResult | null>
+
+  /**
+   * `clinic-pc-copy` Part 3 (Windows since 1.6): trade the cloud's ticket on the PC de secours through its pinned
+   * certificate and keep that session in the app's cookie for the PC — so after a switch nobody signs in again. Never
+   * rejects: `false` when the shell could not.
+   */
+  relayPrepare?(request: { assertion: string; addresses: string[]; port: number; fingerprint: string }): Promise<boolean>
+
+  /** Part 3: the cloud says the cabinet works on the PC — the shell asks the PC and moves there when it holds. */
+  relaySwitch?(): Promise<boolean>
 }
 
 interface Window {

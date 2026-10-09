@@ -1,6 +1,6 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-09 (session 12) · **Overall:** ~73 % · **Part 1 (La copie):** done in code (owed: the Windows
+**Date:** 2026-10-09 (session 12) · **Overall:** ~76 % · **Part 1 (La copie):** done in code (owed: the Windows
 rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~95 % — code complete (lease 1, 2, 2b, « Reprendre
 la main », device reports, D17, D16, **the return (D18) complete**, the PC's clock and Windows Update (D20b), the cut's strip on every screen (D20), the change log pruned (D27), the cut test (D26), the card's cut states) · **all scratch servers stopped**
 
@@ -9,16 +9,14 @@ la main », device reports, D17, D16, **the return (D18) complete**, the PC's cl
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–183, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–186, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next: Part 3 slice b — the shells switch and hold the prepared session.** Slice a is done (D22's server half,
-   deviations 180–183): `GET /api/relay/devices/assertion` on the cloud, `POST /api/auth/relay-session` on the PC, the
-   per-PC key minted at the heartbeat and sealed to the PC. Slice b, in the Windows shell (`desktop/`) and the Android
-   shell (`mobile/android/`): while online, get the ticket daily, trade it on the PC through the pinned certificate
-   (`RelayProbe`'s pinning), write the session into the WebView's cookie for the PC origin and never refresh it (one
-   holder); switch to the PC while it holds (a failed clinic document, or the cloud answering `clinic_on_relay` while the
-   PC answers « I hold ») and back after the return; AC-3.8's line. Then slice c — carried forms (D23). Still owed with the
+3. **Next: Part 3 slice b2 — the Android app follows the PC** (`mobile/android/`: `relayPrepare` / `relaySwitch` on
+   the bridge, the PC's origin inside the WebView with its pinned certificate in `onReceivedSslError`, the move on a
+   failed clinic document and back once the PC lets go — the Windows shell's `RelaySwitch` is the model; built and linted
+   here, never run on a phone). Then slice c — carried forms (D23). Slice a (D22 server) and b1 (Windows, shell 1.6) are
+   done, deviations 180–186; the Windows window switch itself is owed to the Windows rehearsal. Still owed with the
    owner's OK: the first GitHub run of `relay-roundtrip` and the Windows rehearsal.
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.

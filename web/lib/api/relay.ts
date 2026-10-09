@@ -210,6 +210,9 @@ export const relayApi = {
   /** AC-6.2 — asked by the Windows and Android apps only (`relay-device-watch`). 404 where no change feed exists. */
   deviceTarget: () => apiGet<RelayDeviceTargetDto>('/relay/devices/target'),
 
+  /** D22 — the signed-in person's ticket to a prepared session on the PC de secours (404 when no PC is ready). */
+  assertion: () => apiGet<RelayAssertionDto>('/relay/devices/assertion'),
+
   /** AC-6.2 — whether this device reached the PC, and its own gateways. Counted only from the cabinet's network. */
   deviceReport: (body: { reachesPc: boolean; gateways: string[] }) =>
     apiPost<RelayDeviceReportDto>('/relay/devices/report', body),
@@ -226,3 +229,13 @@ export const RELAY_RECLAIM_STEP_UP = "relay-reclaim";
 
 /** The step-up action « Effacer la copie » is confirmed with — an authenticator code, never a password. */
 export const RELAY_ERASE_STEP_UP = "relay-erase";
+
+/** D22 — what the cloud hands a cabinet app to prepare a session on the PC de secours. */
+export interface RelayAssertionDto {
+  assertion: string;
+  expiresAtUtc: string;
+  relayId: string;
+  addresses: string[];
+  port: number | null;
+  fingerprint: string | null;
+}
