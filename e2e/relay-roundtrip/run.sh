@@ -123,8 +123,11 @@ docker run -d --name $P-pg-cloud --network $P-cloudnet -e POSTGRES_USER=clinic -
 docker run -d --name $P-pg-pc --network $P-cabinet -e POSTGRES_USER=clinic -e POSTGRES_PASSWORD=clinic -e POSTGRES_DB=pc postgres:16 >/dev/null
 docker run -d --name $P-driver --network $P-cloudnet -v "$ROOT/e2e:/e2e" node:22-bookworm-slim sleep infinity >/dev/null
 docker network connect $P-cabinet $P-driver
+# ⚠️ `minio/minio` is no longer pullable from Docker Hub (2026-10: « pull access denied », every tag); this is the
+# Bitnami legacy build, pinned by digest. It runs as uid 1001, so the data dir lives under /tmp.
 docker run -d --name $P-minio --network $P-cloudnet -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-  --entrypoint sh minio/minio -c 'mkdir -p /data/clinic-files && exec minio server /data' >/dev/null
+  --entrypoint sh bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c \
+  -c 'mkdir -p /tmp/data/clinic-files && exec minio server /tmp/data' >/dev/null
 wait_for 90 "cloud Postgres" docker exec $P-pg-cloud pg_isready -U clinic -d cloud
 wait_for 90 "PC Postgres" docker exec $P-pg-pc pg_isready -U clinic -d pc
 
