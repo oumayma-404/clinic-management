@@ -105,6 +105,9 @@ public class RelayGapTests
         public List<RelayReviewItem> Listed { get; } = new();
         public HashSet<RelayRowKey> ChangedSinceRestore { get; } = new();
 
+        /// <summary>The rows the restored cloud holds, as it holds them.</summary>
+        public Dictionary<RelayRowKey, string> OnCloud { get; } = new() { [new RelayRowKey("Expense", "e2")] = "{\"Amount\":5}" };
+
         public async Task<Result<RelayHandbackResultDto>> SendAsync(RelayGapRequest request, string build = Build)
         {
             var context = new Mock<IClinicContext>();
@@ -120,7 +123,8 @@ public class RelayGapTests
                 .Callback<Guid, RelayHandbackRequest, RelayHandbackPlan, CancellationToken>((_, _, plan, _) => Plans.Add(plan))
                 .Returns(Task.CompletedTask);
             Store.Setup(s => s.CurrentRowsAsync(ClinicId, It.IsAny<IReadOnlyCollection<RelayRowKey>>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new Dictionary<RelayRowKey, string> { [new RelayRowKey("Expense", "e2")] = "{\"Amount\":5}" });
+                .ReturnsAsync((Guid _, IReadOnlyCollection<RelayRowKey> keys, CancellationToken _) =>
+                    (IReadOnlyDictionary<RelayRowKey, string>)keys.Where(OnCloud.ContainsKey).Distinct().ToDictionary(k => k, k => OnCloud[k]));
             Store.Setup(s => s.AuthorsAsync(ClinicId, It.IsAny<IReadOnlyCollection<RelayRowKey>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new Dictionary<RelayRowKey, string> { [new RelayRowKey("Expense", "e2")] = "doc@cloud.tn" });
             var reviews = new Mock<IRelayReviewItemRepository>();
@@ -136,16 +140,15 @@ public class RelayGapTests
         }
     }
 
-    // [AC-9.4] Everything the restore lost comes back from the PC — except what the cloud changed again since its
-    // restore, which keeps the cloud's version and is listed with the PC's beside it; accounts never travel (FR-11),
-    // and the fence lifts once it has landed.
+    // [AC-9.4] What the restore lost comes back from the PC — and ONLY what it lost: a row the restored cloud holds keeps
+    // the cloud's version whatever the PC has (the PC may have been behind the backup), and is listed with the PC's beside
+    // it; accounts never travel (FR-11), and the fence lifts once it has landed. Cloud work is never overwritten.
     [Fact]
-    public async Task The_Gap_Is_Applied_Except_What_The_Cloud_Changed_Since_Its_Restore()
+    public async Task The_Gap_Only_Adds_What_The_Cloud_Lacks_And_Never_Replaces_A_Row_It_Holds()
     {
         var harness = new Harness();
         harness.Relay.NoteFollowedEpoch("old", "new", 40, Now);
-        harness.ChangedSinceRestore.Add(new RelayRowKey("Expense", "e2"));
-        harness.ChangedSinceRestore.Add(new RelayRowKey("Notification", "n2"));
+        harness.OnCloud[new RelayRowKey("Notification", "n2")] = "{}";
         var gapId = Guid.NewGuid();
 
         var result = await harness.SendAsync(new RelayGapRequest(gapId, new[]

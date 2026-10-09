@@ -207,14 +207,6 @@
                 android:layout_marginTop="24dp"
                 android:minHeight="48dp"
                 android:text="@string/unreachable_retry" />
-
-            <Button
-                android:id="@+id/unreachable_change_server"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:minHeight="48dp"
-                android:text="@string/unreachable_change_server" />
         </LinearLayout>
     </ScrollView>
 

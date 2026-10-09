@@ -145,8 +145,8 @@
 ## Domain services (`Services/`)
 
 - **`ClinicWriteLease`** (`Services/ClinicWriteLease.cs`, `clinic-pc-copy` D13/D14) — who may record a cabinet's work, the cloud or its
-  PC de secours, **never both**: the cloud fences 60 s after it SENT the earliest « armé » ack the PC may hold; the PC
-  takes over 90 s after it RECEIVED its last ack, only if armed and while the box answers. A predicate, never a flag. An
+  PC de secours, **never both**: the cloud fences 45 s after it SENT the earliest « armé » ack the PC may hold; the PC
+  takes over 60 s after it RECEIVED its last ack, only if armed — box or no box (power cut). A predicate, never a flag. An
   ack's id is its send instant (`ClinicRelay.IssueAck`), and a disarm counts once the PC confirmed it. Held by a seeded
   lossy-line simulation in `ClinicWriteLeaseTests`, red-proofed against the naive « from the last heartbeat » clock.
 - **`ConditionTreatments`** (`Services/ConditionTreatments.cs`) — **what treats what**: the one place the product

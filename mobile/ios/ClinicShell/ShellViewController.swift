@@ -34,7 +34,7 @@ final class ShellViewController: UIViewController {
     private let configPanel = ConfigPanel()
     private lazy var unreachablePanel = MessagePanel(
         title: Strings.unreachableTitle,
-        buttonTitles: [Strings.unreachableRetry, Strings.unreachableChangeServer]
+        buttonTitles: [Strings.unreachableRetry]
     )
     private lazy var updatePanel = MessagePanel(
         title: Strings.updateTitle,
@@ -258,7 +258,6 @@ final class ShellViewController: UIViewController {
         configPanel.addressField.delegate = self
 
         unreachablePanel.buttons[0].addTarget(self, action: #selector(onRetry), for: .touchUpInside)
-        unreachablePanel.buttons[1].addTarget(self, action: #selector(onChangeServer), for: .touchUpInside)
 
         updatePanel.buttons[0].addTarget(self, action: #selector(onOpenStore), for: .touchUpInside)
         updatePanel.buttons[1].addTarget(self, action: #selector(onRetry), for: .touchUpInside)

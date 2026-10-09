@@ -12,7 +12,7 @@ namespace ClinicManagement.Domain.Services;
 ///   <item>the cloud stops accepting the cabinet's saves <see cref="CloudFencesAfter"/> after it <b>sent</b> the last
 ///   ack the PC has confirmed receiving;</item>
 ///   <item>the PC takes over <see cref="PcTakesOverAfter"/> after it <b>received</b> its last ack, only if that ack
-///   said « armé », and only while the cabinet's internet box answers (AC-6.6).</item>
+///   said « armé » — box or no box (a power cut darkens the box too).</item>
 /// </list>
 /// <para>An ack is received after it is sent, and a confirmed ack is never newer than the last one received, so the
 /// PC's moment is always at least 15 s after the cloud's — on any line, losing requests, answers or both. The cost is a
@@ -99,11 +99,13 @@ public static class ClinicWriteLease
     }
 
     /// <summary>
-    /// The PC may take the cabinet's saves: its last ack said « armé », that ack is <see cref="PcTakesOverAfter"/> old on
-    /// the PC's own clock, and the cabinet's internet box still answers — a PC cut off from the box never takes over.
+    /// The PC may take the cabinet's saves: its last ack said « armé » and that ack is <see cref="PcTakesOverAfter"/> old
+    /// on the PC's own clock. ⚠️ Box or no box (owner, 2026-10-09): a power cut darkens the box too, and a laptop on
+    /// battery must keep working. The cloud has fenced first either way; a cut the cabinet's devices overrule ends in
+    /// « À reprendre », never in lost work.
     /// </summary>
-    public static bool PcMayTakeOver(TimeSpan sinceLastAckReceived, bool lastAckArmed, bool boxAnswers) =>
-        lastAckArmed && boxAnswers && sinceLastAckReceived >= PcTakesOverAfter;
+    public static bool PcMayTakeOver(TimeSpan sinceLastAckReceived, bool lastAckArmed) =>
+        lastAckArmed && sinceLastAckReceived >= PcTakesOverAfter;
 
     /// <summary>
     /// How long ago the PC received its last ack, never over-counted. An ack received by this process is timed on the

@@ -177,12 +177,9 @@
                     <TextBlock x:Name="UnreachableDetail"
                                FontSize="13" Foreground="{DynamicResource ShellInkMuted}" Margin="0,12,0,0"
                                HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,28,0,0">
-                        <Button Content="Réessayer" Style="{StaticResource ShellPrimaryButton}"
-                                Padding="20,10" Margin="0,0,10,0" Click="Retry_Click"/>
-                        <Button Content="Changer de serveur" Style="{StaticResource ShellButton}"
-                                Padding="20,10" Click="ChangeServer_Click"/>
-                    </StackPanel>
+                    <!-- Retry only (owner, 2026-10-09): changing the server stays behind the right-click menu. -->
+                    <Button Content="Réessayer" Style="{StaticResource ShellPrimaryButton}"
+                            Padding="20,10" Margin="0,28,0,0" HorizontalAlignment="Center" Click="Retry_Click"/>
                 </StackPanel>
             </Grid>
         </Grid>

@@ -108,6 +108,8 @@ public static class ClinicArchiveScope
         nameof(RelayNumberPromise),
         // D18: what the return listed for the cloud's admins to look at — the deployment's bookkeeping of a cut.
         nameof(RelayReviewItem),
+        // The cloud's rows as they were before a return touched them: the deployment's safety net, not a record.
+        nameof(RelayReturnBeforeImage),
         // The Data Protection key ring, where DataProtection:PersistToDatabase puts it. Deployment-wide key
         // material and the single most dangerous thing that could travel in a cabinet's zip: the archive is
         // deliberately UNENCRYPTED and kept on a practice's laptop, and these rows decrypt every administrator's

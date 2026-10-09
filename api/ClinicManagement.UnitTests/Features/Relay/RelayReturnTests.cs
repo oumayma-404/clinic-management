@@ -209,18 +209,43 @@ public class RelayReturnTests
     private static readonly Func<string, JsonElement, IEnumerable<RelayRowKey>> NoReferences =
         (_, _) => Enumerable.Empty<RelayRowKey>();
 
-    // [EC-7] The desk moved a visit on the PC, a doctor at home moved it in the cloud 10 s before the cut: the desk's
-    // version is kept, and the pair is listed so the doctor's is not lost silently.
+    // The desk moved a visit on the PC, a doctor at home moved it in the cloud 10 s before the cut: the CLOUD's version
+    // stays (owner, 2026-10-09: cloud work is never destroyed), the desk's is listed to apply, and the PC takes the cloud's.
     [Fact]
-    public void The_Cabinets_Version_Wins_And_The_Pair_Is_Listed()
+    public void The_Clouds_Version_Is_Never_Replaced_And_The_Cabinets_Is_Listed()
     {
         var request = Request(new[] { Change("Appointment", "a1") }, new[] { new RelayRow("Appointment", "a1", Json("{\"Id\":\"a1\"}")) });
 
         var plan = RelayHandbackPlanner.Plan(request, new[] { Cloud("Appointment", "a1") }, NoReferences);
 
-        Assert.Equal("a1", Assert.Single(plan.Apply).Key);
+        Assert.Empty(plan.Apply);
+        Assert.Equal(new RelayRowKey("Appointment", "a1"), Assert.Single(plan.Kept!));
         var line = Assert.Single(plan.Review);
         Assert.Equal(RelayReviewKind.BothChanged, line.Kind);
+    }
+
+    // A deletion on the PC never removes a row the cloud changed meanwhile.
+    [Fact]
+    public void A_Deletion_On_The_Pc_Never_Removes_A_Row_The_Cloud_Changed()
+    {
+        var request = Request(new[] { Change("Appointment", "a1", deleted: true) }, new[] { new RelayRow("Appointment", "a1", null) });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Cloud("Appointment", "a1") }, NoReferences);
+
+        Assert.Empty(plan.Apply);
+        Assert.Single(plan.Kept!);
+    }
+
+    // What only the cabinet changed still comes back as before.
+    [Fact]
+    public void A_Row_Only_The_Cabinet_Changed_Is_Applied()
+    {
+        var request = Request(new[] { Change("Appointment", "a1") }, new[] { new RelayRow("Appointment", "a1", Json("{\"Id\":\"a1\"}")) });
+
+        var plan = RelayHandbackPlanner.Plan(request, Array.Empty<RelayCloudChange>(), NoReferences);
+
+        Assert.Equal("a1", Assert.Single(plan.Apply).Key);
+        Assert.Empty(plan.Kept!);
     }
 
     // [FR-11] Accounts and the subscription are never taken from the PC; a practitioner record the cloud changed during

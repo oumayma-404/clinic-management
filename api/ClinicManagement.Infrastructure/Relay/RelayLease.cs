@@ -601,8 +601,8 @@ public sealed class GatewayBoxProbe : IRelayBoxProbe
 /// <summary>
 /// The PC's takeover decision, every few seconds (<c>clinic-pc-copy</c> FR-3, D13). It takes the cabinet's saves when
 /// all of these hold: the copy is seeded and not stopped, the last ack said « armé », the cloud was asked since and did
-/// not answer, that ack is <see cref="ClinicWriteLease.PcTakesOverAfter"/> old on this PC's clock, and the cabinet's
-/// box still answers.
+/// not answer, and that ack is <see cref="ClinicWriteLease.PcTakesOverAfter"/> old on this PC's clock — box or no box
+/// (a power cut darkens the box too).
 ///
 /// <para>⚠️ « Asked and not answered » is the condition a clock alone cannot give: a PC that slept, or whose copy tick
 /// was busy, has an old ack without the cloud being gone — and the first heartbeat after it wakes would have been
@@ -692,28 +692,24 @@ public sealed class RelayLeaseKeeper
             return false;
         }
 
-        var since = _lease.SinceLastAckReceived();
-        if (since < ClinicWriteLease.PcTakesOverAfter)
-        {
-            return false;
-        }
-
+        // Asked on every tick of a cut, before the clock is old enough: a short outage must be seen to be remembered.
         var boxAnswers = await _box.AnswersAsync(cancellationToken);
         if (!boxAnswers)
         {
             _boxSilentAt = _lease.Monotonic;
         }
 
-        // ⚠️ The cloud's silence only counts if it was heard WITH the box answering. A PC that was itself off the network
-        // (Wi-Fi cut, cable out) comes back with « unanswered » left over from the outage; it must ask the cloud once more
-        // before taking over — the first prod test took the saves the instant the Wi-Fi returned, internet working.
-        if (_boxSilentAt is { } silentAt
+        // ⚠️ A PC whose own network came back BEFORE it took over carries « unanswered » left over from its outage; it
+        // must ask the cloud once more — the first prod test took the saves the instant the Wi-Fi returned, internet
+        // working. While the box is still dark there is nobody to ask, and the takeover goes ahead (a power cut).
+        if (boxAnswers && _boxSilentAt is { } silentAt
             && (_lease.SinceLastExchange is not { } sinceExchange || _lease.Monotonic - sinceExchange <= silentAt))
         {
             return false;
         }
 
-        if (!ClinicWriteLease.PcMayTakeOver(since, ack.LastAckArmed, boxAnswers))
+        var since = _lease.SinceLastAckReceived();
+        if (!ClinicWriteLease.PcMayTakeOver(since, ack.LastAckArmed))
         {
             return false;
         }

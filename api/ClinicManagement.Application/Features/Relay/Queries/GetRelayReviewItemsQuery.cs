@@ -39,10 +39,10 @@ public static class RelayReviewLabels
     public static string Kind(RelayReviewKind kind) => kind switch
     {
         RelayReviewKind.CloudOnly => "Modifié dans le cloud juste avant la coupure",
-        RelayReviewKind.BothChanged => "Modifié des deux côtés — la version du cabinet est gardée",
+        RelayReviewKind.BothChanged => "Modifié des deux côtés — la version du cloud est gardée, celle du cabinet est à reporter si elle est juste",
         RelayReviewKind.ProbableDuplicate => "Enregistré deux fois — doublon probable",
         RelayReviewKind.ToReEnter => "Enregistré sur le PC de secours, jamais arrivé dans le cloud",
-        RelayReviewKind.KeptAfterRestore => "Perdu par la restauration du cloud puis modifié dans le cloud — la version du cloud est gardée",
+        RelayReviewKind.KeptAfterRestore => "Différent sur le PC de secours après la restauration du cloud — la version du cloud est gardée",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 

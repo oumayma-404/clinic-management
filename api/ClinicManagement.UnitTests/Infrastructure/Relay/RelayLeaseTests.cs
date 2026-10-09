@@ -224,17 +224,20 @@ public sealed class RelayLeaseTests : IDisposable
         Assert.False(await Keeper(lease).TickAsync(default));
     }
 
-    // [AC-6.6] Cut off from the cabinet's box (cable out), it never takes over — the tablets may still reach the cloud.
+    // Power cut (owner, 2026-10-09): the box is dark too, and the laptop on battery still takes over.
     [Fact]
-    public async Task A_Pc_That_Cannot_Reach_The_Box_Never_Takes_Over()
+    public async Task A_Pc_That_Cannot_Reach_The_Box_Still_Takes_Over()
     {
         var lease = await ArmedThenCutAsync();
+        var keeper = Keeper(lease);
         _box.Answers = false;
 
-        Advance(600);
+        Advance(30);
+        Assert.False(await keeper.TickAsync(default));
 
-        Assert.False(await Keeper(lease).TickAsync(default));
-        Assert.Equal(1, _box.Asked);
+        Advance(30);
+        Assert.True(await keeper.TickAsync(default));
+        Assert.True(lease.IsHolding);
     }
 
     // The first prod test (2026-10-09): the PC's own Wi-Fi was cut, then came back. Its « unanswered » dated from the
@@ -246,11 +249,11 @@ public sealed class RelayLeaseTests : IDisposable
         var keeper = Keeper(lease);
 
         _box.Answers = false;
-        Advance(120);
+        Advance(30);
         Assert.False(await keeper.TickAsync(default));
 
         _box.Answers = true;
-        Advance(5);
+        Advance(40);
         Assert.False(await keeper.TickAsync(default));
         Assert.False(lease.IsHolding);
 
@@ -269,11 +272,11 @@ public sealed class RelayLeaseTests : IDisposable
         var keeper = Keeper(lease);
 
         _box.Answers = false;
-        Advance(120);
+        Advance(30);
         Assert.False(await keeper.TickAsync(default));
 
         _box.Answers = true;
-        Advance(5);
+        Advance(40);
         await lease.ExchangeAsync(_ => NoAnswer(), default);
         Advance(1);
         Assert.True(await keeper.TickAsync(default));
