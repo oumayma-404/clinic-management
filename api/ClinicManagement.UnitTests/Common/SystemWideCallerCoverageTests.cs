@@ -36,6 +36,8 @@ public class SystemWideCallerCoverageTests
         ["SignRelayPromotionConsoleCommand.cs"] = "signs a code with a key file on the vendor's machine; reads no "
                                                   + "configuration, opens no DbContext",
         ["HardenPermissionsCommand.cs"] = "sets filesystem ACLs; never opens a DbContext",
+        ["RelayDiscoveryResponder.cs"] = "answers a UDP datagram from .local/relay.json, the certificate and the "
+                                         + "network adapters; never opens a DbContext",
         ["CredentialProtectionCommand.cs"] = "encrypts a string through Data Protection; never opens a DbContext",
         ["RestoreBackupCommand.cs"] = "runs pg_restore and bumps TokenVersion over raw ADO (NpgsqlCommand) — there "
                                       + "is no DbContext and therefore no query filter to satisfy",

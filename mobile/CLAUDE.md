@@ -23,6 +23,7 @@ mobile/
 │       ├── RelayProbe.kt          AC-6.2: the PC de secours probed through its pinned certificate + this phone's gateway
 │       ├── RelaySwitch.kt         Part 3: the prepared session on the PC (D22), « does it hold? », where the PC is
 │       ├── CarriedDraftSlot.kt    D23: the open form's state, in memory, handed to the next clinic page once
+│       ├── RelayDiscovery.kt      D21: the PC found again by UDP broadcast after its address changed
 │       ├── BiometricGate.kt       the OS owner check behind confirmIdentity (AC-57…AC-60, API 28+)
 │       ├── FileChooser.kt         WebChromeClient.onShowFileChooser + the camera
 │       └── ExternalNavigation.kt  off-origin top-level navigations → Custom Tabs

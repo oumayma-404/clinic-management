@@ -27,6 +27,20 @@ public class RelayFeedWiringTests
         Assert.DoesNotContain('}', program[program.IndexOf('{', gate)..registration]);
     }
 
+    // D21: the discovery answer exists only where there is a PC to find — a cloud or a LAN server never answers it.
+    [Fact]
+    public void The_Discovery_Responder_Is_Registered_Only_On_A_Pc_De_Secours()
+    {
+        var program = Read("ClinicManagement.API", "Program.cs");
+
+        var registration = program.IndexOf("AddHostedService<ClinicManagement.API.BackgroundJobs.RelayDiscoveryResponder>", StringComparison.Ordinal);
+        Assert.True(registration > 0, "RelayDiscoveryResponder is no longer registered in Program.cs.");
+
+        var gate = program.LastIndexOf("if (profile.MirrorsCloudClinic)", registration, StringComparison.Ordinal);
+        Assert.True(gate > 0, "RelayDiscoveryResponder must be registered inside « if (profile.MirrorsCloudClinic) ».");
+        Assert.DoesNotContain('}', program[program.IndexOf('{', gate)..registration]);
+    }
+
     // The watch reads the heartbeats the cloud receives; on a PC there are none, and its bell rows come from the cloud.
     [Fact]
     public void The_Watch_Is_Registered_Only_Where_The_Change_Feed_Is_Published()

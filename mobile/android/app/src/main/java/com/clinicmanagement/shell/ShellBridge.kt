@@ -369,6 +369,7 @@ class ShellBridge(
                         try {
                           nativeBridge.relayPrepare(id, JSON.stringify({
                             assertion: request && typeof request.assertion === "string" ? request.assertion : "",
+                            relayId: request && typeof request.relayId === "string" ? request.relayId : "",
                             addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
                             port: request && typeof request.port === "number" ? request.port : 0,
                             fingerprint: request && typeof request.fingerprint === "string" ? request.fingerprint : ""

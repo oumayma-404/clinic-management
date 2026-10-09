@@ -679,6 +679,8 @@ try
     if (profile.MirrorsCloudClinic)
     {
         builder.Services.AddHostedService<ClinicManagement.API.BackgroundJobs.RelayFeedJob>();
+        // Part 3 (D21): the cabinet's apps find this PC again after the box gave it a new address.
+        builder.Services.AddHostedService<ClinicManagement.API.BackgroundJobs.RelayDiscoveryResponder>();
     }
 
     // Add CORS

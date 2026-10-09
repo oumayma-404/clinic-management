@@ -125,7 +125,14 @@ interface ClinicShell {
    * certificate and keep that session in the app's cookie for the PC — so after a switch nobody signs in again. Never
    * rejects: `false` when the shell could not.
    */
-  relayPrepare?(request: { assertion: string; addresses: string[]; port: number; fingerprint: string }): Promise<boolean>
+  relayPrepare?(request: {
+    assertion: string
+    /** D21 — which relay, so the app can find the PC again by UDP discovery after its address changed. */
+    relayId?: string
+    addresses: string[]
+    port: number
+    fingerprint: string
+  }): Promise<boolean>
 
   /** Part 3: the cloud says the cabinet works on the PC — the shell asks the PC and moves there when it holds. */
   relaySwitch?(): Promise<boolean>

@@ -27,8 +27,11 @@ namespace ClinicManagement.DesktopShell;
 /// </summary>
 public static class RelaySwitch
 {
-    /// <summary>Where the PC de secours answers: one address, its port, its certificate.</summary>
-    public sealed record Target(string Address, int Port, string Fingerprint)
+    /// <summary>
+    /// Where the PC de secours answers: one address, its port, its certificate — and which relay it is, so the app can
+    /// find it again by UDP discovery when the box gives it a new address (D21). A target saved before that has no id.
+    /// </summary>
+    public sealed record Target(string Address, int Port, string Fingerprint, Guid? RelayId = null)
     {
         public string Host => IPAddress.TryParse(Address, out var ip) && ip.AddressFamily == AddressFamily.InterNetworkV6
             ? $"[{Address}]"
@@ -37,7 +40,7 @@ public static class RelaySwitch
         public string Origin => $"https://{Host}:{Port}";
     }
 
-    public sealed record Prepare(string Assertion, RelayProbe.Request Where);
+    public sealed record Prepare(string Assertion, RelayProbe.Request Where, Guid? RelayId = null);
 
     public sealed record Session(string Credential, DateTime? ExpiresAtUtc, bool MustChangePassword);
 
@@ -64,7 +67,11 @@ public static class RelaySwitch
                 return null;
             }
 
-            return RelayProbe.Parse(json) is { } where ? new Prepare(assertion, where) : null;
+            Guid? relayId = root.TryGetProperty("relayId", out var r) && r.ValueKind == JsonValueKind.String
+                            && Guid.TryParse(r.GetString(), out var id)
+                ? id
+                : null;
+            return RelayProbe.Parse(json) is { } where ? new Prepare(assertion, where, relayId) : null;
         }
         catch (JsonException)
         {
@@ -160,7 +167,7 @@ public static class RelaySwitch
     {
         foreach (var address in request.Where.Addresses)
         {
-            var target = new Target(address.ToString(), request.Where.Port, request.Where.Fingerprint);
+            var target = new Target(address.ToString(), request.Where.Port, request.Where.Fingerprint, request.RelayId);
             try
             {
                 using var client = Client(target);

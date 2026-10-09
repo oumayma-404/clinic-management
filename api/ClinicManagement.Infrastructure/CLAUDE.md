@@ -677,6 +677,9 @@ no consent flag and no audit of which patient was sent.
   30 s while holding, records on the lease (`CutCause`, cleared at the next takeover) whether the public internet
   answers — yes means « Le cloud est injoignable » (EC-20), no « Internet coupé ». ⚠️ Timed on `RelayLease.Monotonic`,
   never the wall clock, which D20b may move. `RelayLocalStatus.CutCause` reads it only while holding.
+- **Discovery (D21)**: `Relay/RelayDiscovery.cs` — the UDP request format (`APEXA-RELAY-DISCOVER/1 <relayId>`, port
+  47950) and who is answered: the paired relay only, a private source only, silence otherwise. Both shells carry the
+  same constants. Driven by the API's `RelayDiscoveryResponder`.
 - **Prepared sessions (D22)**: `Relay/RelayAssertionKeys.cs` — `RelayAssertionKeys` (cloud: 32 random bytes per PC,
   protected on `ClinicRelay.AssertionKeyProtected`, sealed for the PC with `RelaySecretEnvelope`), `RelayAssertionKeyStore`
   (PC: `.local/relay-assertion-key`, kept by `RelayFollower` from the heartbeat ack, deleted by `pair-relay`) and

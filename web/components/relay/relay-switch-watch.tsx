@@ -84,6 +84,8 @@ async function prepareIfDue() {
     if (!ticket.port || !ticket.fingerprint || ticket.addresses.length === 0) return
     const prepared = await shell.relayPrepare({
       assertion: ticket.assertion,
+      // D21: lets the app find the PC again by discovery if the box gives it a new address.
+      relayId: ticket.relayId,
       addresses: ticket.addresses,
       port: ticket.port,
       fingerprint: ticket.fingerprint,

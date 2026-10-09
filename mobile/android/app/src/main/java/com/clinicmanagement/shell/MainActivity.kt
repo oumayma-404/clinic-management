@@ -493,7 +493,7 @@ class MainActivity : ComponentActivity() {
                 cookies.setCookie(target.origin, sessionCookie)
                 cookies.setCookie(target.origin, mustChange)
                 cookies.flush()
-                RelaySwitch.save(this, target)
+                RelaySwitch.save(this, target, session.expiresAt)
                 val moved = relayTarget?.origin != target.origin
                 relayTarget = target
                 // A new PC origin needs the bridge too (D23); the page in front is the cloud's, so this changes nothing on screen.
@@ -505,11 +505,12 @@ class MainActivity : ComponentActivity() {
 
     /** `relaySwitch`: the cloud says the cabinet works on the PC — move there if the PC says it holds. */
     private fun switchToPcIfHolding(done: (Boolean) -> Unit) {
-        val pc = relayTarget ?: return done(false)
+        val known = relayTarget ?: return done(false)
         relayWorker.execute {
-            val holding = RelaySwitch.holding(pc)
+            val (pc, holding) = askPc(known)
             runOnUiThread {
                 if (holding == true && !isDestroyed) {
+                    adoptMovedPc(known, pc)
                     loadPc(pc)
                     done(true)
                 } else {
@@ -517,6 +518,35 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * « Do you hold? », and when the PC no longer answers as itself at the address the app knew, UDP discovery (D21).
+     * Blocking — on [relayWorker]. Returns the PC as found (maybe at a new address) and its answer.
+     */
+    private fun askPc(known: RelaySwitch.Target): Pair<RelaySwitch.Target, Boolean?> {
+        val holding = RelaySwitch.holding(known)
+        if (holding != null) return known to holding
+        val moved = RelayDiscovery.find(this, known) ?: return known to null
+        return moved to RelaySwitch.holding(moved)
+    }
+
+    /** The PC moved: carry the prepared session to its new origin and keep the new address. On the UI thread. */
+    private fun adoptMovedPc(old: RelaySwitch.Target, moved: RelaySwitch.Target) {
+        if (old.origin == moved.origin || isDestroyed) return
+        val cookies = CookieManager.getInstance()
+        val credential = RelaySwitch.cookieValue(cookies.getCookie(old.origin), RelaySwitch.SESSION_COOKIE)
+        if (credential != null) {
+            val mustChange = RelaySwitch.cookieValue(cookies.getCookie(old.origin), RelaySwitch.MUST_CHANGE_COOKIE) == "1"
+            val (sessionCookie, mustChangeCookie) =
+                RelaySwitch.cookies(RelaySwitch.Session(credential, RelaySwitch.sessionExpires(this), mustChange))
+            cookies.setCookie(moved.origin, sessionCookie)
+            cookies.setCookie(moved.origin, mustChangeCookie)
+            cookies.flush()
+        }
+        RelaySwitch.save(this, moved)
+        relayTarget = moved
+        installBridgeScript()
     }
 
     private fun loadPc(pc: RelaySwitch.Target) {
@@ -553,11 +583,12 @@ class MainActivity : ComponentActivity() {
         val lostAt = cloudLostAtMs ?: now.also { cloudLostAtMs = it }
         showUnreachable(reason)
         relayWorker.execute {
-            val holding = RelaySwitch.holding(pc)
+            val (found, holding) = askPc(pc)
             runOnUiThread {
                 if (isDestroyed || state != ShellState.Unreachable) return@runOnUiThread
+                adoptMovedPc(pc, found)
                 if (holding == true) {
-                    loadPc(pc)
+                    loadPc(found)
                     return@runOnUiThread
                 }
                 if (holding == false) {

@@ -26,13 +26,16 @@ import java.util.TimeZone
  * and only behind the PC's own certificate.
  */
 object RelaySwitch {
-    /** Where the PC de secours answers: one address, its port, its certificate. */
-    data class Target(val address: String, val port: Int, val fingerprint: String) {
+    /**
+     * Where the PC de secours answers: one address, its port, its certificate — and which relay it is, so the app can
+     * find it again by UDP discovery when the box gives it a new address (D21). A target saved before that has no id.
+     */
+    data class Target(val address: String, val port: Int, val fingerprint: String, val relayId: String? = null) {
         val host: String get() = if (address.contains(':')) "[$address]" else address
         val origin: String get() = "https://$host:$port"
     }
 
-    data class Prepare(val assertion: String, val where: RelayProbe.Request)
+    data class Prepare(val assertion: String, val where: RelayProbe.Request, val relayId: String? = null)
 
     data class Session(val credential: String, val expiresAt: Date?, val mustChangePassword: Boolean)
 
@@ -43,15 +46,18 @@ object RelaySwitch {
     const val MUST_CHANGE_COOKIE = "__Host-local_must_change_password"
 
     private const val PREFERENCES = "relay_switch"
+    private val GUID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
     private const val TIMEOUT_MS = 5000
 
     // ---- the page's request ---------------------------------------------------------------------------------
 
     /** The page's `relayPrepare` payload: the cloud's ticket and where the PC is. Null on anything else. */
     fun parsePrepare(json: String?): Prepare? = try {
-        val assertion = JSONObject(json.orEmpty()).optString("assertion", "")
+        val root = JSONObject(json.orEmpty())
+        val assertion = root.optString("assertion", "")
+        val relayId = root.optString("relayId", "").takeIf { GUID.matches(it) }?.lowercase()
         if (!assertion.startsWith("ra1.") || assertion.length > 4096) null
-        else RelayProbe.parse(json)?.let { Prepare(assertion, it) }
+        else RelayProbe.parse(json)?.let { Prepare(assertion, it, relayId) }
     } catch (e: Exception) {
         null
     }
@@ -112,16 +118,29 @@ object RelaySwitch {
         val address = prefs.getString("address", null) ?: return null
         val port = prefs.getInt("port", 0)
         val fingerprint = RelayProbe.normalizeFingerprint(prefs.getString("fingerprint", null)) ?: return null
-        return if (port in 1..65535) Target(address, port, fingerprint) else null
+        return if (port in 1..65535) Target(address, port, fingerprint, prefs.getString("relayId", null)) else null
     }
 
-    fun save(context: Context, target: Target) {
+    /** Keeps where the PC is — and, when a session was just traded, when it ends (for a move after discovery, D21). */
+    fun save(context: Context, target: Target, sessionExpires: Date? = null) {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit {
             putString("address", target.address)
             putInt("port", target.port)
             putString("fingerprint", target.fingerprint)
+            if (target.relayId != null) putString("relayId", target.relayId) else remove("relayId")
+            if (sessionExpires != null) putLong("sessionExpires", sessionExpires.time)
         }
     }
+
+    /** When the prepared session ends, as traded — null when unknown. */
+    fun sessionExpires(context: Context): Date? =
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getLong("sessionExpires", 0L)
+            .takeIf { it > 0 }?.let { Date(it) }
+
+    /** The value of [name] in a `CookieManager.getCookie` string (`a=1; b=2`), or null. */
+    fun cookieValue(cookies: String?, name: String): String? =
+        cookies.orEmpty().split(';').map { it.trim() }
+            .firstOrNull { it.startsWith("$name=") }?.substringAfter('=')?.takeIf { it.isNotEmpty() }
 
     /** True when [uri] is the PC de secours's own origin — host and port, like the server's. */
     fun isPcOrigin(uri: Uri?, target: Target?): Boolean {
@@ -149,7 +168,7 @@ object RelaySwitch {
     /** Trades the ticket on the first address that answers with the PC's certificate. Blocking; never throws. */
     fun trade(request: Prepare): Pair<Target, Session>? {
         for (address in request.where.addresses) {
-            val target = Target(literal(address), request.where.port, request.where.fingerprint)
+            val target = Target(literal(address), request.where.port, request.where.fingerprint, request.relayId)
             val session = runCatching {
                 val connection = RelayProbe.pinnedConnection("${target.origin}/api/auth/relay-session", target.fingerprint, TIMEOUT_MS)
                 try {

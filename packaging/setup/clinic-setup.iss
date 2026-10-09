@@ -61,6 +61,8 @@
 ; and the API's TrustPortGate.DefaultPort -- the page prints and QR-encodes its own address, so a mismatch
 ; advertises a port nothing listens on.
 #define TrustPort      "5080"
+; clinic-pc-copy D21: the PC de secours answers the cabinet's apps on this UDP port (RelayDiscovery.DefaultPort).
+#define RelayDiscoveryPort "47950"
 #define DbPort         "5432"
 #define DbName         "clinic_management"
 #define DbUser         "clinic_user"
@@ -146,6 +148,8 @@ Filename: "{app}\postgres\bin\pg_ctl.exe"; Parameters: "unregister -N ""{#Servic
 ; Remove the LAN firewall holes opened by OpenFirewall — otherwise they persist after uninstall (Finding 4).
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management HTTPS"""; Flags: runhidden; RunOnceId: "DelFwRule"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management Trust"""; Flags: runhidden; RunOnceId: "DelFwRuleTrust"
+; The PC de secours's discovery port (relay role only; deleting an absent rule is harmless).
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Clinic Management Relay Discovery"""; Flags: runhidden; RunOnceId: "DelFwRuleRelay"
 ; The clinic's certificate authority, imported by whichever role installed it. Matched on the CA's SUBJECT,
 ; which CertificateProvisioner freezes at this exact string -- renaming it there orphans every installed CA.
 ; ⚠️ No Check: the entries above have none either, and deliberately: all of them are best-effort removals of
@@ -851,6 +855,14 @@ begin
   Exec(ExpandConstant('{sys}\netsh.exe'),
     'advfirewall firewall add rule name="Clinic Management Trust" dir=in action=allow protocol=TCP localport={#TrustPort}',
     '', SW_HIDE, ewWaitUntilTerminated, Rc);
+
+  // clinic-pc-copy D21: on the PC de secours only, the cabinet's apps find it again after the box gave it a new
+  // address (a UDP « who is the PC de secours of relay X? »). The answer carries nothing the cloud does not already
+  // give every device, and the apps accept it only through the certificate they already hold. Removed on uninstall.
+  if IsRelayRole then
+    Exec(ExpandConstant('{sys}\netsh.exe'),
+      'advfirewall firewall add rule name="Clinic Management Relay Discovery" dir=in action=allow protocol=UDP localport={#RelayDiscoveryPort}',
+      '', SW_HIDE, ewWaitUntilTerminated, Rc);
 end;
 
 { Provision the HTTPS cert at INSTALL time, start web then API, then export the CA for clients. }

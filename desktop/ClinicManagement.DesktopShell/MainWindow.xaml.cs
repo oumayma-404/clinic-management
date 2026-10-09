@@ -632,6 +632,11 @@ public partial class MainWindow : Window
             var now = DateTime.UtcNow;
             _cloudLostAtUtc ??= now;
             var holding = await RelaySwitch.HoldingAsync(pc);
+            if (holding is null && await FindMovedPcAsync(pc) is { } moved)
+            {
+                pc = moved;
+                holding = await RelaySwitch.HoldingAsync(pc);
+            }
             if (holding == true)
             {
                 WebView.CoreWebView2.Navigate(pc.Origin + "/");
@@ -717,6 +722,50 @@ public partial class MainWindow : Window
         await DeliverRelayResultAsync(requestId, prepared);
     }
 
+    /// <summary>
+    /// D21: the PC no longer answers at the address the app knew — look for it on the cabinet's network. When found
+    /// (through its pinned certificate), the prepared session is moved to the new address and the new address kept.
+    /// </summary>
+    private async System.Threading.Tasks.Task<RelaySwitch.Target?> FindMovedPcAsync(RelaySwitch.Target pc)
+    {
+        var moved = await RelayDiscovery.FindAsync(pc);
+        if (moved is null || moved.Address == pc.Address)
+        {
+            return null;
+        }
+
+        try
+        {
+            var cookies = WebView.CoreWebView2.CookieManager;
+            foreach (var old in await cookies.GetCookiesAsync(pc.Origin))
+            {
+                if (old.Name is not (RelaySwitch.SessionCookie or RelaySwitch.MustChangeCookie))
+                {
+                    continue;
+                }
+
+                var copy = cookies.CreateCookie(old.Name, old.Value, moved.Address, "/");
+                copy.IsSecure = true;
+                copy.IsHttpOnly = true;
+                copy.SameSite = CoreWebView2CookieSameSiteKind.Lax;
+                if (!old.IsSession)
+                {
+                    copy.Expires = old.Expires;
+                }
+
+                cookies.AddOrUpdateCookie(copy);
+                cookies.DeleteCookie(old);
+            }
+        }
+        catch
+        {
+            // The move still happens; the PC then asks for a sign-in instead of opening on the prepared session.
+        }
+
+        RelaySwitch.Save(moved);
+        return moved;
+    }
+
     /// <summary>The PC's session cookie, as its own sign-in route writes it — one holder: the shell never refreshes it.</summary>
     private void WriteRelaySession(RelaySwitch.Target target, RelaySwitch.Session session)
     {
@@ -757,8 +806,13 @@ public partial class MainWindow : Window
         var moved = false;
         try
         {
-            if (VaultBridge.IsExpectedOrigin(source, _config) && RelaySwitch.Current is { } pc
-                && await RelaySwitch.HoldingAsync(pc) == true)
+            var pc = VaultBridge.IsExpectedOrigin(source, _config) ? RelaySwitch.Current : null;
+            if (pc is not null && await RelaySwitch.HoldingAsync(pc) is null && await FindMovedPcAsync(pc) is { } found)
+            {
+                pc = found;
+            }
+
+            if (pc is not null && await RelaySwitch.HoldingAsync(pc) == true)
             {
                 WebView.CoreWebView2.Navigate(pc.Origin + "/");
                 moved = true;

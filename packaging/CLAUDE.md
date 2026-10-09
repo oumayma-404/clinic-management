@@ -36,3 +36,7 @@ Build recipe + **one** Inno Setup installer that turns the app into a self-conta
 - **`provision-cert` / `reset-admin-password`** are API console commands (`api/ClinicManagement.API/Maintenance/`), invoked by the server installer / operator respectively.
 
 > When packaging code changes, keep this map and `README.md` in sync. (Known README drift as of this writing: it doesn't mention `fetch-build-tools.ps1` and its output tree omits `build-output/client/webview2/`.)
+
+> ⚠️ **`clinic-pc-copy` D21** — the relay role (`/RELAY`) also opens **UDP 47950** (« Clinic Management Relay Discovery »)
+> so the cabinet's apps can find the PC de secours after the box gave it a new address; `[UninstallRun]` deletes the
+> rule by that frozen name. A server install opens nothing new.
