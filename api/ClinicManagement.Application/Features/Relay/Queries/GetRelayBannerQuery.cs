@@ -59,6 +59,9 @@ public static class RelayBanners
     public const string CloudSilent = "cloud-silent";
     public const string CloudRestoring = "cloud-restoring";
 
+    /// <summary>A heartbeat this recent from a holding PC means its internet is back (it beats every ~10 s).</summary>
+    public static readonly TimeSpan PcBackWithin = TimeSpan.FromSeconds(45);
+
     /// <summary>AC-3.4 / EC-20: the PC says which — the cabinet's internet, or the cloud — and that nothing is lost.</summary>
     public static RelayBannerDto OnThePc(bool handingBack, string? cutCause) =>
         handingBack
@@ -77,7 +80,10 @@ public static class RelayBanners
             return null;
         }
 
-        if (relay.IsReturning)
+        // The PC holds and its heartbeats reach the cloud again: the internet is back and the return is seconds away.
+        if (relay.IsReturning
+            || (relay.PcHoldingSinceUtc is { } holding && relay.LastSeenAtUtc is { } seen
+                && seen > holding && nowUtc - seen <= PcBackWithin))
         {
             return new(CloudReturning, "Retour au cloud en cours", "un enregistrement refusé maintenant passera dans quelques secondes.", false);
         }

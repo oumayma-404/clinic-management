@@ -94,6 +94,20 @@ public class RelayBannerTests
         Assert.True(banner.Warning);
     }
 
+    // Prod, 2026-10-10: the internet was back and the cloud still said « lecture seule » until the return landed.
+    [Fact]
+    public void A_Holding_Pc_That_Beats_Again_Reads_As_Returning()
+    {
+        var relay = ArmedThenSilent();
+        relay.RecordHeartbeat(Beat(holding: true, since: T0.AddMinutes(2), underAck: relay.LastAckSeq), 10, T0.AddMinutes(3));
+
+        var banner = RelayBanners.OnTheCloud(relay, T0.AddMinutes(3).AddSeconds(20));
+
+        Assert.NotNull(banner);
+        Assert.Equal(RelayBanners.CloudReturning, banner!.Kind);
+        Assert.False(banner.Warning);
+    }
+
     [Fact]
     public void A_Silent_Pc_Is_Named_With_The_Lock_And_The_Way_Back()
     {
