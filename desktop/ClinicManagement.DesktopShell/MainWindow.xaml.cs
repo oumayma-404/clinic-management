@@ -728,7 +728,12 @@ public partial class MainWindow : Window
     /// </summary>
     private async System.Threading.Tasks.Task<RelaySwitch.Target?> FindMovedPcAsync(RelaySwitch.Target pc)
     {
-        var moved = await RelayDiscovery.FindAsync(pc);
+        // On the PC de secours itself, with no network at all (a power cut, Wi-Fi off), its own copy answers on
+        // 127.0.0.1 — recognised by its certificate, like any other address. Elsewhere this simply fails.
+        var local = pc with { Address = "127.0.0.1" };
+        var moved = pc.Address != local.Address && await RelaySwitch.HoldingAsync(local) is not null
+            ? local
+            : await RelayDiscovery.FindAsync(pc);
         if (moved is null || moved.Address == pc.Address)
         {
             return null;

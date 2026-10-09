@@ -121,7 +121,7 @@ public class ClinicWriteLeaseTests
             }
 
             if (pcHoldsSince is null && pcUnanswered && pcAckReceivedAt is { } received
-                && ClinicWriteLease.PcMayTakeOver(t - received, pcAckArmed, boxAnswers: true))
+                && ClinicWriteLease.PcMayTakeOver(t - received, pcAckArmed))
             {
                 pcHoldsSince = t;
             }
@@ -330,14 +330,12 @@ public class ClinicWriteLeaseTests
     // ---- the PC's rule and the arming rule ------------------------------------------------------------------------
 
     [Theory]
-    [InlineData(60, true, true, true)]
-    [InlineData(59.9, true, true, false)]
-    [InlineData(600, false, true, false)]   // AC-3.8: its last ack did not arm it
-    [InlineData(600, true, false, false)]   // AC-6.6: cut off from the box, it never takes over
-    public void The_Pc_Takes_Over_Only_Armed_On_Time_And_Still_Reaching_The_Box(
-        double seconds, bool armed, bool box, bool expected)
+    [InlineData(60, true, true)]
+    [InlineData(59.9, true, false)]
+    [InlineData(600, false, false)]   // AC-3.8: its last ack did not arm it
+    public void The_Pc_Takes_Over_Only_Armed_And_On_Time(double seconds, bool armed, bool expected)
     {
-        Assert.Equal(expected, ClinicWriteLease.PcMayTakeOver(TimeSpan.FromSeconds(seconds), armed, box));
+        Assert.Equal(expected, ClinicWriteLease.PcMayTakeOver(TimeSpan.FromSeconds(seconds), armed));
     }
 
     private static ClinicRelay ReadyRelay(DateTime now)
