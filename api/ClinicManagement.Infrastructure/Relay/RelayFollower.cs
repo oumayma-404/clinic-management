@@ -541,6 +541,9 @@ public sealed class RelayFollower
         }
     }
 
+    /// <summary>Files fetched at once during the copy.</summary>
+    public const int FileConnections = 4;
+
     private async Task<RelayFollowerState> CopyFilesAsync(
         RelayFollowerState state, RelayLocalSide local, CancellationToken cancellationToken)
     {
@@ -556,37 +559,69 @@ public sealed class RelayFollower
 
         var now = _utcNow();
         var copied = 0;
-        foreach (var key in missing.Where(k => !_fileRetryAfter.TryGetValue(k, out var after) || after <= now).Take(MaxFilesPerTick))
+        var gate = new object();
+        (RelayCallStatus Status, string? Error)? failure = null;
+        var due = missing.Where(k => !_fileRetryAfter.TryGetValue(k, out var after) || after <= now).Take(MaxFilesPerTick).ToList();
+
+        // Several files at once: one connection from the cloud to a cabinet ran at ~100 KB/s (London to Tunis) while
+        // the line did ten times that. The first failed call stops the others, as the one-at-a-time loop did.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        try
         {
-            var call = await _cloud.BlobAsync(key, cancellationToken);
-            if (call.Status is RelayCallStatus.NotFound or RelayCallStatus.Refused)
-            {
-                // The cloud cannot serve this one (gone, or its object store refused): asked again later, and not
-                // counted against the first copy, which would otherwise read « en cours » for ever over one file.
-                _logger.LogWarning("The cloud could not serve stored object {StorageKey}: {Reason}", key, call.Error);
-                _fileRetryAfter[key] = now + MissingFileRetry;
-                continue;
-            }
+            await Parallel.ForEachAsync(due, new ParallelOptions { MaxDegreeOfParallelism = FileConnections, CancellationToken = stop.Token },
+                async (key, token) =>
+                {
+                    var call = await _cloud.BlobAsync(key, token);
+                    if (call.Status is RelayCallStatus.NotFound or RelayCallStatus.Refused)
+                    {
+                        // The cloud cannot serve this one (gone, or its object store refused): asked again later, and not
+                        // counted against the first copy, which would otherwise read « en cours » for ever over one file.
+                        _logger.LogWarning("The cloud could not serve stored object {StorageKey}: {Reason}", key, call.Error);
+                        lock (gate)
+                        {
+                            _fileRetryAfter[key] = now + MissingFileRetry;
+                        }
 
-            if (!call.IsOk)
-            {
-                state = AfterFailedCall(state, call.Status, call.Error);
-                break;
-            }
+                        return;
+                    }
 
-            try
-            {
-                // Downloaded whole to a temporary file first, so the key never holds a half-received file that
-                // ExistsAsync would then report as copied (AC-1.9: an interrupted copy resumes).
-                await using var file = new FileStream(call.Value!, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-                await local.Files.RestoreAtKeyAsync(file, "application/octet-stream", key, cancellationToken);
-                copied++;
-                _fileRetryAfter.Remove(key);
-            }
-            finally
-            {
-                TryDelete(call.Value!);
-            }
+                    if (!call.IsOk)
+                    {
+                        lock (gate)
+                        {
+                            failure ??= (call.Status, call.Error);
+                        }
+
+                        stop.Cancel();
+                        return;
+                    }
+
+                    try
+                    {
+                        // Downloaded whole to a temporary file first, so the key never holds a half-received file that
+                        // ExistsAsync would then report as copied (AC-1.9: an interrupted copy resumes).
+                        await using var file = new FileStream(call.Value!, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+                        await local.Files.RestoreAtKeyAsync(file, "application/octet-stream", key, cancellationToken);
+                        lock (gate)
+                        {
+                            copied++;
+                            _fileRetryAfter.Remove(key);
+                        }
+                    }
+                    finally
+                    {
+                        TryDelete(call.Value!);
+                    }
+                });
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A failed call stopped the others; reported below.
+        }
+
+        if (failure is { } failed)
+        {
+            state = AfterFailedCall(state, failed.Status, failed.Error);
         }
 
         var unavailable = missing.Count(k => _fileRetryAfter.TryGetValue(k, out var after) && after > now);

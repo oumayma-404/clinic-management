@@ -43,7 +43,7 @@ public sealed class RelayFollowerTests : IDisposable
         _files.Setup(f => f.ExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string key, CancellationToken _) => _onDisk.Contains(key));
         _files.Setup(f => f.RestoreAtKeyAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<Stream, string, string, CancellationToken>((_, _, key, _) => { _onDisk.Add(key); _restored.Add(key); })
+            .Callback<Stream, string, string, CancellationToken>((_, _, key, _) => { lock (_restored) { _onDisk.Add(key); _restored.Add(key); } })
             .Returns(Task.CompletedTask);
     }
 
@@ -1486,7 +1486,10 @@ public sealed class RelayFollowerTests : IDisposable
 
         public Task<RelayCall<string>> BlobAsync(string storageKey, CancellationToken cancellationToken)
         {
-            BlobsAsked.Add(storageKey);
+            lock (BlobsAsked)
+            {
+                BlobsAsked.Add(storageKey);
+            }
             if (UnservableBlobs.Contains(storageKey))
             {
                 return Task.FromResult(new RelayCall<string>(RelayCallStatus.NotFound, null, "Fichier introuvable."));

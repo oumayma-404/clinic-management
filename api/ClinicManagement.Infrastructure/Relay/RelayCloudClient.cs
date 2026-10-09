@@ -88,6 +88,9 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     private readonly string _build;
     private readonly Func<DateTime> _utcNow;
     private string? _token;
+
+    // Files are fetched several at a time now: one refresh at once, the others reuse its token.
+    private readonly SemaphoreSlim _refresh = new(1, 1);
     private DateTime _tokenExpiresAtUtc;
 
     public RelayCloudClient(HttpClient http, RelayCredentials credentials, string build, Func<DateTime>? utcNow = null)
@@ -300,6 +303,27 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
         {
             return new RelayCall<string>(RelayCallStatus.Ok, _token);
         }
+
+        var stale = _token;
+        await _refresh.WaitAsync(cancellationToken);
+        try
+        {
+            // Another caller refreshed while this one waited.
+            if (_token is not null && !ReferenceEquals(_token, stale) && _utcNow() < _tokenExpiresAtUtc - TimeSpan.FromMinutes(1))
+            {
+                return new RelayCall<string>(RelayCallStatus.Ok, _token);
+            }
+
+            return await RefreshTokenAsync(cancellationToken);
+        }
+        finally
+        {
+            _refresh.Release();
+        }
+    }
+
+    private async Task<RelayCall<string>> RefreshTokenAsync(CancellationToken cancellationToken)
+    {
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "relay/token")
         {

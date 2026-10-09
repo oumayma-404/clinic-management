@@ -249,7 +249,7 @@ public sealed class RelayInstallerDownloaderTests : IDisposable
         Assert.Equal(RelayInstallerFetchStatus.Interrupted, (await FetchInPiecesAsync()).Status);
         Assert.True(File.Exists(Part + ".pieces"));
 
-        _handler.Requests.Clear();
+        _handler.Clear();
         _handler.Respond = r => ServeBig(r);
         var fetch = await FetchInPiecesAsync();
 
@@ -263,11 +263,16 @@ public sealed class RelayInstallerDownloaderTests : IDisposable
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => new HttpResponseMessage(HttpStatusCode.NotFound);
 
-        public List<HttpRequestMessage> Requests { get; } = new();
+        // Pieces arrive from several connections at once.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<HttpRequestMessage> _requests = new();
+
+        public List<HttpRequestMessage> Requests => _requests.ToList();
+
+        public void Clear() => _requests.Clear();
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Requests.Add(request);
+            _requests.Enqueue(request);
             return Task.FromResult(Respond(request));
         }
     }
