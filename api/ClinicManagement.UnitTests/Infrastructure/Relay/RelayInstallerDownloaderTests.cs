@@ -199,6 +199,65 @@ public sealed class RelayInstallerDownloaderTests : IDisposable
         }
     }
 
+    // ---- in pieces: one connection from the cloud to a cabinet ran at ~100 KB/s, several fill the line -------------
+
+    private static readonly byte[] Big = Enumerable.Range(0, 100).Select(i => (byte)i).ToArray();
+
+    private HttpResponseMessage ServeBig(HttpRequestMessage request, Func<int, bool>? fail = null)
+    {
+        if (request.Headers.Range?.Ranges.Single() is not { } range)
+        {
+            var whole = Served(HttpStatusCode.OK, Big);
+            whole.Headers.AcceptRanges.Add("bytes");
+            return whole;
+        }
+
+        var from = (int)range.From!.Value;
+        var to = (int)range.To!.Value;
+        if (fail?.Invoke(from) == true)
+        {
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        }
+
+        var piece = Served(HttpStatusCode.PartialContent, Big[from..(to + 1)]);
+        piece.Content.Headers.ContentRange = new System.Net.Http.Headers.ContentRangeHeaderValue(from, to, Big.Length);
+        return piece;
+    }
+
+    private Task<RelayInstallerFetch> FetchInPiecesAsync() =>
+        new RelayInstallerDownloader(new HttpClient(_handler), new Uri("https://cloud.example.tn/api/"), parallelAbove: 50, pieceBytes: 16)
+            .FetchAsync(Part, Build, CancellationToken.None);
+
+    [Fact]
+    public async Task A_Big_Installer_Comes_In_Pieces_And_Is_Whole()
+    {
+        _handler.Respond = r => ServeBig(r);
+
+        var fetch = await FetchInPiecesAsync();
+
+        Assert.Equal(RelayInstallerFetchStatus.Complete, fetch.Status);
+        Assert.Equal(Big, await File.ReadAllBytesAsync(Part));
+        Assert.Equal(1 + 7, _handler.Requests.Count); // the first answer, then 7 pieces of 16 bytes
+        Assert.False(File.Exists(Part + ".pieces"));
+    }
+
+    // A cut keeps the pieces already on disk: the next attempt asks only for the missing ones.
+    [Fact]
+    public async Task A_Cut_Download_In_Pieces_Resumes_From_The_Pieces_It_Has()
+    {
+        _handler.Respond = r => ServeBig(r, fail: from => from >= 64);
+        Assert.Equal(RelayInstallerFetchStatus.Interrupted, (await FetchInPiecesAsync()).Status);
+        Assert.True(File.Exists(Part + ".pieces"));
+
+        _handler.Requests.Clear();
+        _handler.Respond = r => ServeBig(r);
+        var fetch = await FetchInPiecesAsync();
+
+        Assert.Equal(RelayInstallerFetchStatus.Complete, fetch.Status);
+        Assert.Equal(Big, await File.ReadAllBytesAsync(Part));
+        Assert.All(_handler.Requests, r => Assert.True(r.Headers.Range!.Ranges.Single().From >= 64));
+    }
+
     private sealed class FakeHandler : HttpMessageHandler
     {
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
