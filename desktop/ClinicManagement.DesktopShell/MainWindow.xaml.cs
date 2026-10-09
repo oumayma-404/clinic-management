@@ -643,7 +643,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            ShowUnreachable(holding == false ? RelaySwitch.WaitingLine(_cloudLostAtUtc.Value, now) + "\n\n" + detail : detail);
+            var waiting = RelaySwitch.LastArmed == false
+                ? RelaySwitch.NotReadyLine
+                : RelaySwitch.WaitingLine(_cloudLostAtUtc.Value, now);
+            ShowUnreachable(holding == false ? waiting + "\n\n" + detail : detail);
             StartRelayTimer(null);
         }
         catch

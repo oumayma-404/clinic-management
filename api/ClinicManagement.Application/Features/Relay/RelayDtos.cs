@@ -128,7 +128,8 @@ public sealed record RelayHeartbeatAck(
 public sealed record RelayLocalStatusDto(bool Retired, DateTime? RetiredAtUtc, string Sentence);
 
 /// <summary>Part 3: this PC holds the cabinet's saves (handing them back included) — the apps switch here while true.</summary>
-public sealed record RelayHoldingDto(bool Holding, bool HandingBack);
+/// <summary><see cref="Armed"/>: would take over in a cut — the apps say « pas prêt » at once when false.</summary>
+public sealed record RelayHoldingDto(bool Holding, bool HandingBack, bool? Armed = null);
 
 public sealed record RelayStatusDto(
     bool Exists,

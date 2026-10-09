@@ -25,4 +25,7 @@ public interface IRelayLocalStatus
 
     /// <summary>D20: why this PC holds — <c>internet</c> or <c>cloud</c> (EC-20) — null when unknown or not holding.</summary>
     string? CutCause => null;
+
+    /// <summary>Its last answer from the cloud said « armé »: a cut now would make it take over. Null when unknown.</summary>
+    bool? IsArmed => null;
 }

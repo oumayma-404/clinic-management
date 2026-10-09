@@ -58,7 +58,7 @@ public class RelayLocalController : ApiControllerBase
             return NotFound();
         }
 
-        return Ok(new RelayHoldingDto(_status.IsHolding || _status.IsHandingBack, _status.IsHandingBack));
+        return Ok(new RelayHoldingDto(_status.IsHolding || _status.IsHandingBack, _status.IsHandingBack, _status.IsArmed));
     }
 
     [HttpGet]

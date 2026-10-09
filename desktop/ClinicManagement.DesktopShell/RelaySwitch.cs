@@ -201,6 +201,12 @@ public static class RelaySwitch
         return null;
     }
 
+    /// <summary>The PC's own word, at its last answer, on whether a cut makes it take over. Null: an older PC, or unknown.</summary>
+    public static bool? LastArmed { get; private set; }
+
+    /// <summary>Said at once when the PC answers « not armed » — no countdown towards a takeover that cannot come.</summary>
+    public const string NotReadyLine = "Le PC de secours n'est pas encore prêt : il ne peut pas prendre le relais.";
+
     /// <summary>Whether the PC holds the cabinet's saves: true / false, or null when it cannot be reached as itself.</summary>
     public static async Task<bool?> HoldingAsync(Target target)
     {
@@ -214,6 +220,9 @@ public static class RelaySwitch
             }
 
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            LastArmed = document.RootElement.TryGetProperty("armed", out var armed) && armed.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? armed.ValueKind == JsonValueKind.True
+                : null;
             return document.RootElement.TryGetProperty("holding", out var holding) && holding.ValueKind == JsonValueKind.True;
         }
         catch

@@ -42,6 +42,8 @@ public sealed class RelayLocalStatus : IRelayLocalStatus
 
     public bool IsHandingBack => _isRelay && _lease?.IsHandingBack == true;
 
+    public bool? IsArmed => _isRelay && _lease is not null ? _lease.Current.LastAckArmed : null;
+
     public string? CutCause => _isRelay && _lease?.IsHolding == true ? _lease.Current.CutCause : null;
 
     private RelayFollowerState? Current()
