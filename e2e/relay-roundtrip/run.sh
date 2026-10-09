@@ -186,7 +186,8 @@ CUT=$CUT PROBE="$OUT/probe.json" node -e '
   if (!fenced) fail("the cloud never refused a save during the cut")
   const lastCloud = cloudOk.length ? Math.max(...cloudOk) : 0, firstPc = Math.min(...pcOk)
   if (lastCloud >= firstPc) fail(`the cloud accepted a save at +${(lastCloud - cut) / 1000}s, after the PC took the first at +${(firstPc - cut) / 1000}s`)
-  if (fenced.t - cut < 40000) fail(`the cloud fenced only ${(fenced.t - cut) / 1000}s after the cut`)
+  // The cloud fences 45 s after the last ack the PC confirmed, which can be ~20 s older than the cut itself.
+  if (fenced.t - cut < 20000) fail(`the cloud fenced only ${(fenced.t - cut) / 1000}s after the cut`)
   const late = s.filter((x) => x.side === "cloud" && x.t > fenced.t && ok(x))
   if (late.length) fail(`the cloud accepted ${late.length} save(s) after it had fenced`)
   console.log(`  ✓ never both writable: cloud last accepted +${lastCloud ? (lastCloud - cut) / 1000 : "—"}s, fenced +${(fenced.t - cut) / 1000}s (${fenced.code}), PC first accepted +${(firstPc - cut) / 1000}s`)
