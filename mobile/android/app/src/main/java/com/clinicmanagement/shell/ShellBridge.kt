@@ -38,6 +38,10 @@ class ShellBridge(
     private val webView: WebView,
     /** The configured server's own page — the only one `relayProbe` answers (it reveals this phone's network). */
     private val isOwnPage: (Uri) -> Boolean = { false },
+    /** Part 3: trade a prepared session on the PC de secours and keep it (the activity owns the cookie and the target). */
+    private val onRelayPrepare: (RelaySwitch.Prepare, (Boolean) -> Unit) -> Unit = { _, done -> done(false) },
+    /** Part 3: the cloud says the cabinet works on the PC — move there if the PC holds. */
+    private val onRelaySwitch: ((Boolean) -> Unit) -> Unit = { done -> done(false) },
 ) {
 
     /**
@@ -126,6 +130,45 @@ class ShellBridge(
                 val answer = runCatching { RelayProbe.run(activity, request) }.getOrNull()
                 activity.runOnUiThread { deliverRelayResult(id, answer) }
             }.start()
+        }
+    }
+
+    /** `relayPrepare` (Part 3, since 1.3.0): only for the configured server's own page; answers `true` / `false`. */
+    @JavascriptInterface
+    fun relayPrepare(requestId: String?, requestJson: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        val request = RelaySwitch.parsePrepare(requestJson)
+        activity.runOnUiThread {
+            if (request == null || !onOwnPage()) {
+                deliverRelayValue(id, "false")
+                return@runOnUiThread
+            }
+            onRelayPrepare(request) { prepared -> deliverRelayValue(id, prepared.toString()) }
+        }
+    }
+
+    /** `relaySwitch` (Part 3, since 1.3.0): only for the configured server's own page; answers whether the app moved. */
+    @JavascriptInterface
+    fun relaySwitch(requestId: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        activity.runOnUiThread {
+            if (!onOwnPage()) {
+                deliverRelayValue(id, "false")
+                return@runOnUiThread
+            }
+            onRelaySwitch { moved -> deliverRelayValue(id, moved.toString()) }
+        }
+    }
+
+    private fun onOwnPage(): Boolean =
+        webView.url?.let { runCatching { it.toUri() }.getOrNull() }?.let(isOwnPage) ?: false
+
+    private fun deliverRelayValue(requestId: String, value: String) {
+        activity.runOnUiThread {
+            val call = "window.$DELIVER_RELAY_RESULT && window.$DELIVER_RELAY_RESULT(${JSONObject.quote(requestId)}, $value);"
+            webView.evaluateJavascript(call, null)
         }
     }
 
@@ -284,6 +327,49 @@ class ShellBridge(
                           }));
                         } catch (e) {
                           settle(null);
+                        }
+                      });
+                    },
+                    relayPrepare: function (request) {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(value === true);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(false); }, 30000);
+                        try {
+                          nativeBridge.relayPrepare(id, JSON.stringify({
+                            assertion: request && typeof request.assertion === "string" ? request.assertion : "",
+                            addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                            port: request && typeof request.port === "number" ? request.port : 0,
+                            fingerprint: request && typeof request.fingerprint === "string" ? request.fingerprint : ""
+                          }));
+                        } catch (e) {
+                          settle(false);
+                        }
+                      });
+                    },
+                    relaySwitch: function () {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(value === true);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(false); }, 15000);
+                        try {
+                          nativeBridge.relaySwitch(id);
+                        } catch (e) {
+                          settle(false);
                         }
                       });
                     }

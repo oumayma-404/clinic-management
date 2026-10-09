@@ -110,42 +110,50 @@ object RelayProbe {
      * Any HTTP answer over a TLS session with the PC's own certificate is the PC alive — an error status included,
      * since « its server answers » is the fact that matters. A refused, timed-out or foreign-certificate attempt is not.
      */
-    // A pin, not a trust-all: it accepts exactly one certificate (the PC's own SHA-256) for this one probe, and the
-    // WebView's own TLS never sees it. The PC's certificate is self-issued, so no system validation could apply.
-    @SuppressLint("CustomX509TrustManager", "BadHostnameVerifier")
     private fun reaches(address: InetAddress, port: Int, fingerprint: String): Boolean {
         var connection: HttpsURLConnection? = null
         return try {
-            val pin = object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) =
-                    throw java.security.cert.CertificateException("client certificates are not used")
-
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                    val leaf = chain?.firstOrNull() ?: throw java.security.cert.CertificateException("no certificate")
-                    if (sha256Hex(leaf.encoded) != fingerprint) {
-                        throw java.security.cert.CertificateException("not the PC de secours")
-                    }
-                }
-
-                override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            }
-            val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(pin), null) }
             val host = if (address is Inet6Address) "[${address.hostAddress}]" else address.hostAddress
-            connection = (URL("https://$host:$port/health").openConnection() as HttpsURLConnection).apply {
-                sslSocketFactory = tls.socketFactory
-                // The certificate is pinned above; its name is whatever the PC's server minted for itself.
-                hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
-                connectTimeout = TIMEOUT_MS
-                readTimeout = TIMEOUT_MS
-                instanceFollowRedirects = false
-                useCaches = false
-            }
+            connection = pinnedConnection("https://$host:$port/health", fingerprint)
             connection.responseCode
             true
         } catch (e: Exception) {
             false
         } finally {
             connection?.disconnect()
+        }
+    }
+
+    /**
+     * A connection that accepts exactly one certificate — the PC's own SHA-256 — and nothing else. Shared by the probe
+     * and by [RelaySwitch] (Part 3), so the app reaches the PC as itself through one pin.
+     */
+    // A pin, not a trust-all: it accepts exactly one certificate for this one connection, and the WebView's own TLS
+    // never sees it. The PC's certificate is self-issued, so no system validation could apply.
+    @SuppressLint("CustomX509TrustManager", "BadHostnameVerifier")
+    fun pinnedConnection(url: String, fingerprint: String, timeoutMs: Int = TIMEOUT_MS): HttpsURLConnection {
+        val pin = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) =
+                throw java.security.cert.CertificateException("client certificates are not used")
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                val leaf = chain?.firstOrNull() ?: throw java.security.cert.CertificateException("no certificate")
+                if (sha256Hex(leaf.encoded) != fingerprint) {
+                    throw java.security.cert.CertificateException("not the PC de secours")
+                }
+            }
+
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(pin), null) }
+        return (URL(url).openConnection() as HttpsURLConnection).apply {
+            sslSocketFactory = tls.socketFactory
+            // The certificate is pinned above; its name is whatever the PC's server minted for itself.
+            hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+            connectTimeout = timeoutMs
+            readTimeout = timeoutMs
+            instanceFollowRedirects = false
+            useCaches = false
         }
     }
 }
