@@ -139,10 +139,11 @@ jobs:
 
       # Chocolatey is preinstalled on windows-latest. Pinned to 6.x: a major bump changes the Pascal dialect,
       # and finding that out from a red build on an unrelated PR is the wrong moment.
-      # ⚠️ The runner image now ships a NEWER Inno Setup (6.7.1), and choco refuses to go back without
-      # `--allow-downgrade` — which failed this job on every run.
+      # ⚠️ 6.7.1, not 6.2.2: the script uses `x64compatible` (Inno ≥ 6.3), so 6.2.2 could never compile it —
+      # and the runner image ships 6.7.1, which choco refused to downgrade. `--allow-downgrade` keeps the pin
+      # holding when the image moves on.
       - name: Install Inno Setup 6
-        run: choco install innosetup --version=6.2.2 --allow-downgrade --no-progress -y
+        run: choco install innosetup --version=6.7.1 --allow-downgrade --no-progress -y
 
       - name: Stub the payloads
         run: node packaging/ci-stub-payloads.mjs

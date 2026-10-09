@@ -137,7 +137,7 @@ jobs:
       # Inno Setup pinned to 6.x as in `ci.yml`; `vpk` because the server bundle carries the Windows client feed.
       - name: Install Inno Setup and vpk
         run: |
-          choco install innosetup --version=6.2.2 --no-progress -y
+          choco install innosetup --version=6.7.1 --allow-downgrade --no-progress -y
           dotnet tool install -g vpk
 
       - name: Fetch the bundled runtimes
