@@ -16,15 +16,24 @@ public class RelayBrowserAccessTests
     private static readonly Guid ClinicId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private static readonly DateTime T0 = new(2026, 10, 9, 9, 0, 0, DateTimeKind.Utc);
 
-    private static ClinicRelay Paired(string? lanAddresses = "192.168.1.35", int? httpsPort = 5096)
+    private static ClinicRelay Paired(string? lanAddresses = "192.168.1.35", int? httpsPort = 5096, int? trustPort = null)
     {
         var (relay, _) = ClinicRelay.BeginPairing(ClinicId, "PC-ACCUEIL", "local|admin", T0.AddDays(-1));
         relay.Pair("PC-ACCUEIL", "key", null, null, "build-1", T0.AddDays(-1));
         relay.RecordHeartbeat(
             new RelayHeartbeat(10, 100, true, 0, 0, null, false, "build-1", null, lanAddresses, null, null,
-                new string('A', 64), false, HttpsPort: httpsPort),
+                new string('A', 64), false, HttpsPort: httpsPort, TrustPort: trustPort),
             10, T0);
         return relay;
+    }
+
+    // The installer picks a free port when 5080 is taken, so the card must use the one the PC reported.
+    [Fact]
+    public void The_Trust_Page_Is_On_The_Port_The_Pc_Reported()
+    {
+        var urls = RelayBrowserAccess.For(Paired(trustPort: 5091));
+
+        Assert.Equal("http://192.168.1.35:5091/api/trust", urls!.Prepare);
     }
 
     [Fact]

@@ -164,6 +164,30 @@ public class RelayInstallerTests
     public void BitLocker_Is_Read_In_Three_States(int? value, bool? encrypted) =>
         Assert.Equal(encrypted, DriveEncryption.FromBitLockerProtection(value));
 
+    // The installer comes in parallel parts: together they must cover the file exactly once, in order.
+    [Theory]
+    [InlineData(360_976_382L, 6)]
+    [InlineData(17_000_000L, 6)]
+    [InlineData(5L, 6)]
+    [InlineData(1L, 6)]
+    public void The_Parts_Cover_The_File_Exactly_Once(long length, int parts)
+    {
+        var ranges = RelayInstaller.Ranges(length, parts);
+
+        Assert.Equal(0, ranges[0].From);
+        Assert.Equal(length - 1, ranges[^1].To);
+        for (var i = 1; i < ranges.Length; i++)
+        {
+            Assert.Equal(ranges[i - 1].To + 1, ranges[i].From);
+        }
+
+        Assert.Equal(length, ranges.Sum(r => r.To - r.From + 1));
+        Assert.True(ranges.Length <= parts);
+    }
+
+    [Fact]
+    public void An_Empty_File_Has_No_Parts() => Assert.Empty(RelayInstaller.Ranges(0, 6));
+
     private static string RepoFile(params string[] parts) =>
         Path.Combine(new[] { RepoRoot() }.Concat(parts).ToArray());
 

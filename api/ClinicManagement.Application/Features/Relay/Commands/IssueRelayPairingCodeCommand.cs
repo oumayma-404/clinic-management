@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Relay.Commands;
 
-/// <summary>Starts a PC de secours setup (AC-1.4): one code, valid 10 minutes, once (D8). The controller checks the step-up.</summary>
+/// <summary>Starts a PC de secours setup (AC-1.4): one code, valid an hour, once (D8). The controller checks the step-up.</summary>
 public sealed record IssueRelayPairingCodeCommand(string Label) : IRequest<Result<RelayPairingCodeDto>>;
 
 public sealed class IssueRelayPairingCodeCommandHandler

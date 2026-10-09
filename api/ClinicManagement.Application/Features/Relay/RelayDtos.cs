@@ -49,7 +49,9 @@ public sealed record RelayHeartbeatRequest(
     int? ClockCorrectedBySeconds = null,
     bool ClockUnfixable = false,
     // D22: whether this PC already holds its prepared-session key; the cloud seals it into the ack until it does.
-    bool HasAssertionKey = false);
+    bool HasAssertionKey = false,
+    // D24: the PC's trust page port (the installer picks a free one); 0 = the page is off.
+    int? TrustPort = null);
 
 /// <summary>D18: one change of the PC's own log of the cut — the key only; its row travels beside it.</summary>
 public sealed record RelayHandbackChange(

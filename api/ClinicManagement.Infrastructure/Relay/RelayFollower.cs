@@ -18,7 +18,8 @@ public sealed record RelayHostReport(
     string? CertificateFingerprint,
     long? DiskFreeBytes,
     int? HttpsPort = null,
-    string? GatewayAddress = null);
+    string? GatewayAddress = null,
+    int? TrustPort = null);
 
 /// <summary>
 /// The PC de secours's copy, one tick at a time (<c>clinic-pc-copy</c> Part 1 « Copy »): report → first copy or
@@ -435,7 +436,8 @@ public sealed class RelayFollower
             HasAssertionKey: _assertionKeys?.Exists ?? true,
             ClockCorrectedAtUtc: lease.ClockCorrectedAtUtc,
             ClockCorrectedBySeconds: lease.ClockCorrectedBySeconds,
-            ClockUnfixable: lease.ClockError is not null);
+            ClockUnfixable: lease.ClockError is not null,
+            TrustPort: host.TrustPort);
     }
 
     /// <summary>

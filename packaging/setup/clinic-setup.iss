@@ -170,6 +170,9 @@ var
   BackupPage: TInputDirWizardPage;    { page 2, server only -- where the nightly backup is written }
   SetupOutcome: Integer;              { relay role: the exit code the Windows app reads back -- 0 = paired, running }
   LastFailure: string;                { the last error said, for the relay role's result file }
+  // The five TCP ports this install uses. The server role keeps the defines; the PC de secours takes the first FREE
+  // port from each define upward (ChooseRelayPorts), because it lands on a PC that already runs other software.
+  PortDb, PortHttp, PortHttps, PortWeb, PortTrust: string;
 
 // clinic-pc-copy: `/RELAY` makes this PC the cabinet's PC de secours -- the server stack holding a copy of the
 // cabinet's CLOUD clinic. Never a wizard choice: the offer lives in the Windows app (AC-1.1, AC-1.12), which holds the
@@ -534,7 +537,7 @@ begin
     Backups := Trim(BackupPage.Values[0])
   else
     Backups := AppDir + '\api\Backups';
-  ConnStr := 'Host=localhost;Port={#DbPort};Database={#DbName};Username={#DbUser};Password=' + DbPassword;
+  ConnStr := 'Host=localhost;Port=' + PortDb + ';Database={#DbName};Username={#DbUser};Password=' + DbPassword;
 
   { Escape backslashes for JSON. }
   StringChangeEx(PgDump, '\', '\\', True);
@@ -560,7 +563,7 @@ begin
     // TrustPort is written explicitly rather than left to the API's own default: the firewall rule
     // opens {#TrustPort}, and a config that fell back to a different default would open a port nothing
     // listens on while the page advertised a port the firewall blocks. One number, stated once.
-    '  "Hosting": { "HttpPort": {#HttpPort}, "HttpsPort": {#HttpsPort}, "WebPort": {#WebPort}, "TrustPort": {#TrustPort} },' + #13#10 +
+    '  "Hosting": { "HttpPort": ' + PortHttp + ', "HttpsPort": ' + PortHttps + ', "WebPort": ' + PortWeb + ', "TrustPort": ' + PortTrust + ' },' + #13#10 +
     '  "Https": { "CertPath": "" }' + #13#10 +
     '}' + #13#10;
 
@@ -597,7 +600,7 @@ begin
     '  "Cors": { "AllowedOrigins": [] },' + #13#10 +
     '' + #13#10 +
     '  // Mettre TrustPort a 0 desactive entierement la page d''installation du certificat.' + #13#10 +
-    '  "Hosting": { "TrustPort": {#TrustPort} },' + #13#10 +
+    '  "Hosting": { "TrustPort": ' + PortTrust + ' },' + #13#10 +
     '' + #13#10 +
     '  // Version minimale des applications mobiles (Android / iOS) acceptee par ce serveur.' + #13#10 +
     '  // VIDE = aucune limite : toutes les versions sont acceptees, y compris le navigateur.' + #13#10 +
@@ -713,7 +716,7 @@ begin
 
   { Register as an auto-start service (bind loopback only — the DB is never LAN-facing). Tolerate
     "already registered"/"already running" on re-install; the readiness probe below is the real gate. }
-  RunWait(PgCtl, 'register -N "{#ServiceDb}" -D "' + PgData + '" -S auto -o "-p {#DbPort} -h 127.0.0.1"', PgBin, Rc);
+  RunWait(PgCtl, 'register -N "{#ServiceDb}" -D "' + PgData + '" -S auto -o "-p ' + PortDb + ' -h 127.0.0.1"', PgBin, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'start {#ServiceDb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
   { Wait for readiness — POLL pg_isready in a loop. pg_isready does ONE connection attempt and returns
@@ -724,7 +727,7 @@ begin
   DbReady := False;
   for I := 1 to 60 do
   begin
-    if RunWait(PgBin + '\pg_isready.exe', '-h 127.0.0.1 -p {#DbPort} -t 2', PgBin, Rc) then
+    if RunWait(PgBin + '\pg_isready.exe', '-h 127.0.0.1 -p ' + PortDb + ' -t 2', PgBin, Rc) then
     begin
       DbReady := True;
       Break;
@@ -744,8 +747,8 @@ begin
   PgPassFile := PgPassDir + '\pgpass.conf';
   ForceDirectories(PgPassDir);
   SaveStringToFile(PgPassFile,
-    '127.0.0.1:{#DbPort}:*:postgres:' + PgSuperPassword + #13#10 +
-    '127.0.0.1:{#DbPort}:*:{#DbUser}:' + DbPassword + #13#10, False);
+    '127.0.0.1:' + PortDb + ':*:postgres:' + PgSuperPassword + #13#10 +
+    '127.0.0.1:' + PortDb + ':*:{#DbUser}:' + DbPassword + #13#10, False);
 
   { Create the role if absent, then the database if absent (\gexec creates only when the guard returns a
     row). One script, ON_ERROR_STOP=1 so a genuine failure aborts the install. -w never prompts. }
@@ -757,7 +760,7 @@ begin
   SqlFile := ExpandConstant('{tmp}\clinic-db-init.sql');
   SaveStringToFile(SqlFile, Sql, False);
 
-  if not RunWait(Psql, '-h 127.0.0.1 -p {#DbPort} -U postgres -d postgres -w -v ON_ERROR_STOP=1 -f "' + SqlFile + '"', PgBin, Rc) then
+  if not RunWait(Psql, '-h 127.0.0.1 -p ' + PortDb + ' -U postgres -d postgres -w -v ON_ERROR_STOP=1 -f "' + SqlFile + '"', PgBin, Rc) then
   begin
     DeleteFile(SqlFile);
     DeleteFile(PgPassFile);
@@ -813,8 +816,8 @@ begin
       derive a non-Secure request scheme and drop the Secure flag on the auth session cookie. Force it
       on — the front door is the TLS-terminating proxy the handler's override was written for. }
     RunWait(Nssm, 'set {#ServiceWeb} AppEnvironmentExtra ' +
-      'PORT={#WebPort} HOSTNAME=127.0.0.1 NODE_ENV=production AUTH_MODE=local AUTH_COOKIE_SECURE=true ' +
-      'NEXT_PUBLIC_API_URL=/api API_INTERNAL_URL=http://localhost:{#HttpPort}/api', '', Rc);
+      'PORT=' + PortWeb + ' HOSTNAME=127.0.0.1 NODE_ENV=production AUTH_MODE=local AUTH_COOKIE_SECURE=true ' +
+      'NEXT_PUBLIC_API_URL=/api API_INTERNAL_URL=http://localhost:' + PortHttp + '/api', '', Rc);
     WebRegistered := True;
   end
   else
@@ -845,7 +848,7 @@ var
   Rc: Integer;
 begin
   Exec(ExpandConstant('{sys}\netsh.exe'),
-    'advfirewall firewall add rule name="Clinic Management HTTPS" dir=in action=allow protocol=TCP localport={#HttpsPort}',
+    'advfirewall firewall add rule name="Clinic Management HTTPS" dir=in action=allow protocol=TCP localport=' + PortHttps,
     '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
   // The device-trust page (P8). Cleartext on purpose and safe on purpose: a phone cannot be asked to fetch
@@ -853,7 +856,7 @@ begin
   // without TLS. The API refuses every other path on this port (TrustPortGate), so what is exposed here is a
   // CA's PUBLIC certificate, install instructions and a QR -- not the API. Removed again on uninstall.
   Exec(ExpandConstant('{sys}\netsh.exe'),
-    'advfirewall firewall add rule name="Clinic Management Trust" dir=in action=allow protocol=TCP localport={#TrustPort}',
+    'advfirewall firewall add rule name="Clinic Management Trust" dir=in action=allow protocol=TCP localport=' + PortTrust,
     '', SW_HIDE, ewWaitUntilTerminated, Rc);
 
   // clinic-pc-copy D21: on the PC de secours only, the cabinet's apps find it again after the box gave it a new
@@ -1359,6 +1362,91 @@ begin
     Result := 1;
 end;
 
+// The number after "Key": in a JSON text, or Fallback. Enough for the installer's own appsettings.Install.json.
+function JsonNumber(const Text, Key, Fallback: string): string;
+var
+  At, I: Integer;
+begin
+  Result := Fallback;
+  At := Pos('"' + Key + '": ', Text);
+  if At = 0 then
+    Exit;
+  I := At + Length(Key) + 4;
+  Result := '';
+  while (I <= Length(Text)) and (Text[I] >= '0') and (Text[I] <= '9') do
+  begin
+    Result := Result + Text[I];
+    I := I + 1;
+  end;
+  if Result = '' then
+    Result := Fallback;
+end;
+
+// The PC de secours lands on a PC that already runs other software (another PostgreSQL, a local web server, Docker):
+// it must never fail on a taken port, so it takes the first FREE one from each default upward. A port is free when
+// nothing listens on it (any address, IPv4 or IPv6) AND this PC lets a program open it (Windows reserves ranges for
+// Hyper-V). An update keeps the ports the first install chose -- its own services hold them. The cloud learns the
+// HTTPS and trust page ports from the PC's heartbeat; the other three never leave this PC.
+procedure ChooseRelayPorts;
+var
+  Script, OutFile, Chosen, Text: string;
+  Cfg: AnsiString;
+  Rc, Comma: Integer;
+begin
+  if ExistingInstall = 2 then
+  begin
+    if LoadStringFromFile(ExpandConstant('{app}\api\appsettings.Install.json'), Cfg) then
+    begin
+      PortHttp := JsonNumber(String(Cfg), 'HttpPort', PortHttp);
+      PortHttps := JsonNumber(String(Cfg), 'HttpsPort', PortHttps);
+      PortWeb := JsonNumber(String(Cfg), 'WebPort', PortWeb);
+      PortTrust := JsonNumber(String(Cfg), 'TrustPort', PortTrust);
+      Text := String(Cfg);
+      if StringChangeEx(Text, 'Port=', '"Port": ', True) > 0 then
+        PortDb := JsonNumber(Text, 'Port', PortDb);
+    end;
+    Exit;
+  end;
+
+  Script := ExpandConstant('{tmp}\choose-ports.ps1');
+  OutFile := ExpandConstant('{tmp}\chosen-ports.txt');
+  SaveStringToFile(Script,
+    'param([string]$Out)' + #13#10 +
+    '$taken = @{}' + #13#10 +
+    'function Free([int]$p) {' + #13#10 +
+    '  if ($taken.ContainsKey($p)) { return $false }' + #13#10 +
+    '  if (Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue) { return $false }' + #13#10 +
+    '  foreach ($a in @([System.Net.IPAddress]::Any, [System.Net.IPAddress]::Loopback)) {' + #13#10 +
+    '    try { $l = [System.Net.Sockets.TcpListener]::new($a, $p); $l.Start(); $l.Stop() } catch { return $false }' + #13#10 +
+    '  }' + #13#10 +
+    '  return $true' + #13#10 +
+    '}' + #13#10 +
+    '$chosen = foreach ($p in @(' + PortDb + ', ' + PortHttp + ', ' + PortHttps + ', ' + PortWeb + ', ' + PortTrust + ')) {' + #13#10 +
+    '  $c = $p' + #13#10 +
+    '  while (-not (Free $c)) { $c++; if ($c -gt 65000) { $c = 20000 } }' + #13#10 +
+    '  $taken[$c] = $true' + #13#10 +
+    '  $c' + #13#10 +
+    '}' + #13#10 +
+    'Set-Content -Path $Out -Value ($chosen -join '','') -Encoding ascii' + #13#10, False);
+
+  // A failed check keeps the defines: no worse than before this existed, and the install still goes ahead.
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+              '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + Quoted(Script) + ' -Out ' + Quoted(OutFile),
+              '', SW_HIDE, ewWaitUntilTerminated, Rc) or (Rc <> 0) then
+    Exit;
+  if not LoadStringFromFile(OutFile, Cfg) then
+    Exit;
+
+  Chosen := Trim(String(Cfg)) + ',';
+  Comma := Pos(',', Chosen); PortDb := Copy(Chosen, 1, Comma - 1); Delete(Chosen, 1, Comma);
+  Comma := Pos(',', Chosen); PortHttp := Copy(Chosen, 1, Comma - 1); Delete(Chosen, 1, Comma);
+  Comma := Pos(',', Chosen); PortHttps := Copy(Chosen, 1, Comma - 1); Delete(Chosen, 1, Comma);
+  Comma := Pos(',', Chosen); PortWeb := Copy(Chosen, 1, Comma - 1); Delete(Chosen, 1, Comma);
+  Comma := Pos(',', Chosen); PortTrust := Copy(Chosen, 1, Comma - 1);
+  Log('PC de secours ports: db ' + PortDb + ', http ' + PortHttp + ', https ' + PortHttps + ', web ' + PortWeb +
+      ', trust ' + PortTrust);
+end;
+
 // Gibibytes, rounded up for what is needed and down for what is free, so the sentence never understates the gap.
 function GiB(const Bytes: Int64; RoundUp: Boolean): Int64;
 var
@@ -1463,12 +1551,21 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  PortDb := '{#DbPort}';
+  PortHttp := '{#HttpPort}';
+  PortHttps := '{#HttpsPort}';
+  PortWeb := '{#WebPort}';
+  PortTrust := '{#TrustPort}';
+
   Result := InstallRefusal;
   if Result <> '' then
   begin
     WriteResult(Result);
     Exit;
   end;
+
+  if IsRelayRole then
+    ChooseRelayPorts;
 
   StopClinicServices;
   { '' = proceed. Nothing here is fatal: a first install has no services to stop, and a service that

@@ -406,7 +406,8 @@ public sealed class RelayFeedJob : BackgroundService
             var storage = LocalInstallPaths.Resolve(_configuration["FileStorage:BasePath"] ?? "Files");
             _hostFacts = new RelayHostReport(
                 RelayHostFacts.LanAddresses(), RelayHostFacts.CertificateFingerprint(), RelayHostFacts.FreeBytes(storage),
-                _configuration.GetValue<int?>("Hosting:HttpsPort") ?? 5001, RelayHostFacts.GatewayAddress());
+                _configuration.GetValue<int?>("Hosting:HttpsPort") ?? 5001, RelayHostFacts.GatewayAddress(),
+                _configuration.GetValue<int?>("Hosting:TrustPort") ?? Startup.TrustPortGate.DefaultPort);
             _hostFactsReadAtUtc = now;
         }
 

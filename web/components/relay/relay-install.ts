@@ -29,28 +29,6 @@ export function roomRefusal(freeBytes: number | null | undefined, needBytes: num
   return `Il faut ${Math.ceil(needBytes / GIB)} Go libres sur ce PC (${Math.floor(freeBytes / GIB)} Go disponibles).`
 }
 
-/**
- * What the offer adds about THIS PC (AC-1.6, AC-1.7, AC-1.13) — warnings, never refusals. ⚠️ An encryption state the
- * shell could not read (`null`) is not « non chiffré »: it gets the sentence that is true either way.
- */
-export function relayNotices(facts: ShellRelayHostFacts): string[] {
-  const notices: string[] = []
-  if (facts.hasBattery) {
-    notices.push("Ce PC est un portable : s'il quitte le cabinet, il ne pourra pas prendre le relais.")
-  }
-  if (facts.diskEncrypted === false) {
-    notices.push("Le disque de ce PC n'est pas chiffré : la copie du cabinet y sera lisible si le PC est volé.")
-  } else if (facts.diskEncrypted == null) {
-    notices.push(
-      "Vérifiez que le disque de ce PC est chiffré (BitLocker) : sinon la copie du cabinet y sera lisible si le PC est volé.",
-    )
-  }
-  notices.push(
-    "Branchez ce PC et la box internet sur un onduleur : sans courant au cabinet, personne ne peut enregistrer, même à l'extérieur.",
-  )
-  return notices
-}
-
 // ── « Plus tard » / « Pas sur ce PC » (AC-1.3) — remembered on this PC, in this app's own browser storage ──────────
 
 const OFFER_KEY = "apexa.relay-offer"
