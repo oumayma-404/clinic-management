@@ -23,6 +23,12 @@ public enum ClinicRelayState
 
     /// <summary>D20b / EC-10: the PC's clock is wrong and it cannot set it — it would not take over (FR-3).</summary>
     ClockWrong = 12,
+
+    /// <summary>FR-2 « En relève »: the PC said it holds the cabinet's saves (the cloud is read-only for the cabinet).</summary>
+    InCharge = 13,
+
+    /// <summary>FR-2 « Retour au cloud »: the cut's work is in the cloud; the PC is about to say it no longer holds.</summary>
+    Returning = 14,
 }
 
 /// <summary>The state plus the instant its sentence names (« depuis 08:12 », « Copie de 14:32 »).</summary>
@@ -86,6 +92,19 @@ public static class ClinicRelayHealth
             return relay.LastError is not null
                 ? new(ClinicRelayState.InstallFailed, relay.LastSeenAtUtc, relay.SeedPercent)
                 : new(ClinicRelayState.Installing, relay.LastSeenAtUtc, relay.SeedPercent);
+        }
+
+        // FR-2: a PC that said it holds the saves is « en relève » however long it has been silent since — the cloud stays
+        // read-only on its word, and « Éteint » there would tell an admin the cabinet is stuck when it is working. Its
+        // silence is the lock's business (« Reprendre la main »), and the vendor still hears of it after a day.
+        if (relay.IsReturning)
+        {
+            return new(ClinicRelayState.Returning, relay.HandbackAppliedAtUtc, null);
+        }
+
+        if (relay.PcHoldingSinceUtc is { } holding)
+        {
+            return new(ClinicRelayState.InCharge, holding, null);
         }
 
         var lastSeen = relay.LastSeenAtUtc ?? relay.PairedAtUtc ?? relay.CreatedAtUtc;

@@ -47,6 +47,9 @@ public static class RelayVendorAlertRules
         return reading.State switch
         {
             ClinicRelayState.Off when nowUtc - (reading.Since ?? nowUtc) >= UnseenAfter => new[] { RelayIncidentKind.Unseen },
+            // A PC in charge and silent for a day is still a PC nobody has heard from — « en relève » must not hide it.
+            ClinicRelayState.InCharge or ClinicRelayState.Returning
+                when nowUtc - (relay.LastSeenAtUtc ?? nowUtc) >= UnseenAfter => new[] { RelayIncidentKind.Unseen },
             ClinicRelayState.Late when open.Contains(RelayIncidentKind.Late)
                                        || RelayAlertRules.DueInOpeningHours(reading, clinicHoursJson, nowUtc)
                 => new[] { RelayIncidentKind.Late },

@@ -43,6 +43,8 @@ export interface RelayStatusDto {
   reviewPending?: number;
   /** US-7 / AC-7.4: records of « À reprendre » nobody has marked « Repris ». */
   reEnterPending?: number;
+  /** AC-6.2 / US-7: who took the saves back from a silent PC, until that PC is heard from again. */
+  reclaimSentence?: string | null;
 }
 
 /**
@@ -99,7 +101,11 @@ export type RelayStateKey =
   /** The cloud went back to an older state; the PC stopped copying to lose nothing (AC-9.4). */
   | 'stopped'
   /** D20b: the PC's clock is wrong and it cannot set it — it would not take over. */
-  | 'clock-wrong';
+  | 'clock-wrong'
+  /** FR-2 « En relève »: the PC said it holds the cabinet's saves. */
+  | 'in-charge'
+  /** FR-2 « Retour au cloud »: the cut's work is in the cloud, the PC is about to let go. */
+  | 'returning';
 
 /**
  * AC-6.2: what a Windows or Android app tries while the cloud is locked for a silent PC de secours. `probe` is false

@@ -151,7 +151,9 @@ public sealed record RelayStatusDto(
     string? LockSentence = null,
     // D18 / US-7: lines of « Modifications à vérifier » and of « À reprendre » nobody has marked yet.
     int ReviewPending = 0,
-    int ReEnterPending = 0);
+    int ReEnterPending = 0,
+    // AC-6.2 / US-7: « Repris par les appareils du cabinet à 10:44 … » until the PC is heard from again.
+    string? ReclaimSentence = null);
 
 /// <summary>
 /// AC-6.2: what a Windows or Android app of the cabinet tries while the cloud is locked and the PC said nothing —

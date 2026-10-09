@@ -87,6 +87,7 @@ public sealed class GetRelayStatusQueryHandler : IRequestHandler<GetRelayStatusQ
             ReclaimWarning: lockedSince is { } since ? RelayLabels.ReclaimWarning(relay!.Label, since, nowUtc) : null,
             LockSentence: lockedSince is { } at
                 ? RelayLabels.Lock(relay!.PcHoldingSinceUtc is not null, at, nowUtc)
-                : null);
+                : null,
+            ReclaimSentence: RelayLabels.Reclaimed(relay, nowUtc));
     }
 }

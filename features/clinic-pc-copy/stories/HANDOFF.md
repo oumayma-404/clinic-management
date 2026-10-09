@@ -1,22 +1,21 @@
 # Handoff — PC de secours (`clinic-pc-copy`)
 
-**Date:** 2026-10-09 (session 12) · **Overall:** ~67 % · **Part 1 (La copie):** done in code (owed: the Windows
-rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~85 % (lease 1, 2, 2b, « Reprendre
-la main », device reports, D17, D16, **the return (D18) complete**, the PC's clock and Windows Update (D20b), the cut's strip on every screen (D20), the change log pruned (D27), the cut test (D26)) · **all scratch servers stopped**
+**Date:** 2026-10-09 (session 12) · **Overall:** ~70 % · **Part 1 (La copie):** done in code (owed: the Windows
+rehearsal and the first CI run — both need the owner's OK) · **Part 2 (La relève):** ~95 % — code complete (lease 1, 2, 2b, « Reprendre
+la main », device reports, D17, D16, **the return (D18) complete**, the PC's clock and Windows Update (D20b), the cut's strip on every screen (D20), the change log pruned (D27), the cut test (D26), the card's cut states) · **all scratch servers stopped**
 
 ## Pick up here
 
 1. Open the session **in the worktree**: `C:\Users\Oumayma Benkhalifa\Desktop\clinic-management\.claude\worktrees\clinic-pc-copy`
    (branch `feature/clinic-pc-copy`, tree clean, **every commit local — never pushed; never push or deploy without the
    owner's OK**).
-2. Read this file, then `progress.md` (part status, deviations 1–175, verification log). Plan `../plan.md` (Part 2's
+2. Read this file, then `progress.md` (part status, deviations 1–179, verification log). Plan `../plan.md` (Part 2's
    « Return » bullet, D18), spec `../spec.md` (US-5, AC-5.4, AC-5.6, AC-5.8, US-7 AC-7.3–7.6, EC-11, EC-15, EC-16,
    AC-9.4), blueprint `../blueprint.md`.
-3. **Next sub-step: Part 2 · the screens step** — the card states « en charge », « repris par les appareils » (and
-   whatever of AC-3.3 / AC-3.8's device lines belongs to Part 2). D26 is done (deviations 170–175:
-   `e2e/relay-roundtrip/run.sh` + the CI job — **passes locally, never run on GitHub**: its first run comes with the
-   owner's OK to push); D27 (166–169); D20 (161–165); D20b's real clock change and policy write are owed to the Windows
-   rehearsal.
+3. **Next: Part 3 — the cabinet's apps switch by themselves** (US-3's AC-3.1/3.2/3.3/3.8/3.9/3.10, the Windows and
+   Android apps; plan.md « Part 3 »). Part 2's code is complete (deviations 176–179 close it: the card's « En relève »,
+   « Retour au cloud » and « repris par les appareils »). Still owed with the owner's OK: the first GitHub run of
+   `relay-roundtrip` (needs a push) and the Windows rehearsal (also D20b's real clock change and policy write).
 4. The owner said « when you complete, start the next step right away »: after each sub-step's local commit and short
    report, go straight on to the next one.
 

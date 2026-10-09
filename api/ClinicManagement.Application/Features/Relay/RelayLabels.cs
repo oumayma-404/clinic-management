@@ -26,6 +26,8 @@ public static class RelayLabels
         ClinicRelayState.Retired => "retired",
         ClinicRelayState.Stopped => "stopped",
         ClinicRelayState.ClockWrong => "clock-wrong",
+        ClinicRelayState.InCharge => "in-charge",
+        ClinicRelayState.Returning => "returning",
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
     };
 
@@ -42,6 +44,8 @@ public static class RelayLabels
             ClinicRelayState.Late => $"Copie en retard de {Duration(nowUtc - (reading.Since ?? nowUtc))}",
             ClinicRelayState.Off => $"Éteint depuis {Moment(reading.Since, nowUtc)}",
             ClinicRelayState.Updating => "Mise à jour du PC de secours en cours",
+            ClinicRelayState.InCharge => $"Le cabinet travaille sur ce PC depuis {Moment(reading.Since, nowUtc)}",
+            ClinicRelayState.Returning => "Retour au cloud en cours",
             ClinicRelayState.DiskNearlyFull =>
                 $"Il reste {Math.Max(0, (relay?.DiskFreeBytes ?? 0) / (1024L * 1024 * 1024))} Go sur {label}",
             ClinicRelayState.Mismatch => "La copie ne correspond pas au cloud — réparation en cours",
@@ -106,8 +110,27 @@ public static class RelayLabels
         ClinicRelayState.Retired => "Retiré",
         ClinicRelayState.Stopped => $"Copie arrêtée depuis {Moment(reading.Since, nowUtc)}",
         ClinicRelayState.ClockWrong => "Horloge fausse",
+        ClinicRelayState.InCharge => $"En relève depuis {Moment(reading.Since, nowUtc)}",
+        ClinicRelayState.Returning => "Retour au cloud",
         _ => throw new ArgumentOutOfRangeException(nameof(reading), reading.State, null),
     };
+
+    /// <summary>
+    /// Who took the cabinet's saves back from a silent PC, and when — said on the card until that PC is heard from again
+    /// (AC-6.2's devices, or US-7's « Reprendre la main »). Null when nothing was taken back since the PC last spoke.
+    /// </summary>
+    public static string? Reclaimed(ClinicRelay? relay, DateTime nowUtc)
+    {
+        if (relay?.ReclaimedAtUtc is not { } at || relay.LastSeenAtUtc is { } seen && seen > at)
+        {
+            return null;
+        }
+
+        var when = Moment(at, nowUtc);
+        return relay.ReclaimedByUserId == ClinicRelay.ReclaimedByDevices
+            ? $"Repris par les appareils du cabinet à {when} : ils joignaient le cloud, plus le PC de secours."
+            : $"Un administrateur a repris la main à {when}.";
+    }
 
     /// <summary>Under a minute: « il y a 3 s »; otherwise the time (FR-2, the spec's freshness call).</summary>
     private static string Fresh(DateTime? since, DateTime nowUtc)

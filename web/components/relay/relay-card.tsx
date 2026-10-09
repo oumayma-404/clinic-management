@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
-  Archive, CheckCircle2, CircleSlash, Clock, ClockAlert, CloudDownload, HardDrive, OctagonPause, PowerOff, RefreshCw, Server,
-  TriangleAlert, XCircle, type LucideIcon,
+  Archive, CheckCircle2, CircleSlash, Clock, ClockAlert, CloudDownload, CloudUpload, HardDrive, OctagonPause, PowerOff,
+  RefreshCw, Server, ServerCog, TriangleAlert, XCircle, type LucideIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -44,6 +44,9 @@ const STATE_LOOK: Record<RelayStateKey, { icon: LucideIcon; tone: StatusTone }> 
   retired: { icon: Archive, tone: "neutral" },
   stopped: { icon: OctagonPause, tone: "negative" },
   "clock-wrong": { icon: ClockAlert, tone: "negative" },
+  // Not a problem: the PC is doing its job. The banner on every screen says the rest.
+  "in-charge": { icon: ServerCog, tone: "active" },
+  returning: { icon: CloudUpload, tone: "pending" },
 }
 
 /** The sentence ages by the second (« il y a 3 s »), so the card re-reads while it is on screen. */
@@ -530,6 +533,11 @@ function RelayState({
             {reclaiming ? "Reprise…" : "Reprendre la main"}
           </Button>
         </div>
+      )}
+
+      {/* AC-6.2 / US-7: who took the saves back from a silent PC — gone once that PC is heard from again. */}
+      {status.reclaimSentence && !status.cloudLocked && (
+        <p className="text-sm text-muted-foreground">{status.reclaimSentence}</p>
       )}
 
       {/* D18 / US-7: what a cut left behind — the cloud's changes to check, an overruled PC's records to enter again. */}
