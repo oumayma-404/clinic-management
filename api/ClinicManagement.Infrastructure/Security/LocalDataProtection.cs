@@ -55,6 +55,13 @@ public static class LocalDataProtection
         profile.Kind == DeploymentKind.HostedMultiTenant;
 
     /// <summary>
+    /// Whether the key ring is encrypted with machine-scoped DPAPI — a Windows service. One answer for the
+    /// builder below and for <c>verify-schema</c>'s <c>key-ring-protection</c>, so the two cannot disagree.
+    /// </summary>
+    public static bool ProtectsWithDpapi(DeploymentProfile profile) =>
+        profile.RunsAsWindowsService && OperatingSystem.IsWindows();
+
+    /// <summary>
     /// Whether an unencrypted key ring is tolerated here. True in <c>Development</c> alone, exactly as
     /// <c>MinioCredentials.TolerateUnconfigured</c> decides the same question for object-store credentials.
     /// </summary>
@@ -178,7 +185,7 @@ public static class LocalDataProtection
             // credentials, and the DB passwords) in cleartext on disk. On the Local Windows install, protect
             // them with machine-scoped DPAPI so a stolen/copied key-ring folder is useless off the host —
             // this is what makes the protected db-credentials file machine-bound (spec AC-3.1).
-            if (profile.RunsAsWindowsService && OperatingSystem.IsWindows())
+            if (ProtectsWithDpapi(profile))
             {
                 builder.ProtectKeysWithDpapi(protectToLocalMachine: true);
             }

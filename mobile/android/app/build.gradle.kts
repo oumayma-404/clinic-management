@@ -150,6 +150,9 @@ android {
         // bumped as a side effect of an SDK bump, because a dependency upgrade that rides along in another commit
         // is one nobody reviewed as an upgrade.
         disable += "GradleDependency"
+        // ⚠️ The third, for the same reason: « A newer version of Gradle than 8.13 is available » reddened CI on
+        // every run once Gradle 8.14.6 shipped. Gradle is pinned with AGP and Kotlin as one set (mobile/CLAUDE.md).
+        disable += "AndroidGradlePluginVersion"
     }
 }
 
