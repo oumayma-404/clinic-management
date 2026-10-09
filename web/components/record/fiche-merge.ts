@@ -219,17 +219,5 @@ export function prescriptionSnapshot(lines: readonly PrescriptionLine[]): string
   )
 }
 
-/**
- * What to do with one section.
- *
- * - `keep` — the server agrees with the screen, or nobody else touched it: what is on screen stays.
- * - `take` — only the other person changed it: their version replaces an untouched section, silently.
- * - `takeOver` — both changed it, differently: theirs is shown and the section is named, so the change is re-made
- *   knowingly rather than written over theirs blind.
- */
-export type MergeVerdict = "keep" | "take" | "takeOver"
-
-export function mergeVerdict(opened: string, onScreen: string, server: string): MergeVerdict {
-  if (server === onScreen || server === opened) return "keep"
-  return onScreen === opened ? "take" : "takeOver"
-}
+// The verdict is shared with every other form that reconciles (`lib/forms/form-merge.ts`).
+export { mergeVerdict, type MergeVerdict } from "@/lib/forms/form-merge"

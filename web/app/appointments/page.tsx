@@ -310,6 +310,15 @@ export default function AppointmentsPage() {
     if (appointmentId) openAppointmentById(appointmentId)
   }, [openAppointmentById])
 
+  // `?newAppointment=1` — the booking dialog, opened empty. A booking carried across a switch of server
+  // (`clinic-pc-copy` AC-3.2) comes back through this door and refills itself.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("newAppointment") !== "1") return
+    window.history.replaceState({}, "", "/appointments")
+    setBookingPatientId(undefined)
+    setDialogOpen(true)
+  }, [])
+
   // Deep-link from a patient's "Planifier un rendez-vous" (?patientId=…): open the create dialog with
   // that patient preselected. Same window.location + replaceState pattern (no useSearchParams) so a
   // refresh doesn't reopen it.

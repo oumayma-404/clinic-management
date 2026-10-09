@@ -237,7 +237,10 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   `SWITCH_REFUSAL` (through `useConflict().raise`, which offers « Recharger ») and sends nothing. ⚠️ `state` must be
   JSON — a `Set` is not (the fiche converts its acts with `carriedActs` / `actsFromCarried`). ⚠️ The identity is the
   session's **e-mail**, lower-cased: `SessionUser` carries no id, and the e-mail is the same on both servers. Inert in a
-  browser. Used by the fiche de soins; c2 adds the RDV, patient and devis.
+  browser. Used by the fiche de soins and both RDV dialogs; the patient and the devis follow.
+- **`forms/form-merge.ts`** — the three-way rule « Recharger » uses (`mergeVerdict`, `mergeSections`,
+  `takenOverSentence`): per section, the copy the form was opened with, the screen, the server now — only a section
+  BOTH changed loses the typing, and it is named. The fiche's `fiche-merge.ts` re-exports `mergeVerdict` from here.
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.
 
 ## Conventions
