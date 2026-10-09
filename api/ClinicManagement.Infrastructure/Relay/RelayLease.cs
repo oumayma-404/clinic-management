@@ -560,8 +560,11 @@ public sealed class GatewayBoxProbe : IRelayBoxProbe
             using var ping = new Ping();
             return (await ping.SendPingAsync(gateway, (int)PingTimeout.TotalMilliseconds)).Status == IPStatus.Success;
         }
-        catch (PingException)
+        catch (Exception ex) when (ex is PingException or PlatformNotSupportedException or InvalidOperationException
+                                       or UnauthorizedAccessException)
         {
+            // A ping that cannot be sent at all (no ping utility, no raw-socket right) is not « no box »: the TCP check
+            // below still runs. Escaping here failed the whole takeover decision — found by relay-roundtrip (D26).
             return false;
         }
     }
