@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
     private val relayWorker = Executors.newSingleThreadExecutor()
     private val relayHandler = Handler(Looper.getMainLooper())
     private val relayTick = Runnable { relayTick() }
+    private val offerTick = Runnable { offerTick() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -508,10 +509,17 @@ class MainActivity : ComponentActivity() {
         val known = relayTarget ?: return done(false)
         relayWorker.execute {
             val (pc, holding) = askPc(known)
+            // The open page lost the cloud (Wi-Fi off, a request with no reply): if the cloud really does not answer,
+            // the cut is shown at once — the countdown, then the button — with no reload (owner, 2026-10-12).
+            val cut = holding != true && !RelaySwitch.cloudAnswers(config.baseUrl)
             runOnUiThread {
-                if (holding == true && !isDestroyed) {
+                if (isDestroyed) return@runOnUiThread done(false)
+                if (holding == true) {
                     adoptMovedPc(known, pc)
                     loadPc(pc)
+                    done(true)
+                } else if (cut) {
+                    followRelayAfterFailure(getString(R.string.unreachable_title))
                     done(true)
                 } else {
                     done(false)
@@ -592,11 +600,40 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
                 if (holding == false) {
-                    showUnreachable(RelaySwitch.waitingLine(RelaySwitch.lastArmed, RelaySwitch.lastCanTakeOver) + "\n\n" + reason)
+                    showUnreachable(waitingText())
                     findViewById<Button>(R.id.unreachable_take_over).visibility =
                         if (RelaySwitch.lastCanTakeOver) View.VISIBLE else View.GONE
+                    relayHandler.removeCallbacks(offerTick)
+                    relayHandler.postDelayed(offerTick, OFFER_POLL_MS)
                 }
                 scheduleRelayTick(null)
+            }
+        }
+    }
+
+    private fun waitingText(): String = RelaySwitch.waitingLine(
+        RelaySwitch.lastArmed, RelaySwitch.lastCanTakeOver,
+        cloudLostAtMs?.let { RelaySwitch.secondsLeft(it, System.currentTimeMillis()) } ?: 0,
+    )
+
+    /** While the cut panel is up: ask the PC every 3 s, update the countdown and show the button the moment it is offered. */
+    private fun offerTick() {
+        val pc = relayTarget ?: return
+        if (state != ShellState.Unreachable || onPc || cloudLostAtMs == null) return
+        relayWorker.execute {
+            val holding = RelaySwitch.holding(pc)
+            runOnUiThread {
+                if (isDestroyed || state != ShellState.Unreachable || onPc) return@runOnUiThread
+                val button = findViewById<Button>(R.id.unreachable_take_over)
+                if (holding == true) {
+                    loadPc(pc)
+                    return@runOnUiThread
+                }
+                if (holding == false && button.isEnabled) {
+                    findViewById<TextView>(R.id.unreachable_detail).text = waitingText()
+                    button.visibility = if (RelaySwitch.lastCanTakeOver) View.VISIBLE else View.GONE
+                }
+                relayHandler.postDelayed(offerTick, OFFER_POLL_MS)
             }
         }
     }
@@ -671,8 +708,7 @@ class MainActivity : ComponentActivity() {
                 if (held) {
                     loadPc(pc)
                 } else {
-                    findViewById<TextView>(R.id.unreachable_detail).text =
-                        "Le PC de secours n'a pas pu prendre le relais. Réessayez dans quelques secondes."
+                    findViewById<TextView>(R.id.unreachable_detail).setText(R.string.unreachable_take_over_failed)
                 }
             }
         }
@@ -751,6 +787,7 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val TAG = "ClinicShell"
         const val RELAY_RETRY_MS = 10_000L
+        const val OFFER_POLL_MS = 3_000L
         const val RELAY_BACK_CHECK_MS = 20_000L
     }
 }

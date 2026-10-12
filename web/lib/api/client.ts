@@ -280,6 +280,30 @@ export function onMoneyHidden(listener: MoneyHiddenListener): () => void {
 type RelayRefusedListener = () => void;
 const relayRefusedListeners = new Set<RelayRefusedListener>();
 
+const networkUnreachableListeners = new Set<() => void>();
+
+/**
+ * Subscribe to « a request got no answer at all » (Wi-Fi off, the cabinet's internet cut). The PC de secours watch asks
+ * the app at once, so the cut is offered without waiting for the strip's next poll or a page reload (owner, 2026-10-12).
+ */
+export function onNetworkUnreachable(listener: () => void): () => void {
+  networkUnreachableListeners.add(listener);
+  return () => {
+    networkUnreachableListeners.delete(listener);
+  };
+}
+
+function networkError(err: unknown): ApiError {
+  networkUnreachableListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // A listener's failure never changes what the caller is told.
+    }
+  });
+  return new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+}
+
 /** The 423 codes that say a cut changed which side records the cabinet's work (`clinic-pc-copy`). */
 const RELAY_CODES: ReadonlySet<string> = new Set([
   'relay_standby',
@@ -714,13 +738,13 @@ async function handleRequest<T>(
       }
 
       if (err instanceof TypeError && err.message.includes('fetch')) {
-        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+        throw networkError(err);
       }
       // A fired deadline is the same event as an unreachable server, one layer down: the transport stopped
       // answering. Reported identically so the user gets the retryable French state rather than a raw
       // DOMException — and, crucially, so the caller's promise SETTLES and the submit button releases.
       if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+        throw networkError(err);
       }
       if (err instanceof ApiError) {
         throw err;

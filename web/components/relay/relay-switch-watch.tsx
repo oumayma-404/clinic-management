@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 
+import { onNetworkUnreachable } from "@/lib/api/client"
 import { relayApi } from "@/lib/api/relay"
 import { useSession } from "@/lib/auth/session"
 import { onRelayBanner, onRelayBannerUnreachable } from "./relay-banner"
@@ -14,9 +15,11 @@ import { onRelayBanner, onRelayBannerUnreachable } from "./relay-banner"
  *   that session in its cookie for the PC — so after a switch nobody signs in again;
  * - **when the cloud says the cabinet works on the PC** (the strip's `cloud-on-relay`), it asks the shell to check the PC
  *   and move there — the case where the PC alone lost the cloud and the cabinet would otherwise sit read-only;
- * - **when the cloud does not answer at all** (the strip's read gets no reply), it asks the same — a page left open
- *   through a cut never navigates, so the shell would never see a failed document. The shell moves only if the PC
- *   says it holds, so asking early costs nothing.
+ * - **when the cloud does not answer at all** — the browser goes `offline`, any request gets no reply, or the strip's
+ *   read does — it asks the same AT ONCE: a page left open through a cut never navigates, so the shell would never
+ *   see a failed document (prod, 2026-10-12: the button appeared only after a reload). The shell checks the cloud
+ *   itself, then shows the cut — when the PC will be available, then « Travailler sur le PC de secours ». A blip on
+ *   one request costs nothing: the cloud answers the shell's own check and nothing moves.
  *
  * The rest is the shell's own (a cloud that does not load at all, and the way back once the PC lets go).
  *
@@ -39,7 +42,10 @@ let mounted = 0
 let timer: number | null = null
 let stopBanner: (() => void) | null = null
 let stopUnreachable: (() => void) | null = null
+let stopNetwork: (() => void) | null = null
 let lastSwitchAt = 0
+
+const onOffline = () => void switchToPc()
 
 function watch(): (() => void) | undefined {
   const shell = typeof window === "undefined" ? undefined : window.__clinicShell
@@ -53,6 +59,8 @@ function watch(): (() => void) | undefined {
       if (banner?.kind === "cloud-on-relay") void switchToPc()
     })
     stopUnreachable = onRelayBannerUnreachable(() => void switchToPc())
+    stopNetwork = onNetworkUnreachable(() => void switchToPc())
+    window.addEventListener("offline", onOffline)
   }
 
   return () => {
@@ -64,6 +72,9 @@ function watch(): (() => void) | undefined {
       stopBanner = null
       stopUnreachable?.()
       stopUnreachable = null
+      stopNetwork?.()
+      stopNetwork = null
+      window.removeEventListener("offline", onOffline)
     }
   }
 }

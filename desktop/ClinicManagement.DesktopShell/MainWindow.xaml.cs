@@ -601,6 +601,7 @@ public partial class MainWindow : Window
     {
         _onPc = _navigatingToPc;
         _cloudLostAtUtc = null;
+        StopOfferPoll();
         StartRelayTimer(_onPc ? RelayBackCheckInterval : null);
     }
 
@@ -629,29 +630,101 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var now = DateTime.UtcNow;
-            _cloudLostAtUtc ??= now;
-            var holding = await RelaySwitch.HoldingAsync(pc);
-            if (holding is null && await FindMovedPcAsync(pc) is { } moved)
-            {
-                pc = moved;
-                holding = await RelaySwitch.HoldingAsync(pc);
-            }
-            if (holding == true)
-            {
-                WebView.CoreWebView2.Navigate(pc.Origin + "/");
-                return;
-            }
-
-            var waiting = RelaySwitch.WaitingLine(RelaySwitch.LastArmed, RelaySwitch.LastCanTakeOver);
-            ShowUnreachable(holding == false ? waiting + "\n\n" + detail : detail);
-            TakeOverButton.Visibility = holding == false && RelaySwitch.LastCanTakeOver ? Visibility.Visible : Visibility.Collapsed;
-            StartRelayTimer(null);
+            await ShowCutAsync(pc, detail);
         }
         catch
         {
             ShowUnreachable(detail);
         }
+    }
+
+    /// <summary>
+    /// The cloud is gone and a PC de secours was prepared: move there if it holds; otherwise the cut panel — when the PC
+    /// will be available, then « Travailler sur le PC de secours » — kept current IN PLACE every few seconds (no reload),
+    /// and the cloud tried again every 10 s. Shared by a page that failed to load and an open page that lost the cloud.
+    /// </summary>
+    private async System.Threading.Tasks.Task ShowCutAsync(RelaySwitch.Target pc, string detail)
+    {
+        _cloudLostAtUtc ??= DateTime.UtcNow;
+        var holding = await RelaySwitch.HoldingAsync(pc);
+        if (holding is null && await FindMovedPcAsync(pc) is { } moved)
+        {
+            pc = moved;
+            holding = await RelaySwitch.HoldingAsync(pc);
+        }
+
+        if (holding == true)
+        {
+            StopOfferPoll();
+            _navigatingToPc = true;
+            WebView.CoreWebView2.Navigate(pc.Origin + "/");
+            return;
+        }
+
+        if (holding == false)
+        {
+            ShowUnreachable(WaitingText());
+            TakeOverButton.Visibility = RelaySwitch.LastCanTakeOver ? Visibility.Visible : Visibility.Collapsed;
+            StartOfferPoll();
+        }
+        else
+        {
+            ShowUnreachable(detail);
+        }
+
+        StartRelayTimer(null);
+    }
+
+    private string WaitingText() => RelaySwitch.WaitingLine(RelaySwitch.LastArmed, RelaySwitch.LastCanTakeOver,
+        _cloudLostAtUtc is { } lost ? RelaySwitch.SecondsLeft(lost, DateTime.UtcNow) : 0);
+
+    private System.Windows.Threading.DispatcherTimer? _offerTimer;
+    private static readonly TimeSpan OfferPollInterval = TimeSpan.FromSeconds(3);
+
+    /// <summary>While the cut panel is up: ask the PC every 3 s, update the countdown and show the button the moment it is offered.</summary>
+    private void StartOfferPoll()
+    {
+        if (_offerTimer is { IsEnabled: true })
+        {
+            return;
+        }
+
+        _offerTimer = new System.Windows.Threading.DispatcherTimer { Interval = OfferPollInterval };
+        _offerTimer.Tick += async (_, _) =>
+        {
+            if (UnreachablePanel.Visibility != Visibility.Visible || _onPc || RelaySwitch.Current is not { } pc)
+            {
+                StopOfferPoll();
+                return;
+            }
+
+            try
+            {
+                var holding = await RelaySwitch.HoldingAsync(pc);
+                if (holding == true)
+                {
+                    StopOfferPoll();
+                    _navigatingToPc = true;
+                    WebView.CoreWebView2.Navigate(pc.Origin + "/");
+                }
+                else if (holding == false && TakeOverButton.IsEnabled)
+                {
+                    UnreachableDetail.Text = WaitingText();
+                    TakeOverButton.Visibility = RelaySwitch.LastCanTakeOver ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+            catch
+            {
+                // The next tick asks again.
+            }
+        };
+        _offerTimer.Start();
+    }
+
+    private void StopOfferPoll()
+    {
+        _offerTimer?.Stop();
+        _offerTimer = null;
     }
 
     /// <summary>One timer: on the PC, « does it still hold? »; while the cloud is unreachable, try it again.</summary>
@@ -821,7 +894,15 @@ public partial class MainWindow : Window
 
             if (pc is not null && await RelaySwitch.HoldingAsync(pc) == true)
             {
+                _navigatingToPc = true;
                 WebView.CoreWebView2.Navigate(pc.Origin + "/");
+                moved = true;
+            }
+            // The open page lost the cloud (Wi-Fi off, a request with no reply): if the cloud really does not answer,
+            // show the cut at once — the countdown, then the button — instead of the page's « Impossible de joindre ».
+            else if (pc is not null && !await RelaySwitch.CloudAnswersAsync(_config.BaseUrl))
+            {
+                await ShowCutAsync(pc, $"Adresse : {_config.BaseUrl}");
                 moved = true;
             }
         }
