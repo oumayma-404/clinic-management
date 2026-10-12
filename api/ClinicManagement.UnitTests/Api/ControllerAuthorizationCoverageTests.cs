@@ -77,6 +77,8 @@ public class ControllerAuthorizationCoverageTests
         "Relay.ReleasePairingCode",  // the Windows app giving back a code its installer never presented (AC-1.11):
                                      // the code IS the credential, it can only free that one unused setup, and every
                                      // outcome is the same 204; rate-limited like the pairing.
+        "RelayLocal.TakeOver",       // « Travailler sur le PC de secours » (manual takeover): pressed during a cut, when
+                                     // nobody is signed in here; it acts only while offered (copy ready, cloud silent).
         "RelayLocal.Holding",        // clinic-pc-copy Part 3, PC only: « do you hold the cabinet's saves? » for the
                                      // cabinet's apps, asked before anyone is signed in here; one boolean the strip
                                      // already shows everyone.

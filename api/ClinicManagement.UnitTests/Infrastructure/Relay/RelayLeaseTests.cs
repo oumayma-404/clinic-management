@@ -30,10 +30,40 @@ public sealed class RelayLeaseTests : IDisposable
 
     private RelayLeaseKeeper Keeper(RelayLease lease) => new(lease, _states, _box, NullLogger.Instance);
 
+    /// <summary>
+    /// Somebody presses « Travailler sur le PC de secours » as soon as it is offered (manual takeover, 2026-10-12): one
+    /// tick decides the offer, the press is accepted only if it stands, the next tick takes over. True when it did.
+    /// </summary>
+    private static async Task<bool> PressedAsync(RelayLeaseKeeper keeper, RelayLease lease)
+    {
+        if (await keeper.TickAsync(default))
+        {
+            return true;
+        }
+
+        return lease.RequestTakeover() && await keeper.TickAsync(default);
+    }
+
+    // During a cut the follower keeps asking the cloud every ~10 s: Advance does the same for the cut lease, so the
+    // keeper sees what it sees in production — a run of unanswered heartbeats, not one failure and then silence.
+    private RelayLease? _cut;
+
     private void Advance(double seconds)
     {
-        _now = _now.AddSeconds(seconds);
-        _mono += TimeSpan.FromSeconds(seconds);
+        // In ticks, not doubles: 49.9 − 4 × 10 is not 9.9 in floating point, and 59.99… s is not the sixty seconds.
+        var left = TimeSpan.FromSeconds(seconds);
+        var ten = TimeSpan.FromSeconds(10);
+        while (left > TimeSpan.Zero)
+        {
+            var step = left < ten ? left : ten;
+            _now = _now.Add(step);
+            _mono += step;
+            left -= step;
+            if (_cut is { IsHolding: false } cut && step == ten)
+            {
+                cut.ExchangeAsync(_ => NoAnswer(), default).GetAwaiter().GetResult();
+            }
+        }
     }
 
     private static Task<RelayCall<RelayHeartbeatAck>> Answer(long seq, bool armed) =>
@@ -50,6 +80,7 @@ public sealed class RelayLeaseTests : IDisposable
         await lease.ExchangeAsync(_ => Answer(1001, armed: true), default);
         Advance(10);
         await lease.ExchangeAsync(_ => NoAnswer(), default);
+        _cut = lease;
         return lease;
     }
 
@@ -112,7 +143,7 @@ public sealed class RelayLeaseTests : IDisposable
 
         Assert.Contains("fausse de 3 min", lease.Current.ClockError);
         Assert.Contains("pas le droit", lease.Current.ClockError);
-        Assert.False(await Keeper(lease).TickAsync(default));
+        Assert.False(await PressedAsync(Keeper(lease), lease));
         Assert.False(lease.IsHolding);
 
         await lease.ExchangeAsync(_ => AnswerAt(_now), default);
@@ -133,20 +164,58 @@ public sealed class RelayLeaseTests : IDisposable
 
     // ---- the takeover (FR-3, D13) ---------------------------------------------------------------------------------
 
+    // The button is offered once the cloud has been asked and silent for 20 s of awake time — never sooner.
     [Fact]
-    public async Task An_Armed_Pc_Whose_Cloud_Stopped_Answering_Takes_Over_At_Sixty_Seconds()
+    public async Task The_Button_Is_Offered_Once_The_Cloud_Is_Silent_For_Twenty_Seconds()
     {
         var lease = await ArmedThenCutAsync();
         var keeper = Keeper(lease);
 
-        Advance(49.9);
-        Assert.False(await keeper.TickAsync(default));
-        Assert.False(lease.IsHolding);
+        // One unanswered heartbeat (ArmedThenCutAsync's) is not yet a cut: nothing is offered.
+        Advance(5);
+        Assert.False(await PressedAsync(keeper, lease));
+        Assert.False(lease.TakeoverOffered);
 
-        Advance(0.1);
-        Assert.True(await keeper.TickAsync(default));
+        // The next one fails too, 10 s later: the cloud has been silent ~20 s since its last answer.
+        Advance(10);
+        Assert.True(await PressedAsync(keeper, lease));
         Assert.Equal(_now, lease.HoldingSinceUtc);
         Assert.Equal(1001, lease.Current.HoldingUnderAckSeq);
+    }
+
+    // Manual takeover (owner, 2026-10-12): offered is not taken — the PC never takes the saves until the button is pressed.
+    [Fact]
+    public async Task Without_A_Press_The_Pc_Never_Takes_Over_However_Long_The_Cut()
+    {
+        var lease = await ArmedThenCutAsync();
+        var keeper = Keeper(lease);
+
+        for (var i = 0; i < 60; i++)
+        {
+            Advance(10);
+            Assert.False(await keeper.TickAsync(default));
+        }
+
+        Assert.True(lease.TakeoverOffered);
+        Assert.False(lease.IsHolding);
+    }
+
+    // A press while nothing is offered (the cloud answers, the copy is not ready) is refused and never remembered.
+    [Fact]
+    public async Task A_Press_That_Is_Not_Offered_Is_Refused_And_Forgotten()
+    {
+        var lease = Lease();
+        await lease.ExchangeAsync(_ => Answer(1001, armed: true), default);
+        var keeper = Keeper(lease);
+
+        Assert.False(await keeper.TickAsync(default));
+        Assert.False(lease.RequestTakeover());
+
+        await lease.ExchangeAsync(_ => NoAnswer(), default);
+        _cut = lease;
+        Advance(30);
+        Assert.False(await keeper.TickAsync(default));
+        Assert.False(lease.IsHolding);
     }
 
     // ---- the cause of the cut (D20, AC-3.4, EC-20) -----------------------------------------------------------------
@@ -172,7 +241,7 @@ public sealed class RelayLeaseTests : IDisposable
         var keeper = new RelayLeaseKeeper(lease, _states, _box, NullLogger.Instance, new FakeInternet { Reachable = internetUp });
 
         Advance(80);
-        Assert.True(await keeper.TickAsync(default));
+        Assert.True(await PressedAsync(keeper, lease));
 
         Assert.Equal(cause, lease.Current.CutCause);
         Assert.Equal(cause, new RelayLease(_dir).Current.CutCause);
@@ -186,17 +255,17 @@ public sealed class RelayLeaseTests : IDisposable
         var internet = new FakeInternet { Reachable = false };
         var keeper = new RelayLeaseKeeper(lease, _states, _box, NullLogger.Instance, internet);
         Advance(80);
-        await keeper.TickAsync(default);
+        await PressedAsync(keeper, lease);
         Assert.Equal(RelayCutCauses.Internet, lease.Current.CutCause);
 
         internet.Reachable = true;
         Advance(10);
-        await keeper.TickAsync(default);
+        await PressedAsync(keeper, lease);
         Assert.Equal(1, internet.Asked);
         Assert.Equal(RelayCutCauses.Internet, lease.Current.CutCause);
 
         Advance(20);
-        await keeper.TickAsync(default);
+        await PressedAsync(keeper, lease);
         Assert.Equal(2, internet.Asked);
         Assert.Equal(RelayCutCauses.Cloud, lease.Current.CutCause);
     }
@@ -207,7 +276,7 @@ public sealed class RelayLeaseTests : IDisposable
         var lease = await ArmedThenCutAsync();
         Advance(80);
 
-        Assert.True(await Keeper(lease).TickAsync(default));
+        Assert.True(await PressedAsync(Keeper(lease), lease));
         Assert.Null(lease.Current.CutCause);
     }
 
@@ -221,7 +290,7 @@ public sealed class RelayLeaseTests : IDisposable
 
         Advance(600);
 
-        Assert.False(await Keeper(lease).TickAsync(default));
+        Assert.False(await PressedAsync(Keeper(lease), lease));
     }
 
     // Power cut (owner, 2026-10-09): the box is dark too, and the laptop on battery still takes over.
@@ -232,11 +301,11 @@ public sealed class RelayLeaseTests : IDisposable
         var keeper = Keeper(lease);
         _box.Answers = false;
 
-        Advance(30);
-        Assert.False(await keeper.TickAsync(default));
+        Advance(5);
+        Assert.False(await PressedAsync(keeper, lease));
 
         Advance(30);
-        Assert.True(await keeper.TickAsync(default));
+        Assert.True(await PressedAsync(keeper, lease));
         Assert.True(lease.IsHolding);
     }
 
@@ -246,21 +315,22 @@ public sealed class RelayLeaseTests : IDisposable
     public async Task A_Pc_Back_On_The_Network_Asks_The_Cloud_Again_Before_Taking_Over()
     {
         var lease = await ArmedThenCutAsync();
+        _cut = null; // this test places each heartbeat itself
         var keeper = Keeper(lease);
 
         _box.Answers = false;
         Advance(30);
-        Assert.False(await keeper.TickAsync(default));
+        Assert.False(await PressedAsync(keeper, lease));
 
         _box.Answers = true;
         Advance(40);
-        Assert.False(await keeper.TickAsync(default));
+        Assert.False(await PressedAsync(keeper, lease));
         Assert.False(lease.IsHolding);
 
         // The next heartbeat is answered: nothing ever changes hands.
         await lease.ExchangeAsync(_ => Answer(1002, armed: true), default);
         Advance(5);
-        Assert.False(await keeper.TickAsync(default));
+        Assert.False(await PressedAsync(keeper, lease));
         Assert.False(lease.IsHolding);
     }
 
@@ -269,18 +339,51 @@ public sealed class RelayLeaseTests : IDisposable
     public async Task A_Pc_Back_On_The_Network_Takes_Over_Once_The_Cloud_Fails_To_Answer_Again()
     {
         var lease = await ArmedThenCutAsync();
+        _cut = null; // this test places each heartbeat itself
         var keeper = Keeper(lease);
 
         _box.Answers = false;
         Advance(30);
-        Assert.False(await keeper.TickAsync(default));
+        Assert.False(await PressedAsync(keeper, lease));
 
         _box.Answers = true;
         Advance(40);
         await lease.ExchangeAsync(_ => NoAnswer(), default);
         Advance(1);
-        Assert.True(await keeper.TickAsync(default));
+        Assert.False(await PressedAsync(keeper, lease)); // one failure is not yet a cut
+
+        _cut = lease; // the heartbeats go on failing, every 10 s, for 45 s
+        Advance(50);
+        Assert.True(await PressedAsync(keeper, lease));
         Assert.True(lease.IsHolding);
+    }
+
+    // Prod, 2026-10-12: a laptop slept 14 h with a heartbeat cut mid-flight, woke with its Wi-Fi still reconnecting —
+    // and took the saves at once. A failure from before the sleep is not a cut; the cloud must be silent while awake.
+    [Fact]
+    public async Task A_Pc_Waking_From_Sleep_Does_Not_Take_Over_Before_The_Cloud_Is_Silent_Again()
+    {
+        var lease = Lease();
+        await lease.ExchangeAsync(_ => Answer(1001, armed: true), default);
+        await lease.ExchangeAsync(_ => NoAnswer(), default);
+        var keeper = Keeper(lease);
+        _box.Answers = false;
+
+        // Asleep: no exchange at all for 14 h, on both clocks. The failure from before the sleep offers nothing.
+        _now = _now.AddHours(14);
+        _mono += TimeSpan.FromHours(14);
+        Assert.False(await PressedAsync(keeper, lease));
+        Assert.False(lease.TakeoverOffered);
+
+        // Awake, Wi-Fi reconnecting: a heartbeat fails, then one is answered — the button never appeared.
+        await lease.ExchangeAsync(_ => NoAnswer(), default);
+        Assert.False(await PressedAsync(keeper, lease));
+        _now = _now.AddSeconds(5);
+        _mono += TimeSpan.FromSeconds(5);
+        await lease.ExchangeAsync(_ => Answer(1002, armed: true), default);
+        Assert.False(await PressedAsync(keeper, lease));
+        Assert.False(lease.TakeoverOffered);
+        Assert.False(lease.IsHolding);
     }
 
     // A PC that slept, or whose copy tick was busy, has an old ack without the cloud being gone: it must ASK first. The
@@ -293,11 +396,11 @@ public sealed class RelayLeaseTests : IDisposable
 
         Advance(3600);
 
-        Assert.False(await Keeper(lease).TickAsync(default));
+        Assert.False(await PressedAsync(Keeper(lease), lease));
         Assert.Equal(0, _box.Asked);
 
         await lease.ExchangeAsync(_ => Answer(1002, armed: true), default);
-        Assert.False(await Keeper(lease).TickAsync(default));
+        Assert.False(await PressedAsync(Keeper(lease), lease));
         Assert.False(lease.UnansweredSinceLastAck);
     }
 
@@ -319,7 +422,7 @@ public sealed class RelayLeaseTests : IDisposable
 
         Advance(600);
 
-        Assert.False(await Keeper(lease).TickAsync(default));
+        Assert.False(await PressedAsync(Keeper(lease), lease));
     }
 
     // A heartbeat that hangs is a heartbeat not answered: bounded, and counted as silence.
@@ -360,7 +463,7 @@ public sealed class RelayLeaseTests : IDisposable
 
         _now = _now.AddHours(1);
 
-        Assert.False(await Keeper(lease).TickAsync(default));
+        Assert.False(await PressedAsync(Keeper(lease), lease));
         Assert.Equal(TimeSpan.FromSeconds(10), lease.SinceLastAckReceived());
     }
 
@@ -377,10 +480,16 @@ public sealed class RelayLeaseTests : IDisposable
         var restarted = new RelayLease(_dir, () => _now, () => uptime);
         await restarted.ExchangeAsync(_ => NoAnswer(), default);
 
-        Assert.False(await Keeper(restarted).TickAsync(default));
+        Assert.False(await PressedAsync(Keeper(restarted), restarted));
 
-        uptime = TimeSpan.FromSeconds(90);
-        Assert.True(await Keeper(restarted).TickAsync(default));
+        for (var i = 0; i < 9; i++)
+        {
+            uptime += TimeSpan.FromSeconds(10);
+            _now = _now.AddSeconds(10);
+            await restarted.ExchangeAsync(_ => NoAnswer(), default);
+        }
+
+        Assert.True(await PressedAsync(Keeper(restarted), restarted));
     }
 
     // ---- the file (AC-3.11) ----------------------------------------------------------------------------------------
@@ -427,7 +536,7 @@ public sealed class RelayLeaseTests : IDisposable
         var since = lease.HoldingSinceUtc;
         _states.Save(_states.Load() with { Released = true });
 
-        await Keeper(lease).TickAsync(default);
+        await PressedAsync(Keeper(lease), lease);
 
         Assert.False(lease.IsHolding);
         Assert.True(lease.HoldsUnreturnedWork);

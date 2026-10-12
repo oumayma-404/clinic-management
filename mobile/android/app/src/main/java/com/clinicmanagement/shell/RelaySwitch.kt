@@ -39,9 +39,6 @@ object RelaySwitch {
 
     data class Session(val credential: String, val expiresAt: Date?, val mustChangePassword: Boolean)
 
-    /** After this long with the cloud unreachable and the PC not holding, the PC was not ready (AC-3.8). */
-    const val TAKEOVER_EXPECTED_WITHIN_MS = 3 * 60 * 1000L
-
     const val SESSION_COOKIE = "__Host-local_session"
     const val MUST_CHANGE_COOKIE = "__Host-local_must_change_password"
 
@@ -86,23 +83,25 @@ object RelaySwitch {
         }.getOrNull()
     }
 
-    /** What the unreachable screen adds while the PC answers but does not hold (AC-3.3, then AC-3.8). */
-    fun waitingLine(cloudLostAtMs: Long, nowMs: Long): String {
-        val elapsed = nowMs - cloudLostAtMs
-        if (elapsed >= TAKEOVER_EXPECTED_WITHIN_MS) {
-            return "Le PC de secours n'était pas à jour : il ne peut pas prendre le relais."
-        }
-        // Counted from when THIS app lost the cloud — close to the PC's own count (60 s after its last answer).
-        val left = Math.ceil((TAKEOVER_AFTER_MS - elapsed) / 5000.0).toInt() * 5
-        return if (left > 0) {
-            "Internet coupé — le PC de secours prend le relais dans $left secondes."
-        } else {
-            "Internet coupé — le PC de secours prend le relais dans quelques instants."
-        }
+    const val NOT_READY_LINE = "Le PC de secours n'est pas encore prêt : il ne peut pas prendre le relais."
+    const val OFFER_LINE = "Internet coupé : le cloud ne répond pas. Le cabinet peut continuer sur le PC de secours."
+
+    /**
+     * What the unreachable screen adds while the PC answers but does not hold (manual takeover, owner 2026-10-12): not
+     * ready, the offer (with its button), or — the first ~20 s, while the PC makes sure the cloud is silent — checking.
+     */
+    fun waitingLine(armed: Boolean?, canTakeOver: Boolean): String = when {
+        armed == false -> NOT_READY_LINE
+        canTakeOver -> OFFER_LINE
+        else -> "Le cloud ne répond pas — vérification en cours…"
     }
 
-    /** When the PC de secours takes over after its last answer from the cloud (`ClinicWriteLease.PcTakesOverAfter`). */
-    private const val TAKEOVER_AFTER_MS = 60_000L
+    /** The PC's word at its last answer: ready for a cut (null: an older PC), and whether it offers the button. */
+    @Volatile var lastArmed: Boolean? = null
+        private set
+
+    @Volatile var lastCanTakeOver: Boolean = false
+        private set
 
     /** The two cookie strings the PC's own sign-in route writes — `HttpOnly`, `Secure`, `Lax`, its expiry. */
     fun cookies(session: Session): Pair<String, String> {
@@ -209,13 +208,31 @@ object RelaySwitch {
             if (connection.responseCode !in 200..299) {
                 null
             } else {
-                val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                JSONObject(body).optBoolean("holding", false)
+                val json = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+                lastArmed = if (json.has("armed") && !json.isNull("armed")) json.optBoolean("armed") else null
+                lastCanTakeOver = json.optBoolean("canTakeOver", false)
+                json.optBoolean("holding", false)
             }
         } finally {
             connection.disconnect()
         }
     }.getOrNull()
+
+    /** « Travailler sur le PC de secours »: true once the PC holds the cabinet's saves. Blocking; never throws. */
+    fun takeOver(target: Target): Boolean = runCatching {
+        // The PC waits for its own takeover (up to 10 s) before it answers.
+        val connection = RelayProbe.pinnedConnection("${target.origin}/api/relay/local/take-over", target.fingerprint, 15_000)
+        try {
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
+            connection.responseCode in 200..299 &&
+                JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }).optBoolean("holding", false)
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrDefault(false)
 
     private fun literal(address: InetAddress): String =
         (address.hostAddress ?: "").let { if (address is Inet6Address) it.substringBefore('%') else it }

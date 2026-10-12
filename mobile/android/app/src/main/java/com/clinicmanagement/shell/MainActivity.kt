@@ -151,6 +151,7 @@ class MainActivity : ComponentActivity() {
         }
 
         findViewById<Button>(R.id.unreachable_retry).setOnClickListener { startSession() }
+        findViewById<Button>(R.id.unreachable_take_over).setOnClickListener { takeOver() }
         findViewById<Button>(R.id.update_retry).setOnClickListener { startSession() }
         findViewById<Button>(R.id.update_change_server).setOnClickListener { showServerAddress() }
         findViewById<Button>(R.id.update_open_store).setOnClickListener { openStoreListing() }
@@ -591,7 +592,9 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
                 if (holding == false) {
-                    showUnreachable(RelaySwitch.waitingLine(lostAt, System.currentTimeMillis()) + "\n\n" + reason)
+                    showUnreachable(RelaySwitch.waitingLine(RelaySwitch.lastArmed, RelaySwitch.lastCanTakeOver) + "\n\n" + reason)
+                    findViewById<Button>(R.id.unreachable_take_over).visibility =
+                        if (RelaySwitch.lastCanTakeOver) View.VISIBLE else View.GONE
                 }
                 scheduleRelayTick(null)
             }
@@ -655,8 +658,29 @@ class MainActivity : ComponentActivity() {
         findViewById<EditText>(R.id.config_address).requestFocus()
     }
 
+    /** « Travailler sur le PC de secours » (manual takeover): the PC takes over, then the app moves there. */
+    private fun takeOver() {
+        val pc = relayTarget ?: return
+        val button = findViewById<Button>(R.id.unreachable_take_over)
+        button.isEnabled = false
+        relayWorker.execute {
+            val held = RelaySwitch.takeOver(pc)
+            runOnUiThread {
+                button.isEnabled = true
+                if (isDestroyed) return@runOnUiThread
+                if (held) {
+                    loadPc(pc)
+                } else {
+                    findViewById<TextView>(R.id.unreachable_detail).text =
+                        "Le PC de secours n'a pas pu prendre le relais. Réessayez dans quelques secondes."
+                }
+            }
+        }
+    }
+
     /** Names both the address and the reason (AC-15) — « ça ne marche pas » is not a diagnosis an operator can act on. */
     private fun showUnreachable(reason: String) {
+        findViewById<Button>(R.id.unreachable_take_over).visibility = View.GONE
         findViewById<TextView>(R.id.unreachable_detail).text =
             getString(R.string.unreachable_detail, config.baseUrl, reason)
         show(ShellState.Unreachable)

@@ -79,6 +79,7 @@ public class SubscriptionExemptionCoverageTests
         "RelayDevice.Report",
         // AC-8.2: erasing a retired PC's copy, and the PC telling the cloud — offboarding, never new work.
         "RelayLocal.Erase",
+        "RelayLocal.TakeOver",
         "RelayPeer.Erased",
         // AC-8.3: uninstalling the PC — it retires the PC, never new work.
         "RelayPeer.Uninstalled",

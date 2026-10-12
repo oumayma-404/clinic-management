@@ -45,7 +45,6 @@ public static class RelaySwitch
     public sealed record Session(string Credential, DateTime? ExpiresAtUtc, bool MustChangePassword);
 
     /// <summary>After this long with the cloud unreachable and the PC not holding, the PC was not ready (AC-3.8).</summary>
-    public static readonly TimeSpan TakeoverExpectedWithin = TimeSpan.FromMinutes(3);
 
     public const string SessionCookie = "__Host-local_session";
     public const string MustChangeCookie = "__Host-local_must_change_password";
@@ -110,24 +109,17 @@ public static class RelaySwitch
         }
     }
 
-    /// <summary>What the unreachable screen adds while the PC answers but does not hold (AC-3.3, then AC-3.8).</summary>
-    public static string WaitingLine(DateTime cloudLostAtUtc, DateTime nowUtc)
-    {
-        var elapsed = nowUtc - cloudLostAtUtc;
-        if (elapsed >= TakeoverExpectedWithin)
-        {
-            return "Le PC de secours n'était pas à jour : il ne peut pas prendre le relais.";
-        }
+    /// <summary>Said beside « Travailler sur le PC de secours » (manual takeover, owner 2026-10-12).</summary>
+    public const string OfferLine = "Internet coupé : le cloud ne répond pas. Le cabinet peut continuer sur le PC de secours.";
 
-        // Counted from when THIS app lost the cloud — close to the PC's own count, which starts at its last answer.
-        var left = (int)Math.Ceiling((TakeoverAfter - elapsed).TotalSeconds / 5) * 5;
-        return left > 0
-            ? $"Internet coupé — le PC de secours prend le relais dans {left} secondes."
-            : "Internet coupé — le PC de secours prend le relais dans quelques instants.";
-    }
-
-    /// <summary>When the PC de secours takes over after its last answer from the cloud (<c>ClinicWriteLease.PcTakesOverAfter</c>).</summary>
-    public static readonly TimeSpan TakeoverAfter = TimeSpan.FromSeconds(60);
+    /// <summary>
+    /// What the unreachable screen adds while the PC answers but does not hold: not ready, the offer (with its button),
+    /// or — the first ~20 s, while the PC makes sure the cloud really is silent — that it is checking.
+    /// </summary>
+    public static string WaitingLine(bool? armed, bool canTakeOver) =>
+        armed == false ? NotReadyLine
+        : canTakeOver ? OfferLine
+        : "Le cloud ne répond pas — vérification en cours…";
 
     // ---- where the PC is, kept between runs -----------------------------------------------------------------
 
@@ -204,6 +196,9 @@ public static class RelaySwitch
     /// <summary>The PC's own word, at its last answer, on whether a cut makes it take over. Null: an older PC, or unknown.</summary>
     public static bool? LastArmed { get; private set; }
 
+    /// <summary>The PC offers « Travailler sur le PC de secours » (its last answer).</summary>
+    public static bool LastCanTakeOver { get; private set; }
+
     /// <summary>Said at once when the PC answers « not armed » — no countdown towards a takeover that cannot come.</summary>
     public const string NotReadyLine = "Le PC de secours n'est pas encore prêt : il ne peut pas prendre le relais.";
 
@@ -223,11 +218,35 @@ public static class RelaySwitch
             LastArmed = document.RootElement.TryGetProperty("armed", out var armed) && armed.ValueKind is JsonValueKind.True or JsonValueKind.False
                 ? armed.ValueKind == JsonValueKind.True
                 : null;
+            LastCanTakeOver = document.RootElement.TryGetProperty("canTakeOver", out var offer) && offer.ValueKind == JsonValueKind.True;
             return document.RootElement.TryGetProperty("holding", out var holding) && holding.ValueKind == JsonValueKind.True;
         }
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>« Travailler sur le PC de secours »: true once the PC holds the cabinet's saves. Never throws.</summary>
+    public static async Task<bool> TakeOverAsync(Target target)
+    {
+        try
+        {
+            using var client = Client(target);
+            client.Timeout = TimeSpan.FromSeconds(15); // the PC waits for its own takeover (≤ 10 s)
+            using var body = new StringContent("{}", Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync($"{target.Origin}/api/relay/local/take-over", body);
+            if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return document.RootElement.TryGetProperty("holding", out var holding) && holding.ValueKind == JsonValueKind.True;
+        }
+        catch
+        {
+            return false;
         }
     }
 

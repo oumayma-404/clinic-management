@@ -38,6 +38,12 @@ public sealed class GetRelayBannerQueryHandler : IRequestHandler<GetRelayBannerQ
             return Result<RelayBannerDto?>.Success(RelayBanners.OnThePc(_local.IsHandingBack, _local.CutCause));
         }
 
+        // On the PC, the cloud silent: the strip carries « Travailler sur le PC de secours » (the browser adds the button).
+        if (_local.TakeoverOffered)
+        {
+            return Result<RelayBannerDto?>.Success(RelayBanners.PcOffer);
+        }
+
         var clinicId = await _clinic.GetClinicIdAsync();
         if (clinicId.IsFailure)
         {
@@ -58,6 +64,11 @@ public static class RelayBanners
     public const string CloudReturning = "cloud-returning";
     public const string CloudSilent = "cloud-silent";
     public const string CloudRestoring = "cloud-restoring";
+    public const string PcCanTakeOver = "pc-can-take-over";
+
+    /// <summary>The cloud does not answer and this PC is ready: the strip offers the takeover (manual, 2026-10-12).</summary>
+    public static readonly RelayBannerDto PcOffer = new(PcCanTakeOver, "Internet coupé",
+        "le cloud ne répond pas. Le cabinet peut continuer sur le PC de secours.", true);
 
     /// <summary>A heartbeat this recent from a holding PC means its internet is back (it beats every ~10 s).</summary>
     public static readonly TimeSpan PcBackWithin = TimeSpan.FromSeconds(45);

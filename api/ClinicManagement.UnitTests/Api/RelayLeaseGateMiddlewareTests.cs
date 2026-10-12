@@ -328,21 +328,17 @@ public class RelayLeaseGateMiddlewareTests
 
     // ---- the cloud's fence (D13, D15) ------------------------------------------------------------------------------
 
-    // [AC-6.3] A cabinet whose armed PC has been silent past 60 s: its writes wait, with the sentence and the code.
+    // Manual takeover (owner, 2026-10-12): an armed PC that is silent — asleep, lid closed — no longer locks the cloud.
     [Theory]
     [InlineData("POST")]
     [InlineData("PUT")]
     [InlineData("DELETE")]
-    public async Task A_Cabinet_Write_Is_Refused_While_Its_Armed_Pc_Is_Silent(string method)
+    public async Task A_Cabinet_Write_Passes_While_Its_Armed_Pc_Is_Silent(string method)
     {
         var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, method: method, clinic: ClinicId,
-            relay: ArmedRelay(TimeSpan.FromSeconds(75)));
+            relay: ArmedRelay(TimeSpan.FromHours(14)));
 
-        Assert.False(outcome.ReachedNext);
-        Assert.Equal(StatusCodes.Status423Locked, outcome.Status);
-        using var json = JsonDocument.Parse(outcome.Body);
-        Assert.Equal(RelayRefusals.SilentCode, json.RootElement.GetProperty("code").GetString());
-        Assert.Equal(RelayRefusals.Silent, json.RootElement.GetProperty("error").GetString());
+        Assert.True(outcome.ReachedNext);
     }
 
     [Fact]
@@ -359,7 +355,7 @@ public class RelayLeaseGateMiddlewareTests
     public async Task A_Door_Marked_For_The_Cut_Passes_The_Fence()
     {
         var outcome = await InvokeAsync(DeploymentKind.HostedMultiTenant, clinic: ClinicId,
-            relay: ArmedRelay(TimeSpan.FromMinutes(10)), allowedWhileFenced: true);
+            relay: HoldingRelay(DateTime.UtcNow.AddMinutes(-5)), allowedWhileFenced: true);
 
         Assert.True(outcome.ReachedNext);
     }

@@ -112,6 +112,64 @@ public sealed class RelayLease
     private TimeSpan? _lastExchangeAt;
     private bool _unansweredSinceAck;
 
+    // The current run of unanswered exchanges, on both clocks: a gap longer than StreakGap between two of them (the PC
+    // slept, or the process was paused) starts a new run — a failure from before a sleep says nothing about now.
+    private TimeSpan? _streakStartMono;
+    private TimeSpan? _lastFailMono;
+    private DateTime? _lastFailWall;
+
+    /// <summary>Two unanswered exchanges further apart than this are not one cut (heartbeats run every ~10 s).</summary>
+    public static readonly TimeSpan StreakGap = TimeSpan.FromSeconds(60);
+
+    /// <summary>How long the cloud must stay silent while this PC is AWAKE before the button is offered.</summary>
+    public static readonly TimeSpan SilentAwakeFor = TimeSpan.FromSeconds(20);
+
+    /// <summary>A press of « Travailler sur le PC de secours » older than this is forgotten (the keeper ticks every 5 s).</summary>
+    public static readonly TimeSpan RequestValidFor = TimeSpan.FromSeconds(30);
+
+    private volatile bool _offered;
+    private TimeSpan? _requestedAt;
+
+    /// <summary>The button may be shown: the copy is sound and ready, and the cloud is silent (set by the keeper).</summary>
+    public bool TakeoverOffered => _offered && !IsHolding;
+
+    internal void SetOffered(bool offered)
+    {
+        _offered = offered;
+        if (!offered)
+        {
+            lock (_gate)
+            {
+                _requestedAt = null;
+            }
+        }
+    }
+
+    /// <summary>Somebody pressed the button: the keeper takes over on its next tick if it still may. False if not offered.</summary>
+    public bool RequestTakeover()
+    {
+        lock (_gate)
+        {
+            if (!_offered || _state.HoldingSinceUtc is not null)
+            {
+                return false;
+            }
+
+            _requestedAt = _monotonic();
+            return true;
+        }
+    }
+
+    internal bool TakeTakeoverRequest()
+    {
+        lock (_gate)
+        {
+            var requested = _requestedAt is { } at && _monotonic() - at <= RequestValidFor;
+            _requestedAt = null;
+            return requested;
+        }
+    }
+
     /// <param name="clock">
     /// D20b: the machine clock this PC sets from the cloud's. ⚠️ Null means « never set it » — the default, so that no test
     /// and no tool can move a developer's clock; only the PC de secours's own registration passes the Windows one.
@@ -167,6 +225,33 @@ public sealed class RelayLease
             }
         }
     }
+
+    /// <summary>
+    /// The cloud has been asked and silent for <see cref="SilentAwakeFor"/> of this PC's awake time, the last time only
+    /// moments ago. False after a sleep until the cloud has been asked again — and for 45 s more if it still does not
+    /// answer (prod, 2026-10-12: a laptop woke after 14 h and took the saves before its Wi-Fi had reconnected).
+    /// </summary>
+    public bool SilentLongEnoughAwake
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (!_unansweredSinceAck || _streakStartMono is not { } start || _lastFailMono is not { } lastMono
+                    || _lastFailWall is not { } lastWall)
+                {
+                    return false;
+                }
+
+                var mono = _monotonic();
+                var recent = mono - lastMono <= StreakGap && _utcNow() - lastWall <= StreakGap;
+                return recent && lastMono - start >= SilentAwakeFor - StreakSlack;
+            }
+        }
+    }
+
+    // A run is measured between its first and last failure; heartbeats are ~10 s apart, so allow one interval.
+    private static readonly TimeSpan StreakSlack = TimeSpan.FromSeconds(10);
 
     /// <summary>The lease's monotonic clock — never moved by a wall-clock correction (D20b), so intervals stay true.</summary>
     public TimeSpan Monotonic => _monotonic();
@@ -236,6 +321,16 @@ public sealed class RelayLease
                 lock (_gate)
                 {
                     _unansweredSinceAck = true;
+                    var mono = _monotonic();
+                    var wall = _utcNow();
+                    if (_lastFailMono is not { } lastMono || _lastFailWall is not { } lastWall
+                        || mono - lastMono > StreakGap || wall - lastWall > StreakGap)
+                    {
+                        _streakStartMono = mono;
+                    }
+
+                    _lastFailMono = mono;
+                    _lastFailWall = wall;
                 }
             }
 
@@ -463,6 +558,8 @@ public sealed class RelayLease
             Write(new RelayLeaseState());
             _lastAckAt = null;
             _unansweredSinceAck = false;
+            _streakStartMono = _lastFailMono = null;
+            _lastFailWall = null;
         }
     }
 
@@ -473,6 +570,8 @@ public sealed class RelayLease
             Write(_state with { LastAckSeq = seq, LastAckArmed = armed, LastAckReceivedAtUtc = _utcNow() });
             _lastAckAt = _monotonic();
             _unansweredSinceAck = false;
+            _streakStartMono = _lastFailMono = null;
+            _lastFailWall = null;
         }
     }
 
@@ -599,14 +698,13 @@ public sealed class GatewayBoxProbe : IRelayBoxProbe
 }
 
 /// <summary>
-/// The PC's takeover decision, every few seconds (<c>clinic-pc-copy</c> FR-3, D13). It takes the cabinet's saves when
-/// all of these hold: the copy is seeded and not stopped, the last ack said « armé », the cloud was asked since and did
-/// not answer, and that ack is <see cref="ClinicWriteLease.PcTakesOverAfter"/> old on this PC's clock — box or no box
-/// (a power cut darkens the box too).
+/// The PC's takeover, every few seconds (<c>clinic-pc-copy</c> FR-3, D13). ⚠️ <b>Never on its own</b> (owner,
+/// 2026-10-12): it OFFERS « Travailler sur le PC de secours » when the copy is seeded and not stopped, the last ack said
+/// « armé », the clock is right, and the cloud has been asked and silent for <see cref="RelayLease.SilentAwakeFor"/>
+/// of awake time — box or no box (a power cut darkens the box too). It takes over only once somebody pressed it.
 ///
-/// <para>⚠️ « Asked and not answered » is the condition a clock alone cannot give: a PC that slept, or whose copy tick
-/// was busy, has an old ack without the cloud being gone — and the first heartbeat after it wakes would have been
-/// answered. It only ever makes the takeover later, never earlier, so the cloud has always fenced first.</para>
+/// <para>⚠️ « Asked and not answered, while awake » is what a clock alone cannot give: a laptop that slept 14 h has an
+/// old ack without the cloud being gone (prod, 2026-10-12, when the takeover was still automatic).</para>
 /// </summary>
 public sealed class RelayLeaseKeeper
 {
@@ -620,9 +718,6 @@ public sealed class RelayLeaseKeeper
 
     private readonly Application.Common.Interfaces.IInternetProbe? _internet;
     private TimeSpan? _causeCheckedAt;
-
-    // When the box was last seen silent (this PC off the cabinet's network), on the monotonic clock.
-    private TimeSpan? _boxSilentAt;
 
     public RelayLeaseKeeper(
         RelayLease lease, RelayFollowerStateStore states, IRelayBoxProbe box, ILogger logger,
@@ -685,38 +780,20 @@ public sealed class RelayLeaseKeeper
 
         var ack = _lease.Current;
         // D20b: a PC whose clock is wrong and stays wrong never takes over — its dates would not be the cloud's.
-        if (state.Released || state.ErasedAtUtc is not null || !state.RowsSeeded || state.StoppedReason is not null
-            || ack.ClockError is not null
-            || !ack.LastAckArmed || ack.LastAckReceivedAtUtc is null || !_lease.UnansweredSinceLastAck)
-        {
-            return false;
-        }
-
-        // Asked on every tick of a cut, before the clock is old enough: a short outage must be seen to be remembered.
-        var boxAnswers = await _box.AnswersAsync(cancellationToken);
-        if (!boxAnswers)
-        {
-            _boxSilentAt = _lease.Monotonic;
-        }
-
-        // ⚠️ A PC whose own network came back BEFORE it took over carries « unanswered » left over from its outage; it
-        // must ask the cloud once more — the first prod test took the saves the instant the Wi-Fi returned, internet
-        // working. While the box is still dark there is nobody to ask, and the takeover goes ahead (a power cut).
-        if (boxAnswers && _boxSilentAt is { } silentAt
-            && (_lease.SinceLastExchange is not { } sinceExchange || _lease.Monotonic - sinceExchange <= silentAt))
+        var offered = !state.Released && state.ErasedAtUtc is null && state.RowsSeeded && state.StoppedReason is null
+                      && ack.ClockError is null && ack.LastAckArmed && ack.LastAckReceivedAtUtc is not null
+                      && _lease.UnansweredSinceLastAck && _lease.SilentLongEnoughAwake;
+        _lease.SetOffered(offered);
+        if (!offered || !_lease.TakeTakeoverRequest())
         {
             return false;
         }
 
         var since = _lease.SinceLastAckReceived();
-        if (!ClinicWriteLease.PcMayTakeOver(since, ack.LastAckArmed))
-        {
-            return false;
-        }
-
         _lease.TakeOver();
         await JudgeCauseAsync(cancellationToken);
-        _logger.LogWarning("PC de secours: no answer from the cloud for {Seconds} s — this PC now holds the cabinet's saves.",
+        _logger.LogWarning(
+            "PC de secours: « Travailler sur le PC de secours » pressed, {Seconds} s after the cloud's last answer — this PC now holds the cabinet's saves.",
             (int)since.TotalSeconds);
         return true;
     }

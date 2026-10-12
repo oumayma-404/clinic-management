@@ -16,6 +16,10 @@ public static class RelayStepUpActions
 /// <summary>Each PC de secours refusal: its code and its French sentence, kept together (the client branches on the code).</summary>
 public static class RelayRefusals
 {
+    public const string TakeoverUnavailableCode = "relay_takeover_unavailable";
+    public const string TakeoverUnavailable =
+        "Le PC de secours ne peut pas prendre le relais maintenant : le cloud répond, ou la copie n'est pas prête.";
+
     public const string AlreadyPairedCode = "relay_already_paired";
     public const string PairingCodeExpiredCode = "pairing_code_expired";
     public const string UnknownRelayCode = "relay_unknown";

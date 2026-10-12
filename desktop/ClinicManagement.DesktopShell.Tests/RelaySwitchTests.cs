@@ -55,21 +55,14 @@ public class RelaySwitchTests
         Assert.Null(RelaySwitch.ParseSession("<html>"));
     }
 
-    // AC-3.3 for the first minutes the PC answers without holding yet, AC-3.8 once it plainly never will.
+    // Manual takeover (owner, 2026-10-12): never a countdown to a takeover that will not happen on its own.
     [Fact]
-    public void The_Waiting_Line_Says_It_Is_Coming_Then_That_The_Pc_Was_Not_Ready()
+    public void The_Waiting_Line_Says_Checking_Then_Offers_The_Button_And_Says_Not_Ready_At_Once()
     {
-        var lost = new DateTime(2026, 10, 9, 9, 0, 0, DateTimeKind.Utc);
-
-        // A countdown to the PC's takeover (60 s), in steps of 5 s, then « quelques instants » once it is due.
-        Assert.Equal("Internet coupé — le PC de secours prend le relais dans 60 secondes.",
-            RelaySwitch.WaitingLine(lost, lost));
-        Assert.Equal("Internet coupé — le PC de secours prend le relais dans 35 secondes.",
-            RelaySwitch.WaitingLine(lost, lost.AddSeconds(27)));
-        Assert.Equal("Internet coupé — le PC de secours prend le relais dans quelques instants.",
-            RelaySwitch.WaitingLine(lost, lost.AddSeconds(90)));
-        Assert.Equal("Le PC de secours n'était pas à jour : il ne peut pas prendre le relais.",
-            RelaySwitch.WaitingLine(lost, lost.AddMinutes(3)));
+        Assert.Equal("Le cloud ne répond pas — vérification en cours…", RelaySwitch.WaitingLine(armed: true, canTakeOver: false));
+        Assert.Equal(RelaySwitch.OfferLine, RelaySwitch.WaitingLine(armed: true, canTakeOver: true));
+        Assert.Equal(RelaySwitch.NotReadyLine, RelaySwitch.WaitingLine(armed: false, canTakeOver: false));
+        Assert.Equal("Le cloud ne répond pas — vérification en cours…", RelaySwitch.WaitingLine(armed: null, canTakeOver: false));
     }
 
     // Opened in the browser, the PC would be a login screen behind a certificate warning.

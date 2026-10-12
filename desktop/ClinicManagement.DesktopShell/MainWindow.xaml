@@ -177,9 +177,15 @@
                     <TextBlock x:Name="UnreachableDetail"
                                FontSize="13" Foreground="{DynamicResource ShellInkMuted}" Margin="0,12,0,0"
                                HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
-                    <!-- Retry only (owner, 2026-10-09): changing the server stays behind the right-click menu. -->
-                    <Button Content="Réessayer" Style="{StaticResource ShellPrimaryButton}"
-                            Padding="20,10" Margin="0,28,0,0" HorizontalAlignment="Center" Click="Retry_Click"/>
+                    <!-- Retry only (owner, 2026-10-09): changing the server stays behind the right-click menu.
+                         « Travailler sur le PC de secours » appears only while the PC offers it (manual takeover). -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,28,0,0">
+                        <Button x:Name="TakeOverButton" Content="Travailler sur le PC de secours"
+                                Style="{StaticResource ShellPrimaryButton}" Padding="20,10" Margin="0,0,10,0"
+                                Visibility="Collapsed" Click="TakeOver_Click"/>
+                        <Button Content="Réessayer" Style="{StaticResource ShellButton}"
+                                Padding="20,10" Click="Retry_Click"/>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Grid>

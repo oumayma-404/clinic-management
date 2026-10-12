@@ -28,4 +28,10 @@ public interface IRelayLocalStatus
 
     /// <summary>Its last answer from the cloud said « armé »: a cut now would make it take over. Null when unknown.</summary>
     bool? IsArmed => null;
+
+    /// <summary>« Travailler sur le PC de secours » may be offered: the copy is ready and the cloud is silent.</summary>
+    bool TakeoverOffered => false;
+
+    /// <summary>The button was pressed: the PC takes over within seconds if it still may. False when not offered.</summary>
+    bool RequestTakeover() => false;
 }

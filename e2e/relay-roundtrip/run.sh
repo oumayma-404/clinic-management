@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # relay-roundtrip — clinic-pc-copy D26, FR-10: a cloud and its PC de secours, the cabinet's network cut, work on both
-# sides, the network back. Asserts « never both writable », note numbers continuous, both copies equal, and
+# sides, the network back. Asserts the manual takeover (the cloud stays writable on silence, the PC waits for
+# « Travailler sur le PC de secours », then takes the saves), note numbers continuous, both copies equal, and
 # `reconcile-money` exit 0 on both.
 #
 # Everything runs in containers built from api/Dockerfile: the cloud (HostedMultiTenant) on networks cloudnet +
@@ -172,25 +173,24 @@ drive login pc
 step "cut the cabinet's network (docker network disconnect)"
 CUT=$(node -e 'console.log(Date.now())')
 docker network disconnect $P-cabinet $P-cloud
-drive probe 150 /e2e/relay-roundtrip/.out/probe.json
-pc_holding || fail "150 s after the cut the PC still does not hold the cabinet's saves"
+# Manual takeover: for as long as nobody presses the button, the PC refuses and the cloud keeps recording.
+drive probe 60 /e2e/relay-roundtrip/.out/probe-before.json
+pc_not_holding || fail "the PC took over on its own"
+drive offered 60
+drive take-over
+pc_holding || fail "the button was pressed and the PC does not hold the cabinet's saves"
+drive probe 20 /e2e/relay-roundtrip/.out/probe-after.json
 
-CUT=$CUT PROBE="$OUT/probe.json" node -e '
-  const s = require(process.env.PROBE), cut = Number(process.env.CUT)
+BEFORE="$OUT/probe-before.json" AFTER="$OUT/probe-after.json" node -e '
+  const before = require(process.env.BEFORE), after = require(process.env.AFTER)
   const ok = (x) => x.status >= 200 && x.status < 300
-  const cloudOk = s.filter((x) => x.side === "cloud" && ok(x)).map((x) => x.t)
-  const pcOk = s.filter((x) => x.side === "pc" && ok(x)).map((x) => x.t)
-  const fenced = s.find((x) => x.side === "cloud" && x.status === 423)
-  const fail = (m) => { console.log("::error title=never both writable::" + m); process.exit(1) }
-  if (!pcOk.length) fail("the PC never accepted a save during the cut")
-  if (!fenced) fail("the cloud never refused a save during the cut")
-  const lastCloud = cloudOk.length ? Math.max(...cloudOk) : 0, firstPc = Math.min(...pcOk)
-  if (lastCloud >= firstPc) fail(`the cloud accepted a save at +${(lastCloud - cut) / 1000}s, after the PC took the first at +${(firstPc - cut) / 1000}s`)
-  // The cloud fences 45 s after the last ack the PC confirmed, which can be ~20 s older than the cut itself.
-  if (fenced.t - cut < 20000) fail(`the cloud fenced only ${(fenced.t - cut) / 1000}s after the cut`)
-  const late = s.filter((x) => x.side === "cloud" && x.t > fenced.t && ok(x))
-  if (late.length) fail(`the cloud accepted ${late.length} save(s) after it had fenced`)
-  console.log(`  ✓ never both writable: cloud last accepted +${lastCloud ? (lastCloud - cut) / 1000 : "—"}s, fenced +${(fenced.t - cut) / 1000}s (${fenced.code}), PC first accepted +${(firstPc - cut) / 1000}s`)
+  const fail = (m) => { console.log("::error title=manual takeover::" + m); process.exit(1) }
+  const pcBefore = before.filter((x) => x.side === "pc" && ok(x))
+  if (pcBefore.length) fail(`the PC accepted ${pcBefore.length} save(s) before anybody pressed the button`)
+  if (before.some((x) => x.side === "cloud" && x.status === 423)) fail("the cloud locked on silence alone")
+  if (!before.some((x) => x.side === "cloud" && ok(x))) fail("the cloud stopped recording during the cut")
+  if (!after.some((x) => x.side === "pc" && ok(x))) fail("the PC accepted nothing after the press")
+  console.log("  ✓ manual takeover: the cloud kept recording, the PC waited for the press, then took the saves")
 '
 
 step "work on the PC during the cut"

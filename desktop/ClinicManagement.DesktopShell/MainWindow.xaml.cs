@@ -643,10 +643,9 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var waiting = RelaySwitch.LastArmed == false
-                ? RelaySwitch.NotReadyLine
-                : RelaySwitch.WaitingLine(_cloudLostAtUtc.Value, now);
+            var waiting = RelaySwitch.WaitingLine(RelaySwitch.LastArmed, RelaySwitch.LastCanTakeOver);
             ShowUnreachable(holding == false ? waiting + "\n\n" + detail : detail);
+            TakeOverButton.Visibility = holding == false && RelaySwitch.LastCanTakeOver ? Visibility.Visible : Visibility.Collapsed;
             StartRelayTimer(null);
         }
         catch
@@ -1320,6 +1319,7 @@ public partial class MainWindow : Window
 
     private void ShowUnreachable(string detail)
     {
+        TakeOverButton.Visibility = Visibility.Collapsed;
         UnreachableDetail.Text = detail;
         UnreachablePanel.Visibility = Visibility.Visible;
         WebView.Visibility = Visibility.Collapsed;
@@ -1344,6 +1344,32 @@ public partial class MainWindow : Window
 
     /// <summary>« Serveur du cabinet » -- the clinic's own PC, whose address only the clinic knows.</summary>
     private void ChooseLocal_Click(object sender, RoutedEventArgs e) => ShowServerConfig();
+
+    /// <summary>« Travailler sur le PC de secours » (manual takeover): the PC takes over, then the window moves there.</summary>
+    private async void TakeOver_Click(object sender, RoutedEventArgs e)
+    {
+        if (RelaySwitch.Current is not { } pc)
+        {
+            return;
+        }
+
+        TakeOverButton.IsEnabled = false;
+        try
+        {
+            if (await RelaySwitch.TakeOverAsync(pc))
+            {
+                _navigatingToPc = true;
+                WebView.CoreWebView2.Navigate(pc.Origin + "/");
+                return;
+            }
+
+            UnreachableDetail.Text = "Le PC de secours n'a pas pu prendre le relais. Réessayez dans quelques secondes.";
+        }
+        finally
+        {
+            TakeOverButton.IsEnabled = true;
+        }
+    }
 
     private async void Retry_Click(object sender, RoutedEventArgs e)
     {

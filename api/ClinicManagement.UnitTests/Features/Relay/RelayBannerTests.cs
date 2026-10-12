@@ -108,19 +108,20 @@ public class RelayBannerTests
         Assert.False(banner.Warning);
     }
 
+    // Manual takeover: a silent PC no longer locks the cloud, so the cloud shows no strip at all for it.
     [Fact]
-    public void A_Silent_Pc_Is_Named_With_The_Lock_And_The_Way_Back()
+    public void A_Silent_Pc_Shows_No_Strip_On_The_Cloud()
     {
-        var relay = ArmedThenSilent();
-        var now = T0.AddMinutes(5);
-        Assert.True(ClinicWriteLease.IsCloudFenced(relay, now));
+        Assert.Null(RelayBanners.OnTheCloud(ArmedThenSilent(), T0.AddHours(5)));
+    }
 
-        var banner = RelayBanners.OnTheCloud(relay, now);
-
-        Assert.NotNull(banner);
-        Assert.Equal(RelayBanners.CloudSilent, banner!.Kind);
-        Assert.Equal("Le PC de secours ne répond plus depuis 10:00", banner.Title);
-        Assert.Contains("Reprendre la main", banner.Detail);
+    // On the PC itself, the cloud silent and the copy ready: the strip that carries the button.
+    [Fact]
+    public void The_Offer_Strip_Is_A_Warning_Saying_Internet_Coupe()
+    {
+        Assert.Equal(RelayBanners.PcCanTakeOver, RelayBanners.PcOffer.Kind);
+        Assert.Equal("Internet coupé", RelayBanners.PcOffer.Title);
+        Assert.True(RelayBanners.PcOffer.Warning);
     }
 
     [Fact]
