@@ -147,7 +147,14 @@ export const RELAY_CARD_ID = "pc-de-secours";
  * shows alone, `detail` follows on wider screens. `warning` is false for the « on its way back » kinds.
  */
 export interface RelayBannerDto {
-  kind: 'pc-holding' | 'pc-returning' | 'cloud-on-relay' | 'cloud-returning' | 'cloud-silent' | 'cloud-restoring'
+  kind:
+    | 'pc-holding'
+    | 'pc-returning'
+    | 'pc-can-take-over'
+    | 'cloud-on-relay'
+    | 'cloud-returning'
+    | 'cloud-silent'
+    | 'cloud-restoring'
   title: string
   detail: string
   warning: boolean
@@ -162,6 +169,9 @@ export const relayApi = {
 
   /** ⚠️ A 404 means this deployment has no PC de secours at all; any other failure is a retryable read (AC-2.4). */
   status: () => apiGet<RelayStatusDto>('/relay/status'),
+
+  /** « Travailler sur le PC de secours », on the PC itself: 409 `relay_takeover_unavailable` once no longer offered. */
+  takeOver: () => apiPost<{ holding: boolean }>('/relay/local/take-over', {}),
 
   /** On the PC de secours itself (AC-8.1): still following, or retired since a day. 404 on every other install. */
   local: () => apiGet<RelayLocalStatusDto>('/relay/local'),

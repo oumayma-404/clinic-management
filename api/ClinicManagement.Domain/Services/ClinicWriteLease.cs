@@ -4,7 +4,14 @@ using ClinicManagement.Domain.Enums;
 namespace ClinicManagement.Domain.Services;
 
 /// <summary>
-/// Who may record a cabinet's work: the cloud, or its PC de secours — never both (<c>clinic-pc-copy</c> FR-3, D13, D14).
+/// Who may record a cabinet's work: the cloud, or its PC de secours (<c>clinic-pc-copy</c> FR-3, D13, D14).
+///
+/// <para>⚠️ <b>Manual takeover since 2026-10-12 (owner)</b>: the PC takes over only when somebody in the cabinet presses
+/// « Travailler sur le PC de secours », which is offered only while the cloud does not answer. The cloud no longer locks
+/// on silence — a laptop asleep or a closed lid locked the whole cabinet's cloud overnight. It refuses saves only once
+/// the PC has said it holds them (and during a restore's gap). A save made on the cloud during a cut is never lost: at
+/// the return the cloud's version is kept and the PC's is listed « À vérifier ». Numbers stay unique through D16 (the
+/// PC must confirm every number the cloud gives while it may take over).</para>
 ///
 /// <para><b>The fence is a predicate, never a flag a job flips</b>, so nothing can be late. Each side measures elapsed
 /// time on its own clock from one exchange, so the two wall clocks never need to agree:</para>
@@ -51,30 +58,8 @@ public static class ClinicWriteLease
 
         // The PC said it holds the cabinet's saves: nothing about the acks can make the cloud writable again until the
         // PC hands the cut's work back (D18). A heartbeat arriving once the line heals is no evidence the PC let go.
-        if (relay.PcHoldingSinceUtc is not null)
-        {
-            return true;
-        }
-
-        if (!relay.MayBeArmed)
-        {
-            return false;
-        }
-
-        // « Reprendre la main » (D19): no ack sent up to the reclaim arms the PC any more.
-        var armedFrom = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
-        if (armedFrom <= relay.ReclaimedAtAckSeq)
-        {
-            return false;
-        }
-
-        if (nowUtc.Ticks < relay.LastAckSeq - ClockStepTolerance.Ticks)
-        {
-            return true;
-        }
-
-        var anchor = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
-        return nowUtc.Ticks - anchor > CloudFencesAfter.Ticks;
+        // Silence alone never locks the cloud any more (manual takeover): a PC asleep is not a PC in charge.
+        return relay.PcHoldingSinceUtc is not null;
     }
 
     /// <summary>
@@ -88,24 +73,8 @@ public static class ClinicWriteLease
             return null;
         }
 
-        if (relay!.PcHoldingSinceUtc is { } holding)
-        {
-            return holding;
-        }
-
-        var anchor = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
-        var since = new DateTime(Math.Min(anchor + CloudFencesAfter.Ticks, nowUtc.Ticks), DateTimeKind.Utc);
-        return since;
+        return relay!.PcHoldingSinceUtc ?? relay.GapPendingSinceUtc ?? nowUtc;
     }
-
-    /// <summary>
-    /// The PC may take the cabinet's saves: its last ack said « armé » and that ack is <see cref="PcTakesOverAfter"/> old
-    /// on the PC's own clock. ⚠️ Box or no box (owner, 2026-10-09): a power cut darkens the box too, and a laptop on
-    /// battery must keep working. The cloud has fenced first either way; a cut the cabinet's devices overrule ends in
-    /// « À reprendre », never in lost work.
-    /// </summary>
-    public static bool PcMayTakeOver(TimeSpan sinceLastAckReceived, bool lastAckArmed) =>
-        lastAckArmed && sinceLastAckReceived >= PcTakesOverAfter;
 
     /// <summary>
     /// How long ago the PC received its last ack, never over-counted. An ack received by this process is timed on the

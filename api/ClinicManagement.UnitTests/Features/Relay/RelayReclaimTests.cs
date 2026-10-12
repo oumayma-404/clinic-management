@@ -39,20 +39,6 @@ public class RelayReclaimTests
 
     // ---- the domain ------------------------------------------------------------------------------------------------
 
-    [Fact]
-    public void A_Reclaim_Frees_A_Cloud_Locked_By_A_Silent_Pc()
-    {
-        var relay = ArmedThenSilent();
-        var now = T0.AddMinutes(10);
-        Assert.True(ClinicWriteLease.IsCloudFenced(relay, now));
-
-        relay.Reclaim("local|admin", now);
-
-        Assert.False(ClinicWriteLease.IsCloudFenced(relay, now));
-        Assert.False(ClinicWriteLease.IsCloudFenced(relay, now.AddHours(5)));
-        Assert.Null(ClinicWriteLease.LockedSinceUtc(relay, now));
-    }
-
     // The PC's word that it holds the saves is set aside too: that is the whole point of « Reprendre la main ».
     [Fact]
     public void A_Reclaim_Frees_A_Cloud_Whose_Pc_Said_It_Holds_The_Saves()
@@ -97,8 +83,7 @@ public class RelayReclaimTests
         var newAck = relay.IssueAck(armed: true, back);
         relay.RecordAckConfirmation(newAck, armed: true);
 
-        Assert.False(ClinicWriteLease.IsCloudFenced(relay, back.AddSeconds(30)));
-        Assert.True(ClinicWriteLease.IsCloudFenced(relay, back.AddSeconds(61)));
+        Assert.False(ClinicWriteLease.IsCloudFenced(relay, back.AddMinutes(30))); // silence never locks (manual takeover)
 
         var later = Beat(holding: true, since: back.AddMinutes(2), underAck: newAck);
         Assert.False(relay.IsOverruledHolding(later));
@@ -107,11 +92,11 @@ public class RelayReclaimTests
     }
 
     [Fact]
-    public void The_Lock_Starts_Sixty_Seconds_After_The_Confirmed_Ack_Or_At_The_Pcs_Own_Takeover()
+    public void The_Lock_Starts_At_The_Pcs_Own_Takeover_And_Never_On_Silence()
     {
         var silent = ArmedThenSilent();
-        Assert.Equal(T0 + ClinicWriteLease.CloudFencesAfter, ClinicWriteLease.LockedSinceUtc(silent, T0.AddMinutes(5)));
-        Assert.Null(ClinicWriteLease.LockedSinceUtc(silent, T0.AddSeconds(30)));
+        Assert.Null(ClinicWriteLease.LockedSinceUtc(silent, T0.AddMinutes(5)));
+        Assert.Null(ClinicWriteLease.LockedSinceUtc(silent, T0.AddHours(14)));
 
         var holding = ArmedThenSilent();
         holding.RecordHeartbeat(Beat(holding: true, since: T0.AddMinutes(2), underAck: holding.LastAckSeq), 10, T0.AddMinutes(3));
@@ -143,13 +128,14 @@ public class RelayReclaimTests
 
     private static User Admin() => User.CreateLocalUser(ClinicId, User.RoleAdmin, "admin@cabinet.tn", "hash", "Salma B.");
 
-    /// <summary>A PC armed by an ack sent ten minutes ago and silent since — the cloud is locked now.</summary>
+    /// <summary>A PC armed ten minutes ago that then said it holds the saves, and fell silent — the cloud is locked now.</summary>
     private static ClinicRelay LockedNow()
     {
         var sent = DateTime.UtcNow.AddMinutes(-10);
         var (relay, _) = ClinicRelay.BeginPairing(ClinicId, "PC-ACCUEIL", "local|admin", sent.AddDays(-1));
         relay.Pair("PC-ACCUEIL", "key", null, null, "build-1", sent.AddDays(-1));
         relay.RecordAckConfirmation(relay.IssueAck(armed: true, sent), armed: true);
+        relay.RecordHeartbeat(Beat(holding: true, since: sent.AddMinutes(1), underAck: relay.LastAckSeq), 10, sent.AddMinutes(2));
         return relay;
     }
 
@@ -204,38 +190,33 @@ public class RelayReclaimTests
     public void A_Locked_Cabinets_Status_Carries_The_Lock_And_AC_7_1s_Warning()
     {
         var relay = ArmedThenSilent();
-        var now = T0.AddMinutes(10);
+        var free = GetRelayStatusQueryHandler.ToDto(relay, T0.AddMinutes(10));
+        Assert.False(free.CloudLocked);
+        Assert.Null(free.ReclaimWarning);
 
+        relay.RecordHeartbeat(Beat(holding: true, since: T0, underAck: relay.LastAckSeq), 10, T0.AddMinutes(1));
+        var now = T0.AddMinutes(10);
         var status = GetRelayStatusQueryHandler.ToDto(relay, now);
 
         Assert.True(status.CloudLocked);
-        Assert.False(status.PcHolding);
-        Assert.Equal(T0 + ClinicWriteLease.CloudFencesAfter, status.LockedSinceUtc);
+        Assert.True(status.PcHolding);
+        Assert.Equal(T0, status.LockedSinceUtc);
         Assert.Equal(
             "Ce que le cabinet a enregistré sur PC-ACCUEIL depuis 10:00 ne partira pas dans le cloud : il faudra le saisir "
             + "à nouveau, et les numéros de notes émis sur ce PC seront en double. Appelez le cabinet avant de continuer.",
             status.ReclaimWarning);
 
-        Assert.Equal("Le PC de secours ne répond plus depuis 10:00 : le cloud refuse les enregistrements du cabinet.",
+        Assert.Equal("Le cabinet travaille sur le PC de secours depuis 10:00 : ici, le cloud est en lecture seule.",
             status.LockSentence);
-
-        var free = GetRelayStatusQueryHandler.ToDto(relay, T0.AddSeconds(30));
-        Assert.False(free.CloudLocked);
-        Assert.Null(free.ReclaimWarning);
     }
 
-    // AC-6.4: told at once and at any hour, in place of « éteint »; never while the PC holds the saves (that is a cut).
+    // Manual takeover: a silent armed PC no longer locks the cloud, so there is no « injoignable » lock to report.
     [Fact]
-    public void A_Silent_Armed_Pc_Raises_Its_Own_Bell_Row_At_Once()
+    public void A_Silent_Armed_Pc_Raises_No_Lock_Row()
     {
-        var relay = ArmedThenSilent();
-        var now = T0.AddMinutes(2);
+        var rows = RelayAlertRules.Wanted(ArmedThenSilent(), null, Array.Empty<RelayAlert>(), T0.AddMinutes(2));
 
-        var rows = RelayAlertRules.Wanted(relay, null, Array.Empty<RelayAlert>(), now);
-
-        var row = Assert.Single(rows);
-        Assert.Equal(RelayAlert.Silent, row.Alert);
-        Assert.StartsWith("Le PC de secours ne répond plus depuis 10:00", row.Message);
+        Assert.DoesNotContain(rows, r => r.Alert == RelayAlert.Silent);
     }
 
     [Fact]

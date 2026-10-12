@@ -165,10 +165,12 @@ public class RelayFenceTests
         return relay;
     }
 
+    // Manual takeover (owner, 2026-10-12): an armed PC fallen silent never makes the cloud refuse — however long.
     [Theory]
-    [InlineData(75, true)]
+    [InlineData(75, false)]
     [InlineData(20, false)]
-    public async Task The_Cloud_Fences_A_Cabinet_Whose_Armed_Pc_Fell_Silent(int secondsAgo, bool expected)
+    [InlineData(50400, false)]
+    public async Task The_Cloud_Never_Fences_A_Cabinet_Whose_Armed_Pc_Fell_Silent(int secondsAgo, bool expected)
     {
         var relays = new Mock<IClinicRelayRepository>();
         relays.Setup(r => r.GetCurrentForClinicAsync(ClinicId, It.IsAny<CancellationToken>()))

@@ -200,11 +200,21 @@
                 android:textColor="@color/shell_ink_muted"
                 android:textSize="13sp" />
 
+            <!-- Shown only while the PC de secours offers it (manual takeover, owner 2026-10-12). -->
+            <Button
+                android:id="@+id/unreachable_take_over"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:minHeight="48dp"
+                android:visibility="gone"
+                android:text="@string/unreachable_take_over" />
+
             <Button
                 android:id="@+id/unreachable_retry"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="8dp"
                 android:minHeight="48dp"
                 android:text="@string/unreachable_retry" />
         </LinearLayout>

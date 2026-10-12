@@ -6,9 +6,9 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Domain;
 
 /// <summary>
-/// Who may record a cabinet's work (<c>clinic-pc-copy</c> FR-3, D13, D14). The simulation comes first because it is
-/// the property the whole of Part 2 rests on — the cloud and the PC are never both writable — tried over hundreds of
-/// lossy lines; the cases after it pin each rule the property is made of.
+/// Who may record a cabinet's work (<c>clinic-pc-copy</c> FR-3, D13, D14). Since the takeover became manual (owner,
+/// 2026-10-12) the cloud locks only on the PC's word that it holds the saves — never on silence — and numbers stay
+/// unique through D16. The lossy-line simulation of « never both writable » went with the automatic takeover it tested.
 /// </summary>
 public class ClinicWriteLeaseTests
 {
@@ -24,125 +24,35 @@ public class ClinicWriteLeaseTests
 
     private static bool Fenced(ClinicRelay relay, DateTime now) => ClinicWriteLease.IsCloudFenced(relay, now);
 
-    // ---- never both writable --------------------------------------------------------------------------------------
+    // ---- manual takeover (owner, 2026-10-12) ------------------------------------------------------------------
 
-    /// <summary>
-    /// How the line behaves after the cut: nothing, the answers lost, the requests lost, coin flips — or a cut of two to
-    /// four minutes that then heals, with the PC already in charge and still talking.
-    /// </summary>
-    public enum Line { Cut, AnswersLost, RequestsLost, Flaky, Heals }
-
-    public static IEnumerable<object[]> Lines() =>
-        from line in Enum.GetValues<Line>()
-        from seed in Enumerable.Range(0, 60)
-        select new object[] { line, seed };
-
-    /// <summary>
-    /// The PC heartbeats every ~10 s; each request and each answer may be lost or delayed (≤ 2 s each way); an exchange
-    /// with no answer after 15 s counts as unanswered. The cloud confirms, records and acks in the real handler's order,
-    /// arming most acks. From a random moment the line degrades. Every 100 ms: the cloud is writable unless fenced; the
-    /// PC holds once its takeover rule fires — armed, asked and not answered, 60 s since its last ack — and, holding,
-    /// keeps heartbeating « je tiens les enregistrements », so on a line that heals the cloud hears it. They are never
-    /// both writable.
-    /// </summary>
+    // A laptop asleep, a closed lid, a dead PC: silence alone never locks the cloud any more — however long, armed or not.
     [Theory]
-    [MemberData(nameof(Lines))]
-    public void The_Cloud_And_The_Pc_Are_Never_Both_Writable(Line line, int seed)
+    [InlineData(0)]
+    [InlineData(61)]
+    [InlineData(14 * 3600)]
+    public void Silence_Alone_Never_Locks_The_Cloud(int secondsLater)
     {
-        var random = new Random(seed * 31 + (int)line);
         var relay = NewRelay();
-        var degradeAt = TimeSpan.FromSeconds(30 + random.Next(0, 600));
-        var healAt = line == Line.Heals ? degradeAt + TimeSpan.FromSeconds(120 + random.Next(0, 120)) : TimeSpan.MaxValue;
-        var end = degradeAt + TimeSpan.FromMinutes(line == Line.Heals ? 8 : 5);
+        relay.RecordAckConfirmation(relay.IssueAck(armed: true, T0), armed: true);
+        relay.IssueAck(armed: true, T0.AddSeconds(10));
 
-        long pcAckSeq = 0;
-        var pcAckArmed = false;
-        TimeSpan? pcAckReceivedAt = null;
-        TimeSpan? pcHoldsSince = null;
-        var pcUnanswered = false;
-        var nextHeartbeat = TimeSpan.Zero;
+        Assert.False(Fenced(relay, T0.AddSeconds(secondsLater)));
+        Assert.Null(ClinicWriteLease.LockedSinceUtc(relay, T0.AddSeconds(secondsLater)));
+        // …while the numbers still wait for the PC's word (D16), so a number is never issued twice.
+        Assert.True(ClinicWriteLease.PcMustConfirmNumbers(relay));
+    }
 
-        // Exchanges: when the PC asked, when the cloud receives it (null when lost), when the answer arrives (null when
-        // lost), what the PC confirmed, and whether it said it holds.
-        var exchanges = new List<(int Id, TimeSpan SentAt, TimeSpan? AtCloud, TimeSpan? AnswerAt, long Confirmed,
-            bool ConfirmedArmed, bool Holding)>();
-        var answers = new Dictionary<int, (long Seq, bool Armed)>();
-        var settled = new HashSet<int>();
-        var exchange = 0;
+    // Once the PC said it holds the saves (the button was pressed), the cloud is locked from the PC's own moment.
+    [Fact]
+    public void The_Cloud_Locks_Only_Once_The_Pc_Said_It_Holds()
+    {
+        var relay = NewRelay();
+        relay.RecordAckConfirmation(relay.IssueAck(armed: true, T0), armed: true);
+        relay.RecordHeartbeat(Beat(holding: true, since: T0.AddMinutes(3)), 10, T0.AddMinutes(4));
 
-        for (var t = TimeSpan.Zero; t <= end; t += TimeSpan.FromMilliseconds(100))
-        {
-            var degraded = t >= degradeAt && t < healAt;
-
-            if (t >= nextHeartbeat)
-            {
-                var requestArrives = !degraded
-                    ? random.NextDouble() < 0.95
-                    : line switch { Line.AnswersLost => true, Line.Flaky => random.NextDouble() < 0.5, _ => false };
-                var answerArrives = !degraded
-                    ? random.NextDouble() < 0.95
-                    : line == Line.Flaky && random.NextDouble() < 0.5;
-                TimeSpan? atCloud = requestArrives ? t + TimeSpan.FromMilliseconds(random.Next(0, 2000)) : null;
-                TimeSpan? answerAt = atCloud is { } c && answerArrives ? c + TimeSpan.FromMilliseconds(random.Next(0, 2000)) : null;
-                exchanges.Add((++exchange, t, atCloud, answerAt, pcAckSeq, pcAckArmed, pcHoldsSince is not null));
-                nextHeartbeat = t + TimeSpan.FromMilliseconds(10_000 + random.Next(-500, 500));
-            }
-
-            foreach (var x in exchanges.Where(x => x.AtCloud is { } c && c <= t && !answers.ContainsKey(x.Id)).ToList())
-            {
-                // The real handler's order, in one save: what the PC holds, what it reports, then the new ack.
-                relay.RecordAckConfirmation(x.Confirmed, x.ConfirmedArmed);
-                if (x.Holding)
-                {
-                    relay.RecordHeartbeat(new RelayHeartbeat(10, 100, true, 0, 0, null, false, "build-1", null, null, null, null,
-                        Holding: true, HoldingSinceUtc: T0 + pcHoldsSince), 10, T0 + x.AtCloud!.Value);
-                }
-
-                var armed = random.NextDouble() < 0.9;
-                answers[x.Id] = (relay.IssueAck(armed, T0 + x.AtCloud!.Value), armed);
-            }
-
-            foreach (var x in exchanges.Where(x => !settled.Contains(x.Id)).ToList())
-            {
-                if (x.AnswerAt is { } at && at <= t && at - x.SentAt <= TimeSpan.FromSeconds(15) && answers.ContainsKey(x.Id))
-                {
-                    settled.Add(x.Id);
-                    if (answers[x.Id].Seq > pcAckSeq)
-                    {
-                        (pcAckSeq, pcAckArmed, pcAckReceivedAt) = (answers[x.Id].Seq, answers[x.Id].Armed, at);
-                        pcUnanswered = false;
-                    }
-                }
-                else if (t - x.SentAt > TimeSpan.FromSeconds(15))
-                {
-                    settled.Add(x.Id);
-                    pcUnanswered = true;
-                }
-            }
-
-            if (pcHoldsSince is null && pcUnanswered && pcAckReceivedAt is { } received
-                && ClinicWriteLease.PcMayTakeOver(t - received, pcAckArmed))
-            {
-                pcHoldsSince = t;
-            }
-
-            var pcHolds = pcHoldsSince is not null;
-
-            var cloudWritable = !Fenced(relay, T0 + t);
-            Assert.False(cloudWritable && pcHolds, $"Both writable at {t} on a {line} line (seed {seed}).");
-        }
-
-        // Not trivially safe: on a line that dies after an armed answer, the PC does take over.
-        if (line == Line.Cut && pcAckArmed)
-        {
-            Assert.True(pcHoldsSince is not null, $"An armed PC on a dead line never took over (seed {seed}).");
-        }
-
-        // And on a line that healed, the cloud heard it: it is fenced on the PC's word, not on a clock.
-        if (line == Line.Heals && pcHoldsSince is not null)
-        {
-            Assert.NotNull(relay.PcHoldingSinceUtc);
-        }
+        Assert.True(Fenced(relay, T0.AddMinutes(4)));
+        Assert.Equal(T0.AddMinutes(3), ClinicWriteLease.LockedSinceUtc(relay, T0.AddMinutes(4)));
     }
 
     // ---- the PC in charge (D13) ------------------------------------------------------------------------------------
@@ -233,31 +143,7 @@ public class ClinicWriteLeaseTests
         Assert.False(Fenced(relay, T0.AddHours(3)));
     }
 
-    // [D14] Until the PC has CONFIRMED the disarm, it may still hold the armed ack before it.
-    [Fact]
-    public void A_Disarm_Counts_Only_Once_The_Pc_Confirmed_It()
-    {
-        var relay = NewRelay();
-        relay.RecordAckConfirmation(relay.IssueAck(armed: true, T0), armed: true);
-        relay.IssueAck(armed: false, T0.AddSeconds(10));
-
-        Assert.True(Fenced(relay, T0.AddSeconds(61)));
-    }
-
     // ---- the cloud's clock ----------------------------------------------------------------------------------------
-
-    [Fact]
-    public void The_Cloud_Fences_Forty_Five_Seconds_After_It_Sent_The_Ack_The_Pc_Confirmed()
-    {
-        var relay = NewRelay();
-        relay.RecordAckConfirmation(relay.IssueAck(armed: true, T0), armed: true);
-        // Heartbeats keep arriving, but every answer is lost: the PC keeps confirming the same ack.
-        relay.IssueAck(armed: true, T0.AddSeconds(10));
-        relay.IssueAck(armed: true, T0.AddSeconds(20));
-
-        Assert.False(Fenced(relay, T0.AddSeconds(45)));
-        Assert.True(Fenced(relay, T0.AddSeconds(45.1)));
-    }
 
     [Fact]
     public void Nothing_Fences_A_Cabinet_Whose_Pc_Was_Never_Armed_Or_Is_Retired_Or_Absent()
@@ -271,20 +157,6 @@ public class ClinicWriteLeaseTests
         Assert.False(Fenced(neverArmed, T0.AddHours(1)));
         Assert.False(Fenced(retired, T0.AddHours(1)));
         Assert.False(ClinicWriteLease.IsCloudFenced(null, T0.AddHours(1)));
-    }
-
-    // A PC coming back after a stand-down is armed again with no false fence: the clock starts at the first armed ack
-    // sent since what it confirmed, not at that (hours-old) confirmation.
-    [Fact]
-    public void A_Pc_Rearmed_After_A_Stand_Down_Is_Not_Fenced_By_Its_Old_Confirmation()
-    {
-        var relay = NewRelay();
-        relay.RecordAckConfirmation(relay.IssueAck(armed: false, T0), armed: false);
-
-        relay.IssueAck(armed: true, T0.AddHours(2));
-
-        Assert.False(Fenced(relay, T0.AddHours(2).AddSeconds(5)));
-        Assert.True(Fenced(relay, T0.AddHours(2).AddSeconds(61)));
     }
 
     // The silence clock may only move forward, and only to an ack the cloud really sent.
@@ -316,27 +188,7 @@ public class ClinicWriteLeaseTests
         Assert.True(b > a && c > b);
     }
 
-    // A cloud clock that went back behind an ack it already sent counts as silence — « too long », never « not yet ».
-    [Fact]
-    public void A_Cloud_Clock_That_Went_Back_Fences_And_A_Jitter_Does_Not()
-    {
-        var relay = NewRelay();
-        relay.RecordAckConfirmation(relay.IssueAck(armed: true, T0), armed: true);
-
-        Assert.False(Fenced(relay, T0.AddMilliseconds(-500)));
-        Assert.True(Fenced(relay, T0.AddSeconds(-30)));
-    }
-
     // ---- the PC's rule and the arming rule ------------------------------------------------------------------------
-
-    [Theory]
-    [InlineData(60, true, true)]
-    [InlineData(59.9, true, false)]
-    [InlineData(600, false, false)]   // AC-3.8: its last ack did not arm it
-    public void The_Pc_Takes_Over_Only_Armed_And_On_Time(double seconds, bool armed, bool expected)
-    {
-        Assert.Equal(expected, ClinicWriteLease.PcMayTakeOver(TimeSpan.FromSeconds(seconds), armed));
-    }
 
     private static ClinicRelay ReadyRelay(DateTime now)
     {

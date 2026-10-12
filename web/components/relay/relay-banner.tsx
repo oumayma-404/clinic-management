@@ -3,6 +3,9 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { usePathname } from "next/navigation"
 import { CloudOff, RefreshCw, ServerCog, WifiOff } from "lucide-react"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
 
 import { ApiError, onRelayRefused } from "@/lib/api/client"
 import { relayApi, type RelayBannerDto } from "@/lib/api/relay"
@@ -52,7 +55,7 @@ export function RelayBanner() {
         <div
           className={cn(
             // One line on a desk; the title alone on a phone, the detail on a second line from `sm:` (spec § Device).
-            "flex shrink-0 items-center gap-x-3 border-b px-4 py-2 text-sm md:px-6 print:hidden",
+            "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2 text-sm md:px-6 print:hidden",
             banner.warning ? "border-warning/30 bg-warning-wash text-foreground" : "border-border bg-muted text-foreground",
           )}
           data-relay-banner={banner.kind}
@@ -62,9 +65,35 @@ export function RelayBanner() {
             <span className="font-medium">{banner.title}</span>
             <span className="hidden sm:inline"> — {banner.detail}</span>
           </p>
+          {banner.kind === "pc-can-take-over" && <TakeOverButton />}
         </div>
       )}
     </>
+  )
+}
+
+/** Manual takeover (owner, 2026-10-12): the PC never takes the cabinet's saves until somebody presses this. */
+function TakeOverButton() {
+  const [busy, setBusy] = useState(false)
+  return (
+    <Button
+      size="sm"
+      className="shrink-0"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true)
+        try {
+          await relayApi.takeOver()
+          await refresh()
+        } catch (error) {
+          toast.error(error instanceof ApiError ? error.message : "Le PC de secours n'a pas pu prendre le relais.")
+        } finally {
+          setBusy(false)
+        }
+      }}
+    >
+      Travailler sur le PC de secours
+    </Button>
   )
 }
 
@@ -72,7 +101,7 @@ function BannerIcon({ kind }: { kind: RelayBannerDto["kind"] }) {
   const Icon =
     kind === "pc-returning" || kind === "cloud-returning" || kind === "cloud-restoring"
       ? RefreshCw
-      : kind === "pc-holding"
+      : kind === "pc-holding" || kind === "pc-can-take-over"
         ? WifiOff
         : kind === "cloud-silent"
           ? CloudOff

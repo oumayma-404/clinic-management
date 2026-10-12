@@ -12,8 +12,9 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Features.Relay;
 
 /// <summary>
-/// AC-6.2, EC-17, EC-23 (<c>clinic-pc-copy</c>): a PC de secours that goes silent without warning while the cabinet's
-/// internet works is unlocked by the cabinet's own Windows and Android apps — two « cloud yes, PC no » reports at least
+/// ⚠️ Inert since the takeover became manual (owner, 2026-10-12): silence no longer locks the cloud, so there is no
+/// silent lock to unlock. What is kept is the domain rule itself. — AC-6.2, EC-17, EC-23 (<c>clinic-pc-copy</c>): a PC de
+/// secours that goes silent without warning while the cabinet's internet works is unlocked by the cabinet's own apps — two « cloud yes, PC no » reports at least
 /// 30 s apart, from the cabinet's network, with no device reaching the PC during that lock. A phone on mobile data, a
 /// device at home, or one device that still reaches the PC never unlocks it: the PC may be about to take over.
 /// </summary>
@@ -103,7 +104,7 @@ public class RelayDeviceReportTests
     public void Two_Unreachable_Reports_Thirty_Seconds_Apart_Unlock_And_One_Alone_Never_Does()
     {
         var relay = ArmedThenSilent(T0);
-        var locked = ClinicWriteLease.LockedSinceUtc(relay, T0.AddMinutes(2))!.Value;
+        var locked = T0.AddSeconds(45);
 
         Assert.False(relay.RecordDeviceReport(false, locked, T0.AddSeconds(65)));
         Assert.False(relay.RecordDeviceReport(false, locked, T0.AddSeconds(80)));
@@ -117,7 +118,7 @@ public class RelayDeviceReportTests
     public void A_Device_That_Reaches_The_Pc_Blocks_The_Unlock_For_The_Whole_Lock()
     {
         var relay = ArmedThenSilent(T0);
-        var locked = ClinicWriteLease.LockedSinceUtc(relay, T0.AddMinutes(2))!.Value;
+        var locked = T0.AddSeconds(45);
 
         Assert.False(relay.RecordDeviceReport(false, locked, T0.AddSeconds(65)));
         Assert.False(relay.RecordDeviceReport(true, locked, T0.AddSeconds(70)));
@@ -130,13 +131,13 @@ public class RelayDeviceReportTests
     public void A_New_Lock_Starts_The_Device_Facts_Afresh()
     {
         var relay = ArmedThenSilent(T0);
-        var first = ClinicWriteLease.LockedSinceUtc(relay, T0.AddMinutes(2))!.Value;
+        var first = T0.AddSeconds(45);
         relay.RecordDeviceReport(true, first, T0.AddSeconds(70));
 
         var back = T0.AddMinutes(5);
         relay.RecordHeartbeat(Beat(), 10, back);
         relay.RecordAckConfirmation(relay.IssueAck(armed: true, back), armed: true);
-        var second = ClinicWriteLease.LockedSinceUtc(relay, back.AddMinutes(2))!.Value;
+        var second = back.AddSeconds(45);
         Assert.NotEqual(first, second);
 
         Assert.False(relay.RecordDeviceReport(false, second, back.AddSeconds(65)));
@@ -163,63 +164,6 @@ public class RelayDeviceReportTests
             NullLogger<ReportRelayDeviceCommandHandler>.Instance);
     }
 
-    /// <summary>A PC silent for 10 minutes before now, one « PC no » already on file 40 s ago.</summary>
-    private static ClinicRelay SilentWithOneReport()
-    {
-        var now = DateTime.UtcNow;
-        var relay = ArmedThenSilent(now.AddMinutes(-10));
-        var locked = ClinicWriteLease.LockedSinceUtc(relay, now)!.Value;
-        relay.RecordDeviceReport(false, locked, now.AddSeconds(-40));
-        return relay;
-    }
-
-    // EC-17: the PC's cable is out (it never takes over — its box is gone), the tablets still reach the cloud.
-    [Fact]
-    public async Task The_Second_Report_Unlocks_The_Cloud_Exactly_As_Reprendre_La_Main_Does_And_Journals_It()
-    {
-        var relay = SilentWithOneReport();
-
-        var result = await Handler(relay).Handle(new ReportRelayDeviceCommand(false, OnTheBox, CabinetLine), default);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(new RelayDeviceReportDto(true, true), result.Value);
-        Assert.False(ClinicWriteLease.IsCloudFenced(relay, DateTime.UtcNow));
-        Assert.Equal(ClinicRelay.ReclaimedByDevices, relay.ReclaimedByUserId);
-        var row = Assert.Single(_journal);
-        Assert.StartsWith(AuditActor.ProcessPrefix, row.UserId);
-        Assert.Contains(RelayJournal.ReclaimedByDevices, row.ChangedFields);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-
-        // D19: the PC — had it in fact taken over — is overruled when it reconnects, and stops keeping its work.
-        Assert.True(relay.IsOverruledHolding(Beat(holding: true, since: DateTime.UtcNow, underAck: relay.ConfirmedAckSeq)));
-    }
-
-    // EC-23: a phone in the cabinet on mobile data during a cut does not unlock it.
-    [Fact]
-    public async Task A_Phone_On_Mobile_Data_Is_Not_Counted()
-    {
-        var relay = SilentWithOneReport();
-
-        var result = await Handler(relay).Handle(new ReportRelayDeviceCommand(false, new[] { "10.64.0.1" }, "41.230.1.2"), default);
-
-        Assert.Equal(new RelayDeviceReportDto(false, false), result.Value);
-        Assert.True(ClinicWriteLease.IsCloudFenced(relay, DateTime.UtcNow));
-        Assert.Empty(_journal);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task A_Device_That_Reaches_The_Pc_Keeps_The_Cloud_Locked()
-    {
-        var relay = SilentWithOneReport();
-
-        var result = await Handler(relay).Handle(new ReportRelayDeviceCommand(true, OnTheBox, CabinetLine), default);
-
-        Assert.Equal(new RelayDeviceReportDto(true, false), result.Value);
-        Assert.True(ClinicWriteLease.IsCloudFenced(relay, DateTime.UtcNow));
-        Assert.NotNull(relay.DevicesReachedPcAtUtc);
-    }
-
     // The PC said it holds the saves: only its return, a retirement or an admin's « Reprendre la main » frees the cloud.
     [Fact]
     public async Task A_Pc_That_Said_It_Holds_The_Saves_Is_Never_Unlocked_By_Devices()
@@ -237,11 +181,12 @@ public class RelayDeviceReportTests
         Assert.Null(relay.DevicesUnreachableFirstAtUtc);
     }
 
+    // Manual takeover (owner, 2026-10-12): a silent PC no longer locks the cloud, so there is nothing to unlock.
     [Fact]
     public async Task Nothing_Is_Counted_While_The_Cloud_Is_Not_Locked()
     {
         var now = DateTime.UtcNow;
-        var relay = ArmedThenSilent(now.AddSeconds(-20));
+        var relay = ArmedThenSilent(now.AddMinutes(-10));
 
         var result = await Handler(relay).Handle(new ReportRelayDeviceCommand(false, OnTheBox, CabinetLine), default);
 
@@ -251,38 +196,15 @@ public class RelayDeviceReportTests
 
     // ---- the target --------------------------------------------------------------------------------------------------
 
+    // Silence never locks the cloud any more, so a device is never sent to look for a silent PC.
     [Fact]
-    public void A_Device_Is_Told_To_Try_The_Pc_Only_While_Locked_And_Only_From_The_Cabinets_Line()
+    public void A_Device_Is_Never_Told_To_Try_A_Silent_Pc()
     {
         var relay = ArmedThenSilent(T0);
 
-        var before = GetRelayDeviceTargetQueryHandler.For(relay, CabinetLine, T0.AddSeconds(30));
-        Assert.False(before.Probe);
-        Assert.Empty(before.Addresses);
-
-        var locked = GetRelayDeviceTargetQueryHandler.For(relay, CabinetLine, T0.AddMinutes(2));
-        Assert.True(locked.Probe);
-        Assert.Equal(new[] { "192.168.1.20" }, locked.Addresses);
-        Assert.Equal(5001, locked.Port);
-        Assert.Equal(new string('A', 64), locked.CertificateFingerprint);
-        Assert.Equal(GetRelayDeviceTargetQueryHandler.WatchingIntervalSeconds, locked.IntervalSeconds);
-
-        Assert.False(GetRelayDeviceTargetQueryHandler.For(relay, "41.230.1.2", T0.AddMinutes(2)).Probe);
-
+        Assert.False(GetRelayDeviceTargetQueryHandler.For(relay, CabinetLine, T0.AddMinutes(30)).Probe);
         var none = GetRelayDeviceTargetQueryHandler.For(null, CabinetLine, T0);
         Assert.False(none.Probe);
         Assert.Equal(GetRelayDeviceTargetQueryHandler.IdleIntervalSeconds, none.IntervalSeconds);
-    }
-
-    [Fact]
-    public void A_Device_Is_Not_Told_To_Try_A_Pc_Whose_Port_Or_Certificate_Is_Unknown()
-    {
-        var (relay, _) = ClinicRelay.BeginPairing(ClinicId, "PC", "local|admin", T0.AddDays(-1));
-        relay.Pair("PC", "key", null, "192.168.1.20", "build-1", T0.AddDays(-1));
-        relay.RecordHeartbeat(Beat() with { HttpsPort = null, CertificateFingerprint = null }, 10, T0);
-        relay.RecordAckConfirmation(relay.IssueAck(armed: true, T0), armed: true);
-
-        Assert.True(ClinicWriteLease.IsCloudFenced(relay, T0.AddMinutes(2)));
-        Assert.False(GetRelayDeviceTargetQueryHandler.For(relay, CabinetLine, T0.AddMinutes(2)).Probe);
     }
 }

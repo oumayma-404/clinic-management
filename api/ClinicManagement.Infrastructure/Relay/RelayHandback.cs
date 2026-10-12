@@ -25,7 +25,7 @@ namespace ClinicManagement.Infrastructure.Relay;
 public sealed class RelayHandback
 {
     /// <summary>AC-5.1: the cloud must have answered this long before the cut is handed back.</summary>
-    public static readonly TimeSpan StableFor = TimeSpan.FromMinutes(2);
+    public static readonly TimeSpan StableFor = TimeSpan.FromSeconds(30); // was 2 min: the cabinet waited read-only for nothing
 
     /// <summary>An attempt whose answer was lost is repeated, saves still refused, for this long.</summary>
     public static readonly TimeSpan RetryWithin = TimeSpan.FromSeconds(30);

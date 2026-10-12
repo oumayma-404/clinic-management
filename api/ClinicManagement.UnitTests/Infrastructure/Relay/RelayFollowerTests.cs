@@ -843,12 +843,14 @@ public sealed class RelayFollowerTests : IDisposable
 
     private RelayLocalSide HandingBackLocal => new(_rows, _rows, _files.Object, _handbackStore);
 
-    private async Task HoldingTicksAsync(RelayFollower follower, int ticks, double secondsApart = 10)
+    // Twelve ticks apart = one StableFor, whatever it is set to.
+    private async Task HoldingTicksAsync(RelayFollower follower, int ticks, double? secondsApart = null)
     {
+        var apart = secondsApart ?? RelayHandback.StableFor.TotalSeconds / 12;
         for (var i = 0; i < ticks; i++)
         {
             await follower.TickAsync(HandingBackLocal, CancellationToken.None);
-            Advance(secondsApart);
+            Advance(apart);
         }
     }
 

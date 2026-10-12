@@ -6,6 +6,8 @@
  *   node drive.mjs login <cloud|pc>            a session, kept in state.json
  *   node drive.mjs work <cloud|pc> <tag>       a patient, a fiche, a numbered note with a payment
  *   node drive.mjs probe <seconds> <out.json>  one expense on EACH side every 2 s; prints what each answered
+ *   node drive.mjs offered <seconds>           waits until the PC offers « Travailler sur le PC de secours »
+ *   node drive.mjs take-over                   presses it (POST /relay/local/take-over) and asserts the PC holds
  *
  * Environment: CLOUD_API, PC_API, CLINIC_EMAIL, CLINIC_PASSWORD, CLINIC_TOTP_SECRET, RT_STATE (state.json path).
  * ⚠️ The PC serves HTTPS with its own self-signed certificate: run with NODE_TLS_REJECT_UNAUTHORIZED=0.
@@ -117,6 +119,21 @@ if (cmd === "code") {
     const accepted = mine.filter(ok)
     console.log(`${side}: ${accepted.length}/${mine.length} accepted · codes ${[...new Set(mine.map((s) => s.code ?? s.status))].join(", ")}`)
   }
+} else if (cmd === "offered") {
+  // Manual takeover (owner, 2026-10-12): the button appears once the cloud has been silent ~20 s — never by itself.
+  const until = Date.now() + Number(args[0]) * 1000
+  for (;;) {
+    const r = await call("pc", "GET", "/relay/local/holding", undefined, null).catch(() => ({ status: 0 }))
+    if (r.status === 200 && r.json?.holding) throw new Error("the PC took over without anybody pressing the button")
+    if (r.status === 200 && r.json?.canTakeOver) break
+    if (Date.now() > until) throw new Error(`the PC never offered the button (last answer ${r.status} ${JSON.stringify(r.json)})`)
+    await new Promise((z) => setTimeout(z, 2000))
+  }
+  console.log("pc: « Travailler sur le PC de secours » offered")
+} else if (cmd === "take-over") {
+  const r = must("take-over", await call("pc", "POST", "/relay/local/take-over", {}, null))
+  if (!r?.holding) throw new Error(`pressed, and the PC does not hold: ${JSON.stringify(r)}`)
+  console.log("pc: holds the cabinet's saves")
 } else {
   console.error(`unknown command ${cmd}`)
   process.exit(2)

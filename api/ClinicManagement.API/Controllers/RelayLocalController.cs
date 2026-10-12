@@ -58,7 +58,39 @@ public class RelayLocalController : ApiControllerBase
             return NotFound();
         }
 
-        return Ok(new RelayHoldingDto(_status.IsHolding || _status.IsHandingBack, _status.IsHandingBack));
+        return Ok(new RelayHoldingDto(
+            _status.IsHolding || _status.IsHandingBack, _status.IsHandingBack, _status.IsArmed, _status.TakeoverOffered));
+    }
+
+    /// <summary>
+    /// « Travailler sur le PC de secours » (manual takeover, owner 2026-10-12): pressed in a cabinet app or on this PC's
+    /// own banner. Anonymous for <see cref="Holding"/>'s reason — during a cut nobody is signed in here yet — and it can
+    /// only do what the button says, only while it is offered (the copy ready, the cloud silent). Waits for the takeover
+    /// (the lease keeper ticks every 5 s) so the app can move here at once.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("take-over")]
+    [AllowedOnStandbyRelay("This IS the takeover: it changes who records the cabinet's work, and writes no record.")]
+    [AllowsWithoutSubscription("Choosing where the cabinet works during a cut is not new work.")]
+    public async Task<IActionResult> TakeOver(CancellationToken cancellationToken)
+    {
+        if (!_deployment.MirrorsCloudClinic)
+        {
+            return NotFound();
+        }
+
+        if (!_status.IsHolding && !_status.RequestTakeover())
+        {
+            return HandleFailure(Result.Failure(RelayRefusals.TakeoverUnavailable, RelayRefusals.TakeoverUnavailableCode),
+                StatusCodes.Status409Conflict);
+        }
+
+        for (var i = 0; i < 40 && !_status.IsHolding; i++)
+        {
+            await Task.Delay(250, cancellationToken);
+        }
+
+        return Ok(new RelayHoldingDto(_status.IsHolding, _status.IsHandingBack, _status.IsArmed, _status.TakeoverOffered));
     }
 
     [HttpGet]
