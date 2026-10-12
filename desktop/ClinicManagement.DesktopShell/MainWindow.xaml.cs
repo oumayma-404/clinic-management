@@ -162,7 +162,7 @@ public partial class MainWindow : Window
             // EnsureCoreWebView2Async() fails with E_ACCESSDENIED (0x80070005). Point it at a per-user
             // writable folder instead so the shell works for any user without elevation.
             var userDataFolder = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                ShellProfile.Local,
                 "ClinicManagement", "WebView2");
             System.IO.Directory.CreateDirectory(userDataFolder);
 

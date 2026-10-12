@@ -163,7 +163,7 @@ public static class RelaySwitch
     // ---- where the PC is, kept between runs -----------------------------------------------------------------
 
     private static string FilePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClinicManagement", "relay-target.json");
+        ShellProfile.Roaming, "ClinicManagement", "relay-target.json");
 
     private static Target? _current;
     private static bool _loaded;
