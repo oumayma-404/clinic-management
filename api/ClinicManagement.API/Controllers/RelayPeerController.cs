@@ -62,7 +62,7 @@ public class RelayPeerController : ApiControllerBase
     /// </summary>
     [HttpGet("installer")]
     [AllowAnonymous]
-    [EnableRateLimiting(RateLimiting.RelayTokenPolicy)]
+    [EnableRateLimiting(RateLimiting.RelayInstallerPolicy)]
     [AllowsWithoutSubscription("The installer of a PC that will hold the clinic's own records.")]
     public IActionResult Installer()
     {
