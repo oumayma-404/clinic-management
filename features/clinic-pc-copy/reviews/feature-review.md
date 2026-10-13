@@ -36,7 +36,7 @@ source by 4 skeptic passes plus the orchestrator (Findings 1–4, 8, 17, 18 re-t
 | 5 | fixed | per-record decisions via `Owner` (patient = folder); PC deletions never cascade into cloud work |
 | 6 | fixed (narrowed) | 60 s stall timeout on every download; the lease-loop and `PulseAsync` parts not done — the timeout removes the hang they guarded |
 | 7 | fixed | files sent before the freeze, no 100 s ceiling, 60 s stall rule; POSTs 10 min |
-| 8 | fixed | connection string in `.local\appsettings.Secrets.json` (hardened) |
+| 8 | **declined by the owner** (2026-10-13) — fix written then removed; the password stays in `appsettings.Install.json` | — |
 | 12 | fixed with 2 | deferred constraint in the PC's feed apply and re-seed |
 
 Verified: unit suite 5 710 pass / 0 fail; migration applied to a scratch database (constraint `condeferrable = t`,

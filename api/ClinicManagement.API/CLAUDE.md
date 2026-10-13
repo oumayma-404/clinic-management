@@ -214,10 +214,8 @@ Reads the auth mode from an early `ConfigurationBuilder` **before** `WebApplicat
 **Startup migrations hold a lock (`Startup/MigrationLock.cs`, US-6).** `context.Database.MigrateAsync()` and the two per-clinic backfills run inside a PostgreSQL **session-level advisory lock**, because EF Core 8 takes none: two instances starting together — a scaled deployment, or simply a redeploy before the old container exits — both read « these migrations are pending » and both apply them, and the loser fails part-way leaving a schema that is neither the old one nor the new one. Advisory rather than a lock table (a table would need the migration it protects, and a crashed holder would wedge the next deploy for ever); the loser **blocks rather than skipping**, then finds nothing pending. ⚠️ `pg_advisory_lock`, never `pg_advisory_xact_lock` — the xact variant releases at the first commit *inside* the migration. ⚠️ Not used by `DeferredStartupService`: there the app is a single Windows service on the clinic's own PC, so there is no second instance, and the lock would also span its pre-migration `pg_dump`. `MigrationLockTests` pins the key, the session-level variant, and — against `Program.cs`'s own source — that the migrate call is actually inside the wrap.
 
 **Config layers — `Startup/InstallConfiguration.cs` (L4e).** `appsettings.json` → **`appsettings.Install.json`**
-(installer-owned, machine-derived: the bundled tool paths, the ports — rewritten on every install) →
-**`.local/appsettings.Secrets.json`** (installer-owned: the **connection string**, whose password must not sit in
-`api\`, which inherits « Users: Read » from Program Files — `.local\` is the folder `harden-permissions` closes; review
-finding 8) → `appsettings.{Environment}.json` (**operator-owned**: written once when absent, never truncated again,
+(installer-owned, machine-derived: the connection string, the bundled tool paths, the ports — rewritten on every
+install) → `appsettings.{Environment}.json` (**operator-owned**: written once when absent, never truncated again,
 `.bak-<timestamp>`'d before it is touched) → environment variables. Split by **ownership** because the installer
 used to truncate `appsettings.Production.json` unconditionally from `ssPostInstall`, erasing every hand-edited
 value (`Cors:AllowedOrigins`, `Hosting:TrustPort`, `Security:EnableHsts`, the reminder keys) on every upgrade.

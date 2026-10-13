@@ -556,6 +556,7 @@ begin
     '{' + #13#10 +
     '  "Auth": { "Mode": "Local" },' + #13#10 +
     Profile +
+    '  "ConnectionStrings": { "DefaultConnection": "' + ConnStr + '" },' + #13#10 +
     '  "FileStorage": { "BasePath": "' + Files + '" },' + #13#10 +
     // L4b/L4c: a REAL default destination (not ""), and pg_restore beside pg_dump so a backup can be
     // verified readable -- an unverified dump is not a backup, and the tool ships in the same folder.
@@ -573,13 +574,6 @@ begin
     '}' + #13#10;
 
   SaveStringToFile(AppDir + '\api\appsettings.Install.json', Cfg, False);
-
-  // Review finding 8 (2026-10-13): the connection string carries the database password, so it goes into .local\,
-  // which harden-permissions closes to every account but the service's and the administrators'. In api\ beside the
-  // install layer it inherited Users: Read from Program Files -- the secretary's account could read the password and
-  // with it every patient record. Startup\InstallConfiguration.cs loads it right after the install layer.
-  SaveStringToFile(AppDir + '\api\.local\appsettings.Secrets.json',
-    '{' + #13#10 + '  "ConnectionStrings": { "DefaultConnection": "' + ConnStr + '" }' + #13#10 + '}' + #13#10, False);
 end;
 
 { Operator-owned layer: written ONCE, when absent. Carries every key ..\README.md tells an operator to
