@@ -102,6 +102,8 @@ public class RelayGapTests
         public ClinicRelay Relay { get; } = RelayGapTests.Relay();
         public Mock<IRelayHandbackStore> Store { get; } = new();
         public List<RelayHandbackPlan> Plans { get; } = new();
+
+        public IReadOnlyList<RelayRowKey> Refused { get; set; } = Array.Empty<RelayRowKey>();
         public List<RelayReviewItem> Listed { get; } = new();
         public HashSet<RelayRowKey> ChangedSinceRestore { get; } = new();
 
@@ -121,7 +123,7 @@ public class RelayGapTests
                     keys.Where(ChangedSinceRestore.Contains).ToHashSet());
             Store.Setup(s => s.ApplyReturnAsync(ClinicId, It.IsAny<RelayHandbackRequest>(), It.IsAny<RelayHandbackPlan>(), It.IsAny<CancellationToken>()))
                 .Callback<Guid, RelayHandbackRequest, RelayHandbackPlan, CancellationToken>((_, _, plan, _) => Plans.Add(plan))
-                .Returns(Task.CompletedTask);
+                .ReturnsAsync(() => Refused);
             Store.Setup(s => s.CurrentRowsAsync(ClinicId, It.IsAny<IReadOnlyCollection<RelayRowKey>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((Guid _, IReadOnlyCollection<RelayRowKey> keys, CancellationToken _) =>
                     (IReadOnlyDictionary<RelayRowKey, string>)keys.Where(OnCloud.ContainsKey).Distinct().ToDictionary(k => k, k => OnCloud[k]));

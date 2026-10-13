@@ -60,23 +60,34 @@ public class RelayReEnterTests
             new[] { new RelayHandbackJournalEntry("local|desk", "desk@cabinet.tn", "Invoice", "n1", (int)AuditAction.Insert, null, DateTime.UtcNow.AddHours(-1)) },
             Array.Empty<RelaySignInTrace>(), Array.Empty<RelayRecoveryCodeUse>());
 
-    // One line per record: a note, not its lines — accounts and delivery state left out, a deletion kept.
+    // Review finding 3 (2026-10-13): every row of the cut is kept — a note AND its lines and payment, a fiche AND its acts.
+    // It used to keep only the rows pointing to nothing else, and the PC then copied the cloud afresh: a fiche's acts and
+    // a note's payment were gone from both sides. Accounts and delivery state stay out; a deletion is kept.
     [Fact]
-    public void One_Line_Per_Record_Not_Per_Row()
+    public void Every_Row_Of_The_Cut_Is_Kept_Not_Only_The_Records_Roots()
     {
         var cut = Cut(
-            new RelayRow("Invoice", "n1", Json("{}")),
-            new RelayRow("InvoiceLine", "l1", Json("{}")),
+            new RelayRow("Invoice", "n1", Json("{\"Number\":\"2026-P0A1B2C3D\"}")),
+            new RelayRow("InvoiceLine", "l1", Json("{\"Designation\":\"Détartrage\"}")),
+            new RelayRow("Payment", "p1", Json("{\"Amount\":60}")),
+            new RelayRow("DentalRecordAct", "a1", Json("{\"ProcedureName\":\"Obturation\"}")),
             new RelayRow("User", "local|u1", Json("{}")),
             new RelayRow("Notification", "r1", Json("{}")),
             new RelayRow("Expense", "e1", null));
-        IEnumerable<RelayRowKey> Refs(string table, JsonElement _) =>
-            table == "InvoiceLine" ? new[] { new RelayRowKey("Invoice", "n1") } : Array.Empty<RelayRowKey>();
+        IEnumerable<RelayRowKey> Refs(string table, JsonElement _) => table switch
+        {
+            "InvoiceLine" or "Payment" => new[] { new RelayRowKey("Invoice", "n1") },
+            _ => Array.Empty<RelayRowKey>(),
+        };
 
         var lines = ListOverruledCutCommandHandler.Lines(cut, Refs);
 
-        Assert.Equal(new[] { ("Expense", "e1"), ("Invoice", "n1") }, lines.Select(l => (l.Key.Table, l.Key.Key)));
-        Assert.Null(lines[0].Json);
+        Assert.Equal(
+            new[] { ("DentalRecordAct", "a1"), ("Expense", "e1"), ("Invoice", "n1"), ("InvoiceLine", "l1"), ("Payment", "p1") },
+            lines.Select(l => (l.Key.Table, l.Key.Key)));
+        Assert.Null(lines.Single(l => l.Key.Table == "Expense").Json);
+        Assert.Contains("Détartrage", lines.Single(l => l.Key.Table == "InvoiceLine").Json);
+        Assert.Contains("60", lines.Single(l => l.Key.Table == "Payment").Json);
     }
 
     private static ClinicRelay Relay(bool reclaimed)

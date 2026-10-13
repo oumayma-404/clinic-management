@@ -10,8 +10,9 @@ namespace ClinicManagement.Domain.Services;
 /// « Travailler sur le PC de secours », which is offered only while the cloud does not answer. The cloud no longer locks
 /// on silence — a laptop asleep or a closed lid locked the whole cabinet's cloud overnight. It refuses saves only once
 /// the PC has said it holds them (and during a restore's gap). A save made on the cloud during a cut is never lost: at
-/// the return the cloud's version is kept and the PC's is listed « À vérifier ». Numbers stay unique through D16 (the
-/// PC must confirm every number the cloud gives while it may take over).</para>
+/// the return the cloud's version is kept and the PC's is listed « À vérifier ». Numbers stay unique because only the
+/// cloud gives them: the PC numbers a cut's notes, devis and avoirs provisionally and the return renumbers them
+/// (<see cref="PcMustConfirmNumbers"/>).</para>
 ///
 /// <para><b>The fence is a predicate, never a flag a job flips</b>, so nothing can be late. Each side measures elapsed
 /// time on its own clock from one exchange, so the two wall clocks never need to agree:</para>
@@ -105,20 +106,14 @@ public static class ClinicWriteLease
     }
 
     /// <summary>
-    /// D16: a note, devis or avoir number numbered on the cloud must be held by the PC before it is final — whenever the
-    /// PC could take over with it: it may hold an « armé » ack no reclaim overruled, and it has not taken over (then the
-    /// cloud is fenced and numbers nothing). A PC that stood down (AC-6.1), was never armed or is retired is not waited for.
+    /// D16, retired 2026-10-13 (owner): the cloud never waits for its PC before making a note, devis or avoir number
+    /// final. It used to, whenever the PC could take over — and since the cloud no longer locks on silence, a laptop
+    /// asleep with its last ack « armé » made every numbered save on the cloud wait 3 s and fail, all night, with no way
+    /// out but retiring the PC. Numbers stay unique the other way round: <b>the PC de secours never gives a legal
+    /// number</b> — what it numbers during a cut is provisional (<c>AAAA-P…</c>) and the cloud gives the real one at the
+    /// return. The cloud cannot tell a PC asleep from a PC holding a cut, so no time window could have kept both.
     /// </summary>
-    public static bool PcMustConfirmNumbers(ClinicRelay? relay)
-    {
-        if (relay is null || relay.Status == ClinicRelayStatus.Retired || relay.PcHoldingSinceUtc is not null || !relay.MayBeArmed)
-        {
-            return false;
-        }
-
-        var armedFrom = relay.ConfirmedAckArmed ? relay.ConfirmedAckSeq : relay.PendingArmedAckSeq;
-        return armedFrom > relay.ReclaimedAtAckSeq;
-    }
+    public static bool PcMustConfirmNumbers(ClinicRelay? relay) => false;
 
     /// <summary>
     /// Whether this ack arms the PC: it is « Prêt » (FR-2 — the one predicate the card, the bell and the console read),

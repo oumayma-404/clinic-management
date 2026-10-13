@@ -78,10 +78,14 @@ public static class RelayBanners
         handingBack
             ? new(PcReturning, "Retour au cloud en cours", "un enregistrement refusé maintenant passera dans quelques secondes.", false)
             : cutCause == "cloud"
-                ? new(PcHolding, "Le cloud est injoignable",
-                    "le cabinet travaille sur le PC de secours. Tout partira dans le cloud à son retour.", true)
-                : new(PcHolding, "Internet coupé",
-                    "le cabinet travaille sur le PC de secours. Tout partira dans le cloud au retour d'internet.", true);
+                ? new(PcHolding, "Le cloud est injoignable", HoldingDetail("à son retour"), true)
+                : new(PcHolding, "Internet coupé", HoldingDetail("au retour d'internet"), true);
+
+    // Only the cloud gives legal numbers (review finding 1): a note, devis or avoir made here carries « AAAA-P… » until
+    // the return gives it the cloud's next one — said where it is seen, before somebody prints one.
+    private static string HoldingDetail(string when) =>
+        $"le cabinet travaille sur le PC de secours. Notes, devis et avoirs y ont un numéro provisoire (« P »), "
+        + $"remplacé par le cloud {when}.";
 
     /// <summary>AC-4.1 and the cloud's other fenced states; null when the cloud records this cabinet's work.</summary>
     public static RelayBannerDto? OnTheCloud(ClinicRelay? relay, DateTime nowUtc)

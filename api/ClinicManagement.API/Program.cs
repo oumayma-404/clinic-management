@@ -1290,9 +1290,10 @@ try
     //
     // 05:00 UTC = 06:00 in Tunis: after the day has turned everywhere, and before the cabinet opens, so the
     // dépense is already in la caisse the first time somebody looks at it.
-    // A PC de secours posts only while it holds the cabinet's saves (deviation 88, through IClinicWriteFence); the
-    // series' marker goes back with the return, so the cloud never posts the same month again.
-    if (profile.RunsClinicJobs || profile.RunsCutJobs)
+    // ⚠️ Never on a PC de secours (review finding 4, 2026-10-13): since the takeover is manual the cloud keeps running
+    // this during a cut, so a PC posting too put the loyer in la caisse twice — the PC's row is new, so the return
+    // applied it beside the cloud's. The months stay due, so whoever is up posts them; the PC gets the cloud's row back.
+    if (profile.RunsClinicJobs)
     {
         RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.MonthlyExpenseJob>(
             "post-monthly-expenses",

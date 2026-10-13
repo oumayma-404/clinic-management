@@ -207,13 +207,23 @@ wait_for 180 "both copies equal after the return" digests_equal
 
 # ── the verdicts ──────────────────────────────────────────────────────────────────────────────────────────────
 step "note numbers continuous, every note on the cloud"
-NUMBERS=$(sql cloud 'SELECT string_agg("Number", '"'"' '"'"' ORDER BY "Number") FROM "Invoices" WHERE "Number" IS NOT NULL')
+NUMBERS=$(sql cloud 'SELECT string_agg("Id"::text||'"'"'='"'"'||"Number", '"'"' '"'"' ORDER BY "Number") FROM "Invoices" WHERE "Number" IS NOT NULL')
 echo "  cloud notes: $NUMBERS"
+# Only the cloud gives legal numbers (review finding 1): a note made on the PC during the cut is provisional there
+# (AAAA-P…) and comes back with the cloud's next real number — so notes are followed by id, not by number.
 STATE="$RT_STATE" NUMBERS="$NUMBERS" node -e '
-  const made = require(process.env.STATE).notes.map((n) => n.number)
-  const held = process.env.NUMBERS.split(" ").filter(Boolean)
+  const made = require(process.env.STATE).notes
+  const byId = Object.fromEntries(process.env.NUMBERS.split(" ").filter(Boolean).map((p) => p.split("=")))
+  const held = Object.values(byId)
   const fail = (m) => { console.log("::error title=numbers::" + m); process.exit(1) }
-  for (const n of made) if (!held.includes(n)) fail(`note ${n} made during the run is not on the cloud`)
+  for (const n of made) {
+    const now = byId[n.id]
+    if (!now) fail(`note ${n.number} made during the run is not on the cloud`)
+    if (n.side === "pc" && !/^\d{4}-P[0-9A-F]{8}$/.test(n.number)) fail(`the PC gave note ${n.number} a legal number`)
+    if (n.side === "pc") console.log(`  ✓ the PC numbered ${n.number} provisionally; the cloud made it ${now}`)
+    else if (now !== n.number) fail(`the cloud note ${n.number} now reads ${now}`)
+  }
+  if (held.some((n) => !/^\d{4}-\d+$/.test(n))) fail(`a provisional number is left on the cloud: ${held.join(", ")}`)
   if (new Set(held).size !== held.length) fail("a note number is used twice")
   const seq = held.map((n) => Number(n.split("-")[1])).sort((a, b) => a - b)
   seq.forEach((v, i) => { if (v !== i + 1) fail(`numbers are not continuous: ${held.join(", ")}`) })

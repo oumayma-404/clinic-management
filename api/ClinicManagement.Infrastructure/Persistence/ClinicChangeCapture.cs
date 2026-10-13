@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Relay;
 using ClinicManagement.Infrastructure.Repositories;
@@ -38,16 +39,32 @@ public sealed class ClinicChangeCapture
     private readonly ClinicChangeOrigin _origin;
     private readonly IIdempotencyKeyAccessor? _idempotency;
     private readonly IRelayLocalStatus? _relayLocal;
+    private readonly IAuditActorProvider? _actors;
 
     public ClinicChangeCapture(
-        DeploymentProfile profile, IIdempotencyKeyAccessor? idempotency = null, IRelayLocalStatus? relayLocal = null)
+        DeploymentProfile profile, IIdempotencyKeyAccessor? idempotency = null, IRelayLocalStatus? relayLocal = null,
+        IAuditActorProvider? actors = null)
     {
         _enabled = profile.PublishesChangeFeed || profile.MirrorsCloudClinic;
         _isRelay = profile.MirrorsCloudClinic;
         _origin = profile.MirrorsCloudClinic ? ClinicChangeOrigin.Relay : ClinicChangeOrigin.Cloud;
         _idempotency = idempotency;
         _relayLocal = relayLocal;
+        _actors = actors;
     }
+
+    /// <summary>
+    /// A PC de secours holding a cut gives no legal number: the save's numbers become provisional and the cloud
+    /// renumbers them at the return (<see cref="ProvisionalNumber"/>).
+    /// </summary>
+    public bool WithholdsLegalNumbers => _enabled && _isRelay && _relayLocal?.IsHolding == true;
+
+    /// <summary>
+    /// The save was made by a background job, not a person — never <c>job|unknown</c>, which is what an unattributed
+    /// request reads as and may well be a person: the return lets a job's change give way, never a person's.
+    /// </summary>
+    private bool IsAutomatic() =>
+        _actors?.Current is { IsProcess: true } actor && actor.UserId != AuditActor.Unknown.UserId;
 
     /// <summary>
     /// The PC de secours's half of the net (D15), decided before any SQL: a PC that does not hold the cabinet's saves
@@ -145,6 +162,7 @@ public sealed class ClinicChangeCapture
         }
 
         var idempotencyKey = _idempotency?.Current;
+        var automatic = IsAutomatic();
 
         foreach (var clinic in touched.Keys.Select(k => k.Clinic).Distinct().Order())
         {
@@ -174,7 +192,7 @@ public sealed class ClinicChangeCapture
             foreach (var change in changes)
             {
                 context.Add(new ClinicChange(
-                    clinic, ++seq, change.Key.Table, change.Key.Key, change.Value, _origin, idempotencyKey, now));
+                    clinic, ++seq, change.Key.Table, change.Key.Key, change.Value, _origin, idempotencyKey, now, automatic));
             }
         }
     }

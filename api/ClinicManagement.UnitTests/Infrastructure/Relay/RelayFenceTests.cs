@@ -214,7 +214,9 @@ public class RelayFenceTests
             .Select(m => m.Groups[1].Value)
             .ToList();
 
-        Assert.Equal(new[] { "AppointmentProgressJob", "MonthlyExpenseJob" }, jobs.Order());
+        // Review finding 4 (2026-10-13): the monthly dépenses left this list — the cloud keeps posting during a manual cut,
+        // so a PC posting too put the loyer in la caisse twice.
+        Assert.Equal(new[] { "AppointmentProgressJob" }, jobs.Order());
         foreach (var job in jobs)
         {
             var source = File.ReadAllText(Path.Combine(api, "BackgroundJobs", job + ".cs"));

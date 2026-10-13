@@ -379,8 +379,11 @@ public sealed class RelayFeedJob : BackgroundService
         {
             var build = _build.Current;
             var updates = Path.Combine(LocalInstallPaths.LocalDir, RelayUpdater.FolderName);
+            // Long transfers (a file of the cut, the cut itself) go on a client with no 100 s ceiling (review finding 7).
+            var transfers = _http.CreateClient(nameof(RelayCloudClient) + ".Transfers");
+            transfers.Timeout = Timeout.InfiniteTimeSpan;
             _follower = new RelayFollower(
-                new RelayCloudClient(_http.CreateClient(nameof(RelayFeedJob)), credentials, build),
+                new RelayCloudClient(_http.CreateClient(nameof(RelayFeedJob)), credentials, build, transfers: transfers),
                 new RelayFollowerStateStore(),
                 credentials,
                 _secrets,

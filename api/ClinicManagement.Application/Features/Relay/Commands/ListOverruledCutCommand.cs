@@ -112,20 +112,17 @@ public sealed class ListOverruledCutCommandHandler : IRequestHandler<ListOverrul
     }
 
     /// <summary>
-    /// One line per record, not per row of it: the cut's rows that point to nothing else of the cut (a note, not its
-    /// lines) — accounts, the subscription and delivery state left out, as at the return.
+    /// One line per row of the cut — a fiche AND its acts and teeth, a note AND its lines and payments — accounts, the
+    /// subscription and delivery state left out, as at the return. ⚠️ Never only the rows that point to nothing else: the
+    /// PC copies the cloud afresh once this is listed, so a row left out here is gone from both sides (review finding 3 —
+    /// a fiche's acts and a note's payments were lost that way).
     /// </summary>
     public static IReadOnlyList<(RelayRowKey Key, string? Json)> Lines(
-        RelayHandbackRequest request, Func<string, System.Text.Json.JsonElement, IEnumerable<RelayRowKey>> references)
-    {
-        var rows = request.Rows
+        RelayHandbackRequest request, Func<string, System.Text.Json.JsonElement, IEnumerable<RelayRowKey>> references) =>
+        request.Rows
             .Where(r => !RelayHandbackRules.NeverReturned.Contains(r.Table) && !RelayHandbackRules.NotReviewed.Contains(r.Table))
             .GroupBy(r => new RelayRowKey(r.Table, r.Key))
-            .ToDictionary(g => g.Key, g => g.Last());
-        return rows
-            .Where(r => r.Value.Row is not { } json || !references(r.Key.Table, json).Any(rows.ContainsKey))
+            .Select(g => (Key: g.Key, Json: g.Last().Row?.GetRawText()))
             .OrderBy(r => r.Key.Table, StringComparer.Ordinal).ThenBy(r => r.Key.Key, StringComparer.Ordinal)
-            .Select(r => (r.Key, r.Value.Row?.GetRawText()))
             .ToList();
-    }
 }

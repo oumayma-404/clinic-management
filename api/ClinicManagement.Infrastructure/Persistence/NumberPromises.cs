@@ -48,6 +48,28 @@ public static class NumberedDocuments
         return numbered;
     }
 
+    /// <summary>
+    /// On a PC de secours holding a cut: every legal number this save assigns becomes provisional (<see cref="ProvisionalNumber"/>),
+    /// and the return renumbers it on the cloud. Read off the save like D16, so no numbering handler knows.
+    /// </summary>
+    public static int MakeProvisional(DbContext context)
+    {
+        var rewritten = 0;
+        foreach (var entry in context.ChangeTracker.Entries())
+        {
+            if (!Sequences.ContainsKey(entry.Metadata.ClrType) || IsNotAssigning(entry, out var number)
+                || ProvisionalNumber.IsProvisional(number))
+            {
+                continue;
+            }
+
+            entry.Property("Number").CurrentValue = ProvisionalNumber.For(number!, (Guid)entry.Property("Id").CurrentValue!);
+            rewritten++;
+        }
+
+        return rewritten;
+    }
+
     private static bool IsNotAssigning(EntityEntry entry, out string? number)
     {
         var property = entry.Property("Number");

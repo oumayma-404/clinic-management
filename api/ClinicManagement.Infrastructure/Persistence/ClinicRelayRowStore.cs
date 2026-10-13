@@ -266,6 +266,10 @@ public sealed partial class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBl
 
         await using var scope = await OpenAsync(IsolationLevel.ReadCommitted, cancellationToken);
 
+        // A visit cancelled and another booked into its slot arrive in one batch, in no particular order: the booking
+        // constraint is checked once the batch is whole, at commit, never row by row (review finding 12).
+        await scope.ExecuteAsync("SET CONSTRAINTS ALL DEFERRED", cancellationToken);
+
         foreach (var table in Plan.Tables.Reverse().Where(byTable.ContainsKey))
         {
             var tombstones = byTable[table].Where(r => r.Row is null).Select(r => r.Key).ToList();
@@ -299,6 +303,7 @@ public sealed partial class ClinicRelayRowStore : IClinicRelayRowStore, IRelayBl
 
         var selected = Selected(onlyTables).Where(t => sections.ContainsKey(t.Name)).ToList();
         await using var scope = await OpenAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        await scope.ExecuteAsync("SET CONSTRAINTS ALL DEFERRED", cancellationToken);
 
         var upserted = new List<(ClinicRelayTable Table, List<JsonElement> Rows)>();
         foreach (var table in selected)

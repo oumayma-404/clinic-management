@@ -149,7 +149,9 @@
   saves (and during a restore's gap) — **never on silence**, because a laptop asleep or a closed lid locked a cabinet's
   cloud all night. The PC takes over only when somebody presses « Travailler sur le PC de secours » (`RelayLeaseKeeper`
   offers it once the cloud is silent ~20 s of awake time). A save made on the cloud during a cut is kept at the return
-  (the cloud's version wins, the PC's is « À vérifier »); numbers stay unique through D16 (`PcMustConfirmNumbers`).
+  (the cloud's version wins, the PC's is « À vérifier »). ⚠️ **Only the cloud gives legal numbers** (2026-10-13):
+  `PcMustConfirmNumbers` is always false — a sleeping laptop holding an « armé » ack blocked the cloud's billing all
+  night — and a PC holding a cut numbers provisionally (`Services/ProvisionalNumber`, `AAAA-P…`), renumbered at the return.
   The lossy-line « never both writable » simulation went with the automatic takeover it tested.
 - **`ConditionTreatments`** (`Services/ConditionTreatments.cs`) — **what treats what**: the one place the product
   states that a carie is answered by an obturation before a dévitalisation, and a racine résiduelle by an extraction.

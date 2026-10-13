@@ -36,6 +36,15 @@ public static class InstallConfiguration
     public const string InstallLayerFileName = "appsettings.Install.json";
 
     /// <summary>
+    /// Installer-owned too, and the one holding a secret — the database connection string with its password — so it
+    /// lives in <c>.local/</c>, the folder <c>harden-permissions</c> closes to every account but the service's and the
+    /// administrators' (review finding 8, 2026-10-13). In <c>api/</c> beside the install layer it inherited « Users: Read »
+    /// from Program Files, and any Windows account on the PC — the secretary's — could read the password and with it
+    /// every patient record.
+    /// </summary>
+    public const string SecretsLayerFileName = "appsettings.Secrets.json";
+
+    /// <summary>
     /// Adds <c>appsettings.json</c> → <c>appsettings.Install.json</c> → <c>appsettings.{Environment}.json</c> →
     /// environment variables → <b>file-backed secrets</b>, based at the <b>install directory</b> and not the CWD
     /// (a Windows service's CWD is <c>System32</c>).
@@ -54,6 +63,7 @@ public static class InstallConfiguration
             .AddJsonFile("appsettings.json", optional: baseSettingsOptional)
             // Installer-owned, before the operator layer so the operator can override anything in it.
             .AddJsonFile(InstallLayerFileName, optional: true)
+            .AddJsonFile(Path.Combine(".local", SecretsLayerFileName), optional: true)
             .AddJsonFile($"appsettings.{environment}.json", optional: true)
             .AddEnvironmentVariables()
             .Add(new FileBackedSecretsSource());

@@ -890,7 +890,9 @@ public sealed class RelayFollowerTests : IDisposable
 
         await HoldingTicksAsync(follower, 14);
 
-        Assert.Equal(new[] { (false, true) }, _handbackStore.LeaseWhileReading);
+        // Read twice: once for its files while the cabinet still saves (review finding 7), then — saves refused — for the
+        // cut itself, so nothing can land after the read.
+        Assert.Equal(new[] { (true, false), (false, true) }, _handbackStore.LeaseWhileReading);
         Assert.Single(_cloud.Handbacks);
     }
 
@@ -1146,12 +1148,37 @@ public sealed class RelayFollowerTests : IDisposable
         _cloud.MissingFiles.Add("clinics/a/scan.png");
         _files.Setup(f => f.DownloadAsync("clinics/a/scan.png", It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new MemoryStream(new byte[] { 1, 2 }));
+        _cloud.UploadProbe = () => _lease.AcceptsSaves;
         var follower = HandbackFollower();
 
         await HoldingTicksAsync(follower, 14);
 
         Assert.Equal(new[] { "clinics/a/scan.png" }, _cloud.Uploaded);
+        // Review finding 7: sent while the cabinet still saves — a radiograph on a slow uplink used to freeze every save.
+        Assert.Equal(new[] { true }, _cloud.UploadProbes);
         Assert.Single(_cloud.Handbacks);
+    }
+
+    // [Review finding 7] A file the cloud cannot take yet keeps the cabinet saving here: the return waits, nothing freezes.
+    [Fact]
+    public async Task Files_That_Cannot_Go_Ahead_Never_Freeze_The_Cabinets_Saves()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _handbackStore.Files = new[] { "clinics/a/scan.png" };
+        _cloud.MissingFiles.Add("clinics/a/scan.png");
+        _files.Setup(f => f.DownloadAsync("clinics/a/scan.png", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new MemoryStream(new byte[] { 1, 2 }));
+        _cloud.UploadStatus = RelayCallStatus.Unreachable;
+        _handbackStore.ReadProbe = () => (_lease.AcceptsSaves, _lease.IsHandingBack);
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 14);
+
+        Assert.Empty(_cloud.Handbacks);
+        Assert.True(_lease.AcceptsSaves);
+        Assert.NotEmpty(_handbackStore.LeaseWhileReading);
+        Assert.All(_handbackStore.LeaseWhileReading, l => Assert.True(l.AcceptsSaves));
     }
 
     // [AC-5.9] A PC restarted mid-return finds it refusing saves; an unanswered heartbeat gives them back at once.
@@ -1273,7 +1300,10 @@ public sealed class RelayFollowerTests : IDisposable
 
         public IEnumerable<RelayRowKey> References(string table, System.Text.Json.JsonElement row) => throw new NotSupportedException();
 
-        public Task ApplyReturnAsync(Guid clinicId, RelayHandbackRequest request, RelayHandbackPlan plan, CancellationToken cancellationToken) =>
+        public RelayRowKey? Owner(string table, System.Text.Json.JsonElement row) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<RelayRowKey>> ApplyReturnAsync(
+            Guid clinicId, RelayHandbackRequest request, RelayHandbackPlan plan, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 
@@ -1413,9 +1443,26 @@ public sealed class RelayFollowerTests : IDisposable
 
         public Task<RelayCall<bool>> UploadHandbackFileAsync(string storageKey, Stream content, CancellationToken cancellationToken)
         {
+            if (UploadStatus != RelayCallStatus.Ok)
+            {
+                return Task.FromResult(new RelayCall<bool>(UploadStatus, false));
+            }
+
             Uploaded.Add(storageKey);
+            if (UploadProbe is not null)
+            {
+                UploadProbes.Add(UploadProbe());
+            }
+
+            // A real cloud holds it from now: it is never reported missing again.
+            MissingFiles.Remove(storageKey);
             return Task.FromResult(new RelayCall<bool>(RelayCallStatus.Ok, true));
         }
+
+        public RelayCallStatus UploadStatus { get; set; } = RelayCallStatus.Ok;
+
+        public Func<bool>? UploadProbe { get; set; }
+        public List<bool> UploadProbes { get; } = new();
 
         public RelayCallStatus OverruledStatus { get; set; } = RelayCallStatus.Ok;
         public List<RelayHandbackRequest> Overruled { get; } = new();

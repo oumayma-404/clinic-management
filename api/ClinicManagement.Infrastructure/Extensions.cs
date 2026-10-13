@@ -133,7 +133,8 @@ public static class Extensions
         services.AddScoped(provider => new ClinicChangeCapture(
             provider.GetRequiredService<DeploymentProfile>(),
             provider.GetService<IIdempotencyKeyAccessor>(),
-            provider.GetRequiredService<IRelayLocalStatus>()));
+            provider.GetRequiredService<IRelayLocalStatus>(),
+            provider.GetService<IAuditActorProvider>()));
         services.AddScoped<IClinicWriteFence, ClinicWriteFence>();
 
         services.AddDbContext<ApplicationDbContext>((provider, options) =>

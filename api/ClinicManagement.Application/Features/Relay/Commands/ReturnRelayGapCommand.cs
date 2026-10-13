@@ -135,11 +135,23 @@ public sealed class ReturnRelayGapCommandHandler : IRequestHandler<ReturnRelayGa
             var (apply, kept) = Split(rows, present);
             var listed = kept.Where(r => !RelayHandbackRules.NotReviewed.Contains(r.Table)).ToList();
 
-            await _store.ApplyReturnAsync(relay.ClinicId,
+            var refused = await _store.ApplyReturnAsync(relay.ClinicId,
                 new RelayHandbackRequest(request.GapId, 0, null, Array.Empty<RelayHandbackChange>(), apply,
                     Array.Empty<RelayHandbackJournalEntry>(), Array.Empty<RelaySignInTrace>(), Array.Empty<RelayRecoveryCodeUse>()),
                 new RelayHandbackPlan(apply, Array.Empty<RelayRowKey>(), Array.Empty<RelayPlannedReview>()),
                 cancellationToken);
+
+            // What the restored cloud's database refused (a parent deleted since the restore, a value taken since) is the
+            // PC's to re-enter — listed « À reprendre », never retried for ever.
+            if (refused.Count > 0)
+            {
+                var byKey = apply.ToDictionary(r => new RelayRowKey(r.Table, r.Key));
+                await _reviews.AddRangeAsync(refused
+                    .Where(k => !RelayHandbackRules.NotReviewed.Contains(k.Table))
+                    .Select(k => new RelayReviewItem(relay.ClinicId, relay.Id, now, RelayReviewKind.ToReEnter, k.Table, k.Key,
+                        null, byKey.GetValueOrDefault(k)?.Row?.GetRawText(), null, null, null, now))
+                    .ToList(), cancellationToken);
+            }
 
             if (listed.Count > 0)
             {

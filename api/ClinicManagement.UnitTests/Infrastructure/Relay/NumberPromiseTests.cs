@@ -109,53 +109,119 @@ public class NumberPromiseTests
         return relay;
     }
 
+    // Review finding 1 (2026-10-13): the cloud never waits for its PC before a number is final. It used to whenever the
+    // PC's last ack said « armé » — and a laptop asleep holds that ack all night, so every note, devis and avoir on the
+    // cloud waited 3 s and failed until morning, with no way out but retiring the PC.
     [Fact]
-    public void Only_A_Pc_That_Could_Take_Over_Must_Confirm()
+    public void The_Cloud_Never_Waits_For_Its_Pc_Before_A_Number_Is_Final()
     {
         Assert.False(ClinicWriteLease.PcMustConfirmNumbers(null));
-        Assert.True(ClinicWriteLease.PcMustConfirmNumbers(Armed()));
+        Assert.False(ClinicWriteLease.PcMustConfirmNumbers(Armed()));
 
-        // An armed ack sent and not yet confirmed counts: the PC may hold it.
         var pending = Armed();
         pending.IssueAck(armed: true, T0.AddSeconds(5));
-        Assert.True(ClinicWriteLease.PcMustConfirmNumbers(pending));
+        Assert.False(ClinicWriteLease.PcMustConfirmNumbers(pending));
 
-        // AC-6.1: a PC that stood down is not waited for.
-        var stood = Armed();
-        stood.RecordAckConfirmation(stood.IssueAck(armed: false, T0.AddSeconds(5)), armed: false);
-        Assert.False(ClinicWriteLease.PcMustConfirmNumbers(stood));
+        // The case that blocked billing: armed, and not heard from for fourteen hours (a lid closed overnight).
+        var asleep = Armed();
+        Assert.False(ClinicWriteLease.PcMustConfirmNumbers(asleep));
 
-        // A PC that took over: the cloud is fenced and numbers nothing.
         var holding = Armed();
         holding.RecordHeartbeat(Beat(holding: true, underAck: holding.LastAckSeq), 10, T0.AddMinutes(3));
         Assert.False(ClinicWriteLease.PcMustConfirmNumbers(holding));
-
-        // « Reprendre la main »: no ack up to it arms the PC any more.
-        var reclaimed = Armed();
-        reclaimed.Reclaim("local|admin", T0.AddMinutes(2));
-        Assert.False(ClinicWriteLease.PcMustConfirmNumbers(reclaimed));
-
-        var (unpaired, _) = ClinicRelay.BeginPairing(ClinicId, "PC", "local|admin", T0);
-        Assert.False(ClinicWriteLease.PcMustConfirmNumbers(unpaired));
     }
 
     [Fact]
-    public void A_Promise_Is_Planned_Per_Number_With_The_Saves_Key_Only_For_A_Pc_That_Must_Confirm()
+    public void No_Promise_Is_Planned_Whatever_The_Pc_Holds()
     {
         var numbers = new[]
         {
             new NumberedDocument(ClinicId, RelayNumberPromise.InvoiceSequence, "2026-0042"),
             new NumberedDocument(ClinicId, RelayNumberPromise.CreditNoteSequence, "2026-0003"),
         };
-        var relay = Armed();
 
-        var planned = NumberPromiseCoordinator.Plan(relay, numbers, "key-123456").ToList();
-
-        Assert.Equal(2, planned.Count);
-        Assert.All(planned, p => Assert.Equal(relay.Id, p.RelayId));
-        Assert.All(planned, p => Assert.Equal("key-123456", p.Promise.IdempotencyKey));
-        Assert.Equal(new[] { "2026-0042", "2026-0003" }, planned.Select(p => p.Promise.Number));
+        Assert.Empty(NumberPromiseCoordinator.Plan(Armed(), numbers, "key-123456"));
         Assert.Empty(NumberPromiseCoordinator.Plan(null, numbers, null));
+    }
+
+    // ---- the PC de secours never gives a legal number --------------------------------------------------------------
+
+    [Fact]
+    public void A_Note_Issued_On_A_Pc_Holding_A_Cut_Gets_A_Provisional_Number_Of_Its_Year()
+    {
+        using var db = ModelOnly();
+        var invoice = Draft();
+        invoice.Issue("2026-0043");
+        db.Add(invoice);
+
+        Assert.Equal(1, NumberedDocuments.MakeProvisional(db));
+
+        Assert.Equal($"2026-P{invoice.Id.ToString("N")[..8].ToUpperInvariant()}", invoice.Number);
+        Assert.True(ProvisionalNumber.IsProvisional(invoice.Number));
+    }
+
+    [Fact]
+    public void An_Avoir_Raised_On_A_Pc_Holding_A_Cut_Is_Provisional_Too()
+    {
+        using var db = ModelOnly();
+        var avoir = new CreditNote(Guid.NewGuid(), ClinicId, Guid.NewGuid(), "2026-0003", 10m, "Acte non réalisé",
+            PaymentMethod.Cash, T0);
+        db.Add(avoir);
+
+        NumberedDocuments.MakeProvisional(db);
+
+        Assert.True(ProvisionalNumber.IsProvisional(avoir.Number));
+        Assert.StartsWith("2026-P", avoir.Number);
+    }
+
+    // A payment on a note issued earlier in the cut keeps its provisional number — it is not numbered again.
+    [Fact]
+    public void A_Note_Already_Provisional_Or_Already_Numbered_Is_Left_Alone()
+    {
+        using var db = ModelOnly();
+        var earlier = Draft();
+        earlier.Issue("2026-0040");
+        db.Attach(earlier);
+        earlier.RecordPayment(20m, PaymentMethod.Cash, T0);
+
+        var provisional = Draft();
+        provisional.Issue("2026-P0A1B2C3D");
+        db.Add(provisional);
+
+        Assert.Equal(0, NumberedDocuments.MakeProvisional(db));
+        Assert.Equal("2026-0040", earlier.Number);
+        Assert.Equal("2026-P0A1B2C3D", provisional.Number);
+    }
+
+    // The next real number is read off the real ones only: a provisional number can never be mistaken for a sequence.
+    [Theory]
+    [InlineData("2026-0042", false)]
+    [InlineData("2026-P0A1B2C3D", true)]
+    [InlineData("2026-P12345678", true)]
+    [InlineData("2026-12345678", false)]
+    [InlineData("P-0042", false)]
+    public void A_Provisional_Number_Never_Reads_As_A_Sequence(string number, bool provisional)
+    {
+        Assert.Equal(provisional, ProvisionalNumber.IsProvisional(number));
+        if (provisional)
+        {
+            // The three GetMaxSequenceForYearAsync parse what follows the last dash as an int: « P… » never is.
+            Assert.False(int.TryParse(number[(number.LastIndexOf('-') + 1)..], out _));
+        }
+    }
+
+    // The return renumbers exactly the documents the PC numbers provisionally — a fourth numbered type must be in both.
+    [Fact]
+    public void Every_Numbered_Document_Is_Renumbered_At_The_Return_In_Issue_Order()
+    {
+        Assert.Equal(
+            NumberedDocuments.Sequences.Keys.Select(t => t.Name).Order(),
+            ClinicRelayRowStore.RenumberedInIssueOrder.Keys.Order());
+        foreach (var (table, issuedAt) in ClinicRelayRowStore.RenumberedInIssueOrder)
+        {
+            var type = NumberedDocuments.Sequences.Keys.Single(t => t.Name == table);
+            Assert.NotNull(type.GetProperty(issuedAt));
+        }
     }
 
     // ---- the refusal ---------------------------------------------------------------------------------------------------

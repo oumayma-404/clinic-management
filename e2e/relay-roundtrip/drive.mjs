@@ -89,7 +89,7 @@ if (cmd === "code") {
   }))
   const note = must("note", await call(side, "POST", `/invoices/from-dental-record/${fiche.id}`,
     { amount: 50, method: "Cash" }))
-  state.notes = [...(state.notes ?? []), { side, tag, number: note.number, patientId: patient.id }]
+  state.notes = [...(state.notes ?? []), { side, tag, id: note.id, number: note.number, patientId: patient.id }]
   save()
   console.log(`${side}: patient, fiche and note ${note.number} with 50 DT paid`)
 } else if (cmd === "probe") {

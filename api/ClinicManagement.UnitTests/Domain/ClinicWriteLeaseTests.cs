@@ -39,8 +39,9 @@ public class ClinicWriteLeaseTests
 
         Assert.False(Fenced(relay, T0.AddSeconds(secondsLater)));
         Assert.Null(ClinicWriteLease.LockedSinceUtc(relay, T0.AddSeconds(secondsLater)));
-        // …while the numbers still wait for the PC's word (D16), so a number is never issued twice.
-        Assert.True(ClinicWriteLease.PcMustConfirmNumbers(relay));
+        // …and its notes are never held up either (review finding 1): a laptop asleep with an « armé » ack blocked every
+        // note, devis and avoir on the cloud all night. Numbers stay unique because the PC gives provisional ones.
+        Assert.False(ClinicWriteLease.PcMustConfirmNumbers(relay));
     }
 
     // Once the PC said it holds the saves (the button was pressed), the cloud is locked from the PC's own moment.
