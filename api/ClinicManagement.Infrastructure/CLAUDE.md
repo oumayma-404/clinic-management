@@ -733,8 +733,14 @@ no consent flag and no audit of which patient was sent.
   healthy) **before** writing anything, then journal row → `RelayInstallLayer.SwitchToLocalServer` (⚠️ leaves no
   `ClinicRelay` substring — the installer's `ExistingInstall` matches on it) → follower state released →
   `.local/relay-promotion.json`.
+- **May this copy go? (review finding 9)**: `RelayCopyKeep.Refusal` is the one answer — unreturned cut work or ANY
+  stopped copy keeps it — asked by « Effacer la copie », `pair-relay` and `uninstall-relay` (before the cloud is told).
+  ⚠️ `relay_unknown` is `RelayCallStatus.Unknown`, never `Released`: a cloud restored from before the pairing forgets the
+  PC, and a seeded copy then stops (`UnknownReason`) and is kept. The eraser also deletes the `clinic-backup-*` folders.
+- **Copy writes vs the takeover (finding 13)**: `RelayLease.TryBeginApply`/`EndApply` wrap every row write of the copy;
+  none starts once the PC holds, and `TakeOver` refuses while one runs.
 - **Uninstall (PC side)**: `RelayUninstaller`, driven by the API's `uninstall-relay [--erase]` verb (the installer's
-  uninstall step, service stopped). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
+  uninstall step, API + web stopped, PostgreSQL still up for the erase). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
   silent cloud may be a lost one, and then this PC is the cabinet's last copy; a copy stopped by a cloud that went back
   is never erased either. `pair-relay` resets `relay-state.json`: the old cursor would stop a new pairing for good.
 

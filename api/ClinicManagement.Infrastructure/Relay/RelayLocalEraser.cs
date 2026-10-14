@@ -26,6 +26,7 @@ public sealed class RelayLocalEraser
     private readonly IUserRepository _users;
     private readonly RelayFollowerStateStore _state;
     private readonly RelayLease _lease;
+    private readonly IBackupService _backups;
     private readonly ILogger<RelayLocalEraser> _logger;
 
     public RelayLocalEraser(
@@ -35,6 +36,7 @@ public sealed class RelayLocalEraser
         IUserRepository users,
         RelayFollowerStateStore state,
         RelayLease lease,
+        IBackupService backups,
         ILogger<RelayLocalEraser> logger)
     {
         _purge = purge;
@@ -43,18 +45,21 @@ public sealed class RelayLocalEraser
         _users = users;
         _state = state;
         _lease = lease;
+        _backups = backups;
         _logger = logger;
     }
 
-    /// <summary>False while this copy holds work saved during a cut that the cloud never received (AC-7.3).</summary>
-    public bool MayErase => !_lease.HoldsUnreturnedWork;
+    /// <summary>Why this copy must stay (AC-7.3, review finding 9) — null when it may be erased.</summary>
+    public (string Error, string Code)? Refusal => RelayCopyKeep.Refusal(_state.Load(), _lease.HoldsUnreturnedWork);
+
+    public bool MayErase => Refusal is null;
 
     /// <returns>How many files were removed.</returns>
     public async Task<int> EraseAsync(Guid clinicId, DateTime nowUtc, CancellationToken cancellationToken)
     {
-        if (!MayErase)
+        if (Refusal is { } refused)
         {
-            throw new InvalidOperationException(RelayRefusals.CutWorkKept);
+            throw new InvalidOperationException(refused.Error);
         }
 
         var addresses = await ClinicDeletionAddresses.FreedByDeletingAsync(_users, clinicId, cancellationToken);
@@ -75,7 +80,31 @@ public sealed class RelayLocalEraser
         _state.Save(_state.Load() with { ErasedAtUtc = nowUtc, ErasureReported = false });
 
         var files = await _files.DeleteByClinicAsync(clinicId, cancellationToken);
-        _logger.LogWarning("The PC de secours's copy of clinic {ClinicId} was erased: rows and {Files} file(s)", clinicId, files);
+        var backups = EraseBackups();
+        _logger.LogWarning("The PC de secours's copy of clinic {ClinicId} was erased: rows, {Files} file(s) and {Backups} "
+                           + "backup folder(s)", clinicId, files, backups);
         return files;
+    }
+
+    /// <summary>
+    /// Review finding 17: every pre-migration backup on this PC is a full copy of the cabinet (<c>pg_dump</c> + files), so
+    /// « Copie effacée » must remove them too. Only <c>clinic-backup-*</c> folders, the backup service's own.
+    /// </summary>
+    private int EraseBackups()
+    {
+        var root = _backups.ResolveDestinationRoot(null);
+        if (!Directory.Exists(root))
+        {
+            return 0;
+        }
+
+        var erased = 0;
+        foreach (var folder in Directory.EnumerateDirectories(root, "clinic-backup-*"))
+        {
+            Directory.Delete(folder, recursive: true);
+            erased++;
+        }
+
+        return erased;
     }
 }

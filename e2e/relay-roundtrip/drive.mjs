@@ -8,6 +8,9 @@
  *   node drive.mjs probe <seconds> <out.json>  one expense on EACH side every 2 s; prints what each answered
  *   node drive.mjs offered <seconds>           waits until the PC offers « Travailler sur le PC de secours »
  *   node drive.mjs take-over                   presses it (POST /relay/local/take-over) and asserts the PC holds
+ *   node drive.mjs save <side> <ok|refused>    one expense; fails unless the side answers as expected
+ *   node drive.mjs retire                      « Retirer ce PC » on the cloud: refused without a code, done with one
+ *   node drive.mjs erase-refused <code>        « Effacer la copie » on the PC: refused with that code
  *
  * Environment: CLOUD_API, PC_API, CLINIC_EMAIL, CLINIC_PASSWORD, CLINIC_TOTP_SECRET, RT_STATE (state.json path).
  * ⚠️ The PC serves HTTPS with its own self-signed certificate: run with NODE_TLS_REJECT_UNAUTHORIZED=0.
@@ -40,12 +43,13 @@ function totp() {
 }
 const freshWindow = () => new Promise((r) => setTimeout(r, (30 - (Math.floor(Date.now() / 1000) % 30) + 2) * 1000))
 
-async function call(side, method, path, body, token = state[side]) {
+async function call(side, method, path, body, token = state[side], extra = {}) {
   const res = await fetch(API[side] + path, {
     method,
     headers: {
       ...(body ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...extra,
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(20000),
@@ -134,6 +138,29 @@ if (cmd === "code") {
   const r = must("take-over", await call("pc", "POST", "/relay/local/take-over", {}, null))
   if (!r?.holding) throw new Error(`pressed, and the PC does not hold: ${JSON.stringify(r)}`)
   console.log("pc: holds the cabinet's saves")
+} else if (cmd === "save") {
+  const [side, expect] = args
+  const r = await call(side, "POST", "/expenses", {
+    expenseDate: new Date().toISOString(), category: "Fournitures", amount: 1, method: "Cash",
+    description: `Roundtrip save ${side} ${Date.now()}`,
+  })
+  const ok = r.status >= 200 && r.status < 300
+  if (ok !== (expect === "ok")) throw new Error(`${side}: expected ${expect}, got ${r.status} ${r.text.slice(0, 300)}`)
+  console.log(`${side}: save ${expect} (${r.status}${r.json?.code ? " " + r.json.code : ""})`)
+} else if (cmd === "retire") {
+  // Review finding 10: retiring needs an authenticator code — a stolen session alone must not do it.
+  const bare = await call("cloud", "DELETE", "/relay")
+  if (bare.status !== 403) throw new Error(`retire without a code: expected 403, got ${bare.status} ${bare.text.slice(0, 300)}`)
+  await freshWindow()
+  const proof = must("step-up", await call("cloud", "POST", "/auth/step-up", { action: "relay-retire", totpCode: totp() }))
+  const r = must("retire", await call("cloud", "DELETE", "/relay", undefined, state.cloud,
+    { "X-Step-Up-Confirmation": proof.confirmationToken }))
+  console.log(`cloud: retire refused without a code (403), done with one (${JSON.stringify(r?.label ?? r?.status ?? "")})`)
+} else if (cmd === "erase-refused") {
+  const r = await call("pc", "POST", "/relay/local/erase", {})
+  if (r.status !== 409 || r.json?.code !== args[0])
+    throw new Error(`erase: expected 409 ${args[0]}, got ${r.status} ${r.text.slice(0, 300)}`)
+  console.log(`pc: « Effacer la copie » refused (${args[0]})`)
 } else {
   console.error(`unknown command ${cmd}`)
   process.exit(2)

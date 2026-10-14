@@ -13,13 +13,18 @@ public enum RelayCallStatus
     Ok,
     /// <summary>No answer — the internet or the cloud is down. Nothing is concluded from it.</summary>
     Unreachable,
-    /// <summary>The cloud retired this PC, or no longer knows it (AC-8.1).</summary>
+    /// <summary>The cloud retired this PC (AC-8.1).</summary>
     Released,
     /// <summary>The cloud runs another build; copy calls wait for this PC's update (D10b).</summary>
     UpdateNeeded,
     NotFound,
     /// <summary>Any other refusal, with the cloud's own sentence.</summary>
     Refused,
+    /// <summary>
+    /// The cloud answered and knows no such PC. ⚠️ Not <see cref="Released"/> (review finding 9): a cloud restored from
+    /// before the pairing forgets it, and this copy then holds what the cloud lost — it is kept, never released.
+    /// </summary>
+    Unknown,
 }
 
 public sealed record RelayCall<T>(RelayCallStatus Status, T? Value = default, string? Error = null)
@@ -490,7 +495,7 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
             return (Classify(response.StatusCode, code), null, error);
         }
 
-        return (RelayCallStatus.Released, null, RelayRefusals.UnknownRelay);
+        return (RelayCallStatus.Unknown, null, RelayRefusals.UnknownRelay);
     }
 
     private async Task<RelayCall<string>> TokenAsync(bool forceRefresh, CancellationToken cancellationToken)
@@ -560,7 +565,8 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     /// <summary>The PC acts on the refusal's code, never on its sentence.</summary>
     public static RelayCallStatus Classify(HttpStatusCode status, string? code) => code switch
     {
-        RelayRefusals.RetiredCode or RelayRefusals.UnknownRelayCode => RelayCallStatus.Released,
+        RelayRefusals.RetiredCode => RelayCallStatus.Released,
+        RelayRefusals.UnknownRelayCode => RelayCallStatus.Unknown,
         RelayRefusals.VersionMismatchCode => RelayCallStatus.UpdateNeeded,
         _ => status switch
         {

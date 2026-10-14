@@ -204,7 +204,7 @@ public static class Extensions
         services.AddScoped(sp => new RelayLocalEraser(
             sp.GetRequiredService<IClinicPurge>(), sp.GetRequiredService<IUnitOfWork>(), sp.GetRequiredService<IFileStorage>(),
             sp.GetRequiredService<IUserRepository>(), new RelayFollowerStateStore(), sp.GetRequiredService<RelayLease>(),
-            sp.GetRequiredService<ILogger<RelayLocalEraser>>()));
+            sp.GetRequiredService<IBackupService>(), sp.GetRequiredService<ILogger<RelayLocalEraser>>()));
         // D22: prepared sessions — the cloud's keys (every profile; only the cloud's heartbeat mints one), and the PC's own.
         services.AddSingleton<IRelayAssertionKeys>(sp => new RelayAssertionKeys(sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>()));
         services.AddSingleton<IRelayLocalAssertionKey>(sp =>

@@ -75,6 +75,7 @@ public sealed class DeclareRelayLostCommandHandler : IRequestHandler<DeclareRela
             // The journal row is written before the accounts are touched, so it carries the declaring admin's own
             // identity — the reset below ends that admin's session like everybody else's.
             var actor = _actor.Current;
+            await RelayTakeBack.StageIfLockedAsync(relay, admin.Value.Id, actor, _auditEntries, now, cancellationToken);
             relay.DeclareLost(admin.Value.Id, now);
 
             var members = await _users.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);

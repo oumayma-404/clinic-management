@@ -7,6 +7,8 @@ Rules: write the blast-radius table first, run the whole unit suite (never `--fi
 
 ## Already done — do not redo
 - Criticals 1–7 + major 12: commit `070bcd4d` (deviations 214–218 in `stories/progress.md`).
+- Majors 9, 10, 11, 13, 14, 17 (data safety): session 2, 2026-10-13 (deviations 220–225). Left of 10: a retired PC
+  cannot list its cut « À reprendre » — owner question.
 - Critical 8 (database password readable on the PC): **declined by the owner** — do not reapply.
 
 ## Leftovers from the critical fixes
@@ -16,7 +18,7 @@ Rules: write the blast-radius table first, run the whole unit suite (never `--fi
 | Drive the return from the lease loop, not only the copy tick | `RelayFollower.WhileHoldingAsync`, `RelayFeedJob` | the 60 s stall timeout already bounds the hang |
 | SMS reminder sent for a visit the PC cancelled during a cut | `NotificationJob` | cannot be fixed without fencing the cloud; maybe pause reminders while an armed PC is silent > X min — owner decision |
 
-## Major — data safety (do these first)
+## Major — data safety (DONE — see deviations 220–225)
 | # | Problem | Where | Fix |
 |---|---|---|---|
 | 9 | After a cloud restore, « Effacer la copie », a reinstall (`pair-relay --replace`) or `relay_unknown` → Released can erase the only copy of the newer data | `RelayLocalEraser.MayErase`, `PairRelayConsoleCommand` l.83, `RelayCloudClient.Classify` l.~367, `RelayUninstaller` | refuse all four while `RelayGap.Pending(state)`; a seeded PC told `relay_unknown` stops « gardé », never `Released` |

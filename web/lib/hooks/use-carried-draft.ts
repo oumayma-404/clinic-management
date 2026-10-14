@@ -8,6 +8,8 @@ import {
   claimCarried,
   dropCarried,
   takeCarriedOnce,
+  SWITCH_REFUSAL,
+  SWITCH_REFUSAL_MAYBE_SAVED,
   type CarriedDraft,
 } from "@/lib/forms/carried-draft"
 
@@ -37,6 +39,8 @@ export interface CarriedDraftState {
    * offer « Recharger » — false after that, so the next Enregistrer goes through.
    */
   consumeSwitch: () => boolean
+  /** What to say when `consumeSwitch` refuses — names a save sent before the switch and never answered. */
+  switchRefusal: string
 }
 
 /**
@@ -47,6 +51,7 @@ export function useCarriedDraft<S>({ form, formKey, path, open, dirty, state, re
   const { user } = useSession()
   const userId = user?.email?.toLowerCase() ?? null
   const [switched, setSwitched] = useState(false)
+  const [maybeSaved, setMaybeSaved] = useState(false)
   const switchedRef = useRef(false)
   const restoreRef = useRef(restore)
   restoreRef.current = restore
@@ -58,6 +63,7 @@ export function useCarriedDraft<S>({ form, formKey, path, open, dirty, state, re
       claimedFor.current = null
       switchedRef.current = false
       setSwitched(false)
+      setMaybeSaved(false)
       return
     }
     if (!formKey || !userId || claimedFor.current === formKey) return
@@ -71,6 +77,7 @@ export function useCarriedDraft<S>({ form, formKey, path, open, dirty, state, re
       const fromElsewhere = draft.origin !== window.location.origin
       switchedRef.current = fromElsewhere
       setSwitched(fromElsewhere)
+      setMaybeSaved(fromElsewhere && (draft.writes?.length ?? 0) > 0)
     })
     return () => {
       cancelled = true
@@ -101,7 +108,7 @@ export function useCarriedDraft<S>({ form, formKey, path, open, dirty, state, re
     return true
   }, [])
 
-  return { switched, consumeSwitch }
+  return { switched, consumeSwitch, switchRefusal: maybeSaved ? SWITCH_REFUSAL_MAYBE_SAVED : SWITCH_REFUSAL }
 }
 
 function safeJson(value: unknown): string | null {

@@ -59,6 +59,7 @@ public sealed class RetireRelayCommandHandler : IRequestHandler<RetireRelayComma
             }
 
             var now = DateTime.UtcNow;
+            await RelayTakeBack.StageIfLockedAsync(relay, admin.Value.Id, _actor.Current, _auditEntries, now, cancellationToken);
             relay.Retire(ClinicRelayRetirement.Retired, admin.Value.Id, now);
             await RelayJournal.StageAsync(_auditEntries, _actor.Current, relay, AuditAction.Update, RelayJournal.Retire,
                 now, cancellationToken);

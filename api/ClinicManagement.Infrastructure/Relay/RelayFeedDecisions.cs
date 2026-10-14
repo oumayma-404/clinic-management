@@ -31,6 +31,20 @@ public static class RelayFeedDecisions
         "Le cloud a repris la main pendant la coupure. La copie est arrêtée pour ne rien perdre : ce PC garde ce que le "
         + "cabinet y a enregistré.";
 
+    /// <summary>
+    /// Review finding 9: the cloud answered that it knows no such PC — a cloud restored from before this pairing forgets
+    /// it. A copy that holds rows is kept, never released toward erasure; a human decides.
+    /// </summary>
+    public const string UnknownReason =
+        "Le cloud ne reconnaît plus ce PC (restauration ?). La copie est arrêtée et gardée : elle contient peut-être des "
+        + "données que le cloud n'a plus. Contactez la personne qui a installé votre logiciel.";
+
+    /// <summary>Released when nothing was ever copied here; else stopped with <see cref="UnknownReason"/> (finding 9).</summary>
+    public static RelayFollowerState WhenUnknown(RelayFollowerState state) =>
+        !state.RowsSeeded ? state with { Released = true }
+        : state.StoppedReason is not null ? state
+        : Stopped(state, UnknownReason);
+
     public const string WentBackReason =
         "Le cloud est revenu à un état antérieur à cette copie (restauration ?). Ce PC garde les données les plus récentes "
         + "et renvoie au cloud ce qu'il a perdu, puis la copie reprend.";

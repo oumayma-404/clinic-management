@@ -17,3 +17,16 @@
 | 13 | `Program.cs` RunsCutJobs | PC's cut jobs | `RelayFenceTests` (derived list) | must change — MonthlyExpenseJob leaves the PC's list |
 | 14 | `InstallConfiguration.AddInstallLayers` | config layers | host + 6 console verbs | unaffected — one optional layer added, same order for all |
 | 15 | `clinic-setup.iss` WriteInstallConfig | installer | server + relay roles | must re-test — lint + ISCC compile |
+
+# Blast radius — review fixes, data-safety majors 9, 10, 11, 13, 17 (2026-10-13, session 2)
+
+| # | Touching | What it is | Other consumers | Verdict |
+|---|----------|------------|-----------------|---------|
+| 1 | `RelayCallStatus` (+ `Unknown`) | PC's reading of a cloud answer | `RelayFollower` (6), `RelayLease.ExchangeAsync`, `RelayUninstaller` (2), `RelayGap`/`RelayHandback` (non-Ok = generic), follower/lease/uninstall tests | must change — `relay_unknown` no longer means `Released` |
+| 2 | `RelayCopyKeep` (new, one owner) | « may this copy be thrown away? » | `RelayLocalEraser`, `RelayLocalController.Erase`, `PairRelayConsoleCommand`, `RelayUninstaller` | must change — all four doors ask it |
+| 3 | `RelayLocalEraser` (+ `IBackupService`) | « Effacer la copie » | controller, uninstall verb, `RelayEraseTests` | must change — backups erased; ctor grows |
+| 4 | `RelayUninstaller.UninstallAsync` | uninstall verb | installer exit codes (`UninstallSentence`), `RelayUninstallTests` | must change — refusal BEFORE the cloud is told; exit codes unchanged |
+| 5 | `clinic-setup.iss` `CurUninstallStepChanged` | relay uninstall | server uninstall (ExistingInstall ≠ 2 exits first) | must re-test — lint + ISCC; DB left running for the verb |
+| 6 | `RelayFollower.TickAsync` overruled branch | « À reprendre » listing | follower tests | must change — updater stepped first |
+| 7 | `RetireRelayCommand` / `RelayController.Retire` | « Retirer ce PC » | web settings card (DELETE `/relay`), `RelayRetireTests` | must change — step-up; during a cut the cloud takes the saves back first (AC-8.6) — browser: `qa/run-1.md`, e2e: retire phase |
+| 8 | `RelayLeaseKeeper.TickAsync` / follower apply | takeover offer vs re-seed | keeper tests | must change — one gate shared by apply and takeover |

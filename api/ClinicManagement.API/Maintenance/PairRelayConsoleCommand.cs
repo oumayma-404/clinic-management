@@ -77,12 +77,12 @@ public static class PairRelayConsoleCommand
             TryDelete(codeFile);
         }
 
-        // A copy holding work saved during a cut that never reached the cloud is that work's only copy (AC-7.3): a new
-        // pairing would seed over it.
+        // A copy holding work saved during a cut that never reached the cloud is that work's only copy (AC-7.3), and a
+        // stopped copy may hold what a restored cloud lost (review finding 9): a new pairing would seed over either.
         var lease = provider.GetRequiredService<RelayLease>();
-        if (lease.HoldsUnreturnedWork)
+        if (RelayCopyKeep.Refusal(new RelayFollowerStateStore().Load(), lease.HoldsUnreturnedWork) is { } kept)
         {
-            Console.Error.WriteLine(RelayRefusals.CutWorkKept);
+            Console.Error.WriteLine(kept.Error);
             return 1;
         }
 

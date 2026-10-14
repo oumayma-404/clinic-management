@@ -38,7 +38,8 @@ public sealed record RelayUninstallResult(RelayUninstallOutcome Outcome, int Fil
 /// What uninstalling a PC de secours does (<c>clinic-pc-copy</c> AC-8.3): it counts as retiring it, and « Effacer aussi
 /// la copie du cabinet ? » erases it.
 ///
-/// <para>⚠️ <b>The cloud is told FIRST, and the copy is erased only once it has answered.</b> A cloud that does not answer
+/// <para>⚠️ <b>A copy that must be kept (<see cref="RelayCopyKeep"/>) is refused before the cloud is told anything</b>;
+/// otherwise <b>the cloud is told FIRST, and the copy is erased only once it has answered.</b> A cloud that does not answer
 /// may be a cloud that is lost — the very case where the vendor promotes this PC — and an uninstaller that erased then
 /// would destroy the cabinet's last copy. Likewise a PC whose copy stopped because the cloud went back in time holds
 /// records the cloud does not have, and is never erased here.</para>
@@ -78,9 +79,16 @@ public sealed class RelayUninstaller
             return new(RelayUninstallOutcome.NotPaired, 0, "Ce PC n'était jumelé à aucun cabinet : rien à prévenir.");
         }
 
+        // Review finding 10: a cut's unreturned work, or a stopped copy, is refused BEFORE the cloud hears anything —
+        // told first, the cloud retires this PC, and a retired PC can never send what it holds.
+        if (RelayCopyKeep.Refusal(_state.Load(), _holdsUnreturnedWork()) is { } kept)
+        {
+            return new(RelayUninstallOutcome.KeptNewerCopy, 0, kept.Error);
+        }
+
         // « Unknown » means the cloud answered and holds no such PC — it is up, so it is not the cabinet's last copy.
         var told = await _cloud.ReportUninstalledAsync(cancellationToken);
-        if (told.Status is not (RelayCallStatus.Ok or RelayCallStatus.Released))
+        if (told.Status is not (RelayCallStatus.Ok or RelayCallStatus.Released or RelayCallStatus.Unknown))
         {
             return new(RelayUninstallOutcome.CloudNotTold, 0, eraseCopy
                 ? "Le cloud n'a pas pu être prévenu, donc la copie n'a pas été effacée : sans le cloud, ce PC est peut-être la "
@@ -97,26 +105,12 @@ public sealed class RelayUninstaller
                 "Le cloud a noté la désinstallation. La copie du cabinet reste sur ce PC.");
         }
 
-        if (state.StoppedReason is not null)
-        {
-            return new(RelayUninstallOutcome.KeptNewerCopy, 0,
-                "La copie n'a pas été effacée : ce PC a arrêté la copie parce que le cloud était revenu en arrière, il contient "
-                + "donc des données plus récentes que le cloud. Contactez la personne qui a installé votre logiciel.");
-        }
-
-        if (_holdsUnreturnedWork())
-        {
-            return new(RelayUninstallOutcome.KeptNewerCopy, 0,
-                "La copie n'a pas été effacée : ce PC garde du travail enregistré pendant une coupure d'internet qui n'est "
-                + "jamais arrivé dans le cloud. Contactez la personne qui a installé votre logiciel.");
-        }
-
         var files = state.ErasedAtUtc is null ? await _erase(cancellationToken) : 0;
 
         for (var attempt = 1; attempt <= EraseReportAttempts; attempt++)
         {
             var reported = await _cloud.ReportErasedAsync(cancellationToken);
-            if (reported.Status is RelayCallStatus.Ok or RelayCallStatus.Released)
+            if (reported.Status is RelayCallStatus.Ok or RelayCallStatus.Released or RelayCallStatus.Unknown)
             {
                 _state.Save(_state.Load() with { ErasureReported = true });
                 return new(RelayUninstallOutcome.RecordedAndErased, files,

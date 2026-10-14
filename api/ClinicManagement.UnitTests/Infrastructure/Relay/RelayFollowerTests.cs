@@ -1241,6 +1241,85 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Equal(RelayFeedDecisions.OverruledReason, _store.Load().StoppedReason);
     }
 
+    // [Review finding 11] An overruled PC under another cloud build updates first: the listing is build-gated, so listing
+    // it under the old build is refused on every tick and the cut would never reach « À reprendre ».
+    [Fact]
+    public async Task An_Overruled_Pc_Under_Another_Build_Updates_Before_Listing_Its_Cut()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+        _cloud.Reclaimed = true;
+        var follower = HandbackFollower();
+        await HoldingTicksAsync(follower, 1);
+        _cloud.Reclaimed = false;
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7, 7, 7 });
+
+        await HoldingTicksAsync(follower, 1);
+
+        Assert.Empty(_cloud.Overruled);
+        Assert.Single(_launcher.Launches);
+        Assert.True(_lease.HoldsUnreturnedWork);
+        Assert.Equal(RelayFeedDecisions.OverruledReason, _store.Load().StoppedReason);
+    }
+
+    // [Review finding 9] A cloud that no longer knows this PC (restored from before the pairing) stops a seeded copy and
+    // keeps it — never « released », which erase and uninstall would read as « may go ».
+    [Fact]
+    public async Task A_Seeded_Pc_The_Cloud_Does_Not_Know_Stops_And_Is_Kept()
+    {
+        Seeded();
+        _cloud.HeartbeatStatus = RelayCallStatus.Unknown;
+
+        var state = await TickAsync();
+
+        Assert.False(state.Released);
+        Assert.Equal(RelayFeedDecisions.UnknownReason, state.StoppedReason);
+        Assert.NotNull(RelayCopyKeep.Refusal(state, holdsUnreturnedWork: false));
+    }
+
+    // [Review finding 9] Nothing copied yet: nothing to keep, so an unknown PC is simply released.
+    [Fact]
+    public async Task An_Unseeded_Pc_The_Cloud_Does_Not_Know_Is_Released()
+    {
+        _cloud.HeartbeatStatus = RelayCallStatus.Unknown;
+
+        var state = await TickAsync();
+
+        Assert.True(state.Released);
+        Assert.Null(state.StoppedReason);
+    }
+
+    // [Review finding 10] Retired (or declared lost) while it held the cut: saves stop here and the work is kept, unreturned.
+    [Fact]
+    public async Task A_Holding_Pc_Released_Stops_Accepting_Saves_And_Keeps_The_Work()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _cloud.HeartbeatStatus = RelayCallStatus.Released;
+
+        var state = await TickAsync();
+
+        Assert.True(state.Released);
+        Assert.False(_lease.IsHolding);
+        Assert.True(_lease.HoldsUnreturnedWork);
+    }
+
+    // [Review finding 13] A copy write and a takeover never overlap: no write starts once this PC holds, and a takeover
+    // waits for a write that is running.
+    [Fact]
+    public void A_Copy_Write_And_A_Takeover_Never_Overlap()
+    {
+        Assert.True(_lease.TryBeginApply());
+        Assert.False(_lease.TakeOver());
+        Assert.False(_lease.IsHolding);
+        _lease.EndApply();
+
+        Assert.True(_lease.TakeOver());
+        Assert.False(_lease.TryBeginApply());
+    }
+
     // [D18] A new cut before the cloud confirmed the last return: the old handback is moot and never named again.
     [Fact]
     public void A_New_Takeover_Forgets_A_Return_Still_Awaiting_The_Cloud()

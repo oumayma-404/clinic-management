@@ -126,6 +126,36 @@ public sealed class RelayEraseTests : IDisposable
         Assert.Null(store.Load().ErasedAtUtc);
     }
 
+    // [Review finding 9] A copy stopped after a cloud restore (or by an unknown PC) may hold what the cloud lost: kept.
+    [Fact]
+    public async Task A_Stopped_Copy_Is_Never_Erased()
+    {
+        var order = new List<string>();
+        var (eraser, store) = Eraser(order, purgeFails: false);
+        store.Save(store.Load() with { StoppedReason = RelayFeedDecisions.WentBackReason });
+
+        Assert.Equal(RelayRefusals.NewerCopyKeptCode, eraser.Refusal?.Code);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => eraser.EraseAsync(ClinicId, T0, default));
+        Assert.Empty(order);
+    }
+
+    // [Review finding 17] The pre-migration backups are full copies of the cabinet: « Effacer la copie » removes them too,
+    // and only the backup service's own folders.
+    [Fact]
+    public async Task Erasing_Removes_The_Backup_Copies_Too()
+    {
+        var backups = Path.Combine(_dir, "Backups");
+        Directory.CreateDirectory(Path.Combine(backups, "clinic-backup-20261001-120000"));
+        File.WriteAllText(Path.Combine(backups, "clinic-backup-20261001-120000", "database.dump"), "x");
+        Directory.CreateDirectory(Path.Combine(backups, "operator-folder"));
+        var (eraser, _) = Eraser(new List<string>(), purgeFails: false);
+
+        await eraser.EraseAsync(ClinicId, T0, default);
+
+        Assert.False(Directory.Exists(Path.Combine(backups, "clinic-backup-20261001-120000")));
+        Assert.True(Directory.Exists(Path.Combine(backups, "operator-folder")));
+    }
+
     private (RelayLocalEraser Eraser, RelayFollowerStateStore Store) Eraser(
         List<string> order, bool purgeFails, RelayLease? lease = null)
     {
@@ -155,8 +185,10 @@ public sealed class RelayEraseTests : IDisposable
 
         var store = new RelayFollowerStateStore(_dir);
         store.Save(new RelayFollowerState { Released = true, ReleasedAtUtc = T0.AddDays(-1) });
+        var backups = new Mock<IBackupService>();
+        backups.Setup(b => b.ResolveDestinationRoot(null)).Returns(Path.Combine(_dir, "Backups"));
         return (new RelayLocalEraser(purge.Object, unitOfWork.Object, files.Object, users.Object, store,
-            lease ?? new RelayLease(_dir), NullLogger<RelayLocalEraser>.Instance), store);
+            lease ?? new RelayLease(_dir), backups.Object, NullLogger<RelayLocalEraser>.Instance), store);
     }
 
     public void Dispose()

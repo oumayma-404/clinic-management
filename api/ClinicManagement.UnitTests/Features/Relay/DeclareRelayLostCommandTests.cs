@@ -67,6 +67,27 @@ public class DeclareRelayLostCommandTests
         return relay;
     }
 
+    // [AC-8.6, review finding 10] Declared lost while it held the cabinet's saves: the cloud is taken back first and the
+    // journal says so — the reclaim and the loss are two rows.
+    [Fact]
+    public async Task Declared_Lost_During_A_Cut_Takes_The_Cloud_Back_First()
+    {
+        var admin = Member(User.RoleAdmin, "admin@cabinet.tn", withAuthenticator: true);
+        _members.Add(admin);
+        var pc = PairedPc();
+        pc.RecordHeartbeat(new RelayHeartbeat(10, 100, true, 0, 0, null, false, "build-1", null, null, null, null, null, false,
+            Holding: true, HoldingSinceUtc: T0, HoldingUnderAckSeq: 0), 10, T0.AddMinutes(1));
+        Assert.NotNull(pc.PcHoldingSinceUtc);
+
+        var result = await Handler(admin, pc).Handle(new DeclareRelayLostCommand(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.NotNull(pc.ReclaimedAtUtc);
+        Assert.Null(pc.PcHoldingSinceUtc);
+        Assert.Contains(_journal, e => e.ChangedFields!.Contains(RelayJournal.Reclaimed));
+        Assert.Contains(_journal, e => e.ChangedFields!.Contains(RelayJournal.Lost));
+    }
+
     // AC-8.4: the PC is retired as lost, and EVERY account — the inactive one too — must choose new credentials.
     [Fact]
     public async Task The_Pc_Is_Retired_And_Every_Account_Must_Choose_New_Credentials()
