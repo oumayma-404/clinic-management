@@ -79,6 +79,15 @@ public class StaffConversationTests
     }
 
     [Fact]
+    public void A_Two_Person_Thread_With_Someone_Outside_The_Cabinet_Has_No_Members()
+    {
+        var withOutsider = StaffConversation.Direct(Salma, "local|other-cabinet");
+
+        Assert.False(withOutsider.IsMember(Salma, Roster));
+        Assert.Empty(withOutsider.Members(Roster));
+    }
+
+    [Fact]
     public void A_Desk_Thread_Is_Its_Owner_And_Every_Secretary_Not_Another_Dentist()
     {
         var desk = StaffConversation.Desk(Dentist);

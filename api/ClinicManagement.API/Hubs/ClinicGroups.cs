@@ -8,4 +8,7 @@ namespace ClinicManagement.API.Hubs;
 public static class ClinicGroups
 {
     public static string Name(Guid clinicId) => $"clinic-{clinicId}";
+
+    /// <summary>One person's tabs — what a staff chat message is sent to, so a third colleague's browser stays quiet.</summary>
+    public static string User(Guid clinicId, string userId) => $"user-{clinicId}-{userId}";
 }

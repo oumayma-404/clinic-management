@@ -77,6 +77,8 @@ public class SubscriptionExemptionCoverageTests
         "Relay.Reclaim",
         // AC-6.2: a device saying whether it reaches a silent PC de secours — records nothing of the cabinet's work.
         "RelayDevice.Report",
+        // staff-chat: marking a thread read records what one person has seen; an expired cabinet still reads its messages.
+        "StaffChat.MarkRead",
         // AC-8.2: erasing a retired PC's copy, and the PC telling the cloud — offboarding, never new work.
         "RelayLocal.Erase",
         "RelayLocal.TakeOver",

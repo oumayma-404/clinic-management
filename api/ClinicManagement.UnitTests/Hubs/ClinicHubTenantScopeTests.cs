@@ -24,7 +24,12 @@ public class ClinicHubTenantScopeTests
     /// The only repository the hub may depend on. <c>User</c> is unfiltered by design (the auth and join flows
     /// resolve it before any clinic is in scope), so resolving a clinic from it needs no tenant scope.
     /// </summary>
-    private static readonly HashSet<Type> UnfilteredDependencies = new() { typeof(IUserRepository) };
+    private static readonly HashSet<Type> UnfilteredDependencies = new()
+    {
+        typeof(IUserRepository),
+        // staff-chat presence: an in-memory connection count, no database read at all.
+        typeof(StaffPresence),
+    };
 
     // [US-2] Derived from the constructor, not from a remembered list of what the hub currently does.
     [Fact]
@@ -39,7 +44,7 @@ public class ClinicHubTenantScopeTests
 
         Assert.True(
             unexpected.Count == 0,
-            "ClinicHub gained a dependency beyond IUserRepository: "
+            "ClinicHub gained a dependency beyond its reviewed ones: "
             + string.Join(", ", unexpected.Select(t => t.Name))
             + ". A hub method runs with NO tenant scope (HTTP middleware does not run per invocation), so a "
             + "clinic-filtered read here returns nothing and reports success. Set the scope explicitly from the "

@@ -125,7 +125,9 @@ public sealed class StaffConversation : ValueObject
 
         return Kind switch
         {
-            StaffConversationKind.Direct => userId == First || userId == Second,
+            // Both people must belong to this cabinet, or a key naming an outsider would answer as a real thread.
+            StaffConversationKind.Direct => (userId == First || userId == Second)
+                && Find(roster, First) is not null && Find(roster, Second) is not null,
             StaffConversationKind.Desk => DeskIsOpen(roster) && (userId == First || user.IsSecretary),
             _ => true,
         };

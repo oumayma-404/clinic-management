@@ -560,6 +560,8 @@ try
     // to broadcast "appointments changed" to a clinic's connected clients. Runs in both auth modes.
     builder.Services.AddSignalR();
     builder.Services.AddScoped<IRealtimeNotifier, SignalRRealtimeNotifier>();
+    builder.Services.AddSingleton<StaffPresence>();
+    builder.Services.AddSingleton<IStaffPresence>(sp => sp.GetRequiredService<StaffPresence>());
 
     // Add Hangfire for background jobs
     var hangfireConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");

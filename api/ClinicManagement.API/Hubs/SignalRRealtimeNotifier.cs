@@ -32,4 +32,21 @@ public class SignalRRealtimeNotifier : IRealtimeNotifier
             _logger.LogWarning(ex, "Failed to broadcast {Event} ({Resource}) to clinic {ClinicId}", ClinicHub.EntityChanged, resource, clinicId);
         }
     }
+
+    public async Task NotifyStaffChatAsync(
+        Guid clinicId, IReadOnlyCollection<string>? userIds, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var clients = userIds is null
+                ? _hubContext.Clients.Group(ClinicGroups.Name(clinicId))
+                : _hubContext.Clients.Groups(userIds.Distinct(StringComparer.Ordinal).Select(u => ClinicGroups.User(clinicId, u)).ToList());
+
+            await clients.SendAsync(ClinicHub.StaffChatChanged, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to signal {Event} in clinic {ClinicId}", ClinicHub.StaffChatChanged, clinicId);
+        }
+    }
 }
