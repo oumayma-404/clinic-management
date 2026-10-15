@@ -9,7 +9,9 @@ import { useAlertPreferences } from "@/lib/staff-chat/alerts"
 
 /** « Son » and browser notifications for this person on this device (staff-chat AC-4.4, AC-4.6). */
 export function AlertSettings() {
-  const { muted, setMuted, notifications, askNotifications } = useAlertPreferences()
+  const { muted, setMuted, notifications, askNotifications, shell } = useAlertPreferences()
+  // In the Windows app its own notifications stand in for the browser's (EC-10 when it is too old to have them).
+  const browser = shell === "none"
   const soundId = useId()
 
   return (
@@ -20,14 +22,17 @@ export function AlertSettings() {
           Son des messages
         </Label>
       </div>
-      {notifications === "default" && (
+      {shell === "outdated" && (
+        <p className="text-xs text-muted-foreground">Mettez à jour l&apos;application Windows pour recevoir ses notifications.</p>
+      )}
+      {browser && notifications === "default" && (
         <Button variant="outline" size="sm" className="coarse:min-h-11" onClick={() => void askNotifications()}>
           <BellRing className="h-4 w-4" aria-hidden="true" />
           Activer les notifications
         </Button>
       )}
-      {notifications === "granted" && <p className="text-xs text-muted-foreground">Notifications activées</p>}
-      {notifications === "denied" && (
+      {browser && notifications === "granted" && <p className="text-xs text-muted-foreground">Notifications activées</p>}
+      {browser && notifications === "denied" && (
         <p className="text-xs text-muted-foreground">Notifications bloquées par le navigateur</p>
       )}
     </div>

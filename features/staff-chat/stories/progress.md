@@ -16,8 +16,8 @@
 | 2 Quick messages | implemented | 3025b348 |
 | 3 Shared desk | implemented | 64aa31c3 |
 | 4 Patient link + arrival | implemented | 62ad188d |
-| 5 Alerts | implemented | (this commit) |
-| 6 Windows notification | not-started | — |
+| 5 Alerts | implemented | 143f9657 |
+| 6 Windows notification | implemented — **not merged** (R-10: a `desktop/**` merge to `main` releases the Windows app) | (this commit) |
 
 ## Working tree note (start of session, 2026-10-15)
 
@@ -242,3 +242,23 @@ Decisions (reversible):
 | `tsc` · `check:responsive` · `build` | 0 · 80/80 · green |
 | e2e `staff-chat.spec.ts` | 7/7 (CHAT-02 / CHAT-05 now drive the button) |
 | Browser pass | 13/13: bell in Jour and on the half-hour block in Semaine; one press sends without opening the block; bell turns to « signalé »; window shows « Signalé à 22:26 par Ines Gharbi » and asks first; no second door in « ⋯ »; no-account dentist → disabled + reason; 390 px: button on its own row, no page scroll |
+
+### Part 6 — Windows notification (2026-10-15)
+
+| Gate | Result |
+|---|---|
+| Desktop solution build | 0 warnings, 0 errors |
+| `ClinicManagement.DesktopShell.Tests` | **172/172** (+ `ShellNotifyMessageTests`: parse, refusals, bounds, the 64-char toast tag) |
+| `tsc` · `check:responsive` · `build` | 0 · 80/80 (N52 now **requires** the shell call in the alert owner) · green |
+| Live, on the built 1.7.0 shell (isolated `APEXA_SHELL_PROFILE`, a test-only HTTPS proxy, WebView2 `--ignore-certificate-errors` for that run only) | bridge reports `1.7.0` with `notify`; the page registers `__clinicShellOpenStaffChat`; WebView2 audio `running` without a press (autoplay flag); with Salma's window in front, her message raised a **silent** Windows notification « APEXA — Dr Salma Ben Youssef / Appelez le labo » and the taskbar button flashed; a click brought the app to the foreground with the panel open on « Dr Salma Ben Youssef »; the uninstall hook removed the test copy's notification registration (exit 0, nothing left in `HKCU\…\AppUserModelId`) |
+| Not exercised live | the urgent toast staying on screen and « app in front → in-app notice only »: the owner was using the machine, and a sticky test toast / more focus stealing would have interrupted her. Both are guarded in code (`ToastScenario.Reminder`; `!IsActive` in the shell **and** `!document.hasFocus()` in the page) |
+
+Decisions (reversible):
+
+| Decision | Why |
+|---|---|
+| The toast is silent | the page already rang the chat's tone; two sounds for one message is what the design forbids |
+| One toast per conversation (tag = hash of the key) | the newest replaces the last instead of piling up |
+| Shell version 1.7.0 | bridge.md: the method set and the version move together (CI still derives the release number from the tag) |
+| In the Windows app the browser-notification button is hidden; an app without `notify` shows « Mettez à jour l'application Windows pour recevoir ses notifications. » | EC-10 |
+

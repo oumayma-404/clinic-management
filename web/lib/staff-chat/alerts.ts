@@ -179,9 +179,31 @@ function sound(urgent: boolean) {
 
 export type BrowserNotificationState = "unsupported" | "default" | "granted" | "denied"
 
+/** In the Windows app: its own notifications (`notify`), or an app too old to have them (EC-10). */
+export type ShellNotificationState = "none" | "windows" | "outdated"
+
+function shellNotificationState(): ShellNotificationState {
+  const shell = typeof window === "undefined" ? undefined : window.__clinicShell
+  if (!shell || shell.platform !== "windows") return "none"
+  return typeof shell.notify === "function" ? "windows" : "outdated"
+}
+
 function browserNotificationState(): BrowserNotificationState {
   if (typeof window === "undefined" || !("Notification" in window)) return "unsupported"
   return Notification.permission
+}
+
+/** Windows' own notification in the desktop app (AC-4.3), else the browser's (AC-4.4). */
+function raiseSystemNotification(message: StaffMessageDto, open: (conversation: string) => void) {
+  const shell = window.__clinicShell
+  if (typeof shell?.notify === "function") {
+    // Only while the window is not in front: there, the in-app notice already says it.
+    if (!document.hasFocus()) {
+      shell.notify({ title: message.sender.name, body: noticeText(message), tag: message.conversation, urgent: isUrgent(message) })
+    }
+    return
+  }
+  showBrowserNotification(message, open)
 }
 
 function showBrowserNotification(message: StaffMessageDto, open: (conversation: string) => void) {
@@ -216,7 +238,11 @@ export function useAlertPreferences() {
   const muted = useSyncExternalStore(subscribe, readMuted, () => false)
   const audioBlocked = useSyncExternalStore(subscribe, isAudioBlocked, () => false)
   const [notifications, setNotifications] = useState<BrowserNotificationState>("unsupported")
-  useEffect(() => setNotifications(browserNotificationState()), [])
+  const [shell, setShell] = useState<ShellNotificationState>("none")
+  useEffect(() => {
+    setNotifications(browserNotificationState())
+    setShell(shellNotificationState())
+  }, [])
 
   const setMuted = useCallback((value: boolean) => {
     try {
@@ -237,7 +263,7 @@ export function useAlertPreferences() {
     }
   }, [])
 
-  return { muted, setMuted, audioBlocked, enableAudio: resumeAudio, notifications, askNotifications }
+  return { muted, setMuted, audioBlocked, enableAudio: resumeAudio, notifications, askNotifications, shell }
 }
 
 // ── The decision ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -314,7 +340,7 @@ export function useStaffChatAlerts({ unread, identity, locked, isShowing, open }
     void claim(due.map((m) => m.id)).then((won) => {
       const mine = due.filter((m) => won.includes(m.id))
       if (mine.length > 0) sound(mine.some(isUrgent))
-      for (const m of mine) showBrowserNotification(m, latest.current.open)
+      for (const m of mine) raiseSystemNotification(m, latest.current.open)
     })
     if (!latest.current.locked) addNotices(due)
   }, [unread, identity])

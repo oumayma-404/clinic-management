@@ -81,6 +81,15 @@ export function StaffChatProvider({ children }: { children: React.ReactNode }) {
     [],
   )
 
+  // A click on the Windows app's chat notification opens that conversation here (AC-4.3).
+  useEffect(() => {
+    if (!available) return
+    window.__clinicShellOpenStaffChat = openConversation
+    return () => {
+      if (window.__clinicShellOpenStaffChat === openConversation) delete window.__clinicShellOpenStaffChat
+    }
+  }, [available, openConversation])
+
   const closePanel = useCallback(() => {
     setOpen(false)
     requestAnimationFrame(() => returnFocusTo.current?.focus())

@@ -145,10 +145,19 @@ interface ClinicShell {
 
   /** D23: the form state the shell holds, handed over once (and forgotten) — `null` when there is none. Never rejects. */
   takeCarriedDraft?(): Promise<string | null>
+
+  /**
+   * staff-chat (Windows 1.7): a Windows notification and a flashing taskbar for a chat message while the window is
+   * not in front. `tag` is the conversation a click opens, through `__clinicShellOpenStaffChat`.
+   */
+  notify?(notice: { title: string; body: string; tag: string; urgent: boolean }): void
 }
 
 interface Window {
   readonly __clinicShell?: ClinicShell
+
+  /** The page defines this; the Windows app calls it when its chat notification is clicked. */
+  __clinicShellOpenStaffChat?: (conversation: string) => void
 
   /**
    * How the desktop shell hands the page its coffre folder — a `FileSystemDirectoryHandle` for

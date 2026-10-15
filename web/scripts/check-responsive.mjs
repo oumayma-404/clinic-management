@@ -4427,8 +4427,7 @@ check(
     const rules = [
       { re: /\bnew\s+Notification\s*\(|\bNotification\.requestPermission\s*\(/g, home: [OWNER], what: "raises a browser notification" },
       { re: /(?<!function\s)\bplayChime\s*\(/g, home: [OWNER], what: "plays the chat's tone" },
-      // The Windows notification arrives with staff-chat Part 6, so the owner need not call it yet.
-      { re: /\.notify\s*\(/g, home: [OWNER], what: "calls a shell notification", optional: true },
+      { re: /\.notify\s*\(/g, home: [OWNER], what: "calls a shell notification" },
       { re: /\bAudioContext\b|\bnew\s+Audio\s*\(/g, home: [CHIME], what: "makes a sound" },
       { re: /(?<![\[\w-])data-staff-chat-notice(?![\]\w-])/g, home: [NOTICES], what: "draws the chat notice's marker" },
     ];
