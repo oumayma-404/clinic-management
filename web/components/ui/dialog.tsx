@@ -4,6 +4,7 @@ import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
+import { unlessOnFloatingNotice } from "@/components/ui/floating-notice"
 import { cn } from "@/lib/utils"
 
 function Dialog({
@@ -218,6 +219,9 @@ function DialogContent({
         // (`props.onXAutoFocus?.(event)`), which a later spread would silently defeat — leaving the caller's
         // handler as the only one that runs and the title focus and trigger restore simply gone.
         {...props}
+        onPointerDownOutside={unlessOnFloatingNotice(props.onPointerDownOutside)}
+        onFocusOutside={unlessOnFloatingNotice(props.onFocusOutside)}
+        onInteractOutside={unlessOnFloatingNotice(props.onInteractOutside)}
         onCloseAutoFocus={(event) => {
           props.onCloseAutoFocus?.(event)
           if (event.defaultPrevented) return

@@ -69,6 +69,8 @@ CHAT-02	1	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabi
 CHAT-03	1	wire-or-unit	wire	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
 CHAT-04	2	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
 CHAT-05	2	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-06	2	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-07	2	browser	none		HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
 CHAT-08	2	wire-or-unit	wire	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
 CONT-01	1	wire-or-unit	wire	continuation.spec.ts	HP-8 · La suite d'un acte non terminé
 CONT-02	0	wire-or-unit	wire	continuation.spec.ts	HP-8 · La suite d'un acte non terminé

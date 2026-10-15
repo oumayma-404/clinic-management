@@ -219,6 +219,29 @@ test("CHAT-05 · a visit whose dentist cannot receive the arrival keeps the acti
   expect(text.length, `the row states why: « ${text} »`).toBeGreaterThan("Signaler l'arrivée".length + 10)
 })
 
+test("CHAT-06 · at 320 px « Messages » opens full screen from the bottom bar, composer and quick messages in reach", async ({
+  page,
+  api,
+}) => {
+  const secretary = await colleague(api, "secretary")
+  await page.setViewportSize({ width: 320, height: 640 })
+  try {
+    await gotoApp(page, "/appointments")
+    await launcher(page).click()
+    await expect(panel(page)).toBeVisible()
+    expect((await panel(page).boundingBox())?.width).toBe(320)
+    await panel(page).getByRole("button", { name: new RegExp(secretary.name) }).first().click()
+    await expect(panel(page).getByPlaceholder("Écrire un message")).toBeInViewport()
+    await expect(panel(page).getByRole("button", { name: "Envoyer" })).toBeInViewport()
+    await expect(
+      panel(page).getByRole("list", { name: "Messages rapides" }).getByRole("button").first(),
+    ).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
+  } finally {
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+})
+
 test("CHAT-08 · a deactivated colleague's conversation refuses a new message by code", async ({ api }) => {
   const secretary = await colleague(api, "secretary")
   const conversation = await directWith(api, secretary.userId)

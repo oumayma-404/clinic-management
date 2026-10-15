@@ -4412,6 +4412,55 @@ check(
   },
 );
 
+check(
+  "staff-chat-has-one-alert-owner",
+  "N52",
+  "A chat message makes itself noticed in ONE place: `lib/staff-chat/alerts.ts` (sound, browser notification, the shell), and only `staff-chat-notices.tsx` draws the notice",
+  "staff-chat US-4: one sound per message per device, never a notice over the lock screen, never a patient's name in " +
+    "a notification. Those rules live in the alert owner. A second place that plays a tone, raises a browser or " +
+    "Windows notification, or draws something carrying the notice marker (which every dialog lets presses through) " +
+    "rings twice, leaks past the lock screen, or opens a hole in every dialog.",
+  () => {
+    const OWNER = "lib/staff-chat/alerts.ts";
+    const CHIME = "lib/staff-chat/chime.ts";
+    const NOTICES = "components/staff-chat/staff-chat-notices.tsx";
+    const rules = [
+      { re: /\bnew\s+Notification\s*\(|\bNotification\.requestPermission\s*\(/g, home: [OWNER], what: "raises a browser notification" },
+      { re: /(?<!function\s)\bplayChime\s*\(/g, home: [OWNER], what: "plays the chat's tone" },
+      // The Windows notification arrives with staff-chat Part 6, so the owner need not call it yet.
+      { re: /\.notify\s*\(/g, home: [OWNER], what: "calls a shell notification", optional: true },
+      { re: /\bAudioContext\b|\bnew\s+Audio\s*\(/g, home: [CHIME], what: "makes a sound" },
+      { re: /(?<![\[\w-])data-staff-chat-notice(?![\]\w-])/g, home: [NOTICES], what: "draws the chat notice's marker" },
+    ];
+    const offenders = [];
+    const found = new Map(rules.map((r) => [r, new Set()]));
+
+    for (const f of tsx()) {
+      const name = rel(f);
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      const code = lines.map((l, i) => (masked[i] ? "" : l)).join("\n");
+      for (const rule of rules) {
+        for (const m of code.matchAll(rule.re)) {
+          if (rule.home.includes(name)) {
+            found.get(rule).add(name);
+            continue;
+          }
+          offenders.push({ file: name, line: lineAt(code, m.index), text: `${rule.what} outside ${rule.home.join(" / ")}` });
+        }
+      }
+    }
+
+    // Non-vacuity: a renamed owner would leave every rule passing while it guards nothing.
+    for (const rule of rules) {
+      if (!rule.optional && found.get(rule).size === 0) {
+        offenders.push({ file: rule.home[0], text: `no longer ${rule.what} — the owner moved; retarget this check` });
+      }
+    }
+    return offenders;
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

@@ -29,7 +29,7 @@ _From spec:_
 - [ ] **Part 3** — AC-5.1 · AC-5.2 · AC-5.3 · AC-5.4 · FR-1 (secretariat) · FR-2 (secretariat rows) · FR-6 · EC-2 ·
       EC-4 · EC-14
 - [x] **Part 4** — AC-2.4 · AC-3.1 · AC-3.2 · AC-3.3 · AC-3.4 · FR-3 (links) · FR-5 · EC-5 · EC-6 · EC-8 · EC-15
-- [ ] **Part 5** — AC-4.1 · AC-4.2 · AC-4.4 · AC-4.5 · AC-4.6 · AC-4.7 · AC-4.8 · EC-9 · EC-12 · EC-13
+- [x] **Part 5** — AC-4.1 · AC-4.2 · AC-4.4 · AC-4.5 · AC-4.6 · AC-4.7 · AC-4.8 · EC-9 · EC-12 · EC-13
 - [ ] **Part 6** — AC-4.3 · EC-10
 - [ ] Device & Interface Behaviour table of the spec, at 320 / 390 / 820 / 1180 / 1440 px and 730 px tall
 

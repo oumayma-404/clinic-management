@@ -5,6 +5,7 @@ import { ArrowLeft, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
 import { useStaffChatConversations } from "@/lib/hooks/use-staff-chat"
+import { AlertSettings, AudioBlockedBar } from "./alert-settings"
 import { ConversationList } from "./conversation-list"
 import { MessageThread } from "./message-thread"
 import { useStaffChat } from "./staff-chat-provider"
@@ -69,6 +70,8 @@ export function StaffChatPanel() {
         </Button>
       </header>
 
+      <AudioBlockedBar />
+
       {conversation ? (
         <MessageThread
           key={conversation}
@@ -86,6 +89,7 @@ export function StaffChatPanel() {
           viewerId={viewer?.id}
         />
       )}
+      {!conversation && <AlertSettings />}
     </aside>
   )
 }

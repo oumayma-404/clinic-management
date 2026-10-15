@@ -87,7 +87,7 @@ wrong; `PLAN-01` is the proof (`tsc`, `check:responsive` and `next build` were a
 
 **7 · The staff chat's own surfaces.** The badge, the frozen quick-message order and the arrival row's three
 states are decided in the browser from what the server sends.
-`CHAT-01` `CHAT-02` `CHAT-04` `CHAT-05`
+`CHAT-01` `CHAT-02` `CHAT-04` `CHAT-05` `CHAT-06` `CHAT-07`
 
 <!-- LAYER:BROWSER:END -->
 
@@ -712,6 +712,8 @@ would end it. Who rings, « Je m'en occupe » and « Vu par » are held by the d
 | CHAT-04 | 2 | a secretary conversation | Press the last « secrétariat » quick message until the server ranks it first | The bar does **not** reorder while the thread is open; reopened, it leads | AC-2.2 — a send never moves the next button under the finger |
 | CHAT-05 | 2 | a visit whose dentist's account is deactivated | RDV « ⋯ » | « Signaler l'arrivée » is **present, disabled**, with the server's reason | AC-3.4, EC-6 — never hidden |
 | CHAT-08 | 2 | a deactivated colleague | Post to their conversation | Refused, `staffchat-recipient-inactive` | EC-7 |
+| CHAT-06 | 2 | a colleague | At 320 px: bottom bar « Messages » → their conversation | The panel takes the whole width; composer, send and the quick messages are on screen; no page scroll | spec § Device |
+| CHAT-07 | 2 | a fiche de soins open with typing in it; a colleague's message arrives | Press « J'arrive » on the notice | Sent; the fiche stays open with its typing; « Ouvrir » waits for the dialog to close. **Held by the browser pass** — it needs a second signed-in person | AC-4.2, R-1 |
 
 ---
 

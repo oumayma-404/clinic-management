@@ -15,8 +15,8 @@
 | 1C Browser | implemented | 4d18510e |
 | 2 Quick messages | implemented | 3025b348 |
 | 3 Shared desk | implemented | 64aa31c3 |
-| 4 Patient link + arrival | implemented | (this commit) |
-| 5 Alerts | not-started | — |
+| 4 Patient link + arrival | implemented | 62ad188d |
+| 5 Alerts | implemented | (this commit) |
 | 6 Windows notification | not-started | — |
 
 ## Working tree note (start of session, 2026-10-15)
@@ -186,4 +186,45 @@ Deviations (auto-approved, trivial):
 | Extra refusal `staffchat-no-patient` | a blocked slot has no patient to announce |
 | e2e spec lives in `e2e/specs/` | the plan said `e2e/tests/`; the suite's folder is `specs` |
 | `useArrivalAction` hook + two small rows instead of one `ArrivalAction` component | the confirmation must outlive the menu that closes before it opens |
+
+### Part 5 — alerts (2026-10-15)
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` · `check:responsive` · `build` | 0 errors · **80/80** (new N52) · green, re-run after the last edit |
+| N52 `staff-chat-has-one-alert-owner` | red on a planted file (notification, tone, shell call, notice marker — 4 hits), green once removed |
+| e2e `staff-chat.spec.ts` | **7/7** (+ CHAT-06 at 320 px) |
+| Backend suite | not re-run — no `api/` change in this part (last: 5 873 passed at Part 4) |
+| Browser pass, 3 sessions (dentist, two secretaries) + 390 px tab | **43/43**: notice over an open fiche, « J'arrive » sent, fiche and its typing kept; « Ouvrir » under a dialog waits and opens on close; nothing for the conversation open in front; one chime, gone after 8 s, top-right; urgent: red, `role="alert"`, rings while muted, stays, other secretary alerted; muted: notice, no sound; two tabs → one chime; phone: top, full width; nav drawer and booking dialog still close on an outside press; arrival notice « Patient arrivé · RDV 15:00 », no patient name; browser notification « Nouveau message », never free text; back after a cut → one chime, no notices, badge counts them |
+| Not exercised | the lock screen (needs the Windows app or an 8 h idle trusted session) — `locked` makes the notice stack render nothing; sound and badge are untouched by it |
+
+Found and fixed during the pass:
+
+| Defect | Fix |
+|---|---|
+| A notice sat over the open panel's header (back, ✕) on tablet and phone widths | with the panel open: under its header on a phone, beside it from `md:` |
+| Back online, the browser's own refetch could land before the hub reconnected, so three missed messages drew three notices | the `online` event and any refresh bringing 3+ new messages count as a catch-up |
+
+Found, **not** fixed (pre-existing, outside the chat):
+
+| Defect | Where |
+|---|---|
+| After a full page load of the agenda or a patient file, closing **any** guarded dialog reloads the whole page | 20 `history.replaceState({}, …)` calls drop Next's own history marker; `useDirtyGuard`'s `history.back()` then lands on an entry Next does not know and it reloads. Moving inside the app first avoids it |
+
+**Blast radius added in this part**
+
+| Touching | Other consumers | Verdict |
+|---|---|---|
+| `ui/dialog.tsx`, `ui/sheet.tsx` outside handlers | 77 + 4 files; 3 callers pass their own `onInteractOutside` | must re-test — re-tested: outside press still closes / asks; callers' handlers run for every press not on the notice |
+| `ui/alert-dialog.tsx` | 42 files | unaffected — Radix already refuses an outside press on an alert dialog |
+| `SessionState.locked` | every `useSession` reader | unaffected — additive |
+
+Decisions (reversible):
+
+| Decision | Why |
+|---|---|
+| A refresh bringing 3+ new messages is a catch-up (one sound, no notices) | live, messages arrive one per signal; a batch was missed while away (AC-4.8) |
+| A notice is drawn in every tab of the device; only the tab that wins the claim rings and raises the browser notification | one sound per device (EC-9), and the tab in front always shows it |
+| Hovering or focusing an ordinary notice holds it | a reply being reached for must not vanish under the pointer |
+| No sound or notice for the conversation open in a window in front | AC-4.7; « in front » = visible **and** focused |
 

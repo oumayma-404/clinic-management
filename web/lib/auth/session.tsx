@@ -42,6 +42,8 @@ export interface SessionState {
    * permission: nothing in the app should branch on it to decide what a user may do.</p>
    */
   trusted: boolean
+  /** The inactivity cover is up: nothing may be drawn over it that names a patient or a colleague's words. */
+  locked: boolean
   /** Logs the user out — clears the local session cookie and returns to the login screen. */
   logout: () => void
 }
@@ -56,6 +58,7 @@ const DEFAULT_SESSION: SessionState = {
   // decoded, and being wrong in this direction costs a user one extra sign-in; being wrong in the other leaves an
   // unattended browser open for eight hours because a fetch had not resolved yet.
   trusted: false,
+  locked: false,
   logout: () => {},
 }
 
@@ -351,7 +354,7 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
     }
   }, [user, locked, logout, trusted])
 
-  const value: SessionState = { user, isLoading, mode: "local", trusted, logout }
+  const value: SessionState = { user, isLoading, mode: "local", trusted, locked, logout }
   return (
     <SessionContext.Provider value={value}>
       {children}
