@@ -36,7 +36,8 @@ export function StaffChatPanel() {
     <aside
       aria-labelledby={titleId}
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        // A dialog opened from the panel is portalled out of it, yet React still bubbles its Escape here.
+        if (event.key === "Escape" && event.currentTarget.contains(event.target as Node)) {
           event.stopPropagation()
           closePanel()
         }

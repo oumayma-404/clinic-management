@@ -28,7 +28,24 @@ export function useStaffChatConversations(enabled: boolean) {
   })
 }
 
+
+/** The cabinet's quick messages in this person's order; a list edit anywhere in the cabinet refreshes it (US-2). */
+export function useStaffQuickMessages(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.staffChatQuickMessages,
+    queryFn: () => staffChatApi.quickMessages(),
+    enabled,
+    meta: realtimeMeta.staffChat,
+  })
+}
+
 export type ThreadMessageState = "sent" | "sending" | "failed"
+
+/** What a press sends: a text, a quick message, or both. */
+export interface OutgoingMessage {
+  body: string | null
+  quickMessage: StaffMessageDto["quickMessage"]
+}
 
 export interface ThreadMessage extends StaffMessageDto {
   state: ThreadMessageState
@@ -119,9 +136,9 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
   }, [nextCursor, loadingOlder])
 
   const deliver = useCallback(
-    async (key: string, localId: string, body: string) => {
+    async (key: string, localId: string, outgoing: OutgoingMessage) => {
       try {
-        const saved = await staffChatApi.send(key, body)
+        const saved = await staffChatApi.send(key, outgoing.body, outgoing.quickMessage?.key ?? null)
         setMessages((previous) => {
           const others = previous.filter((m) => m.localId !== localId && m.id !== saved.id)
           const sent = [...others.filter((m) => !m.localId), { ...saved, state: "sent" as const }].sort(byTime)
@@ -142,7 +159,7 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
   )
 
   const send = useCallback(
-    (body: string) => {
+    (outgoing: OutgoingMessage) => {
       const key = current.current
       if (!key || !viewer) return
       const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -154,12 +171,12 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
           conversation: key,
           sender: { userId: viewer.userId, name: viewer.name },
           sentAt: new Date().toISOString(),
-          body,
-          quickMessage: null,
+          body: outgoing.body,
+          quickMessage: outgoing.quickMessage,
           state: "sending",
         },
       ])
-      void deliver(key, localId, body)
+      void deliver(key, localId, outgoing)
     },
     [viewer, deliver],
   )
@@ -168,11 +185,11 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
     (localId: string) => {
       const key = current.current
       const failed = messages.find((m) => m.localId === localId)
-      if (!key || !failed?.body) return
+      if (!key || !failed || (!failed.body && !failed.quickMessage)) return
       setMessages((previous) =>
         previous.map((m) => (m.localId === localId ? { ...m, state: "sending", error: undefined } : m)),
       )
-      void deliver(key, localId, failed.body)
+      void deliver(key, localId, { body: failed.body, quickMessage: failed.quickMessage })
     },
     [messages, deliver],
   )

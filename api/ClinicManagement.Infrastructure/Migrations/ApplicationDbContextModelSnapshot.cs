@@ -4153,6 +4153,31 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("StaffNotifications", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.StaffQuickMessageList", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId")
+                        .IsUnique();
+
+                    b.ToTable("StaffQuickMessageLists", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.StockBatch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5839,6 +5864,63 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasForeignKey("ClinicId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.StaffQuickMessageList", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.OwnsMany("ClinicManagement.Domain.ValueObjects.StaffQuickMessage", "Items", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<bool>("AsksForPatient")
+                                .HasColumnType("boolean");
+
+                            b1.Property<int>("Audience")
+                                .HasColumnType("integer");
+
+                            b1.Property<bool>("IsBuiltIn")
+                                .HasColumnType("boolean");
+
+                            b1.Property<bool>("IsUrgent")
+                                .HasColumnType("boolean");
+
+                            b1.Property<string>("Key")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("character varying(64)");
+
+                            b1.Property<string>("Label")
+                                .IsRequired()
+                                .HasMaxLength(40)
+                                .HasColumnType("character varying(40)");
+
+                            b1.Property<Guid>("ListId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("SortOrder")
+                                .HasColumnType("integer");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("ListId", "SortOrder");
+
+                            b1.ToTable("StaffQuickMessages", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("ListId");
+                        });
+
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.StockBatch", b =>

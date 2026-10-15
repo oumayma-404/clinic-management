@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 
@@ -29,24 +30,35 @@ public sealed class StaffChatRoster
 
     public string NameOf(string userId) => Find(userId)?.Name ?? "Ancien compte";
 
+    /// <summary>The caller's account, for reads that need no roster (the quick messages).</summary>
+    public static async Task<Result<User>> ResolveCallerAsync(
+        IClinicContext clinicContext, IUserRepository users, CancellationToken cancellationToken)
+    {
+        var userId = clinicContext.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Result<User>.Failure(StaffChatRefusals.SessionInvalid);
+        }
+
+        var caller = await users.GetByAuth0SubAsync(userId, cancellationToken);
+        return caller is null
+            ? Result<User>.Failure(StaffChatRefusals.UserNotFound)
+            : Result<User>.Success(caller);
+    }
+
     public static async Task<Result<StaffChatRoster>> LoadForCallerAsync(
         IClinicContext clinicContext,
         IUserRepository users,
         IDoctorRepository doctors,
         CancellationToken cancellationToken)
     {
-        var userId = clinicContext.GetUserId();
-        if (string.IsNullOrEmpty(userId))
+        var resolved = await ResolveCallerAsync(clinicContext, users, cancellationToken);
+        if (resolved.IsFailure)
         {
-            return Result<StaffChatRoster>.Failure(StaffChatRefusals.SessionInvalid);
+            return Result<StaffChatRoster>.FailureFrom(resolved);
         }
 
-        var caller = await users.GetByAuth0SubAsync(userId, cancellationToken);
-        if (caller is null)
-        {
-            return Result<StaffChatRoster>.Failure(StaffChatRefusals.UserNotFound);
-        }
-
+        var caller = resolved.Value!;
         var accounts = await users.GetByClinicIdAsync(caller.ClinicId, null, null, cancellationToken);
         var dentistUserIds = (await doctors.GetByClinicIdAsync(caller.ClinicId, cancellationToken))
             .Where(d => d.IsActive && !string.IsNullOrEmpty(d.UserId))

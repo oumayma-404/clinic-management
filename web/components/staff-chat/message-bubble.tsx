@@ -35,6 +35,7 @@ export function MessageBubble({ message, mine, showSender, onRetry }: MessageBub
             Urgent
           </span>
         )}
+        {quick && message.body && <p className="font-medium [overflow-wrap:anywhere]">{quick.label}</p>}
         <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
       </div>
       <span className="flex items-center gap-1 px-1 text-2xs text-muted-foreground tabular-nums">

@@ -15,6 +15,7 @@ export const queryKeys = {
   unreadCount: ["notifications", "unread-count"] as const,
   staffChatUnread: ["staffchat", "unread"] as const,
   staffChatConversations: ["staffchat", "conversations"] as const,
+  staffChatQuickMessages: ["staffchat", "quick-messages"] as const,
 }
 
 export const realtimeMeta = {
@@ -23,6 +24,6 @@ export const realtimeMeta = {
   procedureTypes: { realtime: [RealtimeResource.ProcedureTypes] },
   medications: { realtime: [RealtimeResource.Medications] },
   unreadCount: { realtime: [RealtimeResource.Notifications] },
-  // A staff chat message signals only its members' tabs (staffChatChanged), never the whole cabinet.
+  // A staff chat message signals only its members' tabs (staffChatChanged); only a quick-message list edit reaches the whole cabinet.
   staffChat: { realtime: [STAFF_CHAT_KEY] },
 } as const

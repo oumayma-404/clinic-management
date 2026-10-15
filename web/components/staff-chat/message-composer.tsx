@@ -5,6 +5,7 @@ import { SendHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { STAFF_MESSAGE_MAX_LENGTH } from "@/lib/api/staff-chat"
+import type { OutgoingMessage } from "@/lib/hooks/use-staff-chat"
 import { readDraft, writeDraft } from "@/lib/staff-chat/drafts"
 import { cn } from "@/lib/utils"
 
@@ -13,13 +14,15 @@ interface MessageComposerProps {
   viewerId: string | undefined
   /** Who the message goes to, for the field's accessible name. */
   recipient: string
-  onSend: (body: string) => void
+  onSend: (message: OutgoingMessage) => void
+  /** Sits under the quick messages, which already draw the separating line. */
+  flush?: boolean
 }
 
 /** Counter shows from here, so a long message is never refused by surprise. */
 const COUNTER_FROM = STAFF_MESSAGE_MAX_LENGTH - 200
 
-export function MessageComposer({ conversation, viewerId, recipient, onSend }: MessageComposerProps) {
+export function MessageComposer({ conversation, viewerId, recipient, onSend, flush = false }: MessageComposerProps) {
   const [text, setText] = useState(() => readDraft(viewerId, conversation))
   const fieldId = useId()
   const counterId = useId()
@@ -35,14 +38,14 @@ export function MessageComposer({ conversation, viewerId, recipient, onSend }: M
 
   const submit = () => {
     if (!canSend) return
-    onSend(text.trim())
+    onSend({ body: text.trim(), quickMessage: null })
     setText("")
     fieldRef.current?.focus()
   }
 
   return (
     <form
-      className="shrink-0 border-t border-border p-2"
+      className={cn("shrink-0 p-2", flush ? "pt-1" : "border-t border-border")}
       onSubmit={(event) => {
         event.preventDefault()
         submit()

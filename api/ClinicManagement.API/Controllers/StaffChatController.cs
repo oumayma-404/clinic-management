@@ -59,6 +59,27 @@ public class StaffChatController : ApiControllerBase
         return result.IsFailure ? Refuse(result) : StatusCode(StatusCodes.Status201Created, result.Value);
     }
 
+    [HttpGet("quick-messages")]
+    public async Task<ActionResult<StaffQuickMessageListDto>> GetQuickMessages()
+    {
+        var result = await _mediator.Send(new GetStaffQuickMessagesQuery());
+        return result.IsFailure ? Refuse(result) : Ok(result.Value);
+    }
+
+    [HttpPut("quick-messages")]
+    public async Task<ActionResult<StaffQuickMessageListDto>> SaveQuickMessages([FromBody] SaveStaffQuickMessagesCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? Refuse(result) : Ok(result.Value);
+    }
+
+    [HttpDelete("quick-messages")]
+    public async Task<ActionResult<StaffQuickMessageListDto>> ResetQuickMessages()
+    {
+        var result = await _mediator.Send(new ResetStaffQuickMessagesCommand());
+        return result.IsFailure ? Refuse(result) : Ok(result.Value);
+    }
+
     [HttpPost("conversations/read")]
     [AllowsWithoutSubscription("Marking a thread read records what one person has seen, not new work — an expired cabinet still reads its messages.")]
     public async Task<IActionResult> MarkRead([FromBody] MarkStaffConversationReadCommand command)

@@ -26,6 +26,7 @@ internal sealed class StaffChatHarness
     public User Outsider { get; } = User.CreateLocalUser(OtherClinicId, "secretary", "x@ailleurs.tn", "HASH", "Ailleurs");
 
     public Mock<IStaffMessageRepository> Messages { get; } = new();
+    public Mock<IStaffQuickMessageListRepository> QuickMessageLists { get; } = new();
     public Mock<IUserRepository> Users { get; } = new();
     public Mock<IDoctorRepository> Doctors { get; } = new();
     public Mock<IClinicContext> Context { get; } = new();
@@ -67,6 +68,9 @@ internal sealed class StaffChatHarness
         Messages.Setup(r => r.GetPageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StaffMessage>());
 
+        Messages.Setup(r => r.GetQuickMessageUsageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
         UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
     }
 
@@ -80,7 +84,7 @@ internal sealed class StaffChatHarness
         StaffMessage.Create(clinicId ?? ClinicId, conversation, sender.Id, body, null, null, null, sentAt);
 
     public SendStaffMessageCommandHandler Send() => new(
-        Messages.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        Messages.Object, QuickMessageLists.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
         NullLogger<SendStaffMessageCommandHandler>.Instance);
 
     public MarkStaffConversationReadCommandHandler MarkRead() => new(
@@ -98,4 +102,15 @@ internal sealed class StaffChatHarness
 
     public GetStaffColleaguesQueryHandler Colleagues() => new(
         Users.Object, Doctors.Object, Context.Object, Presence.Object);
+
+    public GetStaffQuickMessagesQueryHandler QuickMessages() => new(
+        QuickMessageLists.Object, Messages.Object, Users.Object, Context.Object);
+
+    public SaveStaffQuickMessagesCommandHandler SaveQuickMessages() => new(
+        QuickMessageLists.Object, Messages.Object, Users.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        NullLogger<SaveStaffQuickMessagesCommandHandler>.Instance);
+
+    public ResetStaffQuickMessagesCommandHandler ResetQuickMessages() => new(
+        QuickMessageLists.Object, Messages.Object, Users.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        NullLogger<ResetStaffQuickMessagesCommandHandler>.Instance);
 }

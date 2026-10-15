@@ -84,6 +84,13 @@ public class StaffMessageRepository : IStaffMessageRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<string, int>> GetQuickMessageUsageAsync(
+        Guid clinicId, string senderUserId, DateTime sinceUtc, CancellationToken cancellationToken = default)
+    {
+        return await UsageQuery(_context, clinicId, senderUserId, sinceUtc)
+            .ToDictionaryAsync(u => u.Key, u => u.Count, StringComparer.Ordinal, cancellationToken);
+    }
+
     public async Task<StaffChatReadMarker?> GetMarkerAsync(
         Guid clinicId, string userId, string conversationKey, CancellationToken cancellationToken = default)
     {
@@ -96,6 +103,17 @@ public class StaffMessageRepository : IStaffMessageRepository
     {
         await _context.StaffChatReadMarkers.AddAsync(marker, cancellationToken);
     }
+
+    /// <summary>One sender's quick-message counts since a moment — what orders their buttons (AC-2.2). Public for the SQL test.</summary>
+    public static IQueryable<StaffQuickMessageUsage> UsageQuery(
+        ApplicationDbContext db, Guid clinicId, string senderUserId, DateTime sinceUtc) =>
+        db.StaffMessages
+            .Where(m => m.ClinicId == clinicId
+                && m.SenderUserId == senderUserId
+                && m.SentAt >= sinceUtc
+                && m.QuickMessageKey != null)
+            .GroupBy(m => m.QuickMessageKey!)
+            .Select(g => new StaffQuickMessageUsage(g.Key, g.Count()));
 
     /// <summary>One thread, newest first, keyset-paged on (SentAt, Id). Public so the SQL test compiles what ships.</summary>
     public static IQueryable<StaffMessage> PageQuery(
@@ -137,3 +155,6 @@ public class StaffMessageRepository : IStaffMessageRepository
                 && r.ConversationKey == m.ConversationKey
                 && r.LastReadAt >= m.SentAt));
 }
+
+/// <summary>One row of <see cref="StaffMessageRepository.UsageQuery"/>.</summary>
+public sealed record StaffQuickMessageUsage(string Key, int Count);

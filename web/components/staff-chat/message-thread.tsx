@@ -1,14 +1,16 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Ban, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import type { StaffConversationDto } from "@/lib/api/staff-chat"
-import { useMarkThreadRead, useStaffChatThread } from "@/lib/hooks/use-staff-chat"
+import { useMarkThreadRead, useStaffChatThread, useStaffQuickMessages } from "@/lib/hooks/use-staff-chat"
 import { MessageBubble } from "./message-bubble"
 import { MessageComposer } from "./message-composer"
+import { QuickMessageBar } from "./quick-message-bar"
+import { QuickMessagesEditorDialog } from "./quick-messages-editor-dialog"
 
 interface MessageThreadProps {
   conversationKey: string
@@ -23,6 +25,8 @@ const NEAR_BOTTOM_PX = 120
 export function MessageThread({ conversationKey, conversation, viewer }: MessageThreadProps) {
   const thread = useStaffChatThread(conversationKey, viewer)
   useMarkThreadRead(conversationKey, thread.messages, viewer?.userId)
+  const quickMessages = useStaffQuickMessages(true)
+  const [editing, setEditing] = useState(false)
 
   const scrollerRef = useRef<HTMLDivElement>(null)
   const pinnedToBottom = useRef(true)
@@ -121,12 +125,30 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
           Ce compte est désactivé : la conversation est en lecture seule.
         </p>
       ) : (
+        <>
+          {conversation && (
+            <QuickMessageBar
+              conversation={conversation}
+              viewerId={viewer?.userId}
+              items={quickMessages.data?.items}
+              onSend={(item) =>
+                thread.send({ body: null, quickMessage: { key: item.key, label: item.label, urgent: item.urgent } })
+              }
+              onEdit={() => setEditing(true)}
+            />
+          )}
+          <QuickMessagesEditorDialog open={editing} onOpenChange={setEditing} list={quickMessages.data} />
+        </>
+      )}
+
+      {!readOnly && (
         <MessageComposer
           key={`${conversationKey}:${viewer?.userId ?? ""}`}
           conversation={conversationKey}
           viewerId={viewer?.userId}
           recipient={conversation?.title ?? "ce collègue"}
           onSend={thread.send}
+          flush={Boolean(conversation && quickMessages.data)}
         />
       )}
     </>

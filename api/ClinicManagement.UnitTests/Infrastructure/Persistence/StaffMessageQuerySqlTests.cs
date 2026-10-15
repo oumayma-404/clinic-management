@@ -55,4 +55,18 @@ public class StaffMessageQuerySqlTests
         Assert.Contains("NOT EXISTS", sql);
         Assert.Contains("GROUP BY", sql);
     }
+
+    [Fact]
+    public void Quick_Message_Usage_Counts_One_Senders_Sends_Since_A_Moment_Per_Key() // AC-2.2
+    {
+        using var db = Context();
+
+        var sql = StaffMessageRepository.UsageQuery(db, ClinicId, "local|v", Nine).ToQueryString();
+
+        Assert.Contains("\"SenderUserId\" =", sql);
+        Assert.Contains("\"SentAt\" >=", sql);
+        Assert.Contains("\"QuickMessageKey\" IS NOT NULL", sql);
+        Assert.Contains("GROUP BY s.\"QuickMessageKey\"", sql);
+        Assert.Contains("count(*)", sql);
+    }
 }

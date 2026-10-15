@@ -30,6 +30,10 @@ public interface IStaffMessageRepository
         Guid clinicId, string viewerUserId, IReadOnlyCollection<string> conversationKeys, DateTime floorUtc, int take,
         CancellationToken cancellationToken = default);
 
+    /// <summary>How many times <paramref name="senderUserId"/> sent each quick message since <paramref name="sinceUtc"/> (AC-2.2).</summary>
+    Task<IReadOnlyDictionary<string, int>> GetQuickMessageUsageAsync(
+        Guid clinicId, string senderUserId, DateTime sinceUtc, CancellationToken cancellationToken = default);
+
     Task<StaffChatReadMarker?> GetMarkerAsync(
         Guid clinicId, string userId, string conversationKey, CancellationToken cancellationToken = default);
 

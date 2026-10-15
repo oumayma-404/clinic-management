@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "./client"
+import { apiDelete, apiGet, apiPost, apiPut } from "./client"
 
 /** A colleague as the chat shows them; `online` means the app is open right now, nothing more. */
 export interface StaffColleagueDto {
@@ -47,12 +47,46 @@ export interface StaffChatUnreadDto {
   recent: StaffMessageDto[]
 }
 
+export type StaffQuickMessageAudience = "dentist" | "desk" | "reply"
+
+export interface StaffQuickMessageDto {
+  key: string
+  label: string
+  for: StaffQuickMessageAudience
+  asksForPatient: boolean
+  urgent: boolean
+  builtIn: boolean
+  /** The cabinet's own order — the editor's; the list itself comes in the caller's order. */
+  order: number
+}
+
+export interface StaffQuickMessageListDto {
+  /** 0 while the cabinet uses the defaults. */
+  version: number
+  /** What this person sends most over 60 days first, then the cabinet's order. */
+  items: StaffQuickMessageDto[]
+}
+
+/** One row as the editor saves it; a null key is a new message. */
+export interface StaffQuickMessageInput {
+  key: string | null
+  label: string
+  for: StaffQuickMessageAudience
+  asksForPatient: boolean
+  urgent: boolean
+}
+
+export const STAFF_QUICK_MESSAGE_LABEL_MAX = 40
+export const STAFF_QUICK_MESSAGES_MAX = 30
+
 /** Codes the client branches on — never the French sentence. */
 export const StaffChatCode = {
   ConversationNotFound: "staffchat-conversation-not-found",
   RecipientInactive: "staffchat-recipient-inactive",
   Empty: "staffchat-empty",
   TooLong: "staffchat-too-long",
+  UnknownQuickMessage: "staffchat-unknown-quick-message",
+  InvalidQuickMessages: "staffchat-invalid-quick-messages",
 } as const
 
 /** The server's own limit; the counter and the refusal count the same way (trimmed UTF-16 length). */
@@ -69,8 +103,16 @@ export const staffChatApi = {
   unread: () => apiGet<StaffChatUnreadDto>("/staff-chat/unread"),
 
   /** A retry of the same text reuses the request's Idempotency-Key, so the server answers once. */
-  send: (conversation: string, body: string) =>
-    apiPost<StaffMessageDto>("/staff-chat/messages", { conversation, body }),
+  send: (conversation: string, body: string | null, quickMessageKey: string | null = null) =>
+    apiPost<StaffMessageDto>("/staff-chat/messages", { conversation, body, quickMessageKey }),
+
+  quickMessages: () => apiGet<StaffQuickMessageListDto>("/staff-chat/quick-messages"),
+
+  /** `version` is the one the editor opened with — 0 for the defaults; a colleague's save in between is a 409. */
+  saveQuickMessages: (version: number, items: StaffQuickMessageInput[]) =>
+    apiPut<StaffQuickMessageListDto>("/staff-chat/quick-messages", { version, items }),
+
+  resetQuickMessages: () => apiDelete<StaffQuickMessageListDto>("/staff-chat/quick-messages"),
 
   markRead: (conversation: string, upToMessageId: string) =>
     apiPost<void>("/staff-chat/conversations/read", { conversation, upToMessageId }),

@@ -12,8 +12,8 @@
 |---|---|---|
 | 1A Model + storage | implemented | 8e7f024b |
 | 1B Server | implemented | b61c571d |
-| 1C Browser | implemented | (this commit) |
-| 2 Quick messages | not-started | — |
+| 1C Browser | implemented | 4d18510e |
+| 2 Quick messages | implemented | (this commit) |
 | 3 Shared desk | not-started | — |
 | 4 Patient link + arrival | not-started | — |
 | 5 Alerts | not-started | — |
@@ -105,3 +105,23 @@ passed membership for the caller and was refused as « compte désactivé » —
 
 ⚠️ **Running a copy of the dev DB with the branch's API fires catch-up Hangfire jobs**: `take-recovery-points`
 ran at startup and pruned two dev recovery-point objects in the shared MinIO bucket (same clinic ids). Dev data only.
+
+### Part 2 — quick messages (2026-10-15)
+
+| Gate | Result |
+|---|---|
+| Unit suite (unfiltered) | **5 830 passed, 0 failed**, 6 skipped (+35: list rules, ordering, saves, reset, send-with-key, usage SQL) |
+| Migration `20261015191527_AddStaffQuickMessages` | scaffolded `xmin` removed; `verify-schema` before = exactly the 3 new items (exit 2), after = **exit 0** |
+| `tsc --noEmit` · `check:responsive` · `build` | 0 errors · 79/79 · green |
+| Eye pass (isolated copy, two Chromes) | dentist → secretary offers the 7 « secrétariat » + 4 replies; secretary → dentist the 6 « dentiste » + 4 replies; « Patient arrivé » reached the dentist live; editor = 17 rows, 3 locked; no page scroll at 946 / 562 px |
+
+Decisions taken in this part (all reversible):
+
+| Decision | Why |
+|---|---|
+| The list row carries `UpdatedAt`, moved by every `Replace` | replacing only the owned rows leaves the list row untouched — no `xmin` check (AC-6.5) and no journal row (FR-4) |
+| Version 0 = « opened on the defaults »; a mismatch either way is a 409; a unique-index race on the first save is a 409 too | a stale save is refused, never overwritten |
+| A custom message may be marked urgent; a built-in's urgency is locked | AC-6.2 locks only the built-ins |
+| Chip order frozen while a thread is open | a send re-sorts by usage, and a button must not move under the finger |
+| Asks-for-patient chips send immediately for now | the patient picker is Part 4 (AC-2.5's « sent without one » half holds already) |
+| Defaults live in `Domain/Services/StaffQuickMessageDefaults` | there is no `Domain/Constants` folder (plan wording) |
