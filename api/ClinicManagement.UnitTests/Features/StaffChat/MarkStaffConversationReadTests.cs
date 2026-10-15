@@ -12,7 +12,7 @@ public class MarkStaffConversationReadTests
     private static readonly DateTime Nine = new(2026, 10, 15, 9, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public async Task A_First_Read_Records_The_Messages_Time_And_Signals_Only_The_Readers_Own_Tabs() // EC-9
+    public async Task A_First_Read_Records_The_Messages_Time_And_Signals_Both_People_Of_The_Thread() // EC-9, AC-5.4
     {
         var h = new StaffChatHarness();
         h.ActAs(h.Owner);
@@ -32,7 +32,7 @@ public class MarkStaffConversationReadTests
         h.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         h.Realtime.Verify(n => n.NotifyStaffChatAsync(
             StaffChatHarness.ClinicId,
-            It.Is<IReadOnlyCollection<string>>(ids => ids.SequenceEqual(new[] { h.Owner.Id })),
+            It.Is<IReadOnlyCollection<string>>(ids => ids.OrderBy(x => x).SequenceEqual(new[] { h.Owner.Id, h.Salma.Id }.OrderBy(x => x))),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 

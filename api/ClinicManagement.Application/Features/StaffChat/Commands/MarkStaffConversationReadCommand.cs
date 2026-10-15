@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -46,6 +47,7 @@ public class MarkStaffConversationReadCommandHandler : IRequestHandler<MarkStaff
     public async Task<Result> Handle(MarkStaffConversationReadCommand request, CancellationToken cancellationToken)
     {
         StaffChatRoster roster;
+        IReadOnlyCollection<string> signalled;
         try
         {
             var loaded = await StaffChatRoster.LoadForCallerAsync(_clinicContext, _users, _doctors, cancellationToken);
@@ -81,6 +83,12 @@ public class MarkStaffConversationReadCommandHandler : IRequestHandler<MarkStaff
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // The reader's own tabs clear their badge (EC-9); in a two-person or secretariat thread the others' tabs
+            // also learn it, for « Vu par … » (AC-5.4). The cabinet thread shows no « Vu », so it wakes nobody else.
+            signalled = conversation.Kind == StaffConversationKind.Clinic
+                ? new[] { roster.Viewer.UserId }
+                : conversation.Members(roster.Members);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -89,8 +97,7 @@ public class MarkStaffConversationReadCommandHandler : IRequestHandler<MarkStaff
 
         try
         {
-            // Only the reader's own tabs: the badge on their other devices clears (EC-9).
-            await _realtime.NotifyStaffChatAsync(roster.ClinicId, new[] { roster.Viewer.UserId }, cancellationToken);
+            await _realtime.NotifyStaffChatAsync(roster.ClinicId, signalled, cancellationToken);
         }
         catch (Exception ex)
         {

@@ -49,4 +49,34 @@ public class StaffMessageTests
         Assert.Equal(StaffMessage.BodyMaxLength, Create(new string('a', StaffMessage.BodyMaxLength) + "   ").Body!.Length);
         Assert.Throws<ArgumentException>(() => Create(new string('a', StaffMessage.BodyMaxLength + 1)));
     }
+
+    [Fact]
+    public void The_First_Taker_Wins_And_Taking_Again_Changes_Nothing() // FR-6, EC-4
+    {
+        var message = Create("Faites entrer");
+
+        message.Claim("local|salma", At);
+        message.Claim("local|salma", At.AddMinutes(5));
+
+        Assert.Equal("local|salma", message.ClaimedByUserId);
+        Assert.Equal(At, message.ClaimedAt);
+        Assert.Throws<InvalidOperationException>(() => message.Claim("local|amel", At));
+        Assert.Equal("local|salma", message.ClaimedByUserId);
+    }
+
+    [Fact]
+    public void Only_The_Taker_Hands_It_Back() // AC-5.2
+    {
+        var message = Create("Faites entrer");
+        message.Claim("local|salma", At);
+
+        Assert.Throws<InvalidOperationException>(() => message.ReleaseClaim("local|amel"));
+        message.ReleaseClaim("local|salma");
+
+        Assert.Null(message.ClaimedByUserId);
+        Assert.Null(message.ClaimedAt);
+        message.ReleaseClaim("local|amel");
+        message.Claim("local|amel", At.AddMinutes(1));
+        Assert.Equal("local|amel", message.ClaimedByUserId);
+    }
 }

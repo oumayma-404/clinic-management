@@ -63,9 +63,11 @@ public class GetStaffMessagesQueryHandler : IRequestHandler<GetStaffMessagesQuer
             var page = await _messages.GetPageAsync(
                 roster.ClinicId, conversation.Key, beforeSentAt, beforeId, take, cancellationToken);
 
+            var markers = await _messages.GetMarkersAsync(roster.ClinicId, conversation.Key, cancellationToken);
+
             return Result<StaffMessagePageDto>.Success(new StaffMessagePageDto
             {
-                Items = page.Select(m => StaffChatInbox.ToMessageDto(m, roster)).ToList(),
+                Items = page.Select(m => StaffChatInbox.ToMessageDto(m, roster, conversation, markers)).ToList(),
                 NextCursor = page.Count == take ? StaffMessageCursor.Of(page[^1]) : null,
             });
         }

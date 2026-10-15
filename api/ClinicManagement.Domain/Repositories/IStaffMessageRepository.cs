@@ -38,4 +38,11 @@ public interface IStaffMessageRepository
         Guid clinicId, string userId, string conversationKey, CancellationToken cancellationToken = default);
 
     Task AddMarkerAsync(StaffChatReadMarker marker, CancellationToken cancellationToken = default);
+
+    /// <summary>Every member's read marker for one thread — what « Vu par … » is computed from (AC-5.4).</summary>
+    Task<IReadOnlyList<StaffChatReadMarker>> GetMarkersAsync(
+        Guid clinicId, string conversationKey, CancellationToken cancellationToken = default);
+
+    /// <summary>Who holds a message now, read past this request's own tracked copy — the answer after a lost claim race.</summary>
+    Task<string?> GetClaimedByAsync(Guid clinicId, Guid messageId, CancellationToken cancellationToken = default);
 }

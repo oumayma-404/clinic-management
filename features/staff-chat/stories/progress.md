@@ -13,8 +13,8 @@
 | 1A Model + storage | implemented | 8e7f024b |
 | 1B Server | implemented | b61c571d |
 | 1C Browser | implemented | 4d18510e |
-| 2 Quick messages | implemented | (this commit) |
-| 3 Shared desk | not-started | — |
+| 2 Quick messages | implemented | 3025b348 |
+| 3 Shared desk | implemented | (this commit) |
 | 4 Patient link + arrival | not-started | — |
 | 5 Alerts | not-started | — |
 | 6 Windows notification | not-started | — |
@@ -125,3 +125,31 @@ Decisions taken in this part (all reversible):
 | Chip order frozen while a thread is open | a send re-sorts by usage, and a button must not move under the finger |
 | Asks-for-patient chips send immediately for now | the patient picker is Part 4 (AC-2.5's « sent without one » half holds already) |
 | Defaults live in `Domain/Services/StaffQuickMessageDefaults` | there is no `Domain/Constants` folder (plan wording) |
+
+### Part 3 — shared secretariat (2026-10-15)
+
+Already in place from Part 1: desk membership (owner + current secretaries, none without a secretary), the FR-2
+alert table and the silent unread (AC-5.3) — this part adds the claim, « Vu par » and EC-14.
+
+| Gate | Result |
+|---|---|
+| Unit suite (unfiltered) | **5 852 passed, 0 failed**, 6 skipped (+22: claim/release domain + handlers incl. the concurrent race, OffersClaim, role change both ways, « Vu par », read signals, EC-14 marks) |
+| `tsc --noEmit` · `check:responsive` · `build` | 0 errors · 79/79 · green (built beside the running dev server — it uses `.next/dev`) |
+| Eye pass, 3 sessions (dentist 626 px, two secretaries 502 px) | 12/12: both secretaries offered « Je m'en occupe »; dentist sees « Vu par Ines Gharbi »; Ines takes it → « Vous vous en occupez », dentist and the other secretary see « Pris par Ines Gharbi » and her button is gone; Ines' « OK » reaches the dentist and leaves the other secretary's badge unchanged; no page scroll |
+
+**Blast radius added in this part**
+
+| Touching | Other consumers | Verdict |
+|---|---|---|
+| `ChangeUserRoleCommandHandler` ctor (+ `IStaffMessageRepository`, `IClinicWriteFence`) | its tests; `UsersController` | must change (tests) · must re-test: role change still lands, incl. on a fenced cloud |
+| `RelayFenceCoverageTests.ReviewedFr11Reads` | FR-11 doors | must change — `ChangeUserRoleCommand:StaffMessage` reviewed: markers written only when the fence lets the save through |
+| `MarkStaffConversationReadCommand` signal | the reader's tabs | must change — two-person / secretariat reads now wake the thread's members (for « Vu »); the cabinet thread still wakes only the reader |
+
+Decisions (reversible):
+
+| Decision | Why |
+|---|---|
+| A concurrent claim is decided by the message's `xmin`; the loser re-reads untracked and is told « Déjà pris par X. » (409) | EC-4 — a name, never a generic conflict |
+| Claiming twice is a no-op success; releasing an unclaimed message is a no-op success | a double press is not an error |
+| EC-14 is written at the role change (read markers on every secretariat at that moment), skipped while a PC de secours holds the saves | the account-age floor cannot express « joined later »; on a fenced cloud chat tables are refused and the role must still change — that history then reads unread |
+| « Vu » only under my own last message; « Vu par » lists names; the cabinet thread shows none | AC-5.4 |

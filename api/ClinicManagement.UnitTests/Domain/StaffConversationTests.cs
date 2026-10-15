@@ -164,4 +164,41 @@ public class StaffConversationTests
         Assert.Empty(dm.AlertsFor(Dentist, roster));
         Assert.True(dm.IsMember(Salma, roster));
     }
+
+    [Fact]
+    public void Only_A_Secretary_Of_The_Thread_Is_Offered_The_Owners_Request() // FR-6
+    {
+        var desk = StaffConversation.Desk(Dentist);
+
+        Assert.True(desk.OffersClaim(Dentist, Salma, Roster));
+        Assert.True(desk.OffersClaim(Dentist, Amel, Roster));
+        Assert.False(desk.OffersClaim(Dentist, Dentist, Roster));
+        Assert.False(desk.OffersClaim(Dentist, OtherDentist, Roster));
+        Assert.False(desk.OffersClaim(Salma, Amel, Roster));
+        Assert.False(StaffConversation.Clinic.OffersClaim(Dentist, Salma, Roster));
+        Assert.False(StaffConversation.Direct(Dentist, Salma).OffersClaim(Dentist, Salma, Roster));
+    }
+
+    [Fact]
+    public void A_Deactivated_Secretary_Is_Not_Offered_The_Request()
+    {
+        var roster = Roster.Select(m => m.UserId == Amel ? m with { IsActive = false } : m).ToList();
+
+        Assert.False(StaffConversation.Desk(Dentist).OffersClaim(Dentist, Amel, roster));
+    }
+
+    [Fact]
+    public void A_Role_Change_Moves_Someone_Between_The_Secretariats_Both_Ways() // EC-14
+    {
+        // Salma becomes a dentist: she leaves Dr Dentist's secretariat and gains her own.
+        var salmaPromoted = Roster.Select(m => m.UserId == Salma ? m with { IsSecretary = false } : m).ToList();
+        Assert.False(StaffConversation.Desk(Dentist).IsMember(Salma, salmaPromoted));
+        Assert.True(StaffConversation.Desk(Salma).IsMember(Salma, salmaPromoted));
+        Assert.True(StaffConversation.Desk(Salma).IsMember(Amel, salmaPromoted));
+
+        // The other dentist becomes a secretary: their own secretariat stops, they join the remaining one.
+        var dentistDemoted = Roster.Select(m => m.UserId == OtherDentist ? m with { IsSecretary = true } : m).ToList();
+        Assert.False(StaffConversation.Desk(OtherDentist).IsMember(OtherDentist, dentistDemoted));
+        Assert.True(StaffConversation.Desk(Dentist).IsMember(OtherDentist, dentistDemoted));
+    }
 }

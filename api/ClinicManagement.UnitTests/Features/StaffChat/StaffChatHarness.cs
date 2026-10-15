@@ -68,6 +68,8 @@ internal sealed class StaffChatHarness
         Messages.Setup(r => r.GetPageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StaffMessage>());
 
+        Messages.Setup(r => r.GetMarkersAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<StaffChatReadMarker>());
         Messages.Setup(r => r.GetQuickMessageUsageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
@@ -102,6 +104,14 @@ internal sealed class StaffChatHarness
 
     public GetStaffColleaguesQueryHandler Colleagues() => new(
         Users.Object, Doctors.Object, Context.Object, Presence.Object);
+
+    public ClaimStaffMessageCommandHandler Claim() => new(
+        Messages.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        NullLogger<ClaimStaffMessageCommandHandler>.Instance);
+
+    public ReleaseStaffMessageClaimCommandHandler Release() => new(
+        Messages.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        NullLogger<ReleaseStaffMessageClaimCommandHandler>.Instance);
 
     public GetStaffQuickMessagesQueryHandler QuickMessages() => new(
         QuickMessageLists.Object, Messages.Object, Users.Object, Context.Object);

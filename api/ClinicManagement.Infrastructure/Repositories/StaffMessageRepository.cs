@@ -104,6 +104,24 @@ public class StaffMessageRepository : IStaffMessageRepository
         await _context.StaffChatReadMarkers.AddAsync(marker, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<StaffChatReadMarker>> GetMarkersAsync(
+        Guid clinicId, string conversationKey, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffChatReadMarkers
+            .Where(r => r.ClinicId == clinicId && r.ConversationKey == conversationKey)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<string?> GetClaimedByAsync(Guid clinicId, Guid messageId, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffMessages
+            .Where(m => m.ClinicId == clinicId && m.Id == messageId)
+            .AsNoTracking()
+            .Select(m => m.ClaimedByUserId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     /// <summary>One sender's quick-message counts since a moment — what orders their buttons (AC-2.2). Public for the SQL test.</summary>
     public static IQueryable<StaffQuickMessageUsage> UsageQuery(
         ApplicationDbContext db, Guid clinicId, string senderUserId, DateTime sinceUtc) =>

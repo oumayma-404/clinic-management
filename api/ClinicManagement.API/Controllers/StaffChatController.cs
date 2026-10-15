@@ -59,6 +59,20 @@ public class StaffChatController : ApiControllerBase
         return result.IsFailure ? Refuse(result) : StatusCode(StatusCodes.Status201Created, result.Value);
     }
 
+    [HttpPost("messages/{id:guid}/claim")]
+    public async Task<ActionResult<StaffMessageDto>> Claim(Guid id)
+    {
+        var result = await _mediator.Send(new ClaimStaffMessageCommand { MessageId = id });
+        return result.IsFailure ? Refuse(result) : Ok(result.Value);
+    }
+
+    [HttpDelete("messages/{id:guid}/claim")]
+    public async Task<ActionResult<StaffMessageDto>> ReleaseClaim(Guid id)
+    {
+        var result = await _mediator.Send(new ReleaseStaffMessageClaimCommand { MessageId = id });
+        return result.IsFailure ? Refuse(result) : Ok(result.Value);
+    }
+
     [HttpGet("quick-messages")]
     public async Task<ActionResult<StaffQuickMessageListDto>> GetQuickMessages()
     {
@@ -91,7 +105,8 @@ public class StaffChatController : ApiControllerBase
     private ActionResult Refuse(Result result) => HandleFailure(result, result.Code switch
     {
         StaffChatRefusals.ConversationNotFoundCode or StaffChatRefusals.MessageNotFoundCode => StatusCodes.Status404NotFound,
-        StaffChatRefusals.RecipientInactiveCode => StatusCodes.Status409Conflict,
+        StaffChatRefusals.RecipientInactiveCode or StaffChatRefusals.AlreadyClaimedCode => StatusCodes.Status409Conflict,
+        StaffChatRefusals.NotYourClaimCode => StatusCodes.Status403Forbidden,
         _ => StatusCodes.Status400BadRequest,
     });
 }

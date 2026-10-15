@@ -1,7 +1,9 @@
 "use client"
 
-import { AlertTriangle, Loader2 } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Hand, Loader2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { ThreadMessage } from "@/lib/hooks/use-staff-chat"
+import type { ClaimView } from "@/lib/staff-chat/desk"
 import { formatChatTime } from "@/lib/staff-chat/format"
 import { cn } from "@/lib/utils"
 
@@ -11,9 +13,26 @@ interface MessageBubbleProps {
   /** On a shared conversation each colleague's message names its author. */
   showSender: boolean
   onRetry: (localId: string) => void
+  /** « Je m'en occupe » on a secretariat request (FR-6); null where it does not apply. */
+  claim?: ClaimView
+  claimBusy?: boolean
+  onClaim?: () => void
+  onRelease?: () => void
+  /** « Vu » / « Vu par … » under the last of my messages (AC-5.4). */
+  seen?: string | null
 }
 
-export function MessageBubble({ message, mine, showSender, onRetry }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  mine,
+  showSender,
+  onRetry,
+  claim = null,
+  claimBusy = false,
+  onClaim,
+  onRelease,
+  seen = null,
+}: MessageBubbleProps) {
   const quick = message.quickMessage
   const text = message.body ?? quick?.label ?? ""
   const localId = message.localId
@@ -38,6 +57,11 @@ export function MessageBubble({ message, mine, showSender, onRetry }: MessageBub
         {quick && message.body && <p className="font-medium [overflow-wrap:anywhere]">{quick.label}</p>}
         <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
       </div>
+
+      {claim && (
+        <ClaimLine claim={claim} busy={claimBusy} onClaim={onClaim} onRelease={onRelease} />
+      )}
+
       <span className="flex items-center gap-1 px-1 text-2xs text-muted-foreground tabular-nums">
         {message.state === "sending" && (
           <>
@@ -59,7 +83,69 @@ export function MessageBubble({ message, mine, showSender, onRetry }: MessageBub
           </span>
         )}
         {message.state === "sent" && formatChatTime(message.sentAt)}
+        {message.state === "sent" && seen && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{seen}</span>
+          </>
+        )}
       </span>
     </div>
+  )
+}
+
+function ClaimLine({
+  claim,
+  busy,
+  onClaim,
+  onRelease,
+}: {
+  claim: NonNullable<ClaimView>
+  busy: boolean
+  onClaim?: () => void
+  onRelease?: () => void
+}) {
+  if (claim.kind === "offer") {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onClaim}
+        disabled={busy}
+        className="h-8 rounded-full px-3 text-xs coarse:min-h-11"
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Hand className="h-3.5 w-3.5" aria-hidden="true" />}
+        Je m&apos;en occupe
+      </Button>
+    )
+  }
+
+  if (claim.kind === "mine") {
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 px-1 text-xs">
+        <span className="flex items-center gap-1 font-medium text-success">
+          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+          Vous vous en occupez
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onRelease}
+          disabled={busy}
+          className="h-7 px-2 text-xs text-muted-foreground coarse:min-h-11"
+        >
+          Je ne peux plus
+        </Button>
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex items-center gap-1 px-1 text-xs font-medium text-success">
+      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+      Pris par {claim.name} · <span className="tabular-nums">{formatChatTime(claim.at)}</span>
+    </span>
   )
 }

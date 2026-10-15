@@ -17,6 +17,10 @@ export interface StaffMessageDto {
   sentAt: string
   body: string | null
   quickMessage: { key: string; label: string; urgent: boolean } | null
+  /** Who said « Je m'en occupe » on a secretariat request, and when. */
+  claimedBy: { userId: string; name: string; at: string } | null
+  /** The thread's other members who have read up to this message — filled on a thread page. */
+  seenBy: { userId: string; name: string }[]
 }
 
 export type StaffConversationKind = "direct" | "desk" | "clinic"
@@ -87,6 +91,9 @@ export const StaffChatCode = {
   TooLong: "staffchat-too-long",
   UnknownQuickMessage: "staffchat-unknown-quick-message",
   InvalidQuickMessages: "staffchat-invalid-quick-messages",
+  AlreadyClaimed: "staffchat-already-claimed",
+  NotClaimable: "staffchat-not-claimable",
+  NotYourClaim: "staffchat-not-your-claim",
 } as const
 
 /** The server's own limit; the counter and the refusal count the same way (trimmed UTF-16 length). */
@@ -105,6 +112,12 @@ export const staffChatApi = {
   /** A retry of the same text reuses the request's Idempotency-Key, so the server answers once. */
   send: (conversation: string, body: string | null, quickMessageKey: string | null = null) =>
     apiPost<StaffMessageDto>("/staff-chat/messages", { conversation, body, quickMessageKey }),
+
+  /** « Je m'en occupe »: 409 « Déjà pris par … » when a colleague was first. */
+  claim: (messageId: string) => apiPost<StaffMessageDto>(`/staff-chat/messages/${messageId}/claim`, {}),
+
+  /** « Je ne peux plus »: only the taker. */
+  releaseClaim: (messageId: string) => apiDelete<StaffMessageDto>(`/staff-chat/messages/${messageId}/claim`),
 
   quickMessages: () => apiGet<StaffQuickMessageListDto>("/staff-chat/quick-messages"),
 

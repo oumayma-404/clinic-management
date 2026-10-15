@@ -32,6 +32,17 @@ public class StaffMessageDto
     public DateTime SentAt { get; set; }
     public string? Body { get; set; }
     public StaffQuickMessageRefDto? QuickMessage { get; set; }
+    /// <summary>Who said « Je m'en occupe », and when (FR-6); null while nobody has.</summary>
+    public StaffMessageClaimDto? ClaimedBy { get; set; }
+    /// <summary>The other members who have read up to this message (AC-5.4); filled on a thread page only.</summary>
+    public List<StaffMessageSenderDto> SeenBy { get; set; } = new();
+}
+
+public class StaffMessageClaimDto
+{
+    public string UserId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public DateTime At { get; set; }
 }
 
 public class StaffConversationDto

@@ -173,6 +173,8 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
           sentAt: new Date().toISOString(),
           body: outgoing.body,
           quickMessage: outgoing.quickMessage,
+          claimedBy: null,
+          seenBy: [],
           state: "sending",
         },
       ])
@@ -194,8 +196,12 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
     [messages, deliver],
   )
 
+  /** A message the server just answered with (a claim, a release) replaces its copy in place. */
+  const apply = useCallback((message: StaffMessageDto) => merge([message], true), [merge])
+
   return {
     messages,
+    apply,
     loading,
     error,
     hasOlder: nextCursor !== null,

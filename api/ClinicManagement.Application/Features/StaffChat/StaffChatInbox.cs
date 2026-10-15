@@ -92,7 +92,31 @@ public static class StaffChatInbox
                 Label = message.QuickMessageLabel ?? string.Empty,
                 Urgent = message.IsUrgent,
             },
+        ClaimedBy = message.ClaimedByUserId is null || message.ClaimedAt is null
+            ? null
+            : new StaffMessageClaimDto
+            {
+                UserId = message.ClaimedByUserId,
+                Name = roster.NameOf(message.ClaimedByUserId),
+                At = message.ClaimedAt.Value,
+            },
     };
+
+    /// <summary>As above, plus « Vu par »: the thread's other members whose read marker reaches this message (AC-5.4).</summary>
+    public static StaffMessageDto ToMessageDto(
+        StaffMessage message, StaffChatRoster roster, StaffConversation conversation,
+        IReadOnlyCollection<StaffChatReadMarker> markers)
+    {
+        var dto = ToMessageDto(message, roster);
+        var members = conversation.Members(roster.Members).ToHashSet(StringComparer.Ordinal);
+        dto.SeenBy = markers
+            .Where(r => r.UserId != message.SenderUserId && members.Contains(r.UserId) && r.LastReadAt >= message.SentAt)
+            .OrderBy(r => r.LastReadAt)
+            .ThenBy(r => r.UserId, StringComparer.Ordinal)
+            .Select(r => new StaffMessageSenderDto { UserId = r.UserId, Name = roster.NameOf(r.UserId) })
+            .ToList();
+        return dto;
+    }
 
     /// <summary>The thread the viewer asked for, if it is a real key and they belong to it — otherwise nothing, never another cabinet's thread.</summary>
     public static StaffConversation? Resolve(string? key, StaffChatRoster roster) =>

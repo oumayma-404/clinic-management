@@ -5,8 +5,10 @@ import { Ban, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
-import type { StaffConversationDto } from "@/lib/api/staff-chat"
+import { staffChatApi, type StaffConversationDto } from "@/lib/api/staff-chat"
+import { showErrorToast } from "@/lib/errors"
 import { useMarkThreadRead, useStaffChatThread, useStaffQuickMessages } from "@/lib/hooks/use-staff-chat"
+import { claimViewFor, seenLine } from "@/lib/staff-chat/desk"
 import { MessageBubble } from "./message-bubble"
 import { MessageComposer } from "./message-composer"
 import { QuickMessageBar } from "./quick-message-bar"
@@ -27,6 +29,7 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
   useMarkThreadRead(conversationKey, thread.messages, viewer?.userId)
   const quickMessages = useStaffQuickMessages(true)
   const [editing, setEditing] = useState(false)
+  const [claiming, setClaiming] = useState<string | null>(null)
 
   const scrollerRef = useRef<HTMLDivElement>(null)
   const pinnedToBottom = useRef(true)
@@ -64,6 +67,20 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
     void thread.loadOlder()
   }
 
+  // « Je m'en occupe » / « Je ne peux plus »: the answer replaces the message; a refusal names who has it (AC-5.2).
+  const changeClaim = async (messageId: string, take: boolean) => {
+    setClaiming(messageId)
+    try {
+      thread.apply(await (take ? staffChatApi.claim(messageId) : staffChatApi.releaseClaim(messageId)))
+    } catch (err) {
+      showErrorToast(err)
+      void thread.reload()
+    } finally {
+      setClaiming(null)
+    }
+  }
+
+  const lastSent = [...thread.messages].reverse().find((m) => !m.localId)
   const shared = conversation ? conversation.kind !== "direct" : false
   const readOnly = conversation?.readOnly ?? false
 
@@ -110,6 +127,11 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
                       mine={mine}
                       showSender={shared && previous?.sender.userId !== message.sender.userId}
                       onRetry={thread.retry}
+                      claim={conversation ? claimViewFor(message, conversation, viewer?.userId) : null}
+                      claimBusy={claiming === message.id}
+                      onClaim={() => void changeClaim(message.id, true)}
+                      onRelease={() => void changeClaim(message.id, false)}
+                      seen={conversation && message === lastSent ? seenLine(message, conversation, viewer?.userId) : null}
                     />
                   </li>
                 )

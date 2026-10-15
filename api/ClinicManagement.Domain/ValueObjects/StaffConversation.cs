@@ -153,6 +153,21 @@ public sealed class StaffConversation : ValueObject
         return senderUserId == First || viewerUserId == First;
     }
 
+    /// <summary>
+    /// FR-6: « Je m'en occupe » is offered on a message the owner sent to their secretariat, to the active secretaries
+    /// of that thread — never to the owner, never on a secretary's own reply.
+    /// </summary>
+    public bool OffersClaim(string senderUserId, string takerUserId, IReadOnlyCollection<StaffChatMember> roster)
+    {
+        if (Kind != StaffConversationKind.Desk || senderUserId != First || takerUserId == First)
+        {
+            return false;
+        }
+
+        var taker = Find(roster, takerUserId);
+        return taker is { IsSecretary: true, IsActive: true } && IsMember(takerUserId, roster);
+    }
+
     /// <summary>The accounts a message from <paramref name="senderUserId"/> rings.</summary>
     public IReadOnlyList<string> AlertsFor(string senderUserId, IReadOnlyCollection<StaffChatMember> roster) =>
         roster.Where(m => Alerts(m.UserId, senderUserId, roster)).Select(m => m.UserId).ToList();

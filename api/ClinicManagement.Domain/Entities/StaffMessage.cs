@@ -80,6 +80,45 @@ public class StaffMessage : Entity<Guid>
         };
     }
 
+    /// <summary>« Je m'en occupe » (FR-6): the first taker wins; taking it again is a no-op, another person is refused.</summary>
+    public void Claim(string userId, DateTime atUtc)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            throw new ArgumentException("La personne qui prend le message est obligatoire.", nameof(userId));
+        }
+
+        if (ClaimedByUserId == userId)
+        {
+            return;
+        }
+
+        if (ClaimedByUserId is not null)
+        {
+            throw new InvalidOperationException("Ce message est déjà pris par quelqu'un d'autre.");
+        }
+
+        ClaimedByUserId = userId;
+        ClaimedAt = atUtc;
+    }
+
+    /// <summary>« Je ne peux plus » (AC-5.2): only the taker hands it back; an unclaimed message stays as it is.</summary>
+    public void ReleaseClaim(string userId)
+    {
+        if (ClaimedByUserId is null)
+        {
+            return;
+        }
+
+        if (ClaimedByUserId != userId)
+        {
+            throw new InvalidOperationException("Seule la personne qui a pris ce message peut le rendre.");
+        }
+
+        ClaimedByUserId = null;
+        ClaimedAt = null;
+    }
+
     /// <summary>Trimmed, with blank collapsed to null; inner line breaks kept (FR-3).</summary>
     public static string? NormalizeBody(string? body)
     {
