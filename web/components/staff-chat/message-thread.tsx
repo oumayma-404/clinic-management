@@ -5,7 +5,7 @@ import { Ban, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
-import { staffChatApi, type StaffConversationDto } from "@/lib/api/staff-chat"
+import { staffChatApi, type StaffConversationDto, type StaffQuickMessageDto } from "@/lib/api/staff-chat"
 import { showErrorToast } from "@/lib/errors"
 import { useMarkThreadRead, useStaffChatThread, useStaffQuickMessages } from "@/lib/hooks/use-staff-chat"
 import { claimViewFor, seenLine } from "@/lib/staff-chat/desk"
@@ -13,6 +13,7 @@ import { MessageBubble } from "./message-bubble"
 import { MessageComposer } from "./message-composer"
 import { QuickMessageBar } from "./quick-message-bar"
 import { QuickMessagesEditorDialog } from "./quick-messages-editor-dialog"
+import { PatientLinkPicker, type PickedLink } from "./patient-link-picker"
 
 interface MessageThreadProps {
   conversationKey: string
@@ -30,6 +31,29 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
   const quickMessages = useStaffQuickMessages(true)
   const [editing, setEditing] = useState(false)
   const [claiming, setClaiming] = useState<string | null>(null)
+  const [attachment, setAttachment] = useState<PickedLink | null>(null)
+  const [picker, setPicker] = useState<{ quick: StaffQuickMessageDto | null } | null>(null)
+  const quickPending = picker?.quick ?? null
+
+  const sendQuickWith = (item: StaffQuickMessageDto, link: PickedLink | null) =>
+    thread.send({
+      body: null,
+      quickMessage: { key: item.key, label: item.label, urgent: item.urgent },
+      patient: link?.patient ?? null,
+      appointment: link?.appointment ?? null,
+    })
+
+  // A quick message about a patient offers the picker, and may still go without one (AC-2.5).
+  const sendQuick = (item: StaffQuickMessageDto) => {
+    if (!item.asksForPatient) {
+      sendQuickWith(item, null)
+    } else if (attachment) {
+      sendQuickWith(item, attachment)
+      setAttachment(null)
+    } else {
+      setPicker({ quick: item })
+    }
+  }
 
   const scrollerRef = useRef<HTMLDivElement>(null)
   const pinnedToBottom = useRef(true)
@@ -153,14 +177,32 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
               conversation={conversation}
               viewerId={viewer?.userId}
               items={quickMessages.data?.items}
-              onSend={(item) =>
-                thread.send({ body: null, quickMessage: { key: item.key, label: item.label, urgent: item.urgent } })
-              }
+              onSend={sendQuick}
               onEdit={() => setEditing(true)}
             />
           )}
           <QuickMessagesEditorDialog open={editing} onOpenChange={setEditing} list={quickMessages.data} />
         </>
+      )}
+
+      {!readOnly && picker && (
+        <PatientLinkPicker
+          title={quickPending ? `${quickPending.label} — pour quel patient ?` : "Joindre un patient"}
+          onCancel={() => setPicker(null)}
+          onSkip={
+            quickPending
+              ? () => {
+                  sendQuickWith(quickPending, null)
+                  setPicker(null)
+                }
+              : undefined
+          }
+          onPick={(link) => {
+            if (quickPending) sendQuickWith(quickPending, link)
+            else setAttachment(link)
+            setPicker(null)
+          }}
+        />
       )}
 
       {!readOnly && (
@@ -170,7 +212,10 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
           viewerId={viewer?.userId}
           recipient={conversation?.title ?? "ce collègue"}
           onSend={thread.send}
-          flush={Boolean(conversation && quickMessages.data)}
+          flush={Boolean(conversation && quickMessages.data) && !picker}
+          attachment={attachment}
+          onAttach={() => setPicker({ quick: null })}
+          onClearAttachment={() => setAttachment(null)}
         />
       )}
     </>

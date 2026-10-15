@@ -22,6 +22,7 @@ public class ClaimStaffMessageCommand : IRequest<Result<StaffMessageDto>>
 public class ClaimStaffMessageCommandHandler : IRequestHandler<ClaimStaffMessageCommand, Result<StaffMessageDto>>
 {
     private readonly IStaffMessageRepository _messages;
+    private readonly IPatientRepository _patients;
     private readonly IUserRepository _users;
     private readonly IDoctorRepository _doctors;
     private readonly IClinicContext _clinicContext;
@@ -31,6 +32,7 @@ public class ClaimStaffMessageCommandHandler : IRequestHandler<ClaimStaffMessage
 
     public ClaimStaffMessageCommandHandler(
         IStaffMessageRepository messages,
+        IPatientRepository patients,
         IUserRepository users,
         IDoctorRepository doctors,
         IClinicContext clinicContext,
@@ -39,6 +41,7 @@ public class ClaimStaffMessageCommandHandler : IRequestHandler<ClaimStaffMessage
         ILogger<ClaimStaffMessageCommandHandler> logger)
     {
         _messages = messages;
+        _patients = patients;
         _users = users;
         _doctors = doctors;
         _clinicContext = clinicContext;
@@ -81,7 +84,7 @@ public class ClaimStaffMessageCommandHandler : IRequestHandler<ClaimStaffMessage
 
             if (message.ClaimedByUserId == viewer)
             {
-                return Result<StaffMessageDto>.Success(StaffChatInbox.ToMessageDto(message, roster));
+                return Result<StaffMessageDto>.Success(await StaffMessagePosted.DtoAsync(message, roster, _patients, _messages, _logger, cancellationToken));
             }
 
             message.Claim(viewer, DateTime.UtcNow);
@@ -107,7 +110,7 @@ public class ClaimStaffMessageCommandHandler : IRequestHandler<ClaimStaffMessage
         }
 
         await StaffClaimTarget.SignalAsync(_realtime, roster, conversation, message, _logger, cancellationToken);
-        return Result<StaffMessageDto>.Success(StaffChatInbox.ToMessageDto(message, roster));
+        return Result<StaffMessageDto>.Success(await StaffMessagePosted.DtoAsync(message, roster, _patients, _messages, _logger, cancellationToken));
     }
 
     private static Result<StaffMessageDto> AlreadyClaimed(string holder, StaffChatRoster roster) =>

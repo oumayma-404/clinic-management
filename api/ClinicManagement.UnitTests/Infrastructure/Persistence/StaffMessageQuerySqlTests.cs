@@ -57,6 +57,18 @@ public class StaffMessageQuerySqlTests
     }
 
     [Fact]
+    public void Todays_Arrivals_Are_The_Latest_Patient_Arrive_Per_Appointment_In_One_Query() // AC-3.3
+    {
+        using var db = Context();
+
+        var sql = StaffMessageRepository.ArrivalsQuery(db, ClinicId, Nine, Nine.AddHours(12)).ToQueryString();
+
+        Assert.Contains("ROW_NUMBER()", sql);
+        Assert.Matches(@"PARTITION BY \w+\.""AppointmentId""", sql);
+        Assert.Contains("\"QuickMessageKey\" = 'patient-arrived'", sql);
+    }
+
+    [Fact]
     public void Quick_Message_Usage_Counts_One_Senders_Sends_Since_A_Moment_Per_Key() // AC-2.2
     {
         using var db = Context();

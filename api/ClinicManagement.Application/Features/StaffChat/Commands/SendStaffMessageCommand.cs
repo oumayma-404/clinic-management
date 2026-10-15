@@ -10,19 +10,26 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.StaffChat.Commands;
 
-/// <summary>Sends a text or a quick message into a thread the caller belongs to (AC-2.1, AC-2.3). A retry reuses the request's Idempotency-Key.</summary>
+/// <summary>
+/// Sends a text or a quick message into a thread the caller belongs to (AC-2.1, AC-2.3), optionally about a patient
+/// and one of their appointments (AC-2.4). A retry reuses the request's Idempotency-Key.
+/// </summary>
 public class SendStaffMessageCommand : IRequest<Result<StaffMessageDto>>
 {
     public string Conversation { get; set; } = string.Empty;
     public string? Body { get; set; }
     /// <summary>A quick message of the cabinet's list; its label and urgency are kept as they are now (AC-6.4).</summary>
     public string? QuickMessageKey { get; set; }
+    public Guid? PatientId { get; set; }
+    /// <summary>One of that patient's appointments; sent alone, it brings its patient with it.</summary>
+    public Guid? AppointmentId { get; set; }
 }
 
 public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCommand, Result<StaffMessageDto>>
 {
     private readonly IStaffMessageRepository _messages;
     private readonly IStaffQuickMessageListRepository _quickMessages;
+    private readonly IPatientRepository _patients;
     private readonly IUserRepository _users;
     private readonly IDoctorRepository _doctors;
     private readonly IClinicContext _clinicContext;
@@ -33,6 +40,7 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
     public SendStaffMessageCommandHandler(
         IStaffMessageRepository messages,
         IStaffQuickMessageListRepository quickMessages,
+        IPatientRepository patients,
         IUserRepository users,
         IDoctorRepository doctors,
         IClinicContext clinicContext,
@@ -42,6 +50,7 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
     {
         _messages = messages;
         _quickMessages = quickMessages;
+        _patients = patients;
         _users = users;
         _doctors = doctors;
         _clinicContext = clinicContext;
@@ -54,7 +63,7 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
     {
         StaffMessage message;
         StaffChatRoster roster;
-        IReadOnlyList<string> members;
+        StaffConversation conversation;
         try
         {
             var loaded = await StaffChatRoster.LoadForCallerAsync(_clinicContext, _users, _doctors, cancellationToken);
@@ -64,13 +73,14 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
             }
 
             roster = loaded.Value!;
-            var conversation = StaffChatInbox.Resolve(request.Conversation, roster);
-            if (conversation is null)
+            var resolved = StaffChatInbox.Resolve(request.Conversation, roster);
+            if (resolved is null)
             {
                 return Result<StaffMessageDto>.Failure(
                     StaffChatRefusals.ConversationNotFound, StaffChatRefusals.ConversationNotFoundCode);
             }
 
+            conversation = resolved;
             if (StaffChatInbox.IsReadOnly(conversation, roster))
             {
                 return Result<StaffMessageDto>.Failure(
@@ -102,26 +112,25 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
                 return Result<StaffMessageDto>.Failure(StaffChatRefusals.TooLong, StaffChatRefusals.TooLongCode);
             }
 
+            var links = await StaffMessageLinks.ValidateAsync(
+                request.PatientId, request.AppointmentId, roster, _patients, _messages, cancellationToken);
+            if (links.IsFailure)
+            {
+                return Result<StaffMessageDto>.FailureFrom(links);
+            }
+
+            var (patientId, appointmentId) = links.Value;
             message = StaffMessage.Create(
-                roster.ClinicId, conversation, roster.Viewer.UserId, body, quick, null, null, DateTime.UtcNow);
+                roster.ClinicId, conversation, roster.Viewer.UserId, body, quick, patientId, appointmentId, DateTime.UtcNow);
             await _messages.AddAsync(message, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            members = conversation.Members(roster.Members);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<StaffMessageDto>.Failure("Le message n'a pas pu être envoyé.", ex);
         }
 
-        try
-        {
-            await _realtime.NotifyStaffChatAsync(roster.ClinicId, members, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Staff chat message {MessageId} saved but its members were not signalled", message.Id);
-        }
-
-        return Result<StaffMessageDto>.Success(StaffChatInbox.ToMessageDto(message, roster));
+        return Result<StaffMessageDto>.Success(await StaffMessagePosted.AnnounceAsync(
+            message, conversation, roster, _realtime, _patients, _messages, _logger, cancellationToken));
     }
 }

@@ -16,6 +16,7 @@ export const queryKeys = {
   staffChatUnread: ["staffchat", "unread"] as const,
   staffChatConversations: ["staffchat", "conversations"] as const,
   staffChatQuickMessages: ["staffchat", "quick-messages"] as const,
+  staffChatArrivals: ["staffchat", "arrivals", "today"] as const,
 }
 
 export const realtimeMeta = {

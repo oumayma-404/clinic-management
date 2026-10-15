@@ -23,17 +23,20 @@ public class GetStaffMessagesQuery : IRequest<Result<StaffMessagePageDto>>
 public class GetStaffMessagesQueryHandler : IRequestHandler<GetStaffMessagesQuery, Result<StaffMessagePageDto>>
 {
     private readonly IStaffMessageRepository _messages;
+    private readonly IPatientRepository _patients;
     private readonly IUserRepository _users;
     private readonly IDoctorRepository _doctors;
     private readonly IClinicContext _clinicContext;
 
     public GetStaffMessagesQueryHandler(
         IStaffMessageRepository messages,
+        IPatientRepository patients,
         IUserRepository users,
         IDoctorRepository doctors,
         IClinicContext clinicContext)
     {
         _messages = messages;
+        _patients = patients;
         _users = users;
         _doctors = doctors;
         _clinicContext = clinicContext;
@@ -65,9 +68,12 @@ public class GetStaffMessagesQueryHandler : IRequestHandler<GetStaffMessagesQuer
 
             var markers = await _messages.GetMarkersAsync(roster.ClinicId, conversation.Key, cancellationToken);
 
+            var pairs = page.Select(m => (Message: m, Dto: StaffChatInbox.ToMessageDto(m, roster, conversation, markers))).ToList();
+            await StaffMessageLinks.FillAsync(pairs, roster, _patients, _messages, cancellationToken);
+
             return Result<StaffMessagePageDto>.Success(new StaffMessagePageDto
             {
-                Items = page.Select(m => StaffChatInbox.ToMessageDto(m, roster, conversation, markers)).ToList(),
+                Items = pairs.Select(p => p.Dto).ToList(),
                 NextCursor = page.Count == take ? StaffMessageCursor.Of(page[^1]) : null,
             });
         }

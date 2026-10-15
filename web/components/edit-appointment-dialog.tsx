@@ -93,6 +93,7 @@ import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { MANUALLY_SETTABLE_STATUSES, appointmentStatusLabel } from "@/components/appointment-labels"
+import { ArrivalMenuItem, useArrivalAction } from "@/components/staff-chat/arrival-action"
 
 /**
  * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
@@ -253,6 +254,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const conflict = useConflict()
   const { error, setError, clearMessage: clearBanner, reset: resetConflict } = conflict
   const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const arrival = useArrivalAction(appointment, moreOpen, () => setMoreOpen(false))
   /**
    * « Supprimer (créé par erreur) » — deliberately NOT a second door to « Annulé ». A séance nobody ever booked
    * on purpose is not an absence, and `Cancelled` counts in the « taux d'absence », so tidying the agenda that
@@ -1578,7 +1581,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               groups, caller wins).
             */}
             <DialogFooter className="flex-shrink-0 flex-row items-center gap-2 border-t bg-background px-6 py-4 [&>*]:w-auto">
-              <DropdownMenu>
+              <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
@@ -1592,6 +1595,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" side="top" className="w-56">
+                  {arrival.control && <ArrivalMenuItem control={arrival.control} />}
                   <DropdownMenuItem disabled={status === "cancelled"} onSelect={() => setShowCancelDialog(true)}>
                     <CircleX className="h-4 w-4" />
                     Annuler le rendez-vous
@@ -1643,6 +1647,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           }}
         />
       )}
+
+      {arrival.dialog}
 
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>

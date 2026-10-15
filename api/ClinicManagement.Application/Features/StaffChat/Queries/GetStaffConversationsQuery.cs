@@ -22,19 +22,22 @@ public class GetStaffConversationsQueryHandler : IRequestHandler<GetStaffConvers
     private readonly IDoctorRepository _doctors;
     private readonly IClinicContext _clinicContext;
     private readonly IStaffPresence _presence;
+    private readonly IPatientRepository _patients;
 
     public GetStaffConversationsQueryHandler(
         IStaffMessageRepository messages,
         IUserRepository users,
         IDoctorRepository doctors,
         IClinicContext clinicContext,
-        IStaffPresence presence)
+        IStaffPresence presence,
+        IPatientRepository patients)
     {
         _messages = messages;
         _users = users;
         _doctors = doctors;
         _clinicContext = clinicContext;
         _presence = presence;
+        _patients = patients;
     }
 
     public async Task<Result<List<StaffConversationDto>>> Handle(GetStaffConversationsQuery request, CancellationToken cancellationToken)
@@ -57,6 +60,9 @@ public class GetStaffConversationsQueryHandler : IRequestHandler<GetStaffConvers
             var unread = (await _messages.GetUnreadCountsAsync(
                     roster.ClinicId, viewerId, keys, roster.Viewer.CreatedAt, cancellationToken))
                 .ToLookup(u => u.ConversationKey, StringComparer.Ordinal);
+            var lastDtos = latest.ToDictionary(e => e.Key, e => StaffChatInbox.ToMessageDto(e.Value, roster), StringComparer.Ordinal);
+            await StaffMessageLinks.FillAsync(
+                latest.Values.Select(m => (m, lastDtos[m.ConversationKey])).ToList(), roster, _patients, _messages, cancellationToken);
 
             var conversations = candidates
                 .Where(c => StaffChatInbox.IsOffered(c, roster, latest.ContainsKey(c.Key)))
@@ -68,7 +74,7 @@ public class GetStaffConversationsQueryHandler : IRequestHandler<GetStaffConvers
                     Members = c.Members(roster.Members)
                         .Select(id => StaffChatInbox.ToColleagueDto(roster.Find(id)!, roster.ClinicId, _presence))
                         .ToList(),
-                    LastMessage = latest.TryGetValue(c.Key, out var last) ? StaffChatInbox.ToMessageDto(last, roster) : null,
+                    LastMessage = lastDtos.GetValueOrDefault(c.Key),
                     UnreadCount = unread[c.Key].Sum(u => u.Count),
                     HasUrgentUnread = unread[c.Key].Any(u => u.UrgentCount > 0 && c.Alerts(viewerId, u.SenderUserId, roster.Members)),
                     ReadOnly = StaffChatInbox.IsReadOnly(c, roster),

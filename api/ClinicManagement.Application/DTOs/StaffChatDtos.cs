@@ -35,7 +35,40 @@ public class StaffMessageDto
     /// <summary>Who said « Je m'en occupe », and when (FR-6); null while nobody has.</summary>
     public StaffMessageClaimDto? ClaimedBy { get; set; }
     /// <summary>The other members who have read up to this message (AC-5.4); filled on a thread page only.</summary>
+    /// <summary>The patient the message is about (FR-3), as it is now — archived, or gone.</summary>
+    public StaffMessagePatientDto? Patient { get; set; }
+    /// <summary>The appointment the message is about (FR-3), as it is now — cancelled, or gone.</summary>
+    public StaffMessageAppointmentDto? Appointment { get; set; }
     public List<StaffMessageSenderDto> SeenBy { get; set; } = new();
+}
+
+public class StaffMessagePatientDto
+{
+    public Guid Id { get; set; }
+    /// <summary>Null when the patient no longer exists (EC-8).</summary>
+    public string? Name { get; set; }
+    public bool Archived { get; set; }
+    public bool Missing { get; set; }
+}
+
+public class StaffMessageAppointmentDto
+{
+    public Guid Id { get; set; }
+    public DateTime? StartsAt { get; set; }
+    public string? DentistName { get; set; }
+    public bool Cancelled { get; set; }
+    public bool Missing { get; set; }
+}
+
+/// <summary>The arrival action for one appointment of today: « Signalé à 09:32 par Salma » (AC-3.3) or why it cannot go (AC-3.4).</summary>
+public class StaffArrivalDto
+{
+    public Guid AppointmentId { get; set; }
+    /// <summary>The latest arrival sent for it today, by anyone, in any conversation; null when none.</summary>
+    public DateTime? SentAt { get; set; }
+    public StaffMessageSenderDto? SentBy { get; set; }
+    /// <summary>Why this person cannot send it, in French; null when they can.</summary>
+    public string? Unavailable { get; set; }
 }
 
 public class StaffMessageClaimDto

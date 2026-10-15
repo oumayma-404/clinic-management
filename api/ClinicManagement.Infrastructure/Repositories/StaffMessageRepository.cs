@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
 namespace ClinicManagement.Infrastructure.Repositories;
@@ -112,6 +113,72 @@ public class StaffMessageRepository : IStaffMessageRepository
             .AsNoTracking()
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<StaffLinkedAppointment>> GetLinkedAppointmentsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> appointmentIds, CancellationToken cancellationToken = default)
+    {
+        if (appointmentIds.Count == 0)
+        {
+            return Array.Empty<StaffLinkedAppointment>();
+        }
+
+        var ids = appointmentIds.Distinct().ToArray();
+        return await _context.Appointments
+            .Where(a => a.ClinicId == clinicId && ids.Contains(a.Id))
+            .AsNoTracking()
+            .Select(a => new StaffLinkedAppointment(
+                a.Id, a.PatientId, a.DoctorId, a.AppointmentDateTime, a.Status, a.DisregardedAtUtc != null))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StaffLinkedAppointment>> GetAppointmentsBetweenAsync(
+        Guid clinicId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default)
+    {
+        return await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                && a.AppointmentDateTime >= fromUtc
+                && a.AppointmentDateTime <= toUtc
+                && a.DisregardedAtUtc == null)
+            .AsNoTracking()
+            .Select(a => new StaffLinkedAppointment(
+                a.Id, a.PatientId, a.DoctorId, a.AppointmentDateTime, a.Status, false))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StaffArrival>> GetArrivalsAsync(
+        Guid clinicId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default)
+    {
+        return await ArrivalsQuery(_context, clinicId, fromUtc, toUtc)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<StaffArrival?> GetLastArrivalAsync(
+        Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffMessages
+            .Where(m => m.ClinicId == clinicId
+                && m.AppointmentId == appointmentId
+                && m.QuickMessageKey == StaffQuickMessageDefaults.PatientArrivedKey)
+            .OrderByDescending(m => m.SentAt)
+            .ThenByDescending(m => m.Id)
+            .AsNoTracking()
+            .Select(m => new StaffArrival(m.AppointmentId!.Value, m.SentAt, m.SenderUserId))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>The latest « Patient arrivé » per appointment in a window. Public so the SQL test compiles what ships.</summary>
+    public static IQueryable<StaffArrival> ArrivalsQuery(ApplicationDbContext db, Guid clinicId, DateTime fromUtc, DateTime toUtc) =>
+        db.StaffMessages
+            .Where(m => m.ClinicId == clinicId
+                && m.AppointmentId != null
+                && m.QuickMessageKey == StaffQuickMessageDefaults.PatientArrivedKey
+                && m.SentAt >= fromUtc
+                && m.SentAt <= toUtc)
+            .GroupBy(m => m.AppointmentId!.Value)
+            .Select(g => g.OrderByDescending(m => m.SentAt).ThenByDescending(m => m.Id)
+                .Select(m => new StaffArrival(m.AppointmentId!.Value, m.SentAt, m.SenderUserId))
+                .First());
 
     public async Task<string?> GetClaimedByAsync(Guid clinicId, Guid messageId, CancellationToken cancellationToken = default)
     {

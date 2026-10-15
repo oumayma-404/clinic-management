@@ -24,6 +24,7 @@ import { showErrorToast } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import type { AppointmentDto } from "@/lib/api/types"
 import { quoteFr } from "@/lib/format"
+import { ArrivalPopoverButton, useArrivalAction } from "@/components/staff-chat/arrival-action"
 
 /**
  * The agenda block's own actions — advance the visit's statut, or delete a séance booked by mistake, **without
@@ -76,6 +77,7 @@ export function AppointmentQuickActions({
    */
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelNeedsConfirm = appointment.status === "Completed" || Boolean(appointment.invoiceId)
+  const arrival = useArrivalAction(appointment, open, () => setOpen(false))
 
   const options = appointment.allowedNextStatuses ?? []
 
@@ -185,6 +187,12 @@ export function AppointmentQuickActions({
               <div role="separator" className="my-1 h-px bg-border" />
             </>
           )}
+          {arrival.control && (
+            <>
+              <ArrivalPopoverButton control={arrival.control} />
+              <div role="separator" className="my-1 h-px bg-border" />
+            </>
+          )}
           <Button
             variant="ghost"
             className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive coarse:min-h-11"
@@ -201,6 +209,8 @@ export function AppointmentQuickActions({
           </Button>
         </PopoverContent>
       </Popover>
+
+      {arrival.dialog}
 
       <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
         <AlertDialogContent onClick={(e) => e.stopPropagation()}>

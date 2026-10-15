@@ -27,6 +27,7 @@ internal sealed class StaffChatHarness
 
     public Mock<IStaffMessageRepository> Messages { get; } = new();
     public Mock<IStaffQuickMessageListRepository> QuickMessageLists { get; } = new();
+    public Mock<IPatientRepository> Patients { get; } = new();
     public Mock<IUserRepository> Users { get; } = new();
     public Mock<IDoctorRepository> Doctors { get; } = new();
     public Mock<IClinicContext> Context { get; } = new();
@@ -35,6 +36,11 @@ internal sealed class StaffChatHarness
     public Mock<IStaffPresence> Presence { get; } = new();
 
     public List<User> ClinicUsers { get; }
+
+    /// <summary>Dr Amine (the owner's practitioner record) and Dr Sami; a test may add one with no account.</summary>
+    public Doctor OwnerDoctor { get; }
+    public Doctor SecondDoctor { get; }
+    public List<Doctor> ClinicDoctors { get; } = new();
 
     public StaffChatHarness(IEnumerable<User>? clinicUsers = null)
     {
@@ -50,12 +56,13 @@ internal sealed class StaffChatHarness
         Users.Setup(r => r.GetByClinicIdAsync(OtherClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => PagedResult<User>.Unpaged(new[] { Outsider }));
 
-        var ownerDoctor = new Doctor(Guid.NewGuid(), ClinicId, "Amine", "Ben Salah", "General");
-        ownerDoctor.LinkToUser(Owner.Id);
-        var secondDoctor = new Doctor(Guid.NewGuid(), ClinicId, "Sami", "Trabelsi", "General");
-        secondDoctor.LinkToUser(Dentist.Id);
+        OwnerDoctor = new Doctor(Guid.NewGuid(), ClinicId, "Amine", "Ben Salah", "General");
+        OwnerDoctor.LinkToUser(Owner.Id);
+        SecondDoctor = new Doctor(Guid.NewGuid(), ClinicId, "Sami", "Trabelsi", "General");
+        SecondDoctor.LinkToUser(Dentist.Id);
+        ClinicDoctors.AddRange(new[] { OwnerDoctor, SecondDoctor });
         Doctors.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { ownerDoctor, secondDoctor });
+            .ReturnsAsync(() => ClinicDoctors.AsEnumerable());
         Doctors.Setup(r => r.GetByClinicIdAsync(OtherClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Doctor>());
 
@@ -68,6 +75,14 @@ internal sealed class StaffChatHarness
         Messages.Setup(r => r.GetPageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StaffMessage>());
 
+        Messages.Setup(r => r.GetLinkedAppointmentsAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<StaffLinkedAppointment>());
+        Messages.Setup(r => r.GetAppointmentsBetweenAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<StaffLinkedAppointment>());
+        Messages.Setup(r => r.GetArrivalsAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<StaffArrival>());
+        Patients.Setup(r => r.GetByIdsAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Patient>());
         Messages.Setup(r => r.GetMarkersAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StaffChatReadMarker>());
         Messages.Setup(r => r.GetQuickMessageUsageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
@@ -86,7 +101,7 @@ internal sealed class StaffChatHarness
         StaffMessage.Create(clinicId ?? ClinicId, conversation, sender.Id, body, null, null, null, sentAt);
 
     public SendStaffMessageCommandHandler Send() => new(
-        Messages.Object, QuickMessageLists.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        Messages.Object, QuickMessageLists.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
         NullLogger<SendStaffMessageCommandHandler>.Instance);
 
     public MarkStaffConversationReadCommandHandler MarkRead() => new(
@@ -94,24 +109,30 @@ internal sealed class StaffChatHarness
         NullLogger<MarkStaffConversationReadCommandHandler>.Instance);
 
     public GetStaffConversationsQueryHandler Conversations() => new(
-        Messages.Object, Users.Object, Doctors.Object, Context.Object, Presence.Object);
+        Messages.Object, Users.Object, Doctors.Object, Context.Object, Presence.Object, Patients.Object);
 
     public GetStaffChatUnreadQueryHandler Unread() => new(
-        Messages.Object, Users.Object, Doctors.Object, Context.Object);
+        Messages.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object);
 
     public GetStaffMessagesQueryHandler Thread() => new(
-        Messages.Object, Users.Object, Doctors.Object, Context.Object);
+        Messages.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object);
 
     public GetStaffColleaguesQueryHandler Colleagues() => new(
         Users.Object, Doctors.Object, Context.Object, Presence.Object);
 
     public ClaimStaffMessageCommandHandler Claim() => new(
-        Messages.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        Messages.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
         NullLogger<ClaimStaffMessageCommandHandler>.Instance);
 
     public ReleaseStaffMessageClaimCommandHandler Release() => new(
-        Messages.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
+        Messages.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
         NullLogger<ReleaseStaffMessageClaimCommandHandler>.Instance);
+
+    public SendArrivalNoticeCommandHandler Arrival() => new(
+        Messages.Object, QuickMessageLists.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object,
+        UnitOfWork.Object, Realtime.Object, NullLogger<SendArrivalNoticeCommandHandler>.Instance);
+
+    public GetTodayArrivalsQueryHandler TodayArrivals() => new(Messages.Object, Users.Object, Doctors.Object, Context.Object);
 
     public GetStaffQuickMessagesQueryHandler QuickMessages() => new(
         QuickMessageLists.Object, Messages.Object, Users.Object, Context.Object);

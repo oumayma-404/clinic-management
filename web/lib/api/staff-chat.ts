@@ -20,7 +20,37 @@ export interface StaffMessageDto {
   /** Who said « Je m'en occupe » on a secretariat request, and when. */
   claimedBy: { userId: string; name: string; at: string } | null
   /** The thread's other members who have read up to this message — filled on a thread page. */
+  /** The patient the message is about, as it is now. */
+  patient: StaffMessagePatientLink | null
+  /** The appointment the message is about, as it is now. */
+  appointment: StaffMessageAppointmentLink | null
   seenBy: { userId: string; name: string }[]
+}
+
+export interface StaffMessagePatientLink {
+  id: string
+  /** Null when the patient no longer exists. */
+  name: string | null
+  archived: boolean
+  missing: boolean
+}
+
+export interface StaffMessageAppointmentLink {
+  id: string
+  startsAt: string | null
+  dentistName: string | null
+  cancelled: boolean
+  missing: boolean
+}
+
+/** The arrival action for one appointment of today. */
+export interface StaffArrivalDto {
+  appointmentId: string
+  /** The latest arrival sent for it today, by anyone; null when none. */
+  sentAt: string | null
+  sentBy: { userId: string; name: string } | null
+  /** Why this person cannot send it (AC-3.4); null when they can. */
+  unavailable: string | null
 }
 
 export type StaffConversationKind = "direct" | "desk" | "clinic"
@@ -94,6 +124,7 @@ export const StaffChatCode = {
   AlreadyClaimed: "staffchat-already-claimed",
   NotClaimable: "staffchat-not-claimable",
   NotYourClaim: "staffchat-not-your-claim",
+  ArrivalAlreadySent: "staffchat-arrival-already-sent",
 } as const
 
 /** The server's own limit; the counter and the refusal count the same way (trimmed UTF-16 length). */
@@ -110,8 +141,16 @@ export const staffChatApi = {
   unread: () => apiGet<StaffChatUnreadDto>("/staff-chat/unread"),
 
   /** A retry of the same text reuses the request's Idempotency-Key, so the server answers once. */
-  send: (conversation: string, body: string | null, quickMessageKey: string | null = null) =>
-    apiPost<StaffMessageDto>("/staff-chat/messages", { conversation, body, quickMessageKey }),
+  send: (
+    conversation: string,
+    message: { body: string | null; quickMessageKey: string | null; patientId: string | null; appointmentId: string | null },
+  ) => apiPost<StaffMessageDto>("/staff-chat/messages", { conversation, ...message }),
+
+  arrivalsToday: () => apiGet<StaffArrivalDto[]>("/staff-chat/arrivals/today"),
+
+  /** « Patient arrivé » to the appointment's dentist; 409 « Signalé à … » unless `resend`. */
+  sendArrival: (appointmentId: string, resend: boolean) =>
+    apiPost<StaffMessageDto>("/staff-chat/arrivals", { appointmentId, resend }),
 
   /** « Je m'en occupe »: 409 « Déjà pris par … » when a colleague was first. */
   claim: (messageId: string) => apiPost<StaffMessageDto>(`/staff-chat/messages/${messageId}/claim`, {}),

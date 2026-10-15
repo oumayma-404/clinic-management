@@ -59,6 +59,20 @@ public class StaffChatController : ApiControllerBase
         return result.IsFailure ? Refuse(result) : StatusCode(StatusCodes.Status201Created, result.Value);
     }
 
+    [HttpGet("arrivals/today")]
+    public async Task<ActionResult<List<StaffArrivalDto>>> GetTodayArrivals()
+    {
+        var result = await _mediator.Send(new GetTodayArrivalsQuery());
+        return result.IsFailure ? Refuse(result) : Ok(result.Value);
+    }
+
+    [HttpPost("arrivals")]
+    public async Task<ActionResult<StaffMessageDto>> SendArrival([FromBody] SendArrivalNoticeCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? Refuse(result) : StatusCode(StatusCodes.Status201Created, result.Value);
+    }
+
     [HttpPost("messages/{id:guid}/claim")]
     public async Task<ActionResult<StaffMessageDto>> Claim(Guid id)
     {
@@ -104,8 +118,10 @@ public class StaffChatController : ApiControllerBase
 
     private ActionResult Refuse(Result result) => HandleFailure(result, result.Code switch
     {
-        StaffChatRefusals.ConversationNotFoundCode or StaffChatRefusals.MessageNotFoundCode => StatusCodes.Status404NotFound,
-        StaffChatRefusals.RecipientInactiveCode or StaffChatRefusals.AlreadyClaimedCode => StatusCodes.Status409Conflict,
+        StaffChatRefusals.ConversationNotFoundCode or StaffChatRefusals.MessageNotFoundCode
+            or StaffChatRefusals.PatientNotFoundCode or StaffChatRefusals.AppointmentNotFoundCode => StatusCodes.Status404NotFound,
+        StaffChatRefusals.RecipientInactiveCode or StaffChatRefusals.AlreadyClaimedCode
+            or StaffChatRefusals.ArrivalAlreadySentCode => StatusCodes.Status409Conflict,
         StaffChatRefusals.NotYourClaimCode => StatusCodes.Status403Forbidden,
         _ => StatusCodes.Status400BadRequest,
     });

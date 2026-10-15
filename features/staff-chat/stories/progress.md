@@ -14,8 +14,8 @@
 | 1B Server | implemented | b61c571d |
 | 1C Browser | implemented | 4d18510e |
 | 2 Quick messages | implemented | 3025b348 |
-| 3 Shared desk | implemented | (this commit) |
-| 4 Patient link + arrival | not-started | — |
+| 3 Shared desk | implemented | 64aa31c3 |
+| 4 Patient link + arrival | implemented | (this commit) |
 | 5 Alerts | not-started | — |
 | 6 Windows notification | not-started | — |
 
@@ -153,3 +153,37 @@ Decisions (reversible):
 | Claiming twice is a no-op success; releasing an unclaimed message is a no-op success | a double press is not an error |
 | EC-14 is written at the role change (read markers on every secretariat at that moment), skipped while a PC de secours holds the saves | the account-age floor cannot express « joined later »; on a fenced cloud chat tables are refused and the role must still change — that history then reads unread |
 | « Vu » only under my own last message; « Vu par » lists names; the cabinet thread shows none | AC-5.4 |
+
+### Part 4 — patient link + arrival (2026-10-15)
+
+| Gate | Result |
+|---|---|
+| Unit suite (unfiltered) | **5 873 passed, 0 failed**, 6 skipped (+21: link validation, live projection archived / cancelled / gone, arrival target refusals, already-sent 409, resend, secretary → desk, own appointment, today's actions, the conversation list's last message, the arrivals SQL) |
+| `tsc --noEmit` · `check:responsive` · `build` | 0 errors · 79/79 · green, re-run after the last edit |
+| e2e `staff-chat.spec.ts` on the isolated stack | **6/6**: CHAT-01…05, CHAT-08. `check-coverage` counts all six; its pre-existing failures (64 untested tier-0, 18 wire-only) are unchanged |
+| Eye pass, 2 sessions (secretary 900 px, dentist 640 px) + 390 px | dialog « ⋯ » offers it → toast « Arrivée signalée au Dr … » → dentist gets « Patient arrivé » with the patient and « RDV 15:00 · Dr … » links; menu then reads « Signalé à 21:14 par Ines Gharbi » and a second press asks first, « Non » sends nothing; a dentist with no account → present, disabled, « Ce praticien n'a pas de compte dans l'application. »; agenda block « ⋯ » shows the same three states; at 390 px the menu stays inside the screen, no page scroll |
+
+Found and fixed during the pass:
+
+| Defect | Fix |
+|---|---|
+| The RDV chip did nothing when the agenda was already open (a same-route link does not remount the page) | the chip hands the id to the agenda's `clinic:deeplink` listener, the bell's own path |
+| The conversation list's last message came without its patient / RDV links | `GetStaffConversationsQuery` fills them like every other message read (+ test) |
+
+**Blast radius added in this part**
+
+| Touching | Other consumers | Verdict |
+|---|---|---|
+| `appointment-quick-actions.tsx` (agenda block « ⋯ ») | every agenda block | must re-test — statuts and « Supprimer » unchanged; the arrival row reads the shared query only while the menu is open |
+| `edit-appointment-dialog.tsx` « ⋯ » menu, now controlled | « Annuler le rendez-vous », « Supprimer » | must re-test — both still open their confirmations |
+| Every handler returning a `StaffMessageDto` | thread, unread, claim, release, send, conversations | must change — all fill the links through `StaffMessageLinks` |
+
+Deviations (auto-approved, trivial):
+
+| Deviation | Why |
+|---|---|
+| `GET /arrivals/today` returns every appointment of today with `unavailable` filled, not only the sent ones | the row needs the server's reason for each visit (AC-3.4) without a second read |
+| Extra refusal `staffchat-no-patient` | a blocked slot has no patient to announce |
+| e2e spec lives in `e2e/specs/` | the plan said `e2e/tests/`; the suite's folder is `specs` |
+| `useArrivalAction` hook + two small rows instead of one `ArrivalAction` component | the confirmation must outlive the menu that closes before it opens |
+

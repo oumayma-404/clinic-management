@@ -85,6 +85,10 @@ wrong; `PLAN-01` is the proof (`tsc`, `check:responsive` and `next build` were a
 `CAT-03` `CAT-04` · `FICHE-33` `FICHE-34` `FICHE-40` `FICHE-43` `FICHE-44` · `PLAN-27` ·
 `STEP-09` `STEP-10` `STEP-11` `STEP-12` `STEP-13`
 
+**7 · The staff chat's own surfaces.** The badge, the frozen quick-message order and the arrival row's three
+states are decided in the browser from what the server sends.
+`CHAT-01` `CHAT-02` `CHAT-04` `CHAT-05`
+
 <!-- LAYER:BROWSER:END -->
 
 ⚠️ **The markers are load-bearing** — `check-coverage.mjs` reads the block between them, so a row moved outside
@@ -692,6 +696,22 @@ secretary cannot reach any of these.
 | REDO-05 | 1 | a treatment `Completed`, then `Reopen`ed, then completed again | Read « Traitements en cours » and the dashboard | Correct after each transition; no row stuck from a previous state | — |
 | REDO-06 | 1 | the same patient booked twice the same day | Record both fiches | Two visits, two fiches, two notes; la caisse shows both on that day | — |
 | REDO-07 | 1 | « Ajouter un acte » pressed twice quickly on a fiche | — | **One** blank card — a trailing blank *is* the card being asked for | `FICHE-05` |
+
+---
+
+# HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+
+Colleagues are created over `POST /users` and never sign in: the suite has one session, and a second context
+would end it. Who rings, « Je m'en occupe » and « Vu par » are held by the domain tests and the browser pass.
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| CHAT-01 | 1 | a secretary account | « Messages » → her conversation → write and send | The bubble shows; the server's conversation holds it; the sender's own badge does **not** move | an own message counted as unread |
+| CHAT-02 | 1 | a second dentist's visit today | RDV « ⋯ » → « Signaler l'arrivée » | Toast names the dentist; the admin↔dentist conversation holds « Patient arrivé » with the patient and the RDV as **links**; the menu then reads « Signalé à HH:mm par … » and a second press asks first | US-3; EC-5 |
+| CHAT-03 | 1 | CHAT-02's shape | Send the arrival twice over the wire, then once with `resend` | 201 · **409** `staffchat-arrival-already-sent` naming who and when · 201. A secretary's goes to `desk:{dentist}` (domain tests) | AC-3.3 |
+| CHAT-04 | 2 | a secretary conversation | Press the last « secrétariat » quick message until the server ranks it first | The bar does **not** reorder while the thread is open; reopened, it leads | AC-2.2 — a send never moves the next button under the finger |
+| CHAT-05 | 2 | a visit whose dentist's account is deactivated | RDV « ⋯ » | « Signaler l'arrivée » is **present, disabled**, with the server's reason | AC-3.4, EC-6 — never hidden |
+| CHAT-08 | 2 | a deactivated colleague | Post to their conversation | Refused, `staffchat-recipient-inactive` | EC-7 |
 
 ---
 

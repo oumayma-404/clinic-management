@@ -41,10 +41,12 @@ export function useStaffQuickMessages(enabled: boolean) {
 
 export type ThreadMessageState = "sent" | "sending" | "failed"
 
-/** What a press sends: a text, a quick message, or both. */
+/** What a press sends: a text, a quick message, or both — optionally about a patient and one of their appointments. */
 export interface OutgoingMessage {
   body: string | null
   quickMessage: StaffMessageDto["quickMessage"]
+  patient: StaffMessageDto["patient"]
+  appointment: StaffMessageDto["appointment"]
 }
 
 export interface ThreadMessage extends StaffMessageDto {
@@ -138,7 +140,12 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
   const deliver = useCallback(
     async (key: string, localId: string, outgoing: OutgoingMessage) => {
       try {
-        const saved = await staffChatApi.send(key, outgoing.body, outgoing.quickMessage?.key ?? null)
+        const saved = await staffChatApi.send(key, {
+          body: outgoing.body,
+          quickMessageKey: outgoing.quickMessage?.key ?? null,
+          patientId: outgoing.patient?.id ?? null,
+          appointmentId: outgoing.appointment?.id ?? null,
+        })
         setMessages((previous) => {
           const others = previous.filter((m) => m.localId !== localId && m.id !== saved.id)
           const sent = [...others.filter((m) => !m.localId), { ...saved, state: "sent" as const }].sort(byTime)
@@ -173,6 +180,8 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
           sentAt: new Date().toISOString(),
           body: outgoing.body,
           quickMessage: outgoing.quickMessage,
+          patient: outgoing.patient,
+          appointment: outgoing.appointment,
           claimedBy: null,
           seenBy: [],
           state: "sending",
@@ -191,7 +200,12 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
       setMessages((previous) =>
         previous.map((m) => (m.localId === localId ? { ...m, state: "sending", error: undefined } : m)),
       )
-      void deliver(key, localId, { body: failed.body, quickMessage: failed.quickMessage })
+      void deliver(key, localId, {
+        body: failed.body,
+        quickMessage: failed.quickMessage,
+        patient: failed.patient,
+        appointment: failed.appointment,
+      })
     },
     [messages, deliver],
   )

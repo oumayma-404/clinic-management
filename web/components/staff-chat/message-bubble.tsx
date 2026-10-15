@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Hand, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { ThreadMessage } from "@/lib/hooks/use-staff-chat"
 import type { ClaimView } from "@/lib/staff-chat/desk"
+import { PatientLinkChips } from "./patient-link-chip"
 import { formatChatTime } from "@/lib/staff-chat/format"
 import { cn } from "@/lib/utils"
 
@@ -57,6 +58,12 @@ export function MessageBubble({
         {quick && message.body && <p className="font-medium [overflow-wrap:anywhere]">{quick.label}</p>}
         <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
       </div>
+
+      <PatientLinkChips
+        patient={message.patient}
+        appointment={message.appointment}
+        className={cn("max-w-[85%]", mine && "justify-end")}
+      />
 
       {claim && (
         <ClaimLine claim={claim} busy={claimBusy} onClaim={onClaim} onRelease={onRelease} />

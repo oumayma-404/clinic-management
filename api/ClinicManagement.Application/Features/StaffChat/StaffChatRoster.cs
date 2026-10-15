@@ -10,6 +10,9 @@ namespace ClinicManagement.Application.Features.StaffChat;
 public sealed record StaffChatColleague(
     string UserId, string Name, bool IsSecretary, bool IsDentist, bool IsActive, DateTime CreatedAt);
 
+/// <summary>A practitioner of the cabinet, account or not — what an appointment names (FR-5).</summary>
+public sealed record StaffChatDentist(Guid DoctorId, string Name, string? UserId, bool IsActive);
+
 /// <summary>The caller and every account of their cabinet, loaded once per request (active or not, so history keeps names).</summary>
 public sealed class StaffChatRoster
 {
@@ -17,12 +20,16 @@ public sealed class StaffChatRoster
     public StaffChatColleague Viewer { get; }
     public IReadOnlyList<StaffChatColleague> Colleagues { get; }
     public IReadOnlyCollection<StaffChatMember> Members { get; }
+    public IReadOnlyList<StaffChatDentist> Dentists { get; }
 
-    public StaffChatRoster(Guid clinicId, StaffChatColleague viewer, IReadOnlyList<StaffChatColleague> colleagues)
+    public StaffChatRoster(
+        Guid clinicId, StaffChatColleague viewer, IReadOnlyList<StaffChatColleague> colleagues,
+        IReadOnlyList<StaffChatDentist>? dentists = null)
     {
         ClinicId = clinicId;
         Viewer = viewer;
         Colleagues = colleagues;
+        Dentists = dentists ?? Array.Empty<StaffChatDentist>();
         Members = colleagues.Select(c => new StaffChatMember(c.UserId, c.IsSecretary, c.IsActive)).ToList();
     }
 
@@ -60,7 +67,8 @@ public sealed class StaffChatRoster
 
         var caller = resolved.Value!;
         var accounts = await users.GetByClinicIdAsync(caller.ClinicId, null, null, cancellationToken);
-        var dentistUserIds = (await doctors.GetByClinicIdAsync(caller.ClinicId, cancellationToken))
+        var clinicDoctors = (await doctors.GetByClinicIdAsync(caller.ClinicId, cancellationToken)).ToList();
+        var dentistUserIds = clinicDoctors
             .Where(d => d.IsActive && !string.IsNullOrEmpty(d.UserId))
             .Select(d => d.UserId!)
             .ToHashSet(StringComparer.Ordinal);
@@ -81,7 +89,20 @@ public sealed class StaffChatRoster
             return Result<StaffChatRoster>.Failure(StaffChatRefusals.UserNotFound);
         }
 
-        return Result<StaffChatRoster>.Success(new StaffChatRoster(caller.ClinicId, viewer, colleagues));
+        var dentists = clinicDoctors
+            .Select(d => new StaffChatDentist(d.Id, DentistName(d.FullName), d.UserId, d.IsActive))
+            .ToList();
+
+        return Result<StaffChatRoster>.Success(new StaffChatRoster(caller.ClinicId, viewer, colleagues, dentists));
+    }
+
+    /// <summary>« Dr Salma Ben Youssef », once — a name already starting with « Dr » is kept as it is.</summary>
+    public static string DentistName(string fullName)
+    {
+        var name = fullName.Trim();
+        return name.StartsWith("Dr ", StringComparison.OrdinalIgnoreCase) || name.StartsWith("Dr.", StringComparison.OrdinalIgnoreCase)
+            ? name
+            : $"Dr {name}";
     }
 
     private static string DisplayName(string? fullName, string? email) =>

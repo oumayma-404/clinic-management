@@ -1,9 +1,17 @@
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>Unread messages of one thread from one sender — the grain the FR-2 « who rings » rule is applied at.</summary>
 public sealed record StaffUnreadCount(string ConversationKey, string SenderUserId, int Count, int UrgentCount, DateTime LatestSentAt);
+
+/// <summary>What a message's appointment link shows (FR-3): when, whose, and whether it still stands.</summary>
+public sealed record StaffLinkedAppointment(
+    Guid Id, Guid? PatientId, Guid? DoctorId, DateTime StartsAt, AppointmentStatus Status, bool Disregarded);
+
+/// <summary>The latest « Patient arrivé » sent for one appointment — what « Signalé à 09:32 par Salma » reads (AC-3.3).</summary>
+public sealed record StaffArrival(Guid AppointmentId, DateTime SentAt, string SenderUserId);
 
 public interface IStaffMessageRepository
 {
@@ -42,6 +50,21 @@ public interface IStaffMessageRepository
     /// <summary>Every member's read marker for one thread — what « Vu par … » is computed from (AC-5.4).</summary>
     Task<IReadOnlyList<StaffChatReadMarker>> GetMarkersAsync(
         Guid clinicId, string conversationKey, CancellationToken cancellationToken = default);
+
+    /// <summary>The appointments some messages link to, in this cabinet only; a removed one is simply absent.</summary>
+    Task<IReadOnlyList<StaffLinkedAppointment>> GetLinkedAppointmentsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> appointmentIds, CancellationToken cancellationToken = default);
+
+    /// <summary>The cabinet's appointments starting between two instants, removed ones left out — today's, for the arrival action.</summary>
+    Task<IReadOnlyList<StaffLinkedAppointment>> GetAppointmentsBetweenAsync(
+        Guid clinicId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>The latest arrival per appointment sent between two instants, in any conversation (AC-3.3).</summary>
+    Task<IReadOnlyList<StaffArrival>> GetArrivalsAsync(
+        Guid clinicId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>The latest arrival sent for one appointment, by anyone, in any conversation (EC-5, EC-15).</summary>
+    Task<StaffArrival?> GetLastArrivalAsync(Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default);
 
     /// <summary>Who holds a message now, read past this request's own tracked copy — the answer after a lost claim race.</summary>
     Task<string?> GetClaimedByAsync(Guid clinicId, Guid messageId, CancellationToken cancellationToken = default);

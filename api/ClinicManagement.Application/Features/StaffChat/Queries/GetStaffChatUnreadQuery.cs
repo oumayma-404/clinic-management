@@ -20,17 +20,20 @@ public class GetStaffChatUnreadQueryHandler : IRequestHandler<GetStaffChatUnread
     private const int RecentScanned = 30;
 
     private readonly IStaffMessageRepository _messages;
+    private readonly IPatientRepository _patients;
     private readonly IUserRepository _users;
     private readonly IDoctorRepository _doctors;
     private readonly IClinicContext _clinicContext;
 
     public GetStaffChatUnreadQueryHandler(
         IStaffMessageRepository messages,
+        IPatientRepository patients,
         IUserRepository users,
         IDoctorRepository doctors,
         IClinicContext clinicContext)
     {
         _messages = messages;
+        _patients = patients;
         _users = users;
         _doctors = doctors;
         _clinicContext = clinicContext;
@@ -62,14 +65,15 @@ public class GetStaffChatUnreadQueryHandler : IRequestHandler<GetStaffChatUnread
                     roster.ClinicId, viewerId, keys, roster.Viewer.CreatedAt, RecentScanned, cancellationToken))
                 .Where(m => Rings(m.ConversationKey, m.SenderUserId))
                 .Take(RecentShown)
-                .Select(m => StaffChatInbox.ToMessageDto(m, roster))
+                .Select(m => (Message: m, Dto: StaffChatInbox.ToMessageDto(m, roster)))
                 .ToList();
+            await StaffMessageLinks.FillAsync(recent, roster, _patients, _messages, cancellationToken);
 
             return Result<StaffChatUnreadDto>.Success(new StaffChatUnreadDto
             {
                 Total = ringing.Sum(u => u.Count),
                 HasUrgent = ringing.Any(u => u.UrgentCount > 0),
-                Recent = recent,
+                Recent = recent.Select(p => p.Dto).ToList(),
             });
         }
         catch (Exception ex) when (ex is not ConflictException)

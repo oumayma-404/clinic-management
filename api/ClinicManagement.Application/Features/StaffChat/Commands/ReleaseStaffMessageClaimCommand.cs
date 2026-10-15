@@ -19,6 +19,7 @@ public class ReleaseStaffMessageClaimCommand : IRequest<Result<StaffMessageDto>>
 public class ReleaseStaffMessageClaimCommandHandler : IRequestHandler<ReleaseStaffMessageClaimCommand, Result<StaffMessageDto>>
 {
     private readonly IStaffMessageRepository _messages;
+    private readonly IPatientRepository _patients;
     private readonly IUserRepository _users;
     private readonly IDoctorRepository _doctors;
     private readonly IClinicContext _clinicContext;
@@ -28,6 +29,7 @@ public class ReleaseStaffMessageClaimCommandHandler : IRequestHandler<ReleaseSta
 
     public ReleaseStaffMessageClaimCommandHandler(
         IStaffMessageRepository messages,
+        IPatientRepository patients,
         IUserRepository users,
         IDoctorRepository doctors,
         IClinicContext clinicContext,
@@ -36,6 +38,7 @@ public class ReleaseStaffMessageClaimCommandHandler : IRequestHandler<ReleaseSta
         ILogger<ReleaseStaffMessageClaimCommandHandler> logger)
     {
         _messages = messages;
+        _patients = patients;
         _users = users;
         _doctors = doctors;
         _clinicContext = clinicContext;
@@ -67,7 +70,7 @@ public class ReleaseStaffMessageClaimCommandHandler : IRequestHandler<ReleaseSta
             (message, conversation) = found.Value;
             if (message.ClaimedByUserId is null)
             {
-                return Result<StaffMessageDto>.Success(StaffChatInbox.ToMessageDto(message, roster));
+                return Result<StaffMessageDto>.Success(await StaffMessagePosted.DtoAsync(message, roster, _patients, _messages, _logger, cancellationToken));
             }
 
             if (message.ClaimedByUserId != roster.Viewer.UserId)
@@ -84,6 +87,6 @@ public class ReleaseStaffMessageClaimCommandHandler : IRequestHandler<ReleaseSta
         }
 
         await StaffClaimTarget.SignalAsync(_realtime, roster, conversation, message, _logger, cancellationToken);
-        return Result<StaffMessageDto>.Success(StaffChatInbox.ToMessageDto(message, roster));
+        return Result<StaffMessageDto>.Success(await StaffMessagePosted.DtoAsync(message, roster, _patients, _messages, _logger, cancellationToken));
     }
 }
