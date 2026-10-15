@@ -228,3 +228,17 @@ Decisions (reversible):
 | Hovering or focusing an ordinary notice holds it | a reply being reached for must not vanish under the pointer |
 | No sound or notice for the conversation open in a window in front | AC-4.7; « in front » = visible **and** focused |
 
+
+### « Signaler l'arrivée » made visible (2026-10-15, owner's request: « it's reallyyyy hidden »)
+
+| Change | Why |
+|---|---|
+| RDV window: a labelled button under the patient's name — « Signaler l'arrivée », « Signalé à HH:mm par … » (asks before resending) or disabled with the reason; the « ⋯ » entry is gone | one door, where reception looks |
+| Agenda block (desktop): a bell beside the name on today's visits still waiting (Planifié, Confirmé, En cours set by the agenda at the start minute); one press sends, then a green check | a half-hour block is too short for the « ⋯ », so most visits had no arrival door on the agenda at all |
+| Agenda « ⋯ » keeps its arrival row | the one place on the agenda that states why it cannot go |
+
+| Gate | Result |
+|---|---|
+| `tsc` · `check:responsive` · `build` | 0 · 80/80 · green |
+| e2e `staff-chat.spec.ts` | 7/7 (CHAT-02 / CHAT-05 now drive the button) |
+| Browser pass | 13/13: bell in Jour and on the half-hour block in Semaine; one press sends without opening the block; bell turns to « signalé »; window shows « Signalé à 22:26 par Ines Gharbi » and asks first; no second door in « ⋯ »; no-account dentist → disabled + reason; 390 px: button on its own row, no page scroll |

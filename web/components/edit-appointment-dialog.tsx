@@ -93,7 +93,7 @@ import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { MANUALLY_SETTABLE_STATUSES, appointmentStatusLabel } from "@/components/appointment-labels"
-import { ArrivalMenuItem, useArrivalAction } from "@/components/staff-chat/arrival-action"
+import { ArrivalButton, useArrivalAction } from "@/components/staff-chat/arrival-action"
 
 /**
  * Sentinel for "no practitioner" in the Radix Select, which cannot hold an empty-string value. Mapped to `""`
@@ -254,8 +254,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const conflict = useConflict()
   const { error, setError, clearMessage: clearBanner, reset: resetConflict } = conflict
   const [showCancelDialog, setShowCancelDialog] = useState(false)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const arrival = useArrivalAction(appointment, moreOpen, () => setMoreOpen(false))
+  const arrival = useArrivalAction(appointment, open, () => {})
   /**
    * « Supprimer (créé par erreur) » — deliberately NOT a second door to « Annulé ». A séance nobody ever booked
    * on purpose is not an absence, and `Cancelled` counts in the « taux d'absence », so tidying the agenda that
@@ -1156,9 +1155,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 guard covers closing the dialog, not following a link out of it. Unchanged behaviour, stated here
                 because the affordance is now more inviting than a small link at the row's end.
               */
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <InitialsAvatar name={patientName} />
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-40">
                   {/* ⚠️ Underlined AT REST, not only on hover: this is the sole path to the fiche now, and a name
                       that reveals itself as a link only when a mouse is already on it is not discoverable at all
                       — least of all on a touch screen, which has no hover. The accessible name keeps the wording
@@ -1175,6 +1174,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     {date ? format(date, "EEEE d MMMM yyyy", { locale: fr }) : "Date à définir"}
                   </p>
                 </div>
+                {/* « Signaler l'arrivée » is the first thing reception does with today's visit: a real button here,
+                    not an entry in the « ⋯ » menu (owner's call, 2026-10-15). */}
+                {arrival.control && <ArrivalButton control={arrival.control} className="basis-full sm:basis-auto" />}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Créneau occupé — aucun patient</p>
@@ -1581,7 +1583,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               groups, caller wins).
             */}
             <DialogFooter className="flex-shrink-0 flex-row items-center gap-2 border-t bg-background px-6 py-4 [&>*]:w-auto">
-              <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
@@ -1595,7 +1597,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" side="top" className="w-56">
-                  {arrival.control && <ArrivalMenuItem control={arrival.control} />}
                   <DropdownMenuItem disabled={status === "cancelled"} onSelect={() => setShowCancelDialog(true)}>
                     <CircleX className="h-4 w-4" />
                     Annuler le rendez-vous

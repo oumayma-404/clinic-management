@@ -73,13 +73,12 @@ async function openConversationWith(page: Page, name: string) {
   await expect(panel(page).getByPlaceholder("Écrire un message")).toBeVisible()
 }
 
-/** Opens the edit dialog of one visit and its « ⋯ » menu. */
-async function openVisitMenu(page: Page, appointmentId: string) {
+/** Opens the edit dialog of one visit; « Signaler l'arrivée » is a button under the patient's name there. */
+async function openVisit(page: Page, appointmentId: string) {
   await gotoApp(page, `/appointments?appointmentId=${appointmentId}`)
   const dialog = page.getByRole("dialog").filter({ hasText: /Rendez-vous/ }).first()
   await expect(dialog).toBeVisible({ timeout: 20_000 })
-  await dialog.getByRole("button", { name: "Autres actions sur le rendez-vous" }).click()
-  await expect(page.getByRole("menu")).toBeVisible()
+  return dialog
 }
 
 test("CHAT-01 · a message to the secretary shows in the thread, and the sender's own badge does not move", async ({
@@ -101,7 +100,7 @@ test("CHAT-01 · a message to the secretary shows in the thread, and the sender'
   expect(await launcher(page).getAttribute("aria-label")).toBe(before)
 })
 
-test("CHAT-02 · « Signaler l'arrivée » from the visit's « ⋯ » lands in the dentist conversation with the RDV link", async ({
+test("CHAT-02 · « Signaler l'arrivée » from the visit's window lands in the dentist conversation with the RDV link", async ({
   page,
   api,
   arrange,
@@ -111,8 +110,8 @@ test("CHAT-02 · « Signaler l'arrivée » from the visit's « ⋯ » lands in t
   const p = await patient("Chat-arrivee")
   const visit = await visitToday(api, arrange, p.id, dentist.doctorId!)
 
-  await openVisitMenu(page, visit.id)
-  await page.getByRole("menuitem", { name: /^Signaler l'arrivée$/ }).click()
+  let dialog = await openVisit(page, visit.id)
+  await dialog.getByRole("button", { name: /^Signaler l'arrivée$/ }).click()
   await expect(page.getByText(/Arrivée signalée au Dr /).first()).toBeVisible()
 
   const conversation = await directWith(api, dentist.userId)
@@ -120,10 +119,9 @@ test("CHAT-02 · « Signaler l'arrivée » from the visit's « ⋯ » lands in t
   expect(conversation.lastMessage?.appointment?.id).toBe(visit.id)
   expect(conversation.lastMessage?.patient?.id).toBe(p.id)
 
-  // The menu now says who announced it and when — and a second press asks first.
-  await page.keyboard.press("Escape")
-  await openVisitMenu(page, visit.id)
-  const announced = page.getByRole("menuitem", { name: /^Signalé à \d\d:\d\d par / })
+  // The button now says who announced it and when — and a second press asks first.
+  dialog = await openVisit(page, visit.id)
+  const announced = dialog.getByRole("button", { name: /^Signalé à \d\d:\d\d par / })
   await expect(announced).toBeVisible()
   await announced.click()
   const confirm = page.getByRole("alertdialog")
@@ -211,12 +209,12 @@ test("CHAT-05 · a visit whose dentist cannot receive the arrival keeps the acti
   const visit = await visitToday(api, arrange, p.id, dentist.doctorId!)
   await api.ok("PUT", `/users/${encodeURIComponent(dentist.userId)}/status`, { isActive: false })
 
-  await openVisitMenu(page, visit.id)
-  const item = page.getByRole("menuitem", { name: /^Signaler l'arrivée/ })
-  await expect(item).toBeVisible()
-  await expect(item).toHaveAttribute("data-disabled", "")
-  const text = (await item.innerText()).replace(/\s+/g, " ").trim()
-  expect(text.length, `the row states why: « ${text} »`).toBeGreaterThan("Signaler l'arrivée".length + 10)
+  const dialog = await openVisit(page, visit.id)
+  const button = dialog.getByRole("button", { name: /^Signaler l'arrivée$/ })
+  await expect(button).toBeVisible()
+  await expect(button).toBeDisabled()
+  const reason = (await button.locator("xpath=following-sibling::p").innerText()).trim()
+  expect(reason.length, `the reason is stated: « ${reason} »`).toBeGreaterThan(10)
 })
 
 test("CHAT-06 · at 320 px « Messages » opens full screen from the bottom bar, composer and quick messages in reach", async ({

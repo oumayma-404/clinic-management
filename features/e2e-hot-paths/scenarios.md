@@ -707,10 +707,10 @@ would end it. Who rings, « Je m'en occupe » and « Vu par » are held by the d
 | Id | T | Pre | Do | Expect | Defends |
 |---|---|---|---|---|---|
 | CHAT-01 | 1 | a secretary account | « Messages » → her conversation → write and send | The bubble shows; the server's conversation holds it; the sender's own badge does **not** move | an own message counted as unread |
-| CHAT-02 | 1 | a second dentist's visit today | RDV « ⋯ » → « Signaler l'arrivée » | Toast names the dentist; the admin↔dentist conversation holds « Patient arrivé » with the patient and the RDV as **links**; the menu then reads « Signalé à HH:mm par … » and a second press asks first | US-3; EC-5 |
+| CHAT-02 | 1 | a second dentist's visit today | The RDV window's « Signaler l'arrivée » button (on the agenda: the bell on today's waiting block) | Toast names the dentist; the admin↔dentist conversation holds « Patient arrivé » with the patient and the RDV as **links**; the button then reads « Signalé à HH:mm par … » and a second press asks first | US-3; EC-5 |
 | CHAT-03 | 1 | CHAT-02's shape | Send the arrival twice over the wire, then once with `resend` | 201 · **409** `staffchat-arrival-already-sent` naming who and when · 201. A secretary's goes to `desk:{dentist}` (domain tests) | AC-3.3 |
 | CHAT-04 | 2 | a secretary conversation | Press the last « secrétariat » quick message until the server ranks it first | The bar does **not** reorder while the thread is open; reopened, it leads | AC-2.2 — a send never moves the next button under the finger |
-| CHAT-05 | 2 | a visit whose dentist's account is deactivated | RDV « ⋯ » | « Signaler l'arrivée » is **present, disabled**, with the server's reason | AC-3.4, EC-6 — never hidden |
+| CHAT-05 | 2 | a visit whose dentist's account is deactivated | Open the RDV window | « Signaler l'arrivée » is **present, disabled**, with the server's reason | AC-3.4, EC-6 — never hidden |
 | CHAT-08 | 2 | a deactivated colleague | Post to their conversation | Refused, `staffchat-recipient-inactive` | EC-7 |
 | CHAT-06 | 2 | a colleague | At 320 px: bottom bar « Messages » → their conversation | The panel takes the whole width; composer, send and the quick messages are on screen; no page scroll | spec § Device |
 | CHAT-07 | 2 | a fiche de soins open with typing in it; a colleague's message arrives | Press « J'arrive » on the notice | Sent; the fiche stays open with its typing; « Ouvrir » waits for the dialog to close. **Held by the browser pass** — it needs a second signed-in person | AC-4.2, R-1 |
