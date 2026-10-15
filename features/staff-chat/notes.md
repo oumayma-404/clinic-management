@@ -79,13 +79,12 @@ in front of the web dev server, the API started with `Cors__AllowedOrigins__0=ht
 in front » path only fires once it has disconnected. ⚠️ Running the test copy with `--veloapp-uninstall 1.7.0`
 removes its notification registration.
 
-## Found, not fixed (pre-existing, outside the chat)
+## Found during this feature, fixed on this branch (pre-existing, outside the chat)
 
-- **After a full page load of the agenda or a patient file, closing any guarded dialog reloads the whole page.**
-  About twenty `history.replaceState({}, …)` calls drop Next's own history marker; `useDirtyGuard` pops its entry
-  with `history.back()`, Next meets an entry it does not know and reloads. Moving inside the app first avoids it. It
-  also loses a queued « Ouvrir » from a notice. The fix is to pass `history.state` instead of `{}` at every call
-  site, with a `check:responsive` guard.
+- **After a full page load of the agenda or a patient file, closing any guarded dialog reloaded the whole page**
+  — and lost a queued « Ouvrir » from a notice. 25 raw `history.replaceState({}, …)` / `pushState(marker, …)`
+  calls dropped Next's own history marker. Every write now goes through `web/lib/history.ts`, held by N53. See
+  [`features/dialog-reload/notes.md`](../dialog-reload/notes.md).
 
 ## Not exercised
 

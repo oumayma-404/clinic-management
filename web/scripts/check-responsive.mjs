@@ -4460,6 +4460,38 @@ check(
   },
 );
 
+/** The one writer of browser history outside Next's router. */
+const HISTORY_HELPER = "lib/history.ts";
+
+check(
+  "history-writes-keep-next-state",
+  "N53",
+  "Browser history is written through `lib/history.ts` (`replaceUrl` / `pushMarker`), never a raw pushState/replaceState",
+  "Next.js keeps `__NA` and its route tree in each history entry's state and RELOADS the whole page on a Back onto " +
+    "an entry without them. A raw `history.replaceState({}, …)` erased them, so after a full page load of the agenda " +
+    "or a patient file, closing any guarded dialog (`useDirtyGuard` pops its entry with `history.back()`) reloaded " +
+    "the page — 25 call sites wrote it by hand, each one a door to that reload. The helper keeps Next's keys on " +
+    "every write.",
+  () => {
+    const file = ALL_FILES.find((f) => rel(f) === HISTORY_HELPER);
+    if (!file) return [{ file: HISTORY_HELPER, text: "the history helper is gone — retarget this check" }];
+    const src = read(file);
+    const offenders = [];
+    if (!/replaceState\(\s*window\.history\.state\s*,/.test(src)) {
+      offenders.push({ file: HISTORY_HELPER, text: "`replaceUrl` no longer passes the current state — it would erase Next's marker" });
+    }
+    if (!/key\.startsWith\("__"\)/.test(src) || !/\bpushState\(/.test(src)) {
+      offenders.push({ file: HISTORY_HELPER, text: "`pushMarker` no longer carries Next's `__` keys — popping onto it would reload" });
+    }
+    return offenders.concat(
+      scanLines(
+        tsx().filter((f) => rel(f) !== HISTORY_HELPER),
+        /\bhistory\.(?:replaceState|pushState)\s*\(/,
+      ),
+    );
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

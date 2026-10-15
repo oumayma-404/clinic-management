@@ -389,6 +389,11 @@ section used to list three things as missing; all three now exist, so **use them
 **One way to deliver a file:** `lib/download.ts`. Never a hand-rolled `<a download>`, never `file-saver` — both are
 ignored by iOS Safari for a `blob:` URL, so the file silently never arrives. The `blob-delivery` check fails on it.
 
+**One way to write browser history:** `lib/history.ts` — `replaceUrl(url)` to clean an address bar, `pushMarker(marker)`
+for a « Back closes me » entry. Never `history.replaceState({}, …)` or `pushState(marker, …)` by hand: that state drops
+Next's `__NA`, and Next **reloads the whole page** on a Back onto it — every guarded dialog closed after a full load
+of the agenda did exactly that. The `history-writes-keep-next-state` check (N53) fails on it.
+
 **One way to write the Local session cookies:** `lib/auth/session-cookie.ts` (Part 2). `/bff/auth/token` re-sets the
 session cookie on every refresh exchange, so `local-login` is no longer the only writer — and a second rule for
 `Secure` there would replace a stored cookie with one the browser drops, i.e. silently end the session. No route

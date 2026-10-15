@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { authApi } from "@/lib/api/auth"
 import { getErrorMessage, isNetworkError } from "@/lib/errors"
+import { replaceUrl } from "@/lib/history"
 
 type VerificationState =
   | { kind: "verifying" }
@@ -31,7 +32,7 @@ function takeTokenFromFragment(): string | null {
   const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash
   const token = new URLSearchParams(hash).get("token")
   if (token) {
-    window.history.replaceState(null, "", window.location.pathname)
+    replaceUrl(window.location.pathname)
   }
 
   return token

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { pushMarker } from "@/lib/history"
 
 /**
  * Confirm-before-discard for a dialog or sheet that has entered data (AC-23).
@@ -132,7 +133,7 @@ export function useDirtyGuard(
     const marker = { dialogGuard: true, dialogGuardId: id }
     let pushed = false
     const pushTimer = window.setTimeout(() => {
-      window.history.pushState(marker, "")
+      pushMarker(marker)
       pushed = true
     }, 0)
 
@@ -143,7 +144,7 @@ export function useDirtyGuard(
       if (window.history.state?.dialogGuardId === id) return
       if (dirty.current) {
         // Re-arm: the browser already consumed our entry, so without this a second back would leave the page.
-        window.history.pushState(marker, "")
+        pushMarker(marker)
         setConfirmOpen(true)
         return
       }

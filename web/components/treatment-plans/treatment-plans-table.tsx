@@ -61,6 +61,7 @@ import {
   schedulablePlanItems,
 } from "./plan-next-action"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { replaceUrl } from "@/lib/history"
 
 /**
  * What « Reste à payer » may honestly say about one devis, in both trees.
@@ -341,7 +342,7 @@ export function TreatmentPlansTable({
     const url = new URL(window.location.href)
     if (url.searchParams.get("newPlan") !== "1") return
     url.searchParams.delete("newPlan")
-    window.history.replaceState({}, "", url.pathname + url.search)
+    replaceUrl(url.pathname + url.search)
     openCreate()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, [])

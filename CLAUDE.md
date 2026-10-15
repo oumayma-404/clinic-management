@@ -729,6 +729,10 @@ touching the area.
   `NavigationStarting`), never a list of failures to forgive. See `desktop/CLAUDE.md` → `ExternalNavigation.cs`.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
+- **A raw `history.replaceState({}, …)` makes Next reload the page on the next Back.** Next keeps `__NA` in each
+  entry's state and reloads on a pop onto an entry without it; `useDirtyGuard` closes a dialog with
+  `history.back()`, so after a full load of the agenda every dialog close reloaded the screen. Write history
+  through `web/lib/history.ts` only — `check:responsive`'s N53 holds it.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill
   paths (`applyAppointment`, `addFromProcedure`) resolve `procedureTypeId` back to a `ProcedureTypeDto` and
   read `defaultCost`, so an act's negotiated `AgreedCost` has to be threaded through explicitly or it reverts

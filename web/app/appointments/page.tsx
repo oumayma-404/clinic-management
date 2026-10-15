@@ -32,6 +32,7 @@ import { useSession } from "@/lib/auth/session"
 import { ActiveFilterChip } from "@/components/ui/list-toolbar"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { cn } from "@/lib/utils"
+import { replaceUrl } from "@/lib/history"
 
 /**
  * The next 5-minute boundary strictly after <paramref name="from"/> — the agenda's own booking granularity.
@@ -279,7 +280,7 @@ export default function AppointmentsPage() {
     if (urlParams.get('googleCalendarAuthorized') === 'true') {
       toast.success("Autorisation Google Calendar réussie ! La synchronisation est activée.")
       // Remove the query parameter from URL
-      window.history.replaceState({}, '', '/appointments')
+      replaceUrl('/appointments')
       // Refresh status
       checkGoogleCalendarStatus()
     }
@@ -289,7 +290,7 @@ export default function AppointmentsPage() {
   // dialog. Graceful (spec Edge Cases): if the appointment no longer exists/is not visible, we simply
   // stay on the list.
   const openAppointmentById = useCallback((appointmentId: string) => {
-    window.history.replaceState({}, "", "/appointments")
+    replaceUrl("/appointments")
     appointmentsApi
       .get(appointmentId)
       .then((appt) => {
@@ -303,7 +304,7 @@ export default function AppointmentsPage() {
   }, [])
 
   // On mount (cross-page navigation): read the query param. Uses window.location.search +
-  // history.replaceState (no useSearchParams) so a refresh doesn't reopen it, matching the existing
+  // `replaceUrl` (no useSearchParams) so a refresh doesn't reopen it, matching the existing
   // Google-auth-return pattern.
   useEffect(() => {
     const appointmentId = new URLSearchParams(window.location.search).get("appointmentId")
@@ -314,7 +315,7 @@ export default function AppointmentsPage() {
   // (`clinic-pc-copy` AC-3.2) comes back through this door and refills itself.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("newAppointment") !== "1") return
-    window.history.replaceState({}, "", "/appointments")
+    replaceUrl("/appointments")
     setBookingPatientId(undefined)
     setDialogOpen(true)
   }, [])
@@ -325,7 +326,7 @@ export default function AppointmentsPage() {
   useEffect(() => {
     const patientId = new URLSearchParams(window.location.search).get("patientId")
     if (patientId) {
-      window.history.replaceState({}, "", "/appointments")
+      replaceUrl("/appointments")
       setBookingPatientId(patientId)
       setDialogOpen(true)
     }
@@ -399,7 +400,7 @@ export default function AppointmentsPage() {
      * window with everything shown, which is the graceful-deep-link rule the rest of this page follows — and it
      * is also the honest outcome, since there is no narrowing left for the parameter to name.
      */
-    window.history.replaceState({}, "", "/appointments")
+    replaceUrl("/appointments")
   }, [selectView])
 
   /*

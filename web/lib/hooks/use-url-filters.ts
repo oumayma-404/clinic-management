@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { replaceUrl } from "@/lib/history"
 
 /**
  * Mirrors a screen's filters into its own query string, so **F5 keeps them and a URL can be shared**.
@@ -52,7 +53,7 @@ export function useUrlFilters(values: Record<string, string | number | boolean |
     // Guarded so a re-render with identical filters does not touch history at all.
     if (lastWritten.current === url) return
     lastWritten.current = url
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }, [serialised, enabled])
 }
 
