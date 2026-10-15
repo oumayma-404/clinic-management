@@ -342,6 +342,180 @@ public class RelayReturnTests
         Assert.Empty(plan.Review);
     }
 
+    // ---- review findings 4 and 5 (2026-10-13): the cloud stays writable during a manual cut --------------------------
+
+    private static RelayCloudChange Job(string table, string key, long seq = 42) =>
+        new(seq, table, key, false, false, null, DateTime.UtcNow, Automatic: true);
+
+    // A row's owner as the tests encode it: {"OwnerTable": …, "OwnerKey": …} — the relay's required parent FK.
+    private static readonly Func<string, JsonElement, RelayRowKey?> OwnerOf = (_, json) =>
+        json.TryGetProperty("OwnerTable", out var table) && json.TryGetProperty("OwnerKey", out var key)
+            ? new RelayRowKey(table.GetString()!, key.GetString()!)
+            : null;
+
+    // Any FK a row carries, as the tests encode it: {"Ref": "Table/Key"}.
+    private static readonly Func<string, JsonElement, IEnumerable<RelayRowKey>> RefOf = (_, json) =>
+        json.TryGetProperty("Ref", out var r) && r.GetString()!.Split('/') is [var t, var k]
+            ? new[] { new RelayRowKey(t, k) }
+            : Enumerable.Empty<RelayRowKey>();
+
+    private static IReadOnlyDictionary<RelayRowKey, JsonElement> CloudRows(params (string Table, string Key, string Json)[] rows) =>
+        rows.ToDictionary(r => new RelayRowKey(r.Table, r.Key), r => Json(r.Json));
+
+    // The cloud's agenda job moved the visit to « Séance passée » during the cut; the desk had cancelled it on the PC.
+    // A job's write never outranks the cabinet's work: the cancellation is applied, nothing is listed.
+    [Fact]
+    public void A_Background_Jobs_Change_Never_Outranks_The_Cabinets_Work()
+    {
+        var request = Request(new[] { Change("Appointment", "a1") },
+            new[] { new RelayRow("Appointment", "a1", Json("{\"Status\":5}")) });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Job("Appointment", "a1") }, NoReferences, OwnerOf, CloudRows());
+
+        Assert.Equal("a1", Assert.Single(plan.Apply).Key);
+        Assert.Empty(plan.Kept!);
+        Assert.Empty(plan.Review);
+    }
+
+    // …and every visit the job touched that the PC did not is not « a change made in the cloud » to review either.
+    [Fact]
+    public void A_Background_Jobs_Change_Is_Not_Listed_As_A_Cloud_Change()
+    {
+        var plan = RelayHandbackPlanner.Plan(Request(Array.Empty<RelayHandbackChange>(), Array.Empty<RelayRow>()),
+            new[] { Job("Appointment", "a2"), Job("Appointment", "a3", seq: 43) }, NoReferences, OwnerOf, CloudRows());
+
+        Assert.Empty(plan.Review);
+    }
+
+    // A person and a job on the same row: the person's change is the cloud's work, and it stays.
+    [Fact]
+    public void A_Person_And_A_Job_On_The_Same_Row_Is_Still_The_Clouds_Work()
+    {
+        var request = Request(new[] { Change("Appointment", "a1") },
+            new[] { new RelayRow("Appointment", "a1", Json("{\"Status\":5}")) });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Job("Appointment", "a1"), Cloud("Appointment", "a1", seq: 43) },
+            NoReferences, OwnerOf, CloudRows());
+
+        Assert.Empty(plan.Apply);
+        Assert.Equal(RelayReviewKind.BothChanged, Assert.Single(plan.Review).Kind);
+    }
+
+    // Both sides re-saved fiche f1: the cloud keeps its fiche — and the PC's new act on it is kept with it and listed,
+    // never applied beside the cloud's acts (the acts appeared twice).
+    [Fact]
+    public void The_Parts_Of_A_Record_The_Cloud_Kept_Are_Kept_With_It()
+    {
+        var request = Request(
+            new[] { Change("DentalRecord", "f1"), Change("DentalRecordAct", "act-pc", seq: 2), Change("Expense", "e1", seq: 3) },
+            new[]
+            {
+                new RelayRow("DentalRecord", "f1", Json("{\"OwnerTable\":\"Patient\",\"OwnerKey\":\"p1\"}")),
+                new RelayRow("DentalRecordAct", "act-pc", Json("{\"OwnerTable\":\"DentalRecord\",\"OwnerKey\":\"f1\"}")),
+                new RelayRow("Expense", "e1", Json("{}")),
+            });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Cloud("DentalRecord", "f1") }, NoReferences, OwnerOf, CloudRows());
+
+        Assert.Equal(new[] { "e1" }, plan.Apply.Select(r => r.Key));
+        Assert.Equal(new[] { "act-pc", "f1" }, plan.Kept!.Select(k => k.Key).Order());
+        Assert.All(plan.Review, l => Assert.Equal(RelayReviewKind.BothChanged, l.Kind));
+        Assert.Equal(2, plan.Review.Count);
+    }
+
+    // The cloud amended devis t1 while the desk took a payment on it: the payment is NOT applied beside the cloud's devis
+    // (la caisse would count it and the devis not) — the échéance and its payment are kept with the devis and listed.
+    [Fact]
+    public void A_Payment_On_A_Devis_The_Cloud_Kept_Is_Kept_With_It()
+    {
+        var request = Request(
+            new[] { Change("TreatmentPlan", "t1"), Change("Installment", "i1", seq: 2), Change("InstallmentPayment", "ip1", seq: 3) },
+            new[]
+            {
+                new RelayRow("TreatmentPlan", "t1", Json("{}")),
+                new RelayRow("Installment", "i1", Json("{\"OwnerTable\":\"TreatmentPlan\",\"OwnerKey\":\"t1\"}")),
+                new RelayRow("InstallmentPayment", "ip1", Json("{\"OwnerTable\":\"Installment\",\"OwnerKey\":\"i1\"}")),
+            });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Cloud("TreatmentPlan", "t1") }, NoReferences, OwnerOf, CloudRows());
+
+        Assert.Empty(plan.Apply);
+        Assert.Equal(new[] { "i1", "ip1", "t1" }, plan.Kept!.Select(k => k.Key).Order());
+    }
+
+    // A patient is a folder, not a record: a phone number changed in the cloud never holds back the fiche filed under it.
+    [Fact]
+    public void A_Patient_Changed_On_Both_Sides_Does_Not_Hold_Back_The_Fiches_Filed_Under_It()
+    {
+        var request = Request(
+            new[] { Change("Patient", "p1"), Change("DentalRecord", "f1", seq: 2) },
+            new[]
+            {
+                new RelayRow("Patient", "p1", Json("{}")),
+                new RelayRow("DentalRecord", "f1", Json("{\"OwnerTable\":\"Patient\",\"OwnerKey\":\"p1\"}")),
+            });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Cloud("Patient", "p1") }, NoReferences, OwnerOf, CloudRows());
+
+        Assert.Equal(new[] { "f1" }, plan.Apply.Select(r => r.Key));
+        Assert.Equal("p1", Assert.Single(plan.Kept!).Key);
+    }
+
+    // The desk deleted patient p1 on the PC; somebody added a fiche for p1 in the cloud meanwhile. The deletion would take
+    // the cloud's fiche with it (ON DELETE CASCADE): it is kept and listed, never run.
+    [Fact]
+    public void A_Deletion_On_The_Pc_Never_Takes_A_Row_The_Cloud_Wrote_Since()
+    {
+        var request = Request(new[] { Change("Patient", "p1", deleted: true) }, new[] { new RelayRow("Patient", "p1", null) });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Cloud("DentalRecord", "f9") }, RefOf, OwnerOf,
+            CloudRows(("DentalRecord", "f9", "{\"Ref\":\"Patient/p1\"}"), ("Patient", "p1", "{}")));
+
+        Assert.Empty(plan.Apply);
+        Assert.Equal("p1", Assert.Single(plan.Kept!).Key);
+    }
+
+    // The PC re-saved fiche f1 (its old act deleted) while the cloud changed f1 too: the old act is part of the record the
+    // cloud keeps — judged by its cloud version, so the deletion is kept with the fiche.
+    [Fact]
+    public void A_Deletion_Of_A_Part_Of_A_Record_The_Cloud_Kept_Is_Kept_Too()
+    {
+        var request = Request(
+            new[] { Change("DentalRecord", "f1"), Change("DentalRecordAct", "act-old", deleted: true, seq: 2) },
+            new[]
+            {
+                new RelayRow("DentalRecord", "f1", Json("{}")),
+                new RelayRow("DentalRecordAct", "act-old", null),
+            });
+
+        var plan = RelayHandbackPlanner.Plan(request, new[] { Cloud("DentalRecord", "f1") }, NoReferences, OwnerOf,
+            CloudRows(("DentalRecordAct", "act-old", "{\"OwnerTable\":\"DentalRecord\",\"OwnerKey\":\"f1\"}")));
+
+        Assert.Empty(plan.Apply);
+        Assert.Equal(new[] { "act-old", "f1" }, plan.Kept!.Select(k => k.Key).Order());
+    }
+
+    // Review finding 2: what the cloud's database refused (a booking clash, a duplicate value) is cabinet work that is not on
+    // the cloud — listed « À reprendre » with the cabinet's version, the rest of the cut applied, never a failure for ever.
+    [Fact]
+    public async Task A_Record_The_Clouds_Database_Refuses_Is_Listed_To_Re_Enter_And_The_Rest_Lands()
+    {
+        var harness = new Harness(HoldingRelay(DateTime.UtcNow)) { Refused = new[] { new RelayRowKey("Appointment", "a1") } };
+        harness.Store.Setup(s => s.CloudChangesAfterAsync(ClinicId, 40, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<RelayCloudChange>());
+
+        var result = await harness.SendAsync(CutRequest());
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Contains("commit", harness.Steps);
+        var item = Assert.Single(harness.Added);
+        Assert.Equal(RelayReviewKind.ToReEnter, item.Kind);
+        Assert.Equal(("Appointment", "a1"), (item.Table, item.EntityKey));
+        Assert.Equal("{\"desk\":1}", item.CabinetVersion);
+        Assert.Equal("desk@cabinet.tn", item.CabinetChangedBy);
+        Assert.True(harness.Relay.IsReturning);
+    }
+
     // Derived guard: the return's two lists are exactly the tables the fenced cloud keeps writing (FR-11).
     [Fact]
     public void The_Returns_Rules_Cover_Exactly_The_Fenced_Clouds_Tables()
@@ -375,6 +549,9 @@ public class RelayReturnTests
         public List<AuditEntry> Journal { get; } = new();
         public List<string> Steps { get; } = new();
 
+        /// <summary>What the store reports it could not write (a clash, a duplicate value) — listed « À reprendre ».</summary>
+        public IReadOnlyList<RelayRowKey> Refused { get; set; } = Array.Empty<RelayRowKey>();
+
         public Harness(ClinicRelay relay)
         {
             Relay = relay;
@@ -388,7 +565,7 @@ public class RelayReturnTests
             Store.Setup(s => s.References(It.IsAny<string>(), It.IsAny<JsonElement>())).Returns(Array.Empty<RelayRowKey>());
             Store.Setup(s => s.ApplyReturnAsync(ClinicId, It.IsAny<RelayHandbackRequest>(), It.IsAny<RelayHandbackPlan>(), It.IsAny<CancellationToken>()))
                 .Callback(() => Steps.Add("apply"))
-                .Returns(Task.CompletedTask);
+                .ReturnsAsync(() => Refused);
             UnitOfWork.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>())).Callback(() => Steps.Add("begin")).Returns(Task.CompletedTask);
             UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).Callback(() => Steps.Add("save")).ReturnsAsync(1);
             UnitOfWork.Setup(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>())).Callback(() => Steps.Add("commit")).Returns(Task.CompletedTask);
@@ -439,7 +616,9 @@ public class RelayReturnTests
         var result = await harness.SendAsync(request);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal(new[] { "begin", "read cloud versions", "apply", "save", "commit" }, harness.Steps);
+        // The cloud is read twice before anything is written: what it wrote during the cut (to judge the PC's rows per
+        // record, review finding 5), then the versions the review list shows.
+        Assert.Equal(new[] { "begin", "read cloud versions", "read cloud versions", "apply", "save", "commit" }, harness.Steps);
         var entry = Assert.Single(harness.Journal);
         Assert.Equal("local|desk", entry.UserId);
         Assert.Equal("Via PC de secours · StartsAt", entry.ChangedFields);

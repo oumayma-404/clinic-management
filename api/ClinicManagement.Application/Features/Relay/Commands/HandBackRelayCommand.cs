@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -81,17 +82,26 @@ public sealed class HandBackRelayCommandHandler : IRequestHandler<HandBackRelayC
         try
         {
             var cloudChanges = await _store.CloudChangesAfterAsync(clinicId, Math.Max(0, request.BaseAppliedSeq), cancellationToken);
-            var plan = RelayHandbackPlanner.Plan(request, cloudChanges, _store.References);
+
+            // The cloud's current rows for what it wrote during the cut and for what the PC deleted: a deletion is judged by
+            // its cloud version (the record it belongs to, the rows that still point to it).
+            var cloudRowKeys = cloudChanges.Where(c => !c.FromRelay && !c.Deleted).Select(c => new RelayRowKey(c.Table, c.Key))
+                .Concat(request.Rows.Where(r => r.Row is null).Select(r => new RelayRowKey(r.Table, r.Key)))
+                .Distinct().ToList();
+            var cloudRows = (await _store.CurrentRowsAsync(clinicId, cloudRowKeys, cancellationToken))
+                .ToDictionary(r => r.Key, r => JsonDocument.Parse(r.Value).RootElement.Clone());
+            var plan = RelayHandbackPlanner.Plan(request, cloudChanges, _store.References, _store.Owner, cloudRows);
 
             // The cloud's versions are read before anything is applied: the list must show what the cabinet's overwrote.
             var reviewKeys = plan.Review.Select(r => r.CloudKey ?? r.Key).Distinct().ToList();
             var cloudVersions = await _store.CurrentRowsAsync(clinicId, reviewKeys, cancellationToken);
             var authors = await _store.AuthorsAsync(clinicId, reviewKeys, cancellationToken);
 
-            await _store.ApplyReturnAsync(clinicId, request, plan, cancellationToken);
+            var notApplied = await _store.ApplyReturnAsync(clinicId, request, plan, cancellationToken);
 
             var cutSince = request.CutSinceUtc ?? relay.PcHoldingSinceUtc.Value;
             var listed = await StageReviewAsync(relay, cutSince, request, plan, cloudVersions, authors, now, cancellationToken);
+            listed += await StageRefusedAsync(relay, cutSince, request, notApplied, now, cancellationToken);
             await StageJournalAsync(clinicId, request, cancellationToken);
 
             relay.RecordHandbackApplied(request.HandbackId, request.CutSinceUtc, now);
@@ -111,6 +121,46 @@ public sealed class HandBackRelayCommandHandler : IRequestHandler<HandBackRelayC
             _logger.LogError(ex, "D18: handback {HandbackId} for clinic {ClinicId} could not be applied.", request.HandbackId, clinicId);
             return Result<RelayHandbackResultDto>.Failure(RelayRefusals.HandbackFailed, RelayRefusals.HandbackFailedCode);
         }
+    }
+
+    /// <summary>
+    /// What the cloud's database refused to take (a booking clash, a duplicate value, a parent gone) is cabinet work that
+    /// is not on the cloud: every row of it is listed « À reprendre », with the cabinet's version, so nothing is lost.
+    /// </summary>
+    private async Task<int> StageRefusedAsync(
+        ClinicRelay relay, DateTime cutSince, RelayHandbackRequest request, IReadOnlyList<RelayRowKey> refused, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (refused.Count == 0)
+        {
+            return 0;
+        }
+
+        _logger.LogWarning("D18: {Count} row(s) of the cut could not be written on the cloud for clinic {ClinicId}; listed « À reprendre ».",
+            refused.Count, relay.ClinicId);
+        var already = (await _reviews.GetForCutAsync(relay.Id, cutSince, cancellationToken))
+            .Select(i => (i.Kind, i.Table, i.EntityKey))
+            .ToHashSet();
+        var cabinet = request.Rows.GroupBy(r => new RelayRowKey(r.Table, r.Key))
+            .ToDictionary(g => g.Key, g => g.Last().Row?.GetRawText());
+        var cabinetAuthors = CabinetAuthors(request.Journal);
+        var cloud = await _store.CurrentRowsAsync(relay.ClinicId, refused, cancellationToken);
+        var items = refused
+            .Where(k => !RelayHandbackRules.NotReviewed.Contains(k.Table))
+            .Where(k => already.Add((RelayReviewKind.ToReEnter, k.Table, k.Key)))
+            .Select(k =>
+            {
+                var by = cabinetAuthors.GetValueOrDefault(k);
+                return new RelayReviewItem(relay.ClinicId, relay.Id, cutSince, RelayReviewKind.ToReEnter, k.Table, k.Key,
+                    cloud.GetValueOrDefault(k), cabinet.GetValueOrDefault(k), null, null, null, now, by.By, by.At);
+            })
+            .ToList();
+        if (items.Count > 0)
+        {
+            await _reviews.AddRangeAsync(items, cancellationToken);
+        }
+
+        return items.Count;
     }
 
     /// <summary>A record already listed for this cut is not listed again — the first versions are the ones worth reading.</summary>

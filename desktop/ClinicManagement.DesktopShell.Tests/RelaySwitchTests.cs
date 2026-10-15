@@ -55,14 +55,21 @@ public class RelaySwitchTests
         Assert.Null(RelaySwitch.ParseSession("<html>"));
     }
 
-    // Manual takeover (owner, 2026-10-12): never a countdown to a takeover that will not happen on its own.
+    // Manual takeover (owner, 2026-10-12): when the PC will be available, then the offer; « pas prêt » at once.
     [Fact]
-    public void The_Waiting_Line_Says_Checking_Then_Offers_The_Button_And_Says_Not_Ready_At_Once()
+    public void The_Waiting_Line_Counts_Down_Then_Offers_The_Button_And_Says_Not_Ready_At_Once()
     {
-        Assert.Equal("Le cloud ne répond pas — vérification en cours…", RelaySwitch.WaitingLine(armed: true, canTakeOver: false));
-        Assert.Equal(RelaySwitch.OfferLine, RelaySwitch.WaitingLine(armed: true, canTakeOver: true));
-        Assert.Equal(RelaySwitch.NotReadyLine, RelaySwitch.WaitingLine(armed: false, canTakeOver: false));
-        Assert.Equal("Le cloud ne répond pas — vérification en cours…", RelaySwitch.WaitingLine(armed: null, canTakeOver: false));
+        var lost = new DateTime(2026, 10, 12, 9, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(25, RelaySwitch.SecondsLeft(lost, lost));
+        Assert.Equal(20, RelaySwitch.SecondsLeft(lost, lost.AddSeconds(7)));
+        Assert.Equal(0, RelaySwitch.SecondsLeft(lost, lost.AddSeconds(40)));
+
+        Assert.Equal("Internet coupé — le PC de secours sera disponible dans 15 secondes.",
+            RelaySwitch.WaitingLine(armed: true, canTakeOver: false, secondsLeft: 15));
+        Assert.Equal("Internet coupé — le PC de secours sera disponible dans quelques secondes.",
+            RelaySwitch.WaitingLine(armed: null, canTakeOver: false, secondsLeft: 0));
+        Assert.Equal(RelaySwitch.OfferLine, RelaySwitch.WaitingLine(armed: true, canTakeOver: true, secondsLeft: 10));
+        Assert.Equal(RelaySwitch.NotReadyLine, RelaySwitch.WaitingLine(armed: false, canTakeOver: false, secondsLeft: 20));
     }
 
     // Opened in the browser, the PC would be a login screen behind a certificate warning.

@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
@@ -66,11 +67,7 @@ public sealed class ReclaimRelayCommandHandler : IRequestHandler<ReclaimRelayCom
                 return Result<RelayStatusDto>.Failure(RelayRefusals.NotHolding, RelayRefusals.NotHoldingCode);
             }
 
-            relay!.Reclaim(admin.Value.Id, now);
-
-            // AC-7.2: the row names the admin (the actor) and the moment the cabinet's work stopped reaching the cloud.
-            await RelayJournal.StageAsync(_auditEntries, _actor.Current, relay, AuditAction.Update,
-                $"{RelayJournal.Reclaimed} (enregistrements refusés depuis {RelayLabels.Moment(lockedSince, now)})", now,
+            await RelayTakeBack.StageAsync(relay!, lockedSince, admin.Value.Id, _actor.Current, _auditEntries, now,
                 cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -81,5 +78,35 @@ public sealed class ReclaimRelayCommandHandler : IRequestHandler<ReclaimRelayCom
             _logger.LogError(ex, "Taking the cloud back from the PC de secours of clinic {ClinicId} failed", clinicId);
             return Result<RelayStatusDto>.Failure("Le cloud n'a pas pu reprendre la main. Réessayez.");
         }
+    }
+}
+
+/// <summary>
+/// « Reprendre la main », staged: the reclaim and its journal row. Also run by « Retirer ce PC » and « Déclarer perdu ou
+/// volé » while the cabinet is locked (AC-8.6, review finding 10) — so the journal says the cut was overruled, and a PC
+/// that reconnects before its retirement is read is told « Reclaimed » and keeps the cut's work.
+/// </summary>
+public static class RelayTakeBack
+{
+    public static async Task StageIfLockedAsync(
+        ClinicRelay relay, string adminId, AuditActor actor, IAuditEntryRepository auditEntries, DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (ClinicWriteLease.LockedSinceUtc(relay, nowUtc) is { } lockedSince)
+        {
+            await StageAsync(relay, lockedSince, adminId, actor, auditEntries, nowUtc, cancellationToken);
+        }
+    }
+
+    public static async Task StageAsync(
+        ClinicRelay relay, DateTime lockedSince, string adminId, AuditActor actor, IAuditEntryRepository auditEntries,
+        DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        relay.Reclaim(adminId, nowUtc);
+
+        // AC-7.2: the row names the admin (the actor) and the moment the cabinet's work stopped reaching the cloud.
+        await RelayJournal.StageAsync(auditEntries, actor, relay, AuditAction.Update,
+            $"{RelayJournal.Reclaimed} (enregistrements refusés depuis {RelayLabels.Moment(lockedSince, nowUtc)})", nowUtc,
+            cancellationToken);
     }
 }

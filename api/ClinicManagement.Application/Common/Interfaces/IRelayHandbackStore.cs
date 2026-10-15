@@ -6,9 +6,13 @@ namespace ClinicManagement.Application.Common.Interfaces;
 /// <summary>One row of the relay scope: its table (the entity's CLR name) and its key as the change log writes it.</summary>
 public readonly record struct RelayRowKey(string Table, string Key);
 
-/// <summary>One change of the cloud's log after the PC's base (D18): who wrote it (the cloud, or an earlier return).</summary>
+/// <summary>
+/// One change of the cloud's log after the PC's base (D18): who wrote it (the cloud, or an earlier return), and whether a
+/// background job did (<see cref="Automatic"/>) — a job's change never outranks the cabinet's work.
+/// </summary>
 public sealed record RelayCloudChange(
-    long Seq, string Table, string Key, bool Deleted, bool FromRelay, string? IdempotencyKey, DateTime RecordedAtUtc);
+    long Seq, string Table, string Key, bool Deleted, bool FromRelay, string? IdempotencyKey, DateTime RecordedAtUtc,
+    bool Automatic = false);
 
 /// <summary>
 /// The return's row access (<c>clinic-pc-copy</c> D18), in SQL like the copy: the PC reads its cut, the cloud applies it.
@@ -60,9 +64,17 @@ public interface IRelayHandbackStore
     IEnumerable<RelayRowKey> References(string table, JsonElement row);
 
     /// <summary>
-    /// Applies the plan: the PC's rows (the cloud's own settings left as they are, AC-5.7), the duplicates dropped, the
-    /// sign-in traces merged (FR-11) — and a change for each in the cloud's log, so the PC's copy follows.
+    /// The row <paramref name="row"/> belongs to — its required parent in the relay scope (an act's fiche, a payment's
+    /// note) — or null for a record of its own. What makes the return decide per record, never per row.
     /// </summary>
-    Task ApplyReturnAsync(
+    RelayRowKey? Owner(string table, JsonElement row);
+
+    /// <summary>
+    /// Applies the plan: the PC's rows (the cloud's own settings left as they are, AC-5.7), the duplicates dropped, the
+    /// sign-in traces merged (FR-11), the cut's provisional numbers made real — and a change for each in the cloud's
+    /// log, so the PC's copy follows. ⚠️ One record the database refuses (a booking clash, a unique value, a parent gone)
+    /// never stops the rest: it is set aside and returned, and the caller lists it « À reprendre ».
+    /// </summary>
+    Task<IReadOnlyList<RelayRowKey>> ApplyReturnAsync(
         Guid clinicId, RelayHandbackRequest request, RelayHandbackPlan plan, CancellationToken cancellationToken);
 }

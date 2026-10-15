@@ -890,7 +890,9 @@ public sealed class RelayFollowerTests : IDisposable
 
         await HoldingTicksAsync(follower, 14);
 
-        Assert.Equal(new[] { (false, true) }, _handbackStore.LeaseWhileReading);
+        // Read twice: once for its files while the cabinet still saves (review finding 7), then — saves refused — for the
+        // cut itself, so nothing can land after the read.
+        Assert.Equal(new[] { (true, false), (false, true) }, _handbackStore.LeaseWhileReading);
         Assert.Single(_cloud.Handbacks);
     }
 
@@ -1146,12 +1148,37 @@ public sealed class RelayFollowerTests : IDisposable
         _cloud.MissingFiles.Add("clinics/a/scan.png");
         _files.Setup(f => f.DownloadAsync("clinics/a/scan.png", It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new MemoryStream(new byte[] { 1, 2 }));
+        _cloud.UploadProbe = () => _lease.AcceptsSaves;
         var follower = HandbackFollower();
 
         await HoldingTicksAsync(follower, 14);
 
         Assert.Equal(new[] { "clinics/a/scan.png" }, _cloud.Uploaded);
+        // Review finding 7: sent while the cabinet still saves — a radiograph on a slow uplink used to freeze every save.
+        Assert.Equal(new[] { true }, _cloud.UploadProbes);
         Assert.Single(_cloud.Handbacks);
+    }
+
+    // [Review finding 7] A file the cloud cannot take yet keeps the cabinet saving here: the return waits, nothing freezes.
+    [Fact]
+    public async Task Files_That_Cannot_Go_Ahead_Never_Freeze_The_Cabinets_Saves()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _handbackStore.Files = new[] { "clinics/a/scan.png" };
+        _cloud.MissingFiles.Add("clinics/a/scan.png");
+        _files.Setup(f => f.DownloadAsync("clinics/a/scan.png", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new MemoryStream(new byte[] { 1, 2 }));
+        _cloud.UploadStatus = RelayCallStatus.Unreachable;
+        _handbackStore.ReadProbe = () => (_lease.AcceptsSaves, _lease.IsHandingBack);
+        var follower = HandbackFollower();
+
+        await HoldingTicksAsync(follower, 14);
+
+        Assert.Empty(_cloud.Handbacks);
+        Assert.True(_lease.AcceptsSaves);
+        Assert.NotEmpty(_handbackStore.LeaseWhileReading);
+        Assert.All(_handbackStore.LeaseWhileReading, l => Assert.True(l.AcceptsSaves));
     }
 
     // [AC-5.9] A PC restarted mid-return finds it refusing saves; an unanswered heartbeat gives them back at once.
@@ -1214,6 +1241,85 @@ public sealed class RelayFollowerTests : IDisposable
         Assert.Equal(RelayFeedDecisions.OverruledReason, _store.Load().StoppedReason);
     }
 
+    // [Review finding 11] An overruled PC under another cloud build updates first: the listing is build-gated, so listing
+    // it under the old build is refused on every tick and the cut would never reach « À reprendre ».
+    [Fact]
+    public async Task An_Overruled_Pc_Under_Another_Build_Updates_Before_Listing_Its_Cut()
+    {
+        Seeded(seq: 40);
+        _lease.TakeOver();
+        _cloud.Reclaimed = true;
+        var follower = HandbackFollower();
+        await HoldingTicksAsync(follower, 1);
+        _cloud.Reclaimed = false;
+        _cloud.UpdateNeeded = true;
+        _cloud.CloudBuild = "build-2";
+        _installer.Serve("build-2", new byte[] { 7, 7, 7 });
+
+        await HoldingTicksAsync(follower, 1);
+
+        Assert.Empty(_cloud.Overruled);
+        Assert.Single(_launcher.Launches);
+        Assert.True(_lease.HoldsUnreturnedWork);
+        Assert.Equal(RelayFeedDecisions.OverruledReason, _store.Load().StoppedReason);
+    }
+
+    // [Review finding 9] A cloud that no longer knows this PC (restored from before the pairing) stops a seeded copy and
+    // keeps it — never « released », which erase and uninstall would read as « may go ».
+    [Fact]
+    public async Task A_Seeded_Pc_The_Cloud_Does_Not_Know_Stops_And_Is_Kept()
+    {
+        Seeded();
+        _cloud.HeartbeatStatus = RelayCallStatus.Unknown;
+
+        var state = await TickAsync();
+
+        Assert.False(state.Released);
+        Assert.Equal(RelayFeedDecisions.UnknownReason, state.StoppedReason);
+        Assert.NotNull(RelayCopyKeep.Refusal(state, holdsUnreturnedWork: false));
+    }
+
+    // [Review finding 9] Nothing copied yet: nothing to keep, so an unknown PC is simply released.
+    [Fact]
+    public async Task An_Unseeded_Pc_The_Cloud_Does_Not_Know_Is_Released()
+    {
+        _cloud.HeartbeatStatus = RelayCallStatus.Unknown;
+
+        var state = await TickAsync();
+
+        Assert.True(state.Released);
+        Assert.Null(state.StoppedReason);
+    }
+
+    // [Review finding 10] Retired (or declared lost) while it held the cut: saves stop here and the work is kept, unreturned.
+    [Fact]
+    public async Task A_Holding_Pc_Released_Stops_Accepting_Saves_And_Keeps_The_Work()
+    {
+        Seeded();
+        _lease.TakeOver();
+        _cloud.HeartbeatStatus = RelayCallStatus.Released;
+
+        var state = await TickAsync();
+
+        Assert.True(state.Released);
+        Assert.False(_lease.IsHolding);
+        Assert.True(_lease.HoldsUnreturnedWork);
+    }
+
+    // [Review finding 13] A copy write and a takeover never overlap: no write starts once this PC holds, and a takeover
+    // waits for a write that is running.
+    [Fact]
+    public void A_Copy_Write_And_A_Takeover_Never_Overlap()
+    {
+        Assert.True(_lease.TryBeginApply());
+        Assert.False(_lease.TakeOver());
+        Assert.False(_lease.IsHolding);
+        _lease.EndApply();
+
+        Assert.True(_lease.TakeOver());
+        Assert.False(_lease.TryBeginApply());
+    }
+
     // [D18] A new cut before the cloud confirmed the last return: the old handback is moot and never named again.
     [Fact]
     public void A_New_Takeover_Forgets_A_Return_Still_Awaiting_The_Cloud()
@@ -1273,7 +1379,10 @@ public sealed class RelayFollowerTests : IDisposable
 
         public IEnumerable<RelayRowKey> References(string table, System.Text.Json.JsonElement row) => throw new NotSupportedException();
 
-        public Task ApplyReturnAsync(Guid clinicId, RelayHandbackRequest request, RelayHandbackPlan plan, CancellationToken cancellationToken) =>
+        public RelayRowKey? Owner(string table, System.Text.Json.JsonElement row) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<RelayRowKey>> ApplyReturnAsync(
+            Guid clinicId, RelayHandbackRequest request, RelayHandbackPlan plan, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 
@@ -1413,9 +1522,26 @@ public sealed class RelayFollowerTests : IDisposable
 
         public Task<RelayCall<bool>> UploadHandbackFileAsync(string storageKey, Stream content, CancellationToken cancellationToken)
         {
+            if (UploadStatus != RelayCallStatus.Ok)
+            {
+                return Task.FromResult(new RelayCall<bool>(UploadStatus, false));
+            }
+
             Uploaded.Add(storageKey);
+            if (UploadProbe is not null)
+            {
+                UploadProbes.Add(UploadProbe());
+            }
+
+            // A real cloud holds it from now: it is never reported missing again.
+            MissingFiles.Remove(storageKey);
             return Task.FromResult(new RelayCall<bool>(RelayCallStatus.Ok, true));
         }
+
+        public RelayCallStatus UploadStatus { get; set; } = RelayCallStatus.Ok;
+
+        public Func<bool>? UploadProbe { get; set; }
+        public List<bool> UploadProbes { get; } = new();
 
         public RelayCallStatus OverruledStatus { get; set; } = RelayCallStatus.Ok;
         public List<RelayHandbackRequest> Overruled { get; } = new();

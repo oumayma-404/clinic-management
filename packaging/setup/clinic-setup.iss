@@ -1687,8 +1687,8 @@ begin
       else
         Result := 'Le cloud n''a pas pu être prévenu. Retirez ce PC depuis « Paramètres → PC de secours » sur le cloud.';
     3:
-      Result := 'La copie n''a pas été effacée : ce PC contient des données plus récentes que le cloud.'
-                + ' Contactez la personne qui a installé votre logiciel.';
+      Result := 'Le cloud n''a pas été prévenu et la copie reste sur ce PC : elle contient des enregistrements que le'
+                + ' cloud n''a pas. Contactez la personne qui a installé votre logiciel.';
     4:
       Result := 'La copie du cabinet est effacée de ce PC, mais le cloud n''a pas pu le noter.';
     5:
@@ -1699,6 +1699,22 @@ begin
     Result := 'Le cloud n''a pas pu être prévenu de la désinstallation. Retirez ce PC depuis'
               + ' « Paramètres → PC de secours » sur le cloud.';
   end;
+end;
+
+// Review finding 17: the API and the web front end only. The erase runs against PostgreSQL, so the database must still
+// be running when `uninstall-relay --erase` starts; CurUninstallStepChanged stops it once the verb has run.
+procedure StopRelayAppServices;
+var
+  Rc: Integer;
+  Nssm: string;
+begin
+  Nssm := ExpandConstant('{app}\tools\nssm.exe');
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  if FileExists(Nssm) then
+    RunWait(Nssm, 'stop {#ServiceWeb}', '', Rc)
+  else
+    Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Sleep(5000);
 end;
 
 // ⚠️ Before [UninstallRun] stops PostgreSQL, which the erase needs, and with the API stopped first so the copy loop
@@ -1717,7 +1733,7 @@ begin
              'Non : la copie reste sur ce PC, qui ne suit plus le cabinet.',
              mbConfirmation, MB_YESNO, IDYES) = IDYES;
 
-  StopClinicServices;
+  StopRelayAppServices;
 
   Params := 'uninstall-relay';
   if Erase then
@@ -1725,6 +1741,9 @@ begin
   Rc := -1;
   if not Exec(ApiExecutable, Params, ExpandConstant('{app}\api'), SW_HIDE, ewWaitUntilTerminated, Rc) then
     Rc := -1;
+
+  // Now the database too: [UninstallRun] only unregisters it, and a running postgres.exe locks the files being removed.
+  StopClinicServices;
 
   if Rc = 0 then
     SuppressibleMsgBox(UninstallSentence(Rc, Erase), mbInformation, MB_OK, IDOK)

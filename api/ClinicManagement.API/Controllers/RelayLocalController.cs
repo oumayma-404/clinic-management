@@ -129,10 +129,9 @@ public class RelayLocalController : ApiControllerBase
                 StatusCodes.Status409Conflict);
         }
 
-        if (!_eraser.MayErase)
+        if (_eraser.Refusal is { } kept)
         {
-            return HandleFailure(Result.Failure(RelayRefusals.CutWorkKept, RelayRefusals.CutWorkKeptCode),
-                StatusCodes.Status409Conflict);
+            return HandleFailure(Result.Failure(kept.Error, kept.Code), StatusCodes.Status409Conflict);
         }
 
         var callerId = _clinicContext.GetUserId();

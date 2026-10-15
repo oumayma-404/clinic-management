@@ -201,8 +201,11 @@ export const relayApi = {
    */
   releasePairingCode: (code: string) => apiPost<void>('/relay/pairing-codes/release', { code }, null),
 
-  /** « Retirer ce PC » (AC-8.1): the copy stops and the clinic may set up another. Returns the new state. */
-  retire: () => apiDelete<RelayStatusDto>('/relay'),
+  /**
+   * « Retirer ce PC » (AC-8.1) — needs a step-up token for {@link RELAY_RETIRE_STEP_UP}: the copy stops and the clinic
+   * may set up another. Returns the new state.
+   */
+  retire: (stepUpToken: string) => apiDelete<RelayStatusDto>('/relay', undefined, stepUpToken),
 
   /**
    * « Déclarer perdu ou volé » (AC-8.4) — needs a step-up token for {@link RELAY_LOST_STEP_UP}. Every account of the
@@ -238,6 +241,9 @@ export const RELAY_PAIRING_STEP_UP = "relay-pairing";
 
 /** The step-up action « Déclarer perdu ou volé » is confirmed with — an authenticator code, never a password. */
 export const RELAY_LOST_STEP_UP = "relay-lost";
+
+/** The step-up action « Retirer ce PC » consumes (`RelayStepUpActions.Retire`). */
+export const RELAY_RETIRE_STEP_UP = "relay-retire";
 
 /** The step-up action « Reprendre la main » consumes (`RelayStepUpActions.Reclaim`). */
 export const RELAY_RECLAIM_STEP_UP = "relay-reclaim";

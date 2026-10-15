@@ -98,6 +98,25 @@ public sealed class RelayHandback
             return false;
         }
 
+        // The cut's files go first, while the cabinet still saves (review finding 7): a few radiographs take minutes on a
+        // slow uplink, and every one of those minutes used to be one in which nobody could save anywhere. Once saves stop,
+        // only what was made since still has to travel.
+        if (!_lease.IsHandingBack)
+        {
+            var ahead = await SendFilesAheadAsync(state, local, cancellationToken);
+            if (ahead != RelayCallStatus.Ok)
+            {
+                _logger.LogWarning("PC de secours: the cut's files could not be sent ahead ({Status}); the cabinet keeps working here.", ahead);
+                _retryAfter = _monotonic() + RetryAfterFailure;
+                if (ahead == RelayCallStatus.Unreachable)
+                {
+                    _answeredSince = null;
+                }
+
+                return false;
+            }
+        }
+
         var id = _lease.BeginHandback();
         var started = _monotonic();
         while (true)
@@ -231,6 +250,23 @@ public sealed class RelayHandback
         }
 
         return RelayCallStatus.Ok;
+    }
+
+    /// <summary>The files the cut names so far, sent while saves are still taken — the read waits for no save of its own.</summary>
+    private async Task<RelayCallStatus> SendFilesAheadAsync(
+        RelayFollowerState state, RelayLocalSide local, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var cut = await local.Handback!.ReadCutAsync(
+                _clinicId, Guid.Empty, state.AppliedSeq, _lease.HoldingSinceUtc ?? DateTime.UtcNow, cancellationToken);
+            return await SendFilesAsync(local, cut, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "PC de secours: reading the cut's files ahead of the return failed.");
+            return RelayCallStatus.Refused;
+        }
     }
 
     private async Task<RelayCallStatus> TryOnceAsync(

@@ -9,6 +9,9 @@ public static class RelayStepUpActions
     public const string Lost = "relay-lost";
     public const string Reclaim = "relay-reclaim";
 
+    /// <summary>« Retirer ce PC » (review finding 10) — a stolen session alone must not be able to stop the copy.</summary>
+    public const string Retire = "relay-retire";
+
     /// <summary>« Effacer la copie » on a retired PC (AC-8.2) — an authenticator code, never a password.</summary>
     public const string Erase = "relay-erase";
 }
@@ -59,6 +62,9 @@ public static class RelayRefusals
 
     /// <summary>AC-7.3: this PC keeps work saved during a cut that never reached the cloud; nothing may erase it.</summary>
     public const string CutWorkKeptCode = "relay_cut_work_kept";
+
+    /// <summary>Review finding 9: the copy stopped and may hold records the cloud lacks (a restore, an unknown PC).</summary>
+    public const string NewerCopyKeptCode = "relay_newer_copy_kept";
     public const string NotAdminCode = "relay_admin_only";
     public const string InvalidRequestCode = "relay_invalid";
 
@@ -117,6 +123,10 @@ public static class RelayRefusals
     public const string CutWorkKept =
         "Ce PC garde du travail enregistré pendant une coupure d'internet qui n'est jamais arrivé dans le cloud : sa copie "
         + "ne peut être ni effacée ni remplacée. Contactez la personne qui a installé votre logiciel.";
+
+    public const string NewerCopyKept =
+        "Ce PC a arrêté la copie et garde peut-être des données que le cloud n'a pas : sa copie ne peut être ni effacée ni "
+        + "remplacée. Contactez la personne qui a installé votre logiciel.";
 
     /// <summary>
     /// « 10:42 » on the cabinet's clock — or « le 06/10 à 10:42 » once the takeover is not of today, since a bare hour

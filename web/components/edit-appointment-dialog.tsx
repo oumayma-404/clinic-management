@@ -31,7 +31,6 @@ import {
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
-import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
 import { mergeSections, takenOverSentence } from "@/lib/forms/form-merge"
 import {
   APPOINTMENT_SECTIONS,
@@ -1005,7 +1004,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     e.preventDefault()
     // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
     if (carried.consumeSwitch()) {
-      conflict.raise(SWITCH_REFUSAL)
+      conflict.raise(carried.switchRefusal)
       return
     }
     clearBanner()

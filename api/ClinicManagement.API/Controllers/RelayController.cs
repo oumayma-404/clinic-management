@@ -93,14 +93,27 @@ public class RelayController : ApiControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// « Retirer ce PC » (AC-8.1) — admin + a fresh confirmation of identity (review finding 10): it stops the cabinet's
+    /// spare copy, and during a cut it also takes the cloud back (AC-8.6), so a stolen session alone must not do it.
+    /// </summary>
     [OnlineOnly("Managing the PC de secours is the cloud's; a copy cannot pair, retire or declare one.")]
     [HttpDelete]
     [AllowsWithoutSubscription("Retiring a PC that holds the clinic's records is offboarding, never new work.")]
-    public async Task<ActionResult<RelayStatusDto>> Retire(CancellationToken cancellationToken)
+    public async Task<ActionResult<RelayStatusDto>> Retire(
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
+        CancellationToken cancellationToken)
     {
         if (!_deployment.PublishesChangeFeed)
         {
             return NotFound();
+        }
+
+        var callerId = _clinicContext.GetUserId();
+        if (string.IsNullOrWhiteSpace(callerId) || !_stepUp.Consume(callerId, RelayStepUpActions.Retire, confirmation ?? string.Empty))
+        {
+            return Failure("Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
         }
 
         var result = await _mediator.Send(new RetireRelayCommand(), cancellationToken);

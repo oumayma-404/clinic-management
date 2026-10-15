@@ -61,7 +61,7 @@ export function RelayBanner() {
           data-relay-banner={banner.kind}
         >
           <BannerIcon kind={banner.kind} />
-          <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+          <p className="min-w-[10rem] flex-1 [overflow-wrap:anywhere]">
             <span className="font-medium">{banner.title}</span>
             <span className="hidden sm:inline"> — {banner.detail}</span>
           </p>

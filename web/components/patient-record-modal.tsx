@@ -67,7 +67,6 @@ import {
   type BookedActPrefill, type PlanItemPrefill, type SessionAct,
 } from "@/components/record/use-session-acts"
 import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
-import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
 import {
   CHEQUE_METHOD,
   ChequeFields,
@@ -1820,7 +1819,7 @@ export function PatientRecordModal({
   const handleSave = async (correctionReason?: string) => {
     // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
     if (carried.consumeSwitch()) {
-      conflict.raise(SWITCH_REFUSAL)
+      conflict.raise(carried.switchRefusal)
       return
     }
     // Pressing Enregistrer is the answer to « refaites votre modification ».

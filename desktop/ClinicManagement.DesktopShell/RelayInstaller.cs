@@ -131,7 +131,7 @@ public static class RelayInstaller
         try
         {
             var folder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClinicManagement", "relay");
+                ShellProfile.Local, "ClinicManagement", "relay");
             Directory.CreateDirectory(folder);
             var setupPath = Path.Combine(folder, "APEXA-PC-de-secours-setup.exe");
 

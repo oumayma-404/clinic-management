@@ -694,6 +694,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
         ConvertDateTimesToUtc();
 
+        // A PC de secours holding a cut gives no legal number: they become provisional, the cloud renumbers at the return.
+        if (_changeCapture?.WithholdsLegalNumbers == true)
+        {
+            NumberedDocuments.MakeProvisional(this);
+        }
+
         // D16: the legal numbers this save assigns, read before the save resets the entries.
         var numbers = _numberPromises?.Promises == true ? NumberedDocuments.Collect(this) : null;
 

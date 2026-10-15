@@ -94,7 +94,7 @@ public sealed class RelayFollower
         if (state.ErasedAtUtc is not null && !state.ErasureReported)
         {
             var told = await _cloud.ReportErasedAsync(cancellationToken);
-            if (told.Status is RelayCallStatus.Ok or RelayCallStatus.Released)
+            if (told.Status is RelayCallStatus.Ok or RelayCallStatus.Released or RelayCallStatus.Unknown)
             {
                 state = Save(state with { ErasureReported = true });
             }
@@ -121,6 +121,9 @@ public sealed class RelayFollower
             case RelayCallStatus.Released:
                 _logger.LogWarning("The cloud released this PC de secours: {Reason}", ack.Error);
                 return Save(state with { Released = true });
+            case RelayCallStatus.Unknown:
+                _logger.LogError("The cloud does not know this PC de secours: {Reason}", ack.Error);
+                return Save(RelayFeedDecisions.WhenUnknown(state));
             default:
                 // Unreachable or refused: nothing about the cloud's history can be concluded from no answer.
                 return state;
@@ -143,6 +146,13 @@ public sealed class RelayFollower
         // cloud, then starts afresh — the one stop a machine may undo, since nothing it held is lost by it.
         if (state.StoppedReason == RelayFeedDecisions.OverruledReason && _lease.Current.UnreturnedSinceUtc is { } cutSince)
         {
+            // Review finding 11: the listing is build-gated like every copy call — under another cloud build it is refused
+            // on every tick, so the cut would never be listed. The update comes first, as on the gap branch below.
+            if (state.UpdateNeeded)
+            {
+                return Save(await _updater.StepAsync(state, ack.Value.CloudBuild, Save, AnnounceUpdatingAsync, cancellationToken));
+            }
+
             var listed = await _handback.ListOverruledAsync(state, cutSince, local, cancellationToken);
             return Save(listed ?? state);
         }
@@ -239,8 +249,21 @@ public sealed class RelayFollower
         var call = await HeartbeatAsync(Report(state), cancellationToken);
         if (call.Status == RelayCallStatus.Released)
         {
+            // Review finding 10: retired or declared lost during the cut (AC-8.6). Saves stop here, and the cut's work is
+            // marked unreturned — erase, re-pairing and uninstall all refuse over it.
             _logger.LogWarning("The cloud released this PC de secours while it held the cabinet's saves: {Reason}", call.Error);
-            return Save(state with { Released = true });
+            var released = Save(state with { Released = true });
+            _lease.End();
+            return released;
+        }
+
+        if (call.Status == RelayCallStatus.Unknown)
+        {
+            // Finding 9: a cloud that forgot this PC is not fenced on it — the cut's work stays here, marked unreturned.
+            _logger.LogError("The cloud does not know this PC de secours while it held the cabinet's saves: {Reason}", call.Error);
+            var kept = Save(RelayFeedDecisions.WhenUnknown(state));
+            _lease.End();
+            return kept;
         }
 
         if (call.IsOk && call.Value!.Reclaimed)
@@ -470,6 +493,11 @@ public sealed class RelayFollower
                     return Save(await SeedAsync(state with { ReseedNeeded = true }, local, null, cancellationToken));
             }
 
+            if (!_lease.TryBeginApply())
+            {
+                return state;
+            }
+
             try
             {
                 await local.Rows.ApplyBatchAsync(_credentials.ClinicId, batch.Rows, Unwrap, cancellationToken);
@@ -482,6 +510,10 @@ public sealed class RelayFollower
                     ReseedNeeded = true,
                     LastError = "Une partie de la copie n'a pas pu être appliquée : la copie complète est reprise.",
                 });
+            }
+            finally
+            {
+                _lease.EndApply();
             }
 
             state = Save(RelayFeedDecisions.Applied(state, batch));
@@ -516,9 +548,21 @@ public sealed class RelayFollower
                 return RelayFeedDecisions.Stopped(state, RelayFeedDecisions.WentBackReason);
             }
 
-            await using (var gzip = OpenSnapshot(call.Value!))
+            // Review finding 13: a takeover and a copy write never overlap — a re-seed still running at the cut would
+            // overwrite, then delete, what the cabinet just saved here.
+            if (!_lease.TryBeginApply())
             {
+                return state;
+            }
+
+            try
+            {
+                await using var gzip = OpenSnapshot(call.Value!);
                 await local.Rows.ReplaceAsync(_credentials.ClinicId, gzip, tables, Unwrap, cancellationToken);
+            }
+            finally
+            {
+                _lease.EndApply();
             }
 
             // A partial snapshot repairs tables; only a whole one moves the position, or changes to the other tables
@@ -671,6 +715,7 @@ public sealed class RelayFollower
     private static RelayFollowerState AfterFailedCall(RelayFollowerState state, RelayCallStatus status, string? error) => status switch
     {
         RelayCallStatus.Released => state with { Released = true },
+        RelayCallStatus.Unknown => RelayFeedDecisions.WhenUnknown(state),
         RelayCallStatus.UpdateNeeded => state with { UpdateNeeded = true },
         RelayCallStatus.Refused => state with { LastError = error },
         _ => state,

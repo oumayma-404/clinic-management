@@ -70,7 +70,7 @@ public static class ArchiveCopySettingsStore
 
     private static string Path =>
         System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            ShellProfile.Roaming,
             "ClinicManagement",
             FileName);
 

@@ -25,6 +25,13 @@ public class ClinicChange
 
     public DateTime RecordedAtUtc { get; private set; }
 
+    /// <summary>
+    /// Written by a background job (its audit actor is a process), not by a person. At the return a job's write never
+    /// outranks the cabinet's work: the cloud's agenda job moves every visit of a cut, and counting that as « changed in
+    /// the cloud » kept the cloud's version of every visit the cabinet cancelled or moved meanwhile.
+    /// </summary>
+    public bool Automatic { get; private set; }
+
     /// <summary>The ASCII unit separator: a user id is <c>local|{guid}</c>, so a printable separator would be ambiguous.</summary>
     public const char KeySeparator = '\u001f';
 
@@ -32,7 +39,7 @@ public class ClinicChange
 
     public ClinicChange(
         Guid clinicId, long seq, string table, string entityKey, ClinicChangeOp op, ClinicChangeOrigin origin,
-        string? idempotencyKey, DateTime recordedAtUtc)
+        string? idempotencyKey, DateTime recordedAtUtc, bool automatic = false)
     {
         ClinicId = clinicId;
         Seq = seq;
@@ -42,6 +49,7 @@ public class ClinicChange
         Origin = origin;
         IdempotencyKey = string.IsNullOrWhiteSpace(idempotencyKey) ? null : idempotencyKey.Trim();
         RecordedAtUtc = recordedAtUtc;
+        Automatic = automatic;
     }
 }
 

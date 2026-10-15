@@ -102,7 +102,7 @@ public static class ServerConfigStore
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private static string Directory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClinicManagement");
+        Path.Combine(ShellProfile.Roaming, "ClinicManagement");
 
     public static string FilePath => Path.Combine(Directory, "server.json");
 

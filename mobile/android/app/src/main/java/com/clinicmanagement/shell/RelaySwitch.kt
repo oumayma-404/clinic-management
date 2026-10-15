@@ -86,14 +86,44 @@ object RelaySwitch {
     const val NOT_READY_LINE = "Le PC de secours n'est pas encore prêt : il ne peut pas prendre le relais."
     const val OFFER_LINE = "Internet coupé : le cloud ne répond pas. Le cabinet peut continuer sur le PC de secours."
 
+    /** The PC offers the button ~20 s after its own last answer from the cloud: 25 s is the countdown's estimate. */
+    private const val OFFER_EXPECTED_AFTER_MS = 25_000L
+
+    /** Seconds left on the countdown, in steps of 5 s; 0 once it is due. */
+    fun secondsLeft(cloudLostAtMs: Long, nowMs: Long): Int {
+        val left = OFFER_EXPECTED_AFTER_MS - (nowMs - cloudLostAtMs)
+        return if (left <= 0) 0 else Math.ceil(left / 5000.0).toInt() * 5
+    }
+
     /**
-     * What the unreachable screen adds while the PC answers but does not hold (manual takeover, owner 2026-10-12): not
-     * ready, the offer (with its button), or — the first ~20 s, while the PC makes sure the cloud is silent — checking.
+     * What the unreachable screen says while the PC answers but does not hold (owner, 2026-10-12): not ready, the offer
+     * beside its button, or — until the PC offers it — when it will, never a bare « impossible de joindre ».
      */
-    fun waitingLine(armed: Boolean?, canTakeOver: Boolean): String = when {
+    fun waitingLine(armed: Boolean?, canTakeOver: Boolean, secondsLeft: Int): String = when {
         armed == false -> NOT_READY_LINE
         canTakeOver -> OFFER_LINE
-        else -> "Le cloud ne répond pas — vérification en cours…"
+        secondsLeft > 0 -> "Internet coupé — le PC de secours sera disponible dans $secondsLeft secondes."
+        else -> "Internet coupé — le PC de secours sera disponible dans quelques secondes."
+    }
+
+    /**
+     * Does the cloud answer at all? Asked when the open page says a request got no reply, so a blip on one request does
+     * not throw the app off the page. Any HTTP answer, or a certificate the phone refuses, is « yes ». Blocking.
+     */
+    fun cloudAnswers(baseUrl: String): Boolean = try {
+        val connection = java.net.URL(baseUrl.trimEnd('/') + "/api/auth/mode").openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 3000
+        connection.readTimeout = 5000
+        try {
+            connection.responseCode
+            true
+        } finally {
+            connection.disconnect()
+        }
+    } catch (e: javax.net.ssl.SSLException) {
+        true
+    } catch (e: Exception) {
+        false
     }
 
     /** The PC's word at its last answer: ready for a cut (null: an older PC), and whether it offers the button. */

@@ -28,6 +28,7 @@
     <string name="unreachable_certificate">Le certificat de ce serveur n\'est pas approuvé sur cet appareil. Installez le certificat du cabinet (Paramètres → Sécurité → Installer un certificat → Certificat CA), puis réessayez.</string>
     <string name="unreachable_retry">Réessayer</string>
     <string name="unreachable_take_over">Travailler sur le PC de secours</string>
+    <string name="unreachable_take_over_failed">Le PC de secours n\'a pas pu prendre le relais. Réessayez dans quelques secondes.</string>
     <string name="unreachable_change_server">Changer de serveur</string>
 
     <!-- State: update required -->

@@ -29,7 +29,7 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `relayPrepare({ assertion, addresses, port, fingerprint })` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | `clinic-pc-copy` D22: trade the cloud's ticket on the PC de secours (pinned certificate) and keep that session in the app's cookie for the PC — **one holder**: the shell never refreshes it. `relayId` (optional) lets the shell find the PC again by UDP discovery (D21) when its address changed. Never rejects. |
 | `carryDraft(draft)` | `void` | Windows 1.6 · Android 1.3.0 | `clinic-pc-copy` D23: keep the open form's state (a JSON string ≤ 2 MB) in the shell's **memory** for this window, replacing what it held; `null` forgets it. Only from the cloud's page or the PC de secours's. |
 | `takeCarriedDraft()` | `Promise<string \| null>` | Windows 1.6 · Android 1.3.0 | D23: the held state, handed over once and forgotten; `null` when none or older than 2 h. Never rejects. |
-| `relaySwitch()` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | Part 3: the cloud says the cabinet works on the PC — ask the PC and move the window there if it holds. Never rejects. Moving on a cloud that does not load, and back once the PC lets go, is the shell's own. |
+| `relaySwitch()` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | Part 3: the cloud says the cabinet works on the PC — or the open page lost the cloud (`offline`, a request with no reply) — ask the PC and move the window there if it holds. Otherwise, if the shell's own check finds the cloud really silent, it shows the cut at once: « disponible dans N secondes », then « Travailler sur le PC de secours », updated in place every 3 s (manual takeover, 2026-10-12). Never rejects. |
 
 ### The per-phase method set (FR-6)
 

@@ -668,6 +668,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<long>("Seq")
                         .HasColumnType("bigint");
 
+                    b.Property<bool>("Automatic")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("EntityKey")
                         .IsRequired()
                         .HasMaxLength(300)

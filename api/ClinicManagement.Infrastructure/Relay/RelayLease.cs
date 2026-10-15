@@ -106,6 +106,7 @@ public sealed class RelayLease
     private readonly Func<TimeSpan> _monotonic;
     private readonly TimeSpan _exchangeTimeout;
     private readonly object _gate = new();
+    private bool _applying;
     private readonly SemaphoreSlim _exchange = new(1, 1);
     private RelayLeaseState _state;
     private TimeSpan? _lastAckAt;
@@ -316,7 +317,7 @@ public sealed class RelayLease
 
                 KeepClock(call.Value.CloudTimeUtc, _monotonic() - sentAt);
             }
-            else if (call.Status != RelayCallStatus.Released)
+            else if (call.Status is not (RelayCallStatus.Released or RelayCallStatus.Unknown))
             {
                 lock (_gate)
                 {
@@ -407,17 +408,62 @@ public sealed class RelayLease
     }
 
     /// <summary>Takes the cabinet's saves. Written to disk before it is true in memory, so no write is accepted unrecorded.</summary>
-    public void TakeOver()
+    /// <summary>
+    /// Review finding 13: a copy write (catch-up batch, re-seed) is running. A takeover waits for it, and no copy write
+    /// starts once this PC holds — so the cloud's rows never overwrite what the cabinet saves here during a cut.
+    /// </summary>
+    public bool IsApplying
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _applying;
+            }
+        }
+    }
+
+    /// <summary>False when this PC holds the cabinet's saves (or another write runs): the cloud's rows must not apply.</summary>
+    public bool TryBeginApply()
+    {
+        lock (_gate)
+        {
+            if (_state.HoldingSinceUtc is not null || _applying)
+            {
+                return false;
+            }
+
+            _applying = true;
+            return true;
+        }
+    }
+
+    public void EndApply()
+    {
+        lock (_gate)
+        {
+            _applying = false;
+        }
+    }
+
+    /// <returns>True when this PC holds the cabinet's saves afterwards; false while a copy write is still running.</returns>
+    public bool TakeOver()
     {
         lock (_gate)
         {
             if (_state.HoldingSinceUtc is not null)
             {
-                return;
+                return true;
+            }
+
+            if (_applying)
+            {
+                return false;
             }
 
             // A return still awaiting the cloud's word is moot: this new cut is what the next return will release.
             Write(_state with { HoldingSinceUtc = _utcNow(), HoldingUnderAckSeq = _state.LastAckSeq, ReturnedHandbackId = null, CutCause = null });
+            return true;
         }
     }
 
@@ -782,7 +828,7 @@ public sealed class RelayLeaseKeeper
         // D20b: a PC whose clock is wrong and stays wrong never takes over — its dates would not be the cloud's.
         var offered = !state.Released && state.ErasedAtUtc is null && state.RowsSeeded && state.StoppedReason is null
                       && ack.ClockError is null && ack.LastAckArmed && ack.LastAckReceivedAtUtc is not null
-                      && _lease.UnansweredSinceLastAck && _lease.SilentLongEnoughAwake;
+                      && _lease.UnansweredSinceLastAck && _lease.SilentLongEnoughAwake && !_lease.IsApplying;
         _lease.SetOffered(offered);
         if (!offered || !_lease.TakeTakeoverRequest())
         {
@@ -790,7 +836,12 @@ public sealed class RelayLeaseKeeper
         }
 
         var since = _lease.SinceLastAckReceived();
-        _lease.TakeOver();
+        if (!_lease.TakeOver())
+        {
+            _logger.LogWarning("PC de secours: the takeover waits for a copy write still running; press again in a moment.");
+            return false;
+        }
+
         await JudgeCauseAsync(cancellationToken);
         _logger.LogWarning(
             "PC de secours: « Travailler sur le PC de secours » pressed, {Seconds} s after the cloud's last answer — this PC now holds the cabinet's saves.",

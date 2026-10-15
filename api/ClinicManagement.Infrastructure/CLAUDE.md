@@ -637,15 +637,17 @@ no consent flag and no audit of which patient was sent.
 - **« Reprendre la main » (D19)** — the PC reports the ack its takeover was made under (`HoldingUnderAckSeq`); a cloud
   that reclaimed after it answers `Reclaimed`, and `RelayFollower` then stops the copy (`OverruledReason`) **before**
   ending the lease (the work marked unreturned) — a restart between the two finds a PC still holding and is told again.
-- **Number promise (D16)**: `Persistence/NumberPromises.cs`. `NumberedDocuments` reads off a save the gapless numbers
-  it assigns (`Invoice` / `TreatmentPlan` / `CreditNote`, derived — a fourth numbered entity fails
-  `Every_Numbered_Document_In_The_Model_Is_Covered`); `ApplicationDbContext.SaveChangesAsync` plans them **after** the
-  rows are written (a collision fails on its unique index first) through `NumberPromiseCoordinator`, and
-  `NumberPromiseTransactionInterceptor` confirms them **just before the commit**, whoever opened the transaction. For a
-  cabinet whose PC could take over (`ClinicWriteLease.PcMustConfirmNumbers`) the numbers go to the PC's long poll
-  (`IRelayPromiseBroker`, `POST /api/relay/promises`); not kept in 3 s → `ClinicFencedException` `relay_unconfirmed`, the
-  save rolled back. ⚠️ **No numbering handler knows about it** — that is the design. On the PC, `RelayNumberPromiseStore`
-  keeps each promise (raw SQL, never copied) and the three `GetMaxSequenceForYearAsync` take max(held, promised).
+- **Numbers (D16, reversed 2026-10-13 — review finding 1)**: ⚠️ **only the cloud gives legal numbers.** On a PC de
+  secours holding a cut, `ApplicationDbContext.SaveChangesAsync` asks `ClinicChangeCapture.WithholdsLegalNumbers` and
+  `NumberedDocuments.MakeProvisional` rewrites every number the save assigns (`Invoice` / `TreatmentPlan` /
+  `CreditNote`) to `AAAA-P` + the document id's first 8 hex (`Domain/Services/ProvisionalNumber`); the return
+  (`ClinicRelayRowStore.RenumberProvisionalAsync`) gives each the cloud's next real number of its year, in issue order,
+  in the same transaction, and logs it so the PC follows. ⚠️ **No numbering handler knows** — read off the save, D16's
+  own pattern. ⚠️ `ClinicWriteLease.PcMustConfirmNumbers` is now always false: the cloud waited for the PC whenever its
+  last ack said « armé », and a laptop asleep holds that ack all night — every note, devis and avoir on the cloud waited
+  3 s and failed until morning. The cloud cannot tell a PC asleep from one holding a cut, so no time window could keep
+  both; the promise broker, its long poll and `RelayNumberPromiseStore` remain wired and idle.
+  `Every_Numbered_Document_Is_Renumbered_At_The_Return_In_Issue_Order` holds the renumbered set equal to `Sequences`.
 - **The return (D18, slice a)**: while it accepts saves, the PC writes its **own** `ClinicChanges` (`ClinicChangeCapture`
   — cursor created by the first save after the takeover, `INSERT … ON CONFLICT`; a save re-checks the lease after taking
   the cursor's row lock). `Relay/RelayHandback` (driven by the follower while it holds): 2 min of answered heartbeats →
@@ -656,6 +658,17 @@ no consent flag and no audit of which patient was sent.
   transaction** (`RelayScope` not owned): deletes, upserts with the cloud's own columns kept (AC-5.7), every key checked
   to be the PC's cabinet before and after, the sign-in merge, and one `ClinicChange` (`Origin = Relay`) per key so the
   PC's copy follows. ⚠️ A lost answer: same handback id for 30 s with saves refused, then saves again and a **new** id.
+  ⚠️ **One refused record never stops the rest** (review finding 2): the whole cut goes under `SAVEPOINT relay_return`;
+  a class-23 refusal (a booking clash, a unique value, a parent gone) sends it again **record by record** (a row with
+  the rows it owns, deletions first, parents first), each under its own savepoint, and returns the keys refused — the
+  command lists them « À reprendre » with the cabinet's version. `EX_Appointments_NoDoubleBooking` is `DEFERRABLE
+  INITIALLY IMMEDIATE` (migration `RelayReturnPerRecord`) and every relay apply runs `SET CONSTRAINTS ALL DEFERRED`, so a
+  visit moved into a slot another left, or two swapped, land as a whole; the return re-checks with `SET CONSTRAINTS ALL
+  IMMEDIATE` inside each savepoint, since a commit-time refusal cannot be set aside. ⚠️ The cut's **files go before the
+  freeze** (`RelayHandback.SendFilesAheadAsync`, finding 7) on a client with no 100 s ceiling (`RelayCloudClient`'s
+  `transfers`, `TransferWatch`: no byte for 60 s ends it); every download body is read under the same stall timeout
+  (`CopyUntilStalledAsync`, finding 6). ⚠️ `ClinicChange.Automatic` marks a background job's write: the planner never lets
+  one outrank the cabinet's work, and decides **per record** through `IRelayHandbackStore.Owner` (findings 4–5).
 - **After the return (D18b1)**: phase 2 runs `Application/Features/Relay/RelayReturnAftermath` after the commit —
   every appointment the return wrote (`ClinicRelayRowStore.KeysWrittenByReturnAsync`, `Origin = Relay`) to Google
   Agenda, and every realtime key (`RealtimeResourceResolver.AllKeys()`) sent once, since the cut's rows arrived in SQL.
@@ -720,8 +733,14 @@ no consent flag and no audit of which patient was sent.
   healthy) **before** writing anything, then journal row → `RelayInstallLayer.SwitchToLocalServer` (⚠️ leaves no
   `ClinicRelay` substring — the installer's `ExistingInstall` matches on it) → follower state released →
   `.local/relay-promotion.json`.
+- **May this copy go? (review finding 9)**: `RelayCopyKeep.Refusal` is the one answer — unreturned cut work or ANY
+  stopped copy keeps it — asked by « Effacer la copie », `pair-relay` and `uninstall-relay` (before the cloud is told).
+  ⚠️ `relay_unknown` is `RelayCallStatus.Unknown`, never `Released`: a cloud restored from before the pairing forgets the
+  PC, and a seeded copy then stops (`UnknownReason`) and is kept. The eraser also deletes the `clinic-backup-*` folders.
+- **Copy writes vs the takeover (finding 13)**: `RelayLease.TryBeginApply`/`EndApply` wrap every row write of the copy;
+  none starts once the PC holds, and `TakeOver` refuses while one runs.
 - **Uninstall (PC side)**: `RelayUninstaller`, driven by the API's `uninstall-relay [--erase]` verb (the installer's
-  uninstall step, service stopped). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
+  uninstall step, API + web stopped, PostgreSQL still up for the erase). ⚠️ **The cloud is told first and the copy is erased only once it answered** — a
   silent cloud may be a lost one, and then this PC is the cabinet's last copy; a copy stopped by a cloud that went back
   is never erased either. `pair-relay` resets `relay-state.json`: the old cursor would stop a new pairing for good.
 

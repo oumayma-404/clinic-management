@@ -145,10 +145,14 @@
 ## Domain services (`Services/`)
 
 - **`ClinicWriteLease`** (`Services/ClinicWriteLease.cs`, `clinic-pc-copy` D13/D14) — who may record a cabinet's work, the cloud or its
-  PC de secours, **never both**: the cloud fences 45 s after it SENT the earliest « armé » ack the PC may hold; the PC
-  takes over 60 s after it RECEIVED its last ack, only if armed — box or no box (power cut). A predicate, never a flag. An
-  ack's id is its send instant (`ClinicRelay.IssueAck`), and a disarm counts once the PC confirmed it. Held by a seeded
-  lossy-line simulation in `ClinicWriteLeaseTests`, red-proofed against the naive « from the last heartbeat » clock.
+  PC de secours. ⚠️ **Manual takeover since 2026-10-12 (owner)**: the cloud locks **only** once the PC said it holds the
+  saves (and during a restore's gap) — **never on silence**, because a laptop asleep or a closed lid locked a cabinet's
+  cloud all night. The PC takes over only when somebody presses « Travailler sur le PC de secours » (`RelayLeaseKeeper`
+  offers it once the cloud is silent ~20 s of awake time). A save made on the cloud during a cut is kept at the return
+  (the cloud's version wins, the PC's is « À vérifier »). ⚠️ **Only the cloud gives legal numbers** (2026-10-13):
+  `PcMustConfirmNumbers` is always false — a sleeping laptop holding an « armé » ack blocked the cloud's billing all
+  night — and a PC holding a cut numbers provisionally (`Services/ProvisionalNumber`, `AAAA-P…`), renumbered at the return.
+  The lossy-line « never both writable » simulation went with the automatic takeover it tested.
 - **`ConditionTreatments`** (`Services/ConditionTreatments.cs`) — **what treats what**: the one place the product
   states that a carie is answered by an obturation before a dévitalisation, and a racine résiduelle by an extraction.
   ⚠️ It is the **inverse** of `ProcedureType.ResultingCondition` and could not be derived from it — that field names

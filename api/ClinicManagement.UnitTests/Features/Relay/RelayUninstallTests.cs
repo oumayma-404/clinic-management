@@ -167,13 +167,14 @@ public sealed class RelayUninstallTests : IDisposable
     [Fact]
     public async Task A_Copy_Newer_Than_The_Cloud_Is_Kept()
     {
-        var (uninstaller, _, _, erases) = Pc(RelayCallStatus.Ok, stoppedReason: "Le cloud est revenu à un état antérieur.");
+        var (uninstaller, cloud, _, erases) = Pc(RelayCallStatus.Ok, stoppedReason: "Le cloud est revenu à un état antérieur.");
 
         var result = await uninstaller.UninstallAsync(eraseCopy: true, T0, default);
 
         Assert.Equal(RelayUninstallOutcome.KeptNewerCopy, result.Outcome);
         Assert.Equal(3, result.ExitCode);
         Assert.Empty(erases);
+        Assert.Empty(cloud.Calls);
     }
 
     // The exit codes are a mirrored set: the verb returns them, the installer's uninstall step words each one. A code
@@ -232,18 +233,34 @@ public sealed class RelayUninstallTests : IDisposable
         Assert.Equal(0, result.ExitCode);
     }
 
-    // [AC-7.3] A PC holding work saved during a cut that never reached the cloud: that work's only copy is never erased.
-    [Fact]
-    public async Task A_Copy_Holding_A_Cuts_Work_Is_Kept()
+    // [AC-7.3, review finding 10] A PC holding work saved during a cut that never reached the cloud: that work's only copy
+    // is never erased — and the cloud is not told either, erase or not, since a retired PC can never send what it holds.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_Copy_Holding_A_Cuts_Work_Is_Kept_And_The_Cloud_Not_Told(bool eraseCopy)
     {
-        var (uninstaller, _, store, erases) = Pc(RelayCallStatus.Ok, holdsCutWork: true);
+        var (uninstaller, cloud, store, erases) = Pc(RelayCallStatus.Ok, holdsCutWork: true);
 
-        var result = await uninstaller.UninstallAsync(eraseCopy: true, T0, default);
+        var result = await uninstaller.UninstallAsync(eraseCopy, T0, default);
 
         Assert.Equal(RelayUninstallOutcome.KeptNewerCopy, result.Outcome);
         Assert.Empty(erases);
+        Assert.Empty(cloud.Calls);
         Assert.Contains("coupure d'internet", result.Sentence);
-        Assert.True(store.Load().Released);
+        Assert.False(store.Load().Released);
+    }
+
+    // [Review finding 9] « Unknown » is an answer: a cloud that knows no such PC is up, so this is not its last copy.
+    [Fact]
+    public async Task An_Unknown_Answer_Counts_As_Told()
+    {
+        var (uninstaller, _, _, erases) = Pc(RelayCallStatus.Unknown, erasedAnswer: RelayCallStatus.Unknown);
+
+        var result = await uninstaller.UninstallAsync(eraseCopy: true, T0, default);
+
+        Assert.Equal(RelayUninstallOutcome.RecordedAndErased, result.Outcome);
+        Assert.Single(erases);
     }
 
     private (RelayUninstaller Uninstaller, FakeCloud Cloud, RelayFollowerStateStore Store, List<int> Erases) Pc(

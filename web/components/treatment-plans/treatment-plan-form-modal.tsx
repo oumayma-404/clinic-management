@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
-import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
 import { takenOverSentence } from "@/lib/forms/form-merge"
 import { mergePlanForm, planFormValuesOf, planSectionLabel } from "./plan-form-merge"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
@@ -758,8 +757,8 @@ export function TreatmentPlanFormModal({
     e.preventDefault()
     // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
     if (carried.consumeSwitch()) {
-      if (editingPlan) conflict.raise(SWITCH_REFUSAL)
-      else setError(SWITCH_REFUSAL)
+      if (editingPlan) conflict.raise(carried.switchRefusal)
+      else setError(carried.switchRefusal)
       return
     }
     // Pressing Enregistrer is the answer to « refaites votre modification ».

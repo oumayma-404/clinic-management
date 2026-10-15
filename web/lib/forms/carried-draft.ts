@@ -13,7 +13,11 @@
  * ⚠️ **Inert in a browser and in an older shell** — nothing is stored anywhere without `carryDraft`.
  * ⚠️ **Never in browser storage**: a fiche holds a patient's clinical record, and the shell's memory dies with the
  * window, which is the lifetime a carried form needs.
+ * ⚠️ **The replay keys of saves whose answer never came travel too** (review finding 14): a save sent at the moment
+ * of the cut may be on the cloud already, and only the same key lets the return pair it with its re-press here.
  */
+
+import { adoptUnsettledWrites, onUnsettledWritesChange, unsettledWrites, type UnsettledWrite } from "@/lib/api/client"
 
 export interface CarriedDraft<S = unknown> {
   v: 1
@@ -29,6 +33,8 @@ export interface CarriedDraft<S = unknown> {
   origin: string
   at: number
   state: S
+  /** Saves sent on `origin` whose outcome is unknown — their keys are reused here (finding 14). */
+  writes?: UnsettledWrite[]
 }
 
 /** A draft older than this is not handed back: it is not the form somebody was in the middle of. */
@@ -39,9 +45,15 @@ const MAX_CHARS = 2_000_000
 export const SWITCH_REFUSAL =
   "Le serveur a changé pendant votre saisie — vérifiez puis enregistrez à nouveau."
 
+/** The switch refusal when a save had been sent and never answered before the switch. */
+export const SWITCH_REFUSAL_MAYBE_SAVED =
+  "Le serveur a changé pendant votre saisie — cet enregistrement a peut-être déjà été fait. Vérifiez puis enregistrez à nouveau."
+
 let pending: CarriedDraft | null = null
 let taken: Promise<CarriedDraft | null> | null = null
 let lastCarried: string | null = null
+let lastDraft: Omit<CarriedDraft, "v" | "origin" | "at" | "writes"> | null = null
+let watchingWrites = false
 
 function shell() {
   return typeof window === "undefined" ? undefined : window.__clinicShell
@@ -56,10 +68,21 @@ export function carry(draft: Omit<CarriedDraft, "v" | "origin" | "at">): void {
   const s = shell()
   if (typeof s?.carryDraft !== "function") return
   try {
-    const json = JSON.stringify({ v: 1, ...draft, origin: window.location.origin, at: Date.now() })
+    const writes = unsettledWrites()
+    const json = JSON.stringify({
+      v: 1, ...draft, origin: window.location.origin, at: Date.now(), ...(writes.length ? { writes } : {}),
+    })
     if (json.length > MAX_CHARS) return
     lastCarried = `${draft.form}|${draft.key}`
+    lastDraft = draft
     s.carryDraft(json)
+    if (!watchingWrites) {
+      watchingWrites = true
+      // A save that fails without an answer changes no field: the draft is re-carried with its key all the same.
+      onUnsettledWritesChange(() => {
+        if (lastDraft && lastCarried === `${lastDraft.form}|${lastDraft.key}`) carry(lastDraft)
+      })
+    }
   } catch {
     // A shell that cannot keep it: the form still works, it simply would not survive a switch.
   }
@@ -69,6 +92,7 @@ export function carry(draft: Omit<CarriedDraft, "v" | "origin" | "at">): void {
 export function dropCarried(form: string, key: string): void {
   if (lastCarried !== `${form}|${key}`) return
   lastCarried = null
+  lastDraft = null
   try {
     shell()?.carryDraft?.(null)
   } catch {
@@ -112,6 +136,7 @@ export function claimCarried<S>(form: string, key: string): CarriedDraft<S> | nu
   if (!pending || pending.form !== form || pending.key !== key) return null
   const draft = pending as CarriedDraft<S>
   pending = null
+  if (Array.isArray(draft.writes)) adoptUnsettledWrites(draft.writes)
   return draft
 }
 

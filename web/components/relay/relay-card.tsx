@@ -20,7 +20,7 @@ import { useSession } from "@/lib/auth/session"
 import { STATUS_TONE_CLASS, type StatusTone } from "@/components/ui/status-tone"
 import { ApiError } from "@/lib/api/client"
 import {
-  RELAY_CARD_ID, RELAY_ERASE_STEP_UP, RELAY_LOST_STEP_UP, RELAY_RECLAIM_STEP_UP, relayApi, type RelayLocalStatusDto,
+  RELAY_CARD_ID, RELAY_ERASE_STEP_UP, RELAY_LOST_STEP_UP, RELAY_RECLAIM_STEP_UP, RELAY_RETIRE_STEP_UP, relayApi, type RelayLocalStatusDto,
   type RelayStateKey, type RelayStatusDto,
 } from "@/lib/api/relay"
 import { showErrorToast } from "@/lib/errors"
@@ -74,6 +74,8 @@ type Load =
 export function RelayCard() {
   const [load, setLoad] = useState<Load>({ kind: "loading" })
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // « Retirer ce PC »: the named confirm first, then an authenticator code (review finding 10).
+  const [retireStepUpOpen, setRetireStepUpOpen] = useState(false)
   const [retiring, setRetiring] = useState(false)
 
   // Read after mount: the bridge is a window global, so the server render has to assume a browser.
@@ -188,12 +190,11 @@ export function RelayCard() {
     }
   }
 
-  const retire = async () => {
+  const retire = async (stepUpToken: string) => {
     setRetiring(true)
     try {
-      const status = await relayApi.retire()
+      const status = await relayApi.retire(stepUpToken)
       setLoad({ kind: "loaded", status })
-      setConfirmOpen(false)
       toast.success("PC de secours retiré.")
     } catch (err) {
       showErrorToast(err, "Le PC de secours n'a pas pu être retiré.")
@@ -292,7 +293,15 @@ export function RelayCard() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={retiring} className="coarse:min-h-11">Annuler</AlertDialogCancel>
             {/* A plain Button, not AlertDialogAction: that one closes the dialog even when the call fails. */}
-            <Button variant="destructive" disabled={retiring} className="coarse:min-h-11" onClick={() => void retire()}>
+            <Button
+              variant="destructive"
+              disabled={retiring}
+              className="coarse:min-h-11"
+              onClick={() => {
+                setConfirmOpen(false)
+                setRetireStepUpOpen(true)
+              }}
+            >
               {retiring ? "Retrait…" : "Retirer ce PC"}
             </Button>
           </AlertDialogFooter>
@@ -398,6 +407,15 @@ export function RelayCard() {
         purpose="Vous allez reprendre la main sur le cloud : ce que le cabinet a enregistré sur le PC de secours n'y partira pas."
         hasTotp
         onConfirmed={(token) => void reclaim(token)}
+      />
+
+      <StepUpDialog
+        open={retireStepUpOpen}
+        onOpenChange={setRetireStepUpOpen}
+        action={RELAY_RETIRE_STEP_UP}
+        purpose="Vous allez retirer le PC de secours : sa copie s'arrête."
+        hasTotp
+        onConfirmed={(token) => void retire(token)}
       />
 
       <StepUpDialog

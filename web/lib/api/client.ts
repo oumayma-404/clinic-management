@@ -280,6 +280,30 @@ export function onMoneyHidden(listener: MoneyHiddenListener): () => void {
 type RelayRefusedListener = () => void;
 const relayRefusedListeners = new Set<RelayRefusedListener>();
 
+const networkUnreachableListeners = new Set<() => void>();
+
+/**
+ * Subscribe to « a request got no answer at all » (Wi-Fi off, the cabinet's internet cut). The PC de secours watch asks
+ * the app at once, so the cut is offered without waiting for the strip's next poll or a page reload (owner, 2026-10-12).
+ */
+export function onNetworkUnreachable(listener: () => void): () => void {
+  networkUnreachableListeners.add(listener);
+  return () => {
+    networkUnreachableListeners.delete(listener);
+  };
+}
+
+function networkError(err: unknown): ApiError {
+  networkUnreachableListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // A listener's failure never changes what the caller is told.
+    }
+  });
+  return new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+}
+
 /** The 423 codes that say a cut changed which side records the cabinet's work (`clinic-pc-copy`). */
 const RELAY_CODES: ReadonlySet<string> = new Set([
   'relay_standby',
@@ -714,13 +738,13 @@ async function handleRequest<T>(
       }
 
       if (err instanceof TypeError && err.message.includes('fetch')) {
-        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+        throw networkError(err);
       }
       // A fired deadline is the same event as an unreachable server, one layer down: the transport stopped
       // answering. Reported identically so the user gets the retryable French state rather than a raw
       // DOMException — and, crucially, so the caller's promise SETTLES and the submit button releases.
       if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+        throw networkError(err);
       }
       if (err instanceof ApiError) {
         throw err;
@@ -955,9 +979,56 @@ const UNSETTLED_KEY_TTL_MS = 10 * 60 * 1000
  * The keys of writes whose OUTCOME IS UNKNOWN — the line dropped, a gateway timed out, the same save still running —
  * by request (method · endpoint · body). Pressing the same save again reuses its key, so the server replays the first
  * answer instead of recording a second row; any real answer, success or refusal, forgets it. ⚠️ A body that changed is
- * a different request and gets a new key: a corrected form is a new save. ⚠️ Memory only — a page reload forgets.
+ * a different request and gets a new key: a corrected form is a new save. ⚠️ Memory only — a page reload forgets,
+ * except across a server switch: the carried draft takes them along (`unsettledWrites` / `adoptUnsettledWrites`).
  */
 const unsettledWriteKeys = new Map<string, { key: string; at: number }>()
+const unsettledListeners = new Set<() => void>()
+
+/** An unsettled write as the carried draft takes it across a server switch (review finding 14). */
+export interface UnsettledWrite {
+  print: string
+  key: string
+  at: number
+}
+
+function unsettledChanged(): void {
+  unsettledListeners.forEach((listener) => {
+    try {
+      listener()
+    } catch {
+      // A listener's failure must not fail the write.
+    }
+  })
+}
+
+/** The writes whose outcome is still unknown, within their TTL. */
+export function unsettledWrites(): UnsettledWrite[] {
+  const now = Date.now()
+  return Array.from(unsettledWriteKeys, ([print, entry]) => ({ print, key: entry.key, at: entry.at }))
+    .filter((w) => now - w.at <= UNSETTLED_KEY_TTL_MS)
+}
+
+/**
+ * Takes back keys carried from the other server: the same save pressed again here sends the same key, so the return
+ * pairs it with the copy the other server may already hold instead of recording it twice.
+ */
+export function adoptUnsettledWrites(writes: readonly UnsettledWrite[]): void {
+  const now = Date.now()
+  for (const w of writes) {
+    if (typeof w?.print !== 'string' || typeof w.key !== 'string' || typeof w.at !== 'number') continue
+    if (now - w.at > UNSETTLED_KEY_TTL_MS || unsettledWriteKeys.has(w.print)) continue
+    unsettledWriteKeys.set(w.print, { key: w.key, at: w.at })
+  }
+}
+
+/** Called whenever the set of unsettled writes changes; returns the unsubscribe. */
+export function onUnsettledWritesChange(listener: () => void): () => void {
+  unsettledListeners.add(listener)
+  return () => {
+    unsettledListeners.delete(listener)
+  }
+}
 
 function newIdempotencyKey(): string {
   const c = typeof crypto !== 'undefined' ? crypto : undefined
@@ -995,12 +1066,16 @@ async function withWriteKey<T>(fingerprint: string | null, run: (key: string) =>
   const key = kept?.key ?? newIdempotencyKey()
   try {
     const result = await run(key)
-    if (fingerprint) unsettledWriteKeys.delete(fingerprint)
+    if (fingerprint && unsettledWriteKeys.delete(fingerprint)) unsettledChanged()
     return result
   } catch (err) {
     if (fingerprint) {
-      if (outcomeUnknown(err)) unsettledWriteKeys.set(fingerprint, { key, at: kept?.at ?? now })
-      else unsettledWriteKeys.delete(fingerprint)
+      if (outcomeUnknown(err)) {
+        unsettledWriteKeys.set(fingerprint, { key, at: kept?.at ?? now })
+        unsettledChanged()
+      } else if (unsettledWriteKeys.delete(fingerprint)) {
+        unsettledChanged()
+      }
     }
     throw err
   }
@@ -1151,10 +1226,10 @@ function withDeadline(signal: AbortSignal | undefined, ms: number): AbortSignal 
   return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-export async function apiDelete<T>(endpoint: string, accessToken?: string | null): Promise<T> {
+export async function apiDelete<T>(endpoint: string, accessToken?: string | null, stepUpToken?: string | null): Promise<T> {
   return withWriteKey(`DELETE ${endpoint}`, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'DELETE',
-    headers: apiHeaders(token, 'json', null, key),
+    headers: apiHeaders(token, 'json', stepUpToken, key),
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
   })));

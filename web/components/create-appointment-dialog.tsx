@@ -3,7 +3,6 @@
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
-import { SWITCH_REFUSAL } from "@/lib/forms/carried-draft"
 import {
   Dialog,
   DialogBody,
@@ -1126,7 +1125,7 @@ export function CreateAppointmentDialog({
       notes, showNotes,
       createdPatientId: createdPatientIdRef.current,
     },
-    restore: (s) => {
+    restore: (s, draft) => {
       // Seeded, not changed: the patient-change effect must not drop the devis acts restored with it.
       continuationPatientRef.current = s.selectedPatientId
       setIsBusySlot(s.isBusySlot)
@@ -1149,7 +1148,18 @@ export function CreateAppointmentDialog({
       setNotes(s.notes)
       setShowNotes(s.showNotes)
       // A patient already created before the switch is booked onto, never created a second time.
-      if (s.createdPatientId) createdPatientIdRef.current = s.createdPatientId
+      if (s.createdPatientId) {
+        const id = s.createdPatientId
+        createdPatientIdRef.current = id
+        // A patient created on the other server just before the switch may not exist here: booked onto, every save fails.
+        if (draft.origin !== window.location.origin) {
+          patientsApi.get(id).catch((err) => {
+            if (err instanceof ApiError && err.status === 404 && createdPatientIdRef.current === id) {
+              createdPatientIdRef.current = null
+            }
+          })
+        }
+      }
     },
   })
 
@@ -1157,7 +1167,7 @@ export function CreateAppointmentDialog({
     e.preventDefault()
     // AC-3.2: the first save after the app switched server is refused once — nothing is sent.
     if (carried.consumeSwitch()) {
-      setError(SWITCH_REFUSAL)
+      setError(carried.switchRefusal)
       return
     }
     setError(null)

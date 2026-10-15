@@ -113,18 +113,57 @@ public static class RelaySwitch
     public const string OfferLine = "Internet coupé : le cloud ne répond pas. Le cabinet peut continuer sur le PC de secours.";
 
     /// <summary>
-    /// What the unreachable screen adds while the PC answers but does not hold: not ready, the offer (with its button),
-    /// or — the first ~20 s, while the PC makes sure the cloud really is silent — that it is checking.
+    /// When the PC offers the button after this app lost the cloud: the PC waits for ~20 s of silence on its own
+    /// heartbeats (every 10 s), so 25 s covers the usual case. Only a countdown's estimate — the button decides.
     /// </summary>
-    public static string WaitingLine(bool? armed, bool canTakeOver) =>
+    public static readonly TimeSpan OfferExpectedAfter = TimeSpan.FromSeconds(25);
+
+    /// <summary>Seconds left on the countdown, in steps of 5 s; 0 once it is due.</summary>
+    public static int SecondsLeft(DateTime cloudLostAtUtc, DateTime nowUtc)
+    {
+        var left = (OfferExpectedAfter - (nowUtc - cloudLostAtUtc)).TotalSeconds;
+        return left <= 0 ? 0 : (int)Math.Ceiling(left / 5) * 5;
+    }
+
+    /// <summary>
+    /// What the unreachable screen says while the PC answers but does not hold (owner, 2026-10-12): not ready, the offer
+    /// beside its button, or — until the PC offers it — when it will, never a bare « impossible de joindre ».
+    /// </summary>
+    public static string WaitingLine(bool? armed, bool canTakeOver, int secondsLeft) =>
         armed == false ? NotReadyLine
         : canTakeOver ? OfferLine
-        : "Le cloud ne répond pas — vérification en cours…";
+        : secondsLeft > 0 ? $"Internet coupé — le PC de secours sera disponible dans {secondsLeft} secondes."
+        : "Internet coupé — le PC de secours sera disponible dans quelques secondes.";
+
+    /// <summary>
+    /// Does the cloud answer at all? Asked when the open page says a request got no reply — so a blip on one request
+    /// does not throw the window off the page. Any HTTP answer (any status, a certificate this PC does not trust) is
+    /// « yes »; no connection within a few seconds is « no ». Never throws.
+    /// </summary>
+    public static async Task<bool> CloudAnswersAsync(string baseUrl)
+    {
+        try
+        {
+            using var handler = new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(3) };
+            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+            using var response = await client.GetAsync(baseUrl.TrimEnd('/') + "/api/auth/mode",
+                HttpCompletionOption.ResponseHeadersRead);
+            return true;
+        }
+        catch (HttpRequestException ex) when (ex.InnerException is System.Security.Authentication.AuthenticationException)
+        {
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     // ---- where the PC is, kept between runs -----------------------------------------------------------------
 
     private static string FilePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClinicManagement", "relay-target.json");
+        ShellProfile.Roaming, "ClinicManagement", "relay-target.json");
 
     private static Target? _current;
     private static bool _loaded;

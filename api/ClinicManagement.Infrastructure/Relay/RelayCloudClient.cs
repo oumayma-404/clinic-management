@@ -13,13 +13,18 @@ public enum RelayCallStatus
     Ok,
     /// <summary>No answer — the internet or the cloud is down. Nothing is concluded from it.</summary>
     Unreachable,
-    /// <summary>The cloud retired this PC, or no longer knows it (AC-8.1).</summary>
+    /// <summary>The cloud retired this PC (AC-8.1).</summary>
     Released,
     /// <summary>The cloud runs another build; copy calls wait for this PC's update (D10b).</summary>
     UpdateNeeded,
     NotFound,
     /// <summary>Any other refusal, with the cloud's own sentence.</summary>
     Refused,
+    /// <summary>
+    /// The cloud answered and knows no such PC. ⚠️ Not <see cref="Released"/> (review finding 9): a cloud restored from
+    /// before the pairing forgets it, and this copy then holds what the cloud lost — it is kept, never released.
+    /// </summary>
+    Unknown,
 }
 
 public sealed record RelayCall<T>(RelayCallStatus Status, T? Value = default, string? Error = null)
@@ -83,7 +88,21 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// A transfer that has moved no byte for this long is a dead line, not a slow one (review finding 6): a download read
+    /// with nothing but the service's own token could wait for ever across a cut — the copy tick with it, and the return
+    /// that only that tick drives.
+    /// </summary>
+    public static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>After the last byte of a long upload, how long the cloud may take to store it and answer.</summary>
+    public static readonly TimeSpan AnswerAfterUpload = TimeSpan.FromMinutes(5);
+
+    /// <summary>The ceiling of a return's POST: the cloud applies a whole cut before it answers (review finding 7).</summary>
+    public static readonly TimeSpan HandbackAnswerWithin = TimeSpan.FromMinutes(10);
+
     private readonly HttpClient _http;
+    private readonly HttpClient _transfers;
     private readonly RelayCredentials _credentials;
     private readonly string _build;
     private readonly Func<DateTime> _utcNow;
@@ -93,10 +112,18 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     private readonly SemaphoreSlim _refresh = new(1, 1);
     private DateTime _tokenExpiresAtUtc;
 
-    public RelayCloudClient(HttpClient http, RelayCredentials credentials, string build, Func<DateTime>? utcNow = null)
+    /// <param name="transfers">
+    /// For what may take longer than <paramref name="http"/>'s 100 s ceiling — a file of the cut, the cut itself — with no
+    /// overall timeout of its own: those calls are bounded by <see cref="StallTimeout"/> (bytes) or their own ceiling.
+    /// Without it, a radiograph over ~10 MB on an ADSL uplink could never go back, and the return looped for ever.
+    /// </param>
+    public RelayCloudClient(
+        HttpClient http, RelayCredentials credentials, string build, Func<DateTime>? utcNow = null, HttpClient? transfers = null)
     {
         _http = http;
         _http.BaseAddress ??= credentials.ApiBase;
+        _transfers = transfers ?? http;
+        _transfers.BaseAddress ??= credentials.ApiBase;
         _credentials = credentials;
         _build = build;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
@@ -141,26 +168,39 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     public async Task<RelayCall<bool>> UploadHandbackFileAsync(
         string storageKey, Stream content, CancellationToken cancellationToken)
     {
-        // One attempt: the stream is read as it is sent, so it cannot be replayed after a refreshed token.
-        var (status, response, error) = await SendAsync(() => new HttpRequestMessage(
-            HttpMethod.Put, $"relay/handback/file?key={Uri.EscapeDataString(storageKey)}")
+        // One attempt: the stream is read as it is sent, so it cannot be replayed after a refreshed token. No overall
+        // ceiling — a panoramic on an ADSL uplink takes minutes — only a stall: no byte read for StallTimeout ends it.
+        using var watch = new TransferWatch(cancellationToken, StallTimeout);
+        try
         {
-            Content = new StreamContent(content),
-        }, cancellationToken, singleAttempt: true);
-        response?.Dispose();
-        return new RelayCall<bool>(status, status == RelayCallStatus.Ok, error);
+            var (status, response, error) = await SendAsync(() =>
+            {
+                var body = new StreamContent(new WatchedStream(content, watch));
+                body.Headers.ContentLength = content.CanSeek ? content.Length - content.Position : null;
+                return new HttpRequestMessage(HttpMethod.Put, $"relay/handback/file?key={Uri.EscapeDataString(storageKey)}")
+                {
+                    Content = body,
+                };
+            }, watch.Token, singleAttempt: true, via: _transfers);
+            response?.Dispose();
+            return new RelayCall<bool>(status, status == RelayCallStatus.Ok, error);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new RelayCall<bool>(RelayCallStatus.Unreachable, false, "Le cloud ne reçoit plus le fichier.");
+        }
     }
 
     public Task<RelayCall<RelayHandbackResultDto>> HandBackAsync(
         RelayHandbackRequest request, CancellationToken cancellationToken) =>
-        SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback")
+        SendLongJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback")
         {
             Content = JsonContent.Create(request, options: Json),
         }, cancellationToken);
 
     public Task<RelayCall<RelayHandbackResultDto>> ListOverruledCutAsync(
         RelayHandbackRequest request, CancellationToken cancellationToken) =>
-        SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback/overruled")
+        SendLongJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/handback/overruled")
         {
             Content = JsonContent.Create(request, options: Json),
         }, cancellationToken);
@@ -170,7 +210,7 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
             () => new HttpRequestMessage(HttpMethod.Get, "relay/gap/hashes?table=" + Uri.EscapeDataString(table)), cancellationToken);
 
     public Task<RelayCall<RelayHandbackResultDto>> ReturnGapAsync(RelayGapRequest request, CancellationToken cancellationToken) =>
-        SendJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/gap")
+        SendLongJsonAsync<RelayHandbackResultDto>(() => new HttpRequestMessage(HttpMethod.Post, "relay/gap")
         {
             Content = JsonContent.Create(request, options: Json),
         }, cancellationToken);
@@ -207,9 +247,25 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
         }
     }
 
-    private async Task<RelayCall<T>> SendJsonAsync<T>(Func<HttpRequestMessage> build, CancellationToken cancellationToken)
+    /// <summary>A call the cloud answers only once it has applied a whole cut: its own ceiling, not the 100 s one.</summary>
+    private async Task<RelayCall<T>> SendLongJsonAsync<T>(Func<HttpRequestMessage> build, CancellationToken cancellationToken)
     {
-        var (status, response, error) = await SendAsync(build, cancellationToken);
+        using var ceiling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        ceiling.CancelAfter(HandbackAnswerWithin);
+        try
+        {
+            return await SendJsonAsync<T>(build, ceiling.Token, _transfers);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new RelayCall<T>(RelayCallStatus.Unreachable, default, "Le cloud n'a pas répondu à temps.");
+        }
+    }
+
+    private async Task<RelayCall<T>> SendJsonAsync<T>(
+        Func<HttpRequestMessage> build, CancellationToken cancellationToken, HttpClient? via = null)
+    {
+        var (status, response, error) = await SendAsync(build, cancellationToken, via: via);
         using (response)
         {
             if (status != RelayCallStatus.Ok)
@@ -239,23 +295,168 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
             try
             {
                 await using var target = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
-                await response!.Content.CopyToAsync(target, cancellationToken);
+                await using var body = await response!.Content.ReadAsStreamAsync(cancellationToken);
+                await CopyUntilStalledAsync(body, target, StallTimeout, cancellationToken);
             }
             catch (Exception ex) when (ex is IOException or HttpRequestException)
             {
                 TryDelete(path);
                 return new RelayCall<string>(RelayCallStatus.Unreachable, null, ex.Message);
             }
+            catch (OperationCanceledException)
+            {
+                TryDelete(path);
+                throw;
+            }
 
             return new RelayCall<string>(RelayCallStatus.Ok, path);
+        }
+    }
+
+    /// <summary>
+    /// Copies <paramref name="source"/> to <paramref name="target"/>, giving up — as an <see cref="IOException"/>, i.e. « no
+    /// answer » — once no byte has arrived for <paramref name="stall"/>. A read across a dead line otherwise waits for ever:
+    /// HttpClient's timeout ends at the headers, and the PC sends nothing that could notice the line is gone.
+    /// </summary>
+    public static async Task CopyUntilStalledAsync(Stream source, Stream target, TimeSpan stall, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[81920];
+        while (true)
+        {
+            int read;
+            using (var quiet = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                quiet.CancelAfter(stall);
+                try
+                {
+                    read = await source.ReadAsync(buffer, quiet.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new IOException($"Le cloud n'envoie plus rien depuis {(int)stall.TotalSeconds} s.");
+                }
+            }
+
+            if (read == 0)
+            {
+                return;
+            }
+
+            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Ends a transfer that stopped moving: each byte read pushes the deadline back by the stall time, and once the last one
+    /// has gone the cloud gets <see cref="AnswerAfterUpload"/> to store it and answer.
+    /// </summary>
+    private sealed class TransferWatch : IDisposable
+    {
+        private readonly CancellationTokenSource _cts;
+        private readonly TimeSpan _stall;
+        private readonly Timer _timer;
+        private long _deadline;
+
+        public TransferWatch(CancellationToken outer, TimeSpan stall)
+        {
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(outer);
+            _stall = stall;
+            Moved();
+            _timer = new Timer(_ =>
+            {
+                if (Environment.TickCount64 <= Interlocked.Read(ref _deadline))
+                {
+                    return;
+                }
+
+                try
+                {
+                    _cts.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // A tick already running when the transfer ended: an exception here would end the process.
+                }
+            }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }
+
+        public CancellationToken Token => _cts.Token;
+
+        public void Moved() => Interlocked.Exchange(ref _deadline, Environment.TickCount64 + (long)_stall.TotalMilliseconds);
+
+        public void Sent() =>
+            Interlocked.Exchange(ref _deadline, Environment.TickCount64 + (long)AnswerAfterUpload.TotalMilliseconds);
+
+        public void Dispose()
+        {
+            _timer.Dispose();
+            _cts.Dispose();
+        }
+    }
+
+    /// <summary>The file of an upload, telling its <see cref="TransferWatch"/> each time the request reads from it.</summary>
+    private sealed class WatchedStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly TransferWatch _watch;
+
+        public WatchedStream(Stream inner, TransferWatch watch)
+        {
+            _inner = inner;
+            _watch = watch;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+
+        public override long Position
+        {
+            get => _inner.Position;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => Note(_inner.Read(buffer, offset, count));
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            Note(await _inner.ReadAsync(buffer, cancellationToken));
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            Note(await _inner.ReadAsync(buffer.AsMemory(offset, count), cancellationToken));
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        private int Note(int read)
+        {
+            if (read > 0)
+            {
+                _watch.Moved();
+            }
+            else
+            {
+                _watch.Sent();
+            }
+
+            return read;
         }
     }
 
     /// <summary>Sends with the current token, refreshing it once on a 401 that is not « unknown PC ».</summary>
     private async Task<(RelayCallStatus Status, HttpResponseMessage? Response, string? Error)> SendAsync(
         Func<HttpRequestMessage> build, CancellationToken cancellationToken,
-        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead, bool singleAttempt = false)
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead, bool singleAttempt = false,
+        HttpClient? via = null)
     {
+        var http = via ?? _http;
         for (var attempt = 0; attempt < (singleAttempt ? 1 : 2); attempt++)
         {
             var token = await TokenAsync(forceRefresh: attempt > 0, cancellationToken);
@@ -271,7 +472,7 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
             HttpResponseMessage response;
             try
             {
-                response = await _http.SendAsync(request, completion, cancellationToken);
+                response = await http.SendAsync(request, completion, cancellationToken);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
             {
@@ -294,7 +495,7 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
             return (Classify(response.StatusCode, code), null, error);
         }
 
-        return (RelayCallStatus.Released, null, RelayRefusals.UnknownRelay);
+        return (RelayCallStatus.Unknown, null, RelayRefusals.UnknownRelay);
     }
 
     private async Task<RelayCall<string>> TokenAsync(bool forceRefresh, CancellationToken cancellationToken)
@@ -364,7 +565,8 @@ public sealed class RelayCloudClient : IRelayCloudClient, IRelayPromiseChannel
     /// <summary>The PC acts on the refusal's code, never on its sentence.</summary>
     public static RelayCallStatus Classify(HttpStatusCode status, string? code) => code switch
     {
-        RelayRefusals.RetiredCode or RelayRefusals.UnknownRelayCode => RelayCallStatus.Released,
+        RelayRefusals.RetiredCode => RelayCallStatus.Released,
+        RelayRefusals.UnknownRelayCode => RelayCallStatus.Unknown,
         RelayRefusals.VersionMismatchCode => RelayCallStatus.UpdateNeeded,
         _ => status switch
         {
