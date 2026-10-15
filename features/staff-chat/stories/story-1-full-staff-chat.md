@@ -1,7 +1,7 @@
 # Story 1: Full Messagerie interne du cabinet
 
 **Status:** APPROVED
-**Story Status:** not-started
+**Story Status:** implemented
 **Layer:** Full (owner's choice — one story in six ordered parts; see README)
 **Depends On:** None
 **Blocks:** None
@@ -22,25 +22,25 @@ execution checklist.
 
 _From spec:_
 
-- [ ] **Part 1** — AC-1.1 · AC-1.2 · AC-1.3 · AC-1.4 · AC-1.5 · AC-1.6 · AC-2.3 · AC-2.6 · FR-1 (two-person,
+- [x] **Part 1** — AC-1.1 · AC-1.2 · AC-1.3 · AC-1.4 · AC-1.5 · AC-1.6 · AC-2.3 · AC-2.6 · FR-1 (two-person,
       cabinet) · FR-2 (two-person, cabinet rows; account-age rule) · FR-3 · FR-7 · FR-8 · FR-9 · FR-10 · EC-1 · EC-3 ·
       EC-7 · EC-11
-- [ ] **Part 2** — AC-2.1 · AC-2.2 · AC-2.5 · AC-6.1 · AC-6.2 · AC-6.3 · AC-6.4 · AC-6.5 · FR-4
-- [ ] **Part 3** — AC-5.1 · AC-5.2 · AC-5.3 · AC-5.4 · FR-1 (secretariat) · FR-2 (secretariat rows) · FR-6 · EC-2 ·
+- [x] **Part 2** — AC-2.1 · AC-2.2 · AC-2.5 · AC-6.1 · AC-6.2 · AC-6.3 · AC-6.4 · AC-6.5 · FR-4
+- [x] **Part 3** — AC-5.1 · AC-5.2 · AC-5.3 · AC-5.4 · FR-1 (secretariat) · FR-2 (secretariat rows) · FR-6 · EC-2 ·
       EC-4 · EC-14
 - [x] **Part 4** — AC-2.4 · AC-3.1 · AC-3.2 · AC-3.3 · AC-3.4 · FR-3 (links) · FR-5 · EC-5 · EC-6 · EC-8 · EC-15
 - [x] **Part 5** — AC-4.1 · AC-4.2 · AC-4.4 · AC-4.5 · AC-4.6 · AC-4.7 · AC-4.8 · EC-9 · EC-12 · EC-13
 - [x] **Part 6** — AC-4.3 · EC-10
-- [ ] Device & Interface Behaviour table of the spec, at 320 / 390 / 820 / 1180 / 1440 px and 730 px tall
+- [x] Device & Interface Behaviour table of the spec, at 320 / 390 / 820 / 1180 / 1440 px and 730 px tall
 
 _Story-specific:_
 
-- [ ] A message wakes only its recipients' tabs (no clinic-wide refetch for a two-person message)
-- [ ] Chat traffic rides its own `staffChatChanged` event; `StaffChat` is in `ExcludedAreas`;
+- [x] A message wakes only its recipients' tabs (no clinic-wide refetch for a two-person message)
+- [x] Chat traffic rides its own `staffChatChanged` event; `StaffChat` is in `ExcludedAreas`;
       `RealtimeResourceResolverTests` green with allow-lists still empty
-- [ ] N52 `staff-chat-has-one-alert-owner` proven red on a planted violation, then green
-- [ ] A press on the notice never closes an open dialog (plan R-1)
-- [ ] `features/staff-chat/blast-radius.md` exists before the first edit; every `must re-test` row is in the
+- [x] N52 `staff-chat-has-one-alert-owner` proven red on a planted violation, then green
+- [x] A press on the notice never closes an open dialog (plan R-1)
+- [x] `features/staff-chat/blast-radius.md` exists before the first edit; every `must re-test` row is in the
       `/test-in-browser` plan
 
 ## Entry Criteria

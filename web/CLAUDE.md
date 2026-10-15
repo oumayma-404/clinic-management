@@ -166,6 +166,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 
 ## Conventions
 
+- **« Messages » (staff-chat) is not a route** — a panel mounted once by `StaffChatProvider` in `app/layout.tsx`, opened from the header or the bottom bar, so it survives navigation with its thread and draft (`features/staff-chat/notes.md`).
 - Pages are client-rendered; data is fetched in `useEffect` via `lib/api` modules, with loading/error local state and `toast` on failure. `app/error.tsx` / `app/global-error.tsx` catch render throws with a French fallback.
 - Lists refresh by bumping a `refreshKey` state passed to child tables; peer mutations refresh live via `useClinicRealtime(RealtimeResource.X, refetch)`.
 - Admin-only screens gate client-side on `useSession().user?.role === "admin"` (Lock card + back link otherwise).

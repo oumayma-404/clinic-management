@@ -1,0 +1,101 @@
+# Messagerie interne du cabinet — what shipped
+
+The accounts of one cabinet write to each other from every screen: two-person conversations, « Secrétariat de
+Dr X » for a group practice, and « Tout le cabinet ». One-click dental quick messages, a patient and an appointment
+attached to a message, « Signaler l'arrivée » from the agenda, and alerts that reach the person on another screen,
+over the fiche de soins, or in the minimised Windows app. Built in six parts on `feature/staff-chat`
+(`8e7f024b` … `362e6c1d`); spec [`spec.md`](spec.md), plan [`plan.md`](plan.md), progress
+[`stories/progress.md`](stories/progress.md).
+
+## The pieces
+
+| Layer | Piece |
+|---|---|
+| Domain | `StaffMessage` (an `Entity<Guid>`, **not** an aggregate), `StaffConversation` (value object: the derived key + the FR-2 alert table, `Alerts()`), `StaffChatReadMarker`, `StaffQuickMessageList` (aggregate, owned items), `StaffQuickMessageDefaults`, `StaffQuickMessageAudience` |
+| Application | `Features/StaffChat`: send · mark read · claim / release · send arrival · save / reset quick messages; conversations · messages · unread · colleagues · quick messages · today's arrivals. `StaffChatRoster` (who is in the cabinet, who is a dentist), `StaffChatInbox` (which conversations a person has), `StaffMessageLinks` (a message's patient and RDV as they are now), `StaffChatRefusals` (codes + French). `ChangeUserRoleCommand` marks the desks read for a new secretary (EC-14) |
+| Infrastructure | `StaffMessageRepository` (keyset paging, latest-per-thread `ROW_NUMBER`, unread `NOT EXISTS` against the marker, today's arrivals), `StaffQuickMessageListRepository`; migrations `AddStaffChat`, `AddStaffQuickMessages`. `ClinicArchiveScope` excludes messages and markers; `ClinicRelayScope` carries them to the PC de secours |
+| API | `StaffChatController` (`/api/staff-chat/…`); `ClinicHub` joins `ClinicGroups.User(clinic, user)`; `IRealtimeNotifier.NotifyStaffChatAsync` → `staffChatChanged`; `StaffPresence` (« En ligne ») |
+| Web | `StaffChatProvider` in `app/layout.tsx`: the panel, the header icon and the bottom-bar tab, the quick-message bar and editor, the patient picker and link chips, « Signaler l'arrivée » (RDV window button, agenda bell, agenda « ⋯ » row), the alert owner `lib/staff-chat/alerts.ts` + `chime.ts`, the notices, the panel's sound / notification settings |
+| Desktop 1.7.0 | `notify` on the bridge → `ShellNotifications` (silent toast + taskbar flash, click → window forward on that conversation) |
+| Guards | `StaffArrivalTests`, `StaffDeskTests`, `StaffQuickMessageTests`, `StaffMessageQuerySqlTests`, the domain tests; e2e CHAT-01…06, 08; `check:responsive` **N52**; `ShellNotifyMessageTests` |
+
+## Decisions that are easy to undo by accident
+
+- **A message is not journaled, not archived and never purged** (FR-8). `StaffMessage` is an `Entity<Guid>` and not
+  an `AggregateRoot` precisely because `AuditSaveChangesInterceptor` journals every aggregate; the quick-message list
+  *is* an aggregate, so its edits are journaled. Messages go only with the cabinet itself, and they travel to the PC
+  de secours like the bell.
+- **There is no conversation table.** A conversation is a key derived from its members — `dm:{a}:{b}` (sorted),
+  `desk:{owner}`, `clinic` — so there is no get-or-create race and nothing to backfill. ⚠️ User ids contain `|`
+  (`local|guid`), so every id is `Uri.EscapeDataString`-encoded in the key; a raw separator would collide.
+- **The chat has its own realtime event, `staffChatChanged`, and carries no data.** `StaffChat` is in
+  `RealtimeResourceResolver.ExcludedAreas`: an `entityChanged` broadcast goes to the whole clinic group, which would
+  wake every colleague for a private message. The event goes to the members' user groups and the client re-reads.
+- **Who is alerted is one table** (`StaffConversation.Alerts`, FR-2): a secretary's reply on a dentist's desk rings
+  the dentist only; the other secretaries see it unread and silent, without raising their count.
+- **« Je m'en occupe » is decided by the message's `xmin`.** The loser re-reads and is told « Déjà pris par X. »
+  (409) — a name, never a generic conflict.
+- **Replacing the quick-message list changes a root column** (`UpdatedAt`): an owned-collection-only change moves
+  neither `xmin` nor the journal, so a concurrent edit would not be refused.
+- **A message's patient and RDV are read live** (archived · cancelled · « introuvable »), through
+  `StaffMessageLinks`, by **every** read that returns a message — thread, unread, claim, release, send and the
+  conversation list. The conversation list was the one missed and the e2e caught it.
+- **« Signaler l'arrivée »**: a secretary's goes to the dentist's secretariat, anybody else's to a direct
+  conversation; a second one is a 409 naming who and when unless resent on purpose. It is a **real button** in the
+  RDV window and a **bell** on today's waiting agenda blocks (owner's call: the « ⋯ » entry was « really hidden », and
+  a half-hour block is too short for the « ⋯ » at all). The agenda « ⋯ » keeps its row because it is the one place on
+  the agenda that states why it cannot go.
+- **A press on the notice is not « outside » a dialog.** Radix closes a modal on an outside press — the fiche de
+  soins, with what was typed in it. `ui/dialog.tsx` and `ui/sheet.tsx` wrap the three outside handlers in
+  `unlessOnFloatingNotice` (`ui/floating-notice.ts`); `ui/alert-dialog.tsx` needs nothing, Radix already refuses an
+  outside press there. The notice also cancels `mousedown`, so focus stays in the field being typed.
+- **« Ouvrir » under an open dialog waits** for it to close (a 400 ms poll on the open-dialog marker) — the panel
+  under a modal overlay is unusable, and closing the dialog for the user would lose its typing.
+- **One alert owner, `lib/staff-chat/alerts.ts`** — the only file that rings, draws the notice's marker, raises a
+  browser notification or calls the Windows app (`check:responsive` N52; `chime.ts` holds the `AudioContext`).
+  One sound per device: a `localStorage` claim per message, last writer wins after a 60 ms read-back; no storage →
+  ring anyway.
+- **A catch-up is one sound and no notices**: the first summary of a session, the one after a hub reconnect, the
+  one after the browser's `online` event (it can land before the hub reconnects), or any refresh bringing three or
+  more new messages at once.
+- **No notice for the conversation open in front** (visible **and** focused), **none on the lock screen**, and a
+  notice never names a patient or quotes free text — an arrival shows « RDV 09:30 », free text shows « Nouveau
+  message ». With the panel open a notice moves out of its header (under it on a phone, beside it from `md:`).
+- **The Windows toast is silent** — the page already rang; one toast per conversation (the tag is a hash: Windows
+  caps it at 64 characters); an urgent one is a `Reminder` and stays. It is raised only when the shell is not
+  active **and** the page has no focus. WebView2 runs with `--autoplay-policy=no-user-gesture-required` so the tone
+  rings after a restart. The Velopack uninstall hook removes the notification registration.
+- **Shell 1.7.0 must not raise the server's client-version floor**: an older app keeps the tone and the in-app
+  notice, and the panel asks for the update (EC-10).
+
+## Testing the Windows app locally
+
+The shell talks HTTPS only and the dev stack is HTTP. What worked, with nothing installed on the machine:
+`APEXA_SHELL_PROFILE=<scratch>` (its own `server.json` with `"PortIsExplicit": true`), a throwaway Node HTTPS proxy
+in front of the web dev server, the API started with `Cors__AllowedOrigins__0=https://localhost:<port>`, and
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--ignore-certificate-errors --autoplay-policy=no-user-gesture-required
+--remote-debugging-port=9333"` for that run only — then drive the page with Playwright's `connectOverCDP`.
+⚠️ While a script is attached over CDP, `document.hasFocus()` reads `true` (focus emulation), so the « window not
+in front » path only fires once it has disconnected. ⚠️ Running the test copy with `--veloapp-uninstall 1.7.0`
+removes its notification registration.
+
+## Found, not fixed (pre-existing, outside the chat)
+
+- **After a full page load of the agenda or a patient file, closing any guarded dialog reloads the whole page.**
+  About twenty `history.replaceState({}, …)` calls drop Next's own history marker; `useDirtyGuard` pops its entry
+  with `history.back()`, Next meets an entry it does not know and reloads. Moving inside the app first avoids it. It
+  also loses a queued « Ouvrir » from a notice. The fix is to pass `history.state` instead of `{}` at every call
+  site, with a `check:responsive` guard.
+
+## Not exercised
+
+- The lock screen live (needs the Windows app or an 8 h idle trusted session) — `locked` makes the notice stack
+  render nothing; sound and badge are untouched by it.
+- The urgent Windows toast staying on screen, and « app in front → in-app notice only » in the shell — both guarded
+  in code; the owner was using the machine.
+- Phones get no OS notification (no phone push exists yet — out of scope).
+
+## Release
+
+Not merged. A `desktop/**` change landing on `main` **is** a Windows release (`client-installer.yml`): merging ships
+shell 1.7.0 to every cabinet. It waits for the owner's OK.

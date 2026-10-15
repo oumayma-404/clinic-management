@@ -6,7 +6,7 @@
 
 | Story | Status |
 |---|---|
-| 1 — Messagerie interne du cabinet (Full, 6 parts) | in-progress |
+| 1 — Messagerie interne du cabinet (Full, 6 parts) | implemented — **not merged** (needs the owner's OK: the merge releases the Windows app) |
 
 | Part | Status | Commit |
 |---|---|---|
@@ -17,7 +17,7 @@
 | 3 Shared desk | implemented | 64aa31c3 |
 | 4 Patient link + arrival | implemented | 62ad188d |
 | 5 Alerts | implemented | 143f9657 |
-| 6 Windows notification | implemented — **not merged** (R-10: a `desktop/**` merge to `main` releases the Windows app) | (this commit) |
+| 6 Windows notification | implemented — **not merged** (R-10: a `desktop/**` merge to `main` releases the Windows app) | 362e6c1d |
 
 ## Working tree note (start of session, 2026-10-15)
 
@@ -261,4 +261,12 @@ Decisions (reversible):
 | One toast per conversation (tag = hash of the key) | the newest replaces the last instead of piling up |
 | Shell version 1.7.0 | bridge.md: the method set and the version move together (CI still derives the release number from the tag) |
 | In the Windows app the browser-notification button is hidden; an app without `notify` shows « Mettez à jour l'application Windows pour recevoir ses notifications. » | EC-10 |
+
+### Close (2026-10-15)
+
+| Item | Result |
+|---|---|
+| `features/staff-chat/notes.md` | what shipped, the decisions that are easy to undo, the local Windows-app test recipe, the pre-existing reload defect, what was not exercised |
+| Map lines | root `CLAUDE.md`, `api/…API`, `api/…Application`, `api/…Infrastructure`, `web/`, `web/components/`, `web/lib/` (one entry each; `desktop/CLAUDE.md` and `mobile/shared/bridge.md` in Part 6) |
+| Device pass (headless, the isolated stack) | **48/48** at 320×640 · 390×844 · 820×1180 · 1180×820 · 1440×900 · 1536×730: « Messages » on screen, panel full width below `md:` and 384 px above, sound switch, composer, send and the first quick message on screen, no page scroll, « Signaler l'arrivée » on screen in the RDV window |
 

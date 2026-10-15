@@ -31,13 +31,13 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Messagerie interne du cabinet](story-1-full-staff-chat.md) | not-started | - |
+| 1 | Full | [Messagerie interne du cabinet](story-1-full-staff-chat.md) | implemented — not merged | - |
 
 | Part | Name | Status |
 |------|------|--------|
-| 1 | Write to a colleague and read the answer | not-started |
-| 2 | Quick messages in one click | not-started |
-| 3 | Share the desk in a group practice | not-started |
-| 4 | Patient link and arrival from the agenda | not-started |
-| 5 | Be alerted wherever I am | not-started |
-| 6 | Windows notification and flashing taskbar | not-started |
+| 1 | Write to a colleague and read the answer | implemented |
+| 2 | Quick messages in one click | implemented |
+| 3 | Share the desk in a group practice | implemented |
+| 4 | Patient link and arrival from the agenda | implemented |
+| 5 | Be alerted wherever I am | implemented |
+| 6 | Windows notification and flashing taskbar | implemented |
